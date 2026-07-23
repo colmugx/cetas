@@ -1,0 +1,19 @@
+import {
+  "colmugx/posoco",
+  "colmugx/cetas-core/lib" @cetas_core,
+  "moonbitlang/async",
+  "moonbitlang/async/js_async",
+  "moonbitlang/core/json",
+}
+
+warnings = "-unused_package"
+
+options(
+  supported_targets: "+js",
+  link: {
+    "js": {
+      "format": "esm",
+      "exports": [ "cetas_js_run_turn", "CetasJsConfig" ],
+    },
+  },
+)

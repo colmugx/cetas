@@ -1,0 +1,40 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "colmugx/cetas-core/lib"
+
+import {
+  "colmugx/posoco",
+}
+
+// Values
+pub fn build_agent_from_parts(&@posoco.ModelPort, Array[&@posoco.ToolProvider], &@posoco.SessionStore, &@posoco.Observer, CetasHostConfig) -> @posoco.Agent raise @posoco.CompositionError
+
+pub async fn run_prompt(@posoco.Agent, String, String) -> String raise @posoco.AgentError
+
+// Errors
+
+// Types and methods
+pub(all) struct CetasHostConfig {
+  max_tool_rounds : Int
+  temperature : Double?
+  max_output_tokens : Int?
+  tool_choice : @posoco.ToolChoice?
+  reasoning_effort : @posoco.ReasoningEffort?
+  model_context_window : Int?
+}
+pub fn CetasHostConfig::CetasHostConfig(max_tool_rounds? : Int, temperature? : Double?, max_output_tokens? : Int?, tool_choice? : @posoco.ToolChoice?, reasoning_effort? : @posoco.ReasoningEffort?, model_context_window? : Int?) -> Self
+
+pub(all) struct InMemorySessionStore {
+  sessions : Map[String, @posoco.Session]
+}
+pub fn InMemorySessionStore::new() -> Self
+pub impl @posoco.SessionStore for InMemorySessionStore
+
+pub(all) struct PrintObserver {
+}
+pub fn PrintObserver::new() -> Self
+pub impl @posoco.Observer for PrintObserver
+
+// Type aliases
+
+// Traits
+
