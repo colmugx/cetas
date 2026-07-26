@@ -7,7 +7,8 @@
     "start": "bun host.ts",
     "smoke": "bun smoke.ts",
     "build": "cd ../.. && moon build --target js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "license": "Apache-2.0",
   "devDependencies": {

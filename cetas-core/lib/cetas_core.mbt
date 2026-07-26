@@ -32,10 +32,10 @@ pub fn InMemorySessionStore::new() -> InMemorySessionStore {
 pub impl @posoco.SessionStore for InMemorySessionStore with fn load(
   self,
   id : String,
-) -> Result[@posoco.Session, @posoco.SessionError] {
+) -> @posoco.Session raise @posoco.SessionError {
   match self.sessions.get(id) {
-    Some(s) => Ok(s)
-    None => Ok({ messages: [], metadata: Map::from_array([]) })
+    Some(s) => s
+    None => { messages: [], metadata: Map::from_array([]) }
   }
 }
 
@@ -44,9 +44,8 @@ pub impl @posoco.SessionStore for InMemorySessionStore with fn save(
   self,
   id : String,
   session : @posoco.Session,
-) -> Result[Unit, @posoco.SessionError] {
+) -> Unit raise @posoco.SessionError {
   self.sessions[id] = session
-  Ok(())
 }
 
 // ============================================================================
@@ -95,6 +94,7 @@ pub impl @posoco.Observer for PrintObserver with fn on_event(
 /// Host-level configuration. The model/api_key/tools-specific bits stay in
 /// cetas-native / cetas-js because they depend on target-specific ext packages.
 pub(all) struct CetasHostConfig {
+  cwd : String
   max_tool_rounds : Int
   temperature : Double?
   max_output_tokens : Int?
@@ -105,6 +105,7 @@ pub(all) struct CetasHostConfig {
 
 ///|
 pub fn CetasHostConfig::CetasHostConfig(
+  cwd : String,
   max_tool_rounds? : Int = 20,
   temperature? : Double? = None,
   max_output_tokens? : Int? = None,
@@ -113,6 +114,7 @@ pub fn CetasHostConfig::CetasHostConfig(
   model_context_window? : Int? = None,
 ) -> CetasHostConfig {
   {
+    cwd,
     max_tool_rounds,
     temperature,
     max_output_tokens,
@@ -136,10 +138,21 @@ pub fn CetasHostConfig::CetasHostConfig(
 pub fn build_agent_from_parts(
   model : &@posoco.ModelPort,
   tools : Array[&@posoco.ToolProvider],
+  prompt_contributors : Array[&@posoco.SystemPromptContributor],
+  feature_hooks : Array[&@posoco.PipelineHook],
   store : &@posoco.SessionStore,
   observer : &@posoco.Observer,
+  ui : &@posoco.UiPort,
   config : CetasHostConfig,
 ) -> @posoco.Agent raise @posoco.CompositionError {
+  let system_prompt = @posoco.SystemPromptHook::new(
+    cetas_base_system_prompt(config.cwd),
+    prompt_contributors,
+  )
+  let hooks : Array[&@posoco.PipelineHook] = [system_prompt]
+  for hook in feature_hooks {
+    hooks.push(hook)
+  }
   let agent_config : @posoco.AgentConfig = {
     max_tool_rounds: config.max_tool_rounds,
     temperature: config.temperature,
@@ -151,12 +164,13 @@ pub fn build_agent_from_parts(
   @posoco.Agent::new(
     model,
     tools~,
-    hooks=[],
+    hooks~,
     memory=[],
     compressors=[@posoco.NoopCompressor::{  }],
     observers=[observer],
     sessions=[store],
     lifecycle=None,
+    ui=Some(ui),
     config=agent_config,
   )
 }
@@ -212,15 +226,23 @@ pub async fn run_prompt(
 /// Default tool set: read/write/edit/glob/grep/bash.
 ///
 /// Order matters for diagnostics readability; it does not affect execution.
-pub fn build_default_tools() -> Array[&@posoco.ToolProvider] {
-  [
-    @read.ReadTools::new(),
-    @write.WriteTools::new(),
-    @edit.EditTools::new(),
-    @glob.GlobTools::new(),
-    @grep.GrepTools::new(),
-    @bash.ShellTools::new(),
+pub fn build_default_features() -> (
+  Array[&@posoco.ToolProvider],
+  Array[&@posoco.SystemPromptContributor],
+) {
+  let read = @read.ReadTools::ReadTools()
+  let write = @write.WriteTools::WriteTools()
+  let edit = @edit.EditTools::EditTools()
+  let glob = @glob.GlobTools::GlobTools()
+  let grep = @grep.GrepTools::GrepTools()
+  let bash = @bash.ShellTools::ShellTools()
+  let tools : Array[&@posoco.ToolProvider] = [
+    read, write, edit, glob, grep, bash,
   ]
+  let prompts : Array[&@posoco.SystemPromptContributor] = [
+    read, write, edit, glob, grep, bash,
+  ]
+  (tools, prompts)
 }
 
 ///|

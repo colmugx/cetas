@@ -35,7 +35,12 @@ import {
   matchesKey,
 } from "@earendil-works/pi-tui";
 
-import { CetasJsConfig, cetas_js_run_turn } from "../../_build/js/release/build/colmugx/cetas-js/lib/lib.js";
+import {
+  CetasJsConfig,
+  cetas_js_create_agent,
+  cetas_js_run_turn,
+  cetas_js_shutdown,
+} from "../../_build/js/release/build/colmugx/cetas-js/lib/lib.js";
 import { parseCetasEvent, type CetasEvent } from "./src/events.ts";
 import {
   registerBuiltinToolRenderers,
@@ -45,22 +50,39 @@ import {
   errorNotice,
 } from "./src/transcript/components.ts";
 import { EventRouter } from "./src/controllers/event-router.ts";
+import { UiRegistry } from "./src/ui-registry.ts";
 import { theme, markdownTheme } from "./ui/theme.ts";
 import { blankLine, banner } from "./ui/primitives.ts";
 import { DebugFooter, defaultDebugInfo } from "./ui/layout.ts";
+import {
+  UiRenderHost,
+  UiRequestOverlay,
+  createUiRenderCallback,
+  createUiRequestCallback,
+} from "./ui/extension-ui.ts";
 
 // ---------------------------------------------------------------------------
 // MoonBit FFI shapes — positional constructor, async run_turn.
 // ---------------------------------------------------------------------------
 
-type CetasJsRunTurn = (
+type CetasJsCreateAgent = (
   config: unknown,
   observerCallback: (eventJson: string) => void,
+  renderCallback: (eventJson: string) => void,
+  requestCallback: (eventJson: string) => Promise<string>,
+) => Promise<unknown>;
+
+type CetasJsRunTurn = (
+  agent: unknown,
   prompt: string,
   sessionId: string,
 ) => Promise<string>;
 
+type CetasJsShutdown = (agent: unknown) => Promise<void>;
+
+const createAgent = cetas_js_create_agent as unknown as CetasJsCreateAgent;
 const runTurn = cetas_js_run_turn as unknown as CetasJsRunTurn;
+const shutdownAgent = cetas_js_shutdown as unknown as CetasJsShutdown;
 
 const ConfigCtor = CetasJsConfig as unknown as new (
   apiKey: string,
@@ -105,6 +127,7 @@ async function main() {
   const model = process.env.DEEPSEEK_MODEL ?? "deepseek-chat";
   const cwd = process.cwd();
   const maxToolRounds = 20;
+  const sessionId = "cetas-js-session";
   const config = new ConfigCtor(apiKey, baseUrl, model, cwd, maxToolRounds);
 
   // Tool renderers are a module-level side effect; calling once is belt +
@@ -137,10 +160,49 @@ async function main() {
     "",
   );
   const statusWrapper = new Container();
-  tui.addChild(statusWrapper);
+  const extensionStatus = new Container();
+  const statusRegion = new Container();
+  statusRegion.addChild(statusWrapper);
+  statusRegion.addChild(extensionStatus);
+  tui.addChild(statusRegion);
+
+  // Custom extension widgets sit between status and the editor.
+  const extensionWidgets = new Container();
+  tui.addChild(extensionWidgets);
 
   // editor
   const editor = new Editor(tui, editorTheme);
+  const uiRegistry = new UiRegistry();
+  uiRegistry.register("cetas.host", {
+    component_keys: [],
+    autocomplete: [
+      {
+        trigger: "/",
+        kind: "command",
+        fetch: (prefix, signal) => {
+          if (signal.aborted) return [];
+          return [
+            {
+              label: "/help",
+              detail: "Show slash commands",
+              insert_text: "/help",
+            },
+            {
+              label: "/clear",
+              detail: "Clear the transcript",
+              insert_text: "/clear",
+            },
+            {
+              label: "/exit",
+              detail: "Quit cetas-js",
+              insert_text: "/exit",
+            },
+          ].filter((item) => item.label.slice(1).startsWith(prefix));
+        },
+      },
+    ],
+  });
+  editor.setAutocompleteProvider(uiRegistry);
   tui.addChild(editor);
   tui.setFocus(editor);
 
@@ -148,6 +210,14 @@ async function main() {
   const debugState = defaultDebugInfo(model);
   const footer = new DebugFooter(model);
   tui.addChild(footer);
+
+  const uiRenderHost = new UiRenderHost(tui, {
+    status: extensionStatus,
+    notice: transcriptContainer,
+    widget: extensionWidgets,
+  });
+  const uiRequestOverlay = new UiRequestOverlay(tui);
+  const onUiRequest = createUiRequestCallback(uiRequestOverlay, 300_000);
 
   // ----- Event router ----------------------------------------------------
   const router = new EventRouter({
@@ -176,16 +246,11 @@ async function main() {
   let turnStartTime = 0;
 
   const onEvent = (eventJson: string) => {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(eventJson);
-    } catch {
-      // Malformed JSON from the bridge — log and move on. We don't want a
-      // wire bug to kill the user's in-flight turn.
-      return;
-    }
+    const parsed: unknown = JSON.parse(eventJson);
     const ev = parseCetasEvent(parsed) as CetasEvent | null;
-    if (!ev) return;
+    if (!ev) {
+      throw new Error("unknown or malformed cetas event");
+    }
 
     // Track debug counters for the footer.
     switch (ev.type) {
@@ -196,7 +261,7 @@ async function main() {
         debugState.tokensInput = 0;
         debugState.tokensOutput = 0;
         debugState.latencyMs = 0;
-        debugState.sessionId = ev.session_id;
+        debugState.sessionId = sessionId;
         footer.update(debugState);
         break;
       case "tool_call_started":
@@ -222,14 +287,23 @@ async function main() {
     router.handleEvent(ev);
   };
 
+  const onUiRender = createUiRenderCallback(uiRenderHost);
+
+  // One process-lifetime agent: model, UI correlation state, and session
+  // store remain stable across every submitted turn.
+  const agent = await createAgent(config, onEvent, onUiRender, onUiRequest);
+
   editor.onSubmit = async (prompt) => {
-    if (inTurn) return; // ignore re-entrancy — single in-flight turn
+    if (inTurn) {
+      throw new Error("editor submitted while a turn is already running");
+    }
 
     // Slash dispatch.
     if (prompt.startsWith("/")) {
       const handled = dispatchSlash(prompt.trim(), {
         transcript: transcriptContainer,
         tui,
+        shutdown: () => requestShutdown(0),
       });
       if (handled) {
         editor.setText("");
@@ -239,6 +313,7 @@ async function main() {
 
     // Normal turn.
     inTurn = true;
+    editor.disableSubmit = true;
     editor.setText("");
 
     // Echo user prompt + reset streaming state.
@@ -247,7 +322,7 @@ async function main() {
     tui.requestRender();
 
     try {
-      await runTurn(config, onEvent, prompt, "cetas-js-session");
+      await runTurn(agent, prompt, sessionId);
       // After turn_completed (handled by router), nothing else to do.
     } catch (e: any) {
       const msg = e && typeof e === "object" && e.message ? e.message : String(e);
@@ -255,25 +330,47 @@ async function main() {
       tui.requestRender();
     } finally {
       inTurn = false;
+      editor.disableSubmit = false;
       statusLoader.stop();
       tui.requestRender();
     }
   };
 
   // ----- Shutdown --------------------------------------------------------
-  process.on("SIGINT", () => {
-    tui.stop();
-    process.exit(0);
-  });
+  let shutdownPromise: Promise<void> | undefined;
+  const shutdown = (): Promise<void> => {
+    if (shutdownPromise !== undefined) return shutdownPromise;
+    shutdownPromise = (async () => {
+      uiRequestOverlay.cancel();
+      try {
+        await shutdownAgent(agent);
+      } finally {
+        uiRenderHost.dispose();
+        tui.stop();
+      }
+    })();
+    return shutdownPromise;
+  };
+  const requestShutdown = (successCode: number): void => {
+    void shutdown().then(
+      () => process.exit(successCode),
+      (error: unknown) => {
+        console.error("cetas-js shutdown failed", error);
+        process.exit(1);
+      },
+    );
+  };
+  process.on("SIGINT", () => requestShutdown(0));
   tui.addInputListener((data) => {
     // Overlay dismiss: any key closes an active overlay before anything else.
     if (tui.hasOverlay()) {
+      if (uiRequestOverlay.isActive()) return undefined;
       tui.hideOverlay();
       return { consume: true };
     }
     if (matchesKey(data, "ctrl+c")) {
-      tui.stop();
-      process.exit(0);
+      requestShutdown(0);
+      return { consume: true };
     }
     return undefined;
   });
@@ -288,13 +385,12 @@ async function main() {
 interface SlashContext {
   transcript: Container;
   tui: TUI;
+  shutdown(): void;
 }
 
 function dispatchSlash(input: string, ctx: SlashContext): boolean {
-  // Split into command + remainder.
   const spaceIdx = input.indexOf(" ");
   const cmd = spaceIdx === -1 ? input : input.slice(0, spaceIdx);
-  const rest = spaceIdx === -1 ? "" : input.slice(spaceIdx + 1);
 
   if (cmd === "/help" || cmd === "/?") {
     const lines = [
@@ -302,7 +398,6 @@ function dispatchSlash(input: string, ctx: SlashContext): boolean {
       "",
       `  ${theme.accent("/help")}     Show this help`,
       `  ${theme.accent("/clear")}    Clear transcript`,
-      `  ${theme.accent("/compact")}  (planned) Compress context`,
       `  ${theme.accent("/exit")}     Quit cetas-js`,
       "",
       theme.muted("Press any key to close"),
@@ -324,23 +419,9 @@ function dispatchSlash(input: string, ctx: SlashContext): boolean {
     return true;
   }
 
-  if (cmd === "/compact") {
-    // Planned — posoco has a Compressor port but cetas-core doesn't expose
-    // a manual trigger yet. Surface as a system notice.
-    ctx.transcript.addChild(
-      new Text(
-        theme.warning("⏳ /compact is not wired yet (posoco Compressor port is available; cetas-core trigger pending)."),
-        1,
-        0,
-      ),
-    );
-    ctx.tui.requestRender();
-    return true;
-  }
-
   if (cmd === "/exit" || cmd === "/quit") {
-    ctx.tui.stop();
-    process.exit(0);
+    ctx.shutdown();
+    return true;
   }
 
   // Unknown — show error.
@@ -354,9 +435,10 @@ function dispatchSlash(input: string, ctx: SlashContext): boolean {
     ),
   );
   ctx.tui.requestRender();
-  // `rest` is unused for unknown commands but reserved for future args.
-  void rest;
   return true;
 }
 
-main();
+void main().catch((error: unknown) => {
+  console.error("cetas-js fatal error", error);
+  process.exit(1);
+});

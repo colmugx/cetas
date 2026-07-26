@@ -63,7 +63,7 @@ export class EventRouter {
   handleEvent(ev: CetasEvent): void {
     switch (ev.type) {
       case "turn_started":
-        this.beginTurn(ev.session_id);
+        this.beginTurn();
         break;
       case "turn_completed":
         this.endTurn();
@@ -78,21 +78,8 @@ export class EventRouter {
       case "message_end":
         this.handleMessageEnd(ev.message);
         break;
-      case "message_start":
-        // message_start is not emitted by current MoonBit bridge; handle
-        // defensively in case a future version adds it.
-        this.handleMessageEnd(ev.message);
-        break;
-      case "message_update":
-        // message_update is not emitted by current MoonBit bridge; handle
-        // defensively as a full-content replace.
-        this.handleStreamContent(ev.message);
-        break;
       case "tool_call_started":
         this.handleToolCallStarted(ev.tool_call_id, ev.tool_name, ev.args);
-        break;
-      case "tool_call_update":
-        // Partial results not rendered in MVP — ignore.
         break;
       case "tool_call_completed":
         this.handleToolCallCompleted(ev.tool_call_id, ev.result, ev.is_error);
@@ -259,7 +246,7 @@ export class EventRouter {
 
   // -- turn lifecycle ------------------------------------------------------
 
-  private beginTurn(_sessionId: string): void {
+  private beginTurn(): void {
     this.inTurn = true;
     // Fresh controller per turn: null component references guarantee a new
     // turn allocates new AssistantMessage/ThinkingComponent instances instead

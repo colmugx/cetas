@@ -11,10 +11,16 @@ declare module "*/cetas-js/lib/lib.js" {
     cwd: string,
     maxToolRounds: number,
   ) => unknown;
-  export function cetas_js_run_turn(
+  export function cetas_js_create_agent(
     config: unknown,
     observerCallback: (eventJson: string) => void,
+    renderCallback: (eventJson: string) => void,
+    requestCallback: (eventJson: string) => Promise<string>,
+  ): Promise<unknown>;
+  export function cetas_js_run_turn(
+    agent: unknown,
     prompt: string,
     sessionId: string,
   ): Promise<string>;
+  export function cetas_js_shutdown(agent: unknown): Promise<void>;
 }
