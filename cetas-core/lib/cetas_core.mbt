@@ -124,17 +124,6 @@ pub fn CetasHostConfig::CetasHostConfig(
   }
 }
 
-// ============================================================================
-// build_agent_from_parts — pure assembly.
-// ============================================================================
-
-///|
-/// Assemble a posoco Agent from pre-built parts. This is the single
-/// composition point shared by cetas-native and cetas-js — each host builds
-/// its own model/tools/store/observer (target-specific) and hands them here.
-///
-/// The agent gets NoopCompressor, no hooks, no memory, no lifecycle —
-/// hosts that want those can call Agent::new directly instead.
 pub fn build_agent_from_parts(
   model : &@posoco.ModelPort,
   tools : Array[&@posoco.ToolProvider],
@@ -145,9 +134,15 @@ pub fn build_agent_from_parts(
   ui : &@posoco.UiPort,
   config : CetasHostConfig,
 ) -> @posoco.Agent raise @posoco.CompositionError {
-  let system_prompt = @posoco.SystemPromptHook::new(
-    cetas_base_system_prompt(config.cwd),
-    prompt_contributors,
+  // Build the system-prompt hook exactly as before: base prompt from cetas
+  // + every contributor section, then expose it as the sole PipelineHook
+  // (plus any feature hooks the host layers on top).
+  let system_prompt = @posoco.SystemPromptHook(
+    base_prompt=cetas_base_system_prompt(config.cwd),
+    contributors=
+      prompt_contributors.map(fn(c) {
+        @posoco.SystemPromptSection::SystemPromptSection(id="contributor", contributor=c)
+      }),
   )
   let hooks : Array[&@posoco.PipelineHook] = [system_prompt]
   for hook in feature_hooks {
@@ -161,16 +156,69 @@ pub fn build_agent_from_parts(
     reasoning_effort: config.reasoning_effort,
     model_context_window: config.model_context_window,
   }
-  @posoco.Agent::new(
-    model,
-    tools~,
-    hooks~,
-    memory=[],
-    compressors=[@posoco.NoopCompressor::{  }],
-    observers=[observer],
-    sessions=[store],
-    lifecycle=None,
-    ui=Some(ui),
+  // Compose one manifest per port contribution. Each one is wrapped in
+  // `ManifestOnly` (an anonymous Extension stub from the posoco testkit
+  // surface) so it satisfies `Array[&@posoco.Extension]`. Each manifest
+  // names its source for composition diagnostics.
+  @posoco.Agent(
+    exts=[
+      @posoco.ManifestOnly::ManifestOnly({
+        id: "model",
+        models: [model],
+        tools: [],
+        sessions: [],
+        observers: [],
+        compressors: [],
+        hooks: [],
+        memory: [],
+        lifecycle: [],
+        commands: [],
+        ui: [],
+        prompt_contributors: [],
+      }),
+      @posoco.ManifestOnly::ManifestOnly({
+        id: "tools",
+        models: [],
+        tools,
+        sessions: [],
+        observers: [],
+        compressors: [],
+        hooks: [],
+        memory: [],
+        lifecycle: [],
+        commands: [],
+        ui: [],
+        prompt_contributors: [],
+      }),
+      @posoco.ManifestOnly::ManifestOnly({
+        id: "hooks",
+        models: [],
+        tools: [],
+        sessions: [],
+        observers: [],
+        compressors: [],
+        hooks,
+        memory: [],
+        lifecycle: [],
+        commands: [],
+        ui: [],
+        prompt_contributors: [],
+      }),
+      @posoco.ManifestOnly::ManifestOnly({
+        id: "io",
+        models: [],
+        tools: [],
+        sessions: [store],
+        observers: [observer],
+        compressors: [@posoco.NoopCompressor::{}],
+        hooks: [],
+        memory: [],
+        lifecycle: [],
+        commands: [],
+        ui: [ui],
+        prompt_contributors: [],
+      }),
+    ],
     config=agent_config,
   )
 }

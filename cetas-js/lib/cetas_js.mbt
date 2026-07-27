@@ -398,17 +398,13 @@ fn ui_body_to_json(body : @port.UiBody) -> Json {
         ]),
       )
     }
-    @port.UiBody::Progress(current~, label~) => {
-      let fields : Array[(String, Json)] = [
-        ("type", Json::string("progress")),
-        ("current", Json::number(current)),
-      ]
-      match label {
-        Some(value) => fields.push(("label", Json::string(value)))
-        None => ()
-      }
-      Json::object(Map::from_array(fields))
-    }
+    @port.UiBody::Progress(current) =>
+      Json::object(
+        Map::from_array([
+          ("type", Json::string("progress")),
+          ("current", Json::number(current)),
+        ]),
+      )
     @port.UiBody::Markdown(text) =>
       Json::object(
         Map::from_array([
@@ -421,10 +417,14 @@ fn ui_body_to_json(body : @port.UiBody) -> Json {
 
 ///|
 fn ui_render_event_to_json(intent : @port.UiRender) -> String {
+  let title_val = match intent.title {
+    Some(t) => Json::string(t)
+    None => Json::string("")
+  }
   let render_fields : Array[(String, Json)] = [
     ("slot", ui_slot_to_json(intent.slot)),
     ("key", Json::string(intent.key)),
-    ("title", Json::string(intent.title)),
+    ("title", title_val),
     ("body", ui_body_to_json(intent.body)),
   ]
   match intent.ttl_ms {
@@ -443,36 +443,36 @@ fn ui_render_event_to_json(intent : @port.UiRender) -> String {
 ///|
 fn ui_request_to_json(req : @port.UiRequest) -> Json {
   match req {
-    @port.UiRequest::Input(prompt~, placeholder~) => {
+    @port.UiRequest::Input(prompt~, default~) => {
       let fields : Array[(String, Json)] = [
         ("type", Json::string("input")),
         ("prompt", Json::string(prompt)),
       ]
-      match placeholder {
+      match default {
         Some(value) => fields.push(("placeholder", Json::string(value)))
         None => ()
       }
       Json::object(Map::from_array(fields))
     }
-    @port.UiRequest::Confirm(prompt~, default_yes~) =>
+    @port.UiRequest::Confirm(prompt~) =>
       Json::object(
         Map::from_array([
           ("type", Json::string("confirm")),
           ("prompt", Json::string(prompt)),
-          ("default_yes", Json::boolean(default_yes)),
+          ("default_yes", Json::boolean(true)),
         ]),
       )
-    @port.UiRequest::Select(title~, options~, default_index~) => {
+    @port.UiRequest::Select(prompt~, options~, default~) => {
       let option_values : Array[Json] = []
       for option in options {
         option_values.push(Json::string(option))
       }
       let fields : Array[(String, Json)] = [
         ("type", Json::string("select")),
-        ("title", Json::string(title)),
+        ("title", Json::string(prompt)),
         ("options", Json::array(option_values)),
       ]
-      match default_index {
+      match default {
         Some(value) =>
           fields.push(("default_index", Json::number(value.to_double())))
         None => ()
@@ -500,7 +500,7 @@ fn ui_request_event_to_json(
 fn invalid_ui_response(
   message : String,
 ) -> @port.UiResponse raise @error.UiError {
-  raise @error.UiError::HostError(message)
+  raise @error.UiError::InvalidRequest(detail=message)
 }
 
 ///|
@@ -542,7 +542,7 @@ fn decode_ui_response_value(
           if value == value.floor() &&
             value >= 0.0 &&
             value < options.length().to_double() {
-            @port.UiResponse::Selected(index=value.to_int())
+            @port.UiResponse::Selected(value.to_int())
           } else {
             invalid_ui_response(
               "ui_response selected index is outside the request options",
@@ -574,8 +574,8 @@ fn raise_ui_response_error(
   }
   match code {
     "cancelled" => raise @error.UiError::Cancelled
-    "unsupported" => raise @error.UiError::Unsupported
-    "timeout" => raise @error.UiError::Timeout
+    "unsupported" => raise @error.UiError::Unsupported(detail="unsupported UI response error")
+    "timeout" => raise @error.UiError::IoFailure(detail="UI request timed out")
     "host_error" => {
       let message = match fields.get("message") {
         Some(Json::String(value)) => value
@@ -584,7 +584,7 @@ fn raise_ui_response_error(
             "ui_response host_error requires a string message",
           )
       }
-      raise @error.UiError::HostError(message)
+      raise @error.UiError::IoFailure(detail=message)
     }
     _ => invalid_ui_response("ui_response.error.code is unknown")
   }
@@ -631,7 +631,7 @@ fn decode_ui_response_event(
 
 ///|
 pub impl @port.UiPort for JsUiPort with fn ui_descriptor(_self : JsUiPort) -> @port.UiDescriptor {
-  { component_keys: [], autocomplete: [] }
+  @port.UiDescriptor::empty()
 }
 
 ///|
@@ -653,8 +653,8 @@ pub impl @port.UiPort for JsUiPort with fn request(
     .invoke(ui_request_event_to_json(request_id, req))
     .wait() catch {
       err =>
-        raise @error.UiError::HostError(
-          "UI request callback rejected: \{err.to_string()}",
+        raise @error.UiError::IoFailure(
+          detail="UI request callback rejected: \{err.to_string()}",
         )
     }
   decode_ui_response_event(response_json, request_id, req)

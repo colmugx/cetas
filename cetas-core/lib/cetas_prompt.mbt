@@ -9,8 +9,9 @@ fn cetas_base_system_prompt(
   cwd : String,
 ) -> String raise @posoco.CompositionError {
   if cwd.trim().is_empty() {
-    raise @posoco.CompositionError::InvalidSystemPrompt(
-      "cetas cwd must not be empty",
+    raise @posoco.CompositionError::ManifestSchemaError(
+      manifest_id="cetas",
+      detail="cetas cwd must not be empty",
     )
   }
   let parts : Array[String] = [

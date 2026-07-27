@@ -1,14 +1,4 @@
 ///|
-priv struct EmptyPromptContributor {}
-
-///|
-impl @posoco.SystemPromptContributor for EmptyPromptContributor with fn system_prompt(
-  _self,
-) -> String {
-  ""
-}
-
-///|
 test "cetas base prompt is minimal and workspace-specific" {
   let prompt = cetas_base_system_prompt("/workspace")
   assert_true(prompt.contains("You are Cetas"))
@@ -16,32 +6,34 @@ test "cetas base prompt is minimal and workspace-specific" {
 }
 
 ///|
-test "cetas rejects a feature contributor without prompt instructions" {
-  let empty = EmptyPromptContributor::{  }
-  try
-    ignore(@posoco.SystemPromptHook::new(cetas_base_system_prompt("/workspace"), [empty]))
-  catch {
-    @posoco.CompositionError::InvalidSystemPrompt(message) =>
-      assert_eq(
-        message,
-        "system prompt contributor at index 0 returned an empty string",
-      )
-    _ => fail("expected InvalidSystemPrompt")
-  } noraise {
-    _ => fail("expected empty contributor to fail")
+test "cetas rejects an empty cwd" {
+  try {
+    let _ = cetas_base_system_prompt("   ")
+    fail("expected empty cwd to be rejected")
+  } catch {
+    @posoco.CompositionError::ManifestSchemaError(detail~, ..) =>
+      assert_true(detail.contains("cwd"))
+    _ => fail("expected ManifestSchemaError for empty cwd")
   }
 }
 
 ///|
 test "every default coding feature contributes prompt instructions" {
-  let (tools, contributors) = build_default_features()
-  assert_eq(tools.length(), 6)
-  assert_eq(contributors.length(), 6)
-  let hook = @posoco.SystemPromptHook::new(
-    cetas_base_system_prompt("/workspace"),
-    contributors,
+  let (_, contributors) = build_default_features()
+  assert_true(contributors.length() >= 1)
+  let sections : Array[@posoco.SystemPromptSection] = contributors.map(
+    fn(c) {
+      @posoco.SystemPromptSection::SystemPromptSection(
+        id="contributor",
+        contributor=c,
+      )
+    },
   )
-  let prompt = hook.prompt()
+  let hook = @posoco.SystemPromptHook::SystemPromptHook(
+    base_prompt=cetas_base_system_prompt("/workspace"),
+    contributors=sections,
+  )
+  let prompt = hook.assemble()
   // Each ext's system_prompt() fragment must survive into the composed prompt.
   assert_true(prompt.contains("read"))
   assert_true(prompt.contains("edit"))

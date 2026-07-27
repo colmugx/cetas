@@ -20,8 +20,8 @@ keywords = [ "cetas", "js", "bun", "pi-tui" ]
 description = "Cetas JS host — bun runtime + pi-tui UI, reuses cetas-core for agent logic"
 
 import {
-  "colmugx/posoco@0.5.5",
+  "colmugx/posoco@0.6.4",
   "colmugx/cetas-core@0.1.0",
   "colmugx/posoco-ext-fs-session@0.1.0",
-  "moonbitlang/async@0.20.3",
+  "moonbitlang/async@0.20.5",
 }

@@ -3,8 +3,8 @@ test "JsUiPort wire encodes a structured render event" {
   let raw = ui_render_event_to_json({
     slot: @port.UiSlot::Status,
     key: "goal.progress",
-    title: "Goal",
-    body: @port.UiBody::Progress(current=0.5, label=Some("half")),
+    title: Some("Goal"),
+    body: @port.UiBody::Progress(0.5),
     ttl_ms: Some(1000),
   })
   let json = @json.parse(raw)
@@ -28,7 +28,7 @@ test "JsUiPort wire decodes a correlated input response" {
   let response = decode_ui_response_event(
     "{\"type\":\"ui_response\",\"request_id\":\"ui-7\",\"response\":{\"type\":\"text\",\"text\":\"answer\"}}",
     "ui-7",
-    @port.UiRequest::Input(prompt="Question", placeholder=None),
+    @port.UiRequest::Input(prompt="Question", default=None),
   )
   match response {
     @port.UiResponse::Text(value) => assert_eq(value, "answer")
@@ -43,11 +43,11 @@ test "JsUiPort wire rejects a response for another request" {
       decode_ui_response_event(
         "{\"type\":\"ui_response\",\"request_id\":\"ui-8\",\"response\":{\"type\":\"yes\"}}",
         "ui-7",
-        @port.UiRequest::Confirm(prompt="Continue?", default_yes=true),
+        @port.UiRequest::Confirm(prompt="Continue?"),
       ),
     )
   catch {
-    @error.UiError::HostError(message) =>
+    @error.UiError::InvalidRequest(detail=message) =>
       assert_eq(message, "ui_response.request_id does not match")
     _ => fail("expected UiError::HostError")
   } noraise {
