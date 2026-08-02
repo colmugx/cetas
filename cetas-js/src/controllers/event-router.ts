@@ -2,22 +2,25 @@
  * event-router.ts — single handleEvent(CetasEvent) dispatch.
  *
  * Owns the live state for the turn currently in flight:
- *   - streaming-ui controller (accumulates thinking + text)
+ *   - streaming-ui controller (pi-style step-block accumulator)
  *   - per-tool-call-id ToolRow map
  *   - status indicator callbacks
  *
- * DESIGN CHANGE (2026-07-23):
- *   - Streaming components are added to the transcript ONCE and never removed.
- *     No more showStreamingDraft/hideStreamingDraft — those caused splice-
- *     induced screen clearing and scroll jumps.
- *   - `stream_chunk` events carry a `kind` field ("reasoning" | "text").
- *     First reasoning chunk creates a ThinkingComponent; first text chunk
- *     finalizes thinking and creates an AssistantMessage.
- *   - `message_end` handles the non-streaming fallback path where no
- *     stream_chunks arrived (create both components from the full message).
+ * MODEL (2026-07-31):
+ *   - The StreamingUIController owns step lifecycle + component creation via a
+ *     StreamingComponentFactory wired here. Step boundaries are inferred from
+ *     stream_chunk kind ordering inside the controller.
+ *   - `message_end` is a POST-HOC REPLAY in this bridge
+ *     (agent_puppet.mbt:456-535 reconstructs the final transcript after the
+ *     pump finishes), NOT a live per-step signal. So handleMessageEnd is
+ *     best-effort reconciliation: if the current step already streamed content,
+ *     it only finalizes + closes the step and NEVER re-renders. Only when no
+ *     stream_chunks arrived at all (non-streaming provider) does it build
+ *     components from the full message. This is the fix for Bug #2-b (replayed
+ *     reasoning/text was rendered a second time).
  */
 
-import { Container, type Component } from "@earendil-works/pi-tui";
+import { type Component } from "@earendil-works/pi-tui";
 import type { BridgeMessage, CetasEvent } from "../events.ts";
 import {
   errorNotice,
@@ -26,7 +29,7 @@ import {
 } from "../transcript/components.ts";
 import { ThinkingComponent } from "../transcript/thinking.ts";
 import { AssistantMessage } from "../transcript/components.ts";
-import { StreamingUIController } from "./streaming-ui.ts";
+import { StreamingUIController, type StreamingComponentFactory } from "./streaming-ui.ts";
 
 export interface EventRouterCallbacks {
   /** Append a component to the transcript Container. */
@@ -43,19 +46,13 @@ export class EventRouter {
   /**
    * Per-turn streaming controller. `null` between turns.
    *
-   * Created fresh in `beginTurn()`, ended + nulled in `endTurn()`. This is the
-   * structural fix for the "second turn overwrites first answer" bug: each
-   * turn owns an isolated controller with isolated component references, so a
-   * new turn always allocates fresh `AssistantMessage` / `ThinkingComponent`
-   * instances instead of reusing the previous turn's. Mirrors pi's
-   * `streamingComponent` reference model and kimi-code's `_streamingBlock`.
+   * Created fresh in `beginTurn()`, aborted + nulled in `endTurn()`. Each turn
+   * owns an isolated controller, so a new turn always opens fresh steps instead
+   * of mutating the previous turn's frozen components.
    */
   private stream: StreamingUIController | null = null;
   private toolRows = new Map<string, ToolRow>();
   private inTurn = false;
-  /** Text finalized by message_end, promoted into transcript on turn_completed. */
-  private pendingAssistantText = "";
-  private pendingAssistantReasoning = "";
 
   constructor(private readonly cb: EventRouterCallbacks) {}
 
@@ -102,6 +99,16 @@ export class EventRouter {
           systemNotice(`· ${ev.source}/${ev.label}`),
         );
         break;
+      case "config_changed":
+        this.cb.addTranscriptChild(
+          systemNotice(`⚙ ${ev.field}: ${ev.old} → ${ev.new}`),
+        );
+        break;
+      case "config_warning":
+        this.cb.addTranscriptChild(
+          systemNotice(`⚠ ${ev.field}=${ev.value} — ${ev.reason}`),
+        );
+        break;
       default:
         break;
     }
@@ -113,24 +120,11 @@ export class EventRouter {
   private handleStreamChunk(ev: CetasEvent & { type: "stream_chunk" }): void {
     const s = this.stream;
     if (!s) return;
+    // The controller owns step-boundary detection (text→reasoning = new step)
+    // and component creation via the factory. The router just feeds deltas.
     if (ev.kind === "reasoning") {
-      // First reasoning chunk? Create ThinkingComponent in live mode.
-      if (!s.hasThinking) {
-        const comp = new ThinkingComponent("", "live");
-        this.cb.addTranscriptChild(comp);
-        s.attachThinking(comp);
-      }
       s.appendReasoning(ev.raw);
     } else {
-      // First text chunk? Finalize thinking (if active) and create text component.
-      if (s.hasThinking && !s.isThinkingFinalized) {
-        s.finalizeThinking();
-      }
-      if (!s.hasText) {
-        const comp = new AssistantMessage("");
-        this.cb.addTranscriptChild(comp);
-        s.attachText(comp);
-      }
       s.appendText(ev.raw);
     }
   }
@@ -138,10 +132,21 @@ export class EventRouter {
   // -- message_end / message_update full-content handling -----------------
 
   /**
-   * Handle full-content message (message_end / message_start).
+   * Best-effort reconciliation for the post-hoc `message_end` replay.
+   *
+   * `message_end` is NOT a live per-step signal in this bridge — the pump
+   * reconstructs the final transcript after it finishes (agent_puppet.mbt
+   * step 7) and replays one `message_end` per AssistantMessage. By the time it
+   * arrives, streaming has usually already rendered that message's content.
+   *
    * Two paths:
-   *   1. Streaming already happened (components exist) → just finalize.
-   *   2. Non-streaming (no components) → create components from message data.
+   *   A. Streaming happened this turn (any stream_chunk arrived) → reconcile
+   *      only: finalize + close the current step. NEVER re-render (would
+   *      duplicate reasoning/text — Bug #2-b). This gate is turn-scoped, not
+   *      step-scoped, because step-boundary detection may have already closed
+   *      the step before the replay arrives.
+   *   B. No stream_chunks arrived at all this turn (non-streaming provider) →
+   *      build components from the full message and close.
    */
   private handleMessageEnd(msg: BridgeMessage): void {
     const s = this.stream;
@@ -152,69 +157,59 @@ export class EventRouter {
       .map((b) => b.text)
       .join("\n\n");
 
-    // Path A: streaming already created components — just finalize.
-    if (s.hasThinking || s.hasText) {
-      if (s.hasThinking && !s.isThinkingFinalized) {
-        s.finalizeThinking();
-      }
-      const finalized = s.end();
-      this.pendingAssistantText = finalized.text;
-      this.pendingAssistantReasoning = finalized.thinking;
+    // Path A: streaming happened this turn — reconcile only.
+    if (s.hasStreamedThisTurn) {
+      s.finalizeThinkingIfActive();
+      s.closeStep();
       return;
     }
 
-    // Path B: non-streaming — create components from the full message.
-    if (reasoning) {
-      const comp = new ThinkingComponent(reasoning, "finalized");
-      this.cb.addTranscriptChild(comp);
-      s.attachThinking(comp);
-      s.setFullThinking(reasoning);
+    // Path B: non-streaming — build components from the full message.
+    if (reasoning || text) {
+      if (reasoning) {
+        const comp = new ThinkingComponent(reasoning, "finalized");
+        this.cb.addTranscriptChild(comp);
+        s.attachThinking(comp);
+      }
+      if (text) {
+        const comp = new AssistantMessage(text);
+        this.cb.addTranscriptChild(comp);
+        s.attachText(comp);
+      }
     }
-    if (text) {
-      const comp = new AssistantMessage(text);
-      this.cb.addTranscriptChild(comp);
-      s.attachText(comp);
-      s.setFullText(text);
-    }
-    if (reasoning && s.hasThinking) {
-      s.finalizeThinking();
-    }
-    const finalized = s.end();
-    this.pendingAssistantText = finalized.text || text;
-    this.pendingAssistantReasoning = finalized.thinking || reasoning;
+    s.closeStep();
   }
 
   /**
    * Handle message_update (full content replace — not emitted by current
    * bridge, but handle defensively for future wire compatibility).
+   *
+   * Same dedup discipline as handleMessageEnd: if streaming happened this turn,
+   * treat the full-replace as a no-op reconciliation; otherwise build from the
+   * message.
    */
   private handleStreamContent(msg: BridgeMessage): void {
     const s = this.stream;
     if (!s) return;
+    if (s.hasStreamedThisTurn) {
+      // Streaming already rendered this turn — don't clobber with a replace.
+      return;
+    }
     const reasoning = (msg.reasoning ?? "").trim();
     const text = msg.content
       .filter((b) => b.type === "text")
       .map((b) => b.text)
       .join("\n\n");
-
     if (reasoning) {
-      if (!s.hasThinking) {
-        const comp = new ThinkingComponent("", "live");
-        this.cb.addTranscriptChild(comp);
-        s.attachThinking(comp);
-      }
+      const comp = new ThinkingComponent("", "live");
+      this.cb.addTranscriptChild(comp);
+      s.attachThinking(comp);
       s.setFullThinking(reasoning);
     }
     if (text) {
-      if (!s.hasText) {
-        // First text content in this update — finalize thinking first.
-        if (s.hasThinking && !s.isThinkingFinalized) {
-          s.finalizeThinking();
-        }
-        const comp = new AssistantMessage("");
-        this.cb.addTranscriptChild(comp);
-        s.attachText(comp);
-      }
+      const comp = new AssistantMessage("");
+      this.cb.addTranscriptChild(comp);
+      s.attachText(comp);
       s.setFullText(text);
     }
   }
@@ -231,6 +226,9 @@ export class EventRouter {
     );
     this.toolRows.set(toolCallId, row);
     this.cb.addTranscriptChild(row);
+    // Phase feedback: without this the status stays "thinking" for the whole
+    // turn and tool→model round-trips look like a stalled response.
+    this.cb.setStatus("working", `running ${toolName}`);
   }
 
   private handleToolCallCompleted(
@@ -242,39 +240,47 @@ export class EventRouter {
     if (row) {
       row.setResult(result, isError);
     }
+    // Tool results go back to the model; the next visible activity is either
+    // another tool call (overwrites this) or the follow-up model stream.
+    this.cb.setStatus("working", "waiting for model");
   }
 
   // -- turn lifecycle ------------------------------------------------------
 
   private beginTurn(): void {
     this.inTurn = true;
-    // Fresh controller per turn: null component references guarantee a new
-    // turn allocates new AssistantMessage/ThinkingComponent instances instead
-    // of mutating (overwriting) the previous turn's frozen components.
-    this.stream = new StreamingUIController(() => this.cb.requestRender());
+    // Fresh controller per turn. The factory mounts new components into the
+    // transcript on demand; a new turn's steps therefore allocate fresh
+    // AssistantMessage/ThinkingComponent instances instead of mutating the
+    // previous turn's frozen components.
+    const factory: StreamingComponentFactory = {
+      createThinking: () => {
+        const comp = new ThinkingComponent("", "live");
+        this.cb.addTranscriptChild(comp);
+        return comp;
+      },
+      createText: () => {
+        const comp = new AssistantMessage("");
+        this.cb.addTranscriptChild(comp);
+        return comp;
+      },
+      addTranscriptChild: (c) => this.cb.addTranscriptChild(c),
+    };
+    this.stream = new StreamingUIController(
+      () => this.cb.requestRender(),
+      factory,
+    );
     this.toolRows.clear();
-    this.pendingAssistantText = "";
-    this.pendingAssistantReasoning = "";
     this.cb.setStatus("working", "thinking");
   }
 
   private endTurn(): void {
     this.inTurn = false;
 
-    // If message_end never arrived (edge case: turn completed without model
-    // response), promote whatever we have.
-    if (this.pendingAssistantText) {
-      // Streaming already created components in the transcript, so nothing
-      // to promote. But in the edge case where no streaming or message_end
-      // happened, this is a no-op guard.
-      this.pendingAssistantText = "";
-      this.pendingAssistantReasoning = "";
-    }
-
-    // Flush + drop the per-turn controller. Its components stay mounted in
-    // the transcript (frozen), but the references are released so the next
-    // turn's controller starts clean.
-    this.stream?.abort();
+    // Close any open step (flush + finalize), then drop the per-turn
+    // controller. Its mounted components stay in the transcript (frozen); the
+    // references are released so the next turn's controller starts clean.
+    this.stream?.end();
     this.stream = null;
     this.cb.setStatus("idle");
     this.toolRows.clear();

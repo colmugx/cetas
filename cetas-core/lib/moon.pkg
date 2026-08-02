@@ -1,13 +1,11 @@
 import {
   "colmugx/posoco",
-  "colmugx/posoco-ext-deepseek" @deepseek,
   "colmugx/posoco-ext-read" @read,
   "colmugx/posoco-ext-write" @write,
   "colmugx/posoco-ext-edit" @edit,
   "colmugx/posoco-ext-bash" @bash,
   "colmugx/posoco-ext-glob" @glob,
   "colmugx/posoco-ext-grep" @grep,
-  "colmugx/posoco-ext-log" @log,
   "moonbitlang/async",
 }
 

@@ -430,6 +430,13 @@ export class UiRequestOverlay {
 
   private open(request: UiRequest): Promise<UiResponse> {
     return new Promise((resolve) => {
+      // Defense in depth: an empty select cannot be presented. Resolve as
+      // cancelled instead of throwing — a throw here rejects the host
+      // callback and surfaces as an opaque "ui request failed" upstream.
+      if (request.type === "select" && request.options.length === 0) {
+        resolve({ type: "cancelled" });
+        return;
+      }
       let handle: OverlayHandle;
       let settled = false;
       const settle = (response: UiResponse) => {
@@ -471,9 +478,6 @@ export class UiRequestOverlay {
           break;
         }
         case "select": {
-          if (request.options.length === 0) {
-            throw new Error("UiRequest.select.options must not be empty");
-          }
           if (
             request.default_index !== undefined &&
             (request.default_index < 0 ||

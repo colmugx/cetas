@@ -16,14 +16,12 @@ keywords = [ "cetas", "posoco", "host", "core" ]
 description = "Cetas core — target-agnostic host logic (assembly, slash, observer, session) for cetas-native and cetas-js"
 
 import {
-  "colmugx/posoco@0.6.4",
-  "colmugx/posoco-ext-deepseek@0.2.0",
+  "colmugx/posoco@0.7.3",
   "colmugx/posoco-ext-read@0.2.0",
   "colmugx/posoco-ext-write@0.2.0",
   "colmugx/posoco-ext-edit@0.2.0",
   "colmugx/posoco-ext-bash@0.2.0",
   "colmugx/posoco-ext-glob@0.2.0",
   "colmugx/posoco-ext-grep@0.2.0",
-  "colmugx/posoco-ext-log@0.1.0",
-  "moonbitlang/async@0.20.5",
+  "moonbitlang/async@0.20.3",
 }

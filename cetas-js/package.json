@@ -2,11 +2,11 @@
   "name": "cetas-js",
   "version": "0.1.0",
   "type": "module",
-  "description": "Bun-runtime host for cetas — DeepSeek + posoco + pi-tui",
+  "description": "Bun-runtime host for cetas — provider-neutral posoco agent with pi-tui",
   "scripts": {
     "start": "bun host.ts",
     "smoke": "bun smoke.ts",
-    "build": "cd ../.. && moon build --target js",
+    "build": "cd ../.. && moon build --target js --release",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },

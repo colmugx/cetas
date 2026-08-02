@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "types": ["bun"]
   },
-  "include": ["host.ts", "smoke.ts", "ui/**/*.ts", "moonbit-lib.d.ts"]
+  "include": ["host.ts", "smoke.ts", "ui/**/*.ts", "src/**/*.ts", "moonbit-lib.d.ts"]
 }

@@ -70,11 +70,16 @@ pub impl @posoco.Observer for PrintObserver with fn on_event(
 ) -> Unit {
   match event {
     @posoco.TurnEvent::ToolCallPending(call) =>
-      println("  -> \{call.name}(\{call.arguments.stringify()})")
+      println("  -> \{call.name.to_string()}(\{call.arguments.stringify()})")
     @posoco.TurnEvent::ToolCallResult(call~, result~, is_error~) => {
       let status = if is_error { "x" } else { "ok" }
-      println("  [\{status}] \{call.name}")
-      let brief = result.content
+      println("  [\{status}] \{call.name.to_string()}")
+      let brief = match result {
+        Success(content~, ..) => content
+        ToolReportedError(content~, ..) => content
+        RuntimeFailure(message~, ..) => message
+        NotExecuted(..) => "not executed"
+      }
       if brief.length() > 200 {
         println("    " + brief[0:200].to_owned() + "...")
       } else {
@@ -98,8 +103,6 @@ pub(all) struct CetasHostConfig {
   max_tool_rounds : Int
   temperature : Double?
   max_output_tokens : Int?
-  tool_choice : @posoco.ToolChoice?
-  reasoning_effort : @posoco.ReasoningEffort?
   model_context_window : Int?
 }
 
@@ -109,57 +112,42 @@ pub fn CetasHostConfig::CetasHostConfig(
   max_tool_rounds? : Int = 20,
   temperature? : Double? = None,
   max_output_tokens? : Int? = None,
-  tool_choice? : @posoco.ToolChoice? = None,
-  reasoning_effort? : @posoco.ReasoningEffort? = None,
   model_context_window? : Int? = None,
 ) -> CetasHostConfig {
-  {
-    cwd,
-    max_tool_rounds,
-    temperature,
-    max_output_tokens,
-    tool_choice,
-    reasoning_effort,
-    model_context_window,
-  }
+  { cwd, max_tool_rounds, temperature, max_output_tokens, model_context_window }
 }
 
+///|
 pub fn build_agent_from_parts(
   model : &@posoco.ModelPort,
   tools : Array[&@posoco.ToolProvider],
   prompt_contributors : Array[&@posoco.SystemPromptContributor],
-  feature_hooks : Array[&@posoco.PipelineHook],
+  feature_pre_model_hooks : Array[&@posoco.PreModelHook],
+  commands : Array[&@posoco.CommandPort],
   store : &@posoco.SessionStore,
   observer : &@posoco.Observer,
   ui : &@posoco.UiPort,
   config : CetasHostConfig,
 ) -> @posoco.Agent raise @posoco.CompositionError {
-  // Build the system-prompt hook exactly as before: base prompt from cetas
-  // + every contributor section, then expose it as the sole PipelineHook
-  // (plus any feature hooks the host layers on top).
   let system_prompt = @posoco.SystemPromptHook(
     base_prompt=cetas_base_system_prompt(config.cwd),
-    contributors=
-      prompt_contributors.map(fn(c) {
-        @posoco.SystemPromptSection::SystemPromptSection(id="contributor", contributor=c)
-      }),
+    contributors=prompt_contributors.map(fn(c) {
+      @posoco.SystemPromptSection::SystemPromptSection(
+        id="contributor",
+        contributor=c,
+      )
+    }),
   )
-  let hooks : Array[&@posoco.PipelineHook] = [system_prompt]
-  for hook in feature_hooks {
-    hooks.push(hook)
+  let pre_model_hooks : Array[&@posoco.PreModelHook] = [system_prompt]
+  for hook in feature_pre_model_hooks {
+    pre_model_hooks.push(hook)
   }
   let agent_config : @posoco.AgentConfig = {
     max_tool_rounds: config.max_tool_rounds,
     temperature: config.temperature,
     max_output_tokens: config.max_output_tokens,
-    tool_choice: config.tool_choice,
-    reasoning_effort: config.reasoning_effort,
     model_context_window: config.model_context_window,
   }
-  // Compose one manifest per port contribution. Each one is wrapped in
-  // `ManifestOnly` (an anonymous Extension stub from the posoco testkit
-  // surface) so it satisfies `Array[&@posoco.Extension]`. Each manifest
-  // names its source for composition diagnostics.
   @posoco.Agent(
     exts=[
       @posoco.ManifestOnly::ManifestOnly({
@@ -168,8 +156,9 @@ pub fn build_agent_from_parts(
         tools: [],
         sessions: [],
         observers: [],
-        compressors: [],
-        hooks: [],
+        pre_model_hooks: [],
+        pre_tool_hooks: [],
+        post_event_hooks: [],
         memory: [],
         lifecycle: [],
         commands: [],
@@ -182,8 +171,9 @@ pub fn build_agent_from_parts(
         tools,
         sessions: [],
         observers: [],
-        compressors: [],
-        hooks: [],
+        pre_model_hooks: [],
+        pre_tool_hooks: [],
+        post_event_hooks: [],
         memory: [],
         lifecycle: [],
         commands: [],
@@ -196,11 +186,12 @@ pub fn build_agent_from_parts(
         tools: [],
         sessions: [],
         observers: [],
-        compressors: [],
-        hooks,
+        pre_model_hooks,
+        pre_tool_hooks: [],
+        post_event_hooks: [],
         memory: [],
         lifecycle: [],
-        commands: [],
+        commands,
         ui: [],
         prompt_contributors: [],
       }),
@@ -210,8 +201,9 @@ pub fn build_agent_from_parts(
         tools: [],
         sessions: [store],
         observers: [observer],
-        compressors: [@posoco.NoopCompressor::{}],
-        hooks: [],
+        pre_model_hooks: [],
+        pre_tool_hooks: [],
+        post_event_hooks: [],
         memory: [],
         lifecycle: [],
         commands: [],
@@ -238,17 +230,17 @@ pub async fn run_prompt(
   prompt : String,
   session_id : String,
 ) -> String raise @posoco.AgentError {
-  let user_msg : @posoco.Message = {
-    role: User,
-    content: [@posoco.Content::Text(prompt)],
-    tool_calls: [],
-    tool_call_id: None,
-    name: None,
-    reasoning_content: None,
-  }
+  let user_msg : @posoco.Message = @posoco.Message::UserMessage(content=[
+    @posoco.Content::Text(prompt),
+  ])
   let result = agent.run_turn(user_msg, session_id)
   let builder = StringBuilder::new()
-  for block in result.message.content {
+  // Extract Text blocks from the assistant's final message.
+  let content_blocks = match result.message {
+    AssistantMessage(content~, ..) => content
+    _ => []
+  }
+  for block in content_blocks {
     match block {
       Text(t) => {
         builder.write_string(t)
@@ -263,11 +255,9 @@ pub async fn run_prompt(
 // ============================================================================
 // build_default_* — canonical assembly backed by ext-* packages.
 //
-// These helpers wire up the same set of extensions on both cetas-native and
-// cetas-js so the two hosts behave identically. All listed ext-* packages
-// support both native and js targets (posoco-ext-log ships a ConsoleLogger
-// in its main package for cross-target use; xlog-backed logging is available
-// via the posoco-ext-log/xlog_native subpackage on native only).
+// These helpers wire up the shared coding-tool extensions. Model/provider
+// adapters and logging remain host-owned; this package only returns generic
+// tool and prompt contributions.
 // ============================================================================
 
 ///|
@@ -291,86 +281,4 @@ pub fn build_default_features() -> (
     read, write, edit, glob, grep, bash,
   ]
   (tools, prompts)
-}
-
-///|
-/// Split a possibly-prefixed base URL into a clean origin and a path prefix.
-///
-/// `@http.Client(uri)` requires that the URI contains no path segment (the
-/// guard checks path is "/").  When `DEEPSEEK_BASE_URL` carries a path such as
-/// `http://127.0.0.1:8998/v1`, the host address must be separated from the path
-/// prefix so the HTTP client receives a clean origin and the path is prepended
-/// to every endpoint call.
-///
-/// Examples:
-///   `"http://127.0.0.1:8998/v1"` → `("http://127.0.0.1:8998", "/v1")`
-///   `"https://api.deepseek.com"` → `("https://api.deepseek.com", "")`
-fn split_base_url(url : String) -> (String, String) {
-  match url.find("://") {
-    None => (url, "")
-    Some(protocol_end) => {
-      let after_protocol_start = protocol_end + 3
-      let after_protocol = url.sub(start=after_protocol_start)
-      match after_protocol.find("/") {
-        None => (url, "")
-        Some(slash_pos) => {
-          let host_end = after_protocol_start + slash_pos
-          let clean_base = url.sub(end=host_end).to_owned()
-          let prefix = after_protocol.sub(start=slash_pos).to_owned()
-          // Strip trailing slash so endpoint_prefix + "/chat/completions"
-          // produces "/v1/chat/completions" rather than "/v1//chat/completions".
-          let prefix_stripped = match prefix.strip_suffix("/") {
-            Some(s) => s.to_owned()
-            None => prefix
-          }
-          (clean_base, prefix_stripped)
-        }
-      }
-    }
-  }
-}
-
-///|
-/// Default model: DeepSeek-backed ModelPort.
-///
-/// `api_key` is required; `base_url` overrides the default DeepSeek endpoint
-/// (use this to point at a local OpenAI-compatible server); `model` picks the
-/// model name sent in the request body.
-///
-/// The `base_url` may carry a path segment (e.g. `http://host:port/v1`); this
-/// function splits it into a clean origin + `endpoint_prefix` so the HTTP
-/// client receives a path-less URI and the prefix is prepended to API paths.
-///
-/// Returns a `&@posoco.ModelPort` trait reference so callers do not need to
-/// import `colmugx/posoco-ext-deepseek` themselves; the DeepSeek-specific
-/// impl stays internal to cetas-core.
-pub fn build_default_model(
-  api_key : String,
-  base_url : String,
-  model : String,
-) -> &@posoco.ModelPort {
-  let (clean_base, prefix) = if base_url.length() > 0 {
-    split_base_url(base_url)
-  } else {
-    ("https://api.deepseek.com", "")
-  }
-  let cfg = @deepseek.DeepSeekConfig::new(
-    api_key,
-    model~,
-    base_url=clean_base,
-    endpoint_prefix=prefix,
-  )
-  let port = @deepseek.DeepSeekModelPort::new(cfg)
-  port
-}
-
-///|
-/// Default logger: cross-target ConsoleLogger.
-///
-/// On native, writes formatted single-line text to stdout via `println`.
-/// On js (bun), writes the same text via global `console.log`.
-/// Hosts that want xlog's structured output on native should construct
-/// `@log/xlog_native.XlogLogger` directly instead.
-pub fn build_default_logger() -> @log.ConsoleLogger {
-  @log.ConsoleLogger::new()
 }

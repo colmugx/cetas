@@ -3,36 +3,57 @@ package "colmugx/cetas-core/lib"
 
 import {
   "colmugx/posoco",
+  "colmugx/posoco/error",
+  "colmugx/posoco/port",
+  "colmugx/posoco/types",
 }
 
 // Values
-pub fn build_agent_from_parts(&@posoco.ModelPort, Array[&@posoco.ToolProvider], &@posoco.SessionStore, &@posoco.Observer, CetasHostConfig) -> @posoco.Agent raise @posoco.CompositionError
+pub fn build_agent_from_parts(&@port.ModelPort, Array[&@port.ToolProvider], Array[&@port.SystemPromptContributor], Array[&@port.PreModelHook], Array[&@port.CommandPort], &@port.SessionStore, &@port.Observer, &@port.UiPort, CetasHostConfig) -> @posoco.Agent raise @error.CompositionError
 
-pub async fn run_prompt(@posoco.Agent, String, String) -> String raise @posoco.AgentError
+pub fn build_default_features() -> (Array[&@port.ToolProvider], Array[&@port.SystemPromptContributor])
+
+pub async fn run_prompt(@posoco.Agent, String, String) -> String raise @error.AgentError
 
 // Errors
 
 // Types and methods
 pub(all) struct CetasHostConfig {
+  cwd : String
   max_tool_rounds : Int
   temperature : Double?
   max_output_tokens : Int?
-  tool_choice : @posoco.ToolChoice?
-  reasoning_effort : @posoco.ReasoningEffort?
   model_context_window : Int?
 }
-pub fn CetasHostConfig::CetasHostConfig(max_tool_rounds? : Int, temperature? : Double?, max_output_tokens? : Int?, tool_choice? : @posoco.ToolChoice?, reasoning_effort? : @posoco.ReasoningEffort?, model_context_window? : Int?) -> Self
+pub fn CetasHostConfig::CetasHostConfig(String, max_tool_rounds? : Int, temperature? : Double?, max_output_tokens? : Int?, model_context_window? : Int?) -> Self
 
 pub(all) struct InMemorySessionStore {
-  sessions : Map[String, @posoco.Session]
+  sessions : Map[String, @types.Session]
 }
 pub fn InMemorySessionStore::new() -> Self
-pub impl @posoco.SessionStore for InMemorySessionStore
+pub impl @port.SessionStore for InMemorySessionStore
 
 pub(all) struct PrintObserver {
 }
 pub fn PrintObserver::new() -> Self
-pub impl @posoco.Observer for PrintObserver
+pub impl @port.Observer for PrintObserver
+
+pub(all) struct ProfileCommand {
+  ui : &@port.UiPort
+  list_profiles : () -> Array[ProfileSpec]
+  mut on_load : (String) -> Unit
+  mut on_save : (String) -> Unit
+  mut on_delete : (String) -> Unit
+}
+pub fn ProfileCommand::new(&@port.UiPort, list_profiles~ : () -> Array[ProfileSpec], on_load~ : (String) -> Unit, on_save~ : (String) -> Unit, on_delete~ : (String) -> Unit) -> Self
+pub impl @port.CommandPort for ProfileCommand
+
+pub(all) struct ProfileSpec {
+  name : String
+  label : String
+}
+pub fn ProfileSpec::ProfileSpec(String) -> Self
+pub fn ProfileSpec::with_label(name~ : String, label~ : String) -> Self
 
 // Type aliases
 

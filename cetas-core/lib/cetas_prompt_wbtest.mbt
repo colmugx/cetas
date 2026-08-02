@@ -21,14 +21,12 @@ test "cetas rejects an empty cwd" {
 test "every default coding feature contributes prompt instructions" {
   let (_, contributors) = build_default_features()
   assert_true(contributors.length() >= 1)
-  let sections : Array[@posoco.SystemPromptSection] = contributors.map(
-    fn(c) {
-      @posoco.SystemPromptSection::SystemPromptSection(
-        id="contributor",
-        contributor=c,
-      )
-    },
-  )
+  let sections : Array[@posoco.SystemPromptSection] = contributors.map(fn(c) {
+    @posoco.SystemPromptSection::SystemPromptSection(
+      id="contributor",
+      contributor=c,
+    )
+  })
   let hook = @posoco.SystemPromptHook::SystemPromptHook(
     base_prompt=cetas_base_system_prompt("/workspace"),
     contributors=sections,

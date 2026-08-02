@@ -1,8 +1,8 @@
 ///|
 /// cetas_js.mbt — JS host assembly for cetas-js.
 ///
-/// Composes BunDeepSeekModel + BunFsTools + BunBashTool + cetas-core's
-/// InMemorySessionStore + JsCallbackObserver into a posoco Agent.
+/// Composes the provider-owned model router, generic coding-tool features,
+/// cetas-core's session store, and JsCallbackObserver into a Posoco Agent.
 
 // ---------------------------------------------------------------------------
 // JsCallbackObserver — bridges TurnEvent to TS via a registered callback.
@@ -15,8 +15,17 @@
 pub type JsCallback
 
 ///|
+/// JS callback used by provider OAuth polling to observe host cancellation.
+#external
+pub type JsCancelCheck
+
+///|
 extern "js" fn JsCallback::invoke(self : JsCallback, arg : String) -> Unit =
   #| (cb, arg) => cb(arg)
+
+///|
+extern "js" fn JsCancelCheck::is_cancelled(self : JsCancelCheck) -> Bool =
+  #| (cb) => cb()
 
 ///|
 /// Observer that forwards every TurnEvent to a registered JS callback,
@@ -43,12 +52,12 @@ fn content_to_json(c : @posoco.Content) -> Json {
           ("text", Json::string(t)),
         ]),
       )
-    @posoco.Content::Image(url, mime) =>
+    @posoco.Content::Image(media_type~, data~) =>
       Json::object(
         Map::from_array([
           ("type", Json::string("image")),
-          ("url", Json::string(url)),
-          ("mime", Json::string(mime)),
+          ("url", Json::string(data)),
+          ("mime", Json::string(media_type)),
         ]),
       )
   }
@@ -59,25 +68,37 @@ fn content_to_json(c : @posoco.Content) -> Json {
 /// field the UI may want is emitted so the TS side can do a full replace on
 /// each `message_update`.
 fn message_to_json(msg : @posoco.Message) -> Json {
+  let (content_blocks, tool_calls, reasoning_str) = match msg {
+    AssistantMessage(content~, tool_calls~, reasoning~, ..) => {
+      // Read the inner String directly. `Reasoning`'s custom `Show` impl
+      // (domain_message.mbt:117) renders only a length summary
+      // ("Reasoning(N chars)"), so `r.to_string()` would leak that Debug form
+      // to the wire — Bug #2-a.
+      let r = match reasoning {
+        Some(r) => Some(r.content)
+        None => None
+      }
+      (content, tool_calls, r)
+    }
+    UserMessage(content~) | SystemMessage(content~) => (content, [], None)
+    ToolMessage(..) => ([], [], None)
+  }
   let content_arr : Array[Json] = []
-  for c in msg.content {
+  for c in content_blocks {
     content_arr.push(content_to_json(c))
   }
   let fields : Array[(String, Json)] = [
     ("role", Json::string("assistant")),
     ("content", Json::array(content_arr)),
   ]
-  // Tool calls ride on Message in posoco's canonical shape.
-  if msg.tool_calls.length() > 0 {
+  if tool_calls.length() > 0 {
     let tc_arr : Array[Json] = []
-    for tc in msg.tool_calls {
+    for tc in tool_calls {
       tc_arr.push(
         Json::object(
           Map::from_array([
-            ("id", Json::string(tc.id)),
-            ("name", Json::string(tc.name)),
-            // Arguments are already a Json object per ToolCall spec —
-            // stringify so the TS side sees the OpenAI-style string form.
+            ("id", Json::string(tc.call_id.to_string())),
+            ("name", Json::string(tc.name.to_string())),
             ("arguments", Json::string(tc.arguments.stringify())),
           ]),
         ),
@@ -85,7 +106,7 @@ fn message_to_json(msg : @posoco.Message) -> Json {
     }
     fields.push(("toolCalls", Json::array(tc_arr)))
   }
-  match msg.reasoning_content {
+  match reasoning_str {
     Some(r) => fields.push(("reasoning", Json::string(r)))
     None => ()
   }
@@ -151,28 +172,33 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
       Json::object(
         Map::from_array([
           ("type", Json::string("tool_call_started")),
-          ("tool_call_id", Json::string(call.id)),
-          ("tool_name", Json::string(call.name)),
-          // Arguments arrive as a Json value; pass through so the UI can
-          // render tool-specific views (path, command, pattern, ...).
+          ("tool_call_id", Json::string(call.call_id.to_string())),
+          ("tool_name", Json::string(call.name.to_string())),
           ("args", call.arguments),
         ]),
       )
-    @posoco.TurnEvent::ToolCallResult(call~, result~, is_error~) =>
+    @posoco.TurnEvent::ToolCallResult(call~, result~, is_error~) => {
+      let result_text = match result {
+        Success(content~, ..) => content
+        ToolReportedError(content~, ..) => content
+        RuntimeFailure(message~, ..) => message
+        NotExecuted(..) => "not executed"
+      }
       Json::object(
         Map::from_array([
           ("type", Json::string("tool_call_completed")),
-          ("tool_call_id", Json::string(call.id)),
-          ("result", Json::string(result.content)),
+          ("tool_call_id", Json::string(call.call_id.to_string())),
+          ("result", Json::string(result_text)),
           ("is_error", Json::boolean(is_error)),
         ]),
       )
+    }
     // ModelResponseReceived is the closest posoco gives us to a "message_end"
     // event: it fires once per non-streaming assistant message with the full
     // Message struct. We emit both `message_end` (for transcript append) and
     // a synthetic `model_invoked` (for token/usage rendering) so the UI has
     // both shapes without a second bridge.
-    @posoco.TurnEvent::ModelResponseReceived(message~, usage~, ..) => {
+    @posoco.TurnEvent::ModelResponseReceived(message~, usage~) => {
       let msg_json = message_to_json(message)
       let model_invoked = Json::object(
         Map::from_array([
@@ -198,8 +224,8 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
       Json::object(
         Map::from_array([
           ("type", Json::string("tool_call_deferred")),
-          ("tool_call_id", Json::string(call.id)),
-          ("tool_name", Json::string(call.name)),
+          ("tool_call_id", Json::string(call.call_id.to_string())),
+          ("tool_name", Json::string(call.name.to_string())),
           ("reason", Json::string(reason)),
         ]),
       )
@@ -232,7 +258,12 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
               ("kind", Json::string("reasoning")),
             ]),
           )
-        @posoco.StreamChunk::Usage(u) =>
+        @posoco.StreamChunk::Usage(input_tokens~, output_tokens~, total_tokens~) => {
+          let u : @posoco.Usage = {
+            input_tokens: Some(input_tokens),
+            output_tokens: Some(output_tokens),
+            total_tokens: Some(total_tokens),
+          }
           Json::object(
             Map::from_array([
               ("type", Json::string("model_invoked")),
@@ -240,6 +271,7 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
               ("usage", usage_to_json(Some(u))),
             ]),
           )
+        }
         @posoco.StreamChunk::ToolCallDelta(..) =>
           // Tool-call argument deltas arrive fragmented; the UI cannot act on
           // them until the full call resolves to ToolCallPending. Return Null
@@ -261,6 +293,24 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
           ("source", Json::string(source)),
           ("label", Json::string(label)),
           ("data", data),
+        ]),
+      )
+    @posoco.TurnEvent::ConfigChanged(field~, old_value~, new_value~) =>
+      Json::object(
+        Map::from_array([
+          ("type", Json::string("config_changed")),
+          ("field", Json::string(field)),
+          ("old", Json::string(old_value)),
+          ("new", Json::string(new_value)),
+        ]),
+      )
+    @posoco.TurnEvent::ConfigWarning(field~, value~, reason~) =>
+      Json::object(
+        Map::from_array([
+          ("type", Json::string("config_warning")),
+          ("field", Json::string(field)),
+          ("value", Json::string(value)),
+          ("reason", Json::string(reason)),
         ]),
       )
   }
@@ -313,9 +363,10 @@ extern "js" fn JsUiRenderCallback::invoke(
 /// JS callback type for interactive requests:
 /// `(eventJson: string) => Promise<string>`.
 ///
-/// The Promise must resolve to the strict `ui_response` JSON shape declared
-/// in `src/events.ts`. Rejection is a host failure, never an implicit
-/// cancellation.
+/// A normal `UiPort` request resolves to the strict `ui_response` JSON shape
+/// declared in `src/events.ts`; an `auth_prompt` request resolves to the
+/// provider-neutral selected option id or secret text. Rejection is a host
+/// failure, never an implicit cancellation.
 #external
 pub type JsUiRequestCallback
 
@@ -574,7 +625,8 @@ fn raise_ui_response_error(
   }
   match code {
     "cancelled" => raise @error.UiError::Cancelled
-    "unsupported" => raise @error.UiError::Unsupported(detail="unsupported UI response error")
+    "unsupported" =>
+      raise @error.UiError::Unsupported(detail="unsupported UI response error")
     "timeout" => raise @error.UiError::IoFailure(detail="UI request timed out")
     "host_error" => {
       let message = match fields.get("message") {
@@ -665,16 +717,13 @@ pub impl @port.UiPort for JsUiPort with fn request(
 // ---------------------------------------------------------------------------
 
 ///|
-/// Host configuration. All fields required and positional because MoonBit's
-/// js backend exports optional/labeled args in a positional-but-flagged shape
-/// that's awkward to call from TS. The TS host must always pass all 5 args
-/// (use empty string / sensible default at the TS layer if needed).
+/// Bridge configuration. Provider settings, endpoints, model ids, and
+/// credentials come from the generic settings/credential stores and are
+/// interpreted by registered provider extensions; they are not host-owned
+/// config.
 /// Source: ffi.html — "#export_name is not available on functions with
 /// optional arguments".
 pub(all) struct CetasJsConfig {
-  api_key : String
-  base_url : String
-  model : String
   cwd : String
   max_tool_rounds : Int
 }
@@ -682,13 +731,32 @@ pub(all) struct CetasJsConfig {
 ///|
 /// Plain positional constructor — no labeled, no optional, no defaults.
 pub fn CetasJsConfig::CetasJsConfig(
-  api_key : String,
-  base_url : String,
-  model : String,
   cwd : String,
   max_tool_rounds : Int,
 ) -> CetasJsConfig {
-  { api_key, base_url, model, cwd, max_tool_rounds }
+  { cwd, max_tool_rounds }
+}
+
+///|
+/// Private stateful bridge context. It is deliberately separate from the
+/// universal `CetasJsConfig`: provider catalog values (which contain opaque
+/// ModelPort implementations) live only for one bridge/application instance,
+/// never in the host config or renderer and never in a process-global map.
+pub(all) struct CetasJsRuntime {
+  config : CetasJsConfig
+  catalog_cache : Map[String, @llm.ProviderModelCatalog]
+}
+
+///|
+pub fn CetasJsRuntime::new(config : CetasJsConfig) -> CetasJsRuntime {
+  { config, catalog_cache: Map::from_array([]) }
+}
+
+///|
+/// Positional constructor exported for the JavaScript bridge. The runtime
+/// remains opaque to JS; only the bridge functions can inspect its cache.
+pub fn CetasJsRuntime::CetasJsRuntime(config : CetasJsConfig) -> CetasJsRuntime {
+  CetasJsRuntime::new(config)
 }
 
 // ---------------------------------------------------------------------------
@@ -699,8 +767,15 @@ pub fn CetasJsConfig::CetasJsConfig(
 /// Long-lived cetas-js agent handle. The JS host constructs it once and reuses
 /// it across turns so model adapters, UI correlation state, and the persistent
 /// session store have one process lifetime.
-pub(all) struct CetasJsAgent {
+///
+/// The handle is intentionally opaque: JS consumers may only use the exported
+/// bridge functions below and cannot bypass the Agent lifecycle boundary. A
+/// profile load is reported to the TypeScript application, which then asks the
+/// bridge to compose a fresh handle; the handle itself does not expose Agent
+/// or provider internals.
+pub struct CetasJsAgent {
   agent : @posoco.Agent
+  profile_errors : Array[String]
 }
 
 ///|
@@ -713,41 +788,494 @@ pub fn cetas_js_create_agent(
   observer_callback : JsCallback,
   render_callback : JsUiRenderCallback,
   request_callback : JsUiRequestCallback,
+  cancel_check : JsCancelCheck,
+) -> @js_async.Promise[CetasJsAgent] {
+  cetas_js_runtime_create_agent(
+    CetasJsRuntime::new(config),
+    observer_callback,
+    render_callback,
+    request_callback,
+    cancel_check,
+  )
+}
+
+///|
+/// Stateful-runtime variant used by the TypeScript application. All provider
+/// catalog construction for one application instance shares this runtime's
+/// private repository; no host config or renderer stores provider internals.
+pub fn cetas_js_runtime_create_agent(
+  runtime : CetasJsRuntime,
+  observer_callback : JsCallback,
+  render_callback : JsUiRenderCallback,
+  request_callback : JsUiRequestCallback,
+  cancel_check : JsCancelCheck,
 ) -> @js_async.Promise[CetasJsAgent] {
   @js_async.Promise::from_async() <| () => {
-    let model = @cetas_core.build_default_model(
-      config.api_key,
-      config.base_url,
-      config.model,
+    let credential_store = JsProviderCredentialStore::new(runtime.config.cwd)
+    let auth_interaction = JsAuthInteraction::new(
+      observer_callback, request_callback, cancel_check,
+    )
+    let model = build_provider_router(
+      runtime, credential_store, auth_interaction,
     )
     let (tools, prompt_contributors) = @cetas_core.build_default_features()
     let store = @fs_session.JsonlSessionStore::new(
-      config.cwd + "/.cetas/sessions",
+      runtime.config.cwd + "/.cetas/sessions",
     )
+    let profile_errors : Array[String] = []
     let observer = JsCallbackObserver::new(observer_callback)
     let ui = JsUiPort::new(render_callback, request_callback)
-    let host_config : @cetas_core.CetasHostConfig = {
-      cwd: config.cwd,
-      max_tool_rounds: config.max_tool_rounds,
-      temperature: None,
-      max_output_tokens: None,
-      tool_choice: None,
-      reasoning_effort: None,
-      model_context_window: None,
-    }
+    let host_config = @cetas_core.CetasHostConfig::CetasHostConfig(
+      runtime.config.cwd,
+      max_tool_rounds=runtime.config.max_tool_rounds,
+      temperature=None,
+      max_output_tokens=None,
+      model_context_window=None,
+    )
+    let profile_cmd = @cetas_core.ProfileCommand::new(
+      ui as &@posoco.UiPort,
+      list_profiles=fn() {
+        list_profile_files(
+          runtime.config.cwd + "/.cetas/profiles",
+          profile_errors,
+        )
+      },
+      on_load=fn(name : String) {
+        load_profile(
+          runtime.config.cwd + "/.cetas/profiles",
+          runtime.config.cwd + "/.cetas/settings.json",
+          name,
+          profile_errors,
+        )
+      },
+      on_save=fn(name : String) {
+        save_profile(
+          runtime.config.cwd + "/.cetas/profiles",
+          runtime.config.cwd + "/.cetas/settings.json",
+          name,
+          profile_errors,
+        )
+      },
+      on_delete=fn(name : String) {
+        delete_profile(
+          runtime.config.cwd + "/.cetas/profiles",
+          name,
+          profile_errors,
+        )
+      },
+    )
+    let commands : Array[&@posoco.CommandPort] = [
+      model as &@posoco.CommandPort,
+      profile_cmd,
+    ]
     let agent = @cetas_core.build_agent_from_parts(
-      model,
+      model as &@posoco.ModelPort,
       tools,
       prompt_contributors,
       [],
+      commands,
       store,
       observer,
       ui,
       host_config,
     )
-    { agent, }
+    { agent, profile_errors }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Provider capability discovery and OAuth exports.
+// ---------------------------------------------------------------------------
+
+///|
+/// Async JS export for setup discovery.  It has no Agent side effects.
+pub fn cetas_js_describe_setup(
+  config : CetasJsConfig,
+) -> @js_async.Promise[String] {
+  cetas_js_runtime_describe_setup(CetasJsRuntime::new(config))
+}
+
+///|
+pub fn cetas_js_runtime_describe_setup(
+  runtime : CetasJsRuntime,
+) -> @js_async.Promise[String] {
+  @js_async.Promise::from_async() <| () => { provider_setup_json(runtime) }
+}
+
+///|
+/// Explicit provider-neutral model catalog refresh. An empty provider selector
+/// refreshes all registered providers; a JSON array refreshes only those ids.
+/// The process-lifetime cache is updated before setup JSON is returned, so a
+/// subsequent `describe_setup` or Agent recomposition only reads cached data.
+pub fn cetas_js_refresh_model_catalogs(
+  config : CetasJsConfig,
+  provider_ids_json : String,
+) -> @js_async.Promise[String] {
+  cetas_js_runtime_refresh_model_catalogs(
+    CetasJsRuntime::new(config),
+    provider_ids_json,
+  )
+}
+
+///|
+pub fn cetas_js_runtime_refresh_model_catalogs(
+  runtime : CetasJsRuntime,
+  provider_ids_json : String,
+) -> @js_async.Promise[String] {
+  @js_async.Promise::from_async() <| () => {
+    refresh_model_catalogs(runtime, provider_ids_json)
+  }
+}
+
+///|
+/// Run provider-owned OAuth before composing an Agent. The app state machine
+/// invokes this only from NeedsSetup; provider endpoint and credential details
+/// stay inside the extension bridge.
+pub fn cetas_js_login_provider(
+  config : CetasJsConfig,
+  provider_id : String,
+  observer_callback : JsCallback,
+  request_callback : JsUiRequestCallback,
+  cancel_check : JsCancelCheck,
+  method : String,
+) -> @js_async.Promise[String] {
+  cetas_js_runtime_login_provider(
+    CetasJsRuntime::new(config),
+    provider_id,
+    observer_callback,
+    request_callback,
+    cancel_check,
+    method,
+  )
+}
+
+///|
+pub fn cetas_js_runtime_login_provider(
+  runtime : CetasJsRuntime,
+  provider_id : String,
+  observer_callback : JsCallback,
+  request_callback : JsUiRequestCallback,
+  cancel_check : JsCancelCheck,
+  method : String,
+) -> @js_async.Promise[String] {
+  @js_async.Promise::from_async() <| () => {
+    login_provider(
+      runtime, provider_id, observer_callback, request_callback, cancel_check, method,
+    )
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Profile file IO via Bun FFI.
+// ---------------------------------------------------------------------------
+
+///|
+/// Read a profile directory and return ProfileSpec entries (one per .json file).
+/// A missing profile directory means there are no profiles; permission and
+/// other filesystem errors are recorded and raised by command invocation.
+fn list_profile_files(
+  dir : String,
+  errors : Array[String],
+) -> Array[@cetas_core.ProfileSpec] {
+  let (entries, error) = profile_readdir(dir)
+  match error {
+    Some(message) if message.contains("ENOENT") => ()
+    Some(message) => {
+      errors.push("profile list failed: " + message)
+      return []
+    }
+    None => ()
+  }
+  let entries = match entries {
+    Some(value) => value
+    None => return []
+  }
+  let specs : Array[@cetas_core.ProfileSpec] = []
+  for entry in entries {
+    if entry.has_suffix(".json") {
+      let stem = entry.sub(end=entry.length() - 5).to_owned()
+      if valid_profile_name(stem) {
+        specs.push(@cetas_core.ProfileSpec::ProfileSpec(stem))
+      } else {
+        errors.push("invalid profile filename: " + entry)
+      }
+    }
+  }
+  specs
+}
+
+///|
+/// Profile names are file stems, never paths. Reject traversal and separator
+/// characters before any file operation so callbacks cannot escape `.cetas`.
+fn valid_profile_name(name : String) -> Bool {
+  if name.length() == 0 ||
+    name == "." ||
+    name == ".." ||
+    name.contains("/") ||
+    name.contains("\\") {
+    false
+  } else {
+    true
+  }
+}
+
+///|
+/// Parse and validate the profile payload before writing it anywhere. Profiles
+/// are provider settings objects; preserving the original JSON keeps provider
+/// extensions responsible for their own fields and defaults.
+fn validated_profile_text(
+  text : String,
+  name : String,
+  errors : Array[String],
+) -> String? {
+  let json = @json.parse(text) catch {
+    _ => {
+      errors.push("profile " + name + " is not valid JSON")
+      return None
+    }
+  }
+  match json {
+    Json::Object(_) => Some(text)
+    _ => {
+      errors.push("profile " + name + " must contain a JSON object")
+      None
+    }
+  }
+}
+
+///|
+fn profile_path(dir : String, name : String, errors : Array[String]) -> String? {
+  if !valid_profile_name(name) {
+    errors.push("invalid profile name: " + name)
+    None
+  } else {
+    Some(dir + "/" + name + ".json")
+  }
+}
+
+///|
+fn save_profile(
+  dir : String,
+  settings_path : String,
+  name : String,
+  errors : Array[String],
+) -> Unit {
+  let path = match profile_path(dir, name, errors) {
+    Some(value) => value
+    None => return
+  }
+  let settings = match profile_read(settings_path) {
+    (Some(value), _) => value
+    (None, Some(message)) if message.contains("ENOENT") => "{\"providers\":{}}"
+    (None, Some(message)) => {
+      errors.push("profile settings read failed: " + message)
+      return
+    }
+    (None, None) => {
+      errors.push("profile settings read failed: unknown error")
+      return
+    }
+  }
+  let text = match validated_profile_text(settings, name, errors) {
+    Some(value) => value
+    None => return
+  }
+  match profile_mkdir(dir) {
+    Some(message) => {
+      errors.push("profile directory create failed: " + message)
+      return
+    }
+    None => ()
+  }
+  match profile_write(path, text) {
+    Some(message) => errors.push("profile save failed: " + message)
+    None => ()
+  }
+}
+
+///|
+fn load_profile(
+  dir : String,
+  settings_path : String,
+  name : String,
+  errors : Array[String],
+) -> Unit {
+  let path = match profile_path(dir, name, errors) {
+    Some(value) => value
+    None => return
+  }
+  let text = match profile_read(path) {
+    (Some(value), _) => value
+    (None, Some(message)) => {
+      errors.push("profile load failed: " + message)
+      return
+    }
+    (None, None) => {
+      errors.push("profile load failed: unknown error")
+      return
+    }
+  }
+  let text = match validated_profile_text(text, name, errors) {
+    Some(value) => value
+    None => return
+  }
+  match profile_write(settings_path, text) {
+    Some(message) => errors.push("profile settings write failed: " + message)
+    None => ()
+  }
+}
+
+///|
+fn delete_profile(dir : String, name : String, errors : Array[String]) -> Unit {
+  let path = match profile_path(dir, name, errors) {
+    Some(value) => value
+    None => return
+  }
+  match profile_delete(path) {
+    Some(message) => errors.push("profile delete failed: " + message)
+    None => ()
+  }
+}
+
+///|
+fn profile_readdir(path : String) -> (Array[String]?, String?) {
+  let raw = bun_profile_readdir_result(path)
+  let json = @json.parse(raw) catch {
+    _ => return (None, Some("profile directory result is not valid JSON"))
+  }
+  match json {
+    Json::Object(fields) =>
+      match fields.get("ok") {
+        Some(Json::True) =>
+          match fields.get("entries") {
+            Some(Json::Array(items)) => {
+              let entries : Array[String] = []
+              for item in items {
+                match item {
+                  Json::String(value) => entries.push(value)
+                  _ =>
+                    return (
+                      None,
+                      Some("profile directory entry is not a string"),
+                    )
+                }
+              }
+              (Some(entries), None)
+            }
+            _ => (None, Some("profile directory result has no entries"))
+          }
+        Some(Json::False) => (None, profile_result_error(fields))
+        _ => (None, Some("profile directory result has no ok flag"))
+      }
+    _ => (None, Some("profile directory result must be an object"))
+  }
+}
+
+///|
+fn profile_read(path : String) -> (String?, String?) {
+  let raw = bun_profile_read_result(path)
+  let json = @json.parse(raw) catch {
+    _ => return (None, Some("profile read result is not valid JSON"))
+  }
+  match json {
+    Json::Object(fields) =>
+      match fields.get("ok") {
+        Some(Json::True) =>
+          match fields.get("value") {
+            Some(Json::String(value)) => (Some(value), None)
+            _ => (None, Some("profile read result has no value"))
+          }
+        Some(Json::False) => (None, profile_result_error(fields))
+        _ => (None, Some("profile read result has no ok flag"))
+      }
+    _ => (None, Some("profile read result must be an object"))
+  }
+}
+
+///|
+fn profile_result_error(fields : Map[String, Json]) -> String? {
+  match fields.get("error") {
+    Some(Json::String(value)) => Some(value)
+    _ => Some("unknown filesystem error")
+  }
+}
+
+///|
+fn profile_mkdir(path : String) -> String? {
+  let message = bun_profile_mkdir_result(path)
+  if message == "" {
+    None
+  } else {
+    Some(message)
+  }
+}
+
+///|
+fn profile_write(path : String, contents : String) -> String? {
+  let message = bun_profile_write_result(path, contents)
+  if message == "" {
+    None
+  } else {
+    Some(message)
+  }
+}
+
+///|
+fn profile_delete(path : String) -> String? {
+  let message = bun_profile_delete_result(path)
+  if message == "" {
+    None
+  } else {
+    Some(message)
+  }
+}
+
+///|
+extern "js" fn bun_profile_readdir_result(path : String) -> String =
+  #| (path) => {
+  #|   const fs = require("fs");
+  #|   try { return JSON.stringify({ ok: true, entries: fs.readdirSync(path) }); }
+  #|   catch (error) {
+  #|     return JSON.stringify({ ok: false, error: String(error) });
+  #|   }
+  #| }
+
+///|
+extern "js" fn bun_profile_read_result(path : String) -> String =
+  #| (path) => {
+  #|   const fs = require("fs");
+  #|   try { return JSON.stringify({ ok: true, value: fs.readFileSync(path, "utf-8") }); }
+  #|   catch (error) {
+  #|     return JSON.stringify({ ok: false, error: String(error) });
+  #|   }
+  #| }
+
+///|
+extern "js" fn bun_profile_mkdir_result(path : String) -> String =
+  #| (path) => {
+  #|   const fs = require("fs");
+  #|   try { fs.mkdirSync(path, { recursive: true }); return ""; }
+  #|   catch (error) { return String(error); }
+  #| }
+
+///|
+extern "js" fn bun_profile_write_result(
+  path : String,
+  contents : String,
+) -> String =
+  #| (path, contents) => {
+  #|   const fs = require("fs");
+  #|   try { fs.writeFileSync(path, contents, "utf-8"); return ""; }
+  #|   catch (error) { return String(error); }
+  #| }
+
+///|
+extern "js" fn bun_profile_delete_result(path : String) -> String =
+  #| (path) => {
+  #|   const fs = require("fs");
+  #|   try { fs.unlinkSync(path); return ""; }
+  #|   catch (error) { return String(error); }
+  #| }
 
 // ---------------------------------------------------------------------------
 // Exports for TS host.
@@ -782,4 +1310,207 @@ pub fn cetas_js_run_turn(
 /// Promise and remain visible to the JS host.
 pub fn cetas_js_shutdown(handle : CetasJsAgent) -> @js_async.Promise[Unit] {
   @js_async.Promise::from_async() <| () => { handle.agent.shutdown() }
+}
+
+// ---------------------------------------------------------------------------
+// CommandPort FFI — list_commands + invoke_command.
+// Lets the TS host enumerate slash commands from extensions and route
+// invocations back through the MoonBit CommandPort pipeline.
+// ---------------------------------------------------------------------------
+
+///|
+fn command_type_to_json(ctype : @port.CommandType) -> Json {
+  let tag = match ctype {
+    Action => "action"
+    Toggle => "toggle"
+    Select => "select"
+    Input => "input"
+    MultiStep => "multi_step"
+  }
+  Json::string(tag)
+}
+
+///|
+fn param_type_to_json(ptype : @port.ParamType) -> Json {
+  let tag = match ptype {
+    Str => "str"
+    Int => "int"
+    Bool => "bool"
+    Strs => "strs"
+  }
+  Json::string(tag)
+}
+
+///|
+fn ui_hint_to_json(hint : @port.UiHint) -> Json {
+  let tag = match hint {
+    RefreshModelList => "refresh_model_list"
+    RefreshSettings => "refresh_settings"
+    ClosePanel => "close_panel"
+    Toast => "toast"
+    None => "none"
+  }
+  Json::string(tag)
+}
+
+///|
+fn command_param_to_json(p : @port.CommandParam) -> Json {
+  let fields : Array[(String, Json)] = [
+    ("name", Json::string(p.name)),
+    ("label", Json::string(p.label)),
+    ("description", Json::string(p.description)),
+    ("ptype", param_type_to_json(p.ptype)),
+    ("required", Json::boolean(p.required)),
+    ("positional", Json::boolean(p.positional)),
+  ]
+  match p.default {
+    Some(v) => fields.push(("default", v))
+    None => ()
+  }
+  match p.choices {
+    Some(cs) => {
+      let arr : Array[Json] = []
+      for c in cs {
+        arr.push(Json::string(c))
+      }
+      fields.push(("choices", Json::array(arr)))
+    }
+    None => ()
+  }
+  Json::object(Map::from_array(fields))
+}
+
+///|
+fn command_def_to_json(def : @port.CommandDef) -> Json {
+  let params_arr : Array[Json] = []
+  for p in def.params {
+    params_arr.push(command_param_to_json(p))
+  }
+  let aliases_arr : Array[Json] = []
+  for a in def.aliases {
+    aliases_arr.push(Json::string(a))
+  }
+  let fields : Array[(String, Json)] = [
+    ("id", Json::string(def.id)),
+    ("label", Json::string(def.label)),
+    ("description", Json::string(def.description)),
+    ("category", Json::string(def.category)),
+    ("ctype", command_type_to_json(def.ctype)),
+    ("params", Json::array(params_arr)),
+    ("aliases", Json::array(aliases_arr)),
+    ("visible", Json::boolean(def.visible)),
+  ]
+  match def.shortcut {
+    Some(s) => fields.push(("shortcut", Json::string(s)))
+    None => ()
+  }
+  match def.icon {
+    Some(i) => fields.push(("icon", Json::string(i)))
+    None => ()
+  }
+  match def.metadata {
+    Some(m) => fields.push(("metadata", m))
+    None => ()
+  }
+  Json::object(Map::from_array(fields))
+}
+
+///|
+fn command_outcome_to_json(outcome : @port.CommandOutcome) -> Json {
+  match outcome {
+    Success(feedback~, structured~, ui_hint~) => {
+      let fields : Array[(String, Json)] = [
+        ("type", Json::string("success")),
+        ("feedback", Json::string(feedback)),
+      ]
+      match structured {
+        Some(s) => fields.push(("structured", s))
+        None => ()
+      }
+      match ui_hint {
+        Some(h) => fields.push(("ui_hint", ui_hint_to_json(h)))
+        None => ()
+      }
+      Json::object(Map::from_array(fields))
+    }
+    Failure(reason~) =>
+      Json::object(
+        Map::from_array([
+          ("type", Json::string("failure")),
+          ("reason", Json::string(reason)),
+        ]),
+      )
+    NeedsInput(prompt~) =>
+      Json::object(
+        Map::from_array([
+          ("type", Json::string("needs_input")),
+          ("prompt", Json::string(prompt)),
+        ]),
+      )
+  }
+}
+
+///|
+/// Enumerate all commands (built-in + extension) as a JSON array string.
+/// Each entry is a serialized CommandDef. Synchronous: Agent::commands() does
+/// no IO and returns the composed command ports.
+pub fn cetas_js_list_commands(handle : CetasJsAgent) -> String {
+  let ports = handle.agent.commands()
+  let defs : Array[Json] = []
+  for port in ports {
+    for def in port.commands() {
+      defs.push(command_def_to_json(def))
+    }
+  }
+  Json::array(defs).stringify()
+}
+
+///|
+/// Invoke a command by id. Routes to the first CommandPort that declares it.
+/// Returns a CommandOutcome as JSON. Unknown ids yield Failure (not a Promise
+/// rejection) so the TS host can render uniformly. Errors raised by invoke
+/// (CommandError::InvalidArgs / ExecutionFailed) become Promise rejections.
+pub fn cetas_js_invoke_command(
+  handle : CetasJsAgent,
+  id : String,
+  args_json : String,
+) -> @js_async.Promise[String] {
+  @js_async.Promise::from_async() <| () => {
+    // Profile callbacks are synchronous CommandPort hooks. Keep their host
+    // errors in the opaque handle until this invocation returns, then turn
+    // them into a typed command failure so JS observes a rejected Promise
+    // instead of a fabricated success outcome.
+    handle.profile_errors.clear()
+    let args = @json.parse(args_json) catch {
+      _ =>
+        raise @posoco.CommandError::InvalidArgs(
+          reason="command arguments must be valid JSON",
+        )
+    }
+    let ports = handle.agent.commands()
+    let mut result_json = ""
+    let mut found = false
+    for port in ports {
+      if !found {
+        let owns = port.commands().iter().any(fn(def) { def.id == id })
+        if owns {
+          let outcome = port.invoke(id, args)
+          if handle.profile_errors.length() > 0 {
+            let message = handle.profile_errors[0]
+            handle.profile_errors.clear()
+            raise @posoco.CommandError::ExecutionFailed(message)
+          }
+          result_json = command_outcome_to_json(outcome).stringify()
+          found = true
+        }
+      }
+    }
+    if !found {
+      let miss = @port.CommandOutcome::Failure(
+        reason="command not found: " + id,
+      )
+      result_json = command_outcome_to_json(miss).stringify()
+    }
+    result_json
+  }
 }

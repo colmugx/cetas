@@ -32,4 +32,36 @@ describe("parseCetasEvent", () => {
   test("returns null for an unknown versioned tag", () => {
     expect(parseCetasEvent({ type: "future_event" })).toBeNull();
   });
+
+  test("parses config_changed emitted by Agent::update_model", () => {
+    expect(
+      parseCetasEvent({
+        type: "config_changed",
+        field: "model",
+        old: "deepseek-chat",
+        new: "deepseek-reasoner",
+      }),
+    ).toEqual({
+      type: "config_changed",
+      field: "model",
+      old: "deepseek-chat",
+      new: "deepseek-reasoner",
+    });
+  });
+
+  test("parses config_warning emitted on invalid reasoning_effort", () => {
+    expect(
+      parseCetasEvent({
+        type: "config_warning",
+        field: "reasoning_effort",
+        value: "absurd",
+        reason: "active modelport does not accept this value",
+      }),
+    ).toEqual({
+      type: "config_warning",
+      field: "reasoning_effort",
+      value: "absurd",
+      reason: "active modelport does not accept this value",
+    });
+  });
 });

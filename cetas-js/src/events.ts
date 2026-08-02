@@ -100,6 +100,18 @@ export type CetasEvent =
       label: string;
       data?: unknown;
     }
+  | {
+      type: "config_changed";
+      field: string;
+      old: string;
+      new: string;
+    }
+  | {
+      type: "config_warning";
+      field: string;
+      value: string;
+      reason: string;
+    }
   | { type: "ui_render"; render: UiRender };
 
 function requireString(value: unknown, path: string): string {
@@ -301,6 +313,20 @@ export function parseCetasEvent(raw: unknown): CetasEvent | null {
         source: requireString(ev.source, "custom.source"),
         label: requireString(ev.label, "custom.label"),
         data: ev.data,
+      };
+    case "config_changed":
+      return {
+        type: "config_changed",
+        field: requireString(ev.field, "config_changed.field"),
+        old: requireString(ev.old, "config_changed.old"),
+        new: requireString(ev.new, "config_changed.new"),
+      };
+    case "config_warning":
+      return {
+        type: "config_warning",
+        field: requireString(ev.field, "config_warning.field"),
+        value: requireString(ev.value, "config_warning.value"),
+        reason: requireString(ev.reason, "config_warning.reason"),
       };
     case "ui_render":
       return { type: "ui_render", render: parseUiRender(ev.render) };
