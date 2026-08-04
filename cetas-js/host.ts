@@ -10,6 +10,8 @@
  *   bun host.ts
  */
 
+import { homedir } from "node:os";
+
 import { ProcessTerminal, TUI } from "@earendil-works/pi-tui";
 
 import { CetasApplication, type CetasHostConfig } from "./src/app/index.ts";
@@ -20,6 +22,7 @@ async function main(): Promise<void> {
   const config: CetasHostConfig = {
     cwd: process.cwd(),
     maxToolRounds: 20,
+    home: homedir(),
   };
   const sessionId = `session-${Date.now()}`;
   const tui = new TUI(new ProcessTerminal());

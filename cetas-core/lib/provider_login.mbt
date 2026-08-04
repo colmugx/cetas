@@ -68,27 +68,6 @@ pub fn build_provider_catalog(
 }
 
 ///|
-/// Build ready catalogs for every registered provider. Returns the catalogs in
-/// factory-registration order; unconfigured providers are omitted. This is the
-/// pure snapshot path used by setup discovery and Agent recomposition; live
-/// refresh goes through `refresh_provider_catalog`.
-pub fn collect_provider_catalogs(
-  snapshot : ProviderCredentialSnapshot,
-) -> Array[@llm.ProviderModelCatalog] raise @posoco.CompositionError {
-  let ctx = @devkit.ExtContext::default()
-  let factories = provider_factories(ctx)
-  validate_provider_settings(snapshot.settings, factories)
-  let catalogs : Array[@llm.ProviderModelCatalog] = []
-  for factory in factories {
-    match build_provider_catalog(factory, snapshot) {
-      Some(catalog) => catalogs.push(catalog)
-      None => ()
-    }
-  }
-  catalogs
-}
-
-///|
 /// Live-refresh the catalog of one provider through its `refresh` seam, then
 /// return its rebuilt snapshot. Used by an explicit model-catalog refresh
 /// action; a normal build never issues a network request.

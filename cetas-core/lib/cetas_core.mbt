@@ -1,122 +1,41 @@
 ///|
-/// cetas_core.mbt — Target-agnostic host logic shared by cetas-native and cetas-js.
+/// cetas_core.mbt — Target-agnostic host logic shared by cetas hosts.
 ///
 /// This package MUST NOT import any target-specific IO (no @fs, no @process,
 /// no extern "js"). All IO is injected by the caller via trait impls.
-
-///|
-/// In-memory session store. Single-process, no persistence.
-/// Both cetas-native (when persistence is disabled) and cetas-js (when
-/// persistence is not desired) can use this directly.
-pub(all) struct InMemorySessionStore {
-  sessions : Map[String, @posoco.Session]
+///
+/// The only product-facing surface is the `Cetas` extension: it bundles
+/// cetas identity, system-prompt assembly, and the `/profile` command into
+/// one Extension so hosts compose `Agent(exts=[cetas, ...])` without
+/// reassembling scattered ports.
+pub(all) struct Cetas {
+  system_prompt_hook : @posoco.SystemPromptHook
+  profile_command : ProfileCommand
 }
 
 ///|
-pub fn InMemorySessionStore::new() -> InMemorySessionStore {
-  { sessions: Map::from_array([]) }
-}
-
-///|
-pub impl @posoco.SessionStore for InMemorySessionStore with fn load(
-  self,
-  id : String,
-) -> @posoco.Session raise @posoco.SessionError {
-  match self.sessions.get(id) {
-    Some(s) => s
-    None => { messages: [], metadata: Map::from_array([]) }
-  }
-}
-
-///|
-pub impl @posoco.SessionStore for InMemorySessionStore with fn save(
-  self,
-  id : String,
-  session : @posoco.Session,
-) -> Unit raise @posoco.SessionError {
-  self.sessions[id] = session
-}
-
-///|
-/// Print observer: echoes turn events to stdout for user visibility.
-/// Both hosts can use this as a fallback Observer when they don't have a
-/// richer UI (cetas-js with pi-tui will provide its own JsTuiObserver instead).
-pub(all) struct PrintObserver {}
-
-///|
-pub fn PrintObserver::new() -> PrintObserver {
-  PrintObserver::{  }
-}
-
-///|
-pub impl @posoco.Observer for PrintObserver with fn on_event(
-  _self,
-  event : @posoco.TurnEvent,
-) -> Unit {
-  match event {
-    @posoco.TurnEvent::ToolCallPending(call) =>
-      println("  -> \{call.name.to_string()}(\{call.arguments.stringify()})")
-    @posoco.TurnEvent::ToolCallResult(call~, result~, is_error~) => {
-      let status = if is_error { "x" } else { "ok" }
-      println("  [\{status}] \{call.name.to_string()}")
-      let brief = match result {
-        Success(content~, ..) => content
-        ToolReportedError(content~, ..) => content
-        RuntimeFailure(message~, ..) => message
-        NotExecuted(..) => "not executed"
-      }
-      if brief.length() > 200 {
-        println("    " + brief[0:200].to_owned() + "...")
-      } else {
-        println("    " + brief)
-      }
-    }
-    @posoco.TurnEvent::TurnFailed(msg) => println("  [x] Turn failed: \{msg}")
-    _ => ()
-  }
-}
-
-///|
-/// Host-level configuration. The model/api_key/tools-specific bits stay in
-/// cetas-native / cetas-js because they depend on target-specific ext packages.
-pub(all) struct CetasHostConfig {
-  cwd : String
-  max_tool_rounds : Int
-  temperature : Double?
-  max_output_tokens : Int?
-  model_context_window : Int?
-}
-
-///|
-pub fn CetasHostConfig::CetasHostConfig(
-  cwd : String,
-  max_tool_rounds? : Int = 20,
-  temperature? : Double? = None,
-  max_output_tokens? : Int? = None,
-  model_context_window? : Int? = None,
-) -> CetasHostConfig {
-  { cwd, max_tool_rounds, temperature, max_output_tokens, model_context_window }
-}
-
-///|
-pub fn build_agent_from_parts(
-  model : &@posoco.ModelPort,
-  tools : Array[&@posoco.ToolProvider],
-  prompt_contributors : Array[&@posoco.SystemPromptContributor],
-  feature_pre_model_hooks : Array[&@posoco.PreModelHook],
-  commands : Array[&@posoco.CommandPort],
-  store : &@posoco.SessionStore,
-  observer : &@posoco.Observer,
-  ui : &@posoco.UiPort,
-  config : CetasHostConfig,
+/// Build a Cetas extension.
+///
+/// - `context_contributor` (e.g. AGENTS.md loader) becomes the
+///   `project_context` prompt section.
+/// - `tool_contributors` (e.g. tool usage guidance) share the
+///   `tool_guidance` prompt section.
+/// - Profile command callbacks are host-supplied because profile storage is
+///   target-specific; cetas only owns the command surface.
+pub fn Cetas::Cetas(
+  cwd~ : String,
+  ui~ : &@posoco.UiPort,
   context_contributor? : &@posoco.SystemPromptContributor? = None,
-) -> @posoco.Agent raise @posoco.CompositionError {
-  let contributors_with_ids : Array[@posoco.SystemPromptSection] = []
-  // Context contributor (AGENTS.md etc.) gets its own section label so the
-  // assembled prompt reads "project_context:" above the <cetas-context> blocks.
+  tool_contributors? : Array[&@posoco.SystemPromptContributor] = [],
+  list_profiles~ : () -> Array[ProfileSpec],
+  on_load~ : (String) -> Unit,
+  on_save~ : (String) -> Unit,
+  on_delete~ : (String) -> Unit,
+) -> Cetas raise @posoco.CompositionError {
+  let sections : Array[@posoco.SystemPromptSection] = []
   match context_contributor {
     Some(c) =>
-      contributors_with_ids.push(
+      sections.push(
         @posoco.SystemPromptSection::SystemPromptSection(
           id="project_context",
           contributor=c,
@@ -124,95 +43,45 @@ pub fn build_agent_from_parts(
       )
     None => ()
   }
-  // Tool contributors share the "tool_guidance" label.
-  for c in prompt_contributors {
-    contributors_with_ids.push(
+  for c in tool_contributors {
+    sections.push(
       @posoco.SystemPromptSection::SystemPromptSection(
         id="tool_guidance",
         contributor=c,
       ),
     )
   }
-  let system_prompt = @posoco.SystemPromptHook(
-    base_prompt=cetas_base_system_prompt(config.cwd),
-    contributors=contributors_with_ids,
+  let system_prompt_hook = @posoco.SystemPromptHook::SystemPromptHook(
+    base_prompt=cetas_base_system_prompt(cwd),
+    contributors=sections,
   )
-  let pre_model_hooks : Array[&@posoco.PreModelHook] = [system_prompt]
-  for hook in feature_pre_model_hooks {
-    pre_model_hooks.push(hook)
-  }
-  let agent_config : @posoco.AgentConfig = {
-    max_tool_rounds: config.max_tool_rounds,
-    temperature: config.temperature,
-    max_output_tokens: config.max_output_tokens,
-    model_context_window: config.model_context_window,
-  }
-  @posoco.Agent(
-    exts=[
-      @posoco.ManifestOnly::ManifestOnly({
-        id: "model",
-        models: [model],
-        tools: [],
-        sessions: [],
-        observers: [],
-        pre_model_hooks: [],
-        pre_tool_hooks: [],
-        post_event_hooks: [],
-        memory: [],
-        lifecycle: [],
-        commands: [],
-        ui: [],
-        prompt_contributors: [],
-      }),
-      @posoco.ManifestOnly::ManifestOnly({
-        id: "tools",
-        models: [],
-        tools,
-        sessions: [],
-        observers: [],
-        pre_model_hooks: [],
-        pre_tool_hooks: [],
-        post_event_hooks: [],
-        memory: [],
-        lifecycle: [],
-        commands: [],
-        ui: [],
-        prompt_contributors: [],
-      }),
-      @posoco.ManifestOnly::ManifestOnly({
-        id: "hooks",
-        models: [],
-        tools: [],
-        sessions: [],
-        observers: [],
-        pre_model_hooks,
-        pre_tool_hooks: [],
-        post_event_hooks: [],
-        memory: [],
-        lifecycle: [],
-        commands,
-        ui: [],
-        prompt_contributors: [],
-      }),
-      @posoco.ManifestOnly::ManifestOnly({
-        id: "io",
-        models: [],
-        tools: [],
-        sessions: [store],
-        observers: [observer],
-        pre_model_hooks: [],
-        pre_tool_hooks: [],
-        post_event_hooks: [],
-        memory: [],
-        lifecycle: [],
-        commands: [],
-        ui: [ui],
-        prompt_contributors: [],
-      }),
-    ],
-    config=agent_config,
+  let profile_command = ProfileCommand::new(
+    ui,
+    list_profiles~,
+    on_load~,
+    on_save~,
+    on_delete~,
   )
+  { system_prompt_hook, profile_command }
 }
+
+///|
+pub impl @posoco.Extension for Cetas with fn extension_id(_self) -> String {
+  "cetas"
+}
+
+///|
+pub impl @posoco.Extension for Cetas with fn manifest(self) -> @posoco.ExtensionManifest {
+  let m = @posoco.ExtensionManifest::empty(id="cetas")
+  {
+    ..m,
+    pre_model_hooks: [self.system_prompt_hook],
+    commands: [self.profile_command],
+  }
+}
+
+///|
+pub extend Cetas with @posoco.Extension::{extension_id, manifest}
 
 ///|
 /// Run a single user prompt through the agent, return the assistant's
@@ -247,22 +116,20 @@ pub async fn run_prompt(
   builder.to_string()
 }
 
-// Model/provider adapters and logging remain host-owned.
-
 ///|
 /// Default tool set: read/write/edit/glob/grep/bash.
 ///
 /// Order matters for diagnostics readability; it does not affect execution.
 ///
-/// Returns only ToolProviders. The tools' own `description` fields carry their
-/// usage guidance to the model via the tool schema; no SystemPromptContributor
-/// is emitted here.
-pub fn build_default_features() -> Array[&@posoco.ToolProvider] {
-  let read = @read.ReadTools::ReadTools()
-  let write = @write.WriteTools::WriteTools()
-  let edit = @edit.EditTools::EditTools()
-  let glob = @glob.GlobTools::GlobTools()
-  let grep = @grep.GrepTools::GrepTools()
-  let bash = @bash.ShellTools::ShellTools()
-  [read, write, edit, glob, grep, bash]
+/// Returns Extensions (each tool ext already impls Extension). Hosts place
+/// the result directly into `Agent(exts=[...])`.
+pub fn build_default_features() -> Array[&@posoco.Extension] {
+  [
+    @read.ReadTools::ReadTools(),
+    @write.WriteTools::WriteTools(),
+    @edit.EditTools::EditTools(),
+    @glob.GlobTools::GlobTools(),
+    @grep.GrepTools::GrepTools(),
+    @bash.ShellTools::ShellTools(),
+  ]
 }

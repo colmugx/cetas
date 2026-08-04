@@ -1,7 +1,8 @@
 // cetas-js — bun-runtime host for cetas.
 //
-// Target: js (bun runtime, NOT node).
-// All IO via Bun globals (Bun.file / Bun.write / Bun.spawn / fetch).
+// Target: js (bun runtime; Node-compatible node:fs / node:crypto FFI).
+// Filesystem access goes through posoco-ext-workspace (JsWorkspaceFs);
+// credential persistence through posoco-ext-credentials.
 // UI via pi-tui (driven from host.ts).
 // Agent logic reuses cetas-core.
 
@@ -23,8 +24,13 @@ import {
   "colmugx/posoco@0.7.3",
   "colmugx/cetas-core@0.1.0",
   "colmugx/posoco-devkit@0.1.0",
+  "colmugx/posoco-ext-context@0.1.0",
+  "colmugx/posoco-ext-credentials@0.1.0",
   "colmugx/posoco-ext-fs-session@0.1.0",
   "colmugx/posoco-ext-llm@0.1.0",
   "colmugx/posoco-ext-oauth@0.1.0",
+  "colmugx/posoco-ext-plan@0.1.0",
+  "colmugx/posoco-ext-statusbar@0.1.0",
+  "colmugx/posoco-ext-workspace@0.1.0",
   "moonbitlang/async@0.20.3",
 }

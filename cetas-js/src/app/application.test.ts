@@ -9,7 +9,7 @@ import type {
   ProviderSetupSnapshot,
 } from "./index.ts";
 
-const config: CetasHostConfig = { cwd: "/tmp/cetas-js-test", maxToolRounds: 4 };
+const config: CetasHostConfig = { cwd: "/tmp/cetas-js-test", maxToolRounds: 4, home: "/tmp/cetas-js-home" };
 const callbacks: AgentCallbacks = {
   observerCallback: () => undefined,
   renderCallback: () => undefined,

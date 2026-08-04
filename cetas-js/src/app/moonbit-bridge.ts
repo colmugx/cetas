@@ -12,6 +12,7 @@ import type {
 type RawConfigConstructor = new (
   cwd: string,
   maxToolRounds: number,
+  home: string,
 ) => unknown;
 type RawRuntimeConstructor = new (config: unknown) => unknown;
 
@@ -69,7 +70,7 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
   private readonly runtimeValue: unknown;
 
   constructor(config: CetasHostConfig) {
-    this.configValue = new RawConfig(config.cwd, config.maxToolRounds);
+    this.configValue = new RawConfig(config.cwd, config.maxToolRounds, config.home);
     this.runtimeValue = new RawRuntime(this.configValue);
   }
 
@@ -227,6 +228,9 @@ function parseCommandList(raw: string): readonly CommandDescriptor[] {
       aliases: aliases.map((alias, aliasIndex) =>
         requireString(alias, `${path}.aliases[${aliasIndex}]`)),
       visible: requireBoolean(record.visible, `${path}.visible`),
+      ...(record.shortcut === undefined
+        ? {}
+        : { shortcut: requireString(record.shortcut, `${path}.shortcut`) }),
     };
   });
 }

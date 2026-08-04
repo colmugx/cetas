@@ -48,7 +48,8 @@ describe("long-lived cetas-js bridge", () => {
     const config = new (CetasJsConfig as unknown as new (
       cwd: string,
       maxToolRounds: number,
-    ) => unknown)(cwd, 4);
+      home: string,
+    ) => unknown)(cwd, 4, tmpdir());
     const runtime = new (CetasJsRuntime as unknown as new (config: unknown) => unknown)(config);
 
     await expect(
@@ -111,15 +112,15 @@ describe("long-lived cetas-js bridge", () => {
     const config = new (CetasJsConfig as unknown as new (
       cwd: string,
       maxToolRounds: number,
-    ) => unknown)(cwd, 4);
+      home: string,
+    ) => unknown)(cwd, 4, tmpdir());
     const runtime = new (CetasJsRuntime as unknown as new (config: unknown) => unknown)(config);
     const events: unknown[] = [];
+    const renders: Array<{ type?: string; render?: { key?: string } }> = [];
     const agent = await cetas_js_runtime_create_agent(
       runtime,
       (json: string) => events.push(JSON.parse(json)),
-      (json: string) => {
-        throw new Error(`unexpected UI render in bridge test: ${json.length}`);
-      },
+      (json: string) => renders.push(JSON.parse(json)),
       async () => {
         throw new Error("unexpected UI request in bridge test");
       },
@@ -127,6 +128,11 @@ describe("long-lived cetas-js bridge", () => {
     );
 
     try {
+      // create_agent pushes the initial status bar facts through the UI port.
+      expect(
+        renders.some((event) => event.type === "ui_render" && event.render?.key === "statusbar"),
+      ).toBe(true);
+
       await expect(
         cetas_js_invoke_command(agent, "model", "{malformed"),
       ).rejects.toThrow(/valid JSON|InvalidArgs/);

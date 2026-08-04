@@ -13,6 +13,8 @@ export interface CetasHostConfig {
   cwd: string;
   /** Universal Posoco runtime policy. */
   maxToolRounds: number;
+  /** Home directory for AGENTS.md global lookup (~/.cetas/agent/AGENTS.md). */
+  home: string;
 }
 
 export interface ProviderModelCapability {
@@ -125,6 +127,8 @@ export interface CommandDescriptor {
   params: readonly CommandParameter[];
   aliases: readonly string[];
   visible: boolean;
+  /** pi-tui key id (e.g. "shift+tab") declared by the extension; bound by the shell. */
+  shortcut?: string;
 }
 
 export interface ApplicationError {

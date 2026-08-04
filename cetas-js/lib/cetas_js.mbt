@@ -340,6 +340,26 @@ pub impl @posoco.Observer for JsCallbackObserver with fn on_event(
 }
 
 ///|
+/// Expose JsCallbackObserver as an Extension so it slots directly into
+/// `Agent(exts=[...])` alongside the other cetas parts.
+pub impl @posoco.Extension for JsCallbackObserver with fn extension_id(
+  _self : JsCallbackObserver,
+) -> String {
+  "cetas_js_observer"
+}
+
+///|
+pub impl @posoco.Extension for JsCallbackObserver with fn manifest(
+  self : JsCallbackObserver,
+) -> @posoco.ExtensionManifest {
+  let m = @posoco.ExtensionManifest::empty(id="cetas_js_observer")
+  { ..m, observers: [self] }
+}
+
+///|
+pub extend JsCallbackObserver with @posoco.Extension::{extension_id, manifest}
+
+///|
 /// JS callback type for one-way render events: `(eventJson: string) => void`.
 #external
 pub type JsUiRenderCallback
@@ -705,15 +725,35 @@ pub impl @port.UiPort for JsUiPort with fn request(
 }
 
 ///|
+/// Expose JsUiPort as an Extension so it slots directly into
+/// `Agent(exts=[...])` alongside the other cetas parts.
+pub impl @posoco.Extension for JsUiPort with fn extension_id(_self : JsUiPort) -> String {
+  "cetas_js_ui"
+}
+
+///|
+pub impl @posoco.Extension for JsUiPort with fn manifest(self : JsUiPort) -> @posoco.ExtensionManifest {
+  let m = @posoco.ExtensionManifest::empty(id="cetas_js_ui")
+  { ..m, ui: [self] }
+}
+
+///|
+pub extend JsUiPort with @posoco.Extension::{extension_id, manifest}
+
+///|
 /// Bridge configuration. Provider settings, endpoints, model ids, and
 /// credentials come from the generic settings/credential stores and are
 /// interpreted by registered provider extensions; they are not host-owned
 /// config.
+/// `home` is the user's home directory, injected by the host (Node
+/// `os.homedir()`) for AGENTS.md global lookup; this package performs no
+/// home-dir resolution of its own.
 /// Source: ffi.html — "#export_name is not available on functions with
 /// optional arguments".
 pub(all) struct CetasJsConfig {
   cwd : String
   max_tool_rounds : Int
+  home : String
 }
 
 ///|
@@ -721,8 +761,9 @@ pub(all) struct CetasJsConfig {
 pub fn CetasJsConfig::CetasJsConfig(
   cwd : String,
   max_tool_rounds : Int,
+  home : String,
 ) -> CetasJsConfig {
-  { cwd, max_tool_rounds }
+  { cwd, max_tool_rounds, home }
 }
 
 ///|
@@ -757,9 +798,48 @@ pub fn CetasJsRuntime::CetasJsRuntime(config : CetasJsConfig) -> CetasJsRuntime 
 /// profile load is reported to the TypeScript application, which then asks the
 /// bridge to compose a fresh handle; the handle itself does not expose Agent
 /// or provider internals.
+///
+/// The handle retains the provider router and the status bar so bridge entry
+/// points can push bar facts (model/effort/session/latency) without
+/// reconstructing composition state.
 pub struct CetasJsAgent {
   agent : @posoco.Agent
   profile_errors : Array[String]
+  router : @llm.RouterModelPort
+  statusbar : @statusbar.StatusBar
+}
+
+///|
+/// The effort the status bar should display: the router's explicit selection
+/// when one exists, otherwise the active slot's advertised default.
+fn effective_effort(router : @llm.RouterModelPort) -> String? {
+  match router.active_effort() {
+    Some(effort) => Some(effort)
+    None => {
+      let active_id = router.active_slot_id()
+      let mut found : String? = None
+      for slot in router.list_slots() {
+        if slot.id == active_id {
+          found = slot.default_effort
+        }
+      }
+      found
+    }
+  }
+}
+
+///|
+/// Push the active model label and effective effort into the status bar.
+/// Called at agent construction and after every successful /model or /effort
+/// invocation so the bar tracks the router without polling.
+fn push_model_facts(
+  router : @llm.RouterModelPort,
+  statusbar : @statusbar.StatusBar,
+) -> Unit {
+  statusbar.set_model(
+    router.current_model_id(),
+    effort=effective_effort(router),
+  )
 }
 
 ///|
@@ -795,29 +875,36 @@ pub fn cetas_js_runtime_create_agent(
   cancel_check : JsCancelCheck,
 ) -> @js_async.Promise[CetasJsAgent] {
   @js_async.Promise::from_async() <| () => {
-    let credential_store = JsProviderCredentialStore::new(runtime.config.cwd)
+    let cred_store = credential_store(runtime.config.cwd)
     let auth_interaction = JsAuthInteraction::new(
       observer_callback, request_callback, cancel_check,
     )
-    let model = build_provider_router(
-      runtime, credential_store, auth_interaction,
-    )
-    let tools = @cetas_core.build_default_features()
+    let model = build_provider_router(runtime, cred_store, auth_interaction)
     let store = @fs_session.JsonlSessionStore::new(
       runtime.config.cwd + "/.cetas/sessions",
     )
     let profile_errors : Array[String] = []
     let observer = JsCallbackObserver::new(observer_callback)
     let ui = JsUiPort::new(render_callback, request_callback)
-    let host_config = @cetas_core.CetasHostConfig::CetasHostConfig(
-      runtime.config.cwd,
-      max_tool_rounds=runtime.config.max_tool_rounds,
-      temperature=None,
-      max_output_tokens=None,
-      model_context_window=None,
+    // Load AGENTS.md / CLAUDE.md context files from home + cwd ancestor
+    // chain through the shared workspace fs boundary. Failures are swallowed
+    // (empty bundle); context is best-effort.
+    let context_fs = @workspace.JsWorkspaceFs::new()
+    let loader = @context.ContextLoader::new(
+      context_fs,
+      home=runtime.config.home,
     )
-    let profile_cmd = @cetas_core.ProfileCommand::new(
-      ui as &@posoco.UiPort,
+    let bundle = loader.load(runtime.config.cwd) catch {
+      _ => @context.ContextBundle::empty()
+    }
+    let context_contributor = @context.ContextPromptContributor::new(bundle~)
+    // Cetas product extension: identity + system-prompt assembly + /profile.
+    let cetas = @cetas_core.Cetas::Cetas(
+      cwd=runtime.config.cwd,
+      ui=ui as &@posoco.UiPort,
+      context_contributor=Some(
+        context_contributor as &@posoco.SystemPromptContributor,
+      ),
       list_profiles=fn() {
         list_profile_files(
           runtime.config.cwd + "/.cetas/profiles",
@@ -848,22 +935,39 @@ pub fn cetas_js_runtime_create_agent(
         )
       },
     )
-    let commands : Array[&@posoco.CommandPort] = [
-      model as &@posoco.CommandPort,
-      profile_cmd,
+    // Plan mode: read-only investigation gated by PreToolHook, toggled via
+    // /plan or shift+tab (declared on the command's shortcut), model entry
+    // via enter_plan_mode, exit only via plan.approve.
+    let plan_mode = @plan.PlanMode::new(config=@plan.PlanModeConfig::{
+      ..@plan.PlanModeConfig::default(),
+      allowed_tools: ["read", "glob", "grep"],
+      allow_model_entry: true,
+    })
+    // Status bar: data-driven status-line segments rendered over the shared
+    // JsUiPort (slot Status, key "statusbar"); the host mounts that key in
+    // whichever region its layout provides. Initial model facts come from
+    // the freshly built router; later mutations ride invoke_command.
+    let statusbar = @statusbar.StatusBar::new(ui as &@posoco.UiPort)
+    push_model_facts(model, statusbar)
+    let exts : Array[&@posoco.Extension] = [
+      cetas,
+      model as &@posoco.Extension,
+      store as &@posoco.Extension,
+      observer as &@posoco.Extension,
+      ui as &@posoco.Extension,
+      plan_mode,
+      statusbar,
     ]
-    let agent = @cetas_core.build_agent_from_parts(
-      model as &@posoco.ModelPort,
-      tools,
-      [],
-      [],
-      commands,
-      store,
-      observer,
-      ui,
-      host_config,
-    )
-    { agent, profile_errors }
+    for tool in @cetas_core.build_default_features() {
+      exts.push(tool)
+    }
+    let agent = @posoco.Agent(exts~, config={
+      max_tool_rounds: runtime.config.max_tool_rounds,
+      temperature: None,
+      max_output_tokens: None,
+      model_context_window: None,
+    })
+    { agent, profile_errors, router: model, statusbar }
   }
 }
 
@@ -946,31 +1050,38 @@ pub fn cetas_js_runtime_login_provider(
 }
 
 ///|
+/// Result of listing a host directory. Missing means the profile directory
+/// does not exist (no profiles); Failed stays observable.
+priv enum HostReaddirResult {
+  Missing
+  Entries(Array[String])
+  Failed(String)
+}
+
+///|
 /// Read a profile directory and return ProfileSpec entries (one per .json file).
 /// A missing profile directory means there are no profiles; permission and
 /// other filesystem errors are recorded and raised by command invocation.
+///
+/// Name and payload validation live in cetas-core (`valid_profile_name`,
+/// `validated_profile_text`); this host only decodes the filesystem results.
 fn list_profile_files(
   dir : String,
   errors : Array[String],
 ) -> Array[@cetas_core.ProfileSpec] {
-  let (entries, error) = profile_readdir(dir)
-  match error {
-    Some(message) if message.contains("ENOENT") => ()
-    Some(message) => {
+  let entries = match decode_readdir_result(host_readdir_result(dir)) {
+    Missing => return []
+    Failed(message) => {
       errors.push("profile list failed: " + message)
       return []
     }
-    None => ()
-  }
-  let entries = match entries {
-    Some(value) => value
-    None => return []
+    Entries(value) => value
   }
   let specs : Array[@cetas_core.ProfileSpec] = []
   for entry in entries {
     if entry.has_suffix(".json") {
       let stem = entry.sub(end=entry.length() - 5).to_owned()
-      if valid_profile_name(stem) {
+      if @cetas_core.valid_profile_name(stem) {
         specs.push(@cetas_core.ProfileSpec::ProfileSpec(stem))
       } else {
         errors.push("invalid profile filename: " + entry)
@@ -981,51 +1092,28 @@ fn list_profile_files(
 }
 
 ///|
-/// Profile names are file stems, never paths. Reject traversal and separator
-/// characters before any file operation so callbacks cannot escape `.cetas`.
-fn valid_profile_name(name : String) -> Bool {
-  if name.length() == 0 ||
-    name == "." ||
-    name == ".." ||
-    name.contains("/") ||
-    name.contains("\\") {
-    false
-  } else {
-    true
-  }
-}
-
-///|
-/// Parse and validate the profile payload before writing it anywhere. Profiles
-/// are provider settings objects; preserving the original JSON keeps provider
-/// extensions responsible for their own fields and defaults.
-fn validated_profile_text(
-  text : String,
-  name : String,
-  errors : Array[String],
-) -> String? {
-  let json = @json.parse(text) catch {
-    _ => {
-      errors.push("profile " + name + " is not valid JSON")
-      return None
-    }
-  }
-  match json {
-    Json::Object(_) => Some(text)
-    _ => {
-      errors.push("profile " + name + " must contain a JSON object")
-      None
-    }
-  }
-}
-
-///|
 fn profile_path(dir : String, name : String, errors : Array[String]) -> String? {
-  if !valid_profile_name(name) {
+  if !@cetas_core.valid_profile_name(name) {
     errors.push("invalid profile name: " + name)
     None
   } else {
     Some(dir + "/" + name + ".json")
+  }
+}
+
+///|
+/// Push the core validator's reason into the host error sink on failure.
+fn validate_profile_or_record(
+  text : String,
+  name : String,
+  errors : Array[String],
+) -> String? {
+  match @cetas_core.validated_profile_text(text, name) {
+    Ok(value) => Some(value)
+    Err(reason) => {
+      errors.push(reason)
+      None
+    }
   }
 }
 
@@ -1040,30 +1128,27 @@ fn save_profile(
     Some(value) => value
     None => return
   }
-  let settings = match profile_read(settings_path) {
-    (Some(value), _) => value
-    (None, Some(message)) if message.contains("ENOENT") => "{\"providers\":{}}"
-    (None, Some(message)) => {
+  let settings = match
+    decode_read_result(host_read_file_result(settings_path)) {
+    @workspace.FileReadResult::Content(value) => value
+    @workspace.FileReadResult::Missing => "{\"providers\":{}}"
+    @workspace.FileReadResult::Failed(message) => {
       errors.push("profile settings read failed: " + message)
       return
     }
-    (None, None) => {
-      errors.push("profile settings read failed: unknown error")
-      return
-    }
   }
-  let text = match validated_profile_text(settings, name, errors) {
+  let text = match validate_profile_or_record(settings, name, errors) {
     Some(value) => value
     None => return
   }
-  match profile_mkdir(dir) {
+  match decode_unit_result(host_mkdir_result(dir)) {
     Some(message) => {
       errors.push("profile directory create failed: " + message)
       return
     }
     None => ()
   }
-  match profile_write(path, text) {
+  match decode_unit_result(host_write_file_result(path, text)) {
     Some(message) => errors.push("profile save failed: " + message)
     None => ()
   }
@@ -1080,22 +1165,22 @@ fn load_profile(
     Some(value) => value
     None => return
   }
-  let text = match profile_read(path) {
-    (Some(value), _) => value
-    (None, Some(message)) => {
+  let text = match decode_read_result(host_read_file_result(path)) {
+    @workspace.FileReadResult::Content(value) => value
+    @workspace.FileReadResult::Missing => {
+      errors.push("profile load failed: no saved profile named " + name)
+      return
+    }
+    @workspace.FileReadResult::Failed(message) => {
       errors.push("profile load failed: " + message)
       return
     }
-    (None, None) => {
-      errors.push("profile load failed: unknown error")
-      return
-    }
   }
-  let text = match validated_profile_text(text, name, errors) {
+  let text = match validate_profile_or_record(text, name, errors) {
     Some(value) => value
     None => return
   }
-  match profile_write(settings_path, text) {
+  match decode_unit_result(host_write_file_result(settings_path, text)) {
     Some(message) => errors.push("profile settings write failed: " + message)
     None => ()
   }
@@ -1107,17 +1192,48 @@ fn delete_profile(dir : String, name : String, errors : Array[String]) -> Unit {
     Some(value) => value
     None => return
   }
-  match profile_delete(path) {
+  match decode_unit_result(host_delete_file_result(path)) {
     Some(message) => errors.push("profile delete failed: " + message)
     None => ()
   }
 }
 
 ///|
-fn profile_readdir(path : String) -> (Array[String]?, String?) {
-  let raw = bun_profile_readdir_result(path)
+/// Decode the shared `{ok,value,missing,error}` read envelope into the
+/// workspace-wide FileReadResult (the single missing/failed distinction).
+fn decode_read_result(raw : String) -> @workspace.FileReadResult {
   let json = @json.parse(raw) catch {
-    _ => return (None, Some("profile directory result is not valid JSON"))
+    _ => return Failed("file read result is not valid JSON")
+  }
+  match json {
+    Json::Object(fields) =>
+      match fields.get("ok") {
+        Some(Json::True) =>
+          match fields.get("value") {
+            Some(Json::String(value)) => Content(value)
+            _ => Failed("file read result has no string value")
+          }
+        Some(Json::False) => {
+          let message = match fields.get("error") {
+            Some(Json::String(value)) => value
+            _ => "unknown filesystem error"
+          }
+          match fields.get("missing") {
+            Some(Json::True) => Missing
+            _ => Failed(message)
+          }
+        }
+        _ => Failed("file read result has no ok flag")
+      }
+    _ => Failed("file read result must be an object")
+  }
+}
+
+///|
+/// Decode the shared `{ok,entries,missing,error}` readdir envelope.
+fn decode_readdir_result(raw : String) -> HostReaddirResult {
+  let json = @json.parse(raw) catch {
+    _ => return Failed("directory result is not valid JSON")
   }
   match json {
     Json::Object(fields) =>
@@ -1129,129 +1245,110 @@ fn profile_readdir(path : String) -> (Array[String]?, String?) {
               for item in items {
                 match item {
                   Json::String(value) => entries.push(value)
-                  _ =>
-                    return (
-                      None,
-                      Some("profile directory entry is not a string"),
-                    )
+                  _ => return Failed("directory entry is not a string")
                 }
               }
-              (Some(entries), None)
+              Entries(entries)
             }
-            _ => (None, Some("profile directory result has no entries"))
+            _ => Failed("directory result has no entries")
           }
-        Some(Json::False) => (None, profile_result_error(fields))
-        _ => (None, Some("profile directory result has no ok flag"))
+        Some(Json::False) =>
+          match fields.get("missing") {
+            Some(Json::True) => Missing
+            _ => {
+              let message = match fields.get("error") {
+                Some(Json::String(value)) => value
+                _ => "unknown filesystem error"
+              }
+              Failed(message)
+            }
+          }
+        _ => Failed("directory result has no ok flag")
       }
-    _ => (None, Some("profile directory result must be an object"))
+    _ => Failed("directory result must be an object")
   }
 }
 
 ///|
-fn profile_read(path : String) -> (String?, String?) {
-  let raw = bun_profile_read_result(path)
+/// Decode the shared `{ok,error}` unit envelope; None means success.
+fn decode_unit_result(raw : String) -> String? {
   let json = @json.parse(raw) catch {
-    _ => return (None, Some("profile read result is not valid JSON"))
+    _ => return Some("filesystem result is not valid JSON")
   }
   match json {
     Json::Object(fields) =>
       match fields.get("ok") {
-        Some(Json::True) =>
-          match fields.get("value") {
-            Some(Json::String(value)) => (Some(value), None)
-            _ => (None, Some("profile read result has no value"))
+        Some(Json::True) => None
+        Some(Json::False) =>
+          match fields.get("error") {
+            Some(Json::String(value)) => Some(value)
+            _ => Some("unknown filesystem error")
           }
-        Some(Json::False) => (None, profile_result_error(fields))
-        _ => (None, Some("profile read result has no ok flag"))
+        _ => Some("filesystem result has no ok flag")
       }
-    _ => (None, Some("profile read result must be an object"))
+    _ => Some("filesystem result must be an object")
   }
 }
 
 ///|
-fn profile_result_error(fields : Map[String, Json]) -> String? {
-  match fields.get("error") {
-    Some(Json::String(value)) => Some(value)
-    _ => Some("unknown filesystem error")
-  }
-}
-
-///|
-fn profile_mkdir(path : String) -> String? {
-  let message = bun_profile_mkdir_result(path)
-  if message == "" {
-    None
-  } else {
-    Some(message)
-  }
-}
-
-///|
-fn profile_write(path : String, contents : String) -> String? {
-  let message = bun_profile_write_result(path, contents)
-  if message == "" {
-    None
-  } else {
-    Some(message)
-  }
-}
-
-///|
-fn profile_delete(path : String) -> String? {
-  let message = bun_profile_delete_result(path)
-  if message == "" {
-    None
-  } else {
-    Some(message)
-  }
-}
-
-///|
-extern "js" fn bun_profile_readdir_result(path : String) -> String =
+extern "js" fn host_read_file_result(path : String) -> String =
   #| (path) => {
-  #|   const fs = require("fs");
+  #|   const fs = require("node:fs");
+  #|   try {
+  #|     return JSON.stringify({ ok: true, value: fs.readFileSync(path, "utf-8") });
+  #|   } catch (error) {
+  #|     return JSON.stringify({
+  #|       ok: false,
+  #|       missing: error?.code === "ENOENT",
+  #|       error: String(error),
+  #|     });
+  #|   }
+  #| }
+
+///|
+extern "js" fn host_readdir_result(path : String) -> String =
+  #| (path) => {
+  #|   const fs = require("node:fs");
   #|   try { return JSON.stringify({ ok: true, entries: fs.readdirSync(path) }); }
   #|   catch (error) {
-  #|     return JSON.stringify({ ok: false, error: String(error) });
+  #|     return JSON.stringify({
+  #|       ok: false,
+  #|       missing: error?.code === "ENOENT",
+  #|       error: String(error),
+  #|     });
   #|   }
   #| }
 
 ///|
-extern "js" fn bun_profile_read_result(path : String) -> String =
+extern "js" fn host_mkdir_result(path : String) -> String =
   #| (path) => {
-  #|   const fs = require("fs");
-  #|   try { return JSON.stringify({ ok: true, value: fs.readFileSync(path, "utf-8") }); }
-  #|   catch (error) {
-  #|     return JSON.stringify({ ok: false, error: String(error) });
-  #|   }
+  #|   const fs = require("node:fs");
+  #|   try { fs.mkdirSync(path, { recursive: true }); return JSON.stringify({ ok: true }); }
+  #|   catch (error) { return JSON.stringify({ ok: false, error: String(error) }); }
   #| }
 
 ///|
-extern "js" fn bun_profile_mkdir_result(path : String) -> String =
-  #| (path) => {
-  #|   const fs = require("fs");
-  #|   try { fs.mkdirSync(path, { recursive: true }); return ""; }
-  #|   catch (error) { return String(error); }
-  #| }
-
-///|
-extern "js" fn bun_profile_write_result(
+extern "js" fn host_write_file_result(
   path : String,
   contents : String,
 ) -> String =
   #| (path, contents) => {
-  #|   const fs = require("fs");
-  #|   try { fs.writeFileSync(path, contents, "utf-8"); return ""; }
-  #|   catch (error) { return String(error); }
+  #|   const fs = require("node:fs");
+  #|   try { fs.writeFileSync(path, contents, "utf-8"); return JSON.stringify({ ok: true }); }
+  #|   catch (error) { return JSON.stringify({ ok: false, error: String(error) }); }
   #| }
 
 ///|
-extern "js" fn bun_profile_delete_result(path : String) -> String =
+extern "js" fn host_delete_file_result(path : String) -> String =
   #| (path) => {
-  #|   const fs = require("fs");
-  #|   try { fs.unlinkSync(path); return ""; }
-  #|   catch (error) { return String(error); }
+  #|   const fs = require("node:fs");
+  #|   try { fs.unlinkSync(path); return JSON.stringify({ ok: true }); }
+  #|   catch (error) { return JSON.stringify({ ok: false, error: String(error) }); }
   #| }
+
+///|
+extern "js" fn host_now_ms() -> Double =
+  #| () => Date.now()
 
 ///|
 /// Run one turn on an existing agent handle.
@@ -1273,7 +1370,18 @@ pub fn cetas_js_run_turn(
   session_id : String,
 ) -> @js_async.Promise[String] {
   @js_async.Promise::from_async() <| () => {
-    @cetas_core.run_prompt(handle.agent, prompt, session_id)
+    let started = host_now_ms()
+    handle.statusbar.set_session(session_id)
+    let result : Result[String, Error] = Ok(
+      @cetas_core.run_prompt(handle.agent, prompt, session_id),
+    ) catch {
+      err => Err(err)
+    }
+    handle.statusbar.set_latency((host_now_ms() - started).to_int())
+    match result {
+      Ok(text) => text
+      Err(err) => raise err
+    }
   }
 }
 
@@ -1467,6 +1575,14 @@ pub fn cetas_js_invoke_command(
             raise @posoco.CommandError::ExecutionFailed(message)
           }
           result_json = command_outcome_to_json(outcome).stringify()
+          // Router-mutating commands keep the status bar in sync: the
+          // invocation already committed the change, so mirror it as facts.
+          if id == "model" || id == "effort" {
+            match outcome {
+              Success(..) => push_model_facts(handle.router, handle.statusbar)
+              _ => ()
+            }
+          }
           found = true
         }
       }

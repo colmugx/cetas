@@ -7,314 +7,19 @@
 /// handling, protocol, model capabilities, and OAuth credential rebuilding.
 /// There is deliberately no provider-id switch or legacy environment fallback
 /// in this package.
-
-///|
-/// A Bun-backed unified credential store. Tokens and API keys are persisted
-/// below the Cetas settings directory and are never returned to TypeScript.
 ///
-/// The filename is the provider's public canonical id (the value returned by
-/// `ProviderFactory::provider_id`).  The record itself carries an explicit
-/// method tag, so a provider which supports both OAuth and API keys has one
-/// durable source of truth across recomposition and process restarts.
-struct JsProviderCredentialStore {
-  cwd : String
-}
+/// All filesystem access goes through `posoco-ext-workspace` (`WorkspaceFs`);
+/// credential persistence is delegated to `posoco-ext-credentials`
+/// (`FileProviderCredentialStore`).
 
 ///|
-/// Result of reading a host-owned settings or credential file.  Missing is
-/// intentionally distinct from Failed: only an absent optional source may be
-/// treated as "not configured".  Permission, directory, and other filesystem
-/// failures must remain observable at the composition boundary.
-priv enum JsFileReadResult {
-  Missing
-  Content(String)
-  Failed(String)
-}
-
-///|
-fn JsProviderCredentialStore::new(cwd : String) -> JsProviderCredentialStore {
-  { cwd, }
-}
-
-///|
-/// Credential path / parse helpers live in cetas-core. These thin wrappers
-/// adapt the host-owned `JsProviderCredentialStore.cwd` to the core signature
-/// so the JS credential store impls stay readable.
-fn credential_path(
-  store : JsProviderCredentialStore,
-  provider_id : String,
-) -> String {
-  @cetas_core.credential_path(store.cwd, provider_id)
-}
-
-///|
-fn legacy_api_key_credential_path(
-  store : JsProviderCredentialStore,
-  provider_id : String,
-) -> String {
-  @cetas_core.legacy_api_key_credential_path(store.cwd, provider_id)
-}
-
-///|
-/// Read the legacy API-key sidecar and return a typed value.  Error details
-/// contain only provider ids and stable shape diagnostics, never secret text.
-fn read_legacy_api_key_credential(
-  store : JsProviderCredentialStore,
-  provider_id : String,
-) -> @oauth.ApiKeyCredential? raise @posoco.CompositionError {
-  match read_file_sync(legacy_api_key_credential_path(store, provider_id)) {
-    Missing => None
-    Failed(message) =>
-      raise @posoco.CompositionError::ManifestSchemaError(
-        manifest_id="cetas-js.credentials",
-        detail="legacy API-key credential read failed for provider " +
-          provider_id +
-          ": " +
-          message,
-      )
-    Content(text) => {
-      let json = @json.parse(text) catch {
-        _ =>
-          raise @posoco.CompositionError::ManifestSchemaError(
-            manifest_id="cetas-js.credentials",
-            detail="legacy API-key credential file is not valid JSON for provider " +
-              provider_id,
-          )
-      }
-      match @oauth.ApiKeyCredential::from_json(json) {
-        Some(value) => Some(value)
-        None =>
-          raise @posoco.CompositionError::ManifestSchemaError(
-            manifest_id="cetas-js.credentials",
-            detail="legacy API-key credential file has an invalid shape for provider " +
-              provider_id,
-          )
-      }
-    }
-  }
-}
-
-///|
-/// Read, validate, and if safe migrate a provider's old credential records.
-/// The OAuth filename is also the new canonical filename, so an old OAuth
-/// object is replaced in place with a tagged record.  An API-key-only sidecar
-/// is copied to the canonical file.  When both old records are valid we stop
-/// with a typed ambiguity error; explicit `/login provider method` can then
-/// replace the canonical record and recover without guessing.
-fn read_provider_credential(
-  store : JsProviderCredentialStore,
-  provider_id : String,
-) -> @oauth.ProviderCredential? raise @posoco.CompositionError {
-  let path = credential_path(store, provider_id)
-  match read_file_sync(path) {
-    Missing =>
-      match read_legacy_api_key_credential(store, provider_id) {
-        None => None
-        Some(value) => {
-          let credential = @oauth.ProviderCredential::ApiKey(value)
-          persist_provider_credential(store, provider_id, credential) catch {
-            err =>
-              raise @posoco.CompositionError::ManifestSchemaError(
-                manifest_id="cetas-js.credentials",
-                detail="legacy credential migration failed for provider " +
-                  provider_id +
-                  ": " +
-                  @cetas_core.oauth_error_text(err),
-              )
-          }
-          Some(credential)
-        }
-      }
-    Failed(message) =>
-      raise @posoco.CompositionError::ManifestSchemaError(
-        manifest_id="cetas-js.credentials",
-        detail="credential read failed for provider " +
-          provider_id +
-          ": " +
-          message,
-      )
-    Content(text) => {
-      let json = @json.parse(text) catch {
-        _ =>
-          raise @posoco.CompositionError::ManifestSchemaError(
-            manifest_id="cetas-js.credentials",
-            detail="credential file is not valid JSON for provider " +
-              provider_id,
-          )
-      }
-      match @cetas_core.parse_tagged_provider_credential(json, provider_id) {
-        Some(value) => {
-          // A canonical tagged record is authoritative, but a stale legacy
-          // sidecar must not survive it. Retry cleanup on every read and
-          // surface a typed composition error if the filesystem refuses it.
-          cleanup_legacy_sidecar(store, provider_id) catch {
-            err =>
-              raise @posoco.CompositionError::ManifestSchemaError(
-                manifest_id="cetas-js.credentials",
-                detail="legacy credential cleanup failed for provider " +
-                  provider_id +
-                  ": " +
-                  @cetas_core.oauth_error_text(err),
-              )
-          }
-          Some(value)
-        }
-        None => {
-          // Untagged canonical-path data is the legacy OAuth shape.  If a
-          // valid API-key sidecar also exists, do not silently choose OAuth.
-          let oauth = match @oauth.Credential::from_json(json) {
-            Some(value) => value
-            None =>
-              raise @posoco.CompositionError::ManifestSchemaError(
-                manifest_id="cetas-js.credentials",
-                detail="credential file has an invalid legacy shape for provider " +
-                  provider_id,
-              )
-          }
-          match read_legacy_api_key_credential(store, provider_id) {
-            Some(_) =>
-              raise @posoco.CompositionError::ManifestSchemaError(
-                manifest_id="cetas-js.credentials",
-                detail="ambiguous credentials for provider " +
-                  provider_id +
-                  "; run /login " +
-                  provider_id +
-                  " oauth or api_key",
-              )
-            None => {
-              let credential = @oauth.ProviderCredential::OAuth(oauth)
-              persist_provider_credential(store, provider_id, credential) catch {
-                err =>
-                  raise @posoco.CompositionError::ManifestSchemaError(
-                    manifest_id="cetas-js.credentials",
-                    detail="legacy credential migration failed for provider " +
-                      provider_id +
-                      ": " +
-                      @cetas_core.oauth_error_text(err),
-                  )
-              }
-              Some(credential)
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-///|
-/// Persist one tagged record with an atomic same-directory replace.  The
-/// native host never sees the opaque payload and the old record remains intact
-/// if writing or renaming the temporary file fails.
-fn persist_provider_credential(
-  store : JsProviderCredentialStore,
-  provider_id : String,
-  credential : @oauth.ProviderCredential,
-) -> Unit raise @oauth.OAuthError {
-  bun_mkdir_sync(store.cwd + "/.cetas/credentials")
-  let ok = bun_write_file_atomic(
-    credential_path(store, provider_id),
-    @cetas_core.provider_credential_to_json(credential).stringify(),
+/// The host's credential store: one tagged record per provider below the
+/// Cetas settings directory, persisted through the workspace fs boundary.
+fn credential_store(cwd : String) -> @credentials.FileProviderCredentialStore {
+  @credentials.FileProviderCredentialStore::new(
+    @workspace.JsWorkspaceFs::new(),
+    cwd + "/.cetas/credentials",
   )
-  if !ok {
-    raise @oauth.OAuthError::HttpError(
-      "credential persistence failed for provider " + provider_id,
-    )
-  }
-  // Once the canonical replace is durable, remove legacy sidecars.  This is
-  // deliberately ordered after the atomic write: a cleanup failure is
-  // observable and retried on the next read/login, but it can never destroy
-  // the last known-good canonical record first.
-  cleanup_legacy_sidecar(store, provider_id)
-}
-
-///|
-fn cleanup_legacy_sidecar(
-  store : JsProviderCredentialStore,
-  provider_id : String,
-) -> Unit raise @oauth.OAuthError {
-  let ok = bun_delete_file(legacy_api_key_credential_path(store, provider_id))
-  if !ok {
-    raise @oauth.OAuthError::HttpError(
-      "legacy credential cleanup failed for provider " + provider_id,
-    )
-  }
-}
-
-///|
-pub impl @oauth.ProviderCredentialStore for JsProviderCredentialStore with fn read(
-  self : JsProviderCredentialStore,
-  provider_id : String,
-) -> @oauth.ProviderCredential? raise @oauth.OAuthError {
-  // Router login reads only the canonical tagged record.  Legacy conversion
-  // belongs to setup composition (`read_provider_credential`) so a missing
-  // router slot cannot accidentally reinterpret two old files.
-  match read_file_sync(credential_path(self, provider_id)) {
-    Missing => None
-    Failed(message) =>
-      raise @oauth.OAuthError::HttpError(
-        "credential read failed for provider " + provider_id + ": " + message,
-      )
-    Content(text) => {
-      let json = @json.parse(text) catch {
-        _ =>
-          raise @oauth.OAuthError::ParseError(
-            "credential file is not valid JSON for provider " + provider_id,
-          )
-      }
-      let parsed = @cetas_core.parse_tagged_provider_credential(
-        json, provider_id,
-      ) catch {
-        _ =>
-          raise @oauth.OAuthError::ParseError(
-            "credential file has an invalid tagged shape for provider " +
-            provider_id,
-          )
-      }
-      match parsed {
-        Some(value) => {
-          cleanup_legacy_sidecar(self, provider_id) catch {
-            err =>
-              raise @oauth.OAuthError::HttpError(
-                @cetas_core.oauth_error_text(err),
-              )
-          }
-          Some(value)
-        }
-        None =>
-          raise @oauth.OAuthError::ParseError(
-            "credential file is an untagged legacy record for provider " +
-            provider_id,
-          )
-      }
-    }
-  }
-}
-
-///|
-pub impl @oauth.ProviderCredentialStore for JsProviderCredentialStore with fn write(
-  self : JsProviderCredentialStore,
-  provider_id : String,
-  credential : @oauth.ProviderCredential,
-) -> Unit raise @oauth.OAuthError {
-  persist_provider_credential(self, provider_id, credential)
-}
-
-///|
-pub impl @oauth.ProviderCredentialStore for JsProviderCredentialStore with fn delete(
-  self : JsProviderCredentialStore,
-  provider_id : String,
-) -> Unit raise @oauth.OAuthError {
-  // Remove the legacy source first.  If cleanup is refused, leave the
-  // canonical record intact so a failed logout cannot make the old sidecar
-  // reappear as a fresh credential on the next setup read.
-  cleanup_legacy_sidecar(self, provider_id)
-  let ok = bun_delete_file(credential_path(self, provider_id))
-  if !ok {
-    raise @oauth.OAuthError::HttpError(
-      "credential deletion failed for provider " + provider_id,
-    )
-  }
 }
 
 ///|
@@ -377,11 +82,12 @@ pub impl @oauth.AuthPromptInteraction for JsAuthInteraction with fn prompt(
 ///|
 /// Generic settings source. It validates only the outer shape and preserves
 /// each provider object as opaque JSON for its registered extension factory.
-fn load_provider_settings(
+async fn load_provider_settings(
   runtime : CetasJsRuntime,
 ) -> Map[String, Json] raise @posoco.CompositionError {
   let settings_path = runtime.config.cwd + "/.cetas/settings.json"
-  match read_file_sync(settings_path) {
+  match
+    @workspace.read_file_result(@workspace.JsWorkspaceFs::new(), settings_path) {
     Missing => Map::from_array([])
     Failed(message) =>
       raise @posoco.CompositionError::ManifestSchemaError(
@@ -429,14 +135,21 @@ fn load_provider_settings(
 /// Read every registered provider's credential once into a snapshot map, so
 /// the catalog build loop performs no per-provider file IO. Missing files and
 /// unconfigured providers simply map to no entry.
-fn read_credential_snapshot(
-  store : JsProviderCredentialStore,
+async fn read_credential_snapshot(
+  store : @credentials.FileProviderCredentialStore,
 ) -> Map[String, @oauth.ProviderCredential] raise @posoco.CompositionError {
   let ctx = @devkit.ExtContext::default()
   let credentials : Map[String, @oauth.ProviderCredential] = Map::from_array([])
   for factory in @cetas_core.provider_factories(ctx) {
     let provider_id = factory.provider_id()
-    match read_provider_credential(store, provider_id) {
+    let credential = store.read(provider_id) catch {
+      err =>
+        raise @posoco.CompositionError::ManifestSchemaError(
+          manifest_id="cetas-js.credentials",
+          detail=@cetas_core.oauth_error_text(err),
+        )
+    }
+    match credential {
       Some(value) => credentials[provider_id] = value
       None => ()
     }
@@ -452,7 +165,7 @@ fn read_credential_snapshot(
 /// recomposition, and `/model` never trigger an implicit second fetch.
 ///
 /// Factory wiring and validation live in cetas-core; this host owns only the
-/// process-lifetime cache and the host-specific credential file reads.
+/// process-lifetime cache.
 async fn collect_provider_catalogs(
   runtime : CetasJsRuntime,
   requested : Array[String]?,
@@ -462,7 +175,7 @@ async fn collect_provider_catalogs(
   let settings = load_provider_settings(runtime)
   let factories = @cetas_core.provider_factories(ctx)
   @cetas_core.validate_provider_settings(settings, factories)
-  let store = JsProviderCredentialStore::new(runtime.config.cwd)
+  let store = credential_store(runtime.config.cwd)
   let credentials = read_credential_snapshot(store)
   let snapshot = @cetas_core.ProviderCredentialSnapshot::ProviderCredentialSnapshot(
     settings~,
@@ -533,7 +246,7 @@ async fn cached_provider_catalogs(
 ///|
 async fn build_provider_router(
   runtime : CetasJsRuntime,
-  store : JsProviderCredentialStore,
+  store : @credentials.FileProviderCredentialStore,
   auth : JsAuthInteraction,
 ) -> @llm.RouterModelPort raise @posoco.CompositionError {
   let catalogs = cached_provider_catalogs(runtime)
@@ -584,9 +297,9 @@ async fn refresh_model_catalogs(
 ///|
 /// Run provider-owned authentication through the cetas-core login seam. Core
 /// resolves the method, runs the factory login, and returns a tagged
-/// credential outcome; this host performs the host-specific persistence
-/// (atomic file write + legacy sidecar cleanup) and invalidates its catalog
-/// cache so the next composition sees the new credential.
+/// credential outcome; this host persists it through the credential store and
+/// invalidates its catalog cache so the next composition sees the new
+/// credential.
 async fn login_provider(
   runtime : CetasJsRuntime,
   provider_id : String,
@@ -598,7 +311,7 @@ async fn login_provider(
   let interaction = JsAuthInteraction::new(
     observer_callback, request_callback, cancel_check,
   )
-  let store = JsProviderCredentialStore::new(runtime.config.cwd)
+  let store = credential_store(runtime.config.cwd)
   let device_id = if runtime.config.cwd.length() > 0 {
     resolve_kimi_device_id(runtime.config.cwd)
   } else {
@@ -611,7 +324,7 @@ async fn login_provider(
     interaction as &@oauth.AuthInteraction,
     interaction as &@oauth.AuthPromptInteraction,
   )
-  persist_provider_credential(store, outcome.provider_id, outcome.credential) catch {
+  store.write(outcome.provider_id, outcome.credential) catch {
     err =>
       raise @posoco.CommandError::ExecutionFailed(
         outcome.method +
@@ -621,84 +334,9 @@ async fn login_provider(
         @cetas_core.oauth_error_text(err),
       )
   }
-  // The tagged record is written first and the legacy sidecar is removed by
-  // the persistence helper. Cleanup failures propagate so setup/login can
-  // retry instead of hiding a split-brain store.
   runtime.catalog_cache.remove(provider_id)
   @cetas_core.login_outcome_json(outcome)
 }
-
-///|
-extern "js" fn bun_write_file_atomic(path : String, contents : String) -> Bool =
-  #| (path, contents) => {
-  #|   const fs = require("fs");
-  #|   const suffix = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  #|   const tmp = `${path}.tmp-${suffix}`;
-  #|   try {
-  #|     fs.writeFileSync(tmp, contents, { encoding: "utf8", mode: 0o600 });
-  #|     fs.renameSync(tmp, path);
-  #|     return true;
-  #|   } catch {
-  #|     try { fs.unlinkSync(tmp); } catch {}
-  #|     return false;
-  #|   }
-  #| }
-
-///|
-extern "js" fn bun_mkdir_sync(path : String) -> Unit =
-  #| (path) => { require("fs").mkdirSync(path, { recursive: true }); }
-
-///|
-extern "js" fn bun_delete_file(path : String) -> Bool =
-  #| (path) => { try { require("fs").unlinkSync(path); return true; } catch (error) { if (error?.code === "ENOENT") return true; return false; } }
-
-///|
-/// Synchronously read a generic settings/credential source through Bun FFI.
-/// The JS side returns an explicit missing/error distinction so permission and
-/// other IO failures cannot be mistaken for an unconfigured provider.
-fn read_file_sync(path : String) -> JsFileReadResult {
-  let raw = bun_read_file_result(path)
-  let json = @json.parse(raw) catch {
-    _ => return Failed("file read result is not valid JSON")
-  }
-  match json {
-    Json::Object(fields) =>
-      match fields.get("ok") {
-        Some(Json::True) =>
-          match fields.get("value") {
-            Some(Json::String(value)) => Content(value)
-            _ => Failed("file read result has no string value")
-          }
-        Some(Json::False) => {
-          let message = match fields.get("error") {
-            Some(Json::String(value)) => value
-            _ => "unknown filesystem error"
-          }
-          match fields.get("missing") {
-            Some(Json::True) => Missing
-            _ => Failed(message)
-          }
-        }
-        _ => Failed("file read result has no ok flag")
-      }
-    _ => Failed("file read result must be an object")
-  }
-}
-
-///|
-extern "js" fn bun_read_file_result(path : String) -> String =
-  #| (path) => {
-  #|   const fs = require("fs");
-  #|   try {
-  #|     return JSON.stringify({ ok: true, value: fs.readFileSync(path, "utf-8") });
-  #|   } catch (error) {
-  #|     return JSON.stringify({
-  #|       ok: false,
-  #|       missing: error?.code === "ENOENT",
-  #|       error: String(error),
-  #|     });
-  #|   }
-  #| }
 
 ///|
 /// Mint a v4 UUID via the host runtime's crypto module (Node / Bun both ship
@@ -707,7 +345,7 @@ extern "js" fn bun_read_file_result(path : String) -> String =
 extern "js" fn js_random_uuid() -> String =
   #| () => {
   #|   try {
-  #|     const crypto = require("crypto");
+  #|     const crypto = require("node:crypto");
   #|     if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
   #|   } catch {}
   #|   return "";
@@ -720,20 +358,20 @@ extern "js" fn js_random_uuid() -> String =
 /// subsequent runs (and the OAuth host's device list) see the same id. When
 /// persistence fails the minted id is still returned so the OAuth flow can
 /// proceed; only cross-run stability is lost.
-fn resolve_kimi_device_id(cwd : String) -> String {
+async fn resolve_kimi_device_id(cwd : String) -> String noraise {
+  let fs = @workspace.JsWorkspaceFs::new()
   let dir = cwd + "/.cetas"
   let path = dir + "/kimi_device_id"
-  match read_file_sync(path) {
+  match @workspace.read_file_result(fs, path) {
     Content(value) => {
       let trimmed = value.trim().to_owned()
       if trimmed.length() > 0 {
         trimmed
       } else {
-        mint_and_persist_kimi_device_id(dir, path)
+        mint_and_persist_kimi_device_id(fs, dir, path)
       }
     }
-    Missing => mint_and_persist_kimi_device_id(dir, path)
-    Failed(_) => mint_and_persist_kimi_device_id(dir, path)
+    _ => mint_and_persist_kimi_device_id(fs, dir, path)
   }
 }
 
@@ -741,14 +379,22 @@ fn resolve_kimi_device_id(cwd : String) -> String {
 /// Mint a new device id and best-effort persist it. Persistence failure is
 /// non-fatal: the id is returned so the OAuth flow can proceed, only cross-run
 /// stability is at risk. Mirrors kimi-code's `createKimiDeviceId` semantics.
-fn mint_and_persist_kimi_device_id(dir : String, path : String) -> String {
+async fn mint_and_persist_kimi_device_id(
+  fs : &@workspace.WorkspaceFs,
+  dir : String,
+  path : String,
+) -> String noraise {
   let host_uuid = js_random_uuid()
   // When host crypto is unavailable, defer to posoco-ext-kimi's process-local
   // UUID by returning "" (the extension mints one internally on empty input).
   let device_id = if host_uuid.length() > 0 { host_uuid } else { "" }
   if device_id.length() > 0 {
-    bun_mkdir_sync(dir)
-    let _ = bun_write_file_atomic(path, device_id)
+    fs.mkdir(dir, recursive=true) catch {
+      _ => ()
+    }
+    fs.write_file_atomic(path, device_id) catch {
+      _ => ()
+    }
   }
   device_id
 }

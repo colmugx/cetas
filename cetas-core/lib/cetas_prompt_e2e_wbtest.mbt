@@ -3,7 +3,7 @@
 // SystemMessage. cetas-core owns the section labeling for context vs tool guidance.
 
 ///|
-async test "e2e: build_agent_from_parts labels context contributor as project_context" {
+async test "e2e: Cetas labels context contributor as project_context" {
   // A ContextBundle with one ancestor doc. We construct it inline (cetas-core
   // does not depend on posoco-ext-context; it only consumes the
   // SystemPromptContributor trait, which ContextPromptContributor implements).
@@ -18,20 +18,92 @@ async test "e2e: build_agent_from_parts labels context contributor as project_co
   let context_contributor = CetasContextStub::new(
     "/repo/AGENTS.md", "Build with: moon test",
   )
-  let host_config = CetasHostConfig::CetasHostConfig("/repo", max_tool_rounds=5)
-  let agent = build_agent_from_parts(
-    model as &@posoco.ModelPort,
-    [],
-    [],
-    [],
-    [],
-    store,
-    observer,
-    ui,
-    host_config,
+  // Cetas owns identity + prompt assembly + /profile. Profile callbacks are
+  // stubbed; this test only exercises prompt assembly.
+  let cetas = Cetas::Cetas(
+    cwd="/repo",
+    ui=ui as &@posoco.UiPort,
     context_contributor=Some(
       context_contributor as &@posoco.SystemPromptContributor,
     ),
+    list_profiles=fn() { [] },
+    on_load=fn(_name) { () },
+    on_save=fn(_name) { () },
+    on_delete=fn(_name) { () },
+  )
+  // Compose exactly the way a host does: every part is an Extension.
+  // Test fakes (store / observer / ui / scripted model) are not Extensions
+  // yet — posoco reform is deferred; wrap via ManifestOnly for this test.
+  let agent = @posoco.Agent(
+    exts=[
+      cetas,
+      @posoco.ManifestOnly::ManifestOnly({
+        id: "model",
+        models: [model as &@posoco.ModelPort],
+        tools: [],
+        sessions: [],
+        observers: [],
+        pre_model_hooks: [],
+        pre_tool_hooks: [],
+        post_event_hooks: [],
+        memory: [],
+        lifecycle: [],
+        commands: [],
+        ui: [],
+        prompt_contributors: [],
+      }),
+      @posoco.ManifestOnly::ManifestOnly({
+        id: "store",
+        models: [],
+        tools: [],
+        sessions: [store as &@posoco.SessionStore],
+        observers: [],
+        pre_model_hooks: [],
+        pre_tool_hooks: [],
+        post_event_hooks: [],
+        memory: [],
+        lifecycle: [],
+        commands: [],
+        ui: [],
+        prompt_contributors: [],
+      }),
+      @posoco.ManifestOnly::ManifestOnly({
+        id: "observer",
+        models: [],
+        tools: [],
+        sessions: [],
+        observers: [observer as &@posoco.Observer],
+        pre_model_hooks: [],
+        pre_tool_hooks: [],
+        post_event_hooks: [],
+        memory: [],
+        lifecycle: [],
+        commands: [],
+        ui: [],
+        prompt_contributors: [],
+      }),
+      @posoco.ManifestOnly::ManifestOnly({
+        id: "ui",
+        models: [],
+        tools: [],
+        sessions: [],
+        observers: [],
+        pre_model_hooks: [],
+        pre_tool_hooks: [],
+        post_event_hooks: [],
+        memory: [],
+        lifecycle: [],
+        commands: [],
+        ui: [ui as &@posoco.UiPort],
+        prompt_contributors: [],
+      }),
+    ],
+    config={
+      max_tool_rounds: 5,
+      temperature: None,
+      max_output_tokens: None,
+      model_context_window: None,
+    },
   )
   ignore(agent.run_turn(@posoco.tk_user_msg("hello"), "s1"))
   // Inspect what the model received.

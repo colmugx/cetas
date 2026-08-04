@@ -20,7 +20,7 @@ import {
   type OverlayHandle,
   type SelectListTheme,
 } from "@earendil-works/pi-tui";
-import { matchesKey } from "@earendil-works/pi-tui";
+import { matchesKey, type KeyId } from "@earendil-works/pi-tui";
 
 import {
   CetasApplication,
@@ -29,7 +29,7 @@ import {
   type CetasHostConfig,
   type ProviderAuthCapability,
 } from "../src/app/index.ts";
-import { parseCetasEvent, type CetasEvent } from "../src/events.ts";
+import { parseCetasEvent } from "../src/events.ts";
 import { EventRouter } from "../src/controllers/event-router.ts";
 import {
   errorNotice,
@@ -44,7 +44,6 @@ import {
   createUiRenderCallback,
   createUiRequestCallback,
 } from "./extension-ui.ts";
-import { DebugFooter, defaultDebugInfo, type DebugInfo } from "./layout.ts";
 import { banner } from "./primitives.ts";
 import { ModelPickerOverlay, parseModelPickerOutcome, type ModelSelection } from "./model-picker.ts";
 import { OAuthOverlay } from "./oauth-overlay.ts";
@@ -142,8 +141,7 @@ export class TerminalShell {
   private readonly extensionStatus: Container;
   private readonly extensionWidgets: Container;
   private readonly editor: Editor;
-  private readonly footer: DebugFooter;
-  private readonly debugState: DebugInfo;
+  private readonly statusBarMount: Container;
   private readonly router: EventRouter;
   private readonly uiRenderHost: UiRenderHost;
   private readonly uiRequestOverlay: UiRequestOverlay;
@@ -152,9 +150,9 @@ export class TerminalShell {
   private readonly oauthOverlay: OAuthOverlay;
   private readonly authPromptOverlay: AuthPromptOverlay;
 
-  private turnStartTime = 0;
   private inTurn = false;
   private commandBusy = false;
+  private commandShortcuts: ReadonlyArray<{ keyId: KeyId; command: string }> = [];
   private providerPickerHandle?: OverlayHandle;
   private started = false;
   private setupNoticeShown = false;
@@ -208,15 +206,22 @@ export class TerminalShell {
     this.tui.addChild(this.editor);
     this.tui.setFocus(this.editor);
 
-    this.debugState = defaultDebugInfo("setup required");
-    this.footer = new DebugFooter("setup required");
-    this.tui.addChild(this.footer);
+    // The status bar is data-driven: ext-statusbar pushes `status:statusbar`
+    // renders and this host mounts them below the editor as a single line.
+    this.statusBarMount = new Container();
+    this.tui.addChild(this.statusBarMount);
 
-    this.uiRenderHost = new UiRenderHost(this.tui, {
-      status: this.extensionStatus,
-      notice: this.transcript,
-      widget: this.extensionWidgets,
-    });
+    this.uiRenderHost = new UiRenderHost(
+      this.tui,
+      {
+        status: this.extensionStatus,
+        notice: this.transcript,
+        widget: this.extensionWidgets,
+      },
+      {
+        "status:statusbar": { mount: this.statusBarMount, format: "line" },
+      },
+    );
     this.uiRequestOverlay = new UiRequestOverlay(this.tui);
     this.modelPicker = new ModelPickerOverlay(this.tui);
     this.oauthOverlay = new OAuthOverlay(this.tui, () => {
@@ -239,6 +244,15 @@ export class TerminalShell {
   attachApplication(app: CetasApplication): void {
     if (this.app !== undefined) throw new Error("cetas application is already attached");
     this.app = app;
+    // Generic command shortcuts: any extension command that declares a
+    // pi-tui key id (e.g. ext-plan's "shift+tab") becomes a live keybinding.
+    this.commandShortcuts = app
+      .listCommands()
+      .filter((descriptor) => descriptor.visible && descriptor.shortcut !== undefined)
+      .map((descriptor) => ({
+        keyId: descriptor.shortcut as KeyId,
+        command: `/${descriptor.id}`,
+      }));
   }
 
   /** Start application discovery and then enter pi-tui's render loop. */
@@ -326,10 +340,6 @@ export class TerminalShell {
   }
 
   handleSnapshot(snapshot: AppSnapshot): void {
-    if (snapshot.setup.activeModelId !== undefined) {
-      this.debugState.model = snapshot.setup.activeModelId;
-      this.footer.update(this.debugState);
-    }
     this.setupStatus.clear();
     if (snapshot.state === "needs_setup") {
       this.setupStatus.addChild(
@@ -408,7 +418,6 @@ export class TerminalShell {
     const parsed: unknown = JSON.parse(eventJson);
     const event = parseCetasEvent(parsed);
     if (event === null) throw new Error("unknown or malformed cetas event");
-    this.trackDebug(event);
     if (event.type === "custom" && this.commandBusy) {
       this.oauthOverlay.notify(event);
     }
@@ -430,37 +439,6 @@ export class TerminalShell {
       return this.authPromptOverlay.request(parseAuthPromptRequest(raw));
     }
     return createUiRequestCallback(this.uiRequestOverlay, 300_000)(eventJson);
-  }
-
-  private trackDebug(event: CetasEvent): void {
-    switch (event.type) {
-      case "turn_started":
-        this.turnStartTime = Date.now();
-        this.debugState.turnCount++;
-        this.debugState.toolsThisTurn = 0;
-        this.debugState.tokensInput = 0;
-        this.debugState.tokensOutput = 0;
-        this.debugState.latencyMs = 0;
-        this.debugState.sessionId = this.sessionId;
-        break;
-      case "tool_call_started":
-        this.debugState.toolsThisTurn++;
-        break;
-      case "model_invoked":
-        if (event.usage !== undefined) {
-          this.debugState.tokensInput += event.usage.input_tokens ?? 0;
-          this.debugState.tokensOutput += event.usage.output_tokens ?? 0;
-        }
-        if (event.model.length > 0) this.debugState.model = event.model;
-        break;
-      case "turn_completed":
-      case "turn_failed":
-        this.debugState.latencyMs = Date.now() - this.turnStartTime;
-        break;
-      default:
-        break;
-    }
-    this.footer.update(this.debugState);
   }
 
   private registerAutocomplete(): void {
@@ -526,6 +504,13 @@ export class TerminalShell {
       return { consume: true };
     }
     if (this.inTurn || this.commandBusy) return { consume: true };
+    // Extension-declared command shortcuts (e.g. shift+tab → /plan).
+    for (const binding of this.commandShortcuts) {
+      if (matchesKey(data, binding.keyId)) {
+        void this.invokeCommand(binding.command, "");
+        return { consume: true };
+      }
+    }
     return undefined;
   }
 
@@ -659,13 +644,6 @@ export class TerminalShell {
       const raw = await this.requireApp().invokeCommand("model", JSON.stringify(args));
       const outcome = parseModelPickerOutcome(raw);
       this.renderOutcome(outcome, "/model");
-      if (outcome.type === "success") {
-        const active = outcome.entries.find((entry) => entry.active);
-        if (active !== undefined) {
-          this.debugState.model = active.model ?? active.id;
-          this.footer.update(this.debugState);
-        }
-      }
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice(`/model failed: ${errorMessage(error)}`));
     } finally {
@@ -891,7 +869,12 @@ export class TerminalShell {
         if (outcome.feedback !== undefined && outcome.feedback.length > 0) {
           this.addTranscriptChild(systemNotice(`${command}: ${outcome.feedback}`));
         }
-        if (outcome.structured !== undefined && command !== "/model") {
+        // These commands return structured data for pickers (slot catalog,
+        // bar layout); the status bar already reflects it, so don't dump it.
+        if (
+          outcome.structured !== undefined &&
+          !["/model", "/effort", "/statusbar"].includes(command)
+        ) {
           this.addTranscriptChild(systemNotice(formatStructuredOutcome(outcome.structured)));
         }
         break;

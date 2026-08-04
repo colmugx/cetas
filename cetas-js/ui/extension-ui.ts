@@ -207,6 +207,17 @@ interface RenderMounts {
   widget: Container;
 }
 
+/**
+ * Route one `slot:key` render to a dedicated mount instead of the slot's
+ * shared container. `format: "line"` renders a key_value body as a single
+ * status-bar line (first value bold, the rest muted `key: value` pairs)
+ * instead of the default titled multi-line block.
+ */
+export interface UiKeyRoute {
+  mount: Container;
+  format?: "line";
+}
+
 interface MountedRender {
   component: Component;
   container: Container;
@@ -228,6 +239,21 @@ function formatKeyValue(entries: Array<{ key: string; value: string }>): string 
   return entries
     .map((entry) => `${theme.muted(entry.key.padEnd(keyWidth))}  ${entry.value}`)
     .join("\n");
+}
+
+/**
+ * Render key/value entries as one status-bar line: the first entry's value is
+ * bold, the remaining entries are muted `key: value` pairs joined by ` | `.
+ * The host decides line placement through key routes; this is only a shape.
+ */
+function renderKeyValueLine(
+  entries: Array<{ key: string; value: string }>,
+): { component: Component; dispose(): void } {
+  const [first, ...rest] = entries;
+  const left = first === undefined ? "" : theme.bold(` ${first.value} `);
+  const right = rest.map((entry) => `${entry.key}: ${entry.value}`).join(" | ");
+  const line = right.length === 0 ? left.trimEnd() : left + theme.muted(right);
+  return { component: new Text(line, 1, 0), dispose() {} };
 }
 
 function renderBody(
@@ -301,18 +327,26 @@ function renderBody(
  */
 export class UiRenderHost {
   private readonly rendered = new Map<string, MountedRender>();
+  private readonly keyRoutes: Readonly<Record<string, UiKeyRoute>>;
 
   constructor(
     private readonly tui: TUI,
     private readonly mounts: RenderMounts,
-  ) {}
+    keyRoutes: Readonly<Record<string, UiKeyRoute>> = {},
+  ) {
+    this.keyRoutes = keyRoutes;
+  }
 
   render(intent: UiRender): void {
     assertRender(intent);
     this.remove(intent.key);
 
-    const renderedBody = renderBody(this.tui, intent.title, intent.body);
-    const container = this.mounts[intent.slot];
+    const route = this.keyRoutes[`${intent.slot}:${intent.key}`];
+    const renderedBody =
+      route?.format === "line" && intent.body.type === "key_value"
+        ? renderKeyValueLine(intent.body.entries)
+        : renderBody(this.tui, intent.title, intent.body);
+    const container = route?.mount ?? this.mounts[intent.slot];
     const mounted: MountedRender = {
       component: renderedBody.component,
       container,

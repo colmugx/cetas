@@ -267,3 +267,37 @@ fn split_positional(s : String) -> (String?, String?) {
     _ => (Some(parts[0]), Some(parts[1:].join(" ")))
   }
 }
+
+///|
+/// Profile names are file stems, never paths. Reject traversal and separator
+/// characters before any file operation so callbacks cannot escape the
+/// profile directory.
+pub fn valid_profile_name(name : String) -> Bool {
+  if name.length() == 0 ||
+    name == "." ||
+    name == ".." ||
+    name.contains("/") ||
+    name.contains("\\") {
+    false
+  } else {
+    true
+  }
+}
+
+///|
+/// Parse and validate a profile payload. Profiles are provider settings
+/// objects; preserving the original JSON text keeps provider extensions
+/// responsible for their own fields and defaults. On success the original
+/// text is returned unchanged.
+pub fn validated_profile_text(
+  text : String,
+  name : String,
+) -> Result[String, String] {
+  let json = @json.parse(text) catch {
+    _ => return Err("profile " + name + " is not valid JSON")
+  }
+  match json {
+    Json::Object(_) => Ok(text)
+    _ => Err("profile " + name + " must contain a JSON object")
+  }
+}

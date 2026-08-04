@@ -103,6 +103,112 @@ describe("UiRenderHost", () => {
       }),
     ).toThrow("within [0, 1]");
   });
+
+  test("routes a keyed render to its dedicated mount instead of the slot mount", () => {
+    const tui = new FakeTui();
+    const status = new Container();
+    const statusBar = new Container();
+    const host = new UiRenderHost(
+      tui as never,
+      { status, notice: new Container(), widget: new Container() },
+      { "status:statusbar": { mount: statusBar } },
+    );
+
+    host.render({
+      slot: "status",
+      key: "statusbar",
+      title: "Status",
+      body: { type: "text", text: "routed" },
+    });
+    host.render({
+      slot: "status",
+      key: "other",
+      title: "Other",
+      body: { type: "text", text: "default" },
+    });
+
+    expect(status.render(80).join("\n")).toContain("default");
+    expect(status.render(80).join("\n")).not.toContain("routed");
+    expect(statusBar.render(80).join("\n")).toContain("routed");
+  });
+
+  test("renders a routed key_value body as a single status-bar line", () => {
+    const tui = new FakeTui();
+    const statusBar = new Container();
+    const host = new UiRenderHost(
+      tui as never,
+      { status: new Container(), notice: new Container(), widget: new Container() },
+      { "status:statusbar": { mount: statusBar, format: "line" } },
+    );
+
+    host.render({
+      slot: "status",
+      key: "statusbar",
+      title: "Status",
+      body: {
+        type: "key_value",
+        entries: [
+          { key: "model", value: "deepseek-v4-pro" },
+          { key: "effort", value: "high" },
+          { key: "tok", value: "10↑ 2↓" },
+        ],
+      },
+    });
+
+    const lines = statusBar.render(80);
+    expect(lines).toHaveLength(1);
+    const line = lines[0]!;
+    expect(line).toContain("deepseek-v4-pro");
+    expect(line).toContain("effort: high");
+    expect(line).toContain("tok: 10↑ 2↓");
+    // The first entry renders as a bare bold value and the title is dropped.
+    expect(line).not.toContain("model:");
+    expect(line).not.toContain("Status");
+  });
+
+  test("renders an empty routed key_value line as blank", () => {
+    const tui = new FakeTui();
+    const statusBar = new Container();
+    const host = new UiRenderHost(
+      tui as never,
+      { status: new Container(), notice: new Container(), widget: new Container() },
+      { "status:statusbar": { mount: statusBar, format: "line" } },
+    );
+
+    host.render({
+      slot: "status",
+      key: "statusbar",
+      title: "Status",
+      body: { type: "key_value", entries: [] },
+    });
+
+    expect(statusBar.render(80).join("\n").trim()).toBe("");
+  });
+
+  test("keeps the default body format for routed keys without a line format", () => {
+    const tui = new FakeTui();
+    const statusBar = new Container();
+    const host = new UiRenderHost(
+      tui as never,
+      { status: new Container(), notice: new Container(), widget: new Container() },
+      { "status:statusbar": { mount: statusBar } },
+    );
+
+    host.render({
+      slot: "status",
+      key: "statusbar",
+      title: "Status",
+      body: {
+        type: "key_value",
+        entries: [{ key: "model", value: "deepseek-v4-pro" }],
+      },
+    });
+
+    const rendered = statusBar.render(80).join("\n");
+    expect(rendered).toContain("Status");
+    expect(rendered).toContain("model");
+    expect(rendered).toContain("deepseek-v4-pro");
+  });
 });
 
 describe("UiRequestOverlay", () => {
