@@ -10,6 +10,7 @@
 import {
   Markdown,
   Text,
+  matchesKey,
   type Component,
   type OverlayHandle,
 } from "@earendil-works/pi-tui";
@@ -166,7 +167,11 @@ class OAuthPanel implements Component {
   handleInput(data: string): void {
     // Escape/Enter close the view and OAuthOverlay propagates cancellation to
     // the application token; the provider observes it at its polling boundary.
-    if (data === "\u001b" || data === "\r" || data === "\n" || data === "q") {
+    // Use matchesKey so the close gesture works on every terminal encoding of
+    // these keys (Kitty protocol, xterm modifyOtherKeys, numpad enter); a bare
+    // \u001b comparison silently fails on modern terminals and leaves users
+    // unable to cancel despite the "Press Esc" hint.
+    if (matchesKey(data, "escape") || matchesKey(data, "enter") || data === "q") {
       this.onClose();
     }
   }

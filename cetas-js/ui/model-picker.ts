@@ -305,13 +305,26 @@ class TabbedPickerPanel implements Component {
     const items: SelectItem[] = rows.map((row) => {
       const effort = row.entry.efforts[row.effortIndex];
       const effortText = effort === undefined ? "" : ` · effort: ${effort}`;
+      // Provider-owned labels usually embed the model id already ("DeepSeek /
+      // deepseek-v4-pro"); repeat it only when the label does not, so the
+      // effort suffix stays inside the primary column instead of duplicating.
+      const modelText =
+        row.entry.model !== undefined && !row.entry.label.includes(row.entry.model)
+          ? ` · ${row.entry.model}`
+          : "";
       return {
         value: row.entry.id,
-        label: `${row.entry.active ? "* " : "  "}${row.entry.label}${row.entry.model === undefined ? "" : ` · ${row.entry.model}`}${effortText}`,
+        label: `${row.entry.active ? "* " : "  "}${row.entry.label}${modelText}${effortText}`,
         description: row.entry.provider ?? tab,
       };
     });
-    const list = new SelectList(items, Math.min(12, Math.max(1, items.length)), selectTheme);
+    // The SelectList default locks the primary column to 32 chars, which
+    // truncates ` · effort: X` off real provider labels. Widen the column so
+    // the effort segment stays visible; it still clamps to the overlay width.
+    const list = new SelectList(items, Math.min(12, Math.max(1, items.length)), selectTheme, {
+      minPrimaryColumnWidth: 32,
+      maxPrimaryColumnWidth: 64,
+    });
     list.setSelectedIndex(selected);
     return list;
   }

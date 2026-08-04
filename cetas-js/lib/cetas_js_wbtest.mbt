@@ -56,16 +56,8 @@ test "JsUiPort wire rejects a response for another request" {
 }
 
 ///|
-test "provider login method inference is provider-neutral and fail-fast" {
-  assert_eq(resolve_login_method("deepseek", ""), "api_key")
-  assert_eq(resolve_login_method("openai", "oauth"), "oauth")
-  let ambiguous = Ok(resolve_login_method("kimi", "")) catch { err => Err(err) }
-  match ambiguous {
-    Err(@posoco.CommandError::InvalidArgs(reason=message)) =>
-      assert_true(message.contains("requires method"))
-    _ => fail("an ambiguous provider must require an explicit method")
-  }
-}
+/// `resolve_login_method` now lives in cetas-core; its provider-neutral
+/// inference is tested there (provider_login_wbtest.mbt).
 
 ///|
 test "model refresh selector validates provider ids and deduplicates requests" {
@@ -93,13 +85,9 @@ test "model refresh selector validates provider ids and deduplicates requests" {
 }
 
 ///|
-test "refresh registry exposes each provider live-discovery seam" {
-  let providers = refreshable_factories(@devkit.ExtContext::default())
-  assert_eq(providers.length(), 3)
-  assert_eq(providers[0].provider_id(), "deepseek")
-  assert_eq(providers[1].provider_id(), "kimi")
-  assert_eq(providers[2].provider_id(), "openai")
-}
+/// The factory registry (provider/oauth/api_key/refreshable) now lives in
+/// cetas-core and is covered by provider_login_wbtest.mbt there. The JS host
+/// forwards to it, so this test is no longer host-specific.
 
 ///|
 /// Remove an empty directory for white-box filesystem failure tests.
@@ -145,14 +133,14 @@ test "unified credential replacement preserves the explicitly selected method" {
     provider_id,
     @oauth.ProviderCredential::OAuth(oauth),
   ) catch {
-    err => fail("OAuth write failed: " + oauth_error_text(err))
+    err => fail("OAuth write failed: " + @cetas_core.oauth_error_text(err))
   }
   persist_provider_credential(
     store,
     provider_id,
     @oauth.ProviderCredential::ApiKey(api_key),
   ) catch {
-    err => fail("API-key write failed: " + oauth_error_text(err))
+    err => fail("API-key write failed: " + @cetas_core.oauth_error_text(err))
   }
   let selected = read_provider_credential(store, provider_id)
   match selected {
@@ -164,7 +152,7 @@ test "unified credential replacement preserves the explicitly selected method" {
     provider_id,
     @oauth.ProviderCredential::OAuth(oauth),
   ) catch {
-    err => fail("OAuth rewrite failed: " + oauth_error_text(err))
+    err => fail("OAuth rewrite failed: " + @cetas_core.oauth_error_text(err))
   }
   let selected_again = read_provider_credential(store, provider_id)
   match selected_again {
@@ -265,7 +253,10 @@ test "legacy OAuth plus API-key records fail with typed ambiguity and no secret 
     provider_id,
     @oauth.ProviderCredential::ApiKey(api),
   ) catch {
-    err => fail("explicit recovery write failed: " + oauth_error_text(err))
+    err =>
+      fail(
+        "explicit recovery write failed: " + @cetas_core.oauth_error_text(err),
+      )
   }
   match read_provider_credential(store, provider_id) {
     Some(value) => assert_eq(value.method_id(), "api_key")
@@ -340,7 +331,7 @@ async test "canonical delete removes legacy sidecar without resurrection" {
     provider_id,
     @oauth.ProviderCredential::ApiKey(api),
   ) catch {
-    err => fail("canonical write failed: " + oauth_error_text(err))
+    err => fail("canonical write failed: " + @cetas_core.oauth_error_text(err))
   }
   // Reintroduce an old sidecar after the canonical write to model an old
   // process racing with logout. Delete must remove both sources.
@@ -353,7 +344,8 @@ async test "canonical delete removes legacy sidecar without resurrection" {
   let delete_result = Ok(store.delete(provider_id)) catch { err => Err(err) }
   match delete_result {
     Ok(_) => ()
-    Err(err) => fail("canonical delete failed: " + oauth_error_text(err))
+    Err(err) =>
+      fail("canonical delete failed: " + @cetas_core.oauth_error_text(err))
   }
   match read_file_sync(credential_path(store, provider_id)) {
     Missing => ()
@@ -383,7 +375,7 @@ async test "logout cleanup failure keeps canonical credential for retry" {
     provider_id,
     @oauth.ProviderCredential::ApiKey(api),
   ) catch {
-    err => fail("canonical write failed: " + oauth_error_text(err))
+    err => fail("canonical write failed: " + @cetas_core.oauth_error_text(err))
   }
   let legacy_path = legacy_api_key_credential_path(store, provider_id)
   bun_mkdir_sync(legacy_path)
@@ -399,7 +391,7 @@ async test "logout cleanup failure keeps canonical credential for retry" {
   }
   assert_true(bun_remove_dir_sync(legacy_path))
   store.delete(provider_id) catch {
-    err => fail("logout retry failed: " + oauth_error_text(err))
+    err => fail("logout retry failed: " + @cetas_core.oauth_error_text(err))
   }
   match read_provider_credential(store, provider_id) {
     None => ()

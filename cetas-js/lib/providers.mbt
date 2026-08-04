@@ -37,97 +37,22 @@ fn JsProviderCredentialStore::new(cwd : String) -> JsProviderCredentialStore {
 }
 
 ///|
+/// Credential path / parse helpers live in cetas-core. These thin wrappers
+/// adapt the host-owned `JsProviderCredentialStore.cwd` to the core signature
+/// so the JS credential store impls stay readable.
 fn credential_path(
   store : JsProviderCredentialStore,
   provider_id : String,
 ) -> String {
-  store.cwd + "/.cetas/credentials/" + provider_id + ".json"
+  @cetas_core.credential_path(store.cwd, provider_id)
 }
 
 ///|
-/// Legacy API-key records were written to a separate filename before the
-/// unified store existed.  It is read only during one-way migration.
 fn legacy_api_key_credential_path(
   store : JsProviderCredentialStore,
   provider_id : String,
 ) -> String {
-  store.cwd + "/.cetas/credentials/" + provider_id + ".api-key.json"
-}
-
-///|
-/// Convert the tagged credential to the shared ext-oauth persistence record.
-/// The community contract uses `{method, credential}`; the reader below also
-/// accepts the early `{type, ...}` experiment so existing previews migrate
-/// without guessing.
-fn provider_credential_to_json(credential : @oauth.ProviderCredential) -> Json {
-  credential.to_json()
-}
-
-///|
-/// Parse one tagged credential.  `None` means the object has no method tag and
-/// may therefore be a legacy OAuth record; malformed tagged records raise a
-/// typed composition error without including secret values.
-fn parse_tagged_provider_credential(
-  json : Json,
-  provider_id : String,
-) -> @oauth.ProviderCredential? raise @posoco.CompositionError {
-  match @oauth.ProviderCredential::from_json(json) {
-    Some(value) => return Some(value)
-    None => ()
-  }
-  let fields = match json {
-    Json::Object(fields) => fields
-    _ =>
-      raise @posoco.CompositionError::ManifestSchemaError(
-        manifest_id="cetas-js.credentials",
-        detail="credential file must contain an object for provider " +
-          provider_id,
-      )
-  }
-  let kind = match fields.get("type") {
-    None => return None
-    Some(Json::String(value)) => value
-    Some(_) =>
-      raise @posoco.CompositionError::ManifestSchemaError(
-        manifest_id="cetas-js.credentials",
-        detail="credential type must be a string for provider " + provider_id,
-      )
-  }
-  // Accept both flattened records (the current writer) and nested payloads
-  // (the pre-release migration format), keeping the storage contract tolerant
-  // without exposing provider-specific parsing to the host.
-  let payload = match fields.get("credential") {
-    Some(value) => value
-    None => json
-  }
-  match kind {
-    "oauth" =>
-      match @oauth.Credential::from_json(payload) {
-        Some(value) => Some(@oauth.ProviderCredential::OAuth(value))
-        None =>
-          raise @posoco.CompositionError::ManifestSchemaError(
-            manifest_id="cetas-js.credentials",
-            detail="credential file has an invalid OAuth shape for provider " +
-              provider_id,
-          )
-      }
-    "api_key" =>
-      match @oauth.ApiKeyCredential::from_json(payload) {
-        Some(value) => Some(@oauth.ProviderCredential::ApiKey(value))
-        None =>
-          raise @posoco.CompositionError::ManifestSchemaError(
-            manifest_id="cetas-js.credentials",
-            detail="credential file has an invalid API-key shape for provider " +
-              provider_id,
-          )
-      }
-    _ =>
-      raise @posoco.CompositionError::ManifestSchemaError(
-        manifest_id="cetas-js.credentials",
-        detail="credential file has an unsupported method for provider " +
-          provider_id,
-      )
-  }
+  @cetas_core.legacy_api_key_credential_path(store.cwd, provider_id)
 }
 
 ///|
@@ -194,7 +119,7 @@ fn read_provider_credential(
                 detail="legacy credential migration failed for provider " +
                   provider_id +
                   ": " +
-                  oauth_error_text(err),
+                  @cetas_core.oauth_error_text(err),
               )
           }
           Some(credential)
@@ -217,7 +142,7 @@ fn read_provider_credential(
               provider_id,
           )
       }
-      match parse_tagged_provider_credential(json, provider_id) {
+      match @cetas_core.parse_tagged_provider_credential(json, provider_id) {
         Some(value) => {
           // A canonical tagged record is authoritative, but a stale legacy
           // sidecar must not survive it. Retry cleanup on every read and
@@ -229,7 +154,7 @@ fn read_provider_credential(
                 detail="legacy credential cleanup failed for provider " +
                   provider_id +
                   ": " +
-                  oauth_error_text(err),
+                  @cetas_core.oauth_error_text(err),
               )
           }
           Some(value)
@@ -265,7 +190,7 @@ fn read_provider_credential(
                     detail="legacy credential migration failed for provider " +
                       provider_id +
                       ": " +
-                      oauth_error_text(err),
+                      @cetas_core.oauth_error_text(err),
                   )
               }
               Some(credential)
@@ -289,7 +214,7 @@ fn persist_provider_credential(
   bun_mkdir_sync(store.cwd + "/.cetas/credentials")
   let ok = bun_write_file_atomic(
     credential_path(store, provider_id),
-    provider_credential_to_json(credential).stringify(),
+    @cetas_core.provider_credential_to_json(credential).stringify(),
   )
   if !ok {
     raise @oauth.OAuthError::HttpError(
@@ -337,7 +262,9 @@ pub impl @oauth.ProviderCredentialStore for JsProviderCredentialStore with fn re
             "credential file is not valid JSON for provider " + provider_id,
           )
       }
-      let parsed = parse_tagged_provider_credential(json, provider_id) catch {
+      let parsed = @cetas_core.parse_tagged_provider_credential(
+        json, provider_id,
+      ) catch {
         _ =>
           raise @oauth.OAuthError::ParseError(
             "credential file has an invalid tagged shape for provider " +
@@ -347,7 +274,10 @@ pub impl @oauth.ProviderCredentialStore for JsProviderCredentialStore with fn re
       match parsed {
         Some(value) => {
           cleanup_legacy_sidecar(self, provider_id) catch {
-            err => raise @oauth.OAuthError::HttpError(oauth_error_text(err))
+            err =>
+              raise @oauth.OAuthError::HttpError(
+                @cetas_core.oauth_error_text(err),
+              )
           }
           Some(value)
         }
@@ -407,51 +337,16 @@ fn JsAuthInteraction::new(
 }
 
 ///|
-fn auth_message_json(message : @oauth.AuthMessage) -> String {
-  let fields : Array[(String, Json)] = [
-    ("type", Json::string("custom")),
-    ("source", Json::string("cetas.oauth")),
-  ]
-  match message {
-    @oauth.AuthMessage::AuthUrl(url) => {
-      fields.push(("label", Json::string("auth_url")))
-      fields.push(
-        ("data", Json::object(Map::from_array([("url", Json::string(url))]))),
-      )
-    }
-    @oauth.AuthMessage::DeviceCode(uri, code) => {
-      fields.push(("label", Json::string("device_code")))
-      fields.push(
-        (
-          "data",
-          Json::object(
-            Map::from_array([
-              ("verification_uri", Json::string(uri)),
-              ("user_code", Json::string(code)),
-            ]),
-          ),
-        ),
-      )
-    }
-    @oauth.AuthMessage::Progress(progress) => {
-      fields.push(("label", Json::string("progress")))
-      fields.push(
-        (
-          "data",
-          Json::object(Map::from_array([("message", Json::string(progress))])),
-        ),
-      )
-    }
-  }
-  Json::object(Map::from_array(fields)).stringify()
-}
+/// Auth message / prompt encoding lives in cetas-core (`auth_message_json`,
+/// `auth_prompt_json`); the host forwards the provider-neutral values so every
+/// host renders the same observer wire shape.
 
 ///|
 pub impl @oauth.AuthInteraction for JsAuthInteraction with fn notify(
   self : JsAuthInteraction,
   message : @oauth.AuthMessage,
 ) -> Unit {
-  self.observer_callback.invoke(auth_message_json(message))
+  self.observer_callback.invoke(@cetas_core.auth_message_json(message))
 }
 
 ///|
@@ -462,65 +357,11 @@ pub impl @oauth.AuthInteraction for JsAuthInteraction with fn is_cancelled(
 }
 
 ///|
-/// Serialize provider-owned prompts without interpreting provider ids or
-/// credential formats. The request callback returns only the selected option
-/// id or the secret text; secrets never pass through an observer event.
-fn auth_prompt_json(request : @oauth.AuthPromptRequest) -> String {
-  match request {
-    @oauth.AuthPromptRequest::Secret(message~) =>
-      Json::object(
-        Map::from_array([
-          ("type", Json::string("auth_prompt")),
-          (
-            "request",
-            Json::object(
-              Map::from_array([
-                ("type", Json::string("secret")),
-                ("message", Json::string(message)),
-              ]),
-            ),
-          ),
-        ]),
-      ).stringify()
-    @oauth.AuthPromptRequest::Select(message~, options~) => {
-      let option_json : Array[Json] = []
-      for option in options {
-        let fields : Array[(String, Json)] = [
-          ("id", Json::string(option.id)),
-          ("label", Json::string(option.label)),
-        ]
-        match option.description {
-          Some(description) =>
-            fields.push(("description", Json::string(description)))
-          None => ()
-        }
-        option_json.push(Json::object(Map::from_array(fields)))
-      }
-      Json::object(
-        Map::from_array([
-          ("type", Json::string("auth_prompt")),
-          (
-            "request",
-            Json::object(
-              Map::from_array([
-                ("type", Json::string("select")),
-                ("message", Json::string(message)),
-                ("options", Json::array(option_json)),
-              ]),
-            ),
-          ),
-        ]),
-      ).stringify()
-    }
-  }
-}
-
-///|
 pub impl @oauth.AuthPromptInteraction for JsAuthInteraction with fn prompt(
   self : JsAuthInteraction,
   request : @oauth.AuthPromptRequest,
 ) -> String raise @oauth.OAuthError {
-  self.request_callback.invoke(auth_prompt_json(request)).wait() catch {
+  self.request_callback.invoke(@cetas_core.auth_prompt_json(request)).wait() catch {
     err => {
       let message = err.to_string()
       if message.contains("authentication prompt cancelled") {
@@ -577,91 +418,30 @@ fn load_provider_settings(
 }
 
 ///|
-fn provider_factories(ctx : @devkit.ExtContext) -> Array[&@llm.ProviderFactory] {
-  let deepseek = @deepseek.DeepSeekProvider::new(ctx~)
-  let kimi = @kimi.KimiProvider::new(ctx~)
-  let openai = @openai.OpenAIProvider::new()
-  [
-    deepseek as &@llm.ProviderFactory,
-    kimi as &@llm.ProviderFactory,
-    openai as &@llm.ProviderFactory,
-  ]
-}
+/// Provider factory wiring, settings validation, and refresh-selector parsing
+/// live in cetas-core (`provider_factories`, `api_key_factories`,
+/// `oauth_factories`, `refreshable_factories`, `validate_provider_settings`,
+/// `parse_refresh_provider_ids`). This host forwards to them so every host
+/// shares the single source of truth; the host resolves `device_id`
+/// (host-owned persistent storage) and passes it to the OAuth/refresh seams.
 
 ///|
-fn api_key_factories(ctx : @devkit.ExtContext) -> Array[&@llm.ApiKeyFactory] {
-  let deepseek = @deepseek.DeepSeekProvider::new(ctx~)
-  let kimi = @kimi.KimiProvider::new(ctx~)
-  let openai = @openai.OpenAIProvider::new()
-  [
-    deepseek as &@llm.ApiKeyFactory,
-    kimi as &@llm.ApiKeyFactory,
-    openai as &@llm.ApiKeyFactory,
-  ]
-}
-
-///|
-fn oauth_factories(ctx : @devkit.ExtContext) -> Array[&@llm.OAuthFactory] {
-  let kimi = @kimi.KimiProvider::new(ctx~)
-  let openai = @openai.OpenAIProvider::new()
-  [kimi as &@llm.OAuthFactory, openai as &@llm.OAuthFactory]
-}
-
-///|
-/// Optional live model-discovery seams. Providers that do not implement this
-/// contract still participate through their pure static `build` snapshot;
-/// Cetas never invents an endpoint or a fallback request for them.
-fn refreshable_factories(
-  ctx : @devkit.ExtContext,
-) -> Array[&@llm.RefreshableProviderFactory] {
-  let deepseek = @deepseek.DeepSeekProvider::new(ctx~)
-  let kimi = @kimi.KimiProvider::new(ctx~)
-  let openai = @openai.OpenAIProvider::new()
-  [
-    deepseek as &@llm.RefreshableProviderFactory,
-    kimi as &@llm.RefreshableProviderFactory,
-    openai as &@llm.RefreshableProviderFactory,
-  ]
-}
-
-///|
-fn validate_provider_settings(
-  settings : Map[String, Json],
-  factories : Array[&@llm.ProviderFactory],
-) -> Unit raise @posoco.CompositionError {
-  for provider_id, _value in settings {
-    let mut known = false
-    for factory in factories {
-      if factory.provider_id() == provider_id {
-        known = true
-      }
-    }
-    if !known {
-      raise @posoco.CompositionError::ManifestSchemaError(
-        manifest_id="cetas-js.providers",
-        detail="no registered provider extension for settings.providers." +
-          provider_id,
-      )
-    }
-  }
-}
-
-///|
-fn source_for_factory(
-  factory : &@llm.ProviderFactory,
-  settings : Map[String, Json],
+/// Read every registered provider's credential once into a snapshot map, so
+/// the catalog build loop performs no per-provider file IO. Missing files and
+/// unconfigured providers simply map to no entry.
+fn read_credential_snapshot(
   store : JsProviderCredentialStore,
-) -> @llm.ProviderConfigSource raise @posoco.CompositionError {
-  let provider_id = factory.provider_id()
-  let provider_settings = match settings.get(provider_id) {
-    Some(value) => Some(value)
-    None => None
+) -> Map[String, @oauth.ProviderCredential] raise @posoco.CompositionError {
+  let ctx = @devkit.ExtContext::default()
+  let credentials : Map[String, @oauth.ProviderCredential] = Map::from_array([])
+  for factory in @cetas_core.provider_factories(ctx) {
+    let provider_id = factory.provider_id()
+    match read_provider_credential(store, provider_id) {
+      Some(value) => credentials[provider_id] = value
+      None => ()
+    }
   }
-  let provider_credential = read_provider_credential(store, provider_id)
-  @llm.ProviderConfigSource::ProviderConfigSource(
-    settings=provider_settings,
-    provider_credential~,
-  )
+  credentials
 }
 
 ///|
@@ -670,15 +450,29 @@ fn source_for_factory(
 /// are rebuilt even when a process-lifetime cached catalog exists.  Every
 /// other call reuses its cached provider catalog, so setup discovery, Agent
 /// recomposition, and `/model` never trigger an implicit second fetch.
+///
+/// Factory wiring and validation live in cetas-core; this host owns only the
+/// process-lifetime cache and the host-specific credential file reads.
 async fn collect_provider_catalogs(
   runtime : CetasJsRuntime,
   requested : Array[String]?,
   force : Bool,
 ) -> Array[@llm.ProviderModelCatalog] raise @posoco.CompositionError {
+  let ctx = @devkit.ExtContext::default()
   let settings = load_provider_settings(runtime)
-  let factories = provider_factories(@devkit.ExtContext::default())
-  validate_provider_settings(settings, factories)
+  let factories = @cetas_core.provider_factories(ctx)
+  @cetas_core.validate_provider_settings(settings, factories)
   let store = JsProviderCredentialStore::new(runtime.config.cwd)
+  let credentials = read_credential_snapshot(store)
+  let snapshot = @cetas_core.ProviderCredentialSnapshot::ProviderCredentialSnapshot(
+    settings~,
+    credentials~,
+  )
+  let device_id = if runtime.config.cwd.length() > 0 {
+    resolve_kimi_device_id(runtime.config.cwd)
+  } else {
+    ""
+  }
   for factory in factories {
     let provider_id = factory.provider_id()
     let selected = match requested {
@@ -688,21 +482,27 @@ async fn collect_provider_catalogs(
     let should_build = (force && selected) ||
       !runtime.catalog_cache.contains(provider_id)
     if should_build && (selected || requested is None) {
-      let source = source_for_factory(factory, settings, store)
       let mut refreshed : @llm.ProviderBuildResult? = None
       if force && selected {
         for
-          refresh_factory in refreshable_factories(
-            @devkit.ExtContext::default(),
-          ) {
+          refresh_factory in @cetas_core.refreshable_factories(ctx, device_id~) {
           if refresh_factory.provider_id() == provider_id {
-            refreshed = Some(refresh_factory.refresh(source))
+            match
+              @cetas_core.refresh_provider_catalog(refresh_factory, snapshot) {
+              Some(catalog) =>
+                refreshed = Some(@llm.ProviderBuildResult::Ready(catalog))
+              None => refreshed = Some(@llm.ProviderBuildResult::Unconfigured)
+            }
           }
         }
       }
       let result = match refreshed {
         Some(value) => value
-        None => factory.build(source)
+        None =>
+          match @cetas_core.build_provider_catalog(factory, snapshot) {
+            Some(catalog) => @llm.ProviderBuildResult::Ready(catalog)
+            None => @llm.ProviderBuildResult::Unconfigured
+          }
       }
       match result {
         @llm.ProviderBuildResult::Ready(catalog) =>
@@ -749,151 +549,23 @@ async fn build_provider_router(
 }
 
 ///|
-/// Provider capability discovery before Agent composition. It uses exactly the
-/// same provider factories as Agent creation, so setup cannot claim a model
-/// that later fails a second, divergent provider switch.
+/// Provider capability discovery before Agent composition. The setup JSON
+/// assembly is provider-neutral and lives in cetas-core; this host only feeds
+/// it the cached catalogs.
 async fn provider_setup_json(
   runtime : CetasJsRuntime,
 ) -> String raise @posoco.CompositionError {
   let catalogs = cached_provider_catalogs(runtime)
-  let entries : Array[Json] = []
-  let mut active_model_id : String? = None
-  for catalog in catalogs {
-    for slot in catalog.slots() {
-      let is_active = active_model_id is None
-      if is_active {
-        active_model_id = Some(slot.id)
-      }
-      let efforts : Array[Json] = []
-      for effort in slot.thinking_efforts {
-        efforts.push(Json::string(effort))
-      }
-      entries.push(
-        Json::object(
-          Map::from_array([
-            ("id", Json::string(slot.id)),
-            ("label", Json::string(slot.label)),
-            ("provider", Json::string(slot.provider_id)),
-            ("model", Json::string(slot.model_id)),
-            ("active", Json::boolean(is_active)),
-            ("efforts", Json::array(efforts)),
-            ("oauth", Json::boolean(slot.oauth is Some(_))),
-          ]),
-        ),
-      )
-    }
-  }
-  let oauth_providers : Array[Json] = []
-  for factory in oauth_factories(@devkit.ExtContext::default()) {
-    oauth_providers.push(Json::string(factory.provider_id()))
-  }
-  let auth_provider_ids : Array[String] = []
-  let auth_methods : Array[Array[String]] = []
-  let add_auth_method = fn(provider_id : String, method : String) {
-    let mut found = -1
-    for i in 0..<auth_provider_ids.length() {
-      if auth_provider_ids[i] == provider_id {
-        found = i
-      }
-    }
-    if found < 0 {
-      auth_provider_ids.push(provider_id)
-      auth_methods.push([method])
-    } else if !auth_methods[found].contains(method) {
-      auth_methods[found].push(method)
-    }
-  }
-  // Capability discovery is intentionally independent of ready model slots:
-  // an unconfigured provider must still be reachable through `/login`.
-  for factory in api_key_factories(@devkit.ExtContext::default()) {
-    add_auth_method(factory.provider_id(), "api_key")
-  }
-  for factory in oauth_factories(@devkit.ExtContext::default()) {
-    add_auth_method(factory.provider_id(), "oauth")
-  }
-  let auth_entries : Array[Json] = []
-  for i in 0..<auth_provider_ids.length() {
-    let method_values : Array[Json] = []
-    for method in auth_methods[i] {
-      method_values.push(Json::string(method))
-    }
-    auth_entries.push(
-      Json::object(
-        Map::from_array([
-          ("provider", Json::string(auth_provider_ids[i])),
-          ("methods", Json::array(method_values)),
-        ]),
-      ),
-    )
-  }
-  let fields : Array[(String, Json)] = [
-    ("providers", Json::array(entries)),
-    ("oauthProviders", Json::array(oauth_providers)),
-    ("authProviders", Json::array(auth_entries)),
-  ]
-  match active_model_id {
-    Some(value) => fields.push(("activeModelId", Json::string(value)))
-    None => ()
-  }
-  Json::object(Map::from_array(fields)).stringify()
+  @cetas_core.provider_setup_json(catalogs)
 }
 
 ///|
-/// Parse the provider-neutral refresh selector supplied by the JS bridge. An
-/// empty string means all registered providers; otherwise it must be a JSON
-/// array of provider ids. Provider ids are validated against the same factory
-/// registry used for composition, keeping endpoint/model interpretation out of
-/// Cetas.
+/// Parse the provider-neutral refresh selector. Validation lives in
+/// cetas-core; this host forwards the raw selector unchanged.
 fn parse_refresh_provider_ids(
   raw : String,
 ) -> Array[String]? raise @posoco.CompositionError {
-  if raw.length() == 0 {
-    return None
-  }
-  let json = @json.parse(raw) catch {
-    _ =>
-      raise @posoco.CompositionError::ManifestSchemaError(
-        manifest_id="cetas-js.providers",
-        detail="model refresh provider selector is not valid JSON",
-      )
-  }
-  let values = match json {
-    Json::Array(values) => values
-    _ =>
-      raise @posoco.CompositionError::ManifestSchemaError(
-        manifest_id="cetas-js.providers",
-        detail="model refresh provider selector must be an array",
-      )
-  }
-  let factories = provider_factories(@devkit.ExtContext::default())
-  let ids : Array[String] = []
-  for value in values {
-    let provider_id = match value {
-      Json::String(value) if value.length() > 0 => value
-      _ =>
-        raise @posoco.CompositionError::ManifestSchemaError(
-          manifest_id="cetas-js.providers",
-          detail="model refresh provider ids must be non-empty strings",
-        )
-    }
-    let mut known = false
-    for factory in factories {
-      if factory.provider_id() == provider_id {
-        known = true
-      }
-    }
-    if !known {
-      raise @posoco.CompositionError::ManifestSchemaError(
-        manifest_id="cetas-js.providers",
-        detail="no registered provider extension for model refresh: " +
-          provider_id,
-      )
-    }
-    if !ids.contains(provider_id) {
-      ids.push(provider_id)
-    }
-  }
-  Some(ids)
+  @cetas_core.parse_refresh_provider_ids(raw)
 }
 
 ///|
@@ -910,47 +582,11 @@ async fn refresh_model_catalogs(
 }
 
 ///|
-/// Resolve a missing method only when the registered provider exposes exactly
-/// one authentication capability. Ambiguous providers must be selected by
-/// the caller's second-level method picker.
-fn resolve_login_method(
-  provider_id : String,
-  requested : String,
-) -> String raise @posoco.CommandError {
-  if requested.length() > 0 {
-    return requested
-  }
-  let mut has_api_key = false
-  for factory in api_key_factories(@devkit.ExtContext::default()) {
-    if factory.provider_id() == provider_id {
-      has_api_key = true
-    }
-  }
-  let mut has_oauth = false
-  for factory in oauth_factories(@devkit.ExtContext::default()) {
-    if factory.provider_id() == provider_id {
-      has_oauth = true
-    }
-  }
-  if has_api_key && !has_oauth {
-    return "api_key"
-  }
-  if has_oauth && !has_api_key {
-    return "oauth"
-  }
-  if has_api_key && has_oauth {
-    raise @posoco.CommandError::InvalidArgs(
-      reason="/login requires method for provider " + provider_id,
-    )
-  }
-  raise @posoco.CommandError::ExecutionFailed(
-    "no registered authentication provider: " + provider_id,
-  )
-}
-
-///|
-/// Run provider-owned authentication through the registered public factory
-/// seam. Cetas does not know which protocol or endpoint each provider uses.
+/// Run provider-owned authentication through the cetas-core login seam. Core
+/// resolves the method, runs the factory login, and returns a tagged
+/// credential outcome; this host performs the host-specific persistence
+/// (atomic file write + legacy sidecar cleanup) and invalidates its catalog
+/// cache so the next composition sees the new credential.
 async fn login_provider(
   runtime : CetasJsRuntime,
   provider_id : String,
@@ -959,128 +595,37 @@ async fn login_provider(
   cancel_check : JsCancelCheck,
   method : String,
 ) -> String raise @posoco.CommandError {
-  let selected_method = resolve_login_method(provider_id, method)
   let interaction = JsAuthInteraction::new(
     observer_callback, request_callback, cancel_check,
   )
   let store = JsProviderCredentialStore::new(runtime.config.cwd)
-  match selected_method {
-    "oauth" => {
-      let auth_factories = oauth_factories(@devkit.ExtContext::default())
-      for factory in auth_factories {
-        if factory.provider_id() == provider_id {
-          let credential = factory.login(interaction as &@oauth.AuthInteraction) catch {
-            err =>
-              raise @posoco.CommandError::ExecutionFailed(
-                "OAuth login failed for " +
-                provider_id +
-                ": " +
-                oauth_error_text(err),
-              )
-          }
-          let tagged = @oauth.ProviderCredential::OAuth(credential)
-          persist_provider_credential(store, factory.provider_id(), tagged) catch {
-            err =>
-              raise @posoco.CommandError::ExecutionFailed(
-                "OAuth credential persistence failed for " +
-                provider_id +
-                ": " +
-                oauth_error_text(err),
-              )
-          }
-          // The tagged record is written first and the legacy sidecar is
-          // removed by the persistence helper.  Cleanup failures propagate so
-          // setup/login can retry instead of hiding a split-brain store.
-          runtime.catalog_cache.remove(provider_id)
-          return Json::object(
-            Map::from_array([
-              ("type", Json::string("success")),
-              ("feedback", Json::string("Logged in to " + provider_id)),
-              (
-                "structured",
-                Json::object(
-                  Map::from_array([
-                    ("provider", Json::string(provider_id)),
-                    ("method", Json::string("oauth")),
-                  ]),
-                ),
-              ),
-            ]),
-          ).stringify()
-        }
-      }
+  let device_id = if runtime.config.cwd.length() > 0 {
+    resolve_kimi_device_id(runtime.config.cwd)
+  } else {
+    ""
+  }
+  let outcome = @cetas_core.login_provider(
+    provider_id,
+    method,
+    device_id~,
+    interaction as &@oauth.AuthInteraction,
+    interaction as &@oauth.AuthPromptInteraction,
+  )
+  persist_provider_credential(store, outcome.provider_id, outcome.credential) catch {
+    err =>
       raise @posoco.CommandError::ExecutionFailed(
-        "no registered OAuth provider: " + provider_id,
-      )
-    }
-    "api_key" => {
-      let factories = api_key_factories(@devkit.ExtContext::default())
-      for factory in factories {
-        if factory.provider_id() == provider_id {
-          let credential = factory.login(
-            interaction as &@oauth.AuthPromptInteraction,
-          ) catch {
-            err =>
-              raise @posoco.CommandError::ExecutionFailed(
-                "API-key login failed for " +
-                provider_id +
-                ": " +
-                oauth_error_text(err),
-              )
-          }
-          let tagged = @oauth.ProviderCredential::ApiKey(credential)
-          persist_provider_credential(store, factory.provider_id(), tagged) catch {
-            err =>
-              raise @posoco.CommandError::ExecutionFailed(
-                "API-key credential persistence failed for " +
-                provider_id +
-                ": " +
-                oauth_error_text(err),
-              )
-          }
-          // See the OAuth branch: one tagged canonical file is authoritative;
-          // persistence removes the legacy sidecar only after the atomic write.
-          runtime.catalog_cache.remove(provider_id)
-          return Json::object(
-            Map::from_array([
-              ("type", Json::string("success")),
-              ("feedback", Json::string("Logged in to " + provider_id)),
-              (
-                "structured",
-                Json::object(
-                  Map::from_array([
-                    ("provider", Json::string(provider_id)),
-                    ("method", Json::string("api_key")),
-                  ]),
-                ),
-              ),
-            ]),
-          ).stringify()
-        }
-      }
-      raise @posoco.CommandError::ExecutionFailed(
-        "no registered API-key provider: " + provider_id,
-      )
-    }
-    other =>
-      raise @posoco.CommandError::ExecutionFailed(
-        "unsupported authentication method: " + other,
+        outcome.method +
+        " credential persistence failed for " +
+        provider_id +
+        ": " +
+        @cetas_core.oauth_error_text(err),
       )
   }
-}
-
-///|
-fn oauth_error_text(error : @oauth.OAuthError) -> String {
-  match error {
-    @oauth.OAuthError::AuthPending => "auth_pending"
-    @oauth.OAuthError::SlowDown => "slow_down"
-    @oauth.OAuthError::AccessDenied => "access_denied"
-    @oauth.OAuthError::ExpiredToken => "expired_token"
-    @oauth.OAuthError::InvalidGrant => "invalid_grant"
-    @oauth.OAuthError::HttpError(detail) => "http_error: " + detail
-    @oauth.OAuthError::ParseError(detail) => "parse_error: " + detail
-    @oauth.OAuthError::Cancelled => "cancelled"
-  }
+  // The tagged record is written first and the legacy sidecar is removed by
+  // the persistence helper. Cleanup failures propagate so setup/login can
+  // retry instead of hiding a split-brain store.
+  runtime.catalog_cache.remove(provider_id)
+  @cetas_core.login_outcome_json(outcome)
 }
 
 ///|
@@ -1154,3 +699,56 @@ extern "js" fn bun_read_file_result(path : String) -> String =
   #|     });
   #|   }
   #| }
+
+///|
+/// Mint a v4 UUID via the host runtime's crypto module (Node / Bun both ship
+/// `crypto.randomUUID`). Returns "" only if crypto is somehow unavailable, in
+/// which case the caller falls back to the in-process UUID in posoco-ext-kimi.
+extern "js" fn js_random_uuid() -> String =
+  #| () => {
+  #|   try {
+  #|     const crypto = require("crypto");
+  #|     if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  #|   } catch {}
+  #|   return "";
+  #| }
+
+///|
+/// Resolve the stable Kimi device id for this working directory. The id lives
+/// at `<cwd>/.cetas/kimi_device_id` and is created on first use: a fresh v4
+/// UUID is minted via the host crypto module and persisted atomically so
+/// subsequent runs (and the OAuth host's device list) see the same id. When
+/// persistence fails the minted id is still returned so the OAuth flow can
+/// proceed; only cross-run stability is lost.
+fn resolve_kimi_device_id(cwd : String) -> String {
+  let dir = cwd + "/.cetas"
+  let path = dir + "/kimi_device_id"
+  match read_file_sync(path) {
+    Content(value) => {
+      let trimmed = value.trim().to_owned()
+      if trimmed.length() > 0 {
+        trimmed
+      } else {
+        mint_and_persist_kimi_device_id(dir, path)
+      }
+    }
+    Missing => mint_and_persist_kimi_device_id(dir, path)
+    Failed(_) => mint_and_persist_kimi_device_id(dir, path)
+  }
+}
+
+///|
+/// Mint a new device id and best-effort persist it. Persistence failure is
+/// non-fatal: the id is returned so the OAuth flow can proceed, only cross-run
+/// stability is at risk. Mirrors kimi-code's `createKimiDeviceId` semantics.
+fn mint_and_persist_kimi_device_id(dir : String, path : String) -> String {
+  let host_uuid = js_random_uuid()
+  // When host crypto is unavailable, defer to posoco-ext-kimi's process-local
+  // UUID by returning "" (the extension mints one internally on empty input).
+  let device_id = if host_uuid.length() > 0 { host_uuid } else { "" }
+  if device_id.length() > 0 {
+    bun_mkdir_sync(dir)
+    let _ = bun_write_file_atomic(path, device_id)
+  }
+  device_id
+}

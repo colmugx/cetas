@@ -4,10 +4,6 @@
 /// Composes the provider-owned model router, generic coding-tool features,
 /// cetas-core's session store, and JsCallbackObserver into a Posoco Agent.
 
-// ---------------------------------------------------------------------------
-// JsCallbackObserver — bridges TurnEvent to TS via a registered callback.
-// ---------------------------------------------------------------------------
-
 ///|
 /// JS callback type: `(eventJson: string) => void`.
 /// Public because JsCallbackObserver exposes it in its constructor.
@@ -342,10 +338,6 @@ pub impl @posoco.Observer for JsCallbackObserver with fn on_event(
     single => self.callback.invoke(single.stringify())
   }
 }
-
-// ---------------------------------------------------------------------------
-// JsUiPort — bridges structured UI intents and requests to the TS host.
-// ---------------------------------------------------------------------------
 
 ///|
 /// JS callback type for one-way render events: `(eventJson: string) => void`.
@@ -712,10 +704,6 @@ pub impl @port.UiPort for JsUiPort with fn request(
   decode_ui_response_event(response_json, request_id, req)
 }
 
-// ---------------------------------------------------------------------------
-// CetasJsConfig — host-level configuration.
-// ---------------------------------------------------------------------------
-
 ///|
 /// Bridge configuration. Provider settings, endpoints, model ids, and
 /// credentials come from the generic settings/credential stores and are
@@ -758,10 +746,6 @@ pub fn CetasJsRuntime::new(config : CetasJsConfig) -> CetasJsRuntime {
 pub fn CetasJsRuntime::CetasJsRuntime(config : CetasJsConfig) -> CetasJsRuntime {
   CetasJsRuntime::new(config)
 }
-
-// ---------------------------------------------------------------------------
-// build_agent — composition.
-// ---------------------------------------------------------------------------
 
 ///|
 /// Long-lived cetas-js agent handle. The JS host constructs it once and reuses
@@ -818,7 +802,7 @@ pub fn cetas_js_runtime_create_agent(
     let model = build_provider_router(
       runtime, credential_store, auth_interaction,
     )
-    let (tools, prompt_contributors) = @cetas_core.build_default_features()
+    let tools = @cetas_core.build_default_features()
     let store = @fs_session.JsonlSessionStore::new(
       runtime.config.cwd + "/.cetas/sessions",
     )
@@ -871,7 +855,7 @@ pub fn cetas_js_runtime_create_agent(
     let agent = @cetas_core.build_agent_from_parts(
       model as &@posoco.ModelPort,
       tools,
-      prompt_contributors,
+      [],
       [],
       commands,
       store,
@@ -882,10 +866,6 @@ pub fn cetas_js_runtime_create_agent(
     { agent, profile_errors }
   }
 }
-
-// ---------------------------------------------------------------------------
-// Provider capability discovery and OAuth exports.
-// ---------------------------------------------------------------------------
 
 ///|
 /// Async JS export for setup discovery.  It has no Agent side effects.
@@ -964,10 +944,6 @@ pub fn cetas_js_runtime_login_provider(
     )
   }
 }
-
-// ---------------------------------------------------------------------------
-// Profile file IO via Bun FFI.
-// ---------------------------------------------------------------------------
 
 ///|
 /// Read a profile directory and return ProfileSpec entries (one per .json file).
@@ -1277,10 +1253,6 @@ extern "js" fn bun_profile_delete_result(path : String) -> String =
   #|   catch (error) { return String(error); }
   #| }
 
-// ---------------------------------------------------------------------------
-// Exports for TS host.
-// ---------------------------------------------------------------------------
-
 ///|
 /// Run one turn on an existing agent handle.
 ///
@@ -1311,12 +1283,6 @@ pub fn cetas_js_run_turn(
 pub fn cetas_js_shutdown(handle : CetasJsAgent) -> @js_async.Promise[Unit] {
   @js_async.Promise::from_async() <| () => { handle.agent.shutdown() }
 }
-
-// ---------------------------------------------------------------------------
-// CommandPort FFI — list_commands + invoke_command.
-// Lets the TS host enumerate slash commands from extensions and route
-// invocations back through the MoonBit CommandPort pipeline.
-// ---------------------------------------------------------------------------
 
 ///|
 fn command_type_to_json(ctype : @port.CommandType) -> Json {

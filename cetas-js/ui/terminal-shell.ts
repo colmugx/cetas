@@ -484,11 +484,17 @@ export class TerminalShell {
               detail,
               insert_text: label,
             }));
-            const extension = this.requireApp().listCommands().map((descriptor) => ({
-              label: `/${descriptor.id}`,
-              detail: descriptor.description || descriptor.label,
-              insert_text: `/${descriptor.id}`,
-            }));
+            // Local entries win over extension commands with the same id
+            // (the router also contributes /model and /login); without this
+            // filter the dropdown lists those commands twice.
+            const localIds = new Set(local.map((item) => item.label));
+            const extension = this.requireApp().listCommands()
+              .filter((descriptor) => !localIds.has(`/${descriptor.id}`))
+              .map((descriptor) => ({
+                label: `/${descriptor.id}`,
+                detail: descriptor.description || descriptor.label,
+                insert_text: `/${descriptor.id}`,
+              }));
             return [...local, ...extension].filter((item) =>
               item.label.slice(1).startsWith(prefix),
             );

@@ -87,4 +87,27 @@ describe("OAuth UI interaction", () => {
     expect(cancellations).toBe(1);
     expect(overlay.isActive).toBe(false);
   });
+
+  test("cancels on every terminal encoding of Escape/Enter (Kitty, numpad)", () => {
+    // Regression: OAuthPanel previously compared raw \u001b/\r/\n, so the
+    // "Press Esc to close" hint did nothing on Kitty-protocol terminals
+    // (ESC arrives as a CSI u sequence) and on numpad-enter terminals.
+    const cases = [
+      "\u001b", // legacy single-byte ESC
+      "\u001b[27u", // Kitty protocol CSI u encoding of Escape
+      "\r", // legacy Enter
+      "\u001bOM", // SS3 M (numpad Enter)
+    ];
+    for (const input of cases) {
+      const tui = new FakeTui();
+      let cancellations = 0;
+      const overlay = new OAuthOverlay(tui as never, () => {
+        cancellations += 1;
+      });
+      overlay.show("kimi");
+      tui.shown!.handleInput!(input);
+      expect(cancellations).toBe(1);
+      expect(overlay.isActive).toBe(false);
+    }
+  });
 });

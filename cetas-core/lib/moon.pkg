@@ -1,11 +1,18 @@
 import {
   "colmugx/posoco",
+  "colmugx/posoco-devkit" @devkit,
   "colmugx/posoco-ext-read" @read,
   "colmugx/posoco-ext-write" @write,
   "colmugx/posoco-ext-edit" @edit,
   "colmugx/posoco-ext-bash" @bash,
   "colmugx/posoco-ext-glob" @glob,
   "colmugx/posoco-ext-grep" @grep,
+  "colmugx/posoco-ext-llm" @llm,
+  "colmugx/posoco-ext-oauth" @oauth,
+  "colmugx/posoco-ext-deepseek" @deepseek,
+  "colmugx/posoco-ext-kimi" @kimi,
+  "colmugx/posoco-ext-openai" @openai,
+  "moonbitlang/core/json",
   "moonbitlang/async",
 }
 
