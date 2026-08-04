@@ -3,17 +3,6 @@
 ///
 /// This package MUST NOT import any target-specific IO (no @fs, no @process,
 /// no extern "js"). All IO is injected by the caller via trait impls.
-///
-/// Public surface:
-///   - InMemorySessionStore: SessionStore impl for dev/test (no persistence)
-///   - PrintObserver: Observer impl that prints turn events to stdout
-///   - CetasHostConfig: agent-level configuration (max_tool_rounds, etc)
-///   - build_agent_from_parts: pure assembly, takes injected model/tools/etc
-///   - run_prompt: pure, runs one turn and extracts assistant text
-
-// ============================================================================
-// InMemorySessionStore — pure in-process map, no IO.
-// ============================================================================
 
 ///|
 /// In-memory session store. Single-process, no persistence.
@@ -47,10 +36,6 @@ pub impl @posoco.SessionStore for InMemorySessionStore with fn save(
 ) -> Unit raise @posoco.SessionError {
   self.sessions[id] = session
 }
-
-// ============================================================================
-// PrintObserver — uses println only, no other IO.
-// ============================================================================
 
 ///|
 /// Print observer: echoes turn events to stdout for user visibility.
@@ -91,10 +76,6 @@ pub impl @posoco.Observer for PrintObserver with fn on_event(
   }
 }
 
-// ============================================================================
-// CetasHostConfig — agent-level configuration.
-// ============================================================================
-
 ///|
 /// Host-level configuration. The model/api_key/tools-specific bits stay in
 /// cetas-native / cetas-js because they depend on target-specific ext packages.
@@ -128,15 +109,33 @@ pub fn build_agent_from_parts(
   observer : &@posoco.Observer,
   ui : &@posoco.UiPort,
   config : CetasHostConfig,
+  context_contributor? : &@posoco.SystemPromptContributor? = None,
 ) -> @posoco.Agent raise @posoco.CompositionError {
+  let contributors_with_ids : Array[@posoco.SystemPromptSection] = []
+  // Context contributor (AGENTS.md etc.) gets its own section label so the
+  // assembled prompt reads "project_context:" above the <cetas-context> blocks.
+  match context_contributor {
+    Some(c) =>
+      contributors_with_ids.push(
+        @posoco.SystemPromptSection::SystemPromptSection(
+          id="project_context",
+          contributor=c,
+        ),
+      )
+    None => ()
+  }
+  // Tool contributors share the "tool_guidance" label.
+  for c in prompt_contributors {
+    contributors_with_ids.push(
+      @posoco.SystemPromptSection::SystemPromptSection(
+        id="tool_guidance",
+        contributor=c,
+      ),
+    )
+  }
   let system_prompt = @posoco.SystemPromptHook(
     base_prompt=cetas_base_system_prompt(config.cwd),
-    contributors=prompt_contributors.map(fn(c) {
-      @posoco.SystemPromptSection::SystemPromptSection(
-        id="contributor",
-        contributor=c,
-      )
-    }),
+    contributors=contributors_with_ids,
   )
   let pre_model_hooks : Array[&@posoco.PreModelHook] = [system_prompt]
   for hook in feature_pre_model_hooks {
@@ -215,10 +214,6 @@ pub fn build_agent_from_parts(
   )
 }
 
-// ============================================================================
-// run_prompt — pure turn runner.
-// ============================================================================
-
 ///|
 /// Run a single user prompt through the agent, return the assistant's
 /// concatenated text response.
@@ -252,33 +247,22 @@ pub async fn run_prompt(
   builder.to_string()
 }
 
-// ============================================================================
-// build_default_* — canonical assembly backed by ext-* packages.
-//
-// These helpers wire up the shared coding-tool extensions. Model/provider
-// adapters and logging remain host-owned; this package only returns generic
-// tool and prompt contributions.
-// ============================================================================
+// Model/provider adapters and logging remain host-owned.
 
 ///|
 /// Default tool set: read/write/edit/glob/grep/bash.
 ///
 /// Order matters for diagnostics readability; it does not affect execution.
-pub fn build_default_features() -> (
-  Array[&@posoco.ToolProvider],
-  Array[&@posoco.SystemPromptContributor],
-) {
+///
+/// Returns only ToolProviders. The tools' own `description` fields carry their
+/// usage guidance to the model via the tool schema; no SystemPromptContributor
+/// is emitted here.
+pub fn build_default_features() -> Array[&@posoco.ToolProvider] {
   let read = @read.ReadTools::ReadTools()
   let write = @write.WriteTools::WriteTools()
   let edit = @edit.EditTools::EditTools()
   let glob = @glob.GlobTools::GlobTools()
   let grep = @grep.GrepTools::GrepTools()
   let bash = @bash.ShellTools::ShellTools()
-  let tools : Array[&@posoco.ToolProvider] = [
-    read, write, edit, glob, grep, bash,
-  ]
-  let prompts : Array[&@posoco.SystemPromptContributor] = [
-    read, write, edit, glob, grep, bash,
-  ]
-  (tools, prompts)
+  [read, write, edit, glob, grep, bash]
 }

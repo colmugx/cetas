@@ -7,10 +7,6 @@
 /// cetas-core owns the command semantics and UI contract; hosts inject file
 /// IO via callbacks (cetas-core cannot import @fs / extern "js").
 
-// ============================================================================
-// ProfileSpec — declarative entry shown in the /profiles picker.
-// ============================================================================
-
 ///|
 /// One saved profile, surfaced as a selectable option.
 pub(all) struct ProfileSpec {
@@ -27,10 +23,6 @@ pub fn ProfileSpec::ProfileSpec(name : String) -> ProfileSpec {
 pub fn ProfileSpec::with_label(name~ : String, label~ : String) -> ProfileSpec {
   { name, label }
 }
-
-// ============================================================================
-// ProfileCommand — CommandPort impl for /profiles + /profile.
-// ============================================================================
 
 ///|
 /// Commands for managing persisted agent configurations.

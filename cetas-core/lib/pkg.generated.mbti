@@ -9,9 +9,9 @@ import {
 }
 
 // Values
-pub fn build_agent_from_parts(&@port.ModelPort, Array[&@port.ToolProvider], Array[&@port.SystemPromptContributor], Array[&@port.PreModelHook], Array[&@port.CommandPort], &@port.SessionStore, &@port.Observer, &@port.UiPort, CetasHostConfig) -> @posoco.Agent raise @error.CompositionError
+pub fn build_agent_from_parts(&@port.ModelPort, Array[&@port.ToolProvider], Array[&@port.SystemPromptContributor], Array[&@port.PreModelHook], Array[&@port.CommandPort], &@port.SessionStore, &@port.Observer, &@port.UiPort, CetasHostConfig, context_contributor? : &@port.SystemPromptContributor?) -> @posoco.Agent raise @error.CompositionError
 
-pub fn build_default_features() -> (Array[&@port.ToolProvider], Array[&@port.SystemPromptContributor])
+pub fn build_default_features() -> Array[&@port.ToolProvider]
 
 pub async fn run_prompt(@posoco.Agent, String, String) -> String raise @error.AgentError
 
