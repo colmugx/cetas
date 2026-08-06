@@ -843,10 +843,71 @@ fn push_model_facts(
 }
 
 ///|
+/// Detect a legacy project-local `.cetas` directory left over from before
+/// durable state moved to the user's HOME, and warn loudly once.
+///
+/// Before this fix, credentials, settings, profiles, and sessions were written
+/// into `<cwd>/.cetas/` — i.e. the project working tree — where they could be
+/// committed to a repository or shipped in an artifact. Those secrets are now
+/// read and written under `<home>/.cetas/`. If a project-local `.cetas` still
+/// exists AND the user has no home `.cetas` yet, they are very likely carrying
+/// live credentials in their project and will appear unconfigured after this
+/// change. Emit one `Custom` observer event describing the exposure and the
+/// remediation (`mv <cwd>/.cetas ~/.cetas`).
+///
+/// This is warn-only: it never copies or deletes anything. Moving secrets
+/// across a trust boundary silently is itself risky, and the user must confirm
+/// where their credentials land. Best-effort and non-fatal — any filesystem
+/// probe failure just suppresses the warning.
+async fn warn_legacy_project_cetas(
+  fs : &@workspace.WorkspaceFs,
+  home : String,
+  cwd : String,
+  observer : &@posoco.Observer,
+) -> Unit noraise {
+  let legacy_path = cwd + "/.cetas"
+  let home_path = home + "/.cetas"
+  let legacy_present = fs.exists(legacy_path) catch { _ => return }
+  if not(legacy_present) {
+    return
+  }
+  let home_present = fs.exists(home_path) catch { _ => return }
+  if home_present {
+    return
+  }
+  let event : @posoco.TurnEvent = Custom(
+    source="cetas-js.bridge",
+    label="legacy_cetas_warning",
+    data=Json::object(
+      Map::from_array([
+        (
+          "message",
+          Json::string(
+            "Found a project-local .cetas directory at " +
+            legacy_path +
+            ". Durable state (credentials, settings, profiles, sessions) now lives under your HOME at " +
+            home_path +
+            ". The project-local copy may contain live credentials that are exposed to anyone with read access to this project (it can be committed or packaged). Move it out of the project tree, e.g.: mv " +
+            legacy_path +
+            " " +
+            home_path,
+          ),
+        ),
+        ("legacy_path", Json::string(legacy_path)),
+        ("home_path", Json::string(home_path)),
+      ]),
+    ),
+  )
+  observer.on_event(event)
+}
+
+///|
 /// Construct the long-lived cetas-js agent.
 ///
-/// Session transcripts are persisted below `<cwd>/.cetas/sessions`. All UI
+/// Session transcripts are persisted below `<home>/.cetas/sessions`. All UI
 /// callbacks are mandatory; malformed callback responses fail the request.
+/// All durable state (credentials, settings, profiles, sessions) lives under
+/// the user's HOME, never the project working tree.
 pub fn cetas_js_create_agent(
   config : CetasJsConfig,
   observer_callback : JsCallback,
@@ -875,13 +936,13 @@ pub fn cetas_js_runtime_create_agent(
   cancel_check : JsCancelCheck,
 ) -> @js_async.Promise[CetasJsAgent] {
   @js_async.Promise::from_async() <| () => {
-    let cred_store = credential_store(runtime.config.cwd)
+    let cred_store = credential_store(runtime.config.home)
     let auth_interaction = JsAuthInteraction::new(
       observer_callback, request_callback, cancel_check,
     )
     let model = build_provider_router(runtime, cred_store, auth_interaction)
     let store = @fs_session.JsonlSessionStore::new(
-      runtime.config.cwd + "/.cetas/sessions",
+      runtime.config.home + "/.cetas/sessions",
     )
     let profile_errors : Array[String] = []
     let observer = JsCallbackObserver::new(observer_callback)
@@ -890,6 +951,15 @@ pub fn cetas_js_runtime_create_agent(
     // chain through the shared workspace fs boundary. Failures are swallowed
     // (empty bundle); context is best-effort.
     let context_fs = @workspace.JsWorkspaceFs::new()
+    // Warn once if a legacy project-local `.cetas` (pre-HOME-relocation,
+    // potentially holding live credentials) is still present. Best-effort and
+    // non-fatal; never copies or deletes anything.
+    warn_legacy_project_cetas(
+      context_fs,
+      runtime.config.home,
+      runtime.config.cwd,
+      observer,
+    )
     let loader = @context.ContextLoader::new(
       context_fs,
       home=runtime.config.home,
@@ -907,35 +977,35 @@ pub fn cetas_js_runtime_create_agent(
       ),
       list_profiles=fn() {
         list_profile_files(
-          runtime.config.cwd + "/.cetas/profiles",
+          runtime.config.home + "/.cetas/profiles",
           profile_errors,
         )
       },
       on_load=fn(name : String) {
         load_profile(
-          runtime.config.cwd + "/.cetas/profiles",
-          runtime.config.cwd + "/.cetas/settings.json",
+          runtime.config.home + "/.cetas/profiles",
+          runtime.config.home + "/.cetas/settings.json",
           name,
           profile_errors,
         )
       },
       on_save=fn(name : String) {
         save_profile(
-          runtime.config.cwd + "/.cetas/profiles",
-          runtime.config.cwd + "/.cetas/settings.json",
+          runtime.config.home + "/.cetas/profiles",
+          runtime.config.home + "/.cetas/settings.json",
           name,
           profile_errors,
         )
       },
       on_delete=fn(name : String) {
         delete_profile(
-          runtime.config.cwd + "/.cetas/profiles",
+          runtime.config.home + "/.cetas/profiles",
           name,
           profile_errors,
         )
       },
     )
-    // Plan mode: read-only investigation gated by PreToolHook, toggled via
+    // Plan mode: read-only investigation gated by Hook, toggled via
     // /plan or shift+tab (declared on the command's shortcut), model entry
     // via enter_plan_mode, exit only via plan.approve.
     let plan_mode = @plan.PlanMode::new(config=@plan.PlanModeConfig::{

@@ -24,11 +24,85 @@ pub fn provider_factories(
   let deepseek = @deepseek.DeepSeekProvider::new(ctx~)
   let kimi = @kimi.KimiProvider::new(ctx~)
   let openai = @openai.OpenAIProvider::new()
+  let opencode_zen = @opencode_zen.OpenCodeZenProvider::new(ctx~)
   [
     deepseek as &@llm.ProviderFactory,
     kimi as &@llm.ProviderFactory,
     openai as &@llm.ProviderFactory,
+    opencode_zen as &@llm.ProviderFactory,
   ]
+}
+
+///|
+/// The set of provider ids claimed by statically-registered providers. Used to
+/// decide which settings keys fall through to the openai-compatible adapter.
+/// Returns a `Map[String, Unit]` used purely as a membership set. Includes the
+/// OpenCode Zen gateway (`opencode`), so a `providers.opencode` settings entry
+/// is claimed by the Zen factory rather than falling through.
+pub fn static_provider_ids() -> Map[String, Unit] {
+  let ctx = @devkit.ExtContext::default()
+  let ids : Map[String, Unit] = Map::from_array([])
+  for factory in provider_factories(ctx) {
+    ids[factory.provider_id()] = ()
+  }
+  ids
+}
+
+///|
+/// Construct one `OpenAICompatibleProvider` per settings key not already
+/// claimed by a static provider. Returns owned instances so the caller can
+/// borrow them as `&@llm.ProviderFactory` for the lifetime of composition.
+pub fn compatible_provider_factories(
+  settings : Map[String, Json],
+  ctx : @devkit.ExtContext,
+) -> Array[@openai_compatible.OpenAICompatibleProvider] {
+  let claimed = static_provider_ids()
+  let factories : Array[@openai_compatible.OpenAICompatibleProvider] = []
+  for provider_id, _value in settings {
+    if !claimed.contains(provider_id) {
+      factories.push(
+        @openai_compatible.OpenAICompatibleProvider::new(provider_id, ctx~),
+      )
+    }
+  }
+  factories
+}
+
+///|
+/// The complete, settings-aware factory list: static providers plus one
+/// openai-compatible instance per custom settings id. Host composition
+/// (catalog build, credential read, `/model`, `/login`) must use this list so
+/// custom providers participate identically to static ones.
+pub fn all_provider_factories(
+  ctx : @devkit.ExtContext,
+  settings : Map[String, Json],
+) -> Array[&@llm.ProviderFactory] {
+  let result : Array[&@llm.ProviderFactory] = []
+  for factory in provider_factories(ctx) {
+    result.push(factory)
+  }
+  for factory in compatible_provider_factories(settings, ctx) {
+    result.push(factory as &@llm.ProviderFactory)
+  }
+  result
+}
+
+///|
+/// Settings-aware `ApiKeyFactory` list: static api-key providers plus one
+/// openai-compatible instance per custom settings id, so `/login <custom_id>
+/// method:api_key` reaches the compatible provider.
+pub fn all_api_key_factories(
+  ctx : @devkit.ExtContext,
+  settings : Map[String, Json],
+) -> Array[&@llm.ApiKeyFactory] {
+  let result : Array[&@llm.ApiKeyFactory] = []
+  for factory in api_key_factories(ctx) {
+    result.push(factory)
+  }
+  for factory in compatible_provider_factories(settings, ctx) {
+    result.push(factory as &@llm.ApiKeyFactory)
+  }
+  result
 }
 
 ///|
@@ -41,10 +115,12 @@ pub fn api_key_factories(
   let deepseek = @deepseek.DeepSeekProvider::new(ctx~)
   let kimi = @kimi.KimiProvider::new(ctx~)
   let openai = @openai.OpenAIProvider::new()
+  let opencode_zen = @opencode_zen.OpenCodeZenProvider::new(ctx~)
   [
     deepseek as &@llm.ApiKeyFactory,
     kimi as &@llm.ApiKeyFactory,
     openai as &@llm.ApiKeyFactory,
+    opencode_zen as &@llm.ApiKeyFactory,
   ]
 }
 
@@ -74,10 +150,12 @@ pub fn refreshable_factories(
   let deepseek = @deepseek.DeepSeekProvider::new(ctx~)
   let kimi = @kimi.KimiProvider::new(ctx~, device_id~)
   let openai = @openai.OpenAIProvider::new()
+  let opencode_zen = @opencode_zen.OpenCodeZenProvider::new(ctx~)
   [
     deepseek as &@llm.RefreshableProviderFactory,
     kimi as &@llm.RefreshableProviderFactory,
     openai as &@llm.RefreshableProviderFactory,
+    opencode_zen as &@llm.RefreshableProviderFactory,
   ]
 }
 

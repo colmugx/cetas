@@ -73,11 +73,7 @@ pub impl @posoco.Extension for Cetas with fn extension_id(_self) -> String {
 ///|
 pub impl @posoco.Extension for Cetas with fn manifest(self) -> @posoco.ExtensionManifest {
   let m = @posoco.ExtensionManifest::empty(id="cetas")
-  {
-    ..m,
-    pre_model_hooks: [self.system_prompt_hook],
-    commands: [self.profile_command],
-  }
+  { ..m, hooks: [self.system_prompt_hook], commands: [self.profile_command] }
 }
 
 ///|

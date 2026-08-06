@@ -46,13 +46,14 @@ test "model refresh selector validates provider ids and deduplicates requests" {
 }
 
 ///|
-test "factory registry exposes the three registered providers in order" {
+test "factory registry exposes the four registered providers in order" {
   let ctx = @devkit.ExtContext::default()
   let factories = provider_factories(ctx)
-  assert_eq(factories.length(), 3)
+  assert_eq(factories.length(), 4)
   assert_eq(factories[0].provider_id(), "deepseek")
   assert_eq(factories[1].provider_id(), "kimi")
   assert_eq(factories[2].provider_id(), "openai")
+  assert_eq(factories[3].provider_id(), "opencode")
 }
 
 ///|
@@ -96,4 +97,49 @@ test "provider_setup_json renders empty catalogs without crashing" {
       }
     _ => fail("setup json must be an object")
   }
+}
+
+///|
+test "settings-derived custom provider resolves api_key login and joins the setup auth matrix" {
+  let settings : Map[String, Json] = Map::from_array([
+    ("qwen", Json::object(Map::from_array([]))),
+  ])
+  // A custom id claimed by no static provider is served by an
+  // openai-compatible instance, which exposes exactly api_key login.
+  assert_eq(resolve_login_method("qwen", "", settings~), "api_key")
+  // Without settings the same id remains unknown and fails fast.
+  let unknown = Ok(resolve_login_method("qwen", "")) catch { err => Err(err) }
+  match unknown {
+    Err(@posoco.CommandError::ExecutionFailed(message)) =>
+      assert_true(message.contains("no registered authentication provider"))
+    _ => fail("a custom id without settings must not resolve a method")
+  }
+  // The settings-aware factory list validates the custom id, so "qwen": {}
+  // no longer fails composition.
+  let ctx = @devkit.ExtContext::default()
+  validate_provider_settings(settings, all_provider_factories(ctx, settings))
+  // The setup auth matrix advertises the custom id's api_key method so
+  // `/login qwen` is reachable before any credential exists.
+  let json = @json.parse(provider_setup_json([], settings~))
+  guard json is Json::Object(fields) else {
+    fail("setup json must be an object")
+  }
+  guard fields.get("authProviders") is Some(Json::Array(entries)) else {
+    fail("authProviders must be an array")
+  }
+  let mut found = false
+  for entry in entries {
+    if entry
+      is Json::Object(
+        {
+          "provider": Json::String("qwen"),
+          "methods": Json::Array(methods),
+          ..
+        }
+      ) {
+      found = true
+      assert_eq(methods, [Json::string("api_key")])
+    }
+  }
+  assert_true(found)
 }

@@ -40,16 +40,18 @@ afterEach(async () => {
 describe("long-lived cetas-js bridge", () => {
   test("surfaces settings IO errors instead of treating them as missing", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cetas-js-settings-error-"));
-    cleanup.push(cwd);
+    const home = await mkdtemp(join(tmpdir(), "cetas-js-settings-home-"));
+    cleanup.push(cwd, home);
     // A directory at the settings path makes readFileSync fail with EISDIR.
     // The bridge must preserve that failure; existsSync-based probing would
     // incorrectly turn it into an empty/unconfigured provider catalog.
-    await mkdir(join(cwd, ".cetas/settings.json"), { recursive: true });
+    // Durable state (settings, credentials, sessions) lives under HOME.
+    await mkdir(join(home, ".cetas/settings.json"), { recursive: true });
     const config = new (CetasJsConfig as unknown as new (
       cwd: string,
       maxToolRounds: number,
       home: string,
-    ) => unknown)(cwd, 4, tmpdir());
+    ) => unknown)(cwd, 4, home);
     const runtime = new (CetasJsRuntime as unknown as new (config: unknown) => unknown)(config);
 
     await expect(
@@ -65,7 +67,8 @@ describe("long-lived cetas-js bridge", () => {
 
   test("reuses one agent across two turns and persists the transcript", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cetas-js-bridge-"));
-    cleanup.push(cwd);
+    const home = await mkdtemp(join(tmpdir(), "cetas-js-bridge-home-"));
+    cleanup.push(cwd, home);
     const requests: Array<Record<string, unknown>> = [];
     const replies = ["first reply", "second reply"];
     const originalFetch = globalThis.fetch;
@@ -96,9 +99,9 @@ describe("long-lived cetas-js bridge", () => {
       );
     }) as typeof fetch;
 
-    await mkdir(join(cwd, ".cetas"), { recursive: true });
+    await mkdir(join(home, ".cetas"), { recursive: true });
     await Bun.write(
-      join(cwd, ".cetas/settings.json"),
+      join(home, ".cetas/settings.json"),
       JSON.stringify({
         providers: {
           deepseek: {
@@ -113,7 +116,7 @@ describe("long-lived cetas-js bridge", () => {
       cwd: string,
       maxToolRounds: number,
       home: string,
-    ) => unknown)(cwd, 4, tmpdir());
+    ) => unknown)(cwd, 4, home);
     const runtime = new (CetasJsRuntime as unknown as new (config: unknown) => unknown)(config);
     const events: unknown[] = [];
     const renders: Array<{ type?: string; render?: { key?: string } }> = [];
@@ -143,10 +146,10 @@ describe("long-lived cetas-js bridge", () => {
         JSON.stringify({ action: "save", name: "coding" }),
       );
       expect(JSON.parse(saved)).toMatchObject({ type: "success" });
-      expect(await Bun.file(join(cwd, ".cetas/profiles/coding.json")).exists()).toBe(true);
+      expect(await Bun.file(join(home, ".cetas/profiles/coding.json")).exists()).toBe(true);
 
       await Bun.write(
-        join(cwd, ".cetas/settings.json"),
+        join(home, ".cetas/settings.json"),
         JSON.stringify({ providers: {} }),
       );
       const loaded = await cetas_js_invoke_command(
@@ -155,7 +158,7 @@ describe("long-lived cetas-js bridge", () => {
         JSON.stringify({ action: "load", name: "coding" }),
       );
       expect(JSON.parse(loaded)).toMatchObject({ type: "success" });
-      expect(await Bun.file(join(cwd, ".cetas/settings.json")).text()).toContain("test-key");
+      expect(await Bun.file(join(home, ".cetas/settings.json")).text()).toContain("test-key");
 
       await expect(
         cetas_js_invoke_command(
@@ -171,7 +174,7 @@ describe("long-lived cetas-js bridge", () => {
         JSON.stringify({ action: "delete", name: "coding" }),
       );
       expect(JSON.parse(deleted)).toMatchObject({ type: "success" });
-      expect(await Bun.file(join(cwd, ".cetas/profiles/coding.json")).exists()).toBe(false);
+      expect(await Bun.file(join(home, ".cetas/profiles/coding.json")).exists()).toBe(false);
 
       const firstReply = await cetas_js_run_turn(
         agent,
@@ -191,7 +194,7 @@ describe("long-lived cetas-js bridge", () => {
       expect(JSON.stringify(secondMessages)).toContain("follow-up");
       expect(
         await Bun.file(
-          join(cwd, ".cetas/sessions/integration-session.jsonl"),
+          join(home, ".cetas/sessions/integration-session.jsonl"),
         ).exists(),
       ).toBe(true);
       expect(events.length).toBeGreaterThan(0);

@@ -101,16 +101,21 @@ pub async fn refresh_provider_catalog(
 /// Resolve a missing method only when the registered provider exposes exactly
 /// one authentication capability. Ambiguous providers must be selected by the
 /// caller's second-level method picker.
+///
+/// `settings` makes the lookup settings-aware: any settings.providers key not
+/// claimed by a static provider is served by an openai-compatible instance,
+/// which offers exactly the api_key method.
 pub fn resolve_login_method(
   provider_id : String,
   requested : String,
+  settings? : Map[String, Json] = Map::from_array([]),
 ) -> String raise @posoco.CommandError {
   if requested.length() > 0 {
     return requested
   }
   let ctx = @devkit.ExtContext::default()
   let mut has_api_key = false
-  for factory in api_key_factories(ctx) {
+  for factory in all_api_key_factories(ctx, settings) {
     if factory.provider_id() == provider_id {
       has_api_key = true
     }
@@ -154,17 +159,20 @@ pub(all) struct LoginOutcome {
 /// seam. Cetas does not know which protocol or endpoint each provider uses.
 ///
 /// The host supplies the resolved `device_id` (for OAuth factories that need
-/// persistent device identity) and the provider's auth interaction impls.
-/// Persistence and cache invalidation are the host's responsibility; this
-/// function returns the credential to persist.
+/// persistent device identity), the provider's auth interaction impls, and the
+/// settings map so custom OpenAI-compatible ids resolve through the same
+/// settings-aware factory list as catalog composition. Persistence and cache
+/// invalidation are the host's responsibility; this function returns the
+/// credential to persist.
 pub async fn login_provider(
   provider_id : String,
   method : String,
+  settings? : Map[String, Json] = Map::from_array([]),
   device_id? : String = "",
   auth_interaction : &@oauth.AuthInteraction,
   auth_prompt : &@oauth.AuthPromptInteraction,
 ) -> LoginOutcome raise @posoco.CommandError {
-  let selected = resolve_login_method(provider_id, method)
+  let selected = resolve_login_method(provider_id, method, settings~)
   let ctx = @devkit.ExtContext::default()
   match selected {
     "oauth" => {
@@ -192,7 +200,7 @@ pub async fn login_provider(
       )
     }
     "api_key" => {
-      for factory in api_key_factories(ctx) {
+      for factory in all_api_key_factories(ctx, settings) {
         if factory.provider_id() == provider_id {
           let credential = factory.login(auth_prompt) catch {
             err =>
@@ -227,8 +235,13 @@ pub async fn login_provider(
 /// provider ids, and the per-provider auth-method matrix. Capability
 /// discovery is intentionally independent of ready model slots: an
 /// unconfigured provider must still be reachable through `/login`.
+///
+/// `settings` widens the api-key matrix to settings-derived OpenAI-compatible
+/// providers so a configured-but-not-yet-logged-in custom id appears in
+/// `authProviders` with `["api_key"]`.
 pub fn provider_setup_json(
   catalogs : Array[@llm.ProviderModelCatalog],
+  settings? : Map[String, Json] = Map::from_array([]),
 ) -> String {
   let entries : Array[Json] = []
   let mut active_model_id : String? = None
@@ -278,7 +291,7 @@ pub fn provider_setup_json(
       auth_methods[found].push(method)
     }
   }
-  for factory in api_key_factories(ctx) {
+  for factory in all_api_key_factories(ctx, settings) {
     add_auth_method(factory.provider_id(), "api_key")
   }
   for factory in oauth_factories(ctx) {

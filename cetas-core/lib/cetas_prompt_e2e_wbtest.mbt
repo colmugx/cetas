@@ -43,9 +43,7 @@ async test "e2e: Cetas labels context contributor as project_context" {
         tools: [],
         sessions: [],
         observers: [],
-        pre_model_hooks: [],
-        pre_tool_hooks: [],
-        post_event_hooks: [],
+        hooks: [],
         memory: [],
         lifecycle: [],
         commands: [],
@@ -58,9 +56,7 @@ async test "e2e: Cetas labels context contributor as project_context" {
         tools: [],
         sessions: [store as &@posoco.SessionStore],
         observers: [],
-        pre_model_hooks: [],
-        pre_tool_hooks: [],
-        post_event_hooks: [],
+        hooks: [],
         memory: [],
         lifecycle: [],
         commands: [],
@@ -73,9 +69,7 @@ async test "e2e: Cetas labels context contributor as project_context" {
         tools: [],
         sessions: [],
         observers: [observer as &@posoco.Observer],
-        pre_model_hooks: [],
-        pre_tool_hooks: [],
-        post_event_hooks: [],
+        hooks: [],
         memory: [],
         lifecycle: [],
         commands: [],
@@ -88,9 +82,7 @@ async test "e2e: Cetas labels context contributor as project_context" {
         tools: [],
         sessions: [],
         observers: [],
-        pre_model_hooks: [],
-        pre_tool_hooks: [],
-        post_event_hooks: [],
+        hooks: [],
         memory: [],
         lifecycle: [],
         commands: [],
@@ -149,7 +141,7 @@ fn CetasContextStub::new(source : String, content : String) -> CetasContextStub 
 impl @posoco.SystemPromptContributor for CetasContextStub with fn system_prompt(
   self : CetasContextStub,
 ) -> String {
-  "<cetas-context type=\"project_instructions\" trust=\"untrusted\" source=\"" +
+  "<cetas-context type=\"project_instructions\" trust=\"false\" source=\"" +
   self.source +
   "\">\n" +
   self.content +

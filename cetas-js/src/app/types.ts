@@ -13,7 +13,12 @@ export interface CetasHostConfig {
   cwd: string;
   /** Universal Posoco runtime policy. */
   maxToolRounds: number;
-  /** Home directory for AGENTS.md global lookup (~/.cetas/agent/AGENTS.md). */
+  /**
+   * Home directory holding all durable user state under `~/.cetas/`:
+   * credentials, settings, profiles, sessions, and the global AGENTS.md
+   * context lookup (`~/.cetas/agent/AGENTS.md`). Sensitive artifacts never
+   * land in the project working tree (`cwd`).
+   */
   home: string;
 }
 

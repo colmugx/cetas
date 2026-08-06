@@ -14,11 +14,17 @@
 
 ///|
 /// The host's credential store: one tagged record per provider below the
-/// Cetas settings directory, persisted through the workspace fs boundary.
-fn credential_store(cwd : String) -> @credentials.FileProviderCredentialStore {
+/// Cetas home directory (`~/.cetas/credentials`), persisted through the
+/// workspace fs boundary.
+///
+/// Credentials live under the user's HOME, never the project working tree, so
+/// they cannot be committed to a repository or shipped in an artifact. The
+/// root is injected by the host (`CetasJsConfig.home`, resolved to
+/// `os.homedir()` by both production entry points).
+fn credential_store(home : String) -> @credentials.FileProviderCredentialStore {
   @credentials.FileProviderCredentialStore::new(
     @workspace.JsWorkspaceFs::new(),
-    cwd + "/.cetas/credentials",
+    home + "/.cetas/credentials",
   )
 }
 
@@ -85,7 +91,7 @@ pub impl @oauth.AuthPromptInteraction for JsAuthInteraction with fn prompt(
 async fn load_provider_settings(
   runtime : CetasJsRuntime,
 ) -> Map[String, Json] raise @posoco.CompositionError {
-  let settings_path = runtime.config.cwd + "/.cetas/settings.json"
+  let settings_path = runtime.config.home + "/.cetas/settings.json"
   match
     @workspace.read_file_result(@workspace.JsWorkspaceFs::new(), settings_path) {
     Missing => Map::from_array([])
@@ -135,12 +141,16 @@ async fn load_provider_settings(
 /// Read every registered provider's credential once into a snapshot map, so
 /// the catalog build loop performs no per-provider file IO. Missing files and
 /// unconfigured providers simply map to no entry.
+///
+/// The caller supplies the settings-aware factory list (static providers plus
+/// one openai-compatible instance per custom settings id) so custom providers'
+/// credentials are read identically to static ones.
 async fn read_credential_snapshot(
   store : @credentials.FileProviderCredentialStore,
+  factories : Array[&@llm.ProviderFactory],
 ) -> Map[String, @oauth.ProviderCredential] raise @posoco.CompositionError {
-  let ctx = @devkit.ExtContext::default()
   let credentials : Map[String, @oauth.ProviderCredential] = Map::from_array([])
-  for factory in @cetas_core.provider_factories(ctx) {
+  for factory in factories {
     let provider_id = factory.provider_id()
     let credential = store.read(provider_id) catch {
       err =>
@@ -173,16 +183,16 @@ async fn collect_provider_catalogs(
 ) -> Array[@llm.ProviderModelCatalog] raise @posoco.CompositionError {
   let ctx = @devkit.ExtContext::default()
   let settings = load_provider_settings(runtime)
-  let factories = @cetas_core.provider_factories(ctx)
+  let factories = @cetas_core.all_provider_factories(ctx, settings)
   @cetas_core.validate_provider_settings(settings, factories)
-  let store = credential_store(runtime.config.cwd)
-  let credentials = read_credential_snapshot(store)
+  let store = credential_store(runtime.config.home)
+  let credentials = read_credential_snapshot(store, factories)
   let snapshot = @cetas_core.ProviderCredentialSnapshot::ProviderCredentialSnapshot(
     settings~,
     credentials~,
   )
-  let device_id = if runtime.config.cwd.length() > 0 {
-    resolve_kimi_device_id(runtime.config.cwd)
+  let device_id = if runtime.config.home.length() > 0 {
+    resolve_kimi_device_id(runtime.config.home)
   } else {
     ""
   }
@@ -269,7 +279,8 @@ async fn provider_setup_json(
   runtime : CetasJsRuntime,
 ) -> String raise @posoco.CompositionError {
   let catalogs = cached_provider_catalogs(runtime)
-  @cetas_core.provider_setup_json(catalogs)
+  let settings = load_provider_settings(runtime)
+  @cetas_core.provider_setup_json(catalogs, settings~)
 }
 
 ///|
@@ -311,15 +322,19 @@ async fn login_provider(
   let interaction = JsAuthInteraction::new(
     observer_callback, request_callback, cancel_check,
   )
-  let store = credential_store(runtime.config.cwd)
-  let device_id = if runtime.config.cwd.length() > 0 {
-    resolve_kimi_device_id(runtime.config.cwd)
+  let store = credential_store(runtime.config.home)
+  let device_id = if runtime.config.home.length() > 0 {
+    resolve_kimi_device_id(runtime.config.home)
   } else {
     ""
+  }
+  let settings = load_provider_settings(runtime) catch {
+    err => raise @posoco.CommandError::ExecutionFailed(err.to_string())
   }
   let outcome = @cetas_core.login_provider(
     provider_id,
     method,
+    settings~,
     device_id~,
     interaction as &@oauth.AuthInteraction,
     interaction as &@oauth.AuthPromptInteraction,
@@ -352,15 +367,18 @@ extern "js" fn js_random_uuid() -> String =
   #| }
 
 ///|
-/// Resolve the stable Kimi device id for this working directory. The id lives
-/// at `<cwd>/.cetas/kimi_device_id` and is created on first use: a fresh v4
+/// Resolve the stable Kimi device id for this user. The id lives at
+/// `<home>/.cetas/kimi_device_id` and is created on first use: a fresh v4
 /// UUID is minted via the host crypto module and persisted atomically so
 /// subsequent runs (and the OAuth host's device list) see the same id. When
 /// persistence fails the minted id is still returned so the OAuth flow can
 /// proceed; only cross-run stability is lost.
-async fn resolve_kimi_device_id(cwd : String) -> String noraise {
+///
+/// The device id follows the user's HOME (not the project working tree) so it
+/// is stable across projects and never leaks into a repository.
+async fn resolve_kimi_device_id(home : String) -> String noraise {
   let fs = @workspace.JsWorkspaceFs::new()
-  let dir = cwd + "/.cetas"
+  let dir = home + "/.cetas"
   let path = dir + "/kimi_device_id"
   match @workspace.read_file_result(fs, path) {
     Content(value) => {

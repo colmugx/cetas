@@ -12,6 +12,8 @@ import {
   "colmugx/posoco-ext-deepseek" @deepseek,
   "colmugx/posoco-ext-kimi" @kimi,
   "colmugx/posoco-ext-openai" @openai,
+  "colmugx/posoco-ext-openai-compatible" @openai_compatible,
+  "colmugx/posoco-ext-opencode-zen" @opencode_zen,
   "moonbitlang/core/json",
   "moonbitlang/async",
 }

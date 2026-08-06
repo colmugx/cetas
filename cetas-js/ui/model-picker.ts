@@ -23,9 +23,12 @@ export interface ModelCatalogEntry {
   id: string;
   label: string;
   provider?: string;
+  /** Provider-declared display group; when present it replaces provider as the tab. */
+  group?: string;
   model?: string;
   active: boolean;
   activeEffort?: string;
+  defaultEffort?: string;
   efforts: readonly string[];
 }
 
@@ -109,9 +112,11 @@ export function parseModelPickerOutcome(raw: string):
       id: string(entry.id, `${path}.id`),
       label: string(entry.label, `${path}.label`),
       provider: optionalString(entry.provider, `${path}.provider`),
+      group: optionalString(entry.group, `${path}.group`),
       model: optionalString(entry.model, `${path}.model`),
       active: boolean(entry.active, `${path}.active`),
       activeEffort: optionalString(entry.active_effort, `${path}.active_effort`),
+      defaultEffort: optionalString(entry.default_effort, `${path}.default_effort`),
       efforts: rawEfforts.map((effort, effortIndex) =>
         string(effort, `${path}.thinking_efforts[${effortIndex}]`),
       ),
@@ -197,8 +202,8 @@ class TabbedPickerPanel implements Component {
   ) {
     this.tabs = ["All"];
     for (const entry of entries) {
-      const provider = entry.provider ?? "unknown";
-      if (!this.tabs.includes(provider)) this.tabs.push(provider);
+      const tab = entry.group ?? entry.provider ?? "unknown";
+      if (!this.tabs.includes(tab)) this.tabs.push(tab);
     }
     this.onSelect = onSelect;
     this.onCancel = onCancel;
@@ -210,7 +215,7 @@ class TabbedPickerPanel implements Component {
     for (const tab of this.tabs.slice(1)) {
       this.rowsByTab.set(
         tab,
-        allRows.filter((row) => (row.entry.provider ?? "unknown") === tab),
+        allRows.filter((row) => (row.entry.group ?? row.entry.provider ?? "unknown") === tab),
       );
     }
     for (const tab of this.tabs) {
@@ -296,7 +301,7 @@ class TabbedPickerPanel implements Component {
 
   private initialEffortIndex(entry: ModelCatalogEntry): number {
     if (entry.efforts.length === 0) return 0;
-    const active = entry.activeEffort ?? entry.efforts[0];
+    const active = entry.activeEffort ?? entry.defaultEffort ?? entry.efforts[0];
     const index = entry.efforts.indexOf(active);
     return index < 0 ? 0 : index;
   }

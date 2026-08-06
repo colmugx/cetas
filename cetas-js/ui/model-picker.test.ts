@@ -162,4 +162,82 @@ describe("model picker contract", () => {
     expect(rendered).toContain("<");
     expect(rendered).toContain(">");
   });
+
+  test("groups provider-declared display groups into one tab", () => {
+    const tui = new FakeTui();
+    const picker = new ModelPickerOverlay(tui as never);
+    let selected: unknown;
+    picker.open(
+      [
+        {
+          id: "deepseek/deepseek-v4-flash",
+          label: "DeepSeek / deepseek-v4-flash",
+          provider: "deepseek",
+          active: true,
+          efforts: ["off", "high", "max"],
+        },
+        {
+          id: "qwen/qwen3-coder",
+          label: "qwen / qwen3-coder",
+          provider: "qwen",
+          group: "custom",
+          active: false,
+          efforts: [],
+        },
+        {
+          id: "groq/llama-4",
+          label: "groq / llama-4",
+          provider: "groq",
+          group: "custom",
+          active: false,
+          efforts: [],
+        },
+      ],
+      (value) => {
+        selected = value;
+      },
+      () => {
+        throw new Error("picker unexpectedly cancelled");
+      },
+    );
+    const panel = tui.shown!;
+    const activeProvider = () =>
+      (panel as unknown as { activeProvider: string }).activeProvider;
+    panel.handleInput!("\t");
+    expect(activeProvider()).toBe("deepseek");
+    panel.handleInput!("\t");
+    expect(activeProvider()).toBe("custom");
+    // The custom tab holds both providers; move down and select groq.
+    panel.handleInput!("[B");
+    panel.handleInput!("\r");
+    expect(selected).toEqual({ slot: "groq/llama-4" });
+  });
+
+  test("falls back to the provider-declared default effort for the initial highlight", () => {
+    const tui = new FakeTui();
+    const picker = new ModelPickerOverlay(tui as never);
+    let selected: unknown;
+    picker.open(
+      [
+        {
+          id: "qwen/qwen3-coder",
+          label: "qwen / qwen3-coder",
+          provider: "qwen",
+          group: "custom",
+          active: true,
+          defaultEffort: "high",
+          efforts: ["off", "low", "high"],
+        },
+      ],
+      (value) => {
+        selected = value;
+      },
+      () => {
+        throw new Error("picker unexpectedly cancelled");
+      },
+    );
+    // No active_effort: the highlight starts on the declared default, not efforts[0].
+    tui.shown!.handleInput!("\r");
+    expect(selected).toEqual({ slot: "qwen/qwen3-coder", effort: "high" });
+  });
 });

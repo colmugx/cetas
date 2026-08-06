@@ -3,40 +3,81 @@ package "colmugx/cetas-core/lib"
 
 import {
   "colmugx/posoco",
+  "colmugx/posoco-devkit",
+  "colmugx/posoco-ext-llm",
+  "colmugx/posoco-ext-oauth",
+  "colmugx/posoco-ext-openai-compatible",
   "colmugx/posoco/error",
   "colmugx/posoco/port",
-  "colmugx/posoco/types",
 }
 
 // Values
-pub fn build_agent_from_parts(&@port.ModelPort, Array[&@port.ToolProvider], Array[&@port.SystemPromptContributor], Array[&@port.PreModelHook], Array[&@port.CommandPort], &@port.SessionStore, &@port.Observer, &@port.UiPort, CetasHostConfig, context_contributor? : &@port.SystemPromptContributor?) -> @posoco.Agent raise @error.CompositionError
+pub fn all_api_key_factories(@posoco-devkit.ExtContext, Map[String, Json]) -> Array[&@posoco-ext-llm.ApiKeyFactory]
 
-pub fn build_default_features() -> Array[&@port.ToolProvider]
+pub fn all_provider_factories(@posoco-devkit.ExtContext, Map[String, Json]) -> Array[&@posoco-ext-llm.ProviderFactory]
+
+pub fn api_key_factories(@posoco-devkit.ExtContext) -> Array[&@posoco-ext-llm.ApiKeyFactory]
+
+pub fn auth_message_json(@posoco-ext-oauth.AuthMessage) -> String
+
+pub fn auth_prompt_json(@posoco-ext-oauth.AuthPromptRequest) -> String
+
+pub fn build_default_features() -> Array[&@port.Extension]
+
+pub fn build_provider_catalog(&@posoco-ext-llm.ProviderFactory, ProviderCredentialSnapshot) -> @posoco-ext-llm.ProviderModelCatalog? raise @error.CompositionError
+
+pub fn compatible_provider_factories(Map[String, Json], @posoco-devkit.ExtContext) -> Array[@posoco-ext-openai-compatible.OpenAICompatibleProvider]
+
+pub fn login_outcome_json(LoginOutcome) -> String
+
+pub async fn login_provider(String, String, settings? : Map[String, Json], device_id? : String, &@posoco-ext-oauth.AuthInteraction, &@posoco-ext-oauth.AuthPromptInteraction) -> LoginOutcome raise @error.CommandError
+
+pub fn oauth_error_text(@posoco-ext-oauth.OAuthError) -> String
+
+pub fn oauth_factories(@posoco-devkit.ExtContext, device_id? : String) -> Array[&@posoco-ext-llm.OAuthFactory]
+
+pub fn parse_refresh_provider_ids(String) -> Array[String]? raise @error.CompositionError
+
+pub fn provider_factories(@posoco-devkit.ExtContext) -> Array[&@posoco-ext-llm.ProviderFactory]
+
+pub fn provider_setup_json(Array[@posoco-ext-llm.ProviderModelCatalog], settings? : Map[String, Json]) -> String
+
+pub async fn refresh_provider_catalog(&@posoco-ext-llm.RefreshableProviderFactory, ProviderCredentialSnapshot) -> @posoco-ext-llm.ProviderModelCatalog? raise @error.CompositionError
+
+pub fn refreshable_factories(@posoco-devkit.ExtContext, device_id? : String) -> Array[&@posoco-ext-llm.RefreshableProviderFactory]
+
+pub fn resolve_login_method(String, String, settings? : Map[String, Json]) -> String raise @error.CommandError
 
 pub async fn run_prompt(@posoco.Agent, String, String) -> String raise @error.AgentError
+
+pub fn source_for_factory(&@posoco-ext-llm.ProviderFactory, ProviderCredentialSnapshot) -> @posoco-ext-llm.ProviderConfigSource
+
+pub fn static_provider_ids() -> Map[String, Unit]
+
+pub fn valid_profile_name(String) -> Bool
+
+pub fn validate_provider_settings(Map[String, Json], Array[&@posoco-ext-llm.ProviderFactory]) -> Unit raise @error.CompositionError
+
+pub fn validated_profile_text(String, String) -> Result[String, String]
 
 // Errors
 
 // Types and methods
-pub(all) struct CetasHostConfig {
-  cwd : String
-  max_tool_rounds : Int
-  temperature : Double?
-  max_output_tokens : Int?
-  model_context_window : Int?
+pub(all) struct Cetas {
+  system_prompt_hook : @posoco.SystemPromptHook
+  profile_command : ProfileCommand
 }
-pub fn CetasHostConfig::CetasHostConfig(String, max_tool_rounds? : Int, temperature? : Double?, max_output_tokens? : Int?, model_context_window? : Int?) -> Self
+pub fn Cetas::Cetas(cwd~ : String, ui~ : &@port.UiPort, context_contributor? : &@port.SystemPromptContributor?, tool_contributors? : Array[&@port.SystemPromptContributor], list_profiles~ : () -> Array[ProfileSpec], on_load~ : (String) -> Unit, on_save~ : (String) -> Unit, on_delete~ : (String) -> Unit) -> Self raise @error.CompositionError
+pub fn Cetas::extension_id(Self) -> String
+pub fn Cetas::manifest(Self) -> @port.ExtensionManifest
+pub impl @port.Extension for Cetas
 
-pub(all) struct InMemorySessionStore {
-  sessions : Map[String, @types.Session]
+pub(all) struct LoginOutcome {
+  provider_id : String
+  method : String
+  feedback : String
+  credential : @posoco-ext-oauth.ProviderCredential
 }
-pub fn InMemorySessionStore::new() -> Self
-pub impl @port.SessionStore for InMemorySessionStore
-
-pub(all) struct PrintObserver {
-}
-pub fn PrintObserver::new() -> Self
-pub impl @port.Observer for PrintObserver
 
 pub(all) struct ProfileCommand {
   ui : &@port.UiPort
@@ -55,7 +96,12 @@ pub(all) struct ProfileSpec {
 pub fn ProfileSpec::ProfileSpec(String) -> Self
 pub fn ProfileSpec::with_label(name~ : String, label~ : String) -> Self
 
+pub(all) struct ProviderCredentialSnapshot {
+  settings : Map[String, Json]
+  credentials : Map[String, @posoco-ext-oauth.ProviderCredential]
+}
+pub fn ProviderCredentialSnapshot::ProviderCredentialSnapshot(settings? : Map[String, Json], credentials? : Map[String, @posoco-ext-oauth.ProviderCredential]) -> Self
+
 // Type aliases
 
 // Traits
-
