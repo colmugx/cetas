@@ -51,8 +51,9 @@ pub fn Cetas::Cetas(
       ),
     )
   }
+  // FIXME: get model name and model reasoning effort
   let system_prompt_hook = @posoco.SystemPromptHook::SystemPromptHook(
-    base_prompt=cetas_base_system_prompt(cwd),
+    base_prompt=cetas_base_system_prompt("default model", "max"),
     contributors=sections,
   )
   let profile_command = ProfileCommand::new(
@@ -113,19 +114,81 @@ pub async fn run_prompt(
 }
 
 ///|
-/// Default tool set: read/write/edit/glob/grep/bash.
+/// Host-process context for default features that need it. cetas-core is a
+/// library: it has no cwd/home and owns no filesystem adapter — hosts inject
+/// the Workspace port implementation they run on (JsWorkspaceFs /
+/// NativeWorkspaceFs), the same injection pattern as the active-model
+/// functions.
+pub(all) struct HostContext {
+  fs : &@workspace.WorkspaceFs
+  cwd : String
+  home : String
+}
+
+///|
+/// Cetas product policy for the skills extension, single-sourced here so
+/// hosts do not restate it. The activation budget is raised above the
+/// portable default so large real-world skills (50k+ chars of instructions)
+/// stay loadable.
+fn cetas_skills_config() -> @skills.SkillsConfig {
+  { ..@skills.SkillsConfig::default(), max_instruction_chars: 65536 }
+}
+
+///|
+/// Default feature set: read/write/edit/glob/grep/bash plus agent skills and
+/// (with `ui~`) the interactive ask_question tool.
+///
+/// The six tools are context-free constructors. Skills needs the host
+/// process context (fs/cwd/home) for discovery, so the function takes
+/// `ctx~`: startup parses only SKILL.md frontmatter — bodies are discarded
+/// and re-read on activation (progressive disclosure). A `None`
+/// precondition failure from the skills constructor simply skips
+/// registration; environment problems surface as catalog diagnostics, never
+/// as construction failure.
+///
+/// `ui~` supplies the host's interactive UI port for ask_question: cetas-js
+/// passes its JsUiPort, cetas-acp passes the ACP bridge (elicitation). A
+/// headless host omits it and no ask_question tool is registered at all —
+/// an always-erroring tool would only pollute the model's tool list.
 ///
 /// Order matters for diagnostics readability; it does not affect execution.
 ///
+/// The three file tools share one `FreshnessGuard`: a successful `read`
+/// records the file's stamp, and `write`/`edit` refuse to modify files that
+/// were not read in this session or that changed since (model-visible tool
+/// errors, so the model re-reads instead of losing the turn). The guard is
+/// passed by value; MoonBit structs are reference-backed, so its map is
+/// shared across the three tools.
+///
 /// Returns Extensions (each tool ext already impls Extension). Hosts place
 /// the result directly into `Agent(exts=[...])`.
-pub fn build_default_features() -> Array[&@posoco.Extension] {
-  [
-    @read.ReadTools::ReadTools(),
-    @write.WriteTools::WriteTools(),
-    @edit.EditTools::EditTools(),
-    @glob.GlobTools::GlobTools(),
-    @grep.GrepTools::GrepTools(),
-    @bash.ShellTools::ShellTools(),
+pub async fn build_default_features(
+  ctx~ : HostContext,
+  ui? : &@posoco.UiPort? = None,
+) -> Array[&@posoco.Extension] noraise {
+  let freshness = @devkit.FreshnessGuard::FreshnessGuard()
+  let exts : Array[&@posoco.Extension] = [
+    @read.ReadTools(freshness~),
+    @write.WriteTools(freshness~),
+    @edit.EditTools(freshness~),
+    @glob.GlobTools(),
+    @grep.GrepTools(),
+    @bash.ShellTools(),
   ]
+  match
+    @skills.Skills::new(
+      ctx.fs,
+      cwd=ctx.cwd,
+      home=ctx.home,
+      config=cetas_skills_config(),
+    ) {
+    Some(skills) => exts.push(skills as &@posoco.Extension)
+    None => ()
+  }
+  match ui {
+    Some(port) =>
+      exts.push(@askquestion.AskQuestionTools::new(port) as &@posoco.Extension)
+    None => ()
+  }
+  exts
 }

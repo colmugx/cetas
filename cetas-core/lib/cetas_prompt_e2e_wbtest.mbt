@@ -20,7 +20,7 @@ async test "e2e: Cetas labels context contributor as project_context" {
   )
   // Cetas owns identity + prompt assembly + /profile. Profile callbacks are
   // stubbed; this test only exercises prompt assembly.
-  let cetas = Cetas::Cetas(
+  let cetas = Cetas(
     cwd="/repo",
     ui=ui as &@posoco.UiPort,
     context_contributor=Some(
@@ -49,6 +49,7 @@ async test "e2e: Cetas labels context contributor as project_context" {
         commands: [],
         ui: [],
         prompt_contributors: [],
+        requires: [],
       }),
       @posoco.ManifestOnly::ManifestOnly({
         id: "store",
@@ -62,6 +63,7 @@ async test "e2e: Cetas labels context contributor as project_context" {
         commands: [],
         ui: [],
         prompt_contributors: [],
+        requires: [],
       }),
       @posoco.ManifestOnly::ManifestOnly({
         id: "observer",
@@ -75,6 +77,7 @@ async test "e2e: Cetas labels context contributor as project_context" {
         commands: [],
         ui: [],
         prompt_contributors: [],
+        requires: [],
       }),
       @posoco.ManifestOnly::ManifestOnly({
         id: "ui",
@@ -88,10 +91,11 @@ async test "e2e: Cetas labels context contributor as project_context" {
         commands: [],
         ui: [ui as &@posoco.UiPort],
         prompt_contributors: [],
+        requires: [],
       }),
     ],
     config={
-      max_tool_rounds: 5,
+      max_tool_rounds: Some(5),
       temperature: None,
       max_output_tokens: None,
       model_context_window: None,

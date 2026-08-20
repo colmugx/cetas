@@ -1,7 +1,7 @@
 ///|
 /// Identity + workspace: minimal, one sentence, with the working directory.
 test "cetas base prompt states identity and working directory" {
-  let prompt = cetas_base_system_prompt("/workspace")
+  let prompt = cetas_base_system_prompt("default model", "max")
   assert_true(prompt.contains("You are Cetas"))
 }
 
@@ -9,7 +9,7 @@ test "cetas base prompt states identity and working directory" {
 /// Capability: tools are listed by category, names only, no description
 /// duplication. The model is told to call each tool by its own description.
 test "cetas base prompt lists tools by category and defers to descriptions" {
-  let prompt = cetas_base_system_prompt("/workspace")
+  let prompt = cetas_base_system_prompt("default model", "max")
   // Categories group the tool names.
   assert_true(prompt.contains("read, glob, grep"))
   assert_true(prompt.contains("edit, write"))
@@ -21,7 +21,7 @@ test "cetas base prompt lists tools by category and defers to descriptions" {
 ///|
 /// Behavioral limits: four hard constraints the hooks cannot enforce.
 test "cetas base prompt declares behavioral limits" {
-  let prompt = cetas_base_system_prompt("/workspace")
+  let prompt = cetas_base_system_prompt("default model", "max")
   assert_true(prompt.contains("Change the minimum set"))
   assert_true(prompt.contains("Fix root causes, not symptoms"))
   assert_true(prompt.contains("Read before you modify"))
@@ -32,7 +32,7 @@ test "cetas base prompt declares behavioral limits" {
 /// Honesty: three hard constraints (verify before claiming done; surface
 /// failures exactly; admit uncertainty).
 test "cetas base prompt demands honesty" {
-  let prompt = cetas_base_system_prompt("/workspace")
+  let prompt = cetas_base_system_prompt("default model", "max")
   assert_true(
     prompt.contains("Do not call work complete until you have verified"),
   )
@@ -44,7 +44,7 @@ test "cetas base prompt demands honesty" {
 /// Envelope: binary trust (true/false), type is open, untrusted cannot
 /// override system instructions, user messages always win.
 test "cetas base prompt explains <cetas-context> envelope semantics" {
-  let prompt = cetas_base_system_prompt("/workspace")
+  let prompt = cetas_base_system_prompt("default model", "max")
   assert_true(prompt.contains("<cetas-context>"))
   // Binary trust flag.
   assert_true(prompt.contains("trust=\"true\""))

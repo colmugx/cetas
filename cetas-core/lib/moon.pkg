@@ -14,8 +14,15 @@ import {
   "colmugx/posoco-ext-openai" @openai,
   "colmugx/posoco-ext-openai-compatible" @openai_compatible,
   "colmugx/posoco-ext-opencode-zen" @opencode_zen,
+  "colmugx/posoco-ext-workspace" @workspace,
+  "colmugx/posoco-ext-skills" @skills,
+  "colmugx/posoco-ext-askquestion" @askquestion,
   "moonbitlang/core/json",
   "moonbitlang/async",
 }
+
+import {
+  "moonbitlang/async",
+} for "wbtest"
 
 warnings = "-unused_package"

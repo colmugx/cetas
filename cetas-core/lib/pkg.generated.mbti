@@ -7,6 +7,7 @@ import {
   "colmugx/posoco-ext-llm",
   "colmugx/posoco-ext-oauth",
   "colmugx/posoco-ext-openai-compatible",
+  "colmugx/posoco-ext-workspace",
   "colmugx/posoco/error",
   "colmugx/posoco/port",
 }
@@ -22,9 +23,11 @@ pub fn auth_message_json(@posoco-ext-oauth.AuthMessage) -> String
 
 pub fn auth_prompt_json(@posoco-ext-oauth.AuthPromptRequest) -> String
 
-pub fn build_default_features() -> Array[&@port.Extension]
+pub async fn build_default_features(ctx~ : HostContext, ui? : &@port.UiPort?) -> Array[&@port.Extension] noraise
 
-pub fn build_provider_catalog(&@posoco-ext-llm.ProviderFactory, ProviderCredentialSnapshot) -> @posoco-ext-llm.ProviderModelCatalog? raise @error.CompositionError
+pub fn build_provider_catalog(&@posoco-ext-llm.ProviderFactory, ProviderCredentialSnapshot, cached_models? : Json?) -> @posoco-ext-llm.ProviderModelCatalog? raise @error.CompositionError
+
+pub fn catalog_model_records(@posoco-ext-llm.ProviderModelCatalog) -> Json
 
 pub fn compatible_provider_factories(Map[String, Json], @posoco-devkit.ExtContext) -> Array[@posoco-ext-openai-compatible.OpenAICompatibleProvider]
 
@@ -32,9 +35,17 @@ pub fn login_outcome_json(LoginOutcome) -> String
 
 pub async fn login_provider(String, String, settings? : Map[String, Json], device_id? : String, &@posoco-ext-oauth.AuthInteraction, &@posoco-ext-oauth.AuthPromptInteraction) -> LoginOutcome raise @error.CommandError
 
+pub fn merge_active_model_selection(Json, ActiveModelSelection) -> Json raise @error.CompositionError
+
+pub fn merge_model_list_cache(Json, String, Json) -> Json
+
 pub fn oauth_error_text(@posoco-ext-oauth.OAuthError) -> String
 
 pub fn oauth_factories(@posoco-devkit.ExtContext, device_id? : String) -> Array[&@posoco-ext-llm.OAuthFactory]
+
+pub fn parse_active_model_selection(Json) -> ActiveModelSelection? raise @error.CompositionError
+
+pub fn parse_model_list_cache(Json) -> Map[String, Json]
 
 pub fn parse_refresh_provider_ids(String) -> Array[String]? raise @error.CompositionError
 
@@ -42,27 +53,46 @@ pub fn provider_factories(@posoco-devkit.ExtContext) -> Array[&@posoco-ext-llm.P
 
 pub fn provider_setup_json(Array[@posoco-ext-llm.ProviderModelCatalog], settings? : Map[String, Json]) -> String
 
+pub async fn read_active_model_selection(&@posoco-ext-workspace.WorkspaceFs, home~ : String) -> ActiveModelSelection? raise @error.CompositionError
+
+pub async fn read_model_list_cache(&@posoco-ext-workspace.WorkspaceFs, home~ : String) -> Result[Map[String, Json], String] noraise
+
 pub async fn refresh_provider_catalog(&@posoco-ext-llm.RefreshableProviderFactory, ProviderCredentialSnapshot) -> @posoco-ext-llm.ProviderModelCatalog? raise @error.CompositionError
 
 pub fn refreshable_factories(@posoco-devkit.ExtContext, device_id? : String) -> Array[&@posoco-ext-llm.RefreshableProviderFactory]
+
+pub fn resolve_default_slot_id(Array[@posoco-ext-llm.ProviderModelCatalog], ActiveModelSelection?) -> String
 
 pub fn resolve_login_method(String, String, settings? : Map[String, Json]) -> String raise @error.CommandError
 
 pub async fn run_prompt(@posoco.Agent, String, String) -> String raise @error.AgentError
 
-pub fn source_for_factory(&@posoco-ext-llm.ProviderFactory, ProviderCredentialSnapshot) -> @posoco-ext-llm.ProviderConfigSource
+pub fn source_for_factory(&@posoco-ext-llm.ProviderFactory, ProviderCredentialSnapshot, cached_models? : Json?) -> @posoco-ext-llm.ProviderConfigSource
 
 pub fn static_provider_ids() -> Map[String, Unit]
 
 pub fn valid_profile_name(String) -> Bool
 
+pub fn valid_provider_id(String) -> Bool
+
 pub fn validate_provider_settings(Map[String, Json], Array[&@posoco-ext-llm.ProviderFactory]) -> Unit raise @error.CompositionError
 
 pub fn validated_profile_text(String, String) -> Result[String, String]
 
+pub async fn write_active_model_selection(&@posoco-ext-workspace.WorkspaceFs, home~ : String, ActiveModelSelection) -> Unit raise @error.CompositionError
+
+pub async fn write_model_list_cache(&@posoco-ext-workspace.WorkspaceFs, home~ : String, String, Json) -> Unit raise @error.CompositionError
+
 // Errors
 
 // Types and methods
+pub struct ActiveModelSelection {
+  slot : String
+  effort : String?
+}
+pub fn ActiveModelSelection::from_current(String, String?) -> Self
+pub fn ActiveModelSelection::new(String, effort? : String) -> Self
+
 pub(all) struct Cetas {
   system_prompt_hook : @posoco.SystemPromptHook
   profile_command : ProfileCommand
@@ -72,9 +102,15 @@ pub fn Cetas::extension_id(Self) -> String
 pub fn Cetas::manifest(Self) -> @port.ExtensionManifest
 pub impl @port.Extension for Cetas
 
+pub(all) struct HostContext {
+  fs : &@posoco-ext-workspace.WorkspaceFs
+  cwd : String
+  home : String
+}
+
 pub(all) struct LoginOutcome {
   provider_id : String
-  method : String
+  login_method : String
   feedback : String
   credential : @posoco-ext-oauth.ProviderCredential
 }

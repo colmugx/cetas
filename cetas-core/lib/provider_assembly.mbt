@@ -59,7 +59,10 @@ pub fn compatible_provider_factories(
   let claimed = static_provider_ids()
   let factories : Array[@openai_compatible.OpenAICompatibleProvider] = []
   for provider_id, _value in settings {
-    if !claimed.contains(provider_id) {
+    // Belt-and-braces: composition has already failed fast on invalid ids
+    // (validate_provider_settings); an unvalidated caller still cannot mint
+    // a traversal id here.
+    if !claimed.contains(provider_id) && valid_provider_id(provider_id) {
       factories.push(
         @openai_compatible.OpenAICompatibleProvider::new(provider_id, ctx~),
       )
@@ -160,15 +163,48 @@ pub fn refreshable_factories(
 }
 
 ///|
+/// Provider ids are filesystem-safe by contract: nonempty, limited to
+/// `[A-Za-z0-9_-]`. They become settings keys, credential filenames, and
+/// login targets, so anything that could traverse a path (separators,
+/// dots) is invalid at the boundary instead of being sanitized downstream.
+pub fn valid_provider_id(id : String) -> Bool {
+  if id.length() == 0 {
+    return false
+  }
+  for i in 0..<id.length() {
+    let c = id[i]
+    let ok = (c >= 'a' && c <= 'z') ||
+      (c >= 'A' && c <= 'Z') ||
+      (c >= '0' && c <= '9') ||
+      c == '_' ||
+      c == '-'
+    if !ok {
+      return false
+    }
+  }
+  true
+}
+
+///|
 /// Reject provider settings whose keys name no registered provider extension.
 /// Composition stays fail-fast: an unknown provider id is a typed error rather
 /// than a silent skip, so a typo in settings cannot produce a half-configured
-/// agent.
+/// agent. Keys must also be filesystem-safe provider ids (`valid_provider_id`)
+/// — settings keys become credential filenames, so traversal shapes such as
+/// `../evil` or `a/b` are rejected here, at the boundary.
 pub fn validate_provider_settings(
   settings : Map[String, Json],
   factories : Array[&@llm.ProviderFactory],
 ) -> Unit raise @posoco.CompositionError {
   for provider_id, _value in settings {
+    if !valid_provider_id(provider_id) {
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id="cetas.providers",
+        detail="settings provider id '" +
+          provider_id +
+          "' is not a valid provider id (allowed: letters, digits, '_', '-')",
+      )
+    }
     let mut known = false
     for factory in factories {
       if factory.provider_id() == provider_id {
@@ -215,11 +251,11 @@ pub fn parse_refresh_provider_ids(
   let ids : Array[String] = []
   for value in values {
     let provider_id = match value {
-      Json::String(value) if value.length() > 0 => value
+      Json::String(value) if valid_provider_id(value) => value
       _ =>
         raise @posoco.CompositionError::ManifestSchemaError(
           manifest_id="cetas.providers",
-          detail="model refresh provider ids must be non-empty strings",
+          detail="model refresh provider ids must be non-empty strings of letters, digits, '_', '-'",
         )
     }
     let mut known = false

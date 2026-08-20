@@ -33,9 +33,13 @@ pub fn ProviderCredentialSnapshot::ProviderCredentialSnapshot(
 ///|
 /// Resolve a provider's `ProviderConfigSource` from a snapshot. The factory
 /// receives an opaque settings object plus its canonical tagged credential.
+/// `cached_models` carries this provider's host-cached discovery records
+/// (see `model_cache.mbt`) so the static `build` path can expand a multi-slot
+/// catalog offline; providers that do not support expansion ignore it.
 pub fn source_for_factory(
   factory : &@llm.ProviderFactory,
   snapshot : ProviderCredentialSnapshot,
+  cached_models? : Json? = None,
 ) -> @llm.ProviderConfigSource {
   let provider_id = factory.provider_id()
   let provider_settings = match snapshot.settings.get(provider_id) {
@@ -49,6 +53,7 @@ pub fn source_for_factory(
   @llm.ProviderConfigSource::ProviderConfigSource(
     settings=provider_settings,
     provider_credential~,
+    cached_models~,
   )
 }
 
@@ -56,11 +61,13 @@ pub fn source_for_factory(
 /// Build one provider's catalog snapshot without any network request. This is
 /// the pure `ProviderFactory::build` path used by setup discovery and Agent
 /// recomposition; live refresh is a separate explicit host action.
+/// `cached_models` seeds offline expansion exactly as in `source_for_factory`.
 pub fn build_provider_catalog(
   factory : &@llm.ProviderFactory,
   snapshot : ProviderCredentialSnapshot,
+  cached_models? : Json? = None,
 ) -> @llm.ProviderModelCatalog? raise @posoco.CompositionError {
-  let source = source_for_factory(factory, snapshot)
+  let source = source_for_factory(factory, snapshot, cached_models~)
   match factory.build(source) {
     @llm.ProviderBuildResult::Ready(catalog) => Some(catalog)
     @llm.ProviderBuildResult::Unconfigured => None
@@ -149,7 +156,7 @@ pub fn resolve_login_method(
 /// back to the host's durable store.
 pub(all) struct LoginOutcome {
   provider_id : String
-  method : String
+  login_method : String
   feedback : String
   credential : @oauth.ProviderCredential
 }
@@ -166,13 +173,13 @@ pub(all) struct LoginOutcome {
 /// credential to persist.
 pub async fn login_provider(
   provider_id : String,
-  method : String,
+  requested : String,
   settings? : Map[String, Json] = Map::from_array([]),
   device_id? : String = "",
   auth_interaction : &@oauth.AuthInteraction,
   auth_prompt : &@oauth.AuthPromptInteraction,
 ) -> LoginOutcome raise @posoco.CommandError {
-  let selected = resolve_login_method(provider_id, method, settings~)
+  let selected = resolve_login_method(provider_id, requested, settings~)
   let ctx = @devkit.ExtContext::default()
   match selected {
     "oauth" => {
@@ -189,7 +196,7 @@ pub async fn login_provider(
           }
           return {
             provider_id,
-            method: "oauth",
+            login_method: "oauth",
             feedback: "Logged in to " + provider_id,
             credential: @oauth.ProviderCredential::OAuth(credential),
           }
@@ -213,7 +220,7 @@ pub async fn login_provider(
           }
           return {
             provider_id,
-            method: "api_key",
+            login_method: "api_key",
             feedback: "Logged in to " + provider_id,
             credential: @oauth.ProviderCredential::ApiKey(credential),
           }
@@ -277,7 +284,7 @@ pub fn provider_setup_json(
   }
   let auth_provider_ids : Array[String] = []
   let auth_methods : Array[Array[String]] = []
-  let add_auth_method = fn(provider_id : String, method : String) {
+  let add_auth_method = fn(provider_id : String, auth_method : String) {
     let mut found = -1
     for i in 0..<auth_provider_ids.length() {
       if auth_provider_ids[i] == provider_id {
@@ -286,9 +293,9 @@ pub fn provider_setup_json(
     }
     if found < 0 {
       auth_provider_ids.push(provider_id)
-      auth_methods.push([method])
-    } else if !auth_methods[found].contains(method) {
-      auth_methods[found].push(method)
+      auth_methods.push([auth_method])
+    } else if !auth_methods[found].contains(auth_method) {
+      auth_methods[found].push(auth_method)
     }
   }
   for factory in all_api_key_factories(ctx, settings) {
@@ -300,8 +307,8 @@ pub fn provider_setup_json(
   let auth_entries : Array[Json] = []
   for i in 0..<auth_provider_ids.length() {
     let method_values : Array[Json] = []
-    for method in auth_methods[i] {
-      method_values.push(Json::string(method))
+    for auth_method in auth_methods[i] {
+      method_values.push(Json::string(auth_method))
     }
     auth_entries.push(
       Json::object(
@@ -337,7 +344,7 @@ pub fn login_outcome_json(outcome : LoginOutcome) -> String {
         Json::object(
           Map::from_array([
             ("provider", Json::string(outcome.provider_id)),
-            ("method", Json::string(outcome.method)),
+            ("method", Json::string(outcome.login_method)),
           ]),
         ),
       ),
