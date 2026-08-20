@@ -8,6 +8,7 @@ declare module "*/cetas-js/lib/lib.js" {
     cwd: string,
     maxToolRounds: number,
     home: string,
+    permissionMode: string,
   ) => unknown;
   export const CetasJsRuntime: new (config: unknown) => unknown;
   export function cetas_js_runtime_create_agent(

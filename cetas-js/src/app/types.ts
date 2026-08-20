@@ -20,6 +20,13 @@ export interface CetasHostConfig {
    * land in the project working tree (`cwd`).
    */
   home: string;
+  /**
+   * Permission posture for coding-agent tools. `"workspace_write"` (default)
+   * auto-approves reads and gates writes/shell/unknown through a UI confirm;
+   * `"readonly"` rejects every non-read tool; `"interactive"` gates every
+   * side-effecting tool. Unrecognized values fall back to `"workspace_write"`.
+   */
+  permissionMode?: "readonly" | "workspace_write" | "interactive";
 }
 
 export interface ProviderModelCapability {

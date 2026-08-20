@@ -1,15 +1,13 @@
 import {
   Container,
+  getKeybindings,
   Input,
   Loader,
   Markdown,
-  SelectList,
   Text,
   type Component,
-  type OverlayHandle,
-  type OverlayOptions,
-  type SelectListTheme,
   type TUI,
+  visibleWidth,
 } from "@earendil-works/pi-tui";
 
 import { markdownTheme, theme } from "./theme.ts";
@@ -194,11 +192,6 @@ export function parseUiRender(value: unknown): UiRender {
     body: parseUiBody(render.body),
     ttl_ms: ttl as number | undefined,
   };
-}
-
-interface OverlayTui {
-  showOverlay(component: Component, options?: OverlayOptions): OverlayHandle;
-  requestRender(): void;
 }
 
 interface RenderMounts {
@@ -396,48 +389,201 @@ export function createUiRenderCallback(
   };
 }
 
-class RequestOverlay implements Component {
+/** Options shown at once before the ask panel starts scrolling. */
+const MAX_VISIBLE_OPTIONS = 8;
+
+/**
+ * One inline ask panel: the request's title lines, then either an option
+ * row (confirm/select) or a text input. Buttons lay out horizontally along
+ * the bottom — kimi-code/opencode style — and fall back to a stacked list
+ * when the row cannot fit the terminal width. The focused button renders
+ * as a background block, not an arrow prefix.
+ */
+class AskPanel implements Component {
   focused = false;
+  private readonly titleLines: string[];
+  private readonly placeholderLine?: string;
+  private readonly options: ReadonlyArray<{
+    label: string;
+    response: UiResponse;
+  }>;
+  private readonly input?: Input;
+  private selectedIndex = 0;
+  private settled = false;
 
   constructor(
-    private readonly title: Text,
-    private readonly control: Component,
-  ) {}
+    request: UiRequest,
+    private readonly onSettle: (response: UiResponse) => void,
+  ) {
+    switch (request.type) {
+      case "confirm":
+        this.titleLines = request.prompt.split("\n");
+        this.options = [
+          { label: "Yes", response: { type: "yes" } },
+          { label: "No", response: { type: "no" } },
+        ];
+        this.selectedIndex = request.default_yes ? 0 : 1;
+        break;
+      case "select":
+        if (
+          request.default_index !== undefined &&
+          (request.default_index < 0 ||
+            request.default_index >= request.options.length)
+        ) {
+          throw new Error(
+            `UiRequest.select.default_index out of bounds: ${request.default_index}`,
+          );
+        }
+        this.titleLines = request.title.split("\n");
+        this.options = request.options.map((option, index) => ({
+          label: option,
+          response: { type: "selected", index },
+        }));
+        this.selectedIndex = request.default_index ?? 0;
+        break;
+      case "input":
+        this.titleLines = request.prompt.split("\n");
+        this.placeholderLine = request.placeholder;
+        this.options = [];
+        this.input = new Input();
+        this.input.onSubmit = (value) => this.settle({ type: "text", text: value });
+        this.input.onEscape = () => this.settle({ type: "cancelled" });
+        break;
+    }
+  }
+
+  settle(response: UiResponse): void {
+    if (this.settled) {
+      throw new Error("UiRequest panel settled more than once");
+    }
+    this.settled = true;
+    this.onSettle(response);
+  }
 
   render(width: number): string[] {
-    if ("focused" in this.control) {
-      (this.control as Component & { focused: boolean }).focused = this.focused;
+    // First title line is the question; the remaining lines are the detail
+    // (e.g. the permission ask's arguments preview).
+    const [firstTitle, ...restTitles] = this.titleLines;
+    const lines: string[] = [];
+    if (firstTitle !== undefined && firstTitle.length > 0) {
+      lines.push(theme.bold(firstTitle));
     }
-    return [...this.title.render(width), ...this.control.render(width)];
+    for (const line of restTitles) lines.push(theme.muted(line));
+    if (this.input !== undefined) {
+      // The TUI focuses this panel, not the Input; forward the flag so the
+      // caret renders (same passthrough the old overlay panel used).
+      const input = this.input as Input & { focused?: boolean };
+      if (typeof input.focused === "boolean") input.focused = this.focused;
+      if (this.placeholderLine !== undefined) {
+        lines.push(theme.muted(this.placeholderLine));
+      }
+      lines.push(...this.input.render(width));
+      lines.push(theme.muted(" ⏎ submit · esc cancel"));
+      return lines;
+    }
+    const buttonRow = this.renderButtonRow(width);
+    if (buttonRow !== undefined) {
+      lines.push(buttonRow);
+    } else {
+      // Stacked fallback for option sets too wide for one row: the
+      // selected option keeps the full-width background block.
+      const [start, end] = this.visibleRange();
+      for (let i = start; i < end; i++) {
+        const option = this.options[i]!;
+        if (i === this.selectedIndex) {
+          const label = ` ${option.label}`;
+          const pad = " ".repeat(Math.max(0, width - visibleWidth(label)));
+          lines.push(theme.selection(label + pad));
+        } else {
+          lines.push(theme.muted(option.label));
+        }
+      }
+      if (this.options.length > MAX_VISIBLE_OPTIONS) {
+        lines.push(theme.muted(` (${this.selectedIndex + 1}/${this.options.length})`));
+      }
+    }
+    lines.push(theme.muted(" ←→/↑↓ choose · ⏎ confirm · esc cancel"));
+    return lines;
   }
 
   handleInput(data: string): void {
-    this.control.handleInput?.(data);
+    if (this.input !== undefined) {
+      this.input.handleInput?.(data);
+      return;
+    }
+    const kb = getKeybindings();
+    // Left/right are not in pi-tui's select actions; the arrow escape
+    // sequences are matched directly so the horizontal row navigates the
+    // way it reads.
+    const up = kb.matches(data, "tui.select.up") || data === "\u001b[D";
+    const down = kb.matches(data, "tui.select.down") || data === "\u001b[C";
+    if (up) {
+      this.selectedIndex =
+        this.selectedIndex === 0 ? this.options.length - 1 : this.selectedIndex - 1;
+    } else if (down) {
+      this.selectedIndex =
+        this.selectedIndex === this.options.length - 1 ? 0 : this.selectedIndex + 1;
+    } else if (kb.matches(data, "tui.select.confirm")) {
+      this.settle(this.options[this.selectedIndex]!.response);
+    } else if (kb.matches(data, "tui.select.cancel")) {
+      this.settle({ type: "cancelled" });
+    }
   }
 
   invalidate(): void {
-    this.title.invalidate();
-    this.control.invalidate();
+    this.input?.invalidate();
+  }
+
+  // One row carrying every button, or undefined when the row cannot fit
+  // `width` (the caller falls back to the stacked list). The selected
+  // button is the background block; unselected buttons stay plain.
+  private renderButtonRow(width: number): string | undefined {
+    const row = this.options
+      .map((option) => ` ${option.label} `)
+      .join(" ");
+    if (visibleWidth(row) > width) {
+      return undefined;
+    }
+    return this.options
+      .map((option, index) =>
+        index === this.selectedIndex
+          ? theme.selection(` ${option.label} `)
+          : theme.muted(` ${option.label} `),
+      )
+      .join(" ");
+  }
+
+  private visibleRange(): [number, number] {
+    if (this.options.length <= MAX_VISIBLE_OPTIONS) {
+      return [0, this.options.length];
+    }
+    let start = Math.max(0, this.selectedIndex - Math.floor(MAX_VISIBLE_OPTIONS / 2));
+    const end = Math.min(this.options.length, start + MAX_VISIBLE_OPTIONS);
+    start = Math.max(0, end - MAX_VISIBLE_OPTIONS);
+    return [start, end];
   }
 }
 
-const selectTheme: SelectListTheme = {
-  selectedPrefix: theme.accent,
-  selectedText: theme.accent,
-  description: theme.muted,
-  scrollInfo: theme.muted,
-  noMatch: theme.error,
-};
+interface AskTui {
+  setFocus(component: Component | null): void;
+  requestRender(): void;
+}
 
 /**
- * Presents one strict modal request at a time. A second concurrent request is
- * rejected because stacking interactive extension prompts is ambiguous.
+ * Presents one strict ask at a time, inline directly above the editor —
+ * not as a centered modal. The panel takes keyboard focus while active;
+ * `restoreFocus` runs after the panel settles. A second concurrent request
+ * is rejected because stacking interactive asks is ambiguous.
  */
-export class UiRequestOverlay {
+export class UiRequestBar {
   private active = false;
   private cancelActive?: () => void;
 
-  constructor(private readonly tui: OverlayTui) {}
+  constructor(
+    private readonly tui: AskTui,
+    private readonly mount: Container,
+    private readonly restoreFocus: () => void,
+  ) {}
 
   isActive(): boolean {
     return this.active;
@@ -471,87 +617,27 @@ export class UiRequestOverlay {
         resolve({ type: "cancelled" });
         return;
       }
-      let handle: OverlayHandle;
-      let settled = false;
-      const settle = (response: UiResponse) => {
-        if (settled) {
-          throw new Error("UiRequest overlay settled more than once");
-        }
-        settled = true;
+      // AskPanel's constructor throws for an out-of-bounds default_index;
+      // inside the Promise executor that rejects the ask, same contract as
+      // the old overlay.
+      const panel = new AskPanel(request, (response) => {
         this.cancelActive = undefined;
-        handle.hide();
+        this.mount.removeChild(panel);
+        this.restoreFocus();
+        this.tui.requestRender();
         resolve(response);
-      };
-
-      let panel: RequestOverlay;
-      switch (request.type) {
-        case "input": {
-          const input = new Input();
-          input.onSubmit = (value) => settle({ type: "text", text: value });
-          input.onEscape = () => settle({ type: "cancelled" });
-          const hint =
-            request.placeholder === undefined
-              ? request.prompt
-              : `${request.prompt}\n${theme.muted(request.placeholder)}`;
-          panel = new RequestOverlay(new Text(hint, 1, 1), input);
-          break;
-        }
-        case "confirm": {
-          const list = new SelectList(
-            [
-              { value: "yes", label: "Yes" },
-              { value: "no", label: "No" },
-            ],
-            2,
-            selectTheme,
-          );
-          list.setSelectedIndex(request.default_yes ? 0 : 1);
-          list.onSelect = (item) => settle({ type: item.value as "yes" | "no" });
-          list.onCancel = () => settle({ type: "cancelled" });
-          panel = new RequestOverlay(new Text(request.prompt, 1, 1), list);
-          break;
-        }
-        case "select": {
-          if (
-            request.default_index !== undefined &&
-            (request.default_index < 0 ||
-              request.default_index >= request.options.length)
-          ) {
-            throw new Error(
-              `UiRequest.select.default_index out of bounds: ${request.default_index}`,
-            );
-          }
-          const list = new SelectList(
-            request.options.map((option, index) => ({
-              value: String(index),
-              label: option,
-            })),
-            Math.min(8, request.options.length),
-            selectTheme,
-          );
-          list.setSelectedIndex(request.default_index ?? 0);
-          list.onSelect = (item) =>
-            settle({ type: "selected", index: Number(item.value) });
-          list.onCancel = () => settle({ type: "cancelled" });
-          panel = new RequestOverlay(new Text(request.title, 1, 1), list);
-          break;
-        }
-      }
-
-      handle = this.tui.showOverlay(panel, {
-        width: "70%",
-        maxHeight: "70%",
-        anchor: "center",
-        margin: 1,
       });
-      this.cancelActive = () => settle({ type: "cancelled" });
+      this.mount.addChild(panel);
+      this.tui.setFocus(panel);
+      this.tui.requestRender();
+      this.cancelActive = () => panel.settle({ type: "cancelled" });
     });
   }
 }
 
 /** Build the exact Promise callback consumed by JsUiPort. */
 export function createUiRequestCallback(
-  overlay: UiRequestOverlay,
+  bar: UiRequestBar,
   timeoutMs: number,
 ): (eventJson: string) => Promise<string> {
   if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
@@ -571,11 +657,11 @@ export function createUiRequestCallback(
     const timed = new Promise<"timeout">((resolve) => {
       timeout = setTimeout(() => {
         resolve("timeout");
-        overlay.cancel();
+        bar.cancel();
       }, timeoutMs);
     });
     try {
-      const outcome = await Promise.race([overlay.request(request), timed]);
+      const outcome = await Promise.race([bar.request(request), timed]);
       if (outcome === "timeout") {
         return JSON.stringify({
           type: "ui_response",

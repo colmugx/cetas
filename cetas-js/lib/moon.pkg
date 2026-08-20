@@ -9,6 +9,7 @@ import {
   "colmugx/posoco-ext-fs-session" @fs_session,
   "colmugx/posoco-ext-llm" @llm,
   "colmugx/posoco-ext-oauth" @oauth,
+  "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-plan" @plan,
   "colmugx/posoco-ext-statusbar" @statusbar,
   "colmugx/posoco-ext-workspace" @workspace,
@@ -16,6 +17,10 @@ import {
   "moonbitlang/async/js_async",
   "moonbitlang/core/json",
 }
+
+import {
+  "moonbitlang/async",
+} for "wbtest"
 
 warnings = "-unused_package"
 

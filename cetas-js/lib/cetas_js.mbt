@@ -754,16 +754,20 @@ pub(all) struct CetasJsConfig {
   cwd : String
   max_tool_rounds : Int
   home : String
+  permission_mode : String
 }
 
 ///|
 /// Plain positional constructor — no labeled, no optional, no defaults.
+/// `permission_mode` is `"readonly" | "workspace_write" | "interactive"`;
+/// an unrecognized value falls back to `"workspace_write"` at policy assembly.
 pub fn CetasJsConfig::CetasJsConfig(
   cwd : String,
   max_tool_rounds : Int,
   home : String,
+  permission_mode : String,
 ) -> CetasJsConfig {
-  { cwd, max_tool_rounds, home }
+  { cwd, max_tool_rounds, home, permission_mode }
 }
 
 ///|
@@ -807,6 +811,10 @@ pub struct CetasJsAgent {
   profile_errors : Array[String]
   router : @llm.RouterModelPort
   statusbar : @statusbar.StatusBar
+  /// Cetas home (`~/.cetas`) for persisting the active-model selection.
+  home : String
+  /// The live observer channel, so persistence warnings reach the TS host.
+  observer : JsCallbackObserver
 }
 
 ///|
@@ -940,12 +948,14 @@ pub fn cetas_js_runtime_create_agent(
     let auth_interaction = JsAuthInteraction::new(
       observer_callback, request_callback, cancel_check,
     )
-    let model = build_provider_router(runtime, cred_store, auth_interaction)
+    let observer = JsCallbackObserver::new(observer_callback)
+    let model = build_provider_router(
+      runtime, cred_store, auth_interaction, observer,
+    )
     let store = @fs_session.JsonlSessionStore::new(
       runtime.config.home + "/.cetas/sessions",
     )
     let profile_errors : Array[String] = []
-    let observer = JsCallbackObserver::new(observer_callback)
     let ui = JsUiPort::new(render_callback, request_callback)
     // Load AGENTS.md / CLAUDE.md context files from home + cwd ancestor
     // chain through the shared workspace fs boundary. Failures are swallowed
@@ -967,9 +977,12 @@ pub fn cetas_js_runtime_create_agent(
     let bundle = loader.load(runtime.config.cwd) catch {
       _ => @context.ContextBundle::empty()
     }
-    let context_contributor = @context.ContextPromptContributor::new(bundle~)
+    let context_contributor = @context.ContextPromptContributor::new(
+      bundle~,
+      envelope="cetas-context",
+    )
     // Cetas product extension: identity + system-prompt assembly + /profile.
-    let cetas = @cetas_core.Cetas::Cetas(
+    let cetas = @cetas_core.Cetas(
       cwd=runtime.config.cwd,
       ui=ui as &@posoco.UiPort,
       context_contributor=Some(
@@ -1019,6 +1032,20 @@ pub fn cetas_js_runtime_create_agent(
     // the freshly built router; later mutations ride invoke_command.
     let statusbar = @statusbar.StatusBar::new(ui as &@posoco.UiPort)
     push_model_facts(model, statusbar)
+    // Permission policy: gates write/shell/unknown tools through a UI confirm.
+    // ReadOnly rejects every non-read tool without a prompt; the other modes
+    // bridge through BlockingApprovalSource → JsUiPort::request (.wait()).
+    let mode = parse_permission_mode(runtime.config.permission_mode)
+    let policy = match mode {
+      @permission.ReadOnly => @permission.PermissionPolicy::new(mode)
+      _ => {
+        let source = BlockingApprovalSource::new(ui as &@posoco.UiPort)
+        @permission.PermissionPolicy::new(
+          mode,
+          approval=Some(source as &@permission.ApprovalSource),
+        )
+      }
+    }
     let exts : Array[&@posoco.Extension] = [
       cetas,
       model as &@posoco.Extension,
@@ -1027,17 +1054,45 @@ pub fn cetas_js_runtime_create_agent(
       ui as &@posoco.Extension,
       plan_mode,
       statusbar,
+      policy,
     ]
-    for tool in @cetas_core.build_default_features() {
+    // Default features (six tools + agent skills + ask_question) take the
+    // host context: fs injection plus cwd/home. Skills policy (activation
+    // budget) is single-sourced inside cetas-core; ask_question asks through
+    // the same JsUiPort the approval source uses, so the TS host renders it
+    // with the standard extension-UI overlays.
+    for
+      tool in @cetas_core.build_default_features(
+        ctx={
+          fs: context_fs,
+          cwd: runtime.config.cwd,
+          home: runtime.config.home,
+        },
+        ui=Some(ui as &@posoco.UiPort),
+      ) {
       exts.push(tool)
     }
     let agent = @posoco.Agent(exts~, config={
-      max_tool_rounds: runtime.config.max_tool_rounds,
+      // The JS FFI seam carries a plain Int (no optional arguments); the
+      // bridge convention is `<= 0` = unbounded, matching the kimi-code
+      // max_steps_per_turn posture.
+      max_tool_rounds: if runtime.config.max_tool_rounds <= 0 {
+        None
+      } else {
+        Some(runtime.config.max_tool_rounds)
+      },
       temperature: None,
       max_output_tokens: None,
       model_context_window: None,
     })
-    { agent, profile_errors, router: model, statusbar }
+    {
+      agent,
+      profile_errors,
+      router: model,
+      statusbar,
+      home: runtime.config.home,
+      observer,
+    }
   }
 }
 
@@ -1610,6 +1665,40 @@ pub fn cetas_js_list_commands(handle : CetasJsAgent) -> String {
 }
 
 ///|
+/// Persist the router's current selection into `~/.cetas/settings.json` after
+/// a successful `/model` or `/effort` so it survives restarts. A persistence
+/// failure never overturns the already-committed in-memory switch: it surfaces
+/// as one observer `Custom` warning and the command result stands.
+async fn persist_active_model_selection(handle : CetasJsAgent) -> Unit noraise {
+  @cetas_core.write_active_model_selection(
+    @workspace.JsWorkspaceFs::new(),
+    home=handle.home,
+    @cetas_core.ActiveModelSelection::from_current(
+      handle.router.active_slot_id(),
+      handle.router.active_effort(),
+    ),
+  ) catch {
+    _ =>
+      handle.observer.on_event(
+        Custom(
+          source="cetas-js.bridge",
+          label="active_model_persist_failed",
+          data=Json::object(
+            Map::from_array([
+              (
+                "message",
+                Json::string(
+                  "Failed to persist the active model selection to ~/.cetas/settings.json; the change is active for this session only.",
+                ),
+              ),
+            ]),
+          ),
+        ),
+      )
+  }
+}
+
+///|
 /// Invoke a command by id. Routes to the first CommandPort that declares it.
 /// Returns a CommandOutcome as JSON. Unknown ids yield Failure (not a Promise
 /// rejection) so the TS host can render uniformly. Errors raised by invoke
@@ -1645,11 +1734,15 @@ pub fn cetas_js_invoke_command(
             raise @posoco.CommandError::ExecutionFailed(message)
           }
           result_json = command_outcome_to_json(outcome).stringify()
-          // Router-mutating commands keep the status bar in sync: the
-          // invocation already committed the change, so mirror it as facts.
+          // Router-mutating commands keep the status bar in sync and persist
+          // the new selection: the invocation already committed the change,
+          // so mirror it as facts and make it outlive the process.
           if id == "model" || id == "effort" {
             match outcome {
-              Success(..) => push_model_facts(handle.router, handle.statusbar)
+              Success(..) => {
+                push_model_facts(handle.router, handle.statusbar)
+                persist_active_model_selection(handle)
+              }
               _ => ()
             }
           }

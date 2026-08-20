@@ -174,6 +174,13 @@ async fn read_credential_snapshot(
 /// other call reuses its cached provider catalog, so setup discovery, Agent
 /// recomposition, and `/model` never trigger an implicit second fetch.
 ///
+/// The disk model cache (`~/.cetas/model_lists.json`, cetas-core) seeds
+/// uncached provider builds so a cold process announces the previously
+/// discovered list without a network request, and a successful forced
+/// refresh writes its projection back so the next process starts warm. The
+/// cache is best-effort: read or write failures degrade silently — the
+/// process cache and the explicit refresh remain the sources of truth.
+///
 /// Factory wiring and validation live in cetas-core; this host owns only the
 /// process-lifetime cache.
 async fn collect_provider_catalogs(
@@ -196,6 +203,14 @@ async fn collect_provider_catalogs(
   } else {
     ""
   }
+  let model_cache = match
+    @cetas_core.read_model_list_cache(
+      @workspace.JsWorkspaceFs::new(),
+      home=runtime.config.home,
+    ) {
+    Ok(entries) => entries
+    Err(_) => Map::from_array([])
+  }
   for factory in factories {
     let provider_id = factory.provider_id()
     let selected = match requested {
@@ -212,8 +227,14 @@ async fn collect_provider_catalogs(
           if refresh_factory.provider_id() == provider_id {
             match
               @cetas_core.refresh_provider_catalog(refresh_factory, snapshot) {
-              Some(catalog) =>
+              Some(catalog) => {
+                persist_model_list_cache(
+                  runtime.config.home,
+                  provider_id,
+                  catalog,
+                )
                 refreshed = Some(@llm.ProviderBuildResult::Ready(catalog))
+              }
               None => refreshed = Some(@llm.ProviderBuildResult::Unconfigured)
             }
           }
@@ -222,7 +243,12 @@ async fn collect_provider_catalogs(
       let result = match refreshed {
         Some(value) => value
         None =>
-          match @cetas_core.build_provider_catalog(factory, snapshot) {
+          match
+            @cetas_core.build_provider_catalog(
+              factory,
+              snapshot,
+              cached_models=model_cache.get(provider_id),
+            ) {
             Some(catalog) => @llm.ProviderBuildResult::Ready(catalog)
             None => @llm.ProviderBuildResult::Unconfigured
           }
@@ -246,6 +272,25 @@ async fn collect_provider_catalogs(
 }
 
 ///|
+/// Best-effort write of one refreshed catalog's model records to the disk
+/// cache. Failures are silent by design: the cache only accelerates the next
+/// cold start, and the next refresh will rewrite it anyway.
+async fn persist_model_list_cache(
+  home : String,
+  provider_id : String,
+  catalog : @llm.ProviderModelCatalog,
+) -> Unit noraise {
+  @cetas_core.write_model_list_cache(
+    @workspace.JsWorkspaceFs::new(),
+    home~,
+    provider_id,
+    @cetas_core.catalog_model_records(catalog),
+  ) catch {
+    _ => ()
+  }
+}
+
+///|
 /// Use the process cache without forcing a network/model discovery refresh.
 async fn cached_provider_catalogs(
   runtime : CetasJsRuntime,
@@ -254,21 +299,84 @@ async fn cached_provider_catalogs(
 }
 
 ///|
+/// One observer `Custom` warning on the shared bridge channel; used when a
+/// persisted selection cannot be applied (slot drifted, effort no longer
+/// advertised) — restore problems degrade to defaults instead of blocking
+/// startup.
+fn active_model_warning(
+  observer : &@posoco.Observer,
+  label : String,
+  message : String,
+) -> Unit {
+  let event : @posoco.TurnEvent = Custom(
+    source="cetas-js.bridge",
+    label~,
+    data=Json::object(Map::from_array([("message", Json::string(message))])),
+  )
+  observer.on_event(event)
+}
+
+///|
+/// Build the provider router with the persisted active-model selection
+/// restored: `~/.cetas/settings.json`'s flat `model`/`reasoning_effort` keys
+/// pick the default slot and effort instead of always resetting to the first
+/// catalog slot. A drifted slot or stale effort degrades to the router default
+/// with one observer warning; malformed settings still fail composition
+/// loudly (the same file is already validated for `providers`).
 async fn build_provider_router(
   runtime : CetasJsRuntime,
   store : @credentials.FileProviderCredentialStore,
   auth : JsAuthInteraction,
+  observer : &@posoco.Observer,
 ) -> @llm.RouterModelPort raise @posoco.CompositionError {
   let catalogs = cached_provider_catalogs(runtime)
   if catalogs.is_empty() {
     raise @posoco.CompositionError::EmptyPort("cetas-js.providers")
   }
-  @llm.RouterModelPort::from_catalogs(
+  let selection = @cetas_core.read_active_model_selection(
+    @workspace.JsWorkspaceFs::new(),
+    home=runtime.config.home,
+  )
+  let default_slot_id = @cetas_core.resolve_default_slot_id(catalogs, selection)
+  match selection {
+    Some({ slot, .. }) =>
+      if default_slot_id == "" {
+        active_model_warning(
+          observer,
+          "active_model_restore_warning",
+          "Persisted model slot '" +
+          slot +
+          "' is no longer configured; falling back to the first catalog slot. The stale entry stays in ~/.cetas/settings.json until the next selection overwrites it.",
+        )
+      }
+    None => ()
+  }
+  let router = @llm.RouterModelPort::from_catalogs(
     catalogs,
+    default_slot_id~,
     provider_credential_store=Some(store as &@oauth.ProviderCredentialStore),
     auth_interaction=Some(auth as &@oauth.AuthInteraction),
     auth_prompt=Some(auth as &@oauth.AuthPromptInteraction),
   )
+  match selection {
+    Some({ effort: Some(effort), .. }) =>
+      if default_slot_id != "" {
+        router.select_effort(default_slot_id, effort) catch {
+          _ =>
+            active_model_warning(
+              observer,
+              "active_model_restore_warning",
+              "Persisted reasoning effort '" +
+              effort +
+              "' is not advertised by model slot '" +
+              default_slot_id +
+              "'; using the slot's default effort.",
+            )
+        }
+      }
+    _ => ()
+  }
+  router
 }
 
 ///|
@@ -342,7 +450,7 @@ async fn login_provider(
   store.write(outcome.provider_id, outcome.credential) catch {
     err =>
       raise @posoco.CommandError::ExecutionFailed(
-        outcome.method +
+        outcome.login_method +
         " credential persistence failed for " +
         provider_id +
         ": " +

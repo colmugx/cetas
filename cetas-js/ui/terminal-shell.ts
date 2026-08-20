@@ -40,12 +40,17 @@ import { UiRegistry } from "../src/ui-registry.ts";
 import { registerBuiltinToolRenderers } from "../src/tool-renderers/index.ts";
 import {
   UiRenderHost,
-  UiRequestOverlay,
+  UiRequestBar,
   createUiRenderCallback,
   createUiRequestCallback,
 } from "./extension-ui.ts";
 import { banner } from "./primitives.ts";
 import { ModelPickerOverlay, parseModelPickerOutcome, type ModelSelection } from "./model-picker.ts";
+import {
+  SkillsOverlay,
+  parseSkillActivation,
+  parseSkillsOutcome,
+} from "./skills-overlay.ts";
 import { OAuthOverlay } from "./oauth-overlay.ts";
 import { AuthPromptOverlay, parseAuthPromptRequest } from "./auth-prompt-overlay.ts";
 import { theme } from "./theme.ts";
@@ -144,11 +149,14 @@ export class TerminalShell {
   private readonly statusBarMount: Container;
   private readonly router: EventRouter;
   private readonly uiRenderHost: UiRenderHost;
-  private readonly uiRequestOverlay: UiRequestOverlay;
+  private readonly uiRequestBar: UiRequestBar;
   private readonly uiRegistry = new UiRegistry();
   private readonly modelPicker: ModelPickerOverlay;
   private readonly oauthOverlay: OAuthOverlay;
   private readonly authPromptOverlay: AuthPromptOverlay;
+  private readonly skillsOverlay: SkillsOverlay;
+  /** Lazily fetched once: the skills catalog is snapshotted at agent composition. */
+  private skillsAutocompleteItems?: ReadonlyArray<{ label: string; detail: string; insert_text: string }>;
 
   private inTurn = false;
   private commandBusy = false;
@@ -163,8 +171,8 @@ export class TerminalShell {
     if (options.initialSessionId.length === 0) {
       throw new Error("initial session id must not be empty");
     }
-    if (!Number.isSafeInteger(options.maxToolRounds) || options.maxToolRounds <= 0) {
-      throw new Error("maxToolRounds must be a positive integer");
+    if (!Number.isSafeInteger(options.maxToolRounds) || options.maxToolRounds < 0) {
+      throw new Error("maxToolRounds must be a non-negative integer (0 = unbounded)");
     }
     this.tui = options.tui;
     this.cwd = options.cwd;
@@ -201,6 +209,12 @@ export class TerminalShell {
     this.extensionWidgets = new Container();
     this.tui.addChild(this.extensionWidgets);
 
+    // Interactive asks (permission approval, extension questions) render
+    // inline here — directly above the editor — instead of a centered
+    // overlay that fights the streaming transcript for the same rows.
+    const askRegion = new Container();
+    this.tui.addChild(askRegion);
+
     this.editor = new Editor(this.tui, editorTheme);
     this.editor.setAutocompleteProvider(this.uiRegistry);
     this.tui.addChild(this.editor);
@@ -222,12 +236,15 @@ export class TerminalShell {
         "status:statusbar": { mount: this.statusBarMount, format: "line" },
       },
     );
-    this.uiRequestOverlay = new UiRequestOverlay(this.tui);
+    this.uiRequestBar = new UiRequestBar(this.tui, askRegion, () => {
+      this.tui.setFocus(this.editor);
+    });
     this.modelPicker = new ModelPickerOverlay(this.tui);
     this.oauthOverlay = new OAuthOverlay(this.tui, () => {
       this.app?.cancelCurrentOperation();
     });
     this.authPromptOverlay = new AuthPromptOverlay(this.tui);
+    this.skillsOverlay = new SkillsOverlay(this.tui);
 
     this.router = new EventRouter({
       addTranscriptChild: (component) => this.addTranscriptChild(component),
@@ -290,6 +307,14 @@ export class TerminalShell {
       }
       return;
     }
+    if (trimmed.startsWith("$")) {
+      try {
+        await this.submitSkillMention(trimmed);
+      } catch (error: unknown) {
+        this.addTranscriptChild(errorNotice(`${trimmed} failed: ${errorMessage(error)}`));
+      }
+      return;
+    }
     if (prompt.length === 0) return;
 
     const app = this.requireApp();
@@ -323,10 +348,11 @@ export class TerminalShell {
   async shutdown(): Promise<void> {
     if (this.shutdownPromise !== undefined) return this.shutdownPromise;
     this.shutdownPromise = (async () => {
-      this.uiRequestOverlay.cancel();
+      this.uiRequestBar.cancel();
       this.modelPicker.hide();
       this.oauthOverlay.hide();
       this.authPromptOverlay.hide();
+      this.skillsOverlay.hide();
       this.providerPickerHandle?.hide();
       this.providerPickerHandle = undefined;
       try {
@@ -438,7 +464,7 @@ export class TerminalShell {
     ) {
       return this.authPromptOverlay.request(parseAuthPromptRequest(raw));
     }
-    return createUiRequestCallback(this.uiRequestOverlay, 300_000)(eventJson);
+    return createUiRequestCallback(this.uiRequestBar, 300_000)(eventJson);
   }
 
   private registerAutocomplete(): void {
@@ -455,6 +481,7 @@ export class TerminalShell {
               ["/clear", "Clear the transcript"],
               ["/new", "Start a new session"],
               ["/model", "Select a model and effort"],
+              ["/skills", "Browse discovered agent skills by scope"],
               ["/login", "Authenticate with a provider (API key or OAuth)"],
               ["/exit", "Quit cetas-js"],
             ].map(([label, detail]) => ({
@@ -478,8 +505,25 @@ export class TerminalShell {
             );
           },
         },
+        {
+          // `$name` skill mention: candidates come from the composed skills
+          // catalog (lazy, cached per process). Enter applies the mention
+          // without submitting — the turn only starts on the next Enter.
+          trigger: "$",
+          kind: "custom",
+          fetch: async (prefix, signal) => {
+            if (signal.aborted) return [];
+            const items = await this.loadSkillsAutocompleteItems();
+            return items.filter((item) => item.insert_text.slice(1).startsWith(prefix));
+          },
+        },
       ],
     });
+    // The editor reads the provider's trigger characters once, at
+    // setAutocompleteProvider time. Registering the `$` source above changed
+    // the trigger set, so re-bind the provider or typing `$` never opens the
+    // dropdown (only force/Tab completion would work).
+    this.editor.setAutocompleteProvider(this.uiRegistry);
   }
 
   private handleInput(data: string): { consume?: boolean } | undefined {
@@ -487,14 +531,18 @@ export class TerminalShell {
       this.requestShutdown(0);
       return { consume: true };
     }
-    if (this.uiRequestOverlay.isActive()) return { consume: true };
     // Interactive overlays must receive their own keyboard events. The old
     // host closed every overlay from this listener, making model selection
     // impossible as soon as pi-tui gained real focus-aware overlays.
+    // uiRequestBar (permission approval ask) takes keyboard focus too —
+    // Up/Down/Enter/ESC must reach its inline panel, otherwise the user is
+    // stuck while a turn is parked in .wait().
     if (
+      this.uiRequestBar.isActive() ||
       this.modelPicker.isActive ||
       this.oauthOverlay.isActive ||
       this.authPromptOverlay.isActive ||
+      this.skillsOverlay.isActive ||
       this.providerPickerHandle !== undefined
     ) {
       return undefined;
@@ -556,6 +604,10 @@ export class TerminalShell {
       await this.openModelPicker();
       return;
     }
+    if (command === "/skills" && rawArgs.length === 0) {
+      await this.openSkillsPicker();
+      return;
+    }
     if (command === "/login") {
       await this.openLogin(rawArgs);
       return;
@@ -569,6 +621,7 @@ export class TerminalShell {
       ["/clear", "Clear the transcript"],
       ["/new", "Start a new session"],
       ["/model", "List models, then choose model + effort"],
+      ["/skills", "Browse discovered agent skills ($name activates one)"],
       ["/login [provider] [method]", "Authenticate with an API key or OAuth"],
       ["/exit", "Quit cetas-js"],
     ];
@@ -648,6 +701,115 @@ export class TerminalShell {
       this.addTranscriptChild(errorNotice(`/model failed: ${errorMessage(error)}`));
     } finally {
       this.finishCommand();
+    }
+  }
+
+  /**
+   * `$name [task…]` — user-invoked skill activation. Activation loads the
+   * SKILL.md body once (progressive disclosure) and embeds it in the turn's
+   * user message; the transcript keeps showing the raw mention, not the
+   * injected instructions. Runs as command (activation) then turn, which the
+   * application state machine guarantees are mutually exclusive.
+   */
+  private async submitSkillMention(input: string): Promise<void> {
+    const match = /^\$(\S+)(?:\s+([\s\S]*))?$/.exec(input);
+    if (match === null) {
+      this.addTranscriptChild(errorNotice("$ needs a skill name — type $ to browse skills, then $name to activate"));
+      return;
+    }
+    const name = match[1] as string;
+    const tail = (match[2] ?? "").trim();
+    if (this.commandBusy) {
+      this.addTranscriptChild(errorNotice(`$${name} cannot run while another command is active`));
+      return;
+    }
+    this.commandBusy = true;
+    this.editor.disableSubmit = true;
+    this.setCommandStatus(`activating skill ${name}`);
+    let instructions: string | undefined;
+    try {
+      const outcome = parseSkillActivation(
+        await this.requireApp().invokeCommand("skills", JSON.stringify({ action: "activate", name })),
+      );
+      if (outcome.type !== "success") {
+        this.addTranscriptChild(errorNotice(`$${name}: ${outcome.reason}`));
+        return;
+      }
+      instructions = outcome.instructions;
+    } catch (error: unknown) {
+      this.addTranscriptChild(errorNotice(`$${name} failed: ${errorMessage(error)}`));
+      return;
+    } finally {
+      this.finishCommand();
+    }
+    if (instructions === undefined) return;
+    const prompt =
+      `<activated-skill name="${name}">\n${instructions}\n</activated-skill>\n\n` +
+      (tail.length > 0 ? tail : "Follow the activated skill's instructions.");
+    const app = this.requireApp();
+    this.inTurn = true;
+    this.editor.disableSubmit = true;
+    this.addTranscriptChild(new UserMessage(input));
+    try {
+      await app.runTurn(prompt, this.sessionId);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.addTranscriptChild(errorNotice(message));
+      this.tui.requestRender();
+    } finally {
+      this.inTurn = false;
+      this.editor.disableSubmit = false;
+      this.statusLoader.stop();
+      this.tui.requestRender();
+    }
+  }
+
+  /** Display-only skills browser: catalog metadata + discovery scope. */
+  private async openSkillsPicker(): Promise<void> {
+    if (this.commandBusy) {
+      this.addTranscriptChild(errorNotice("/skills cannot run while another command is active"));
+      return;
+    }
+    this.commandBusy = true;
+    this.editor.disableSubmit = true;
+    this.setCommandStatus("loading skills catalog");
+    try {
+      const outcome = parseSkillsOutcome(await this.requireApp().invokeCommand("skills", "{}"));
+      if (outcome.type !== "success") {
+        this.addTranscriptChild(
+          errorNotice(`/skills: ${outcome.type === "failure" ? outcome.reason : outcome.prompt}`),
+        );
+        this.finishCommand();
+        return;
+      }
+      this.skillsOverlay.open(outcome.entries, () => this.finishCommand());
+    } catch (error: unknown) {
+      this.addTranscriptChild(errorNotice(`/skills failed: ${errorMessage(error)}`));
+      this.finishCommand();
+    }
+  }
+
+  /**
+   * `$`-mention autocomplete items. The catalog is discovery metadata
+   * snapshotted at agent composition, so one successful fetch per process is
+   * enough; failures are not cached so a later keystroke can retry.
+   */
+  private async loadSkillsAutocompleteItems(): Promise<
+    ReadonlyArray<{ label: string; detail: string; insert_text: string }>
+  > {
+    if (this.skillsAutocompleteItems !== undefined) return this.skillsAutocompleteItems;
+    try {
+      const outcome = parseSkillsOutcome(await this.requireApp().invokeCommand("skills", "{}"));
+      if (outcome.type !== "success") return [];
+      const items = outcome.entries.map((entry) => ({
+        label: `$${entry.name}`,
+        detail: `[${entry.scope}] ${entry.description}`,
+        insert_text: `$${entry.name}`,
+      }));
+      this.skillsAutocompleteItems = items;
+      return items;
+    } catch {
+      return [];
     }
   }
 

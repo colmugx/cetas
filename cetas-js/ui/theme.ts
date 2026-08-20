@@ -41,6 +41,8 @@ export interface CetasTheme {
   toolPendingBg: StyleFn;
   toolErrorBg: StyleFn;
   toolSuccessBg: StyleFn;
+  /** Selected row of an inline ask list — full-width background block. */
+  selection: StyleFn;
   // Typography helpers.
   bold: StyleFn;
   italic: StyleFn;
@@ -74,6 +76,9 @@ export const theme: CetasTheme = {
   toolPendingBg: chalk.bgHex("#333322"),
   toolErrorBg: chalk.bgHex("#3a1414"),
   toolSuccessBg: chalk.bgHex("#103a10"),
+  /** Selected row of an inline ask list — a full-width background block
+   * (kimi-code/opencode style) instead of an arrow prefix. */
+  selection: chalk.bold.bgCyan.black,
   bold: chalk.bold,
   italic: chalk.italic,
   underline: chalk.underline,

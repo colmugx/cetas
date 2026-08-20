@@ -1,33 +1,23 @@
 import { describe, expect, test } from "bun:test";
+import chalk from "chalk";
 import { Container, type Component } from "@earendil-works/pi-tui";
 
 import {
   UiRenderHost,
-  UiRequestOverlay,
+  UiRequestBar,
   createUiRequestCallback,
 } from "./extension-ui.ts";
 
 class FakeTui {
   renderCount = 0;
-  shown?: Component;
-  hideCount = 0;
+  focused?: Component;
 
   requestRender(): void {
     this.renderCount++;
   }
 
-  showOverlay(component: Component) {
-    this.shown = component;
-    return {
-      hide: () => {
-        this.hideCount++;
-      },
-      setHidden() {},
-      isHidden: () => false,
-      focus() {},
-      unfocus() {},
-      isFocused: () => true,
-    };
+  setFocus(component: Component | null): void {
+    this.focused = component ?? undefined;
   }
 }
 
@@ -211,67 +201,144 @@ describe("UiRenderHost", () => {
   });
 });
 
-describe("UiRequestOverlay", () => {
-  test("resolves a select request from the focused overlay", async () => {
+describe("UiRequestBar", () => {
+  function makeBar() {
     const tui = new FakeTui();
-    const overlay = new UiRequestOverlay(tui as never);
-    const responsePromise = overlay.request({
+    const mount = new Container();
+    const restores: number[] = [];
+    const bar = new UiRequestBar(tui as never, mount, () => restores.push(1));
+    return { tui, mount, restores, bar };
+  }
+
+  test("resolves a select request from the focused inline panel", async () => {
+    const { tui, mount, restores, bar } = makeBar();
+    const responsePromise = bar.request({
       type: "select",
       title: "Choose",
       options: ["alpha", "beta"],
       default_index: 1,
     });
 
-    expect(tui.shown).toBeDefined();
-    tui.shown!.handleInput!("\r");
+    expect(tui.focused).toBeDefined();
+    expect(mount.children).toHaveLength(1);
+    tui.focused!.handleInput!("\r");
 
     await expect(responsePromise).resolves.toEqual({
       type: "selected",
       index: 1,
     });
-    expect(tui.hideCount).toBe(1);
+    expect(mount.children).toHaveLength(0);
+    expect(restores).toHaveLength(1);
+  });
+
+  test("renders the buttons in one bottom row with a highlighted selection", async () => {
+    // Force color output so the background block is assertable; restore
+    // the detected level afterwards.
+    const detectedLevel = chalk.level;
+    chalk.level = 3;
+    try {
+      const { tui, mount, bar } = makeBar();
+      const pending = bar.request({
+        type: "select",
+        title: "Allow tool 'bash' (shell)?",
+        options: ["Allow once", "Allow for this session", "Deny"],
+      });
+
+      const row = mount
+        .render(60)
+        .find(
+          (line) => line.includes("Allow once") && line.includes("Deny"),
+        );
+      expect(row).toBeDefined();
+      expect(row).toContain(chalk.bold.bgCyan.black(" Allow once "));
+      expect(row).toContain(" Allow for this session ");
+
+      // Right arrow moves the block onto the next button.
+      tui.focused!.handleInput!("\u001b[C");
+      const moved = mount
+        .render(60)
+        .find((line) => line.includes("Allow once"));
+      expect(moved).toContain(chalk.bold.bgCyan.black(" Allow for this session "));
+      expect(moved).not.toContain(chalk.bold.bgCyan.black(" Allow once "));
+
+      tui.focused!.handleInput!("\u001b");
+      await expect(pending).resolves.toEqual({ type: "cancelled" });
+    } finally {
+      chalk.level = detectedLevel;
+    }
+  });
+
+  test("stacks the buttons when the row cannot fit the width", async () => {
+    const { mount, bar } = makeBar();
+    const pending = bar.request({
+      type: "select",
+      title: "Allow tool 'bash' (shell)?",
+      options: ["Allow once", "Allow for this session", "Deny"],
+    });
+
+    const labelLines = mount
+      .render(24)
+      .filter((line) =>
+        ["Allow once", "Allow for this session", "Deny"].some((label) =>
+          line.includes(label),
+        ),
+      );
+    expect(labelLines).toHaveLength(3);
+
+    bar.cancel();
+    await expect(pending).resolves.toEqual({ type: "cancelled" });
+  });
+
+  test("resolves an input request from the inline field", async () => {
+    const { tui, bar } = makeBar();
+    const responsePromise = bar.request({
+      type: "input",
+      prompt: "Name",
+      placeholder: "e.g. release-1",
+    });
+
+    tui.focused!.handleInput!("a");
+    tui.focused!.handleInput!("\r");
+
+    await expect(responsePromise).resolves.toEqual({ type: "text", text: "a" });
   });
 
   test("rejects concurrent requests explicitly", async () => {
-    const tui = new FakeTui();
-    const overlay = new UiRequestOverlay(tui as never);
-    const first = overlay.request({
+    const { tui, bar } = makeBar();
+    const first = bar.request({
       type: "confirm",
       prompt: "Continue?",
       default_yes: true,
     });
 
     await expect(
-      overlay.request({
+      bar.request({
         type: "input",
         prompt: "Name",
       }),
     ).rejects.toThrow("concurrent UiRequest");
 
-    tui.shown!.handleInput!("\u001b");
+    tui.focused!.handleInput!("\u001b");
     await expect(first).resolves.toEqual({ type: "cancelled" });
   });
 
   test("cancels an active request during host shutdown", async () => {
-    const tui = new FakeTui();
-    const overlay = new UiRequestOverlay(tui as never);
-    const response = overlay.request({
+    const { mount, restores, bar } = makeBar();
+    const response = bar.request({
       type: "input",
       prompt: "Name",
     });
 
-    overlay.cancel();
+    bar.cancel();
 
     await expect(response).resolves.toEqual({ type: "cancelled" });
-    expect(tui.hideCount).toBe(1);
+    expect(mount.children).toHaveLength(0);
+    expect(restores).toHaveLength(1);
   });
 
   test("builds a correlated ui_response for the MoonBit Promise bridge", async () => {
-    const tui = new FakeTui();
-    const callback = createUiRequestCallback(
-      new UiRequestOverlay(tui as never),
-      1_000,
-    );
+    const { tui, bar } = makeBar();
+    const callback = createUiRequestCallback(bar, 1_000);
     const responsePromise = callback(
       JSON.stringify({
         type: "ui_request",
@@ -284,7 +351,7 @@ describe("UiRequestOverlay", () => {
       }),
     );
 
-    tui.shown!.handleInput!("\r");
+    tui.focused!.handleInput!("\r");
 
     await expect(responsePromise).resolves.toBe(
       JSON.stringify({
@@ -296,10 +363,8 @@ describe("UiRequestOverlay", () => {
   });
 
   test("rejects malformed request events", async () => {
-    const callback = createUiRequestCallback(
-      new UiRequestOverlay(new FakeTui() as never),
-      1_000,
-    );
+    const { bar } = makeBar();
+    const callback = createUiRequestCallback(bar, 1_000);
     await expect(
       callback(
         JSON.stringify({
@@ -311,12 +376,9 @@ describe("UiRequestOverlay", () => {
     ).rejects.toThrow("request_id must not be empty");
   });
 
-  test("returns a correlated timeout error and closes the overlay", async () => {
-    const tui = new FakeTui();
-    const callback = createUiRequestCallback(
-      new UiRequestOverlay(tui as never),
-      1,
-    );
+  test("returns a correlated timeout error and closes the ask", async () => {
+    const { mount, bar } = makeBar();
+    const callback = createUiRequestCallback(bar, 1);
     await expect(
       callback(
         JSON.stringify({
@@ -335,6 +397,6 @@ describe("UiRequestOverlay", () => {
         error: { code: "timeout" },
       }),
     );
-    expect(tui.hideCount).toBe(1);
+    expect(mount.children).toHaveLength(0);
   });
 });

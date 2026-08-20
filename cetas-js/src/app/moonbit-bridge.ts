@@ -13,6 +13,7 @@ type RawConfigConstructor = new (
   cwd: string,
   maxToolRounds: number,
   home: string,
+  permissionMode: string,
 ) => unknown;
 type RawRuntimeConstructor = new (config: unknown) => unknown;
 
@@ -70,7 +71,12 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
   private readonly runtimeValue: unknown;
 
   constructor(config: CetasHostConfig) {
-    this.configValue = new RawConfig(config.cwd, config.maxToolRounds, config.home);
+    this.configValue = new RawConfig(
+      config.cwd,
+      config.maxToolRounds,
+      config.home,
+      config.permissionMode ?? "workspace_write",
+    );
     this.runtimeValue = new RawRuntime(this.configValue);
   }
 

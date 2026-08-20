@@ -14,21 +14,13 @@ import {
 
 const cleanup: string[] = [];
 
-// The bridge hands fetch a MoonBit pipe-backed ReadableStream whose chunks
-// are views onto a reused buffer (moonbitlang/async `new_pipe`). Consumers
-// must copy each chunk synchronously while reading — `new Response(body)`
-// defers consumption and observes rotated data once the body exceeds one
-// 1024-byte chunk.
+// async 0.21+ hands fetch a fully materialized MoonBit `Bytes` request body
+// (an Uint8Array on the JS backend — the standard BodyInit), so the stub can
+// decode it directly. The old pipe-backed ReadableStream body (async ≤0.20,
+// whose chunks were views onto a reused buffer and had to be copied
+// synchronously) is gone.
 async function readRequestBody(body: unknown): Promise<string> {
-  const reader = (body as ReadableStream<Uint8Array>).getReader();
-  const decoder = new TextDecoder();
-  let text = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) text += decoder.decode(value, { stream: true });
-  }
-  return text + decoder.decode();
+  return new TextDecoder().decode(body as Uint8Array);
 }
 
 afterEach(async () => {

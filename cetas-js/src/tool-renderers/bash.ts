@@ -6,7 +6,8 @@
  *               is still pending.
  * Result view:  `  ✓ <exit info>`  +  first stdout/stderr line (truncated).
  *
- * The schema is `ext-bash`: { command: string, timeout_ms?: number }.
+ * The schema is `ext-bash`: { cmd: string } — `command` is read only as a
+ * legacy alias because `extract_command` accepts both keys.
  */
 
 import { Text } from "@earendil-works/pi-tui";
@@ -42,7 +43,9 @@ function stopTimer(ctx: ToolRenderContext) {
 
 export const bashRenderer: ToolRenderer = {
   renderCall(ctx: ToolRenderContext) {
-    const cmd = argString(ctx.args, "command") || "(empty)";
+    const cmd = argString(ctx.args, "cmd") ||
+      argString(ctx.args, "command") ||
+      "(empty)";
     const st = getState(ctx);
     if (st.startedAt === undefined) {
       st.startedAt = Date.now();
@@ -68,7 +71,7 @@ export const bashRenderer: ToolRenderer = {
     ctx: ToolRenderContext,
   ) {
     stopTimer(ctx);
-    const cmd = argString(ctx.args, "command") || "";
+    const cmd = argString(ctx.args, "cmd") || argString(ctx.args, "command");
     const status = result.isError ? theme.error("✗") : theme.success("✓");
     const first = truncateForPreview(result.content.split("\n")[0] ?? "", 200);
     return new Text(

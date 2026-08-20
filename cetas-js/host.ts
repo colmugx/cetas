@@ -21,7 +21,9 @@ import { TerminalShell } from "./ui/terminal-shell.ts";
 async function main(): Promise<void> {
   const config: CetasHostConfig = {
     cwd: process.cwd(),
-    maxToolRounds: 20,
+    // 0 = unbounded: the loop ends when the model stops calling tools or the
+    // user aborts (kimi-code/pi posture); the kernel budget is opt-in safety.
+    maxToolRounds: 0,
     home: homedir(),
   };
   const sessionId = `session-${Date.now()}`;
