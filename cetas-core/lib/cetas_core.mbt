@@ -51,9 +51,8 @@ pub fn Cetas::Cetas(
       ),
     )
   }
-  // FIXME: get model name and model reasoning effort
   let system_prompt_hook = @posoco.SystemPromptHook::SystemPromptHook(
-    base_prompt=cetas_base_system_prompt("default model", "max"),
+    base_prompt=cetas_base_system_prompt(),
     contributors=sections,
   )
   let profile_command = ProfileCommand::new(
@@ -160,6 +159,12 @@ fn cetas_skills_config() -> @skills.SkillsConfig {
 /// passed by value; MoonBit structs are reference-backed, so its map is
 /// shared across the three tools.
 ///
+/// The RTKHook sits after the bash tool: it validates shell arguments
+/// (`cmd`/`command` must be a string) and rewrites commands through the
+/// rtk subprocess once a real rewrite is supplied. With the default
+/// rewrite it passes commands through unchanged, so wiring it in early
+/// only adds the strict shell-argument validation.
+///
 /// Returns Extensions (each tool ext already impls Extension). Hosts place
 /// the result directly into `Agent(exts=[...])`.
 pub async fn build_default_features(
@@ -174,6 +179,7 @@ pub async fn build_default_features(
     @glob.GlobTools(),
     @grep.GrepTools(),
     @bash.ShellTools(),
+    @rtk.RTKHook::new("rtk", fn(cmd) { @rtk.default_rtk_rewrite("rtk", cmd) }),
   ]
   match
     @skills.Skills::new(

@@ -1,8 +1,8 @@
 /**
  * read.ts — `read` tool renderer.
  *
- * Call view:    `→ read  <path>`
- * Result view:  `  ✓ <first line> … (+N lines)` (or ✗ for error)
+ * Call view:    `● read  <path>`
+ * Result view:  `● <first line> … (+N lines)` (red ● for error)
  */
 
 import { Text } from "@earendil-works/pi-tui";
@@ -11,6 +11,8 @@ import {
   type ToolRenderContext,
   type ToolRenderer,
   argString,
+  callBullet,
+  statusBullet,
   toolTitle,
   truncateForPreview,
 } from "./registry.ts";
@@ -18,11 +20,10 @@ import {
 export const readRenderer: ToolRenderer = {
   renderCall(ctx: ToolRenderContext) {
     const path = argString(ctx.args, "path") || "(no path)";
-    return new Text(`${theme.accent("→")} ${toolTitle("read")}  ${path}`, 1, 0);
+    return new Text(`${callBullet(ctx)} ${toolTitle("read")}  ${path}`, 1, 0);
   },
   renderResult(result, _opts, ctx) {
     const path = argString(ctx.args, "path") || "";
-    const status = result.isError ? theme.error("✗") : theme.success("✓");
     const lines = result.content.split("\n");
     const lineCount = lines.length;
     const firstLine = truncateForPreview(lines[0] ?? "", 120);
@@ -32,7 +33,7 @@ export const readRenderer: ToolRenderer = {
       ? `${firstLine}  ${theme.muted(`(+${lineCount - 1} lines)`)}`.trim()
       : firstLine;
     return new Text(
-      `  ${status} ${toolTitle("read")}  ${path}${summary ? "\n      " + theme.muted(summary) : ""}`,
+      `${statusBullet(result.isError ? "error" : "success")} ${toolTitle("read")}  ${path}${summary ? "\n      " + theme.muted(summary) : ""}`,
       1,
       0,
     );

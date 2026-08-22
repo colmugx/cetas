@@ -25,11 +25,13 @@ pub fn provider_factories(
   let kimi = @kimi.KimiProvider::new(ctx~)
   let openai = @openai.OpenAIProvider::new()
   let opencode_zen = @opencode_zen.OpenCodeZenProvider::new(ctx~)
+  let zai = @zai.ZaiProvider::new(ctx~)
   [
     deepseek as &@llm.ProviderFactory,
     kimi as &@llm.ProviderFactory,
     openai as &@llm.ProviderFactory,
     opencode_zen as &@llm.ProviderFactory,
+    zai as &@llm.ProviderFactory,
   ]
 }
 
@@ -119,11 +121,13 @@ pub fn api_key_factories(
   let kimi = @kimi.KimiProvider::new(ctx~)
   let openai = @openai.OpenAIProvider::new()
   let opencode_zen = @opencode_zen.OpenCodeZenProvider::new(ctx~)
+  let zai = @zai.ZaiProvider::new(ctx~)
   [
     deepseek as &@llm.ApiKeyFactory,
     kimi as &@llm.ApiKeyFactory,
     openai as &@llm.ApiKeyFactory,
     opencode_zen as &@llm.ApiKeyFactory,
+    zai as &@llm.ApiKeyFactory,
   ]
 }
 

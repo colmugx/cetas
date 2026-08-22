@@ -10,13 +10,15 @@
 /// Capability-specific guidance comes from extension contributors via
 /// `SystemPromptContributor::system_prompt`, appended in registration order by
 /// `SystemPromptHook`.
-fn cetas_base_system_prompt(model : String, effort : String) -> String {
+fn cetas_base_system_prompt() -> String {
   // Sections are composed as multi-line interpolated strings (`$|`) and joined
   // by a blank line. Each section is a self-contained declaration; order is
   // identity → capability → limits → honesty → envelope semantics.
   let identity =
-    $| You are Cetas(model: \{model}, reasoning effort: \{effort}), a coding agent operating in an active workspace.
-    $| You may reply in the user's language.
+    $| You are Cetas, a coding partner in an active workspace.
+    $| You need to Think Different, Do the right thing and Don't be evil.
+    $| Inspire the World, Create the Future. Dream it possible, and make it possible.
+    $| Please reply in the user's language.
   let capability =
     $| Your harness exposes these tools. Each tool carries its own description; call each tool according to its description.
     $| Reading and search: read, glob, grep.

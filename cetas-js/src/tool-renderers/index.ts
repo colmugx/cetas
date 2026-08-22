@@ -7,6 +7,7 @@
  */
 
 import { registerToolRenderer } from "./registry.ts";
+import { askQuestionRenderer } from "./askquestion.ts";
 import { bashRenderer } from "./bash.ts";
 import { editRenderer } from "./edit.ts";
 import { globRenderer } from "./glob.ts";
@@ -20,6 +21,7 @@ let registered = false;
 export function registerBuiltinToolRenderers(): void {
   if (registered) return;
   registered = true;
+  registerToolRenderer("ask_question", askQuestionRenderer);
   registerToolRenderer("bash", bashRenderer);
   registerToolRenderer("read", readRenderer);
   registerToolRenderer("write", writeRenderer);
@@ -32,7 +34,7 @@ export function registerBuiltinToolRenderers(): void {
 // "./tool-renderers/index"` without calling the registration function.
 registerBuiltinToolRenderers();
 
-export { pickToolRenderer } from "./registry.ts";
+export { pickToolRenderer, statusBullet, callBullet } from "./registry.ts";
 export type {
   ToolRenderContext,
   ToolRenderer,

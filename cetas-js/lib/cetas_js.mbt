@@ -128,6 +128,16 @@ fn usage_to_json(usage : @posoco.Usage?) -> Json {
         Some(v) => fields.push(("total_tokens", Json::number(v.to_double())))
         None => ()
       }
+      match u.cached_input_tokens {
+        Some(v) =>
+          fields.push(("cached_input_tokens", Json::number(v.to_double())))
+        None => ()
+      }
+      match u.uncached_input_tokens {
+        Some(v) =>
+          fields.push(("uncached_input_tokens", Json::number(v.to_double())))
+        None => ()
+      }
       Json::object(Map::from_array(fields))
     }
   }
@@ -254,11 +264,19 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
               ("kind", Json::string("reasoning")),
             ]),
           )
-        @posoco.StreamChunk::Usage(input_tokens~, output_tokens~, total_tokens~) => {
+        @posoco.StreamChunk::Usage(
+          input_tokens~,
+          output_tokens~,
+          total_tokens~,
+          cached_input_tokens~,
+          uncached_input_tokens~
+        ) => {
           let u : @posoco.Usage = {
             input_tokens: Some(input_tokens),
             output_tokens: Some(output_tokens),
             total_tokens: Some(total_tokens),
+            cached_input_tokens,
+            uncached_input_tokens,
           }
           Json::object(
             Map::from_array([
@@ -759,8 +777,9 @@ pub(all) struct CetasJsConfig {
 
 ///|
 /// Plain positional constructor — no labeled, no optional, no defaults.
-/// `permission_mode` is `"readonly" | "workspace_write" | "interactive"`;
-/// an unrecognized value falls back to `"workspace_write"` at policy assembly.
+/// `permission_mode` is `"readonly" | "workspace_write" | "interactive" |
+/// "yolo"`; an unrecognized value falls back to `"workspace_write"` at policy
+/// assembly.
 pub fn CetasJsConfig::CetasJsConfig(
   cwd : String,
   max_tool_rounds : Int,
@@ -1022,15 +1041,25 @@ pub fn cetas_js_runtime_create_agent(
     // /plan or shift+tab (declared on the command's shortcut), model entry
     // via enter_plan_mode, exit only via plan.approve.
     let plan_mode = @plan.PlanMode::new(config=@plan.PlanModeConfig::{
-      ..@plan.PlanModeConfig::default(),
-      allowed_tools: ["read", "glob", "grep"],
+      ..@plan.PlanModeConfig::default()
+      // ask_question rides the read class (permission classifies it read);
+      // shell tools gate per invocation via the default shell_tools.
+      ,
+      allowed_tools: ["read", "glob", "grep", "ask_question"],
       allow_model_entry: true,
     })
     // Status bar: data-driven status-line segments rendered over the shared
     // JsUiPort (slot Status, key "statusbar"); the host mounts that key in
     // whichever region its layout provides. Initial model facts come from
-    // the freshly built router; later mutations ride invoke_command.
-    let statusbar = @statusbar.StatusBar::new(ui as &@posoco.UiPort)
+    // the freshly built router; later mutations ride invoke_command. The
+    // cross-extension EventBus lets any extension publish status facts
+    // (topic "status") the bar picks up; with no interested peer it stays
+    // silent. Future extension constructors take the same bus instance.
+    let event_bus = @devkit.EventBus::new()
+    let statusbar = @statusbar.StatusBar::new(
+      ui as &@posoco.UiPort,
+      bus=Some(event_bus),
+    )
     push_model_facts(model, statusbar)
     // Permission policy: gates write/shell/unknown tools through a UI confirm.
     // ReadOnly rejects every non-read tool without a prompt; the other modes
@@ -1515,6 +1544,17 @@ pub fn cetas_js_run_turn(
 /// Promise and remain visible to the JS host.
 pub fn cetas_js_shutdown(handle : CetasJsAgent) -> @js_async.Promise[Unit] {
   @js_async.Promise::from_async() <| () => { handle.agent.shutdown() }
+}
+
+///|
+/// Request an abort of the active run (the JS host's ESC interrupt).
+/// Synchronous and idempotent: the abort is enqueued into the control
+/// mailbox and the loop observes it at its next safe point, so the pending
+/// `cetas_js_run_turn` Promise then resolves with the partial transcript
+/// instead of rejecting. The returned `EnqueueOutcome` string tells the host
+/// which case fired (`Accepted`, `AbortAlreadyRequested`, `RejectedStale`).
+pub fn cetas_js_abort_turn(handle : CetasJsAgent) -> String {
+  handle.agent.control().abort_active(Some("user interrupt (esc)")).to_string()
 }
 
 ///|

@@ -2,8 +2,8 @@
  * edit.ts — `edit` tool renderer.
  *
  * ext-edit schema is old_text/new_text/replace_all (preserved per ADR Q4).
- * Call view:    `→ edit  <path>  (replace_all? yes : single)`
- * Result view:  `  ✓ edited <path>`
+ * Call view:    `● edit  <path>  (replace_all? yes : single)`
+ * Result view:  `● edited <path>`
  */
 
 import { Text } from "@earendil-works/pi-tui";
@@ -11,6 +11,8 @@ import { theme } from "../../ui/theme.ts";
 import {
   argBool,
   argString,
+  callBullet,
+  statusBullet,
   toolTitle,
   truncateForPreview,
   type ToolRenderContext,
@@ -23,17 +25,16 @@ export const editRenderer: ToolRenderer = {
     const replaceAll = argBool(ctx.args, "replace_all", false);
     const mode = replaceAll ? "all" : "single";
     return new Text(
-      `${theme.accent("→")} ${toolTitle("edit")}  ${path}  ${theme.muted(`(${mode})`)}`,
+      `${callBullet(ctx)} ${toolTitle("edit")}  ${path}  ${theme.muted(`(${mode})`)}`,
       1,
       0,
     );
   },
   renderResult(result, _opts, ctx) {
     const path = argString(ctx.args, "path") ?? "";
-    const status = result.isError ? theme.error("✗") : theme.success("✓");
     const body = result.isError
       ? truncateForPreview(result.content, 200)
       : `edited ${path}`;
-    return new Text(`  ${status} ${body}`, 1, 0);
+    return new Text(`${statusBullet(result.isError ? "error" : "success")} ${body}`, 1, 0);
   },
 };

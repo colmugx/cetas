@@ -1,10 +1,10 @@
 /**
  * bash.ts — `bash` tool renderer.
  *
- * Call view:    `→ bash  $ <command>`  with elapsed-seconds refresh via
+ * Call view:    `● bash  $ <command>`  with elapsed-seconds refresh via
  *               `setInterval(() => ctx.invalidate(), 1000)` while the tool
  *               is still pending.
- * Result view:  `  ✓ <exit info>`  +  first stdout/stderr line (truncated).
+ * Result view:  `● <exit info>`  +  first stdout/stderr line (truncated).
  *
  * The schema is `ext-bash`: { cmd: string } — `command` is read only as a
  * legacy alias because `extract_command` accepts both keys.
@@ -14,6 +14,8 @@ import { Text } from "@earendil-works/pi-tui";
 import { theme } from "../../ui/theme.ts";
 import {
   argString,
+  callBullet,
+  statusBullet,
   toolTitle,
   truncateForPreview,
   type ToolRenderContext,
@@ -59,7 +61,7 @@ export const bashRenderer: ToolRenderer = {
     }
     const elapsed = Math.max(0, Math.floor((Date.now() - st.startedAt) / 1000));
     return new Text(
-      `${theme.accent("→")} ${toolTitle("bash")} ${theme.muted("$")} ${cmd}  ` +
+      `${callBullet(ctx)} ${toolTitle("bash")} ${theme.muted("$")} ${cmd}  ` +
         theme.dim(`${elapsed}s`),
       1,
       0,
@@ -72,10 +74,9 @@ export const bashRenderer: ToolRenderer = {
   ) {
     stopTimer(ctx);
     const cmd = argString(ctx.args, "cmd") || argString(ctx.args, "command");
-    const status = result.isError ? theme.error("✗") : theme.success("✓");
     const first = truncateForPreview(result.content.split("\n")[0] ?? "", 200);
     return new Text(
-      `  ${status} ${toolTitle("bash")} ${theme.muted("$")} ${cmd}` +
+      `${statusBullet(result.isError ? "error" : "success")} ${toolTitle("bash")} ${theme.muted("$")} ${cmd}` +
         (first ? `\n      ${theme.muted(first)}` : ""),
       1,
       0,

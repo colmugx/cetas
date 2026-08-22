@@ -96,6 +96,37 @@ pub async fn CetasAcpHost::new(
 }
 
 ///|
+/// Plan review over the same ACP reverse request the permission bridge
+/// already speaks. The host may attach workspace integrity info (git
+/// status) when rendering the request — product UX, not framework state.
+struct AcpPlanReview {
+  bridge : @ext_acp.AcpBridge
+}
+
+///|
+impl @plan.PlanReviewSource for AcpPlanReview with fn review(
+  self,
+  request : @plan.PlanReviewRequest,
+) -> @plan.PlanReviewDecision {
+  let preview = if request.plan.length() <= 80 {
+    request.plan
+  } else {
+    request.plan.sub(end=77).to_string() + "..."
+  }
+  let approval : @permission.ApprovalRequest = {
+    tool_name: "exit_plan_mode",
+    call_id: "plan-review",
+    category: "plan",
+    arguments_preview: preview,
+    arguments: Json::object({ "plan": Json::string(request.plan) }),
+  }
+  match (self.bridge as &@permission.ApprovalSource).ask(approval) {
+    AllowOnce | AllowSession | AllowAlways => @plan.PlanReviewDecision::Accept
+    Deny(reason~) => @plan.PlanReviewDecision::Revise(feedback=reason)
+  }
+}
+
+///|
 /// Embedding and test constructor: wrap an already-composed agent, bridge,
 /// router, and the fs the selection persists through. `refreshables` and
 /// `refresh_snapshot` drive the lazy model refresh; tests substitute fake
@@ -538,11 +569,17 @@ async fn build_native_agent(
     @permission.Interactive,
     approval=Some(bridge as &@permission.ApprovalSource),
   )
-  let plan_mode = @plan.PlanMode::new(config={
-    ..@plan.PlanModeConfig::default(),
-    allowed_tools: ["read", "glob", "grep"],
-    allow_model_entry: true,
-  })
+  let acp_plan_review = AcpPlanReview::{ bridge, }
+  let plan_mode = @plan.PlanMode::new(
+    config={
+      ..@plan.PlanModeConfig::default()
+      // ask_question rides the permission read class.
+      ,
+      allowed_tools: ["read", "glob", "grep", "ask_question"],
+      allow_model_entry: true,
+    },
+    review=Some(acp_plan_review as &@plan.PlanReviewSource),
+  )
   let exts : Array[&@posoco.Extension] = [
     cetas,
     router as &@posoco.Extension,

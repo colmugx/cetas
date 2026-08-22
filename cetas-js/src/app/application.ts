@@ -451,6 +451,19 @@ export class CetasApplication<AgentHandle = unknown> {
     return true;
   }
 
+  /**
+   * Request an abort of the active turn (ESC interrupt). The turn promise
+   * still settles normally — the bridge resolves it with the partial
+   * transcript once the run loop observes the abort at its next safe point.
+   * Returns false when no turn is active or the bridge has no abort seam.
+   */
+  interruptActiveTurn(): boolean {
+    if (this.activeTurn === undefined || this.agent === undefined) return false;
+    if (this.options.bridge.abortTurn === undefined) return false;
+    this.options.bridge.abortTurn(this.agent);
+    return true;
+  }
+
   private async invokeCommandInternal(id: string, argsJson: string): Promise<string> {
     if (id === "login" && this.options.bridge.login !== undefined) {
       const login = loginArguments(argsJson);

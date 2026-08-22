@@ -16,6 +16,7 @@ import { fallbackRenderer } from "./fallback.ts";
 
 export interface ToolRenderContext {
   toolCallId: string;
+  toolName: string;
   args: unknown;
   cwd: string;
   /** Mutable per-row state (e.g. start-time for bash duration display). */
@@ -96,6 +97,22 @@ export function argBool(args: unknown, key: string, defv = false): boolean {
 export function truncateForPreview(s: string, max = 200): string {
   const oneLine = s.replace(/\n/g, " ");
   return oneLine.length > max ? oneLine.slice(0, max) + "…" : oneLine;
+}
+
+/**
+ * Traffic-light bullet for tool rows — one glyph family (●), colored by
+ * state: amber while the tool runs, green on success, red on error.
+ * Replaces the earlier →/✓/✗ arrow-and-emoji mix.
+ */
+export function statusBullet(state: "running" | "success" | "error"): string {
+  if (state === "success") return theme.success("●");
+  if (state === "error") return theme.error("●");
+  return theme.warning("●");
+}
+
+/** Bullet state for a call view: error-colored once the call failed. */
+export function callBullet(ctx: ToolRenderContext): string {
+  return statusBullet(ctx.isError ? "error" : "running");
 }
 
 /** Bold tool-title prefix used by most renderers. */

@@ -551,6 +551,12 @@ export class TerminalShell {
       this.tui.hideOverlay();
       return { consume: true };
     }
+    // ESC interrupts the active turn: the application forwards an abort into
+    // the run loop, which settles the turn with the transcript it already has.
+    if (this.inTurn && matchesKey(data, "escape")) {
+      this.app?.interruptActiveTurn();
+      return { consume: true };
+    }
     if (this.inTurn || this.commandBusy) return { consume: true };
     // Extension-declared command shortcuts (e.g. shift+tab → /plan).
     for (const binding of this.commandShortcuts) {

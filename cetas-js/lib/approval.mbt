@@ -1,12 +1,13 @@
 ///|
 /// Parse the `permission_mode` config string. Unrecognized values fall back
 /// to `WorkspaceWrite` so a typo never accidentally widens to `Interactive`
-/// or locks down to `ReadOnly`.
+/// or `Yolo`, or locks down to `ReadOnly`.
 fn parse_permission_mode(raw : String) -> @permission.PermissionMode {
   match raw {
     "readonly" => @permission.ReadOnly
     "workspace_write" => @permission.WorkspaceWrite
     "interactive" => @permission.Interactive
+    "yolo" => @permission.Yolo
     _ => @permission.WorkspaceWrite
   }
 }
@@ -15,7 +16,7 @@ fn parse_permission_mode(raw : String) -> @permission.PermissionMode {
 /// Option labels presented for every approval ask. Index-coupled with the
 /// decision mapping in `BlockingApprovalSource::ask`: 0 = approve this call
 /// only, 1 = approve and remember for this agent lifetime (per the policy's
-/// call-shape cache), 2 = deny.
+/// session-scope cache), 2 = deny.
 const APPROVAL_OPTION_ONCE = "Allow once"
 
 ///|

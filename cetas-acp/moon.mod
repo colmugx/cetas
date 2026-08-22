@@ -21,7 +21,7 @@ description = "Cetas ACP host — serves a cetas agent over stdio via Agent Clie
 
 import {
   "colmugx/posoco@0.10.2",
-  "colmugx/acp@0.1.2",
+  "colmugx/acp@0.1.3",
   "colmugx/posoco-ext-acp@0.2.0",
   "colmugx/posoco-ext-permission@0.2.0",
   "colmugx/cetas-core@0.1.0",

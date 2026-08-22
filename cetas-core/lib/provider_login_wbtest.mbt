@@ -46,14 +46,15 @@ test "model refresh selector validates provider ids and deduplicates requests" {
 }
 
 ///|
-test "factory registry exposes the four registered providers in order" {
+test "factory registry exposes the five registered providers in order" {
   let ctx = @devkit.ExtContext::default()
   let factories = provider_factories(ctx)
-  assert_eq(factories.length(), 4)
+  assert_eq(factories.length(), 5)
   assert_eq(factories[0].provider_id(), "deepseek")
   assert_eq(factories[1].provider_id(), "kimi")
   assert_eq(factories[2].provider_id(), "openai")
   assert_eq(factories[3].provider_id(), "opencode")
+  assert_eq(factories[4].provider_id(), "zai")
 }
 
 ///|

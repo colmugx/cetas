@@ -24,6 +24,7 @@ import { theme, markdownTheme } from "../../ui/theme.ts";
 import { wrapAssistantLines, wrapUserLines } from "../../ui/osc133.ts";
 import {
   pickToolRenderer,
+  statusBullet,
   type ToolRenderContext,
 } from "../tool-renderers/index.ts";
 import type { BridgeMessage } from "../events.ts";
@@ -129,6 +130,7 @@ export class ToolRow extends Container {
     this.renderer = pickToolRenderer(toolName);
     this.ctx = {
       toolCallId: "",
+      toolName,
       args,
       cwd,
       state: {},
@@ -167,7 +169,7 @@ export class ToolRow extends Container {
       ) ?? new Text(`  ${this.result.content.slice(0, 200)}`, 1, 0);
     } else {
       comp = this.renderer.renderCall?.(this.ctx) ??
-        new Text(`→ ${this.toolName}`, 1, 0);
+        new Text(`${statusBullet("running")} ${this.toolName}`, 1, 0);
     }
     this.addChild(comp);
     this.invalidate();
@@ -190,7 +192,7 @@ export function systemNotice(text: string): Container {
 export function errorNotice(text: string): Container {
   const c = new Container();
   c.addChild(new Spacer(1));
-  c.addChild(new Text(theme.error("✗ ") + text, 1, 0));
+  c.addChild(new Text(theme.error("● ") + text, 1, 0));
   return c;
 }
 

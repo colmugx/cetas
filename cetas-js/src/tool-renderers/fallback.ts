@@ -7,6 +7,8 @@
 import { Text } from "@earendil-works/pi-tui";
 import { theme } from "../../ui/theme.ts";
 import {
+  callBullet,
+  statusBullet,
   type ToolRenderContext,
   type ToolRenderResultOptions,
   type ToolRenderer,
@@ -18,7 +20,7 @@ export const fallbackRenderer: ToolRenderer = {
   renderCall(ctx: ToolRenderContext) {
     const argsJson = JSON.stringify(ctx.args ?? {});
     return new Text(
-      `${toolTitle("(tool)")} ${theme.muted(argsJson)}`,
+      `${callBullet(ctx)} ${toolTitle(ctx.toolName)} ${theme.muted(argsJson)}`,
       1,
       0,
     );
@@ -28,10 +30,9 @@ export const fallbackRenderer: ToolRenderer = {
     _options: ToolRenderResultOptions,
     _ctx: ToolRenderContext,
   ) {
-    const status = result.isError ? theme.error("✗") : theme.success("✓");
     const body = truncateForPreview(result.content);
     return new Text(
-      `  ${status} ${body}`,
+      `${statusBullet(result.isError ? "error" : "success")} ${body}`,
       1,
       0,
     );

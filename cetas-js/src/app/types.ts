@@ -24,9 +24,10 @@ export interface CetasHostConfig {
    * Permission posture for coding-agent tools. `"workspace_write"` (default)
    * auto-approves reads and gates writes/shell/unknown through a UI confirm;
    * `"readonly"` rejects every non-read tool; `"interactive"` gates every
-   * side-effecting tool. Unrecognized values fall back to `"workspace_write"`.
+   * side-effecting tool; `"yolo"` pre-approves everything without asking.
+   * Unrecognized values fall back to `"workspace_write"`.
    */
-  permissionMode?: "readonly" | "workspace_write" | "interactive";
+  permissionMode?: "readonly" | "workspace_write" | "interactive" | "yolo";
 }
 
 export interface ProviderModelCapability {
@@ -114,6 +115,13 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
     method?: string,
   ): Promise<string>;
   runTurn(agent: AgentHandle, prompt: string, sessionId: string): Promise<string>;
+  /**
+   * Request an abort of the agent's active run (the host's ESC interrupt).
+   * Best-effort and synchronous: the run loop observes it at its next safe
+   * point, so the pending `runTurn` resolves with the partial transcript
+   * rather than rejecting. Returns the enqueue outcome for diagnostics.
+   */
+  abortTurn?(agent: AgentHandle): string;
   shutdown(agent: AgentHandle): Promise<void>;
   listCommands(agent: AgentHandle): readonly CommandDescriptor[];
   invokeCommand(agent: AgentHandle, id: string, argsJson: string): Promise<string>;

@@ -14,9 +14,11 @@ import {
   "colmugx/posoco-ext-openai" @openai,
   "colmugx/posoco-ext-openai-compatible" @openai_compatible,
   "colmugx/posoco-ext-opencode-zen" @opencode_zen,
+  "colmugx/posoco-ext-zai" @zai,
   "colmugx/posoco-ext-workspace" @workspace,
   "colmugx/posoco-ext-skills" @skills,
   "colmugx/posoco-ext-askquestion" @askquestion,
+  "colmugx/posoco-ext-rtk" @rtk,
   "moonbitlang/core/json",
   "moonbitlang/async",
 }

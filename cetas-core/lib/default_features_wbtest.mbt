@@ -128,8 +128,8 @@ async test "default features include discovered skills through injected ctx" {
     ]),
   }
   let exts = build_default_features(ctx={ fs, cwd: "/repo", home: "/home/u" })
-  // Six context-free tools plus the skills extension.
-  assert_eq(exts.length(), 7)
+  // Six context-free tools, the RTK hook, plus the skills extension.
+  assert_eq(exts.length(), 8)
   let ids : Array[String] = []
   for ext in exts {
     ids.push(ext.extension_id())
@@ -157,7 +157,7 @@ async test "default features register skills with an empty catalog, never None-s
   let exts = build_default_features(ctx={ fs, cwd: "/nowhere", home: "/home/u" })
   // An empty environment still registers the skills extension (empty
   // catalog: no tools, but the `skills` command reports "no skills").
-  assert_eq(exts.length(), 7)
+  assert_eq(exts.length(), 8)
   let mut found = false
   for ext in exts {
     if ext.extension_id() == "posoco_ext_skills" {
@@ -200,9 +200,9 @@ async test "ask_question registers only when the host supplies a UI port" {
     dirs: Map::from_array([]),
   }
   let ctx : HostContext = { fs, cwd: "/nowhere", home: "/home/u" }
-  // Without a UI port: six tools + skills, no ask_question.
+  // Without a UI port: six tools + RTK hook + skills, no ask_question.
   let bare = build_default_features(ctx~)
-  assert_eq(bare.length(), 7)
+  assert_eq(bare.length(), 8)
   let bare_ids : Array[String] = []
   for ext in bare {
     bare_ids.push(ext.extension_id())
@@ -214,7 +214,7 @@ async test "ask_question registers only when the host supplies a UI port" {
     ctx~,
     ui=Some(HeadlessUi::{  } as &@posoco.UiPort),
   )
-  assert_eq(with_ui.length(), 8)
+  assert_eq(with_ui.length(), 9)
   let mut found = false
   for ext in with_ui {
     if ext.extension_id() == "posoco_ext_askquestion" {

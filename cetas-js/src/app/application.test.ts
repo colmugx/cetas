@@ -600,6 +600,78 @@ describe("CetasApplication", () => {
     expect(app.cancelCurrentOperation()).toBe(false);
   });
 
+  test("interrupts an active turn through the bridge abort seam", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    let markTurnStarted!: () => void;
+    let releaseTurn!: (text: string) => void;
+    const turnStarted = new Promise<void>((resolve) => {
+      markTurnStarted = resolve;
+    });
+    const turnReleased = new Promise<string>((resolve) => {
+      releaseTurn = resolve;
+    });
+    let abortedAgent: unknown;
+    const base = bridgeFor(
+      {
+        providers: [
+          {
+            id: "deepseek/chat",
+            label: "DeepSeek Chat",
+            provider: "deepseek",
+            model: "deepseek-chat",
+            active: true,
+            efforts: [],
+            oauth: false,
+          },
+        ],
+        oauthProviders: [],
+        activeModelId: "deepseek/chat",
+      },
+      counters,
+    );
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        runTurn: () => {
+          markTurnStarted();
+          return turnReleased;
+        },
+        abortTurn: (agent) => {
+          abortedAgent = agent;
+          return "Accepted(abort_1)";
+        },
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    await app.start();
+    const turn = app.runTurn("hello");
+    await turnStarted;
+    expect(app.interruptActiveTurn()).toBe(true);
+    expect(abortedAgent).toEqual({ id: "agent" });
+    // An aborted turn still settles normally, with the partial transcript.
+    releaseTurn("partial reply");
+    await expect(turn).resolves.toBe("partial reply");
+    expect(app.interruptActiveTurn()).toBe(false);
+    expect(app.appState).toBe("ready");
+  });
+
+  test("interruptActiveTurn reports false when no turn is active", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const app = new CetasApplication({
+      bridge: bridgeFor({ providers: [], oauthProviders: [] }, counters),
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    expect(app.interruptActiveTurn()).toBe(false);
+    await app.start();
+    expect(app.interruptActiveTurn()).toBe(false);
+  });
+
   test("direct shutdown cancels pending OAuth and cleans up the Agent", async () => {
     const counters = { created: 0, runs: 0, shutdowns: 0 };
     let markLoginStarted!: () => void;

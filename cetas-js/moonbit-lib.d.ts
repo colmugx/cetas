@@ -36,6 +36,7 @@ declare module "*/cetas-js/lib/lib.js" {
     prompt: string,
     sessionId: string,
   ): Promise<string>;
+  export function cetas_js_abort_turn(agent: unknown): string;
   export function cetas_js_shutdown(agent: unknown): Promise<void>;
   export function cetas_js_list_commands(agent: unknown): string;
   export function cetas_js_invoke_command(
