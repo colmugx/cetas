@@ -134,8 +134,9 @@ fn cetas_skills_config() -> @skills.SkillsConfig {
 }
 
 ///|
-/// Default feature set: read/write/edit/glob/grep/bash plus agent skills and
-/// (with `ui~`) the interactive ask_question tool.
+/// Default feature set: read/write/edit/glob/grep/bash plus agent skills,
+/// Nowledge Mem cross-tool memory, and (with `ui~`) the interactive
+/// ask_question tool.
 ///
 /// The six tools are context-free constructors. Skills needs the host
 /// process context (fs/cwd/home) for discovery, so the function takes
@@ -149,6 +150,11 @@ fn cetas_skills_config() -> @skills.SkillsConfig {
 /// passes its JsUiPort, cetas-acp passes the ACP bridge (elicitation). A
 /// headless host omits it and no ask_question tool is registered at all —
 /// an always-erroring tool would only pollute the model's tool list.
+///
+/// When the host process runs inside a herdr pane (HERDR_ENV detected), the
+/// herdr presence reporter registers as a pure Observer: it maps turn
+/// lifecycle onto herdr agent states so cetas appears in the agent rollup.
+/// Outside herdr the constructor returns None and nothing registers.
 ///
 /// Order matters for diagnostics readability; it does not affect execution.
 ///
@@ -165,11 +171,24 @@ fn cetas_skills_config() -> @skills.SkillsConfig {
 /// rewrite it passes commands through unchanged, so wiring it in early
 /// only adds the strict shell-argument validation.
 ///
+/// Nowledge Mem registers unconditionally over its production seams
+/// (`HttpNmemTransport` + `PlatformRunner`): without the service or the
+/// `nmem` CLI the extension degrades silently instead of failing the host.
+/// `memory_delete` stays hidden (destructive remote op; opt-in flag lives
+/// with the extension constructor). `nmem_group~` follows the acp
+/// `mcp_group~` precedent (`TaskGroup[Unit]` threaded in from the host's
+/// `with_task_group` scope): passing it starts the 750ms flusher loop for
+/// the agent's lifetime. Without a group the loop does not run — boundary
+/// drains still carry the functionality (`on_start` drains once at boot,
+/// `on_shutdown` performs the final flush, `flush_pending` forces one on
+/// demand), only the background debounce cadence is lost.
+///
 /// Returns Extensions (each tool ext already impls Extension). Hosts place
 /// the result directly into `Agent(exts=[...])`.
 pub async fn build_default_features(
   ctx~ : HostContext,
   ui? : &@posoco.UiPort? = None,
+  nmem_group? : @async.TaskGroup[Unit]? = None,
 ) -> Array[&@posoco.Extension] noraise {
   let freshness = @devkit.FreshnessGuard::FreshnessGuard()
   let exts : Array[&@posoco.Extension] = [
@@ -191,10 +210,25 @@ pub async fn build_default_features(
     Some(skills) => exts.push(skills as &@posoco.Extension)
     None => ()
   }
+  match @herdr.HerdrReporter::new() {
+    Some(reporter) => exts.push(reporter as &@posoco.Extension)
+    None => ()
+  }
   match ui {
     Some(port) =>
       exts.push(@askquestion.AskQuestionTools::new(port) as &@posoco.Extension)
     None => ()
   }
+  let nmem = @nmem.NowledgeMem::new(
+    source_app="cetas",
+    transport=@nmem.HttpNmemTransport::HttpNmemTransport()
+      as &@nmem.NmemTransport,
+    runner=@nmem.PlatformRunner::PlatformRunner() as &@nmem.NmemRunner,
+  )
+  match nmem_group {
+    Some(group) => nmem.attach(group)
+    None => ()
+  }
+  exts.push(nmem as &@posoco.Extension)
   exts
 }

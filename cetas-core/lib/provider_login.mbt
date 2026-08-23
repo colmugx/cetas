@@ -75,6 +75,32 @@ pub fn build_provider_catalog(
 }
 
 ///|
+/// One provider's catalog build failure, isolated so the rest of the
+/// assembly stays usable. The host surfaces these as warnings; the provider
+/// is simply absent from the model list until its settings or credentials
+/// are fixed.
+pub(all) struct CatalogBuildIssue {
+  provider_id : String
+  detail : String
+}
+
+///|
+/// Build one provider's catalog with failure isolation. A misconfigured
+/// provider yields `Err` instead of poisoning the whole assembly: hosts loop
+/// over this seam, record the issue, and keep the healthy providers alive.
+/// The raising variant remains for single-provider actions that genuinely
+/// need fail-fast semantics.
+pub fn try_build_provider_catalog(
+  factory : &@llm.ProviderFactory,
+  snapshot : ProviderCredentialSnapshot,
+  cached_models? : Json? = None,
+) -> Result[@llm.ProviderModelCatalog?, @posoco.CompositionError] {
+  Ok(build_provider_catalog(factory, snapshot, cached_models~)) catch {
+    err => Err(err)
+  }
+}
+
+///|
 /// Live-refresh the catalog of one provider through its `refresh` seam, then
 /// return its rebuilt snapshot. Used by an explicit model-catalog refresh
 /// action; a normal build never issues a network request.
@@ -249,6 +275,7 @@ pub async fn login_provider(
 pub fn provider_setup_json(
   catalogs : Array[@llm.ProviderModelCatalog],
   settings? : Map[String, Json] = Map::from_array([]),
+  issues? : Array[CatalogBuildIssue] = [],
 ) -> String {
   let entries : Array[Json] = []
   let mut active_model_id : String? = None
@@ -324,6 +351,17 @@ pub fn provider_setup_json(
     ("oauthProviders", Json::array(oauth_providers)),
     ("authProviders", Json::array(auth_entries)),
   ]
+  if !issues.is_empty() {
+    let warning_values : Array[Json] = []
+    for issue in issues {
+      warning_values.push(
+        Json::string(
+          "provider " + issue.provider_id + " skipped: " + issue.detail,
+        ),
+      )
+    }
+    fields.push(("warnings", Json::array(warning_values)))
+  }
   match active_model_id {
     Some(value) => fields.push(("activeModelId", Json::string(value)))
     None => ()

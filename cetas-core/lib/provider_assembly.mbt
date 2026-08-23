@@ -26,12 +26,14 @@ pub fn provider_factories(
   let openai = @openai.OpenAIProvider::new()
   let opencode_zen = @opencode_zen.OpenCodeZenProvider::new(ctx~)
   let zai = @zai.ZaiProvider::new(ctx~)
+  let openrouter = @openrouter.OpenRouterProvider::new(ctx~)
   [
     deepseek as &@llm.ProviderFactory,
     kimi as &@llm.ProviderFactory,
     openai as &@llm.ProviderFactory,
     opencode_zen as &@llm.ProviderFactory,
     zai as &@llm.ProviderFactory,
+    openrouter as &@llm.ProviderFactory,
   ]
 }
 
@@ -122,12 +124,14 @@ pub fn api_key_factories(
   let openai = @openai.OpenAIProvider::new()
   let opencode_zen = @opencode_zen.OpenCodeZenProvider::new(ctx~)
   let zai = @zai.ZaiProvider::new(ctx~)
+  let openrouter = @openrouter.OpenRouterApiKeyFactory::new()
   [
     deepseek as &@llm.ApiKeyFactory,
     kimi as &@llm.ApiKeyFactory,
     openai as &@llm.ApiKeyFactory,
     opencode_zen as &@llm.ApiKeyFactory,
     zai as &@llm.ApiKeyFactory,
+    openrouter as &@llm.ApiKeyFactory,
   ]
 }
 
@@ -158,11 +162,13 @@ pub fn refreshable_factories(
   let kimi = @kimi.KimiProvider::new(ctx~, device_id~)
   let openai = @openai.OpenAIProvider::new()
   let opencode_zen = @opencode_zen.OpenCodeZenProvider::new(ctx~)
+  let openrouter = @openrouter.OpenRouterProvider::new(ctx~)
   [
     deepseek as &@llm.RefreshableProviderFactory,
     kimi as &@llm.RefreshableProviderFactory,
     openai as &@llm.RefreshableProviderFactory,
     opencode_zen as &@llm.RefreshableProviderFactory,
+    openrouter as &@llm.RefreshableProviderFactory,
   ]
 }
 

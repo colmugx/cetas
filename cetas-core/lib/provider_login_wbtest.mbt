@@ -46,15 +46,16 @@ test "model refresh selector validates provider ids and deduplicates requests" {
 }
 
 ///|
-test "factory registry exposes the five registered providers in order" {
+test "factory registry exposes the six registered providers in order" {
   let ctx = @devkit.ExtContext::default()
   let factories = provider_factories(ctx)
-  assert_eq(factories.length(), 5)
+  assert_eq(factories.length(), 6)
   assert_eq(factories[0].provider_id(), "deepseek")
   assert_eq(factories[1].provider_id(), "kimi")
   assert_eq(factories[2].provider_id(), "openai")
   assert_eq(factories[3].provider_id(), "opencode")
   assert_eq(factories[4].provider_id(), "zai")
+  assert_eq(factories[5].provider_id(), "openrouter")
 }
 
 ///|
@@ -143,4 +144,74 @@ test "settings-derived custom provider resolves api_key login and joins the setu
     }
   }
   assert_true(found)
+}
+
+///|
+/// A factory whose build always fails, standing in for a misconfigured
+/// provider. Used to pin the isolation seam: one bad provider must yield a
+/// recorded issue, never a fatal composition error.
+struct WbBrokenFactory {
+  dummy : Int
+}
+
+///|
+pub impl @llm.ProviderFactory for WbBrokenFactory with fn provider_id(
+  _self : WbBrokenFactory,
+) -> String {
+  "wb-broken"
+}
+
+///|
+pub impl @llm.ProviderFactory for WbBrokenFactory with fn credential_id(
+  _self : WbBrokenFactory,
+) -> String {
+  "wb-broken"
+}
+
+///|
+pub impl @llm.ProviderFactory for WbBrokenFactory with fn build(
+  _self : WbBrokenFactory,
+  _source : @llm.ProviderConfigSource,
+) -> @llm.ProviderBuildResult raise @posoco.CompositionError {
+  raise @posoco.CompositionError::ManifestSchemaError(
+    manifest_id="wb_broken",
+    detail="boom",
+  )
+}
+
+///|
+test "try_build_provider_catalog isolates a failing factory" {
+  let broken : WbBrokenFactory = { dummy: 0 }
+  let factory : &@llm.ProviderFactory = broken
+  let snapshot = ProviderCredentialSnapshot::ProviderCredentialSnapshot()
+  match try_build_provider_catalog(factory, snapshot) {
+    Err(@posoco.CompositionError::ManifestSchemaError(manifest_id~, ..)) =>
+      assert_eq(manifest_id, "wb_broken")
+    _ => fail("a failing factory must surface Err, not escape as a raise")
+  }
+}
+
+///|
+test "provider_setup_json carries isolated build issues as warnings" {
+  let issues = [
+    {
+      provider_id: "wb-broken",
+      detail: "CompositionError::ManifestSchemaError(manifest=wb_broken)",
+    },
+  ]
+  let json_text = provider_setup_json([], issues~)
+  let parsed = @json.parse(json_text) catch {
+    _ => fail("setup json must parse")
+  }
+  guard parsed is Object(root) else { fail("setup json must be an object") }
+  match root.get("warnings") {
+    Some(Array(entries)) if entries.length() == 1 => {
+      guard entries[0] is String(warning) else {
+        fail("warning entry must be a string")
+      }
+      assert_true(warning.contains("wb-broken"))
+      assert_true(warning.contains("skipped"))
+    }
+    _ => fail("issues must be surfaced as a warnings array")
+  }
 }

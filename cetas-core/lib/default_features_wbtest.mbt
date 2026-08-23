@@ -128,8 +128,9 @@ async test "default features include discovered skills through injected ctx" {
     ]),
   }
   let exts = build_default_features(ctx={ fs, cwd: "/repo", home: "/home/u" })
-  // Six context-free tools, the RTK hook, plus the skills extension.
-  assert_eq(exts.length(), 8)
+  // Six context-free tools, the RTK hook, the skills extension, and
+  // Nowledge Mem.
+  assert_eq(exts.length(), 9)
   let ids : Array[String] = []
   for ext in exts {
     ids.push(ext.extension_id())
@@ -146,6 +147,18 @@ async test "default features include discovered skills through injected ctx" {
       assert_eq(manifest.commands.length(), 1)
     }
   }
+  // Nowledge Mem registers unconditionally: one ToolProvider with the seven
+  // default tools (memory_delete hidden), the passive MemoryPort view, and
+  // prompt guidance.
+  for ext in exts {
+    if ext.extension_id() == "posoco_ext_nowledge_mem" {
+      let manifest = ext.manifest()
+      assert_eq(manifest.tools.length(), 1)
+      assert_eq(manifest.tools[0].list_tools().length(), 7)
+      assert_eq(manifest.memory.length(), 1)
+      assert_eq(manifest.prompt_contributors.length(), 1)
+    }
+  }
 }
 
 ///|
@@ -157,7 +170,7 @@ async test "default features register skills with an empty catalog, never None-s
   let exts = build_default_features(ctx={ fs, cwd: "/nowhere", home: "/home/u" })
   // An empty environment still registers the skills extension (empty
   // catalog: no tools, but the `skills` command reports "no skills").
-  assert_eq(exts.length(), 8)
+  assert_eq(exts.length(), 9)
   let mut found = false
   for ext in exts {
     if ext.extension_id() == "posoco_ext_skills" {
@@ -200,9 +213,10 @@ async test "ask_question registers only when the host supplies a UI port" {
     dirs: Map::from_array([]),
   }
   let ctx : HostContext = { fs, cwd: "/nowhere", home: "/home/u" }
-  // Without a UI port: six tools + RTK hook + skills, no ask_question.
+  // Without a UI port: six tools + RTK hook + skills + Nowledge Mem, no
+  // ask_question.
   let bare = build_default_features(ctx~)
-  assert_eq(bare.length(), 8)
+  assert_eq(bare.length(), 9)
   let bare_ids : Array[String] = []
   for ext in bare {
     bare_ids.push(ext.extension_id())
@@ -214,7 +228,7 @@ async test "ask_question registers only when the host supplies a UI port" {
     ctx~,
     ui=Some(HeadlessUi::{  } as &@posoco.UiPort),
   )
-  assert_eq(with_ui.length(), 9)
+  assert_eq(with_ui.length(), 10)
   let mut found = false
   for ext in with_ui {
     if ext.extension_id() == "posoco_ext_askquestion" {
