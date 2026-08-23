@@ -395,9 +395,9 @@ const MAX_VISIBLE_OPTIONS = 8;
 /**
  * One inline ask panel: the request's title lines, then either an option
  * row (confirm/select) or a text input. Buttons lay out horizontally along
- * the bottom — kimi-code/opencode style — and fall back to a stacked list
- * when the row cannot fit the terminal width. The focused button renders
- * as a background block, not an arrow prefix.
+ * the bottom and fall back to a stacked list when the row cannot fit the
+ * terminal width. The focused button renders as a background block, not an
+ * arrow prefix.
  */
 class AskPanel implements Component {
   focused = false;

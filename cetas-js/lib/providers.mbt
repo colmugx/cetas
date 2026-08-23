@@ -211,6 +211,10 @@ async fn collect_provider_catalogs(
     Ok(entries) => entries
     Err(_) => Map::from_array([])
   }
+  // Fresh assembly starts from an empty issue list; per-provider build
+  // failures accumulate here and surface as warnings, never as a fatal
+  // composition error that would take down every healthy provider.
+  runtime.catalog_issues = []
   for factory in factories {
     let provider_id = factory.provider_id()
     let selected = match requested {
@@ -225,8 +229,18 @@ async fn collect_provider_catalogs(
         for
           refresh_factory in @cetas_core.refreshable_factories(ctx, device_id~) {
           if refresh_factory.provider_id() == provider_id {
-            match
-              @cetas_core.refresh_provider_catalog(refresh_factory, snapshot) {
+            let refresh_outcome = @cetas_core.refresh_provider_catalog(
+              refresh_factory, snapshot,
+            ) catch {
+              err => {
+                runtime.catalog_issues.push({
+                  provider_id,
+                  detail: err.to_string(),
+                })
+                None
+              }
+            }
+            match refresh_outcome {
               Some(catalog) => {
                 persist_model_list_cache(
                   runtime.config.home,
@@ -244,13 +258,23 @@ async fn collect_provider_catalogs(
         Some(value) => value
         None =>
           match
-            @cetas_core.build_provider_catalog(
+            @cetas_core.try_build_provider_catalog(
               factory,
               snapshot,
               cached_models=model_cache.get(provider_id),
             ) {
-            Some(catalog) => @llm.ProviderBuildResult::Ready(catalog)
-            None => @llm.ProviderBuildResult::Unconfigured
+            Ok(build) =>
+              match build {
+                Some(catalog) => @llm.ProviderBuildResult::Ready(catalog)
+                None => @llm.ProviderBuildResult::Unconfigured
+              }
+            Err(err) => {
+              runtime.catalog_issues.push({
+                provider_id,
+                detail: err.to_string(),
+              })
+              @llm.ProviderBuildResult::Unconfigured
+            }
           }
       }
       match result {
@@ -388,7 +412,11 @@ async fn provider_setup_json(
 ) -> String raise @posoco.CompositionError {
   let catalogs = cached_provider_catalogs(runtime)
   let settings = load_provider_settings(runtime)
-  @cetas_core.provider_setup_json(catalogs, settings~)
+  @cetas_core.provider_setup_json(
+    catalogs,
+    settings~,
+    issues=runtime.catalog_issues,
+  )
 }
 
 ///|
@@ -504,7 +532,7 @@ async fn resolve_kimi_device_id(home : String) -> String noraise {
 ///|
 /// Mint a new device id and best-effort persist it. Persistence failure is
 /// non-fatal: the id is returned so the OAuth flow can proceed, only cross-run
-/// stability is at risk. Mirrors kimi-code's `createKimiDeviceId` semantics.
+/// stability is at risk.
 async fn mint_and_persist_kimi_device_id(
   fs : &@workspace.WorkspaceFs,
   dir : String,

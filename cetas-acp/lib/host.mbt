@@ -483,15 +483,26 @@ async fn build_native_agent(
   }
   let catalogs : Array[@llm.ProviderModelCatalog] = []
   for factory in factories {
-    let cached = model_cache.get(factory.provider_id())
+    let provider_id = factory.provider_id()
+    let cached = model_cache.get(provider_id)
     match
-      @cetas_core.build_provider_catalog(
+      @cetas_core.try_build_provider_catalog(
         factory,
         snapshot,
         cached_models=cached,
       ) {
-      Some(catalog) => catalogs.push(catalog)
-      None => ()
+      Ok(Some(catalog)) => catalogs.push(catalog)
+      Ok(None) => ()
+      Err(err) =>
+        // One misconfigured provider must not take down the whole host:
+        // skip it, warn on stderr, keep the healthy providers alive.
+        acp_warn(
+          "cetas-acp: provider " +
+          provider_id +
+          " skipped: " +
+          err.to_string() +
+          "\n",
+        )
     }
   }
   if catalogs.is_empty() {
@@ -667,6 +678,7 @@ async fn build_native_agent(
       temperature: None,
       max_output_tokens: None,
       model_context_window: None,
+      compact_threshold: None,
     },
     runtime=runtime as &@runtime.Runtime,
     catalog_source=catalog_source as &@runtime.CatalogSource,

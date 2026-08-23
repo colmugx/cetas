@@ -7,9 +7,8 @@
  *   - ToolRow             — a tool call + (later) its result
  *   - SystemNotice        — turn_started/failed/deferred/etc.
  *
- * We don't try to nest tool rows inside AssistantMessage (pi does this, but
- * posoco emits them as separate events in time order — flattening matches
- * the wire model).
+ * We don't try to nest tool rows inside AssistantMessage: posoco emits them
+ * as separate events in time order, so flattening matches the wire model.
  */
 
 import {
@@ -32,7 +31,7 @@ import type { BridgeMessage } from "../events.ts";
 /**
  * User prompt echo.
  *
- * pi-style block: a leading `Spacer(1)` separates it from whatever came
+ * Block layout: a leading `Spacer(1)` separates it from whatever came
  * before, then the text sits inside a full-width tinted `Box` (userMessageBg,
  * #343541). The Box gives the user turn a distinct visual zone so the next
  * query never visually merges with the previous answer. OSC 133 wraps the
@@ -117,11 +116,12 @@ export class AssistantMessage extends Container {
 export class ToolRow extends Container {
   private ctx: ToolRenderContext;
   private renderer = pickToolRenderer("fallback"); // set in constructor
-  private result?: { content: string; isError: boolean };
+  private result?: { content: string; isError: boolean; structured?: unknown };
   private finished = false;
 
   constructor(
     private readonly toolName: string,
+    toolCallId: string,
     args: unknown,
     cwd: string,
     invalidateParent: () => void,
@@ -129,7 +129,7 @@ export class ToolRow extends Container {
     super();
     this.renderer = pickToolRenderer(toolName);
     this.ctx = {
-      toolCallId: "",
+      toolCallId,
       toolName,
       args,
       cwd,
@@ -148,8 +148,8 @@ export class ToolRow extends Container {
   }
 
   /** Apply a result; rebuilds the row with the success/error background. */
-  setResult(content: string, isError: boolean): void {
-    this.result = { content, isError };
+  setResult(content: string, isError: boolean, structured?: unknown): void {
+    this.result = { content, isError, structured };
     this.finished = true;
     this.ctx.isError = isError;
     this.rebuild();

@@ -7,7 +7,7 @@
  * surfaces unhandled branches at compile time. The MoonBit side
  * (`turn_event_to_json` in lib/cetas_js.mbt) must emit one of these tags.
  *
- * Push-model note (mirrors pi-coding-agent): `message_update` carries the
+ * Push-model note: `message_update` carries the
  * FULL accumulated assistant message, not a delta. The streaming-ui
  * controller throttles re-renders so the cost of full replacement is paid
  * at most once per STREAMING_UI_FLUSH_MS.
@@ -72,6 +72,8 @@ export type CetasEvent =
       tool_call_id: string;
       result: string;
       is_error: boolean;
+      /** Machine-readable ToolOutcome.structured (reserved `summary` field). */
+      structured?: Record<string, unknown>;
     }
   | {
       type: "tool_call_deferred";
@@ -266,8 +268,8 @@ export function parseCetasEvent(raw: unknown): CetasEvent | null {
         tool_name: requireString(ev.tool_name, "tool_call_started.tool_name"),
         args: ev.args,
       };
-    case "tool_call_completed":
-      return {
+    case "tool_call_completed": {
+      const completed: CetasEvent = {
         type: "tool_call_completed",
         tool_call_id: requireString(
           ev.tool_call_id,
@@ -279,6 +281,14 @@ export function parseCetasEvent(raw: unknown): CetasEvent | null {
           "tool_call_completed.is_error",
         ),
       };
+      if (ev.structured !== undefined) {
+        completed.structured = requireRecord(
+          ev.structured,
+          "tool_call_completed.structured",
+        );
+      }
+      return completed;
+    }
     case "tool_call_deferred":
       return {
         type: "tool_call_deferred",

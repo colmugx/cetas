@@ -9,8 +9,8 @@
  * Finalized mode is for non-streaming message_end or after thinking is done.
  *
  * A leading `Spacer(1)` separates the thinking block from the preceding
- * block (user prompt, previous answer, etc.), matching pi's per-block
- * whitespace model.
+ * block (user prompt, previous answer, etc.) — each transcript block owns
+ * its own leading whitespace.
  */
 
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";

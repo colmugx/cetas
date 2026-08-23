@@ -1,8 +1,7 @@
 /**
- * streaming-ui.ts — pi-style step-block accumulator for streaming assistant
- * output.
+ * streaming-ui.ts — step-block accumulator for streaming assistant output.
  *
- * MODEL (matches pi-coding-agent / kimi-code):
+ * MODEL:
  *   - One mutable "current step" slot holds the in-flight assistant message's
  *     reasoning + text components.
  *   - The transcript (host's transcriptContainer) is an append-only history:
@@ -221,8 +220,7 @@ export class StreamingUIController {
   /**
    * End the turn: close any open step and clear all state. Mounted components
    * stay in the transcript; references are dropped so the next turn's
-   * controller starts clean (mirrors pi's `streamingComponent = undefined` and
-   * kimi-code's `_streamingBlock = null`).
+   * controller starts clean each turn.
    */
   end(): void {
     if (this.flushTimer) {

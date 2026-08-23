@@ -58,6 +58,8 @@ export interface ProviderSetupSnapshot {
   /** Provider-neutral authentication capabilities, including unconfigured providers. */
   authProviders?: readonly ProviderAuthCapability[];
   activeModelId?: string;
+  /** Providers skipped because their catalog build failed; the rest still work. */
+  warnings?: readonly string[];
 }
 
 export interface AppSnapshot {

@@ -1,5 +1,9 @@
 /**
- * index.ts — registerToolRenderer side-effects for all built-in tools.
+ * index.ts — registerToolRenderer side-effects for hook-style renderers.
+ *
+ * The read/write/edit/glob/grep rows are driven by the declarative spec
+ * table (specs.ts) and need no registration; only renderers with bespoke
+ * behavior register here (bash: elapsed timer, ask_question: option list).
  *
  * Import this module once at host startup:
  *   import "./tool-renderers/index.ts";
@@ -9,11 +13,6 @@
 import { registerToolRenderer } from "./registry.ts";
 import { askQuestionRenderer } from "./askquestion.ts";
 import { bashRenderer } from "./bash.ts";
-import { editRenderer } from "./edit.ts";
-import { globRenderer } from "./glob.ts";
-import { grepRenderer } from "./grep.ts";
-import { readRenderer } from "./read.ts";
-import { writeRenderer } from "./write.ts";
 
 let registered = false;
 
@@ -23,11 +22,6 @@ export function registerBuiltinToolRenderers(): void {
   registered = true;
   registerToolRenderer("ask_question", askQuestionRenderer);
   registerToolRenderer("bash", bashRenderer);
-  registerToolRenderer("read", readRenderer);
-  registerToolRenderer("write", writeRenderer);
-  registerToolRenderer("edit", editRenderer);
-  registerToolRenderer("grep", grepRenderer);
-  registerToolRenderer("glob", globRenderer);
 }
 
 // Side-effect on import — covers the case where callers just `import
@@ -35,8 +29,10 @@ export function registerBuiltinToolRenderers(): void {
 registerBuiltinToolRenderers();
 
 export { pickToolRenderer, statusBullet, callBullet } from "./registry.ts";
+export { TOOL_ROW_SPECS } from "./specs.ts";
 export type {
   ToolRenderContext,
   ToolRenderer,
   ToolRenderResultOptions,
 } from "./registry.ts";
+export type { ArgSpec, ToolRowSpec } from "./specs.ts";

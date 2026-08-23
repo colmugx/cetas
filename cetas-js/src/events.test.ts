@@ -20,6 +20,52 @@ describe("parseCetasEvent", () => {
     ).toThrow("tool_call_completed.tool_call_id must be a string");
   });
 
+  test("parses tool_call_completed with a structured payload", () => {
+    expect(
+      parseCetasEvent({
+        type: "tool_call_completed",
+        tool_call_id: "tc1",
+        result: "Found 2 matches:\n",
+        is_error: false,
+        structured: { summary: "2 matches", count: 2 },
+      }),
+    ).toEqual({
+      type: "tool_call_completed",
+      tool_call_id: "tc1",
+      result: "Found 2 matches:\n",
+      is_error: false,
+      structured: { summary: "2 matches", count: 2 },
+    });
+  });
+
+  test("structured stays absent when the bridge omits it", () => {
+    expect(
+      parseCetasEvent({
+        type: "tool_call_completed",
+        tool_call_id: "tc1",
+        result: "ok",
+        is_error: false,
+      }),
+    ).toEqual({
+      type: "tool_call_completed",
+      tool_call_id: "tc1",
+      result: "ok",
+      is_error: false,
+    });
+  });
+
+  test("rejects a non-record structured payload", () => {
+    expect(() =>
+      parseCetasEvent({
+        type: "tool_call_completed",
+        tool_call_id: "tc1",
+        result: "ok",
+        is_error: false,
+        structured: 42,
+      }),
+    ).toThrow("tool_call_completed.structured must be an object");
+  });
+
   test("rejects an invalid stream kind instead of treating it as text", () => {
     expect(() =>
       parseCetasEvent({

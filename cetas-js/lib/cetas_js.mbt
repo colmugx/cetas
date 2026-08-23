@@ -151,7 +151,9 @@ fn usage_to_json(usage : @posoco.Usage?) -> Json {
 ///   TurnCompleted          → turn_completed
 ///   TurnFailed(msg)        → turn_failed { error_message }
 ///   ToolCallPending        → tool_call_started { tool_call_id, tool_name, args }
-///   ToolCallResult         → tool_call_completed { tool_call_id, result, is_error }
+///   ToolCallResult         → tool_call_completed { tool_call_id, result, is_error,
+///                            structured? } (structured only when the outcome
+///                            carries one — reserved `summary` field convention)
 ///   ToolCallDeferred       → tool_call_deferred { tool_call_id, tool_name, reason }
 ///   ModelResponseReceived  → message_end { message, usage } +
 ///                            model_invoked { model:"", usage } (so the UI can
@@ -184,20 +186,23 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
         ]),
       )
     @posoco.TurnEvent::ToolCallResult(call~, result~, is_error~) => {
-      let result_text = match result {
-        Success(content~, ..) => content
-        ToolReportedError(content~, ..) => content
-        RuntimeFailure(message~, ..) => message
-        NotExecuted(..) => "not executed"
+      let (result_text, structured) = match result {
+        Success(content~, structured~) => (content, structured)
+        ToolReportedError(content~, structured~) => (content, structured)
+        RuntimeFailure(message~, ..) => (message, None)
+        NotExecuted(..) => ("not executed", None)
       }
-      Json::object(
-        Map::from_array([
-          ("type", Json::string("tool_call_completed")),
-          ("tool_call_id", Json::string(call.call_id.to_string())),
-          ("result", Json::string(result_text)),
-          ("is_error", Json::boolean(is_error)),
-        ]),
-      )
+      let fields : Array[(String, Json)] = [
+        ("type", Json::string("tool_call_completed")),
+        ("tool_call_id", Json::string(call.call_id.to_string())),
+        ("result", Json::string(result_text)),
+        ("is_error", Json::boolean(is_error)),
+      ]
+      match structured {
+        Some(s) => fields.push(("structured", s))
+        None => ()
+      }
+      Json::object(Map::from_array(fields))
     }
     // ModelResponseReceived is the closest posoco gives us to a "message_end"
     // event: it fires once per non-streaming assistant message with the full
@@ -797,11 +802,15 @@ pub fn CetasJsConfig::CetasJsConfig(
 pub(all) struct CetasJsRuntime {
   config : CetasJsConfig
   catalog_cache : Map[String, @llm.ProviderModelCatalog]
+  /// Providers whose last catalog build raised. Surfaced as setup warnings
+  /// instead of aborting composition: one misconfigured provider must not
+  /// take down the whole host.
+  mut catalog_issues : Array[@cetas_core.CatalogBuildIssue]
 }
 
 ///|
 pub fn CetasJsRuntime::new(config : CetasJsConfig) -> CetasJsRuntime {
-  { config, catalog_cache: Map::from_array([]) }
+  { config, catalog_cache: Map::from_array([]), catalog_issues: [] }
 }
 
 ///|
@@ -1103,8 +1112,7 @@ pub fn cetas_js_runtime_create_agent(
     }
     let agent = @posoco.Agent(exts~, config={
       // The JS FFI seam carries a plain Int (no optional arguments); the
-      // bridge convention is `<= 0` = unbounded, matching the kimi-code
-      // max_steps_per_turn posture.
+      // bridge convention is `<= 0` = unbounded.
       max_tool_rounds: if runtime.config.max_tool_rounds <= 0 {
         None
       } else {
@@ -1113,6 +1121,7 @@ pub fn cetas_js_runtime_create_agent(
       temperature: None,
       max_output_tokens: None,
       model_context_window: None,
+      compact_threshold: None,
     })
     {
       agent,

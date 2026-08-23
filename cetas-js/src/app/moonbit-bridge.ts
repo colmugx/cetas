@@ -171,6 +171,12 @@ function parseProviderSetup(raw: string): ProviderSetupSnapshot {
     providers: providersRaw.map((entry, index) => parseProvider(entry, index)),
     oauthProviders,
     ...(authProviders === undefined ? {} : { authProviders }),
+    ...(value.warnings === undefined || value.warnings === null
+      ? {}
+      : {
+          warnings: (value.warnings as unknown[]).map((entry, index) =>
+            requireString(entry, `warnings[${index}]`)),
+        }),
     ...(value.activeModelId === undefined
       ? {}
       : { activeModelId: requireString(value.activeModelId, "activeModelId") }),

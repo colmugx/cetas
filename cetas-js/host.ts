@@ -22,7 +22,7 @@ async function main(): Promise<void> {
   const config: CetasHostConfig = {
     cwd: process.cwd(),
     // 0 = unbounded: the loop ends when the model stops calling tools or the
-    // user aborts (kimi-code/pi posture); the kernel budget is opt-in safety.
+    // user aborts; the kernel budget is opt-in safety.
     maxToolRounds: 0,
     home: homedir(),
   };

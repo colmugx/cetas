@@ -1,18 +1,26 @@
 /**
- * registry.ts — tool-renderer dispatch table.
+ * registry.ts — tool-renderer dispatch table + generic ToolRow engine.
  *
- * Mirrors pi-coding-agent's ToolDefinition renderCall/renderResult split,
- * but simplified: a renderer is just two optional functions returning a
- * pi-tui Component. The `fallback` renderer handles tools we don't know.
+ * A renderer is two optional functions — renderCall and renderResult — each
+ * returning a pi-tui Component. Dispatch order in `pickToolRenderer`:
+ *   1. declarative spec table (specs.ts) via `specRenderer`
+ *   2. registered hook (`registerToolRenderer`)
+ *   3. `fallback` renderer for tools we don't know
  *
  * Why not a class with virtual methods: TS discriminated unions + a record
  * give us the same dispatch with less ceremony, and a missing slot falls
  * through to `fallback` automatically.
  */
 
-import type { Component } from "@earendil-works/pi-tui";
+import { Text, type Component } from "@earendil-works/pi-tui";
 import { theme } from "../../ui/theme.ts";
 import { fallbackRenderer } from "./fallback.ts";
+import {
+  TOOL_ROW_SPECS,
+  summaryOf,
+  type ArgSpec,
+  type ToolRowSpec,
+} from "./specs.ts";
 
 export interface ToolRenderContext {
   toolCallId: string;
@@ -40,12 +48,19 @@ export interface ToolRenderResultOptions {
   isPartial: boolean;
 }
 
+/** Result payload. `structured` carries ToolOutcome.structured from the bridge. */
+export interface ToolRenderResultPayload {
+  content: string;
+  isError: boolean;
+  structured?: unknown;
+}
+
 export interface ToolRenderer {
   /** Render the call (args) — called when the tool_call is started. */
   renderCall?(ctx: ToolRenderContext): Component;
   /** Render the result — called when tool_call_completed arrives. */
   renderResult?(
-    result: { content: string; isError: boolean },
+    result: ToolRenderResultPayload,
     options: ToolRenderResultOptions,
     ctx: ToolRenderContext,
   ): Component;
@@ -59,8 +74,10 @@ export function registerToolRenderer(name: string, r: ToolRenderer): void {
   REGISTRY[name] = r;
 }
 
-/** Lookup with graceful fallback. */
+/** Lookup: spec table first, then registered hook, then graceful fallback. */
 export function pickToolRenderer(name: string): ToolRenderer {
+  const spec = TOOL_ROW_SPECS[name];
+  if (spec) return specRenderer(spec);
   return REGISTRY[name] ?? fallbackRenderer;
 }
 
@@ -118,4 +135,85 @@ export function callBullet(ctx: ToolRenderContext): string {
 /** Bold tool-title prefix used by most renderers. */
 export function toolTitle(name: string): string {
   return theme.toolTitle(name);
+}
+
+// -- generic spec engine ---------------------------------------------------
+
+/**
+ * First key hit coerced to a display string ("true"/"false" for booleans),
+ * mapped through the spec's render, else the spec's fallback. Empty-string
+ * values count as no hit so `path: ""` falls back like the old renderers.
+ */
+function specSegment(s: ArgSpec, args: unknown): string | undefined {
+  if (args && typeof args === "object") {
+    const record = args as Record<string, unknown>;
+    for (const key of s.keys) {
+      if (!(key in record)) continue;
+      const v = record[key];
+      let text: string | undefined;
+      if (typeof v === "string") text = v;
+      else if (typeof v === "boolean") text = v ? "true" : "false";
+      else if (typeof v === "number") text = String(v);
+      if (text === undefined || text === "") continue;
+      return s.render ? s.render(text, args) : text;
+    }
+  }
+  return s.fallback;
+}
+
+function specSegments(specs: ArgSpec[], args: unknown): string[] {
+  return specs
+    .map((s) => specSegment(s, args))
+    .filter((t): t is string => t !== undefined);
+}
+
+/**
+ * Turn a declarative ToolRowSpec into a ToolRenderer.
+ *
+ * Call view:    `●(amber) title <primary joined by space>  <secondary muted>`
+ * Result view:  `●(green/red) title <primary>` + 6-space-indented summary
+ *               lines. Summary chain: spec.summarize → structured.summary →
+ *               truncated content; errors always show truncated content.
+ */
+export function specRenderer(spec: ToolRowSpec): ToolRenderer {
+  const primaryText = (ctx: ToolRenderContext): string =>
+    specSegments(spec.primary, ctx.args).join(" ");
+  return {
+    renderCall(ctx: ToolRenderContext): Component {
+      const title = toolTitle(spec.title ?? ctx.toolName);
+      const primary = primaryText(ctx);
+      const secondary = specSegments(spec.secondary ?? [], ctx.args)
+        .map((t) => theme.muted(t))
+        .join(" ");
+      let line = `${callBullet(ctx)} ${title}`;
+      if (primary) line += ` ${primary}`;
+      if (secondary) line += `  ${secondary}`;
+      return new Text(line, 1, 0);
+    },
+    renderResult(
+      result: ToolRenderResultPayload,
+      _options: ToolRenderResultOptions,
+      ctx: ToolRenderContext,
+    ): Component {
+      const title = toolTitle(spec.title ?? ctx.toolName);
+      const primary = primaryText(ctx);
+      const line1 =
+        `${statusBullet(result.isError ? "error" : "success")} ${title}` +
+        (primary ? ` ${primary}` : "");
+      const summary = result.isError
+        ? truncateForPreview(result.content, 200)
+        : spec.summarize?.({
+            content: result.content,
+            structured: result.structured,
+          }) ??
+          summaryOf(result.structured) ??
+          truncateForPreview(result.content);
+      if (!summary) return new Text(line1, 1, 0);
+      const indented = summary
+        .split("\n")
+        .map((l) => theme.muted(l))
+        .join("\n      ");
+      return new Text(`${line1}\n      ${indented}`, 1, 0);
+    },
+  };
 }

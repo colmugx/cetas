@@ -7,8 +7,10 @@
  */
 
 import {
+  Input,
   SelectList,
   Text,
+  fuzzyFilter,
   type Component,
   type OverlayHandle,
   type SelectItem,
@@ -180,8 +182,10 @@ class ProviderTabStrip implements Component {
 }
 
 /**
- * Kimi-Code-style model selector: All/provider tabs, independent vertical
- * cursors, and horizontal effort segments for the selected model.
+ * Model selector: All/provider tabs with independent vertical option
+ * lists, plus horizontal effort segments for the selected model.
+ * Typing any printable character opens a fuzzy search across every tab;
+ * escape first clears the query, then cancels the picker.
  */
 class TabbedPickerPanel implements Component {
   focused = false;
@@ -192,6 +196,10 @@ class TabbedPickerPanel implements Component {
   private readonly listsByTab = new Map<string, SelectList>();
   private readonly tabStrip: ProviderTabStrip;
   private readonly title: Text;
+  private searchInput?: Input;
+  private searchRows: ModelRow[] = [];
+  private searchIndex = 0;
+  private searchList?: SelectList;
   private onSelect: (selection: ModelSelection) => void;
   private onCancel: () => void;
 
@@ -227,6 +235,20 @@ class TabbedPickerPanel implements Component {
   }
 
   render(width: number): string[] {
+    if (this.isSearchVisible()) {
+      const list = this.searchList;
+      if (list === undefined) throw new Error("model picker search missing list");
+      const count = this.searchRows.length;
+      const matchText = count === 1 ? "1 match" : `${count} matches`;
+      return [
+        ...this.title.render(width),
+        "",
+        ...this.searchInput!.render(width),
+        theme.muted(`  ${matchText}`),
+        "",
+        ...list.render(width),
+      ];
+    }
     const tab = this.tabs[this.activeTab]!;
     const list = this.listsByTab.get(tab);
     if (list === undefined) throw new Error(`model picker tab missing list: ${tab}`);
@@ -249,9 +271,52 @@ class TabbedPickerPanel implements Component {
       return;
     }
     if (matchesKey(data, "escape")) {
-      this.onCancel();
+      if (this.isSearchVisible()) {
+        this.searchInput!.setValue("");
+        this.refreshSearch();
+      } else {
+        this.onCancel();
+      }
       return;
     }
+    if (this.isSearchVisible()) {
+      this.handleSearchInput(data);
+    } else {
+      this.handleTabInput(data);
+    }
+  }
+
+  /** Keys while a query is live: up/down move the match cursor, left/right
+   * rotate effort, enter confirms; every other key edits the query. */
+  private handleSearchInput(data: string): void {
+    if (matchesKey(data, "up") || matchesKey(data, "down")) {
+      if (this.searchRows.length === 0) return;
+      const next = matchesKey(data, "up")
+        ? (this.searchIndex + this.searchRows.length - 1) % this.searchRows.length
+        : (this.searchIndex + 1) % this.searchRows.length;
+      this.searchIndex = next;
+      this.searchList?.setSelectedIndex(next);
+      return;
+    }
+    if (matchesKey(data, "left") || matchesKey(data, "right")) {
+      const row = this.searchRows[this.searchIndex];
+      if (row === undefined || row.entry.efforts.length === 0) return;
+      row.effortIndex = this.rotatedEffortIndex(row, matchesKey(data, "left"));
+      this.searchList = this.makeList("All", this.searchRows, this.searchIndex);
+      return;
+    }
+    if (matchesKey(data, "enter")) {
+      this.confirmRow(this.searchRows[this.searchIndex]);
+      return;
+    }
+    // The keys above are consumed here, so the query input only receives
+    // character data and edit chords (backspace, word deletes, undo). The
+    // query is therefore append-only plus backspace for now.
+    this.searchInput!.handleInput(data);
+    this.refreshSearch();
+  }
+
+  private handleTabInput(data: string): void {
     const tab = this.tabs[this.activeTab]!;
     const rows = this.rowsByTab.get(tab) ?? [];
     const selected = this.selectedByTab.get(tab) ?? 0;
@@ -267,27 +332,30 @@ class TabbedPickerPanel implements Component {
     if (matchesKey(data, "left") || matchesKey(data, "right")) {
       const row = rows[selected];
       if (row === undefined || row.entry.efforts.length === 0) return;
-      const count = row.entry.efforts.length;
-      row.effortIndex = matchesKey(data, "left")
-        ? (row.effortIndex + count - 1) % count
-        : (row.effortIndex + 1) % count;
+      row.effortIndex = this.rotatedEffortIndex(row, matchesKey(data, "left"));
       this.listsByTab.set(tab, this.makeList(tab, rows, selected));
       return;
     }
     if (matchesKey(data, "enter")) {
-      const row = rows[selected];
-      if (row === undefined) return;
-      const effort = row.entry.efforts[row.effortIndex];
-      this.onSelect({
-        slot: row.entry.id,
-        ...(effort === undefined ? {} : { effort }),
-      });
+      this.confirmRow(rows[selected]);
+      return;
+    }
+    if (this.isPrintable(data)) {
+      if (this.searchInput === undefined) {
+        const input = new Input();
+        input.focused = true;
+        this.searchInput = input;
+      }
+      this.searchInput.handleInput(data);
+      this.refreshSearch();
     }
   }
 
   invalidate(): void {
     this.title.invalidate();
     for (const list of this.listsByTab.values()) list.invalidate();
+    this.searchInput?.invalidate();
+    this.searchList?.invalidate();
   }
 
   /** Test hook and bridge-independent way to inspect the active tab. */
@@ -297,6 +365,62 @@ class TabbedPickerPanel implements Component {
 
   private switchTab(delta: number): void {
     this.activeTab = (this.activeTab + delta + this.tabs.length) % this.tabs.length;
+  }
+
+  private confirmRow(row: ModelRow | undefined): void {
+    if (row === undefined) return;
+    const effort = row.entry.efforts[row.effortIndex];
+    this.onSelect({
+      slot: row.entry.id,
+      ...(effort === undefined ? {} : { effort }),
+    });
+  }
+
+  private rotatedEffortIndex(row: ModelRow, left: boolean): number {
+    const count = row.entry.efforts.length;
+    return left ? (row.effortIndex + count - 1) % count : (row.effortIndex + 1) % count;
+  }
+
+  private isSearchVisible(): boolean {
+    return this.searchInput !== undefined && this.searchInput.getValue() !== "";
+  }
+
+  /** Re-derive the filtered rows and list after any query change. */
+  private refreshSearch(): void {
+    const query = this.searchInput?.getValue() ?? "";
+    this.searchRows = fuzzyFilter(
+      this.rowsByTab.get("All") ?? [],
+      query,
+      (row) => this.searchText(row),
+    );
+    this.searchIndex = 0;
+    this.searchList = this.makeList("All", this.searchRows, this.searchIndex);
+    if (query === "") {
+      // Lists bake the current effort into their row labels, so the tabbed
+      // lists must be rebuilt to surface effort rotations made in search.
+      for (const tab of this.tabs) {
+        this.listsByTab.set(
+          tab,
+          this.makeList(tab, this.rowsByTab.get(tab) ?? [], this.selectedByTab.get(tab) ?? 0),
+        );
+      }
+    }
+  }
+
+  private searchText(row: ModelRow): string {
+    const entry = row.entry;
+    return [entry.label, entry.model, entry.provider, entry.group, entry.id]
+      .filter((part): part is string => part !== undefined)
+      .join(" ");
+  }
+
+  /** True for plain character data: no control bytes and no escape prefix. */
+  private isPrintable(data: string): boolean {
+    if (data.length === 0) return false;
+    return [...data].every((char) => {
+      const code = char.charCodeAt(0);
+      return code >= 32 && code !== 0x7f && !(code >= 0x80 && code <= 0x9f);
+    });
   }
 
   private initialEffortIndex(entry: ModelCatalogEntry): number {

@@ -6,9 +6,9 @@
  * functions plus a couple of bg helpers for the Box component. Move to a
  * JSON/theme-loader if/when we add light mode.
  *
- * Naming mirrors pi-coding-agent's Theme slots where it makes sense
- * (toolTitle / toolOutput / accent / warning / error / muted) so a future
- * migration to pi-tui's Theme type is a 1:1 rename.
+ * Slot names (toolTitle / toolOutput / accent / warning / error / muted)
+ * follow pi-tui's Theme vocabulary so a future migration to its Theme type
+ * is a 1:1 rename.
  */
 
 import chalk from "chalk";
@@ -22,7 +22,7 @@ export interface CetasTheme {
   // Role-based message styles.
   user: StyleFn;
   userBg: StyleFn;
-  /** Full-width tinted background for the user-message Box (pi #343541 style). */
+  /** Full-width tinted background (#343541 dark) for the user-message Box. */
   userMessageBg: StyleFn;
   assistant: StyleFn;
   thinking: StyleFn;
@@ -55,7 +55,7 @@ export const theme: CetasTheme = {
   brandBold: chalk.bold.cyan,
   user: chalk.white,
   userBg: chalk.bgCyan,
-  // pi-style user-message tint (#343541 dark) — subtle so the Box reads as
+  // User-message tint (#343541 dark) — subtle so the Box reads as
   // a distinct zone without overwhelming the assistant text below it.
   userMessageBg: chalk.bgHex("#343541"),
   assistant: chalk.gray,
@@ -77,7 +77,7 @@ export const theme: CetasTheme = {
   toolErrorBg: chalk.bgHex("#3a1414"),
   toolSuccessBg: chalk.bgHex("#103a10"),
   /** Selected row of an inline ask list — a full-width background block
-   * (kimi-code/opencode style) instead of an arrow prefix. */
+   * instead of an arrow prefix. */
   selection: chalk.bold.bgCyan.black,
   bold: chalk.bold,
   italic: chalk.italic,

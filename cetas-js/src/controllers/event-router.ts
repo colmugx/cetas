@@ -2,7 +2,7 @@
  * event-router.ts — single handleEvent(CetasEvent) dispatch.
  *
  * Owns the live state for the turn currently in flight:
- *   - streaming-ui controller (pi-style step-block accumulator)
+ *   - streaming-ui controller (step-block accumulator)
  *   - per-tool-call-id ToolRow map
  *   - status indicator callbacks
  *
@@ -79,7 +79,12 @@ export class EventRouter {
         this.handleToolCallStarted(ev.tool_call_id, ev.tool_name, ev.args);
         break;
       case "tool_call_completed":
-        this.handleToolCallCompleted(ev.tool_call_id, ev.result, ev.is_error);
+        this.handleToolCallCompleted(
+          ev.tool_call_id,
+          ev.result,
+          ev.is_error,
+          ev.structured,
+        );
         break;
       case "tool_call_deferred":
         this.cb.addTranscriptChild(
@@ -221,7 +226,7 @@ export class EventRouter {
     toolName: string,
     args: unknown,
   ): void {
-    const row = new ToolRow(toolName, args, this.cb.cwd, () =>
+    const row = new ToolRow(toolName, toolCallId, args, this.cb.cwd, () =>
       this.cb.requestRender(),
     );
     this.toolRows.set(toolCallId, row);
@@ -235,10 +240,11 @@ export class EventRouter {
     toolCallId: string,
     result: string,
     isError: boolean,
+    structured?: Record<string, unknown>,
   ): void {
     const row = this.toolRows.get(toolCallId);
     if (row) {
-      row.setResult(result, isError);
+      row.setResult(result, isError, structured);
     }
     // Tool results go back to the model; the next visible activity is either
     // another tool call (overwrites this) or the follow-up model stream.

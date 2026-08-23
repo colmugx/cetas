@@ -287,6 +287,12 @@ export class TerminalShell {
       // Keep the shell alive so users can repair settings and retry `/login`.
       console.error("cetas-js setup failed", error);
     }
+    // Providers whose catalog build failed are skipped, not fatal: tell the
+    // user which ones are missing so the settings can be repaired while the
+    // healthy providers keep working.
+    for (const warning of app.snapshot().setup.warnings ?? []) {
+      this.addTranscriptChild(systemNotice(`⚠ ${warning}`));
+    }
     this.started = true;
     this.tui.start();
     this.tui.requestRender(true);
