@@ -37,6 +37,7 @@ options(
         "cetas_js_runtime_login_provider",
         "cetas_js_run_turn",
         "cetas_js_abort_turn",
+        "cetas_js_enqueue_follow_up",
         "cetas_js_shutdown",
         "cetas_js_list_commands",
         "cetas_js_invoke_command",

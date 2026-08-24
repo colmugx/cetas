@@ -96,4 +96,66 @@ describe("UiRegistry", () => {
       registry.getSuggestions(["/"], 0, 1, { signal: signal() }),
     ).rejects.toThrow("fetch failed");
   });
+
+  test("spanSpaces keeps matching after whitespace; default still rejects it", async () => {
+    const registry = new UiRegistry();
+    registry.register("plain", {
+      component_keys: [],
+      autocomplete: [{
+        trigger: "/",
+        kind: "command",
+        fetch: (prefix) => [{
+          label: `plain:${prefix}`,
+          detail: "",
+          insert_text: `/${prefix}`,
+        }],
+      }],
+    });
+    registry.register("argful", {
+      component_keys: [],
+      autocomplete: [{
+        trigger: "/",
+        kind: "command",
+        spanSpaces: true,
+        fetch: (prefix) => [{
+          label: `argful:${prefix}`,
+          detail: "",
+          insert_text: `/${prefix}`,
+        }],
+      }],
+    });
+
+    // "/permission re" — the plain source drops out, the spanSpaces source
+    // receives the full "command arg" query and owns the replacement prefix.
+    const result = await registry.getSuggestions(
+      ["/permission re"],
+      0,
+      14,
+      { signal: signal() },
+    );
+    expect(result).toEqual({
+      prefix: "/permission re",
+      items: [
+        { value: "/permission re", label: "argful:permission re" },
+      ],
+    });
+
+    // Without spanSpaces, a space after the trigger never matches.
+    const plainOnly = new UiRegistry();
+    plainOnly.register("plain", {
+      component_keys: [],
+      autocomplete: [{
+        trigger: "/",
+        kind: "command",
+        fetch: () => [{
+          label: "x",
+          detail: "",
+          insert_text: "/x",
+        }],
+      }],
+    });
+    expect(
+      await plainOnly.getSuggestions(["/cmd "], 0, 5, { signal: signal() }),
+    ).toBeNull();
+  });
 });

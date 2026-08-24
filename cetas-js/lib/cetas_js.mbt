@@ -31,7 +31,9 @@ pub(all) struct JsCallbackObserver {
 }
 
 ///|
-pub fn JsCallbackObserver::new(callback : JsCallback) -> JsCallbackObserver {
+pub fn JsCallbackObserver::JsCallbackObserver(
+  callback : JsCallback,
+) -> JsCallbackObserver {
   { callback, }
 }
 
@@ -426,7 +428,7 @@ pub(all) struct JsUiPort {
 /// Construct a JS UI bridge. Both callbacks are required; hosts without an
 /// interactive UI must compose `NoopUiPort` instead of installing hidden
 /// fallback behavior here.
-pub fn JsUiPort::new(
+pub fn JsUiPort::JsUiPort(
   render_callback : JsUiRenderCallback,
   request_callback : JsUiRequestCallback,
 ) -> JsUiPort {
@@ -809,15 +811,10 @@ pub(all) struct CetasJsRuntime {
 }
 
 ///|
-pub fn CetasJsRuntime::new(config : CetasJsConfig) -> CetasJsRuntime {
-  { config, catalog_cache: Map::from_array([]), catalog_issues: [] }
-}
-
-///|
 /// Positional constructor exported for the JavaScript bridge. The runtime
 /// remains opaque to JS; only the bridge functions can inspect its cache.
 pub fn CetasJsRuntime::CetasJsRuntime(config : CetasJsConfig) -> CetasJsRuntime {
-  CetasJsRuntime::new(config)
+  { config, catalog_cache: Map::from_array([]), catalog_issues: [] }
 }
 
 ///|
@@ -952,7 +949,7 @@ pub fn cetas_js_create_agent(
   cancel_check : JsCancelCheck,
 ) -> @js_async.Promise[CetasJsAgent] {
   cetas_js_runtime_create_agent(
-    CetasJsRuntime::new(config),
+    CetasJsRuntime(config),
     observer_callback,
     render_callback,
     request_callback,
@@ -973,22 +970,22 @@ pub fn cetas_js_runtime_create_agent(
 ) -> @js_async.Promise[CetasJsAgent] {
   @js_async.Promise::from_async() <| () => {
     let cred_store = credential_store(runtime.config.home)
-    let auth_interaction = JsAuthInteraction::new(
+    let auth_interaction = JsAuthInteraction(
       observer_callback, request_callback, cancel_check,
     )
-    let observer = JsCallbackObserver::new(observer_callback)
+    let observer = JsCallbackObserver(observer_callback)
     let model = build_provider_router(
       runtime, cred_store, auth_interaction, observer,
     )
-    let store = @fs_session.JsonlSessionStore::new(
+    let store = @fs_session.JsonlSessionStore(
       runtime.config.home + "/.cetas/sessions",
     )
     let profile_errors : Array[String] = []
-    let ui = JsUiPort::new(render_callback, request_callback)
+    let ui = JsUiPort(render_callback, request_callback)
     // Load AGENTS.md / CLAUDE.md context files from home + cwd ancestor
     // chain through the shared workspace fs boundary. Failures are swallowed
     // (empty bundle); context is best-effort.
-    let context_fs = @workspace.JsWorkspaceFs::new()
+    let context_fs = @workspace.JsWorkspaceFs()
     // Warn once if a legacy project-local `.cetas` (pre-HOME-relocation,
     // potentially holding live credentials) is still present. Best-effort and
     // non-fatal; never copies or deletes anything.
@@ -998,14 +995,11 @@ pub fn cetas_js_runtime_create_agent(
       runtime.config.cwd,
       observer,
     )
-    let loader = @context.ContextLoader::new(
-      context_fs,
-      home=runtime.config.home,
-    )
+    let loader = @context.ContextLoader(context_fs, home=runtime.config.home)
     let bundle = loader.load(runtime.config.cwd) catch {
       _ => @context.ContextBundle::empty()
     }
-    let context_contributor = @context.ContextPromptContributor::new(
+    let context_contributor = @context.ContextPromptContributor(
       bundle~,
       envelope="cetas-context",
     )
@@ -1049,7 +1043,7 @@ pub fn cetas_js_runtime_create_agent(
     // Plan mode: read-only investigation gated by Hook, toggled via
     // /plan or shift+tab (declared on the command's shortcut), model entry
     // via enter_plan_mode, exit only via plan.approve.
-    let plan_mode = @plan.PlanMode::new(config=@plan.PlanModeConfig::{
+    let plan_mode = @plan.PlanMode(config=@plan.PlanModeConfig::{
       ..@plan.PlanModeConfig::default()
       // ask_question rides the read class (permission classifies it read);
       // shell tools gate per invocation via the default shell_tools.
@@ -1064,8 +1058,8 @@ pub fn cetas_js_runtime_create_agent(
     // cross-extension EventBus lets any extension publish status facts
     // (topic "status") the bar picks up; with no interested peer it stays
     // silent. Future extension constructors take the same bus instance.
-    let event_bus = @devkit.EventBus::new()
-    let statusbar = @statusbar.StatusBar::new(
+    let event_bus = @devkit.EventBus()
+    let statusbar = @statusbar.StatusBar(
       ui as &@posoco.UiPort,
       bus=Some(event_bus),
     )
@@ -1075,10 +1069,10 @@ pub fn cetas_js_runtime_create_agent(
     // bridge through BlockingApprovalSource → JsUiPort::request (.wait()).
     let mode = parse_permission_mode(runtime.config.permission_mode)
     let policy = match mode {
-      @permission.ReadOnly => @permission.PermissionPolicy::new(mode)
+      @permission.ReadOnly => @permission.PermissionPolicy(mode)
       _ => {
-        let source = BlockingApprovalSource::new(ui as &@posoco.UiPort)
-        @permission.PermissionPolicy::new(
+        let source = BlockingApprovalSource(ui as &@posoco.UiPort)
+        @permission.PermissionPolicy(
           mode,
           approval=Some(source as &@permission.ApprovalSource),
         )
@@ -1110,19 +1104,17 @@ pub fn cetas_js_runtime_create_agent(
       ) {
       exts.push(tool)
     }
-    let agent = @posoco.Agent(exts~, config={
-      // The JS FFI seam carries a plain Int (no optional arguments); the
-      // bridge convention is `<= 0` = unbounded.
-      max_tool_rounds: if runtime.config.max_tool_rounds <= 0 {
-        None
-      } else {
-        Some(runtime.config.max_tool_rounds)
-      },
-      temperature: None,
-      max_output_tokens: None,
-      model_context_window: None,
-      compact_threshold: None,
-    })
+    // The JS FFI seam carries a plain Int (no optional arguments); the
+    // bridge convention is `<= 0` = unbounded.
+    let max_tool_rounds : Int? = if runtime.config.max_tool_rounds <= 0 {
+      None
+    } else {
+      Some(runtime.config.max_tool_rounds)
+    }
+    let agent = @posoco.Agent(
+      exts~,
+      config=@cetas_core.default_agent_config(max_tool_rounds~),
+    )
     {
       agent,
       profile_errors,
@@ -1139,7 +1131,7 @@ pub fn cetas_js_runtime_create_agent(
 pub fn cetas_js_describe_setup(
   config : CetasJsConfig,
 ) -> @js_async.Promise[String] {
-  cetas_js_runtime_describe_setup(CetasJsRuntime::new(config))
+  cetas_js_runtime_describe_setup(CetasJsRuntime(config))
 }
 
 ///|
@@ -1159,7 +1151,7 @@ pub fn cetas_js_refresh_model_catalogs(
   provider_ids_json : String,
 ) -> @js_async.Promise[String] {
   cetas_js_runtime_refresh_model_catalogs(
-    CetasJsRuntime::new(config),
+    CetasJsRuntime(config),
     provider_ids_json,
   )
 }
@@ -1187,7 +1179,7 @@ pub fn cetas_js_login_provider(
   method : String,
 ) -> @js_async.Promise[String] {
   cetas_js_runtime_login_provider(
-    CetasJsRuntime::new(config),
+    CetasJsRuntime(config),
     provider_id,
     observer_callback,
     request_callback,
@@ -1527,12 +1519,31 @@ extern "js" fn host_now_ms() -> Double =
 ///
 /// Errors inside the async block become Promise rejections on the JS side
 /// (stringified via `err.to_string()` per from_async's catch branch).
+///
+/// `signal` is the host's JS AbortSignal for this turn. When the host aborts
+/// it, from_async cancels the turn coroutine: the deepest cancellable wait
+/// (the in-flight model fetch) aborts its request, the loop classifies the
+/// Cancelled error, and the Promise resolves with the partial transcript or
+/// rejects with AbortError depending on where cancellation landed.
+
+///|
+/// Fire `cb` once when the JS AbortSignal aborts. Mirrors the package-private
+/// `AbortSignal::on_abort` of moonbitlang/async (MoonBit closures compile to
+/// JS functions on this backend).
+extern "js" fn js_signal_on_abort(
+  signal : @js_async.AbortSignal,
+  cb : () -> Unit,
+) -> Unit =
+  #| (signal, cb) => signal.addEventListener("abort", cb, { once: true })
+
+///|
 pub fn cetas_js_run_turn(
   handle : CetasJsAgent,
   prompt : String,
   session_id : String,
+  signal : @js_async.AbortSignal,
 ) -> @js_async.Promise[String] {
-  @js_async.Promise::from_async() <| () => {
+  let promise = @js_async.Promise::from_async(abort_signal=signal) <| () => {
     let started = host_now_ms()
     handle.statusbar.set_session(session_id)
     let result : Result[String, Error] = Ok(
@@ -1546,6 +1557,16 @@ pub fn cetas_js_run_turn(
       Err(err) => raise err
     }
   }
+  // from_async's own signal listener cancels the turn coroutine but does not
+  // pump the scheduler (`Coroutine::cancel` only marks it runnable), so a
+  // cancelled turn would hang until unrelated async activity reschedules.
+  // This second listener forces a reschedule round; spawning (and instantly
+  // completing) a no-op coroutine is the public reschedule trigger. Listener
+  // order matters: cancel runs first, the pump second.
+  js_signal_on_abort(signal, fn() {
+    ignore(@js_async.Promise::from_async() <| () => {  })
+  })
+  promise
 }
 
 ///|
@@ -1564,6 +1585,23 @@ pub fn cetas_js_shutdown(handle : CetasJsAgent) -> @js_async.Promise[Unit] {
 /// which case fired (`Accepted`, `AbortAlreadyRequested`, `RejectedStale`).
 pub fn cetas_js_abort_turn(handle : CetasJsAgent) -> String {
   handle.agent.control().abort_active(Some("user interrupt (esc)")).to_string()
+}
+
+///|
+/// Queue a user message as a follow-up on the active run. The Agent drains
+/// queued follow-ups one at a time at turn boundaries, driving a full new
+/// turn per message; the host renders each drained turn via its normal
+/// TurnStarted observer events. Returns the `EnqueueOutcome` string
+/// (`Accepted(...)` / `RejectedStale(...)` / `RejectedQueueFull(depth=...)`)
+/// so the host can fall back to a fresh turn when the run just ended.
+pub fn cetas_js_enqueue_follow_up(
+  handle : CetasJsAgent,
+  prompt : String,
+) -> String {
+  let message : @posoco.Message = @posoco.Message::UserMessage(content=[
+    @posoco.Content::Text(prompt),
+  ])
+  handle.agent.control().enqueue_follow_up(message).to_string()
 }
 
 ///|
@@ -1720,7 +1758,7 @@ pub fn cetas_js_list_commands(handle : CetasJsAgent) -> String {
 /// as one observer `Custom` warning and the command result stands.
 async fn persist_active_model_selection(handle : CetasJsAgent) -> Unit noraise {
   @cetas_core.write_active_model_selection(
-    @workspace.JsWorkspaceFs::new(),
+    @workspace.JsWorkspaceFs(),
     home=handle.home,
     @cetas_core.ActiveModelSelection::from_current(
       handle.router.active_slot_id(),

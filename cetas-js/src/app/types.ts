@@ -116,7 +116,13 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
     cancellation?: CancellationToken,
     method?: string,
   ): Promise<string>;
-  runTurn(agent: AgentHandle, prompt: string, sessionId: string): Promise<string>;
+  /**
+   * Run one agent turn. `signal` aborts the turn immediately: the bridge
+   * cancels the turn coroutine, which interrupts the in-flight model request,
+   * and the returned Promise settles with the partial result or rejects with
+   * an AbortError. Callers that never abort may omit it.
+   */
+  runTurn(agent: AgentHandle, prompt: string, sessionId: string, signal?: AbortSignal): Promise<string>;
   /**
    * Request an abort of the agent's active run (the host's ESC interrupt).
    * Best-effort and synchronous: the run loop observes it at its next safe
@@ -124,6 +130,14 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
    * rather than rejecting. Returns the enqueue outcome for diagnostics.
    */
   abortTurn?(agent: AgentHandle): string;
+  /**
+   * Queue a user message on the active run. The Agent drains follow-ups one
+   * at a time at turn boundaries, driving a full new turn per message (each
+   * surfacing as a TurnStarted observer event). Returns the raw MoonBit
+   * `EnqueueOutcome` string: `Accepted(...)`, `RejectedStale(...)` when no
+   * run is active, or `RejectedQueueFull(depth=...)`.
+   */
+  enqueueFollowUp?(agent: AgentHandle, prompt: string): string;
   shutdown(agent: AgentHandle): Promise<void>;
   listCommands(agent: AgentHandle): readonly CommandDescriptor[];
   invokeCommand(agent: AgentHandle, id: string, argsJson: string): Promise<string>;

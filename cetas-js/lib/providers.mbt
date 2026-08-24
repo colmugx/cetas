@@ -22,8 +22,8 @@
 /// root is injected by the host (`CetasJsConfig.home`, resolved to
 /// `os.homedir()` by both production entry points).
 fn credential_store(home : String) -> @credentials.FileProviderCredentialStore {
-  @credentials.FileProviderCredentialStore::new(
-    @workspace.JsWorkspaceFs::new(),
+  @credentials.FileProviderCredentialStore(
+    @workspace.JsWorkspaceFs(),
     home + "/.cetas/credentials",
   )
 }
@@ -39,7 +39,7 @@ struct JsAuthInteraction {
 }
 
 ///|
-fn JsAuthInteraction::new(
+fn JsAuthInteraction::JsAuthInteraction(
   observer_callback : JsCallback,
   request_callback : JsUiRequestCallback,
   cancel_check : JsCancelCheck,
@@ -92,8 +92,7 @@ async fn load_provider_settings(
   runtime : CetasJsRuntime,
 ) -> Map[String, Json] raise @posoco.CompositionError {
   let settings_path = runtime.config.home + "/.cetas/settings.json"
-  match
-    @workspace.read_file_result(@workspace.JsWorkspaceFs::new(), settings_path) {
+  match @workspace.read_file_result(@workspace.JsWorkspaceFs(), settings_path) {
     Missing => Map::from_array([])
     Failed(message) =>
       raise @posoco.CompositionError::ManifestSchemaError(
@@ -205,7 +204,7 @@ async fn collect_provider_catalogs(
   }
   let model_cache = match
     @cetas_core.read_model_list_cache(
-      @workspace.JsWorkspaceFs::new(),
+      @workspace.JsWorkspaceFs(),
       home=runtime.config.home,
     ) {
     Ok(entries) => entries
@@ -305,7 +304,7 @@ async fn persist_model_list_cache(
   catalog : @llm.ProviderModelCatalog,
 ) -> Unit noraise {
   @cetas_core.write_model_list_cache(
-    @workspace.JsWorkspaceFs::new(),
+    @workspace.JsWorkspaceFs(),
     home~,
     provider_id,
     @cetas_core.catalog_model_records(catalog),
@@ -358,7 +357,7 @@ async fn build_provider_router(
     raise @posoco.CompositionError::EmptyPort("cetas-js.providers")
   }
   let selection = @cetas_core.read_active_model_selection(
-    @workspace.JsWorkspaceFs::new(),
+    @workspace.JsWorkspaceFs(),
     home=runtime.config.home,
   )
   let default_slot_id = @cetas_core.resolve_default_slot_id(catalogs, selection)
@@ -455,7 +454,7 @@ async fn login_provider(
   cancel_check : JsCancelCheck,
   method : String,
 ) -> String raise @posoco.CommandError {
-  let interaction = JsAuthInteraction::new(
+  let interaction = JsAuthInteraction(
     observer_callback, request_callback, cancel_check,
   )
   let store = credential_store(runtime.config.home)
@@ -513,7 +512,7 @@ extern "js" fn js_random_uuid() -> String =
 /// The device id follows the user's HOME (not the project working tree) so it
 /// is stable across projects and never leaks into a repository.
 async fn resolve_kimi_device_id(home : String) -> String noraise {
-  let fs = @workspace.JsWorkspaceFs::new()
+  let fs = @workspace.JsWorkspaceFs()
   let dir = home + "/.cetas"
   let path = dir + "/kimi_device_id"
   match @workspace.read_file_result(fs, path) {

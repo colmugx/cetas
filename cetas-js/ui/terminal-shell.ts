@@ -34,6 +34,7 @@ import { EventRouter } from "../src/controllers/event-router.ts";
 import {
   errorNotice,
   systemNotice,
+  QueuedUserMessage,
   UserMessage,
 } from "../src/transcript/components.ts";
 import { UiRegistry } from "../src/ui-registry.ts";
@@ -160,6 +161,8 @@ export class TerminalShell {
 
   private inTurn = false;
   private commandBusy = false;
+  /** Follow-up bubbles awaiting their TurnStarted; promoted oldest-first. */
+  private readonly queuedPrompts: QueuedUserMessage[] = [];
   private commandShortcuts: ReadonlyArray<{ keyId: KeyId; command: string }> = [];
   private providerPickerHandle?: OverlayHandle;
   private started = false;
@@ -300,8 +303,8 @@ export class TerminalShell {
   }
 
   async submit(prompt: string): Promise<void> {
-    if (this.inTurn || this.commandBusy) {
-      throw new Error("editor submitted while another operation is running");
+    if (this.commandBusy) {
+      throw new Error("editor submitted while a command is running");
     }
     const trimmed = prompt.trim();
     this.editor.setText("");
@@ -324,20 +327,70 @@ export class TerminalShell {
     if (prompt.length === 0) return;
 
     const app = this.requireApp();
+    if (this.inTurn) {
+      this.queueDuringTurn(app, prompt);
+      return;
+    }
+    await this.runTurnAndRender(app, prompt, new UserMessage(prompt));
+  }
+
+  /**
+   * Drive one turn to completion. Typing stays live while it runs: Enter
+   * queues a follow-up on the active run (`queueDuringTurn`), ESC interrupts.
+   * An AbortError rejection means the user interrupted, not a failure.
+   */
+  private async runTurnAndRender(
+    app: CetasApplication,
+    prompt: string,
+    echo: Component,
+  ): Promise<void> {
     this.inTurn = true;
-    this.editor.disableSubmit = true;
-    this.addTranscriptChild(new UserMessage(prompt));
+    this.addTranscriptChild(echo);
     try {
       await app.runTurn(prompt, this.sessionId);
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.addTranscriptChild(errorNotice(message));
+      if (isAbortError(error)) {
+        this.addTranscriptChild(systemNotice("⏹ interrupted"));
+      } else {
+        const message = error instanceof Error ? error.message : String(error);
+        this.addTranscriptChild(errorNotice(message));
+      }
       this.tui.requestRender();
     } finally {
       this.inTurn = false;
-      this.editor.disableSubmit = false;
       this.statusLoader.stop();
       this.tui.requestRender();
+    }
+  }
+
+  /**
+   * Enter during a running turn: queue the text as a follow-up on the active
+   * run. The Agent drains queued messages one per turn boundary inside the
+   * pending runTurn await; each drained turn's TurnStarted promotes one
+   * bubble. `"stale"` (or the equivalent race) falls back to a fresh turn.
+   */
+  private queueDuringTurn(app: CetasApplication, prompt: string): void {
+    const bubble = new QueuedUserMessage(prompt);
+    try {
+      const outcome = app.queueFollowUp(prompt);
+      if (outcome === "full") {
+        this.addTranscriptChild(
+          errorNotice("follow-up queue is full (64); wait for the turn to finish"),
+        );
+        return;
+      }
+      if (outcome === "stale") {
+        void this.runTurnAndRender(app, prompt, new UserMessage(prompt));
+        return;
+      }
+      this.queuedPrompts.push(bubble);
+      this.addTranscriptChild(bubble);
+    } catch (error: unknown) {
+      if (app.appState !== "running") {
+        void this.runTurnAndRender(app, prompt, new UserMessage(prompt));
+        return;
+      }
+      this.addTranscriptChild(errorNotice(errorMessage(error)));
     }
   }
 
@@ -450,10 +503,19 @@ export class TerminalShell {
     const parsed: unknown = JSON.parse(eventJson);
     const event = parseCetasEvent(parsed);
     if (event === null) throw new Error("unknown or malformed cetas event");
+    if (event.type === "turn_started") this.promoteQueuedPrompt();
     if (event.type === "custom" && this.commandBusy) {
       this.oauthOverlay.notify(event);
     }
     this.router.handleEvent(event);
+  }
+
+  /** A drained follow-up's turn is starting: restyle the oldest queued bubble. */
+  private promoteQueuedPrompt(): void {
+    const bubble = this.queuedPrompts.shift();
+    if (bubble === undefined) return;
+    bubble.promote();
+    this.tui.requestRender();
   }
 
   private handleUiRender(eventJson: string): void {
@@ -480,8 +542,19 @@ export class TerminalShell {
         {
           trigger: "/",
           kind: "command",
+          spanSpaces: true,
           fetch: (prefix, signal) => {
             if (signal.aborted) return [];
+            // "cmd arg-prefix" (after the trigger "/"): complete the
+            // argument against the command's declared choices instead of
+            // the command name list.
+            const spaceIndex = prefix.indexOf(" ");
+            if (spaceIndex !== -1) {
+              return this.commandArgItems(
+                prefix.slice(0, spaceIndex),
+                prefix.slice(spaceIndex + 1),
+              );
+            }
             const local = [
               ["/help", "Show slash commands"],
               ["/clear", "Clear the transcript"],
@@ -557,18 +630,24 @@ export class TerminalShell {
       this.tui.hideOverlay();
       return { consume: true };
     }
-    // ESC interrupts the active turn: the application forwards an abort into
-    // the run loop, which settles the turn with the transcript it already has.
+    // ESC interrupts the active turn: the mailbox abort gives the loop its
+    // clean Cancelled path and the turn's AbortController stops an in-flight
+    // model request immediately.
     if (this.inTurn && matchesKey(data, "escape")) {
       this.app?.interruptActiveTurn();
       return { consume: true };
     }
-    if (this.inTurn || this.commandBusy) return { consume: true };
+    // Typing during a turn stays live — keys flow to the focused editor so
+    // Enter can queue follow-ups and /permission can switch modes. Only
+    // command operations still swallow keys (their overlays own the flow).
+    if (this.commandBusy) return { consume: true };
     // Extension-declared command shortcuts (e.g. shift+tab → /plan).
-    for (const binding of this.commandShortcuts) {
-      if (matchesKey(data, binding.keyId)) {
-        void this.invokeCommand(binding.command, "");
-        return { consume: true };
+    if (!this.inTurn) {
+      for (const binding of this.commandShortcuts) {
+        if (matchesKey(data, binding.keyId)) {
+          void this.invokeCommand(binding.command, "");
+          return { consume: true };
+        }
       }
     }
     return undefined;
@@ -637,6 +716,11 @@ export class TerminalShell {
       ["/login [provider] [method]", "Authenticate with an API key or OAuth"],
       ["/exit", "Quit cetas-js"],
     ];
+    const usageLines = [
+      "  ESC — interrupt the running turn (denies a pending approval first)",
+      "  Typing while a turn runs stays live; Enter queues it as a follow-up",
+      "  /permission <mode> works mid-turn (readonly | workspace_write | interactive | yolo)",
+    ];
     const extensionLines = this.requireApp()
       .listCommands()
       .filter((descriptor) => !["model", "login"].includes(descriptor.id))
@@ -648,6 +732,9 @@ export class TerminalShell {
       ...(extensionLines.length === 0
         ? []
         : ["", theme.muted("Extension commands"), ...extensionLines]),
+      "",
+      theme.muted("During a turn"),
+      ...usageLines,
       "",
       theme.muted("Press any key to close"),
     ];
@@ -731,6 +818,10 @@ export class TerminalShell {
     }
     const name = match[1] as string;
     const tail = (match[2] ?? "").trim();
+    if (this.inTurn) {
+      this.addTranscriptChild(errorNotice(`$${name} waits until the running turn ends`));
+      return;
+    }
     if (this.commandBusy) {
       this.addTranscriptChild(errorNotice(`$${name} cannot run while another command is active`));
       return;
@@ -758,22 +849,7 @@ export class TerminalShell {
     const prompt =
       `<activated-skill name="${name}">\n${instructions}\n</activated-skill>\n\n` +
       (tail.length > 0 ? tail : "Follow the activated skill's instructions.");
-    const app = this.requireApp();
-    this.inTurn = true;
-    this.editor.disableSubmit = true;
-    this.addTranscriptChild(new UserMessage(input));
-    try {
-      await app.runTurn(prompt, this.sessionId);
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.addTranscriptChild(errorNotice(message));
-      this.tui.requestRender();
-    } finally {
-      this.inTurn = false;
-      this.editor.disableSubmit = false;
-      this.statusLoader.stop();
-      this.tui.requestRender();
-    }
+    await this.runTurnAndRender(this.requireApp(), prompt, new UserMessage(input));
   }
 
   /** Display-only skills browser: catalog metadata + discovery scope. */
@@ -872,6 +948,67 @@ export class TerminalShell {
     } else {
       await this.chooseLoginMethod(capability);
     }
+  }
+
+  /**
+   * Argument completion after "/cmd ". Generic path completes the first
+   * parameter that declares `choices` (e.g. /permission's action); `/login`
+   * has no static choices and instead lists live providers, then the chosen
+   * provider's methods.
+   */
+  private commandArgItems(
+    command: string,
+    argPrefix: string,
+  ): Array<{ label: string; detail: string; insert_text: string }> {
+    if (command === "login") return this.loginArgItems(argPrefix);
+    const descriptor = this.requireApp()
+      .listCommands()
+      .find(
+        (candidate) =>
+          candidate.id === command || candidate.aliases.includes(command),
+      );
+    if (descriptor === undefined) return [];
+    const param = descriptor.params.find(
+      (candidate) => candidate.choices !== undefined,
+    );
+    if (param === undefined || param.choices === undefined) return [];
+    return param.choices
+      .filter((choice) => choice.startsWith(argPrefix))
+      .map((choice) => ({
+        label: choice,
+        detail: `${descriptor.id} ${param.name} — ${param.description}`,
+        insert_text: `/${descriptor.id} ${choice}`,
+      }));
+  }
+
+  /** "/login [provider] [method]": provider ids first, then that provider's methods. */
+  private loginArgItems(
+    argPrefix: string,
+  ): Array<{ label: string; detail: string; insert_text: string }> {
+    const parts = argPrefix.split(/\s+/);
+    if (parts.length <= 1) {
+      const providerPrefix = parts[0] ?? "";
+      return this.loginCapabilities()
+        .filter((capability) => capability.id.startsWith(providerPrefix))
+        .map((capability) => ({
+          label: capability.id,
+          detail: capability.methods.map(authMethodLabel).join(" / "),
+          insert_text: `/login ${capability.id}`,
+        }));
+    }
+    const providerId = parts[0] ?? "";
+    const methodPrefix = parts[parts.length - 1] ?? "";
+    const capability = this.loginCapabilities().find(
+      (candidate) => candidate.id === providerId,
+    );
+    if (capability === undefined) return [];
+    return capability.methods
+      .filter((method) => method.startsWith(methodPrefix))
+      .map((method) => ({
+        label: method,
+        detail: authMethodLabel(method),
+        insert_text: `/login ${providerId} ${method}`,
+      }));
   }
 
   private loginCapabilities(): readonly ProviderAuthCapability[] {
@@ -1137,6 +1274,20 @@ function formatStructuredOutcome(value: unknown): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A turn interrupted via ESC. The bridge rejects in two shapes: from_async's
+ * AbortError when the coroutine cancel surfaces directly, or — the common
+ * path — a stringified `AgentError::Model(... Cancelled)` because the
+ * provider wraps the cancelled fetch as a transport failure. Both mean the
+ * user interrupted, not a real failure.
+ */
+function isAbortError(error: unknown): boolean {
+  if (error instanceof Error) {
+    return error.name === "AbortError" || error.message.includes("Cancelled");
+  }
+  return typeof error === "string" && error.includes("Cancelled");
 }
 
 function authMethodLabel(method: string): string {

@@ -13,6 +13,12 @@ export interface UiAutocompleteItem {
 export interface UiAutocompleteSource {
   trigger: string;
   kind: "command" | "file" | "model" | "custom";
+  /**
+   * Keep matching after the first space (e.g. "/cmd partial-arg"). The
+   * default rejects whitespace after the trigger so single-token sources
+   * never swallow argument text.
+   */
+  spanSpaces?: boolean;
   fetch(
     prefix: string,
     signal: AbortSignal,
@@ -36,6 +42,7 @@ function isTokenBoundary(text: string, index: number): boolean {
 function activePrefix(
   textBeforeCursor: string,
   trigger: string,
+  spanSpaces: boolean,
 ): { query: string; replacementPrefix: string } | null {
   const triggerIndex = textBeforeCursor.lastIndexOf(trigger);
   if (
@@ -45,7 +52,7 @@ function activePrefix(
     return null;
   }
   const replacementPrefix = textBeforeCursor.slice(triggerIndex);
-  if (/\s/.test(replacementPrefix.slice(trigger.length))) {
+  if (!spanSpaces && /\s/.test(replacementPrefix.slice(trigger.length))) {
     return null;
   }
   return {
@@ -127,7 +134,11 @@ export class UiRegistry implements AutocompleteProvider {
     }> = [];
     for (const { descriptor } of this.descriptors) {
       for (const source of descriptor.autocomplete) {
-        const prefix = activePrefix(textBeforeCursor, source.trigger);
+        const prefix = activePrefix(
+          textBeforeCursor,
+          source.trigger,
+          source.spanSpaces ?? false,
+        );
         if (prefix !== null) {
           matches.push({ source, ...prefix });
         }

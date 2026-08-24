@@ -35,8 +35,14 @@ type RawRuntimeLoginProvider = (
   cancelCheck: () => boolean,
   method: string,
 ) => Promise<string>;
-type RawRunTurn = (agent: unknown, prompt: string, sessionId: string) => Promise<string>;
+type RawRunTurn = (
+  agent: unknown,
+  prompt: string,
+  sessionId: string,
+  signal: AbortSignal,
+) => Promise<string>;
 type RawAbortTurn = (agent: unknown) => string;
+type RawEnqueueFollowUp = (agent: unknown, prompt: string) => string;
 type RawShutdown = (agent: unknown) => Promise<void>;
 type RawListCommands = (agent: unknown) => string;
 type RawInvokeCommand = (agent: unknown, id: string, argsJson: string) => Promise<string>;
@@ -59,6 +65,9 @@ const rawRuntimeLoginProvider = (moonbit as unknown as {
 }).cetas_js_runtime_login_provider;
 const rawRunTurn = moonbit.cetas_js_run_turn as unknown as RawRunTurn;
 const rawAbortTurn = moonbit.cetas_js_abort_turn as unknown as RawAbortTurn;
+const rawEnqueueFollowUp = (moonbit as unknown as {
+  cetas_js_enqueue_follow_up: RawEnqueueFollowUp;
+}).cetas_js_enqueue_follow_up;
 const rawShutdown = moonbit.cetas_js_shutdown as unknown as RawShutdown;
 const rawListCommands = moonbit.cetas_js_list_commands as unknown as RawListCommands;
 const rawInvokeCommand = moonbit.cetas_js_invoke_command as unknown as RawInvokeCommand;
@@ -127,12 +136,18 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
     );
   }
 
-  runTurn(agent: unknown, prompt: string, sessionId: string): Promise<string> {
-    return rawRunTurn(agent, prompt, sessionId);
+  runTurn(agent: unknown, prompt: string, sessionId: string, signal?: AbortSignal): Promise<string> {
+    // The MoonBit export takes the signal positionally; a fresh never-aborted
+    // controller keeps signal-less callers (tests, smoke) on the same path.
+    return rawRunTurn(agent, prompt, sessionId, signal ?? new AbortController().signal);
   }
 
   abortTurn(agent: unknown): string {
     return rawAbortTurn(agent);
+  }
+
+  enqueueFollowUp(agent: unknown, prompt: string): string {
+    return rawEnqueueFollowUp(agent, prompt);
   }
 
   shutdown(agent: unknown): Promise<void> {

@@ -672,6 +672,182 @@ describe("CetasApplication", () => {
     expect(app.interruptActiveTurn()).toBe(false);
   });
 
+  test("runTurn passes a live signal and interruptActiveTurn aborts it", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    let markTurnStarted!: () => void;
+    let releaseTurn!: () => void;
+    const turnStarted = new Promise<void>((resolve) => {
+      markTurnStarted = resolve;
+    });
+    const turnReleased = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+    let seenSignal: AbortSignal | undefined;
+    const base = bridgeFor(
+      {
+        providers: [
+          {
+            id: "deepseek/chat",
+            label: "DeepSeek Chat",
+            provider: "deepseek",
+            model: "deepseek-chat",
+            active: true,
+            efforts: [],
+            oauth: false,
+          },
+        ],
+        oauthProviders: [],
+      },
+      counters,
+    );
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        runTurn: (_agent, _prompt, _sessionId, signal) => {
+          seenSignal = signal;
+          markTurnStarted();
+          return turnReleased.then(() => "partial reply");
+        },
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    await app.start();
+    const turn = app.runTurn("hello");
+    await turnStarted;
+    expect(seenSignal).toBeDefined();
+    expect(seenSignal!.aborted).toBe(false);
+    expect(app.interruptActiveTurn()).toBe(true);
+    expect(seenSignal!.aborted).toBe(true);
+    releaseTurn();
+    await expect(turn).resolves.toBe("partial reply");
+  });
+
+  test("queueFollowUp maps bridge outcomes and requires an active turn", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    let markTurnStarted!: () => void;
+    let releaseTurn!: () => void;
+    const turnStarted = new Promise<void>((resolve) => {
+      markTurnStarted = resolve;
+    });
+    const turnReleased = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+    const enqueued: string[] = [];
+    let outcome = "Accepted(follow_up_1)";
+    const base = bridgeFor(
+      {
+        providers: [
+          {
+            id: "deepseek/chat",
+            label: "DeepSeek Chat",
+            provider: "deepseek",
+            model: "deepseek-chat",
+            active: true,
+            efforts: [],
+            oauth: false,
+          },
+        ],
+        oauthProviders: [],
+      },
+      counters,
+    );
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        runTurn: async () => {
+          markTurnStarted();
+          await turnReleased;
+          return "reply";
+        },
+        enqueueFollowUp: (_agent, prompt) => {
+          enqueued.push(prompt);
+          return outcome;
+        },
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    await app.start();
+    expect(() => app.queueFollowUp("orphan")).toThrow(CetasApplicationError);
+
+    const turn = app.runTurn("hello");
+    await turnStarted;
+    expect(app.queueFollowUp("first")).toBe("accepted");
+    outcome = "RejectedStale(reason=...)";
+    expect(app.queueFollowUp("second")).toBe("stale");
+    outcome = "RejectedQueueFull(depth=64)";
+    expect(app.queueFollowUp("third")).toBe("full");
+    expect(enqueued).toEqual(["first", "second", "third"]);
+
+    releaseTurn();
+    await turn;
+  });
+
+  test("invokeCommand allows /permission mid-turn and still rejects others", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    let markTurnStarted!: () => void;
+    let releaseTurn!: () => void;
+    const turnStarted = new Promise<void>((resolve) => {
+      markTurnStarted = resolve;
+    });
+    const turnReleased = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+    const invoked: string[] = [];
+    const base = bridgeFor(
+      {
+        providers: [
+          {
+            id: "deepseek/chat",
+            label: "DeepSeek Chat",
+            provider: "deepseek",
+            model: "deepseek-chat",
+            active: true,
+            efforts: [],
+            oauth: false,
+          },
+        ],
+        oauthProviders: [],
+      },
+      counters,
+    );
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        runTurn: async () => {
+          markTurnStarted();
+          await turnReleased;
+          return "reply";
+        },
+        invokeCommand: async (_agent, id) => {
+          invoked.push(id);
+          return JSON.stringify({ type: "success", feedback: `${id} ok` });
+        },
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    await app.start();
+    const turn = app.runTurn("hello");
+    await turnStarted;
+    await expect(app.invokeCommand("permission", JSON.stringify({ action: "yolo" })))
+      .resolves.toContain("permission ok");
+    await expect(app.invokeCommand("model")).rejects.toMatchObject({
+      code: "already_running",
+    });
+    expect(invoked).toEqual(["permission"]);
+
+    releaseTurn();
+    await turn;
+  });
+
   test("direct shutdown cancels pending OAuth and cleans up the Agent", async () => {
     const counters = { created: 0, runs: 0, shutdowns: 0 };
     let markLoginStarted!: () => void;

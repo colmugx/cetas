@@ -51,6 +51,39 @@ export class UserMessage extends Container {
 }
 
 /**
+ * User prompt queued as a follow-up on the running turn. Rendered dim with a
+ * "queued" marker; `promote()` restyles it in place once the Agent drains it
+ * at a turn boundary (each drained turn starts with a TurnStarted event).
+ */
+export class QueuedUserMessage extends Container {
+  private promoted = false;
+
+  constructor(private readonly prompt: string) {
+    super();
+    this.addChild(new Spacer(1));
+    const box = new Box(1, 0, (s) => theme.userMessageBg(s));
+    box.addChild(new Text(theme.muted(`> ${prompt} · queued`), 0, 0));
+    this.addChild(box);
+  }
+
+  promote(): void {
+    if (this.promoted) return;
+    this.promoted = true;
+    while (this.children.length > 1) {
+      this.children.pop();
+    }
+    const box = new Box(1, 0, (s) => theme.userMessageBg(s));
+    box.addChild(new Text(theme.user("> ") + this.prompt, 0, 0));
+    this.addChild(box);
+    this.invalidate();
+  }
+
+  override render(width: number): string[] {
+    return wrapUserLines(super.render(width));
+  }
+}
+
+/**
  * Finalized assistant message. Uses Markdown for rich formatting.
  *
  * Leading `Spacer(1)` separates it from the preceding block (user prompt,

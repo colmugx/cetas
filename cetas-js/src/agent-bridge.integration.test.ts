@@ -173,12 +173,14 @@ describe("long-lived cetas-js bridge", () => {
         agent,
         "first question",
         "integration-session",
+        new AbortController().signal,
       );
       expect(firstReply).toContain("first reply");
       const secondReply = await cetas_js_run_turn(
         agent,
         "follow-up",
         "integration-session",
+        new AbortController().signal,
       );
       expect(secondReply).toContain("second reply");
       expect(requests).toHaveLength(2);
@@ -264,7 +266,7 @@ describe("long-lived cetas-js bridge", () => {
     );
 
     try {
-      const turn = cetas_js_run_turn(agent, "question", "abort-session");
+      const turn = cetas_js_run_turn(agent, "question", "abort-session", new AbortController().signal);
       // Wait until the model request is actually in flight; aborting before
       // the run registers would be a stale rejection, not an interrupt.
       while (requests.length === 0) {
@@ -279,11 +281,105 @@ describe("long-lived cetas-js bridge", () => {
       // With no run active, a further abort is rejected as stale.
       expect(cetas_js_abort_turn(agent).startsWith("RejectedStale(")).toBe(true);
       // The long-lived agent still serves the next turn.
-      const reply = await cetas_js_run_turn(agent, "again", "abort-session");
+      const reply = await cetas_js_run_turn(agent, "again", "abort-session", new AbortController().signal);
       expect(reply).toContain("after abort reply");
       expect(requests).toHaveLength(2);
     } finally {
       await cetas_js_shutdown(agent);
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("run_turn signal abort interrupts an in-flight model request without the mailbox", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cetas-js-signal-"));
+    const home = await mkdtemp(join(tmpdir(), "cetas-js-signal-home-"));
+    cleanup.push(cwd, home);
+    const requests: string[] = [];
+    // The gate is never released before the abort: if the signal failed to
+    // cancel the turn coroutine, the turn promise would hang and this test
+    // would time out instead of settling.
+    let releaseModel!: () => void;
+    const modelGate = new Promise<void>((resolve) => {
+      releaseModel = resolve;
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_input, init) => {
+      if (init?.body === undefined || init.body === null) {
+        throw new Error("model request body is required");
+      }
+      requests.push(await readRequestBody(init.body));
+      await modelGate;
+      return new Response(
+        [
+          `data: ${JSON.stringify({ choices: [{ delta: { content: "late reply" } }] })}`,
+          `data: ${JSON.stringify({
+            choices: [{ finish_reason: "stop" }],
+            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+          })}`,
+          "",
+        ].join("\n\n"),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    }) as typeof fetch;
+
+    await mkdir(join(home, ".cetas"), { recursive: true });
+    await Bun.write(
+      join(home, ".cetas/settings.json"),
+      JSON.stringify({
+        providers: {
+          deepseek: {
+            api_key: "test-key",
+            base_url: "http://cetas.test/v1",
+            model: "scripted-model",
+          },
+        },
+      }),
+    );
+    const config = new (CetasJsConfig as unknown as new (
+      cwd: string,
+      maxToolRounds: number,
+      home: string,
+    ) => unknown)(cwd, 4, home);
+    const runtime = new (CetasJsRuntime as unknown as new (config: unknown) => unknown)(config);
+    const agent = await cetas_js_runtime_create_agent(
+      runtime,
+      () => undefined,
+      () => undefined,
+      async () => {
+        throw new Error("unexpected UI request in bridge test");
+      },
+      () => false,
+    );
+
+    try {
+      const controller = new AbortController();
+      const turn = cetas_js_run_turn(agent, "question", "signal-session", controller.signal);
+      // Wait until the model request is actually in flight; aborting before
+      // the run registers would not exercise the in-flight path.
+      while (requests.length === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+      controller.abort();
+      // No mailbox abort and no model reply: the coroutine cancel alone must
+      // settle the turn promptly. The provider wraps the cancelled fetch as a
+      // transport ModelError, so the rejection is from_async's stringified
+      // `AgentError::Model(... Cancelled)` (or a direct AbortError if the
+      // cancel surfaces before the provider's catch).
+      const rejection = await turn.then(
+        () => {
+          throw new Error("expected the aborted turn to reject");
+        },
+        (error: unknown) => error,
+      );
+      const text =
+        rejection instanceof Error
+          ? `${rejection.name} ${rejection.message}`
+          : String(rejection);
+      expect(/Cancelled|AbortError/.test(text)).toBe(true);
+      releaseModel();
+    } finally {
+      releaseModel();
+      await cetas_js_shutdown(agent).catch(() => undefined);
       globalThis.fetch = originalFetch;
     }
   });

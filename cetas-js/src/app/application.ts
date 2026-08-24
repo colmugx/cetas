@@ -10,6 +10,13 @@ import {
   type ProviderSetupSnapshot,
 } from "./types.ts";
 
+/**
+ * Commands invocable while a turn is running. Membership requires that the
+ * command mutates only host-side policy state without touching the run loop,
+ * session, or provider catalogs.
+ */
+const MID_TURN_COMMANDS = new Set(["permission"]);
+
 export interface CetasApplicationOptions<AgentHandle = unknown> {
   bridge: CetasAgentBridge<AgentHandle>;
   config: CetasHostConfig;
@@ -55,6 +62,8 @@ export class CetasApplication<AgentHandle = unknown> {
   /** A startup catalog refresh is attempted at most once per app instance. */
   private startupRefreshAttempted = false;
   private activeTurn: Promise<string> | undefined;
+  /** Abort controller for the in-flight turn; aborting interrupts the model fetch. */
+  private activeAbort: AbortController | undefined;
   private activeCommand: Promise<string> | undefined;
   private readonly cancellation = new ApplicationCancellation();
   private shutdownPromise: Promise<void> | undefined;
@@ -341,12 +350,14 @@ export class CetasApplication<AgentHandle = unknown> {
     this.currentSessionId = sessionId;
     this.transition("running");
     const agent = this.agent;
+    const abort = new AbortController();
+    this.activeAbort = abort;
     const turnPromise = (async () => {
       try {
         // Install activeTurn before invoking the bridge, including for a
         // synchronous/re-entrant bridge implementation.
         await Promise.resolve();
-        return await this.options.bridge.runTurn(agent, prompt, sessionId);
+        return await this.options.bridge.runTurn(agent, prompt, sessionId, abort.signal);
       } catch (error: unknown) {
         this.lastError = errorMessage(error);
         this.publish();
@@ -356,6 +367,7 @@ export class CetasApplication<AgentHandle = unknown> {
         // the bridge turn was still unwinding; only a still-running turn may
         // transition back to ready.
         this.activeTurn = undefined;
+        if (this.activeAbort === abort) this.activeAbort = undefined;
         if ((this.state as AppState) === "running") this.transition("ready");
       }
     })();
@@ -365,6 +377,32 @@ export class CetasApplication<AgentHandle = unknown> {
     } finally {
       if (this.activeTurn === turnPromise) this.activeTurn = undefined;
     }
+  }
+
+  /**
+   * Queue a user message on the active run instead of starting a new turn.
+   * The Agent drains follow-ups one at a time at turn boundaries, driving a
+   * full new turn per message. `"stale"` means the run ended between the
+   * caller's check and this call — the caller should fall back to `runTurn`.
+   */
+  queueFollowUp(prompt: string): "accepted" | "stale" | "full" {
+    if (prompt.length === 0) {
+      throw new CetasApplicationError("invalid_state", "prompt must not be empty");
+    }
+    if (this.state === "shutting_down") {
+      throw new CetasApplicationError("shutting_down", "cannot queue a message after shutdown has begun");
+    }
+    if (this.activeTurn === undefined || this.agent === undefined) {
+      throw new CetasApplicationError("invalid_state", "no turn is active; use runTurn");
+    }
+    if (this.options.bridge.enqueueFollowUp === undefined) {
+      throw new CetasApplicationError("bridge_failure", "bridge does not support follow-up queuing");
+    }
+    const raw = this.options.bridge.enqueueFollowUp(this.agent, prompt);
+    if (raw.startsWith("Accepted")) return "accepted";
+    if (raw.startsWith("RejectedStale")) return "stale";
+    if (raw.startsWith("RejectedQueueFull")) return "full";
+    throw new CetasApplicationError("bridge_failure", `unexpected follow-up outcome: ${raw}`);
   }
 
   /**
@@ -412,10 +450,15 @@ export class CetasApplication<AgentHandle = unknown> {
       );
     }
     if (this.state === "running" || this.activeTurn !== undefined) {
-      throw new CetasApplicationError(
-        "already_running",
-        "cannot invoke a command while a turn is running",
-      );
+      // Allowlisted commands only touch host-side policy state (e.g.
+      // PermissionPolicy's mutable mode, re-read before every tool call), so
+      // they are safe to invoke mid-turn. Everything else still waits.
+      if (!MID_TURN_COMMANDS.has(id)) {
+        throw new CetasApplicationError(
+          "already_running",
+          "cannot invoke a command while a turn is running",
+        );
+      }
     }
     if (this.startPromise !== undefined) {
       throw new CetasApplicationError(
@@ -452,15 +495,20 @@ export class CetasApplication<AgentHandle = unknown> {
   }
 
   /**
-   * Request an abort of the active turn (ESC interrupt). The turn promise
-   * still settles normally — the bridge resolves it with the partial
-   * transcript once the run loop observes the abort at its next safe point.
+   * Request an abort of the active turn (ESC interrupt). The mailbox abort
+   * gives the loop its clean Cancelled path; the AbortController additionally
+   * cancels the turn coroutine so an in-flight model request stops streaming
+   * immediately. The turn promise settles with the partial transcript or, if
+   * cancellation lands past the final safe point, rejects with an AbortError.
    * Returns false when no turn is active or the bridge has no abort seam.
    */
   interruptActiveTurn(): boolean {
     if (this.activeTurn === undefined || this.agent === undefined) return false;
-    if (this.options.bridge.abortTurn === undefined) return false;
-    this.options.bridge.abortTurn(this.agent);
+    if (this.options.bridge.abortTurn === undefined && this.activeAbort === undefined) {
+      return false;
+    }
+    this.options.bridge.abortTurn?.(this.agent);
+    this.activeAbort?.abort();
     return true;
   }
 

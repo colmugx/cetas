@@ -46,7 +46,7 @@ pub(all) struct BlockingApprovalSource {
 }
 
 ///|
-pub fn BlockingApprovalSource::new(
+pub fn BlockingApprovalSource::BlockingApprovalSource(
   ui : &@posoco.UiPort,
 ) -> BlockingApprovalSource {
   { ui, }

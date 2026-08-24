@@ -52,7 +52,7 @@ fn approval_request() -> @permission.ApprovalRequest {
 ///|
 async test "approval ask presents the full decision space as a select" {
   let ui = fake_ui(reply=@port.UiResponse::Selected(0))
-  let source = BlockingApprovalSource::new(ui as &@posoco.UiPort)
+  let source = BlockingApprovalSource(ui as &@posoco.UiPort)
   match source.ask(approval_request()) {
     @permission.ApprovalDecision::AllowOnce => ()
     _ => fail("option 0 must approve this call only")
@@ -73,16 +73,13 @@ async test "approval ask presents the full decision space as a select" {
 ///|
 async test "approval ask maps the session and deny options" {
   let ui = fake_ui(reply=@port.UiResponse::Selected(1))
-  match
-    BlockingApprovalSource::new(ui as &@posoco.UiPort).ask(approval_request()) {
+  match BlockingApprovalSource(ui as &@posoco.UiPort).ask(approval_request()) {
     @permission.ApprovalDecision::AllowSession => ()
     _ => fail("option 1 must remember the approval for the session")
   }
   let deny_ui = fake_ui(reply=@port.UiResponse::Selected(2))
   match
-    BlockingApprovalSource::new(deny_ui as &@posoco.UiPort).ask(
-      approval_request(),
-    ) {
+    BlockingApprovalSource(deny_ui as &@posoco.UiPort).ask(approval_request()) {
     @permission.ApprovalDecision::Deny(reason~) =>
       assert_eq(reason, "user declined")
     _ => fail("option 2 must deny the call")
@@ -92,17 +89,14 @@ async test "approval ask maps the session and deny options" {
 ///|
 async test "approval ask fails closed on cancel and ui failure" {
   let ui = fake_ui(reply=@port.UiResponse::Cancelled)
-  match
-    BlockingApprovalSource::new(ui as &@posoco.UiPort).ask(approval_request()) {
+  match BlockingApprovalSource(ui as &@posoco.UiPort).ask(approval_request()) {
     @permission.ApprovalDecision::Deny(reason~) =>
       assert_eq(reason, "user cancelled")
     _ => fail("a cancelled ask must deny the call")
   }
   let failing = fake_ui(reply=@port.UiResponse::Selected(0), fail=true)
   match
-    BlockingApprovalSource::new(failing as &@posoco.UiPort).ask(
-      approval_request(),
-    ) {
+    BlockingApprovalSource(failing as &@posoco.UiPort).ask(approval_request()) {
     @permission.ApprovalDecision::Deny(reason~) =>
       assert_true(reason.contains("approval UI failed"))
     _ => fail("a broken approval UI must deny, not approve")
