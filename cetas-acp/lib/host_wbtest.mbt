@@ -62,7 +62,7 @@ priv struct FakeFs {
 }
 
 ///|
-fn FakeFs::new() -> FakeFs {
+fn FakeFs::FakeFs() -> FakeFs {
   { files: Map::from_array([]), fail_writes: false }
 }
 
@@ -173,7 +173,7 @@ fn tk_router_slot(
 /// The test router: `test/alpha` advertises low/high efforts, `test/beta`
 /// advertises none. `alpha` is the first slot, hence the default.
 fn tk_router() -> @llm.RouterModelPort raise @posoco.CompositionError {
-  @llm.RouterModelPort::new(slots=[
+  @llm.RouterModelPort(slots=[
     tk_router_slot("test/alpha", "Alpha", ["low", "high"]),
     tk_router_slot("test/beta", "Beta", []),
   ])
@@ -190,14 +190,14 @@ fn tk_host(
     [],
     Map::from_array([]),
   ),
-  fs? : FakeFs = FakeFs::new(),
+  fs? : FakeFs = FakeFs(),
   refreshables? : Array[&@llm.RefreshableProviderFactory] = [],
 ) -> (CetasAcpHost, @posoco.ScriptedModel) raise @posoco.CompositionError {
   let model = @posoco.ScriptedModel(steps)
-  let bridge = @ext_acp.AcpBridge::new()
+  let bridge = @ext_acp.AcpBridge()
   // Production wiring in miniature: the bridge translates approval asks
   // into ACP permission requests; the policy owns which tools ask.
-  let policy = @permission.PermissionPolicy::new(
+  let policy = @permission.PermissionPolicy(
     @permission.Interactive,
     approval=Some(bridge as &@permission.ApprovalSource),
   )
@@ -597,7 +597,7 @@ async test "new session advertises model and effort config options" {
 
 ///|
 async test "apply_config_option switches the model and persists flat keys" {
-  let fs = FakeFs::new()
+  let fs = FakeFs()
   fs.files["/cetas-home/.cetas/settings.json"] = "{\"providers\":{\"kimi\":{}}}"
   let router = tk_router()
   match
@@ -633,7 +633,7 @@ async test "apply_config_option switches the model and persists flat keys" {
 
 ///|
 async test "apply_config_option selects an effort and persists it" {
-  let fs = FakeFs::new()
+  let fs = FakeFs()
   let router = tk_router()
   match
     apply_config_option(
@@ -666,7 +666,7 @@ async test "apply_config_option selects an effort and persists it" {
 
 ///|
 async test "apply_config_option rejects unknown ids and invalid values" {
-  let fs = FakeFs::new()
+  let fs = FakeFs()
   let router = tk_router()
   match
     apply_config_option(
@@ -730,7 +730,7 @@ async test "apply_config_option rejects unknown ids and invalid values" {
 
 ///|
 async test "apply_config_option tolerates a persistence failure" {
-  let fs = FakeFs::new()
+  let fs = FakeFs()
   fs.fail_writes = true
   fs.files["/cetas-home/.cetas/settings.json"] = "{}"
   let router = tk_router()
@@ -751,7 +751,7 @@ async test "apply_config_option tolerates a persistence failure" {
 
 ///|
 async test "set_config_option switches, persists, and pushes an update" {
-  let fs = FakeFs::new()
+  let fs = FakeFs()
   fs.files["/cetas-home/.cetas/settings.json"] = "{}"
   let (host, _) = tk_host([], fs~)
   let client = FakeAcpClient::FakeAcpClient()
@@ -806,10 +806,10 @@ async test "set_config_option switches, persists, and pushes an update" {
 
 ///|
 async test "the model cache seeds the native assembly's router slots" {
-  let fs = FakeFs::new()
+  let fs = FakeFs()
   fs.files["/cetas-home/.cetas/settings.json"] = "{\"providers\":{\"opencode\":{\"api_key\":\"sk-zen-test\"}}}"
   fs.files["/cetas-home/.cetas/model_lists.json"] = "{\"opencode\":[{\"model_id\":\"claude-sonnet-5\",\"thinking_efforts\":[],\"default_effort\":null,\"context_window\":null},{\"model_id\":\"gpt-5.1-codex\",\"thinking_efforts\":[],\"default_effort\":null,\"context_window\":null}]}"
-  let bridge = @ext_acp.AcpBridge::new()
+  let bridge = @ext_acp.AcpBridge()
   let (_agent, router, _refreshables, _snapshot) = build_native_agent(
     home="/cetas-home",
     cwd="/",
@@ -829,10 +829,10 @@ async test "the model cache seeds the native assembly's router slots" {
 
 ///|
 async test "an unreadable model cache degrades to the static single slot" {
-  let fs = FakeFs::new()
+  let fs = FakeFs()
   fs.files["/cetas-home/.cetas/settings.json"] = "{\"providers\":{\"opencode\":{\"api_key\":\"sk-zen-test\"}}}"
   fs.files["/cetas-home/.cetas/model_lists.json"] = "{corrupt"
-  let bridge = @ext_acp.AcpBridge::new()
+  let bridge = @ext_acp.AcpBridge()
   let (_agent, router, _refreshables, _snapshot) = build_native_agent(
     home="/cetas-home",
     cwd="/",
@@ -848,7 +848,7 @@ async test "an unreadable model cache degrades to the static single slot" {
 
 ///|
 async test "refresh_model_lists swaps router slots, persists the cache, and pushes updates" {
-  let fs = FakeFs::new()
+  let fs = FakeFs()
   let refreshed = @llm.ProviderModelCatalog::ProviderModelCatalog(
     provider_id="test",
     slots=[
@@ -900,7 +900,7 @@ async test "refresh_model_lists swaps router slots, persists the cache, and push
 
 ///|
 async test "a failing refresh keeps the current slots and pushes nothing" {
-  let fs = FakeFs::new()
+  let fs = FakeFs()
   let factory : &@llm.RefreshableProviderFactory = FailingRefreshFactory::{
     fixed_id: "test",
   }

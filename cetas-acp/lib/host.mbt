@@ -63,15 +63,15 @@ pub struct CetasAcpHost {
 /// their child processes on it, so it must outlive the agent. `mcp_mode`
 /// selects when mcp.json servers connect: `Lazy` (default) at the first
 /// turn's lifecycle start, `Eager` right here at composition.
-pub async fn CetasAcpHost::new(
+pub async fn CetasAcpHost::CetasAcpHost(
   home~ : String,
   cwd~ : String,
   agent_version? : String = "0.1.0",
   mcp_group? : @async.TaskGroup[Unit],
   mcp_mode? : @mcp.LoadMode = @mcp.LoadMode::Lazy,
 ) -> CetasAcpHost raise @posoco.CompositionError {
-  let bridge = @ext_acp.AcpBridge::new()
-  let fs = @workspace.NativeWorkspaceFs::new()
+  let bridge = @ext_acp.AcpBridge()
+  let fs = @workspace.NativeWorkspaceFs()
   let (agent, router, refreshables, refresh_snapshot) = build_native_agent(
     home~,
     cwd~,
@@ -131,7 +131,7 @@ impl @plan.PlanReviewSource for AcpPlanReview with fn review(
 /// router, and the fs the selection persists through. `refreshables` and
 /// `refresh_snapshot` drive the lazy model refresh; tests substitute fake
 /// refreshable factories here to exercise `refresh_model_lists` without a
-/// network. Production code uses `CetasAcpHost::new`.
+/// network. Production code uses `CetasAcpHost`.
 pub fn CetasAcpHost::of(
   agent~ : @posoco.Agent,
   bridge~ : @ext_acp.AcpBridge,
@@ -465,7 +465,7 @@ async fn build_native_agent(
   let ctx = @devkit.ExtContext::default()
   let factories = @cetas_core.all_provider_factories(ctx, settings)
   @cetas_core.validate_provider_settings(settings, factories)
-  let store = @credentials.FileProviderCredentialStore::new(
+  let store = @credentials.FileProviderCredentialStore(
     fs,
     home + "/.cetas/credentials",
   )
@@ -547,12 +547,12 @@ async fn build_native_agent(
       }
     _ => ()
   }
-  let sessions = @fs_session.JsonlSessionStore::new(home + "/.cetas/sessions")
+  let sessions = @fs_session.JsonlSessionStore(home + "/.cetas/sessions")
   // Context files (AGENTS.md / CLAUDE.md) are best-effort: a failure to
   // read them never blocks composition.
-  let loader = @context.ContextLoader::new(fs, home~)
+  let loader = @context.ContextLoader(fs, home~)
   let bundle = loader.load(cwd) catch { _ => @context.ContextBundle::empty() }
-  let context_contributor = @context.ContextPromptContributor::new(
+  let context_contributor = @context.ContextPromptContributor(
     bundle~,
     envelope="cetas-context",
   )
@@ -576,12 +576,12 @@ async fn build_native_agent(
   // are pre-approved; side-effecting tools go through the client's
   // decision UI. "Always allow" is remembered per the policy's call-shape
   // cache for the rest of the agent lifetime.
-  let permission_policy = @permission.PermissionPolicy::new(
+  let permission_policy = @permission.PermissionPolicy(
     @permission.Interactive,
     approval=Some(bridge as &@permission.ApprovalSource),
   )
   let acp_plan_review = AcpPlanReview::{ bridge, }
-  let plan_mode = @plan.PlanMode::new(
+  let plan_mode = @plan.PlanMode(
     config={
       ..@plan.PlanModeConfig::default()
       // ask_question rides the permission read class.
@@ -659,27 +659,21 @@ async fn build_native_agent(
   // Lazy activation changes the tool set mid-life, so the catalog is owned
   // by the runtime-seam source; MCP tool execution routes through the
   // decorator, everything else through the default port runtime.
-  let base_runtime = @runtime.PortRuntime::new(
+  let base_runtime = @runtime.PortRuntime(
     model=router as &@posoco.ModelPort,
     tools=routing,
   )
-  let runtime = @mcp.McpRuntime::new(
+  let runtime = @mcp.McpRuntime(
     bridge=mcp_bridge,
     fallback=base_runtime as &@runtime.Runtime,
   )
-  let catalog_source = @mcp.McpCatalogSource::new(
+  let catalog_source = @mcp.McpCatalogSource(
     bridge=mcp_bridge,
     base_tools=base_defs,
   )
   let agent = @posoco.Agent::with_runtime(
     exts~,
-    config={
-      max_tool_rounds: None,
-      temperature: None,
-      max_output_tokens: None,
-      model_context_window: None,
-      compact_threshold: None,
-    },
+    config=@cetas_core.default_agent_config(),
     runtime=runtime as &@runtime.Runtime,
     catalog_source=catalog_source as &@runtime.CatalogSource,
   )

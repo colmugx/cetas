@@ -41,7 +41,7 @@ async fn main {
   // their child processes on it, and the group ends (cancelling them) only
   // at stdin EOF.
   @async.with_task_group(group => {
-    let host = @lib.CetasAcpHost::new(
+    let host = @lib.CetasAcpHost(
       home~,
       cwd~,
       agent_version=CETAS_ACP_VERSION,
