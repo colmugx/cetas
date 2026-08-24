@@ -41,7 +41,7 @@ pub(all) struct ProfileCommand {
 }
 
 ///|
-pub fn ProfileCommand::new(
+pub fn ProfileCommand::ProfileCommand(
   ui : &@posoco.UiPort,
   list_profiles~ : () -> Array[ProfileSpec],
   on_load~ : (String) -> Unit,

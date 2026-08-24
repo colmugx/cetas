@@ -21,12 +21,12 @@
 pub fn provider_factories(
   ctx : @devkit.ExtContext,
 ) -> Array[&@llm.ProviderFactory] {
-  let deepseek = @deepseek.DeepSeekProvider::new(ctx~)
-  let kimi = @kimi.KimiProvider::new(ctx~)
-  let openai = @openai.OpenAIProvider::new()
-  let opencode_zen = @opencode_zen.OpenCodeZenProvider::new(ctx~)
-  let zai = @zai.ZaiProvider::new(ctx~)
-  let openrouter = @openrouter.OpenRouterProvider::new(ctx~)
+  let deepseek = @deepseek.DeepSeekProvider(ctx~)
+  let kimi = @kimi.KimiProvider(ctx~)
+  let openai = @openai.OpenAIProvider()
+  let opencode_zen = @opencode_zen.OpenCodeZenProvider(ctx~)
+  let zai = @zai.ZaiProvider(ctx~)
+  let openrouter = @openrouter.OpenRouterProvider(ctx~)
   [
     deepseek as &@llm.ProviderFactory,
     kimi as &@llm.ProviderFactory,
@@ -68,7 +68,7 @@ pub fn compatible_provider_factories(
     // a traversal id here.
     if !claimed.contains(provider_id) && valid_provider_id(provider_id) {
       factories.push(
-        @openai_compatible.OpenAICompatibleProvider::new(provider_id, ctx~),
+        @openai_compatible.OpenAICompatibleProvider(provider_id, ctx~),
       )
     }
   }
@@ -119,12 +119,12 @@ pub fn all_api_key_factories(
 pub fn api_key_factories(
   ctx : @devkit.ExtContext,
 ) -> Array[&@llm.ApiKeyFactory] {
-  let deepseek = @deepseek.DeepSeekProvider::new(ctx~)
-  let kimi = @kimi.KimiProvider::new(ctx~)
-  let openai = @openai.OpenAIProvider::new()
-  let opencode_zen = @opencode_zen.OpenCodeZenProvider::new(ctx~)
-  let zai = @zai.ZaiProvider::new(ctx~)
-  let openrouter = @openrouter.OpenRouterApiKeyFactory::new()
+  let deepseek = @deepseek.DeepSeekProvider(ctx~)
+  let kimi = @kimi.KimiProvider(ctx~)
+  let openai = @openai.OpenAIProvider()
+  let opencode_zen = @opencode_zen.OpenCodeZenProvider(ctx~)
+  let zai = @zai.ZaiProvider(ctx~)
+  let openrouter = @openrouter.OpenRouterApiKeyFactory()
   [
     deepseek as &@llm.ApiKeyFactory,
     kimi as &@llm.ApiKeyFactory,
@@ -144,8 +144,8 @@ pub fn oauth_factories(
   ctx : @devkit.ExtContext,
   device_id? : String = "",
 ) -> Array[&@llm.OAuthFactory] {
-  let kimi = @kimi.KimiProvider::new(ctx~, device_id~)
-  let openai = @openai.OpenAIProvider::new()
+  let kimi = @kimi.KimiProvider(ctx~, device_id~)
+  let openai = @openai.OpenAIProvider()
   [kimi as &@llm.OAuthFactory, openai as &@llm.OAuthFactory]
 }
 
@@ -158,11 +158,11 @@ pub fn refreshable_factories(
   ctx : @devkit.ExtContext,
   device_id? : String = "",
 ) -> Array[&@llm.RefreshableProviderFactory] {
-  let deepseek = @deepseek.DeepSeekProvider::new(ctx~)
-  let kimi = @kimi.KimiProvider::new(ctx~, device_id~)
-  let openai = @openai.OpenAIProvider::new()
-  let opencode_zen = @opencode_zen.OpenCodeZenProvider::new(ctx~)
-  let openrouter = @openrouter.OpenRouterProvider::new(ctx~)
+  let deepseek = @deepseek.DeepSeekProvider(ctx~)
+  let kimi = @kimi.KimiProvider(ctx~, device_id~)
+  let openai = @openai.OpenAIProvider()
+  let opencode_zen = @opencode_zen.OpenCodeZenProvider(ctx~)
+  let openrouter = @openrouter.OpenRouterProvider(ctx~)
   [
     deepseek as &@llm.RefreshableProviderFactory,
     kimi as &@llm.RefreshableProviderFactory,

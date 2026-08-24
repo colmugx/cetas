@@ -28,7 +28,7 @@ fn cache_slot(
 
 ///|
 async test "read: a missing cache file is a normal empty state" {
-  match read_model_list_cache(FakeFs::new(), home="/cetas-home") {
+  match read_model_list_cache(FakeFs(), home="/cetas-home") {
     Ok(entries) => assert_true(entries.length() == 0)
     Err(message) => fail("missing file must be Ok(empty), got: " + message)
   }
@@ -36,13 +36,13 @@ async test "read: a missing cache file is a normal empty state" {
 
 ///|
 async test "read: malformed or failing reads degrade to Err, never raise" {
-  let malformed = FakeFs::new()
+  let malformed = FakeFs()
   malformed.files["/cetas-home/.cetas/model_lists.json"] = "{not json"
   match read_model_list_cache(malformed, home="/cetas-home") {
     Ok(_) => fail("malformed JSON must be Err")
     Err(message) => assert_true(message.contains("not valid JSON"))
   }
-  let failing = FakeFs::new()
+  let failing = FakeFs()
   failing.files["/cetas-home/.cetas/model_lists.json"] = "{}"
   failing.fail_ops["read_file"] = true
   match read_model_list_cache(failing, home="/cetas-home") {
@@ -53,7 +53,7 @@ async test "read: malformed or failing reads degrade to Err, never raise" {
 
 ///|
 async test "read: a non-object root parses to an empty cache" {
-  let fs = FakeFs::new()
+  let fs = FakeFs()
   fs.files["/cetas-home/.cetas/model_lists.json"] = "[1,2]"
   match read_model_list_cache(fs, home="/cetas-home") {
     Ok(entries) => assert_true(entries.length() == 0)
@@ -136,7 +136,7 @@ test "merge: replaces one provider and preserves unknown keys" {
 
 ///|
 async test "write: round-trips records and self-heals a malformed root" {
-  let fs = FakeFs::new()
+  let fs = FakeFs()
   write_model_list_cache(
     fs,
     home="/cetas-home",
@@ -178,7 +178,7 @@ async test "write: round-trips records and self-heals a malformed root" {
 
 ///|
 async test "write: a failing atomic write raises a typed composition error" {
-  let fs = FakeFs::new()
+  let fs = FakeFs()
   fs.fail_ops["write_file_atomic"] = true
   let result = Ok(
     write_model_list_cache(fs, home="/cetas-home", "opencode", Json::array([])),

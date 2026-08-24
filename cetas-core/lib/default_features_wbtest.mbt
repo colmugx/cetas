@@ -147,15 +147,18 @@ async test "default features include discovered skills through injected ctx" {
       assert_eq(manifest.commands.length(), 1)
     }
   }
-  // Nowledge Mem registers unconditionally: one ToolProvider with the seven
-  // default tools (memory_delete hidden), the passive MemoryPort view, and
-  // prompt guidance.
+  // Nowledge Mem registers unconditionally: one ToolProvider with the nine
+  // default tools (the five official MCP names plus posoco additions;
+  // memory_delete hidden), the passive MemoryPort view, the /memory
+  // command, and prompt guidance.
   for ext in exts {
     if ext.extension_id() == "posoco_ext_nowledge_mem" {
       let manifest = ext.manifest()
       assert_eq(manifest.tools.length(), 1)
-      assert_eq(manifest.tools[0].list_tools().length(), 7)
+      assert_eq(manifest.tools[0].list_tools().length(), 9)
       assert_eq(manifest.memory.length(), 1)
+      assert_eq(manifest.commands.length(), 1)
+      assert_eq(manifest.commands[0].commands()[0].id, "memory")
       assert_eq(manifest.prompt_contributors.length(), 1)
     }
   }

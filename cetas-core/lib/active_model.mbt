@@ -24,7 +24,7 @@ pub struct ActiveModelSelection {
 }
 
 ///|
-pub fn ActiveModelSelection::new(
+pub fn ActiveModelSelection::ActiveModelSelection(
   slot : String,
   effort? : String,
 ) -> ActiveModelSelection {

@@ -31,3 +31,10 @@ import {
 } for "wbtest"
 
 warnings = "-unused_package"
+
+// nowledge-mem (js+native only) caps this package to js+native, so moon
+// info's wasm backend can never regenerate an interface snapshot — the
+// nowledge-mem/plan/mcp precedent: restricted-target packages carry no
+// pkg.generated.mbti.
+
+supported_targets = "+native +js"

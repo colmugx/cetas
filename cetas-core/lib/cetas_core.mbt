@@ -55,7 +55,7 @@ pub fn Cetas::Cetas(
     base_prompt=cetas_base_system_prompt(),
     contributors=sections,
   )
-  let profile_command = ProfileCommand::new(
+  let profile_command = ProfileCommand(
     ui,
     list_profiles~,
     on_load~,
@@ -198,10 +198,10 @@ pub async fn build_default_features(
     @glob.GlobTools(),
     @grep.GrepTools(),
     @bash.ShellTools(),
-    @rtk.RTKHook::new("rtk", fn(cmd) { @rtk.default_rtk_rewrite("rtk", cmd) }),
+    @rtk.RTKHook("rtk", fn(cmd) { @rtk.default_rtk_rewrite("rtk", cmd) }),
   ]
   match
-    @skills.Skills::new(
+    @skills.Skills::discover(
       ctx.fs,
       cwd=ctx.cwd,
       home=ctx.home,
@@ -210,16 +210,16 @@ pub async fn build_default_features(
     Some(skills) => exts.push(skills as &@posoco.Extension)
     None => ()
   }
-  match @herdr.HerdrReporter::new() {
+  match @herdr.HerdrReporter::detect() {
     Some(reporter) => exts.push(reporter as &@posoco.Extension)
     None => ()
   }
   match ui {
     Some(port) =>
-      exts.push(@askquestion.AskQuestionTools::new(port) as &@posoco.Extension)
+      exts.push(@askquestion.AskQuestionTools(port) as &@posoco.Extension)
     None => ()
   }
-  let nmem = @nmem.NowledgeMem::new(
+  let nmem = @nmem.NowledgeMem(
     source_app="cetas",
     transport=@nmem.HttpNmemTransport::HttpNmemTransport()
       as &@nmem.NmemTransport,
@@ -231,4 +231,23 @@ pub async fn build_default_features(
   }
   exts.push(nmem as &@posoco.Extension)
   exts
+}
+
+///|
+/// The cetas default `AgentConfig`, single-sourced so every host (js, acp,
+/// headless, ...) ships the same product tuning: `temperature = Some(0.0)`
+/// for deterministic coding turns instead of provider-side defaults
+/// (modelports that forbid temperature, e.g. kimi k2.6 thinking, strip it
+/// themselves). Host-owned knobs pass through: `max_tool_rounds~ : None` is
+/// unbounded.
+pub fn default_agent_config(
+  max_tool_rounds? : Int? = None,
+) -> @posoco.AgentConfig {
+  {
+    max_tool_rounds,
+    temperature: Some(0.0),
+    max_output_tokens: None,
+    model_context_window: None,
+    compact_threshold: None,
+  }
 }

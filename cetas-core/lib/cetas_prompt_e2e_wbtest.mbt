@@ -15,7 +15,7 @@ async test "e2e: Cetas labels context contributor as project_context" {
   let store = @posoco.RecordingSessionStore::RecordingSessionStore()
   let observer = @posoco.RecordingObserver::RecordingObserver()
   let ui = @posoco.NoopUiPort::NoopUiPort()
-  let context_contributor = CetasContextStub::new(
+  let context_contributor = CetasContextStub(
     "/repo/AGENTS.md", "Build with: moon test",
   )
   // Cetas owns identity + prompt assembly + /profile. Profile callbacks are
@@ -129,16 +129,20 @@ async test "e2e: Cetas labels context contributor as project_context" {
 
 ///|
 /// Minimal stub implementing SystemPromptContributor that emits a
-/// <cetas-context> element. This mirrors ContextPromptContributor's output
-/// shape without requiring cetas-core to depend on posoco-ext-context
-/// (which would violate the target-agnostic constraint on this package).
+/// <cetas-context> element. Rendering goes through devkit's
+/// render_context_envelope — the same builder ContextPromptContributor uses —
+/// without requiring cetas-core to depend on posoco-ext-context (which would
+/// violate the target-agnostic constraint on this package).
 struct CetasContextStub {
   source : String
   content : String
 }
 
 ///|
-fn CetasContextStub::new(source : String, content : String) -> CetasContextStub {
+fn CetasContextStub::CetasContextStub(
+  source : String,
+  content : String,
+) -> CetasContextStub {
   { source, content }
 }
 
@@ -146,9 +150,11 @@ fn CetasContextStub::new(source : String, content : String) -> CetasContextStub 
 impl @posoco.SystemPromptContributor for CetasContextStub with fn system_prompt(
   self : CetasContextStub,
 ) -> String {
-  "<cetas-context type=\"project_instructions\" trust=\"false\" source=\"" +
-  self.source +
-  "\">\n" +
-  self.content +
-  "\n</cetas-context>"
+  @devkit.render_context_envelope(
+    envelope="cetas-context",
+    kind="project_instructions",
+    trust=false,
+    source=self.source,
+    content=self.content,
+  )
 }

@@ -12,7 +12,7 @@ priv struct FakeFs {
 }
 
 ///|
-fn FakeFs::new() -> FakeFs {
+fn FakeFs::FakeFs() -> FakeFs {
   { files: Map::from_array([]), fail_ops: Map::from_array([]) }
 }
 
@@ -209,7 +209,7 @@ test "resolve: a live selection wins over slot order" {
 
 ///|
 async test "read: missing file is no selection, malformed file is loud" {
-  let fs = FakeFs::new()
+  let fs = FakeFs()
   assert_true(read_active_model_selection(fs, home="/h") is None)
   fs.files["/h/.cetas/settings.json"] = "not json"
   try read_active_model_selection(fs, home="/h") catch {
@@ -232,12 +232,12 @@ fn tk_object_fields(json : Json, what~ : String) -> Map[String, Json] raise {
 
 ///|
 async test "write/read round-trip preserves unknown keys and drops effort on None" {
-  let fs = FakeFs::new()
+  let fs = FakeFs()
   fs.files["/h/.cetas/settings.json"] = "{\"providers\":{\"kimi\":{}},\"unknown\":1,\"model\":\"old/a\",\"reasoning_effort\":\"low\"}"
   write_active_model_selection(
     fs,
     home="/h",
-    ActiveModelSelection::new("b/y", effort="high"),
+    ActiveModelSelection("b/y", effort="high"),
   )
   let written = @json.parse(fs.files["/h/.cetas/settings.json"]) catch {
     _ => fail("written settings must parse")
@@ -256,7 +256,7 @@ async test "write/read round-trip preserves unknown keys and drops effort on Non
     None => fail("expected to read back the written selection")
   }
   // effort=None removes the key instead of writing a null.
-  write_active_model_selection(fs, home="/h", ActiveModelSelection::new("b/y"))
+  write_active_model_selection(fs, home="/h", ActiveModelSelection("b/y"))
   let cleared = @json.parse(fs.files["/h/.cetas/settings.json"]) catch {
     _ => fail("written settings must parse")
   }
@@ -267,11 +267,11 @@ async test "write/read round-trip preserves unknown keys and drops effort on Non
 
 ///|
 async test "write: missing file starts from {} and malformed file is never clobbered" {
-  let fs = FakeFs::new()
+  let fs = FakeFs()
   write_active_model_selection(
     fs,
     home="/h",
-    ActiveModelSelection::new("a/x", effort="low"),
+    ActiveModelSelection("a/x", effort="low"),
   )
   let fresh = @json.parse(fs.files["/h/.cetas/settings.json"]) catch {
     _ => fail("fresh settings must parse")
@@ -281,11 +281,7 @@ async test "write: missing file starts from {} and malformed file is never clobb
   assert_true(fresh_fields.get("reasoning_effort") is Some(Json::String("low")))
   fs.files["/h/.cetas/settings.json"] = "{broken"
   try
-    write_active_model_selection(
-      fs,
-      home="/h",
-      ActiveModelSelection::new("a/x"),
-    )
+    write_active_model_selection(fs, home="/h", ActiveModelSelection("a/x"))
   catch {
     @posoco.CompositionError::ManifestSchemaError(detail~, ..) =>
       assert_true(detail.contains("not valid JSON"))
@@ -298,14 +294,10 @@ async test "write: missing file starts from {} and malformed file is never clobb
 
 ///|
 async test "write: fs failures surface as loud composition errors" {
-  let fs = FakeFs::new()
+  let fs = FakeFs()
   fs.fail_ops["write_file_atomic"] = true
   try
-    write_active_model_selection(
-      fs,
-      home="/h",
-      ActiveModelSelection::new("a/x"),
-    )
+    write_active_model_selection(fs, home="/h", ActiveModelSelection("a/x"))
   catch {
     @posoco.CompositionError::ManifestSchemaError(detail~, ..) =>
       assert_true(detail.contains("write failed"))
@@ -313,14 +305,14 @@ async test "write: fs failures surface as loud composition errors" {
   } noraise {
     _ => fail("expected fs write failure to raise")
   }
-  let read_fs = FakeFs::new()
+  let read_fs = FakeFs()
   read_fs.files["/h/.cetas/settings.json"] = "{}"
   read_fs.fail_ops["read_file"] = true
   try
     write_active_model_selection(
       read_fs,
       home="/h",
-      ActiveModelSelection::new("a/x"),
+      ActiveModelSelection("a/x"),
     )
   catch {
     @posoco.CompositionError::ManifestSchemaError(detail~, ..) =>
