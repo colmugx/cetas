@@ -334,6 +334,7 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
           ("reason", Json::string(reason)),
         ]),
       )
+    @posoco.TurnEvent::StreamChunksDropped(_) => Json::object({})
   }
   json
 }
@@ -780,20 +781,37 @@ pub(all) struct CetasJsConfig {
   max_tool_rounds : Int
   home : String
   permission_mode : String
+  /// Root directory for session transcripts. An empty string (the bridge's
+  /// "host did not choose a layout" convention) resolves to the legacy flat
+  /// root `<home>/.cetas/sessions` in the constructor below.
+  sessions_dir : String
 }
 
 ///|
 /// Plain positional constructor — no labeled, no optional, no defaults.
 /// `permission_mode` is `"readonly" | "workspace_write" | "interactive" |
 /// "yolo"`; an unrecognized value falls back to `"workspace_write"` at policy
-/// assembly.
+/// assembly. An empty `sessions_dir` falls back to `<home>/.cetas/sessions`
+/// so callers that predate per-project session layout keep working.
 pub fn CetasJsConfig::CetasJsConfig(
   cwd : String,
   max_tool_rounds : Int,
   home : String,
   permission_mode : String,
+  sessions_dir : String,
 ) -> CetasJsConfig {
-  { cwd, max_tool_rounds, home, permission_mode }
+  let resolved_sessions_dir = if sessions_dir == "" {
+    home + "/.cetas/sessions"
+  } else {
+    sessions_dir
+  }
+  {
+    cwd,
+    max_tool_rounds,
+    home,
+    permission_mode,
+    sessions_dir: resolved_sessions_dir,
+  }
 }
 
 ///|
@@ -840,6 +858,9 @@ pub struct CetasJsAgent {
   home : String
   /// The live observer channel, so persistence warnings reach the TS host.
   observer : JsCallbackObserver
+  /// Tool name → owning extension id, snapshotted once at composition so the
+  /// host can render `ext:tool_name` titles without per-event attribution.
+  tool_catalog : Map[String, String]
 }
 
 ///|
@@ -937,8 +958,10 @@ async fn warn_legacy_project_cetas(
 ///|
 /// Construct the long-lived cetas-js agent.
 ///
-/// Session transcripts are persisted below `<home>/.cetas/sessions`. All UI
-/// callbacks are mandatory; malformed callback responses fail the request.
+/// Session transcripts are persisted below `config.sessions_dir`, which
+/// defaults to the flat `<home>/.cetas/sessions` root when the host passes
+/// an empty value. All UI callbacks are mandatory; malformed callback
+/// responses fail the request.
 /// All durable state (credentials, settings, profiles, sessions) lives under
 /// the user's HOME, never the project working tree.
 pub fn cetas_js_create_agent(
@@ -955,6 +978,28 @@ pub fn cetas_js_create_agent(
     request_callback,
     cancel_check,
   )
+}
+
+///|
+/// Snapshot the tool name → owning extension id mapping from the fully
+/// assembled extension list. A provider-set provenance wins when it is
+/// non-empty and non-blank; the manifest id is the fallback. The core's
+/// `build_tool_routing` already fails composition on duplicate tool names,
+/// so entries cannot shadow each other.
+fn build_tool_catalog(exts : Array[&@posoco.Extension]) -> Map[String, String] {
+  let catalog : Map[String, String] = Map::from_array([])
+  for ext in exts {
+    let manifest = ext.manifest()
+    for provider in manifest.tools {
+      for def in provider.list_tools() {
+        catalog[def.name.to_string()] = match def.provenance {
+          Some(p) => if p.trim().length() > 0 { p } else { manifest.id }
+          None => manifest.id
+        }
+      }
+    }
+  }
+  catalog
 }
 
 ///|
@@ -977,9 +1022,7 @@ pub fn cetas_js_runtime_create_agent(
     let model = build_provider_router(
       runtime, cred_store, auth_interaction, observer,
     )
-    let store = @fs_session.JsonlSessionStore(
-      runtime.config.home + "/.cetas/sessions",
-    )
+    let store = @fs_session.JsonlSessionStore(runtime.config.sessions_dir)
     let profile_errors : Array[String] = []
     let ui = JsUiPort(render_callback, request_callback)
     // Load AGENTS.md / CLAUDE.md context files from home + cwd ancestor
@@ -1001,7 +1044,7 @@ pub fn cetas_js_runtime_create_agent(
     }
     let context_contributor = @context.ContextPromptContributor(
       bundle~,
-      envelope="cetas-context",
+      ns="cetas",
     )
     // Cetas product extension: identity + system-prompt assembly + /profile.
     let cetas = @cetas_core.Cetas(
@@ -1104,6 +1147,7 @@ pub fn cetas_js_runtime_create_agent(
       ) {
       exts.push(tool)
     }
+    let tool_catalog = build_tool_catalog(exts)
     // The JS FFI seam carries a plain Int (no optional arguments); the
     // bridge convention is `<= 0` = unbounded.
     let max_tool_rounds : Int? = if runtime.config.max_tool_rounds <= 0 {
@@ -1122,6 +1166,7 @@ pub fn cetas_js_runtime_create_agent(
       statusbar,
       home: runtime.config.home,
       observer,
+      tool_catalog,
     }
   }
 }
@@ -1537,17 +1582,71 @@ extern "js" fn js_signal_on_abort(
   #| (signal, cb) => signal.addEventListener("abort", cb, { once: true })
 
 ///|
+/// Parse the host-supplied image attachment JSON: an array of
+/// `{"media_type": "...", "data": "<base64|url>"}` objects. An empty string
+/// means no attachments. Malformed entries are skipped, not fatal — the
+/// `@path` text mention still reaches the model either way.
+fn parse_image_attachments(images_json : String) -> Array[@posoco.Content] {
+  let images : Array[@posoco.Content] = []
+  if images_json.trim().length() == 0 {
+    return images
+  }
+  let parsed = @json.parse(images_json) catch { _ => return images }
+  match parsed {
+    Json::Array(items) =>
+      for item in items {
+        match item {
+          Json::Object(fields) => {
+            let media_type = match fields.get("media_type") {
+              Some(Json::String(value)) => value
+              _ => continue
+            }
+            let data = match fields.get("data") {
+              Some(Json::String(value)) => value
+              _ => continue
+            }
+            images.push(@posoco.Content::Image(media_type~, data~))
+          }
+          _ => ()
+        }
+      }
+    _ => ()
+  }
+  images
+}
+
+///|
+/// Whether the active model slot advertises the `image_in` capability. The
+/// TS host calls this before attaching `@path` images: a "false" answer
+/// means attach nothing and warn (switch model via /model), matching the
+/// Codex CLI attach-time gate.
+pub fn cetas_js_active_model_supports_images(handle : CetasJsAgent) -> String {
+  let active_id = handle.router.active_slot_id()
+  for slot in handle.router.list_slots() {
+    if slot.id == active_id {
+      if slot.capabilities.contains("image_in") {
+        return "true"
+      }
+      return "false"
+    }
+  }
+  "false"
+}
+
+///|
 pub fn cetas_js_run_turn(
   handle : CetasJsAgent,
   prompt : String,
+  images_json : String,
   session_id : String,
   signal : @js_async.AbortSignal,
 ) -> @js_async.Promise[String] {
+  let images = parse_image_attachments(images_json)
   let promise = @js_async.Promise::from_async(abort_signal=signal) <| () => {
     let started = host_now_ms()
     handle.statusbar.set_session(session_id)
     let result : Result[String, Error] = Ok(
-      @cetas_core.run_prompt(handle.agent, prompt, session_id),
+      @cetas_core.run_prompt(handle.agent, prompt, session_id, images~),
     ) catch {
       err => Err(err)
     }
@@ -1597,10 +1696,13 @@ pub fn cetas_js_abort_turn(handle : CetasJsAgent) -> String {
 pub fn cetas_js_enqueue_follow_up(
   handle : CetasJsAgent,
   prompt : String,
+  images_json : String,
 ) -> String {
-  let message : @posoco.Message = @posoco.Message::UserMessage(content=[
-    @posoco.Content::Text(prompt),
-  ])
+  let blocks : Array[@posoco.Content] = [@posoco.Content::Text(prompt)]
+  for image in parse_image_attachments(images_json) {
+    blocks.push(image)
+  }
+  let message : @posoco.Message = @posoco.Message::UserMessage(content=blocks)
   handle.agent.control().enqueue_follow_up(message).to_string()
 }
 
@@ -1749,6 +1851,20 @@ pub fn cetas_js_list_commands(handle : CetasJsAgent) -> String {
     }
   }
   Json::array(defs).stringify()
+}
+
+///|
+/// The tool-name → extension-id catalog as a JSON object string, e.g.
+/// `{"memory_search":"posoco_ext_nowledge_mem", ...}`; `"{}"` when the
+/// composition contributes no tools. Synchronous: the catalog is a
+/// composition-time snapshot (see `cetas_js_runtime_create_agent`), so the
+/// TS host can render `ext:tool_name` titles without per-event attribution.
+pub fn cetas_js_tool_catalog(handle : CetasJsAgent) -> String {
+  let entries : Map[String, Json] = Map::from_array([])
+  for name, ext_id in handle.tool_catalog {
+    entries[name] = Json::string(ext_id)
+  }
+  Json::object(entries).stringify()
 }
 
 ///|

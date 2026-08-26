@@ -39,6 +39,8 @@ function makeTranscriptHarness() {
       renderCalls++;
     },
     cwd: "/tmp/fake",
+    toolLabel: (name) => name,
+    initialToolExpanded: () => false,
   };
   return { transcript, statusCalls, renderCalls, callbacks };
 }

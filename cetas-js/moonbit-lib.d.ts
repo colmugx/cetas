@@ -9,6 +9,8 @@ declare module "*/cetas-js/lib/lib.js" {
     maxToolRounds: number,
     home: string,
     permissionMode: string,
+    /** Session root; empty string falls back to `<home>/.cetas/sessions`. */
+    sessionsDir: string,
   ) => unknown;
   export const CetasJsRuntime: new (config: unknown) => unknown;
   export function cetas_js_runtime_create_agent(
@@ -34,16 +36,24 @@ declare module "*/cetas-js/lib/lib.js" {
   export function cetas_js_run_turn(
     agent: unknown,
     prompt: string,
+    imagesJson: string,
     sessionId: string,
     signal: AbortSignal,
   ): Promise<string>;
   export function cetas_js_abort_turn(agent: unknown): string;
-  export function cetas_js_enqueue_follow_up(agent: unknown, prompt: string): string;
+  export function cetas_js_active_model_supports_images(agent: unknown): string;
+  export function cetas_js_enqueue_follow_up(
+    agent: unknown,
+    prompt: string,
+    imagesJson: string,
+  ): string;
   export function cetas_js_shutdown(agent: unknown): Promise<void>;
   export function cetas_js_list_commands(agent: unknown): string;
+  export function cetas_js_tool_catalog(agent: unknown): string;
   export function cetas_js_invoke_command(
     agent: unknown,
     id: string,
     argsJson: string,
   ): Promise<string>;
+  export function cetas_js_list_workspace_files(config: unknown): Promise<string>;
 }

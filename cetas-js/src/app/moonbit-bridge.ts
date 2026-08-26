@@ -5,6 +5,7 @@ import type {
   CetasHostConfig,
   CancellationToken,
   CommandDescriptor,
+  ImageAttachment,
   ProviderAuthCapability,
   ProviderSetupSnapshot,
 } from "./types.ts";
@@ -14,6 +15,7 @@ type RawConfigConstructor = new (
   maxToolRounds: number,
   home: string,
   permissionMode: string,
+  sessionsDir: string,
 ) => unknown;
 type RawRuntimeConstructor = new (config: unknown) => unknown;
 
@@ -38,14 +40,22 @@ type RawRuntimeLoginProvider = (
 type RawRunTurn = (
   agent: unknown,
   prompt: string,
+  imagesJson: string,
   sessionId: string,
   signal: AbortSignal,
 ) => Promise<string>;
 type RawAbortTurn = (agent: unknown) => string;
-type RawEnqueueFollowUp = (agent: unknown, prompt: string) => string;
+type RawEnqueueFollowUp = (
+  agent: unknown,
+  prompt: string,
+  imagesJson: string,
+) => string;
+type RawActiveModelSupportsImages = (agent: unknown) => string;
 type RawShutdown = (agent: unknown) => Promise<void>;
 type RawListCommands = (agent: unknown) => string;
+type RawToolCatalog = (agent: unknown) => string;
 type RawInvokeCommand = (agent: unknown, id: string, argsJson: string) => Promise<string>;
+type RawListWorkspaceFiles = (config: unknown) => Promise<string>;
 
 const RawConfig = moonbit.CetasJsConfig as unknown as RawConfigConstructor;
 const RawRuntime = (moonbit as unknown as {
@@ -65,12 +75,19 @@ const rawRuntimeLoginProvider = (moonbit as unknown as {
 }).cetas_js_runtime_login_provider;
 const rawRunTurn = moonbit.cetas_js_run_turn as unknown as RawRunTurn;
 const rawAbortTurn = moonbit.cetas_js_abort_turn as unknown as RawAbortTurn;
+const rawActiveModelSupportsImages = (moonbit as unknown as {
+  cetas_js_active_model_supports_images: RawActiveModelSupportsImages;
+}).cetas_js_active_model_supports_images;
 const rawEnqueueFollowUp = (moonbit as unknown as {
   cetas_js_enqueue_follow_up: RawEnqueueFollowUp;
 }).cetas_js_enqueue_follow_up;
 const rawShutdown = moonbit.cetas_js_shutdown as unknown as RawShutdown;
 const rawListCommands = moonbit.cetas_js_list_commands as unknown as RawListCommands;
+const rawToolCatalog = moonbit.cetas_js_tool_catalog as unknown as RawToolCatalog;
 const rawInvokeCommand = moonbit.cetas_js_invoke_command as unknown as RawInvokeCommand;
+const rawListWorkspaceFiles = (moonbit as unknown as {
+  cetas_js_list_workspace_files: RawListWorkspaceFiles;
+}).cetas_js_list_workspace_files;
 
 /**
  * Adapter for the generated MoonBit boundary. Provider settings and
@@ -80,6 +97,7 @@ const rawInvokeCommand = moonbit.cetas_js_invoke_command as unknown as RawInvoke
 export class MoonbitCetasAgentBridge implements CetasAgentBridge {
   private readonly configValue: unknown;
   private readonly runtimeValue: unknown;
+  private toolCatalogValue: Readonly<Record<string, string>> = {};
 
   constructor(config: CetasHostConfig) {
     this.configValue = new RawConfig(
@@ -87,8 +105,19 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
       config.maxToolRounds,
       config.home,
       config.permissionMode ?? "workspace_write",
+      // Empty string is the bridge's "not chosen" convention; the MoonBit
+      // constructor then falls back to `<home>/.cetas/sessions`.
+      config.sessionsDir ?? "",
     );
     this.runtimeValue = new RawRuntime(this.configValue);
+  }
+
+  /**
+   * Tool name → owning extension id, snapshotted at agent creation. Empty
+   * until `createAgent` resolves; parsing failures degrade to `{}`.
+   */
+  get toolLabels(): Readonly<Record<string, string>> {
+    return this.toolCatalogValue;
   }
 
   async describeSetup(_config: CetasHostConfig): Promise<ProviderSetupSnapshot> {
@@ -105,18 +134,20 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
     return parseProviderSetup(raw);
   }
 
-  createAgent(
+  async createAgent(
     _config: CetasHostConfig,
     callbacks: AgentCallbacks,
     cancellation?: CancellationToken,
   ): Promise<unknown> {
-    return rawRuntimeCreateAgent(
+    const agent = await rawRuntimeCreateAgent(
       this.runtimeValue,
       callbacks.observerCallback,
       callbacks.renderCallback,
       callbacks.requestCallback,
       () => cancellation?.isCancelled() ?? false,
     );
+    this.toolCatalogValue = snapshotToolCatalog(agent);
+    return agent;
   }
 
   login(
@@ -136,18 +167,38 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
     );
   }
 
-  runTurn(agent: unknown, prompt: string, sessionId: string, signal?: AbortSignal): Promise<string> {
+  runTurn(
+    agent: unknown,
+    prompt: string,
+    sessionId: string,
+    signal?: AbortSignal,
+    images?: readonly ImageAttachment[],
+  ): Promise<string> {
     // The MoonBit export takes the signal positionally; a fresh never-aborted
     // controller keeps signal-less callers (tests, smoke) on the same path.
-    return rawRunTurn(agent, prompt, sessionId, signal ?? new AbortController().signal);
+    return rawRunTurn(
+      agent,
+      prompt,
+      imagesJsonFor(images),
+      sessionId,
+      signal ?? new AbortController().signal,
+    );
+  }
+
+  activeModelSupportsImages(agent: unknown): boolean {
+    return rawActiveModelSupportsImages(agent) === "true";
   }
 
   abortTurn(agent: unknown): string {
     return rawAbortTurn(agent);
   }
 
-  enqueueFollowUp(agent: unknown, prompt: string): string {
-    return rawEnqueueFollowUp(agent, prompt);
+  enqueueFollowUp(
+    agent: unknown,
+    prompt: string,
+    images?: readonly ImageAttachment[],
+  ): string {
+    return rawEnqueueFollowUp(agent, prompt, imagesJsonFor(images));
   }
 
   shutdown(agent: unknown): Promise<void> {
@@ -160,6 +211,33 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
 
   invokeCommand(agent: unknown, id: string, argsJson: string): Promise<string> {
     return rawInvokeCommand(agent, id, argsJson);
+  }
+
+  listWorkspaceFiles(_config: CetasHostConfig): Promise<string> {
+    return rawListWorkspaceFiles(this.configValue);
+  }
+}
+
+function imagesJsonFor(images?: readonly ImageAttachment[]): string {
+  return images === undefined || images.length === 0
+    ? "[]"
+    : JSON.stringify(images);
+}
+
+// Intentionally lenient unlike the strict parsers below: the catalog only
+// feeds display titles, so any failure degrades to an empty mapping instead
+// of failing agent creation.
+function snapshotToolCatalog(agent: unknown): Record<string, string> {
+  try {
+    const value: unknown = JSON.parse(rawToolCatalog(agent));
+    if (!isRecord(value)) return {};
+    const catalog: Record<string, string> = {};
+    for (const [name, extId] of Object.entries(value)) {
+      if (typeof extId === "string") catalog[name] = extId;
+    }
+    return catalog;
+  } catch {
+    return {};
   }
 }
 

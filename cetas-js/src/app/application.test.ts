@@ -974,4 +974,50 @@ describe("CetasApplication", () => {
     expect(counters.shutdowns).toBe(1);
     expect(app.appState).toBe("shutting_down");
   });
+
+  test("workspace file index is bridge-delegated, Agent-free, and shutdown-gated", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const base = bridgeFor({ providers: [], oauthProviders: [] }, counters);
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        listWorkspaceFiles: async () => JSON.stringify(["src/", "src/agent.mbt", 7]),
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    await app.start();
+    // Needs-setup state: no Agent exists, the index still answers.
+    expect(counters.created).toBe(0);
+    expect(await app.listWorkspaceFiles()).toEqual(["src/", "src/agent.mbt"]);
+    await app.shutdown();
+    await expect(app.listWorkspaceFiles()).rejects.toThrow("after shutdown");
+  });
+
+  test("workspace file index degrades to empty without bridge support", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const app = new CetasApplication({
+      bridge: bridgeFor({ providers: [], oauthProviders: [] }, counters),
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    expect(await app.listWorkspaceFiles()).toEqual([]);
+  });
+
+  test("workspace file index rejects a malformed bridge payload", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const base = bridgeFor({ providers: [], oauthProviders: [] }, counters);
+    const app = new CetasApplication({
+      bridge: { ...base, listWorkspaceFiles: async () => "{\"files\":[]}" },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    await expect(app.listWorkspaceFiles()).rejects.toThrow("must be a JSON array");
+  });
 });

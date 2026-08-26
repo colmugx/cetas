@@ -44,7 +44,9 @@ describe("long-lived cetas-js bridge", () => {
       cwd: string,
       maxToolRounds: number,
       home: string,
-    ) => unknown)(cwd, 4, home);
+      permissionMode: string,
+      sessionsDir: string,
+    ) => unknown)(cwd, 4, home, "workspace_write", "");
     const runtime = new (CetasJsRuntime as unknown as new (config: unknown) => unknown)(config);
 
     await expect(
@@ -65,7 +67,14 @@ describe("long-lived cetas-js bridge", () => {
     const requests: Array<Record<string, unknown>> = [];
     const replies = ["first reply", "second reply"];
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (_input, init) => {
+    globalThis.fetch = (async (input, init) => {
+      // Only the model endpoint is scripted. Other extensions share
+      // globalThis.fetch (nowledge-mem posts to a local service on turn
+      // boundaries); answer those with a 503 so they degrade silently
+      // instead of consuming scripted model replies.
+      if (!String(input).startsWith("http://cetas.test")) {
+        return new Response("service unavailable", { status: 503 });
+      }
       if (init?.body === undefined || init.body === null) {
         throw new Error("model request body is required");
       }
@@ -109,7 +118,9 @@ describe("long-lived cetas-js bridge", () => {
       cwd: string,
       maxToolRounds: number,
       home: string,
-    ) => unknown)(cwd, 4, home);
+      permissionMode: string,
+      sessionsDir: string,
+    ) => unknown)(cwd, 4, home, "workspace_write", "");
     const runtime = new (CetasJsRuntime as unknown as new (config: unknown) => unknown)(config);
     const events: unknown[] = [];
     const renders: Array<{ type?: string; render?: { key?: string } }> = [];
@@ -172,6 +183,7 @@ describe("long-lived cetas-js bridge", () => {
       const firstReply = await cetas_js_run_turn(
         agent,
         "first question",
+        "[]",
         "integration-session",
         new AbortController().signal,
       );
@@ -179,6 +191,7 @@ describe("long-lived cetas-js bridge", () => {
       const secondReply = await cetas_js_run_turn(
         agent,
         "follow-up",
+        "[]",
         "integration-session",
         new AbortController().signal,
       );
@@ -213,7 +226,14 @@ describe("long-lived cetas-js bridge", () => {
       releaseModel = resolve;
     });
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (_input, init) => {
+    globalThis.fetch = (async (input, init) => {
+      // Only the model endpoint is scripted. Other extensions share
+      // globalThis.fetch (nowledge-mem posts to a local service on turn
+      // boundaries); answer those with a 503 so they degrade silently
+      // instead of consuming scripted model replies.
+      if (!String(input).startsWith("http://cetas.test")) {
+        return new Response("service unavailable", { status: 503 });
+      }
       if (init?.body === undefined || init.body === null) {
         throw new Error("model request body is required");
       }
@@ -253,7 +273,9 @@ describe("long-lived cetas-js bridge", () => {
       cwd: string,
       maxToolRounds: number,
       home: string,
-    ) => unknown)(cwd, 4, home);
+      permissionMode: string,
+      sessionsDir: string,
+    ) => unknown)(cwd, 4, home, "workspace_write", "");
     const runtime = new (CetasJsRuntime as unknown as new (config: unknown) => unknown)(config);
     const agent = await cetas_js_runtime_create_agent(
       runtime,
@@ -266,7 +288,7 @@ describe("long-lived cetas-js bridge", () => {
     );
 
     try {
-      const turn = cetas_js_run_turn(agent, "question", "abort-session", new AbortController().signal);
+      const turn = cetas_js_run_turn(agent, "question", "[]", "abort-session", new AbortController().signal);
       // Wait until the model request is actually in flight; aborting before
       // the run registers would be a stale rejection, not an interrupt.
       while (requests.length === 0) {
@@ -281,7 +303,7 @@ describe("long-lived cetas-js bridge", () => {
       // With no run active, a further abort is rejected as stale.
       expect(cetas_js_abort_turn(agent).startsWith("RejectedStale(")).toBe(true);
       // The long-lived agent still serves the next turn.
-      const reply = await cetas_js_run_turn(agent, "again", "abort-session", new AbortController().signal);
+      const reply = await cetas_js_run_turn(agent, "again", "[]", "abort-session", new AbortController().signal);
       expect(reply).toContain("after abort reply");
       expect(requests).toHaveLength(2);
     } finally {
@@ -303,7 +325,14 @@ describe("long-lived cetas-js bridge", () => {
       releaseModel = resolve;
     });
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (_input, init) => {
+    globalThis.fetch = (async (input, init) => {
+      // Only the model endpoint is scripted. Other extensions share
+      // globalThis.fetch (nowledge-mem posts to a local service on turn
+      // boundaries); answer those with a 503 so they degrade silently
+      // instead of consuming scripted model replies.
+      if (!String(input).startsWith("http://cetas.test")) {
+        return new Response("service unavailable", { status: 503 });
+      }
       if (init?.body === undefined || init.body === null) {
         throw new Error("model request body is required");
       }
@@ -339,7 +368,9 @@ describe("long-lived cetas-js bridge", () => {
       cwd: string,
       maxToolRounds: number,
       home: string,
-    ) => unknown)(cwd, 4, home);
+      permissionMode: string,
+      sessionsDir: string,
+    ) => unknown)(cwd, 4, home, "workspace_write", "");
     const runtime = new (CetasJsRuntime as unknown as new (config: unknown) => unknown)(config);
     const agent = await cetas_js_runtime_create_agent(
       runtime,
@@ -353,7 +384,7 @@ describe("long-lived cetas-js bridge", () => {
 
     try {
       const controller = new AbortController();
-      const turn = cetas_js_run_turn(agent, "question", "signal-session", controller.signal);
+      const turn = cetas_js_run_turn(agent, "question", "[]", "signal-session", controller.signal);
       // Wait until the model request is actually in flight; aborting before
       // the run registers would not exercise the in-flight path.
       while (requests.length === 0) {

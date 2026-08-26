@@ -1,4 +1,6 @@
 export { CetasApplication } from "./application.ts";
+export { buildCetasHostConfig } from "./host-config.ts";
+export type { CetasHostConfigOverrides } from "./host-config.ts";
 export type {
   AgentCallbacks,
   AppSnapshot,

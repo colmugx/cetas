@@ -40,6 +40,10 @@ export interface EventRouterCallbacks {
   requestRender(): void;
   /** Current working dir — used as ToolRow context. */
   cwd: string;
+  /** Display label for a tool (e.g. `ext:name`); bare name when unknown. */
+  toolLabel(toolName: string): string;
+  /** Global ctrl+o state — new tool rows honor it from construction. */
+  initialToolExpanded(): boolean;
 }
 
 export class EventRouter {
@@ -226,8 +230,14 @@ export class EventRouter {
     toolName: string,
     args: unknown,
   ): void {
-    const row = new ToolRow(toolName, toolCallId, args, this.cb.cwd, () =>
-      this.cb.requestRender(),
+    const row = new ToolRow(
+      toolName,
+      toolCallId,
+      args,
+      this.cb.cwd,
+      () => this.cb.requestRender(),
+      this.cb.toolLabel(toolName),
+      this.cb.initialToolExpanded(),
     );
     this.toolRows.set(toolCallId, row);
     this.cb.addTranscriptChild(row);

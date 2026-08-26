@@ -15,6 +15,8 @@ import { theme } from "../../ui/theme.ts";
 import {
   argString,
   callBullet,
+  EXPANDED_MAX,
+  previewLines,
   statusBullet,
   toolTitle,
   truncateForPreview,
@@ -69,15 +71,17 @@ export const bashRenderer: ToolRenderer = {
   },
   renderResult(
     result,
-    _opts: ToolRenderResultOptions,
+    options: ToolRenderResultOptions,
     ctx: ToolRenderContext,
   ) {
     stopTimer(ctx);
     const cmd = argString(ctx.args, "cmd") || argString(ctx.args, "command");
-    const first = truncateForPreview(result.content.split("\n")[0] ?? "", 200);
+    const body = options.expanded
+      ? previewLines(result.content, EXPANDED_MAX)
+      : truncateForPreview(result.content.split("\n")[0] ?? "", 200);
     return new Text(
       `${statusBullet(result.isError ? "error" : "success")} ${toolTitle("bash")} ${theme.muted("$")} ${cmd}` +
-        (first ? `\n      ${theme.muted(first)}` : ""),
+        (body ? `\n      ${theme.muted(body)}` : ""),
       1,
       0,
     );

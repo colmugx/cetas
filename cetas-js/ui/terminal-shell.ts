@@ -29,14 +29,22 @@ import {
   type CetasHostConfig,
   type ProviderAuthCapability,
 } from "../src/app/index.ts";
+import { newSessionId } from "../src/app/session-id.ts";
 import { parseCetasEvent } from "../src/events.ts";
+import {
+  hasImageMention,
+  resolveImageAttachments,
+  type ImageAttachment,
+} from "../src/app/image-attachments.ts";
 import { EventRouter } from "../src/controllers/event-router.ts";
 import {
   errorNotice,
   systemNotice,
   QueuedUserMessage,
+  ToolRow,
   UserMessage,
 } from "../src/transcript/components.ts";
+import { ThinkingComponent } from "../src/transcript/thinking.ts";
 import { UiRegistry } from "../src/ui-registry.ts";
 import { registerBuiltinToolRenderers } from "../src/tool-renderers/index.ts";
 import {
@@ -54,6 +62,7 @@ import {
 } from "./skills-overlay.ts";
 import { OAuthOverlay } from "./oauth-overlay.ts";
 import { AuthPromptOverlay, parseAuthPromptRequest } from "./auth-prompt-overlay.ts";
+import { SessionsOverlay, listSessionEntries } from "./sessions-overlay.ts";
 import { theme } from "./theme.ts";
 
 const identity = (value: string): string => value;
@@ -74,10 +83,35 @@ const editorTheme: EditorTheme = {
 export interface TerminalShellOptions {
   tui: TUI;
   cwd: string;
+  /** Project sessions directory — `<home>/.cetas/sessions/--<encoded-cwd>--`. */
+  sessionsDir: string;
   maxToolRounds: number;
   initialSessionId: string;
+  /** Tool name → extension id (bridge tool catalog); labels tool rows. */
+  toolLabels?: ReadonlyMap<string, string>;
   /** Host-owned process exit hook; tests can leave it undefined. */
   onExit?: (code: number) => void;
+}
+
+/** `posoco_ext_nowledge_mem` → `nowledge-mem`; foreign ids pass through. */
+function displayExt(id: string): string {
+  if (!id.startsWith("posoco_ext_")) return id;
+  return id.slice("posoco_ext_".length).replace(/_/g, "-");
+}
+
+/**
+ * Row title for a tool: `ext:tool_name` when the owning extension's display
+ * name differs from the tool name; the bare `tool_name` otherwise (builtin
+ * `posoco_ext_read` owns `read` — that must not render as `read:read`) and
+ * when the catalog has no entry for the tool.
+ */
+export function toolDisplayLabel(
+  extId: string | undefined,
+  toolName: string,
+): string {
+  if (extId === undefined) return toolName;
+  const display = displayExt(extId);
+  return display === toolName ? toolName : `${display}:${toolName}`;
 }
 
 interface CommandOutcome {
@@ -138,6 +172,7 @@ export class TerminalShell {
   private app?: CetasApplication;
   private sessionId: string;
   private readonly cwd: string;
+  private readonly sessionsDir: string;
   private readonly onExit: (code: number) => void;
 
   private readonly transcript: Container;
@@ -156,11 +191,17 @@ export class TerminalShell {
   private readonly oauthOverlay: OAuthOverlay;
   private readonly authPromptOverlay: AuthPromptOverlay;
   private readonly skillsOverlay: SkillsOverlay;
+  private readonly sessionsOverlay: SessionsOverlay;
   /** Lazily fetched once: the skills catalog is snapshotted at agent composition. */
   private skillsAutocompleteItems?: ReadonlyArray<{ label: string; detail: string; insert_text: string }>;
+  /** Workspace file index for `@` mentions; TTL-cached because the walk is bounded but not free. */
+  private fileIndexItems?: readonly string[];
+  private fileIndexLoadedAt = 0;
 
   private inTurn = false;
   private commandBusy = false;
+  /** ctrl+o state — persists across messages; new tool rows inherit it. */
+  private toolOutputExpanded = false;
   /** Follow-up bubbles awaiting their TurnStarted; promoted oldest-first. */
   private readonly queuedPrompts: QueuedUserMessage[] = [];
   private commandShortcuts: ReadonlyArray<{ keyId: KeyId; command: string }> = [];
@@ -179,6 +220,7 @@ export class TerminalShell {
     }
     this.tui = options.tui;
     this.cwd = options.cwd;
+    this.sessionsDir = options.sessionsDir;
     this.sessionId = options.initialSessionId;
     this.onExit = options.onExit ?? (() => {});
     this.callbacks = {
@@ -248,12 +290,15 @@ export class TerminalShell {
     });
     this.authPromptOverlay = new AuthPromptOverlay(this.tui);
     this.skillsOverlay = new SkillsOverlay(this.tui);
+    this.sessionsOverlay = new SessionsOverlay(this.tui);
 
     this.router = new EventRouter({
       addTranscriptChild: (component) => this.addTranscriptChild(component),
       setStatus: (kind, message) => this.setTurnStatus(kind, message),
       requestRender: () => this.tui.requestRender(),
       cwd: this.cwd,
+      toolLabel: (name) => toolDisplayLabel(options.toolLabels?.get(name), name),
+      initialToolExpanded: () => this.toolOutputExpanded,
     });
 
     this.tui.addInputListener((data) => this.handleInput(data));
@@ -327,11 +372,41 @@ export class TerminalShell {
     if (prompt.length === 0) return;
 
     const app = this.requireApp();
+    const { images, paths } = await this.resolveImageMentions(app, prompt);
     if (this.inTurn) {
-      this.queueDuringTurn(app, prompt);
+      this.queueDuringTurn(app, prompt, images);
       return;
     }
-    await this.runTurnAndRender(app, prompt, new UserMessage(prompt));
+    await this.runTurnAndRender(app, prompt, new UserMessage(prompt, paths), images);
+  }
+
+  /**
+   * `@path` image mentions become inline attachments, gated on the active
+   * model's `image_in` capability: an image-incapable model attaches nothing
+   * and gets a visible warning (Codex-style attach-time gate) instead of a
+   * request the encoder must downgrade. Resolution problems are warnings,
+   * never submit failures — the text mention always goes out.
+   */
+  private async resolveImageMentions(
+    app: CetasApplication,
+    prompt: string,
+  ): Promise<{ images: ImageAttachment[]; paths: string[] }> {
+    if (!hasImageMention(prompt)) return { images: [], paths: [] };
+    if (!app.supportsImageInput()) {
+      this.addTranscriptChild(
+        systemNotice(
+          "⚠ the active model does not accept image input; @image mentions were not attached (switch with /model)",
+        ),
+      );
+      return { images: [], paths: [] };
+    }
+    const resolution = await resolveImageAttachments(prompt, this.cwd, () =>
+      app.listWorkspaceFiles(),
+    );
+    for (const warning of resolution.warnings) {
+      this.addTranscriptChild(systemNotice(`⚠ ${warning}`));
+    }
+    return { images: resolution.attachments, paths: resolution.paths };
   }
 
   /**
@@ -343,11 +418,12 @@ export class TerminalShell {
     app: CetasApplication,
     prompt: string,
     echo: Component,
+    images: readonly ImageAttachment[] = [],
   ): Promise<void> {
     this.inTurn = true;
     this.addTranscriptChild(echo);
     try {
-      await app.runTurn(prompt, this.sessionId);
+      await app.runTurn(prompt, this.sessionId, images.length > 0 ? images : undefined);
     } catch (error: unknown) {
       if (isAbortError(error)) {
         this.addTranscriptChild(systemNotice("⏹ interrupted"));
@@ -369,10 +445,17 @@ export class TerminalShell {
    * pending runTurn await; each drained turn's TurnStarted promotes one
    * bubble. `"stale"` (or the equivalent race) falls back to a fresh turn.
    */
-  private queueDuringTurn(app: CetasApplication, prompt: string): void {
+  private queueDuringTurn(
+    app: CetasApplication,
+    prompt: string,
+    images: readonly ImageAttachment[] = [],
+  ): void {
     const bubble = new QueuedUserMessage(prompt);
     try {
-      const outcome = app.queueFollowUp(prompt);
+      const outcome = app.queueFollowUp(
+        prompt,
+        images.length > 0 ? images : undefined,
+      );
       if (outcome === "full") {
         this.addTranscriptChild(
           errorNotice("follow-up queue is full (64); wait for the turn to finish"),
@@ -380,7 +463,7 @@ export class TerminalShell {
         return;
       }
       if (outcome === "stale") {
-        void this.runTurnAndRender(app, prompt, new UserMessage(prompt));
+        void this.runTurnAndRender(app, prompt, new UserMessage(prompt), images);
         return;
       }
       this.queuedPrompts.push(bubble);
@@ -557,8 +640,8 @@ export class TerminalShell {
             }
             const local = [
               ["/help", "Show slash commands"],
-              ["/clear", "Clear the transcript"],
               ["/new", "Start a new session"],
+              ["/sessions", "Browse and resume past sessions"],
               ["/model", "Select a model and effort"],
               ["/skills", "Browse discovered agent skills by scope"],
               ["/login", "Authenticate with a provider (API key or OAuth)"],
@@ -596,6 +679,27 @@ export class TerminalShell {
             return items.filter((item) => item.insert_text.slice(1).startsWith(prefix));
           },
         },
+        {
+          // `@path` file mention: candidates are the bridge's workspace file
+          // index (lazy, TTL-cached), ranked locally per keystroke. The path
+          // stays plain text in the submitted prompt — the model opens it with
+          // the read tool, guided by the system prompt.
+          trigger: "@",
+          kind: "file",
+          fetch: async (prefix, signal) => {
+            if (signal.aborted) return [];
+            const entries = await this.loadFileIndex(signal);
+            if (signal.aborted) return [];
+            return rankFileMentionItems(entries, prefix).map((path) => {
+              const isDir = path.endsWith("/");
+              return {
+                label: path,
+                detail: isDir ? "directory" : "",
+                insert_text: isDir ? `@${path}` : `@${path} `,
+              };
+            });
+          },
+        },
       ],
     });
     // The editor reads the provider's trigger characters once, at
@@ -622,6 +726,7 @@ export class TerminalShell {
       this.oauthOverlay.isActive ||
       this.authPromptOverlay.isActive ||
       this.skillsOverlay.isActive ||
+      this.sessionsOverlay.isActive ||
       this.providerPickerHandle !== undefined
     ) {
       return undefined;
@@ -635,6 +740,17 @@ export class TerminalShell {
     // model request immediately.
     if (this.inTurn && matchesKey(data, "escape")) {
       this.app?.interruptActiveTurn();
+      return { consume: true };
+    }
+    // Global collapse toggles (pi keymap parity): usable in and out of turns,
+    // but only after overlays had their chance above. Neither key is bound
+    // in pi-tui's editor defaults, so interception shadows no editor behavior.
+    if (matchesKey(data, "ctrl+t")) {
+      this.toggleThinkingCollapsed();
+      return { consume: true };
+    }
+    if (matchesKey(data, "ctrl+o")) {
+      this.toggleToolOutputExpanded();
       return { consume: true };
     }
     // Typing during a turn stays live — keys flow to the focused editor so
@@ -653,6 +769,23 @@ export class TerminalShell {
     return undefined;
   }
 
+  /** ctrl+t — collapse/expand every finalized thinking block. */
+  private toggleThinkingCollapsed(): void {
+    for (const child of this.transcript.children) {
+      if (child instanceof ThinkingComponent) child.toggleCollapsed();
+    }
+    this.tui.requestRender();
+  }
+
+  /** ctrl+o — collapse/expand every tool row; the state persists. */
+  private toggleToolOutputExpanded(): void {
+    this.toolOutputExpanded = !this.toolOutputExpanded;
+    for (const child of this.transcript.children) {
+      if (child instanceof ToolRow) child.setExpanded(this.toolOutputExpanded);
+    }
+    this.tui.requestRender();
+  }
+
   private async dispatchSlash(input: string): Promise<void> {
     const spaceIndex = input.indexOf(" ");
     const command = spaceIndex === -1 ? input : input.slice(0, spaceIndex);
@@ -662,21 +795,12 @@ export class TerminalShell {
       this.showHelp();
       return;
     }
-    if (command === "/clear") {
-      this.transcript.clear();
-      for (const component of banner("cetas-js", "transcript cleared")) {
-        this.transcript.addChild(component);
-      }
-      this.tui.terminal.clearScreen();
-      this.tui.requestRender(true);
-      return;
-    }
     if (command === "/new") {
       if (this.inTurn || this.commandBusy) {
         this.addTranscriptChild(errorNotice("/new cannot run while an operation is active"));
         return;
       }
-      const nextSession = `session-${Date.now()}`;
+      const nextSession = newSessionId();
       this.requireApp().setSession(nextSession);
       this.sessionId = nextSession;
       this.transcript.clear();
@@ -685,6 +809,10 @@ export class TerminalShell {
       }
       this.tui.terminal.clearScreen();
       this.tui.requestRender(true);
+      return;
+    }
+    if (command === "/sessions") {
+      this.openSessionsPicker();
       return;
     }
     if (command === "/exit" || command === "/quit") {
@@ -709,8 +837,8 @@ export class TerminalShell {
   private showHelp(): void {
     const commands = [
       ["/help", "Show slash commands"],
-      ["/clear", "Clear the transcript"],
       ["/new", "Start a new session"],
+      ["/sessions", "Browse and resume past sessions"],
       ["/model", "List models, then choose model + effort"],
       ["/skills", "Browse discovered agent skills ($name activates one)"],
       ["/login [provider] [method]", "Authenticate with an API key or OAuth"],
@@ -719,7 +847,10 @@ export class TerminalShell {
     const usageLines = [
       "  ESC — interrupt the running turn (denies a pending approval first)",
       "  Typing while a turn runs stays live; Enter queues it as a follow-up",
+      "  @path — autocomplete a workspace file (Tab/Enter applies it; the agent reads it)",
       "  /permission <mode> works mid-turn (readonly | workspace_write | interactive | yolo)",
+      "  ctrl+t — collapse/expand thinking blocks",
+      "  ctrl+o — collapse/expand tool output",
     ];
     const extensionLines = this.requireApp()
       .listCommands()
@@ -878,6 +1009,47 @@ export class TerminalShell {
   }
 
   /**
+   * `/sessions` — list this project's session transcripts and resume one.
+   * Entries are stat metadata from the sessions directory; picking one
+   * repoints the application at that session (the /new switch in reverse).
+   * Prior history is not replayed into the transcript — the session store
+   * feeds it to the model on the next turn.
+   */
+  private openSessionsPicker(): void {
+    if (this.inTurn || this.commandBusy) {
+      this.addTranscriptChild(errorNotice("/sessions cannot run while an operation is active"));
+      return;
+    }
+    this.commandBusy = true;
+    this.editor.disableSubmit = true;
+    try {
+      this.sessionsOverlay.open(
+        listSessionEntries(this.sessionsDir, this.sessionId),
+        (id) => this.resumeSession(id),
+        () => this.finishCommand(),
+      );
+    } catch (error: unknown) {
+      this.addTranscriptChild(errorNotice(`/sessions failed: ${errorMessage(error)}`));
+      this.finishCommand();
+    }
+  }
+
+  private resumeSession(sessionId: string): void {
+    if (sessionId === this.sessionId) {
+      this.addTranscriptChild(systemNotice("already in this session"));
+      return;
+    }
+    this.requireApp().setSession(sessionId);
+    this.sessionId = sessionId;
+    this.transcript.clear();
+    for (const component of banner("cetas-js", `resumed session ${sessionId}`)) {
+      this.transcript.addChild(component);
+    }
+    this.tui.terminal.clearScreen();
+    this.tui.requestRender(true);
+  }
+
+  /**
    * `$`-mention autocomplete items. The catalog is discovery metadata
    * snapshotted at agent composition, so one successful fetch per process is
    * enough; failures are not cached so a later keystroke can retry.
@@ -898,6 +1070,31 @@ export class TerminalShell {
       return items;
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * `@`-mention candidate index. One bridge walk is cached for
+   * `FILE_INDEX_TTL_MS`; a failed refresh (missing bridge support, walk
+   * failure) keeps the previous snapshot so mid-keystroke dropdowns stay
+   * stable instead of blinking empty.
+   */
+  private async loadFileIndex(signal: AbortSignal): Promise<readonly string[]> {
+    const now = Date.now();
+    if (
+      this.fileIndexItems !== undefined &&
+      now - this.fileIndexLoadedAt < FILE_INDEX_TTL_MS
+    ) {
+      return this.fileIndexItems;
+    }
+    try {
+      const items = await this.requireApp().listWorkspaceFiles();
+      if (signal.aborted) return this.fileIndexItems ?? [];
+      this.fileIndexItems = items;
+      this.fileIndexLoadedAt = now;
+      return items;
+    } catch {
+      return this.fileIndexItems ?? [];
     }
   }
 
@@ -1204,6 +1401,53 @@ export class TerminalShell {
     this.editor.disableSubmit = false;
     this.clearCommandStatus();
   }
+}
+
+/** How long one workspace walk serves `@`-mention queries before refresh. */
+const FILE_INDEX_TTL_MS = 30_000;
+const MAX_FILE_MENTION_ITEMS = 50;
+
+/**
+ * Rank `@`-mention candidates against the typed query (kimi-code-inspired):
+ * basename exact > basename prefix > basename contains > full-path contains;
+ * directories get +10 with a non-empty query; an empty query ranks by depth.
+ * Non-matching entries drop out; ties break dirs-first, then path order.
+ */
+export function rankFileMentionItems(
+  entries: readonly string[],
+  query: string,
+): string[] {
+  const lowerQuery = query.toLowerCase();
+  const scored: Array<{ path: string; score: number; isDir: boolean }> = [];
+  for (const entry of entries) {
+    const isDir = entry.endsWith("/");
+    const clean = isDir ? entry.slice(0, -1) : entry;
+    const base = clean.slice(clean.lastIndexOf("/") + 1).toLowerCase();
+    const full = clean.toLowerCase();
+    let score: number;
+    if (lowerQuery.length === 0) {
+      score = (isDir ? 120 : 100) - (clean.split("/").length - 1);
+    } else if (base === lowerQuery) {
+      score = 100;
+    } else if (base.startsWith(lowerQuery)) {
+      score = 80;
+    } else if (base.includes(lowerQuery)) {
+      score = 50;
+    } else if (full.includes(lowerQuery)) {
+      score = 30;
+    } else {
+      continue;
+    }
+    if (isDir && lowerQuery.length > 0) score += 10;
+    scored.push({ path: entry, score, isDir });
+  }
+  scored.sort(
+    (a, b) =>
+      b.score - a.score ||
+      Number(a.isDir) - Number(b.isDir) ||
+      (a.path < b.path ? -1 : a.path > b.path ? 1 : 0),
+  );
+  return scored.slice(0, MAX_FILE_MENTION_ITEMS).map((item) => item.path);
 }
 
 export function parsePositionalArgs(raw: string, command = ""): string {

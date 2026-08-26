@@ -7,6 +7,7 @@ import {
   type CetasHostConfig,
   type CancellationToken,
   type CommandDescriptor,
+  type ImageAttachment,
   type ProviderSetupSnapshot,
 } from "./types.ts";
 
@@ -313,8 +314,23 @@ export class CetasApplication<AgentHandle = unknown> {
     this.publish();
   }
 
+  /**
+   * Whether the active model accepts image input (`image_in` capability).
+   * Absent bridge support (older bundles) reads as `true` so the gate never
+   * blocks on a stale build; the encoder still downgrades safely.
+   */
+  supportsImageInput(): boolean {
+    if (this.agent === undefined) return false;
+    if (this.options.bridge.activeModelSupportsImages === undefined) return true;
+    return this.options.bridge.activeModelSupportsImages(this.agent);
+  }
+
   /** Execute one turn through the single long-lived Agent handle. */
-  async runTurn(prompt: string, sessionId = this.currentSessionId): Promise<string> {
+  async runTurn(
+    prompt: string,
+    sessionId = this.currentSessionId,
+    images?: readonly ImageAttachment[],
+  ): Promise<string> {
     if (prompt.length === 0) {
       throw new CetasApplicationError("invalid_state", "prompt must not be empty");
     }
@@ -357,7 +373,13 @@ export class CetasApplication<AgentHandle = unknown> {
         // Install activeTurn before invoking the bridge, including for a
         // synchronous/re-entrant bridge implementation.
         await Promise.resolve();
-        return await this.options.bridge.runTurn(agent, prompt, sessionId, abort.signal);
+        return await this.options.bridge.runTurn(
+          agent,
+          prompt,
+          sessionId,
+          abort.signal,
+          images,
+        );
       } catch (error: unknown) {
         this.lastError = errorMessage(error);
         this.publish();
@@ -385,7 +407,10 @@ export class CetasApplication<AgentHandle = unknown> {
    * full new turn per message. `"stale"` means the run ended between the
    * caller's check and this call — the caller should fall back to `runTurn`.
    */
-  queueFollowUp(prompt: string): "accepted" | "stale" | "full" {
+  queueFollowUp(
+    prompt: string,
+    images?: readonly ImageAttachment[],
+  ): "accepted" | "stale" | "full" {
     if (prompt.length === 0) {
       throw new CetasApplicationError("invalid_state", "prompt must not be empty");
     }
@@ -398,7 +423,7 @@ export class CetasApplication<AgentHandle = unknown> {
     if (this.options.bridge.enqueueFollowUp === undefined) {
       throw new CetasApplicationError("bridge_failure", "bridge does not support follow-up queuing");
     }
-    const raw = this.options.bridge.enqueueFollowUp(this.agent, prompt);
+    const raw = this.options.bridge.enqueueFollowUp(this.agent, prompt, images);
     if (raw.startsWith("Accepted")) return "accepted";
     if (raw.startsWith("RejectedStale")) return "stale";
     if (raw.startsWith("RejectedQueueFull")) return "full";
@@ -438,8 +463,32 @@ export class CetasApplication<AgentHandle = unknown> {
     return this.options.bridge.listCommands(this.agent);
   }
 
-  /** Invoke a provider/router command through the extension command port. */
-  async invokeCommand(id: string, argsJson = "{}"): Promise<string> {
+  /**
+   * One-shot workspace file index for `@`-mention autocomplete. Read-only and
+   * Agent-free, so — unlike commands — it stays available during setup
+   * discovery and mid-turn; only shutdown gates it. An empty result means the
+   * bridge offers no workspace index (caller degrades to no completion).
+   */
+  async listWorkspaceFiles(): Promise<readonly string[]> {
+    if (this.state === "shutting_down") {
+      throw new CetasApplicationError(
+        "shutting_down",
+        "cannot list workspace files after shutdown has begun",
+      );
+    }
+    if (this.options.bridge.listWorkspaceFiles === undefined) return [];
+    const raw = await this.options.bridge.listWorkspaceFiles(this.options.config);
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      throw new CetasApplicationError(
+        "bridge_failure",
+        "workspace file index must be a JSON array",
+      );
+    }
+    return parsed.filter((entry): entry is string => typeof entry === "string");
+  }
+
+  /** Invoke a provider/router command through the extension command port. */  async invokeCommand(id: string, argsJson = "{}"): Promise<string> {
     if (id.length === 0) {
       throw new CetasApplicationError("invalid_state", "command id must not be empty");
     }

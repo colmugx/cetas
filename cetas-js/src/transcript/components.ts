@@ -38,11 +38,19 @@ import type { BridgeMessage } from "../events.ts";
  * whole block so terminal scrollback sees the prompt boundary.
  */
 export class UserMessage extends Container {
-  constructor(text: string) {
+  /**
+   * `attachments` lists the workspace paths that were inlined as image
+   * blocks with this prompt; they render as one dim chip line so the echo
+   * matches what the model actually received.
+   */
+  constructor(text: string, attachments: readonly string[] = []) {
     super();
     this.addChild(new Spacer(1));
     const box = new Box(1, 0, (s) => theme.userMessageBg(s));
     box.addChild(new Text(theme.user("> ") + text, 0, 0));
+    if (attachments.length > 0) {
+      box.addChild(new Text(theme.muted(`🖼 attached: ${attachments.join(", ")}`), 0, 0));
+    }
     this.addChild(box);
   }
   override render(width: number): string[] {
@@ -124,7 +132,9 @@ export class AssistantMessage extends Container {
       }
       return;
     }
-    const line = theme.italic(theme.muted(`💭 ${trimmed.split("\n")[0]}`));
+    // Header-only, matching ThinkingComponent's collapsed header (no body —
+    // history replay is not interactive).
+    const line = theme.italic(theme.thinking(`💭 thought · ${trimmed.split("\n").length} lines`));
     if (this.reasoningText) {
       this.reasoningText.setText(line);
     } else {
@@ -151,6 +161,7 @@ export class ToolRow extends Container {
   private renderer = pickToolRenderer("fallback"); // set in constructor
   private result?: { content: string; isError: boolean; structured?: unknown };
   private finished = false;
+  private expanded: boolean;
 
   constructor(
     private readonly toolName: string,
@@ -158,12 +169,16 @@ export class ToolRow extends Container {
     args: unknown,
     cwd: string,
     invalidateParent: () => void,
+    toolLabel?: string,
+    expanded = false,
   ) {
     super();
     this.renderer = pickToolRenderer(toolName);
+    this.expanded = expanded;
     this.ctx = {
       toolCallId,
       toolName,
+      toolLabel: toolLabel ?? toolName,
       args,
       cwd,
       state: {},
@@ -188,6 +203,13 @@ export class ToolRow extends Container {
     this.rebuild();
   }
 
+  /** ctrl+o target: widen/narrow this row's result preview, then re-render. */
+  setExpanded(v: boolean): void {
+    if (this.expanded === v) return;
+    this.expanded = v;
+    this.rebuild();
+  }
+
   private rebuild(): void {
     // Keep the leading Spacer (index 0) — drop everything after.
     while (this.children.length > 1) {
@@ -197,7 +219,7 @@ export class ToolRow extends Container {
     if (this.finished && this.result) {
       comp = this.renderer.renderResult?.(
         this.result,
-        { expanded: false, isPartial: false },
+        { expanded: this.expanded, isPartial: false },
         this.ctx,
       ) ?? new Text(`  ${this.result.content.slice(0, 200)}`, 1, 0);
     } else {

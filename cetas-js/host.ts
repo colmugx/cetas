@@ -10,37 +10,46 @@
  *   bun host.ts
  */
 
-import { homedir } from "node:os";
-
 import { ProcessTerminal, TUI } from "@earendil-works/pi-tui";
 
-import { CetasApplication, type CetasHostConfig } from "./src/app/index.ts";
+import { buildCetasHostConfig, CetasApplication } from "./src/app/index.ts";
 import { MoonbitCetasAgentBridge } from "./src/app/moonbit-bridge.ts";
+import { newSessionId } from "./src/app/session-id.ts";
 import { TerminalShell } from "./ui/terminal-shell.ts";
 
 async function main(): Promise<void> {
-  const config: CetasHostConfig = {
-    cwd: process.cwd(),
-    // 0 = unbounded: the loop ends when the model stops calling tools or the
-    // user aborts; the kernel budget is opt-in safety.
-    maxToolRounds: 0,
-    home: homedir(),
+  const config = buildCetasHostConfig();
+  const sessionId = newSessionId();
+  const bridge = new MoonbitCetasAgentBridge(config);
+  // The shell is constructed before the agent exists, so it receives the
+  // mutable Map and the bridge's catalog is merged in on every state change
+  // (first "ready" publication and later recompositions). Tool rows only
+  // render during turns, which require the agent — late fill is safe.
+  const toolLabels = new Map<string, string>();
+  const syncToolLabels = (): void => {
+    for (const [name, ext] of Object.entries(bridge.toolLabels)) {
+      toolLabels.set(name, ext);
+    }
   };
-  const sessionId = `session-${Date.now()}`;
   const tui = new TUI(new ProcessTerminal());
   const shell = new TerminalShell({
     tui,
     cwd: config.cwd,
+    sessionsDir: config.sessionsDir,
     maxToolRounds: config.maxToolRounds,
     initialSessionId: sessionId,
+    toolLabels,
     onExit: (code) => process.exit(code),
   });
   const app = new CetasApplication({
-    bridge: new MoonbitCetasAgentBridge(config),
+    bridge,
     config,
     callbacks: shell.callbacks,
     initialSessionId: sessionId,
-    onStateChange: (snapshot) => shell.handleSnapshot(snapshot),
+    onStateChange: (snapshot) => {
+      syncToolLabels();
+      shell.handleSnapshot(snapshot);
+    },
   });
   shell.attachApplication(app);
   process.on("SIGINT", () => shell.requestShutdown(0));

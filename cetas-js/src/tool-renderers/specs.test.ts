@@ -30,6 +30,7 @@ function makeCtx(overrides: Partial<ToolRenderContext> = {}): ToolRenderContext 
   return {
     toolCallId: "tc_test",
     toolName: "grep",
+    toolLabel: "grep",
     args: {},
     cwd: "/tmp",
     state: {},
@@ -292,5 +293,35 @@ describe("ToolRow — toolCallId and structured threading", () => {
     row.setResult("Found 3 matches:\n", false, { summary: "3 matches", count: 3 });
     expect(capturedResult?.structured).toEqual({ summary: "3 matches", count: 3 });
     expect(capturedResult?.isError).toBe(false);
+  });
+
+  test("toolLabel defaults to toolName; explicit label reaches the renderer ctx", () => {
+    let seen: string | undefined;
+    registerToolRenderer("label-probe", {
+      renderCall(ctx) {
+        seen = ctx.toolLabel;
+        return new Text("probe", 1, 0);
+      },
+    });
+    new ToolRow("label-probe", "c1", {}, "/tmp", () => {});
+    expect(seen).toBe("label-probe");
+    new ToolRow("label-probe", "c2", {}, "/tmp", () => {}, "nowledge-mem:memory_search");
+    expect(seen).toBe("nowledge-mem:memory_search");
+  });
+
+  test("setExpanded(true) re-renders the result with expanded options", () => {
+    let expandedSeen: boolean | undefined;
+    registerToolRenderer("expand-probe", {
+      renderCall: () => new Text("probe call", 1, 0),
+      renderResult(_result, options) {
+        expandedSeen = options.expanded;
+        return new Text("probe result", 1, 0);
+      },
+    });
+    const row = new ToolRow("expand-probe", "call_43", {}, "/tmp", () => {});
+    row.setResult("content", false);
+    expect(expandedSeen).toBe(false);
+    row.setExpanded(true);
+    expect(expandedSeen).toBe(true);
   });
 });

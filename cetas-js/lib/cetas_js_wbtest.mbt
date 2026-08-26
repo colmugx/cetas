@@ -92,3 +92,19 @@ test "model refresh selector validates provider ids and deduplicates requests" {
 ///|
 /// Credential persistence (tagged record codec, file backend, atomic replace)
 /// lives in posoco-ext-credentials and is covered by its white-box tests.
+
+///|
+test "CetasJsConfig empty sessions_dir falls back to the flat home root" {
+  let config = CetasJsConfig::CetasJsConfig(
+    "/work", 0, "/home/u", "workspace_write", "",
+  )
+  assert_eq(config.sessions_dir, "/home/u/.cetas/sessions")
+}
+
+///|
+test "CetasJsConfig keeps an explicit sessions_dir" {
+  let config = CetasJsConfig::CetasJsConfig(
+    "/work", 0, "/home/u", "yolo", "/home/u/.cetas/sessions/--work--",
+  )
+  assert_eq(config.sessions_dir, "/home/u/.cetas/sessions/--work--")
+}

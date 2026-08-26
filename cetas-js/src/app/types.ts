@@ -28,6 +28,13 @@ export interface CetasHostConfig {
    * Unrecognized values fall back to `"workspace_write"`.
    */
   permissionMode?: "readonly" | "workspace_write" | "interactive" | "yolo";
+  /**
+   * Root directory for session transcripts. When omitted the MoonBit side
+   * falls back to the legacy flat layout `<home>/.cetas/sessions`; hosts
+   * that want pi's per-project layout pass
+   * `projectSessionsDir(home, cwd)` (see `./session-id.ts`).
+   */
+  sessionsDir?: string;
 }
 
 export interface ProviderModelCapability {
@@ -67,6 +74,12 @@ export interface AppSnapshot {
   setup: ProviderSetupSnapshot;
   sessionId: string;
   error?: string;
+}
+
+/** Wire-form inline image attachment (`media_type` + base64 `data`). */
+export interface ImageAttachment {
+  media_type: string;
+  data: string;
 }
 
 export interface AgentCallbacks {
@@ -117,12 +130,24 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
     method?: string,
   ): Promise<string>;
   /**
-   * Run one agent turn. `signal` aborts the turn immediately: the bridge
-   * cancels the turn coroutine, which interrupts the in-flight model request,
-   * and the returned Promise settles with the partial result or rejects with
-   * an AbortError. Callers that never abort may omit it.
+   * Inline image attachments for the turn, in the MoonBit bridge's wire form
+   * (`media_type` + base64 `data`). Appended after the prompt text block;
+   * the prompt's `@path` mentions stay for provenance.
    */
-  runTurn(agent: AgentHandle, prompt: string, sessionId: string, signal?: AbortSignal): Promise<string>;
+  runTurn(
+    agent: AgentHandle,
+    prompt: string,
+    sessionId: string,
+    signal?: AbortSignal,
+    images?: readonly ImageAttachment[],
+  ): Promise<string>;
+  /**
+   * Whether the active model slot advertises the `image_in` capability.
+   * Used as the attach-time gate: `false` means send no images and warn
+   * (switch model via /model). Absent on older bridges — callers treat that
+   * as "allow" so a stale bundle never blocks input.
+   */
+  activeModelSupportsImages?(agent: AgentHandle): boolean;
   /**
    * Request an abort of the agent's active run (the host's ESC interrupt).
    * Best-effort and synchronous: the run loop observes it at its next safe
@@ -137,10 +162,21 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
    * `EnqueueOutcome` string: `Accepted(...)`, `RejectedStale(...)` when no
    * run is active, or `RejectedQueueFull(depth=...)`.
    */
-  enqueueFollowUp?(agent: AgentHandle, prompt: string): string;
+  enqueueFollowUp?(
+    agent: AgentHandle,
+    prompt: string,
+    images?: readonly ImageAttachment[],
+  ): string;
   shutdown(agent: AgentHandle): Promise<void>;
   listCommands(agent: AgentHandle): readonly CommandDescriptor[];
   invokeCommand(agent: AgentHandle, id: string, argsJson: string): Promise<string>;
+  /**
+   * One-shot workspace file index (paths relative to `config.cwd`,
+   * directories with a trailing `/`) for `@`-mention autocomplete.
+   * Stateless and Agent-free: available before setup and mid-turn. Optional
+   * because test bridges may omit it; callers degrade to no `@` completion.
+   */
+  listWorkspaceFiles?(config: CetasHostConfig): Promise<string>;
 }
 
 export interface CommandParameter {

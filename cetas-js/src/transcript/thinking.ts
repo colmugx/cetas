@@ -3,7 +3,8 @@
  *
  * Two modes:
  *   - live: braille spinner + "thinking..." + last 3 lines of content
- *   - finalized: "💭 thought" header + full content in gray italic
+ *   - finalized: "💭 thought · N lines · ctrl+t …" header + collapsed
+ *     3-line preview (ctrl+t toggles full content)
  *
  * Live mode is for streaming reasoning tokens (stream_chunk kind="reasoning").
  * Finalized mode is for non-streaming message_end or after thinking is done.
@@ -15,6 +16,7 @@
 
 import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { theme } from "../../ui/theme.ts";
+import { previewLines } from "../tool-renderers/registry.ts";
 
 type ThinkingMode = "live" | "finalized";
 
@@ -27,6 +29,8 @@ export class ThinkingComponent extends Container {
   private contentText: string;
   private headerEl: Text;
   private bodyEl: Text;
+  /** Finalized-mode only: show the 3-line preview (true) or full content. */
+  private collapsed = true;
   private spinnerIndex = 0;
   private spinnerTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -85,12 +89,26 @@ export class ThinkingComponent extends Container {
     this.bodyEl.setText(this.buildBody());
   }
 
+  /** ctrl+t target: collapse/expand the finalized block. */
+  setCollapsed(v: boolean): void {
+    if (this.collapsed === v) return;
+    this.collapsed = v;
+    this.renderContent();
+    this.invalidate();
+  }
+
+  toggleCollapsed(): void {
+    this.setCollapsed(!this.collapsed);
+  }
+
   private buildHeader(): string {
     if (this.mode === "live") {
       const frame = BRAILLE_FRAMES[this.spinnerIndex];
       return theme.thinking(`${frame} thinking...`);
     }
-    return theme.thinking("💭 thought");
+    const lines = this.contentText.split("\n").length;
+    const hint = this.collapsed ? "ctrl+t 展开" : "ctrl+t 收起";
+    return theme.thinking(`💭 thought · ${lines} lines · ${hint}`);
   }
 
   private buildBody(): string {
@@ -101,7 +119,10 @@ export class ThinkingComponent extends Container {
       const preview = lines.slice(-PREVIEW_LINES).join("\n");
       return theme.thinking(preview);
     }
-    // Finalized: show full content
+    // Finalized: collapsed keeps the first PREVIEW_LINES with a tail count.
+    if (this.collapsed) {
+      return theme.thinking(previewLines(this.contentText, PREVIEW_LINES));
+    }
     return theme.thinking(this.contentText);
   }
 

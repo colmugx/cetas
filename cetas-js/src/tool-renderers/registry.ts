@@ -25,6 +25,8 @@ import {
 export interface ToolRenderContext {
   toolCallId: string;
   toolName: string;
+  /** Display name (may carry an `ext:` prefix); defaults to toolName. */
+  toolLabel: string;
   args: unknown;
   cwd: string;
   /** Mutable per-row state (e.g. start-time for bash duration display). */
@@ -116,6 +118,36 @@ export function truncateForPreview(s: string, max = 200): string {
   return oneLine.length > max ? oneLine.slice(0, max) + "…" : oneLine;
 }
 
+/** Defensive cap for expanded previews (ctrl+o) — never flood the screen. */
+export const EXPANDED_MAX = 50;
+
+/** Pretty-print when the payload is JSON on its own (nmem `--json` stdout). */
+function prettyIfJson(s: string): string {
+  const trimmed = s.trimStart();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      return JSON.stringify(JSON.parse(trimmed), null, 2);
+    } catch {
+      // Merely starts with a brace — keep the raw text.
+    }
+  }
+  return s;
+}
+
+/**
+ * Multi-line preview: keep newlines, pretty-print leading JSON, take the
+ * first `maxLines` lines and append `… (+N lines)` when N lines remain.
+ * Width needs no pre-wrapping — pi-tui Text word-wraps (and hard-breaks
+ * over-long tokens) at render time.
+ */
+export function previewLines(s: string, maxLines = 3): string {
+  const text = prettyIfJson(s);
+  const lines = text.split("\n");
+  if (lines.length <= maxLines) return text;
+  const rest = lines.length - maxLines;
+  return `${lines.slice(0, maxLines).join("\n")}\n… (+${rest} lines)`;
+}
+
 /**
  * Traffic-light bullet for tool rows — one glyph family (●), colored by
  * state: amber while the tool runs, green on success, red on error.
@@ -192,7 +224,7 @@ export function specRenderer(spec: ToolRowSpec): ToolRenderer {
     },
     renderResult(
       result: ToolRenderResultPayload,
-      _options: ToolRenderResultOptions,
+      options: ToolRenderResultOptions,
       ctx: ToolRenderContext,
     ): Component {
       const title = toolTitle(spec.title ?? ctx.toolName);
@@ -200,14 +232,21 @@ export function specRenderer(spec: ToolRowSpec): ToolRenderer {
       const line1 =
         `${statusBullet(result.isError ? "error" : "success")} ${title}` +
         (primary ? ` ${primary}` : "");
+      // Expanded (ctrl+o) keeps newlines instead of the 200-char one-line
+      // squeeze; the cap stays defensive rather than unlimited.
+      const contentPreview = options.expanded
+        ? previewLines(result.content, EXPANDED_MAX)
+        : truncateForPreview(result.content);
       const summary = result.isError
-        ? truncateForPreview(result.content, 200)
+        ? options.expanded
+          ? previewLines(result.content, EXPANDED_MAX)
+          : truncateForPreview(result.content, 200)
         : spec.summarize?.({
             content: result.content,
             structured: result.structured,
           }) ??
           summaryOf(result.structured) ??
-          truncateForPreview(result.content);
+          contentPreview;
       if (!summary) return new Text(line1, 1, 0);
       const indented = summary
         .split("\n")
