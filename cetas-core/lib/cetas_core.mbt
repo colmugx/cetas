@@ -52,7 +52,7 @@ pub fn Cetas::Cetas(
     )
   }
   let system_prompt_hook = @posoco.SystemPromptHook::SystemPromptHook(
-    base_prompt=cetas_base_system_prompt(),
+    base_prompt=cetas_base_system_prompt(project_name=basename(cwd)),
     contributors=sections,
   )
   let profile_command = ProfileCommand(
@@ -85,14 +85,23 @@ pub extend Cetas with @posoco.Extension::{extension_id, manifest}
 ///
 /// Extracts Text blocks from the response message; non-text blocks (Image)
 /// are skipped. Multi-block responses are joined with newlines.
+///
+/// `images~` appends inline image blocks after the prompt text (e.g. an
+/// `@path` mention the host resolved to bytes). The prompt text keeps the
+/// `@path` mention so provenance stays readable; the bytes ride the content
+/// array, which every downstream seam (session store, adapters) already
+/// carries.
 pub async fn run_prompt(
   agent : @posoco.Agent,
   prompt : String,
   session_id : String,
+  images? : Array[@posoco.Content] = [],
 ) -> String raise @posoco.AgentError {
-  let user_msg : @posoco.Message = @posoco.Message::UserMessage(content=[
-    @posoco.Content::Text(prompt),
-  ])
+  let blocks : Array[@posoco.Content] = [@posoco.Content::Text(prompt)]
+  for image in images {
+    blocks.push(image)
+  }
+  let user_msg : @posoco.Message = @posoco.Message::UserMessage(content=blocks)
   let result = agent.run_turn(user_msg, session_id)
   let builder = StringBuilder::new()
   // Extract Text blocks from the assistant's final message.
@@ -165,11 +174,15 @@ fn cetas_skills_config() -> @skills.SkillsConfig {
 /// passed by value; MoonBit structs are reference-backed, so its map is
 /// shared across the three tools.
 ///
+/// All six file/shell tools share one `WorkspaceAnchor` built from `ctx.cwd`:
+/// relative paths in tool calls resolve against the launch directory instead
+/// of the host process's inherited cwd. The absolute root exists only on the
+/// host side — it never appears in model-visible prompts or tool results,
+/// which speak workspace-relative paths only.
+///
 /// The RTKHook sits after the bash tool: it validates shell arguments
-/// (`cmd`/`command` must be a string) and rewrites commands through the
-/// rtk subprocess once a real rewrite is supplied. With the default
-/// rewrite it passes commands through unchanged, so wiring it in early
-/// only adds the strict shell-argument validation.
+/// (`cmd`/`command` must be a string) and routes shell commands through the
+/// rtk subprocess at the declared path.
 ///
 /// Nowledge Mem registers unconditionally over its production seams
 /// (`HttpNmemTransport` + `PlatformRunner`): without the service or the
@@ -183,22 +196,30 @@ fn cetas_skills_config() -> @skills.SkillsConfig {
 /// `on_shutdown` performs the final flush, `flush_pending` forces one on
 /// demand), only the background debounce cadence is lost.
 ///
+/// All six file/shell tools share one `WorkspaceAnchor` built from `ctx.cwd`,
+/// so relative paths resolve against the launch directory instead of the
+/// process cwd of wherever the host happens to run. The absolute anchor root
+/// lives only on the host side; it never appears in model-visible prompts or
+/// tool results.
+///
 /// Returns Extensions (each tool ext already impls Extension). Hosts place
 /// the result directly into `Agent(exts=[...])`.
 pub async fn build_default_features(
   ctx~ : HostContext,
   ui? : &@posoco.UiPort? = None,
   nmem_group? : @async.TaskGroup[Unit]? = None,
+  detect_herdr? : Bool = true,
 ) -> Array[&@posoco.Extension] noraise {
   let freshness = @devkit.FreshnessGuard::FreshnessGuard()
+  let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
   let exts : Array[&@posoco.Extension] = [
-    @read.ReadTools(freshness~),
-    @write.WriteTools(freshness~),
-    @edit.EditTools(freshness~),
-    @glob.GlobTools(),
-    @grep.GrepTools(),
-    @bash.ShellTools(),
-    @rtk.RTKHook("rtk", fn(cmd) { @rtk.default_rtk_rewrite("rtk", cmd) }),
+    @read.ReadTools(freshness~, anchor=Some(anchor)),
+    @write.WriteTools(freshness~, anchor=Some(anchor)),
+    @edit.EditTools(freshness~, anchor=Some(anchor)),
+    @glob.GlobTools(anchor=Some(anchor)),
+    @grep.GrepTools(anchor=Some(anchor)),
+    @bash.ShellTools(anchor=Some(anchor)),
+    @rtk.RTKHook("rtk"),
   ]
   match
     @skills.Skills::discover(
@@ -210,7 +231,7 @@ pub async fn build_default_features(
     Some(skills) => exts.push(skills as &@posoco.Extension)
     None => ()
   }
-  match @herdr.HerdrReporter::detect() {
+  match (if detect_herdr { @herdr.HerdrReporter::detect() } else { None }) {
     Some(reporter) => exts.push(reporter as &@posoco.Extension)
     None => ()
   }

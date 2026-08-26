@@ -82,6 +82,7 @@ pub fn catalog_model_records(catalog : @llm.ProviderModelCatalog) -> Json {
               None => Json::null()
             },
           ),
+          ("image_in", Json::boolean(slot.capabilities.contains("image_in"))),
         ]),
       ),
     )

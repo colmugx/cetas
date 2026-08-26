@@ -130,9 +130,9 @@ async test "e2e: Cetas labels context contributor as project_context" {
 ///|
 /// Minimal stub implementing SystemPromptContributor that emits a
 /// <cetas-context> element. Rendering goes through devkit's
-/// render_context_envelope — the same builder ContextPromptContributor uses —
-/// without requiring cetas-core to depend on posoco-ext-context (which would
-/// violate the target-agnostic constraint on this package).
+/// @devkit.context_envelope — the same builder ContextPromptContributor
+/// uses — without requiring cetas-core to depend on posoco-ext-context
+/// (which would violate the target-agnostic constraint on this package).
 struct CetasContextStub {
   source : String
   content : String
@@ -150,8 +150,8 @@ fn CetasContextStub::CetasContextStub(
 impl @posoco.SystemPromptContributor for CetasContextStub with fn system_prompt(
   self : CetasContextStub,
 ) -> String {
-  @devkit.render_context_envelope(
-    envelope="cetas-context",
+  @devkit.context_envelope(
+    ns="cetas",
     kind="project_instructions",
     trust=false,
     source=self.source,
