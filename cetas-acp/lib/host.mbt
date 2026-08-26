@@ -17,7 +17,8 @@
 ///
 /// v1 scope: one process serves one working directory (launch cetas-acp
 /// from the project root — Zed does this). `session/new` acknowledges
-/// `cwd` but tools run in the process working directory.
+/// `cwd`, and all file/shell tools anchor to that directory via the shared
+/// WorkspaceAnchor built in `build_default_features`.
 ///
 /// Model/effort selection is process-global: one Agent owns one router, so
 /// `session/set_config_option` on any session retunes every session (v1:
@@ -554,7 +555,7 @@ async fn build_native_agent(
   let bundle = loader.load(cwd) catch { _ => @context.ContextBundle::empty() }
   let context_contributor = @context.ContextPromptContributor(
     bundle~,
-    envelope="cetas-context",
+    ns="cetas",
   )
   // ACP surfaces tool approval through session/request_permission (the
   // bridge's ApprovalSource translation under the composed permission
