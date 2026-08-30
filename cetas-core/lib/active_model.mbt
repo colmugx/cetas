@@ -28,7 +28,7 @@ pub fn ActiveModelSelection::ActiveModelSelection(
   slot : String,
   effort? : String,
 ) -> ActiveModelSelection {
-  { slot, effort }
+  { slot, effort, }
 }
 
 ///|
@@ -38,7 +38,7 @@ pub fn ActiveModelSelection::from_current(
   slot : String,
   effort : String?,
 ) -> ActiveModelSelection {
-  { slot, effort }
+  { slot, effort, }
 }
 
 ///|
@@ -78,7 +78,7 @@ pub fn parse_active_model_selection(
         detail="settings.reasoning_effort must be a string",
       )
   }
-  Some({ slot, effort })
+  Some({ slot, effort, })
 }
 
 ///|

@@ -16,12 +16,12 @@ pub(all) struct ProfileSpec {
 
 ///|
 pub fn ProfileSpec::ProfileSpec(name : String) -> ProfileSpec {
-  { name, label: name }
+  { name, label: name, }
 }
 
 ///|
 pub fn ProfileSpec::with_label(name~ : String, label~ : String) -> ProfileSpec {
-  { name, label }
+  { name, label, }
 }
 
 ///|
@@ -48,7 +48,7 @@ pub fn ProfileCommand::ProfileCommand(
   on_save~ : (String) -> Unit,
   on_delete~ : (String) -> Unit,
 ) -> ProfileCommand {
-  { ui, list_profiles, on_load, on_save, on_delete }
+  { ui, list_profiles, on_load, on_save, on_delete, }
 }
 
 ///|

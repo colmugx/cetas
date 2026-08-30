@@ -27,7 +27,7 @@ pub fn ProviderCredentialSnapshot::ProviderCredentialSnapshot(
   settings? : Map[String, Json] = Map::from_array([]),
   credentials? : Map[String, @oauth.ProviderCredential] = Map::from_array([]),
 ) -> ProviderCredentialSnapshot {
-  { settings, credentials }
+  { settings, credentials, }
 }
 
 ///|

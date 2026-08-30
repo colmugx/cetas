@@ -229,7 +229,7 @@ impl @llm.ProviderFactory for ProbeFactory with fn build(self, source) -> @llm.P
 
 ///|
 test "build_provider_catalog threads cached records into the source" {
-  let probe = ProbeFactory::{ seen_cached: [] }
+  let probe = ProbeFactory::{ seen_cached: [], }
   let factory : &@llm.ProviderFactory = probe
   let snapshot = ProviderCredentialSnapshot::ProviderCredentialSnapshot()
   let uncached = build_provider_catalog(factory, snapshot) catch {

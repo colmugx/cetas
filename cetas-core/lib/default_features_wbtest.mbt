@@ -128,17 +128,23 @@ async test "default features include discovered skills through injected ctx" {
     ]),
   }
   let exts = build_default_features(
-    ctx={ fs, cwd: "/repo", home: "/home/u" },
+    ctx={ fs, cwd: "/repo", home: "/home/u", },
+    enable_nmem=false,
     detect_herdr=false,
   )
-  // Six context-free tools, the RTK hook, the skills extension, and
-  // Nowledge Mem.
-  assert_eq(exts.length(), 9)
+  // Seven context-free tools (read/write/edit/glob/grep/webfetch), the RTK
+  // hook, the skills extension (with the built-in manuals merged in), the
+  // forme self-description extension, and the handoff extension.
+  // enable_nmem=false pins the count against dev machines with CETAS_NMEM=1
+  // or an on-baked nmem_target knob.
+  assert_eq(exts.length(), 11)
   let ids : Array[String] = []
   for ext in exts {
     ids.push(ext.extension_id())
   }
   assert_true(ids.contains("posoco_ext_skills"))
+  assert_true(ids.contains("forme"))
+  assert_true(ids.contains("posoco_ext_webfetch"))
   // The skills extension contributes its ToolProvider (activating both
   // activate_skill and read_skill_resource) and the host-facing `skills`
   // command on a populated catalog.
@@ -150,43 +156,107 @@ async test "default features include discovered skills through injected ctx" {
       assert_eq(manifest.commands.length(), 1)
     }
   }
-  // Nowledge Mem registers unconditionally: one ToolProvider with the nine
-  // default tools (the five official MCP names plus posoco additions;
-  // memory_delete hidden), the passive MemoryPort view, the /memory
-  // command, and prompt guidance.
-  for ext in exts {
+}
+
+///|
+async test "enable_nmem registers the nowledge-mem extension" {
+  let fs = SkillsCtxFs::{
+    files: Map::from_array([]),
+    dirs: Map::from_array([]),
+  }
+  let ctx : HostContext = { fs, cwd: "/nowhere", home: "/home/u", }
+  // Explicitly off build: no memory tools, no boot drain — nothing
+  // registers, independent of the baked knob or dev-machine env.
+  let off = build_default_features(ctx~, enable_nmem=false, detect_herdr=false)
+  let mut off_found = false
+  for ext in off {
     if ext.extension_id() == "posoco_ext_nowledge_mem" {
+      off_found = true
+    }
+  }
+  assert_false(off_found)
+  // Opt-in build: the default set plus Nowledge Mem.
+  let on = build_default_features(ctx~, enable_nmem=true, detect_herdr=false)
+  assert_eq(on.length(), 12)
+  let mut found = false
+  for ext in on {
+    if ext.extension_id() == "posoco_ext_nowledge_mem" {
+      found = true
+      // One ToolProvider with the eight default tools (the five official MCP
+      // names plus posoco additions; memory_delete hidden,
+      // thread_create dropped with the CLI runner — no MCP counterpart),
+      // the passive MemoryPort view, the /memory command, and prompt
+      // guidance.
       let manifest = ext.manifest()
       assert_eq(manifest.tools.length(), 1)
-      assert_eq(manifest.tools[0].list_tools().length(), 9)
+      assert_eq(manifest.tools[0].list_tools().length(), 8)
       assert_eq(manifest.memory.length(), 1)
       assert_eq(manifest.commands.length(), 1)
       assert_eq(manifest.commands[0].commands()[0].id, "memory")
       assert_eq(manifest.prompt_contributors.length(), 1)
     }
   }
+  assert_true(found)
 }
 
 ///|
-async test "default features register skills with an empty catalog, never None-skip" {
+async test "default features register skills even with no discovered skills: the builtin manuals ride along" {
   let fs = SkillsCtxFs::{
     files: Map::from_array([]),
     dirs: Map::from_array([]),
   }
   let exts = build_default_features(
-    ctx={ fs, cwd: "/nowhere", home: "/home/u" },
+    ctx={ fs, cwd: "/nowhere", home: "/home/u", },
+    enable_nmem=false,
     detect_herdr=false,
   )
-  // An empty environment still registers the skills extension (empty
-  // catalog: no tools, but the `skills` command reports "no skills").
-  assert_eq(exts.length(), 9)
+  // An empty environment still registers the skills extension: the built-in
+  // manuals (cetas-about/usage/config) are merged into the catalog, so both
+  // skill tools stay live and the `skills` command always has content.
+  assert_eq(exts.length(), 11)
   let mut found = false
   for ext in exts {
     if ext.extension_id() == "posoco_ext_skills" {
       found = true
       let manifest = ext.manifest()
-      assert_eq(manifest.tools.length(), 0)
+      assert_eq(manifest.tools.length(), 1)
+      let tool_names : Array[String] = []
+      for tool in manifest.tools[0].list_tools() {
+        tool_names.push(tool.name.to_string())
+      }
+      assert_true(tool_names.contains("activate_skill"))
+      assert_true(tool_names.contains("read_skill_resource"))
       assert_eq(manifest.commands.length(), 1)
+    }
+  }
+  assert_true(found)
+}
+
+///|
+async test "forme registers with /help and its prompt note; host note flows through" {
+  let fs = SkillsCtxFs::{
+    files: Map::from_array([]),
+    dirs: Map::from_array([]),
+  }
+  let exts = build_default_features(
+    ctx={ fs, cwd: "/nowhere", home: "/home/u", },
+    enable_nmem=false,
+    detect_herdr=false,
+    host_help_note=Some("ESC — interrupt the turn"),
+  )
+  let mut found = false
+  for ext in exts {
+    if ext.extension_id() == "forme" {
+      found = true
+      let manifest = ext.manifest()
+      assert_eq(manifest.commands.length(), 1)
+      assert_eq(manifest.commands[0].commands()[0].id, "help")
+      assert_eq(manifest.prompt_contributors.length(), 1)
+      match manifest.commands[0].invoke("help", Json::null()) {
+        @posoco.CommandOutcome::Success(feedback~, ..) =>
+          assert_true(feedback.contains("ESC — interrupt the turn"))
+        _ => fail("/help must succeed with the host note")
+      }
     }
   }
   assert_true(found)
@@ -221,11 +291,11 @@ async test "ask_question registers only when the host supplies a UI port" {
     files: Map::from_array([]),
     dirs: Map::from_array([]),
   }
-  let ctx : HostContext = { fs, cwd: "/nowhere", home: "/home/u" }
-  // Without a UI port: six tools + RTK hook + skills + Nowledge Mem, no
-  // ask_question.
-  let bare = build_default_features(ctx~, detect_herdr=false)
-  assert_eq(bare.length(), 9)
+  let ctx : HostContext = { fs, cwd: "/nowhere", home: "/home/u", }
+  // Without a UI port: seven tools + RTK hook + skills + forme + handoff,
+  // no ask_question.
+  let bare = build_default_features(ctx~, enable_nmem=false, detect_herdr=false)
+  assert_eq(bare.length(), 11)
   let bare_ids : Array[String] = []
   for ext in bare {
     bare_ids.push(ext.extension_id())
@@ -235,10 +305,11 @@ async test "ask_question registers only when the host supplies a UI port" {
   // exactly the ask_question ToolProvider plus prompt guidance.
   let with_ui = build_default_features(
     ctx~,
-    ui=Some(HeadlessUi::{  } as &@posoco.UiPort),
+    ui=Some(HeadlessUi::{ } as &@posoco.UiPort),
+    enable_nmem=false,
     detect_herdr=false,
   )
-  assert_eq(with_ui.length(), 10)
+  assert_eq(with_ui.length(), 12)
   let mut found = false
   for ext in with_ui {
     if ext.extension_id() == "posoco_ext_askquestion" {

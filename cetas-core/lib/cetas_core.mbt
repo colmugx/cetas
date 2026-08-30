@@ -9,17 +9,43 @@
 /// one Extension so hosts compose `Agent(exts=[cetas, ...])` without
 /// reassembling scattered ports.
 pub(all) struct Cetas {
-  system_prompt_hook : @posoco.SystemPromptHook
+  prompt_contributors : Array[&@posoco.SystemPromptContributor]
   profile_command : ProfileCommand
+}
+
+///|
+/// Wraps a context contributor so its text is labeled as the
+/// `project_context` section when appended by the Agent's system-prompt hook.
+priv struct ProjectContextContributor {
+  inner : &@posoco.SystemPromptContributor
+}
+
+///|
+fn ProjectContextContributor::ProjectContextContributor(
+  inner : &@posoco.SystemPromptContributor,
+) -> ProjectContextContributor {
+  { inner, }
+}
+
+///|
+impl @posoco.SystemPromptContributor for ProjectContextContributor with fn system_prompt(
+  self : ProjectContextContributor,
+) -> String {
+  let text = self.inner.system_prompt()
+  if text == "" {
+    ""
+  } else {
+    "project_context:\n" + text
+  }
 }
 
 ///|
 /// Build a Cetas extension.
 ///
-/// - `context_contributor` (e.g. AGENTS.md loader) becomes the
-///   `project_context` prompt section.
-/// - `tool_contributors` (e.g. tool usage guidance) share the
-///   `tool_guidance` prompt section.
+/// - `context_contributor` (e.g. AGENTS.md loader) is registered as a
+///   prompt contributor when present.
+/// - `tool_contributors` (e.g. tool usage guidance) are appended in the
+///   order they are supplied.
 /// - Profile command callbacks are host-supplied because profile storage is
 ///   target-specific; cetas only owns the command surface.
 pub fn Cetas::Cetas(
@@ -32,29 +58,17 @@ pub fn Cetas::Cetas(
   on_save~ : (String) -> Unit,
   on_delete~ : (String) -> Unit,
 ) -> Cetas raise @posoco.CompositionError {
-  let sections : Array[@posoco.SystemPromptSection] = []
+  let prompt_contributors : Array[&@posoco.SystemPromptContributor] = []
   match context_contributor {
     Some(c) =>
-      sections.push(
-        @posoco.SystemPromptSection::SystemPromptSection(
-          id="project_context",
-          contributor=c,
-        ),
+      prompt_contributors.push(
+        ProjectContextContributor(c) as &@posoco.SystemPromptContributor,
       )
     None => ()
   }
   for c in tool_contributors {
-    sections.push(
-      @posoco.SystemPromptSection::SystemPromptSection(
-        id="tool_guidance",
-        contributor=c,
-      ),
-    )
+    prompt_contributors.push(c)
   }
-  let system_prompt_hook = @posoco.SystemPromptHook::SystemPromptHook(
-    base_prompt=cetas_base_system_prompt(project_name=basename(cwd)),
-    contributors=sections,
-  )
   let profile_command = ProfileCommand(
     ui,
     list_profiles~,
@@ -62,7 +76,7 @@ pub fn Cetas::Cetas(
     on_save~,
     on_delete~,
   )
-  { system_prompt_hook, profile_command }
+  { prompt_contributors, profile_command, }
 }
 
 ///|
@@ -73,7 +87,11 @@ pub impl @posoco.Extension for Cetas with fn extension_id(_self) -> String {
 ///|
 pub impl @posoco.Extension for Cetas with fn manifest(self) -> @posoco.ExtensionManifest {
   let m = @posoco.ExtensionManifest::empty(id="cetas")
-  { ..m, hooks: [self.system_prompt_hook], commands: [self.profile_command] }
+  {
+    ..m,
+    prompt_contributors: self.prompt_contributors,
+    commands: [self.profile_command],
+  }
 }
 
 ///|
@@ -103,7 +121,7 @@ pub async fn run_prompt(
   }
   let user_msg : @posoco.Message = @posoco.Message::UserMessage(content=blocks)
   let result = agent.run_turn(user_msg, session_id)
-  let builder = StringBuilder::new()
+  let builder = StringBuilder()
   // Extract Text blocks from the assistant's final message.
   let content_blocks = match result.message {
     AssistantMessage(content~, ..) => content
@@ -139,13 +157,27 @@ pub(all) struct HostContext {
 /// portable default so large real-world skills (50k+ chars of instructions)
 /// stay loadable.
 fn cetas_skills_config() -> @skills.SkillsConfig {
-  { ..@skills.SkillsConfig::default(), max_instruction_chars: 65536 }
+  { ..@skills.SkillsConfig::default(), max_instruction_chars: 65536, }
 }
 
 ///|
-/// Default feature set: read/write/edit/glob/grep/bash plus agent skills,
-/// Nowledge Mem cross-tool memory, and (with `ui~`) the interactive
-/// ask_question tool.
+/// Shell-tool platform selection: `compiled_target_os` is baked at compile
+/// time by the gen_platform rule from CETAS_TARGET_OS ("windows"/"unix"),
+/// so a unix build never registers the ps1 ext and a windows build never
+/// registers the bash ext. "auto" (env unset, or the committed default when
+/// the rule does not fire) falls back to runtime detection.
+fn shell_platform_is_windows() -> Bool {
+  match compiled_target_os() {
+    "windows" => true
+    "unix" => false
+    _ => @ps1.is_windows()
+  }
+}
+
+///|
+/// Default feature set: read/write/edit/glob/grep/bash plus agent skills
+/// and (with `ui~`) the interactive ask_question tool. Nowledge Mem joins
+/// only when baked in or explicitly enabled (the nmem_target knob).
 ///
 /// The six tools are context-free constructors. Skills needs the host
 /// process context (fs/cwd/home) for discovery, so the function takes
@@ -180,21 +212,26 @@ fn cetas_skills_config() -> @skills.SkillsConfig {
 /// host side — it never appears in model-visible prompts or tool results,
 /// which speak workspace-relative paths only.
 ///
-/// The RTKHook sits after the bash tool: it validates shell arguments
+/// The RTKHook sits after the shell tool: it validates shell arguments
 /// (`cmd`/`command` must be a string) and routes shell commands through the
 /// rtk subprocess at the declared path.
 ///
-/// Nowledge Mem registers unconditionally over its production seams
-/// (`HttpNmemTransport` + `PlatformRunner`): without the service or the
-/// `nmem` CLI the extension degrades silently instead of failing the host.
-/// `memory_delete` stays hidden (destructive remote op; opt-in flag lives
-/// with the extension constructor). `nmem_group~` follows the acp
-/// `mcp_group~` precedent (`TaskGroup[Unit]` threaded in from the host's
-/// `with_task_group` scope): passing it starts the 750ms flusher loop for
-/// the agent's lifetime. Without a group the loop does not run — boundary
-/// drains still carry the functionality (`on_start` drains once at boot,
-/// `on_shutdown` performs the final flush, `flush_pending` forces one on
-/// demand), only the background debounce cadence is lost.
+/// Nowledge Mem is opt-in, decided at compile time by the nmem_target knob
+/// (gen_nmem rule): "on" bakes it in for personal builds, "off" excludes it
+/// from public releases, "auto" (the committed default) falls back to a
+/// CETAS_NMEM=1 runtime check so plain dev builds need no rebuild. An off
+/// build constructs nothing — no memory tools, no prompt guidance, no boot
+/// drain. `enable_nmem~` remains the explicit override; tests pin it for
+/// determinism. When enabled it registers over its production seams (`HttpNmemTransport` + `LazyNmemMcp` + `PlatformFs`): without
+/// the service the extension degrades silently instead of
+/// failing the host. `memory_delete` stays hidden (destructive remote op;
+/// opt-in flag lives with the extension constructor). `nmem_group~` follows
+/// the acp `mcp_group~` precedent (`TaskGroup[Unit]` threaded in from the
+/// host's `with_task_group` scope): passing it starts the 750ms flusher
+/// loop for the agent's lifetime. Without a group the loop does not run —
+/// boundary drains still carry the functionality (`on_start` drains once at
+/// boot, `on_shutdown` performs the final flush, `flush_pending` forces one
+/// on demand), only the background debounce cadence is lost.
 ///
 /// All six file/shell tools share one `WorkspaceAnchor` built from `ctx.cwd`,
 /// so relative paths resolve against the launch directory instead of the
@@ -207,8 +244,10 @@ fn cetas_skills_config() -> @skills.SkillsConfig {
 pub async fn build_default_features(
   ctx~ : HostContext,
   ui? : &@posoco.UiPort? = None,
+  enable_nmem? : Bool = compiled_nmem_enabled(),
   nmem_group? : @async.TaskGroup[Unit]? = None,
   detect_herdr? : Bool = true,
+  host_help_note? : String? = None,
 ) -> Array[&@posoco.Extension] noraise {
   let freshness = @devkit.FreshnessGuard::FreshnessGuard()
   let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
@@ -218,19 +257,43 @@ pub async fn build_default_features(
     @edit.EditTools(freshness~, anchor=Some(anchor)),
     @glob.GlobTools(anchor=Some(anchor)),
     @grep.GrepTools(anchor=Some(anchor)),
-    @bash.ShellTools(anchor=Some(anchor)),
-    @rtk.RTKHook("rtk"),
+    // webfetch is a read-only tool (URL fetch, no workspace writes): it
+    // belongs in the permission read class.
+    @webfetch.WebFetchTools(),
   ]
-  match
+  // Shell tool choice per platform, then the forme self-description surface
+  // (manuals + /help). The manuals merge into the one skills extension below
+  // so both share the activate_skill tool; a second Skills instance would
+  // collide on tool names at composition.
+  if shell_platform_is_windows() {
+    exts.push(@ps1.PowerShellTools(anchor=Some(anchor)) as &@posoco.Extension)
+  } else {
+    exts.push(@bash.ShellTools(anchor=Some(anchor)) as &@posoco.Extension)
+  }
+  exts.push(@rtk.RTKHook("rtk"))
+  let builtin_manuals = @forme.builtin_manual_skills()
+  let discovered : @skills.SkillCatalog = match
     @skills.Skills::discover(
       ctx.fs,
       cwd=ctx.cwd,
       home=ctx.home,
       config=cetas_skills_config(),
     ) {
-    Some(skills) => exts.push(skills as &@posoco.Extension)
-    None => ()
+    Some(skills) => skills.catalog()
+    None => @skills.SkillCatalog::empty()
   }
+  // With built-ins merged in, the skills extension registers even on machines
+  // with no discovered skills: the product manual is always present.
+  match
+    @skills.Skills::from_catalog(
+      ctx.fs,
+      catalog=@skills.merge_builtin_skills(discovered, builtin_manuals),
+      config=cetas_skills_config(),
+    ) {
+    Ok(skills) => exts.push(skills as &@posoco.Extension)
+    Err(_) => ()
+  }
+  exts.push(@forme.Forme::Forme(host_note=host_help_note) as &@posoco.Extension)
   match (if detect_herdr { @herdr.HerdrReporter::detect() } else { None }) {
     Some(reporter) => exts.push(reporter as &@posoco.Extension)
     None => ()
@@ -240,17 +303,57 @@ pub async fn build_default_features(
       exts.push(@askquestion.AskQuestionTools(port) as &@posoco.Extension)
     None => ()
   }
-  let nmem = @nmem.NowledgeMem(
-    source_app="cetas",
-    transport=@nmem.HttpNmemTransport::HttpNmemTransport()
-      as &@nmem.NmemTransport,
-    runner=@nmem.PlatformRunner::PlatformRunner() as &@nmem.NmemRunner,
-  )
-  match nmem_group {
-    Some(group) => nmem.attach(group)
-    None => ()
+  if enable_nmem {
+    let nmem = @nmem.NowledgeMem(
+      source_app="cetas",
+      transport=@nmem.HttpNmemTransport::HttpNmemTransport()
+        as &@nmem.NmemTransport,
+      mcp=@nmem.LazyNmemMcp::LazyNmemMcp() as &@nmem.NmemMcp,
+      platform=@nmem.PlatformFs::PlatformFs() as &@nmem.NmemPlatform,
+    )
+    match nmem_group {
+      Some(group) => nmem.attach(group)
+      None => ()
+    }
+    exts.push(nmem as &@posoco.Extension)
   }
-  exts.push(nmem as &@posoco.Extension)
+  // Handoff: the `/handoff` command over the extension's own default store
+  // (native @fs / node:fs behind the HandoffStore seam — this package itself
+  // still does no IO). The workspace probe reports only the project root:
+  // cetas owns no VCS facts today, so branch/HEAD stay unspecified until a
+  // host pushes them. No work source is registered yet, so `create` needs
+  // structured command arguments for its continuation anchors (objective,
+  // current_work, next_action); `inspect` works unconditionally.
+  exts.push(
+    @handoff.Handoff(
+      cwd=ctx.cwd,
+      store=@handoff.DefaultHandoffStore() as &@handoff.HandoffStore,
+      probe=@handoff.HandoffWorkspaceState(ctx.cwd)
+        as &@handoff.HandoffWorkspaceProbe,
+      work_sources=[],
+    )
+    as &@posoco.Extension,
+  )
+  // Obsidian vault tools via the official Obsidian CLI. Opt-in through
+  // CETAS_OBSIDIAN so machines without Obsidian keep a lean catalog:
+  // "on"/"1" targets the active vault, any other non-"off" value names the
+  // vault (first CLI argument vault=<name>). Opting in grants whole-vault
+  // read/write; destructive writes (permanent delete, overwrite,
+  // heading replace/delete) still consent through the composed UI, and the
+  // extension degrades per-call when the CLI or the app is unavailable.
+  match @env.get_env_var("CETAS_OBSIDIAN") {
+    Some(value) if value != "off" =>
+      exts.push(
+        @obsidian.ObsidianTools::new(
+          config=@obsidian.ObsidianConfig::ObsidianConfig(
+            vault=if value == "on" || value == "1" { None } else { Some(value) },
+            read_only=false,
+          ),
+        )
+        as &@posoco.Extension,
+      )
+    _ => ()
+  }
   exts
 }
 
@@ -263,9 +366,11 @@ pub async fn build_default_features(
 /// unbounded.
 pub fn default_agent_config(
   max_tool_rounds? : Int? = None,
+  system_prompt? : String? = None,
 ) -> @posoco.AgentConfig {
   {
     max_tool_rounds,
+    system_prompt,
     temperature: Some(0.0),
     max_output_tokens: None,
     model_context_window: None,

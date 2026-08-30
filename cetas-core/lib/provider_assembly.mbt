@@ -26,6 +26,7 @@ pub fn provider_factories(
   let openai = @openai.OpenAIProvider()
   let opencode_zen = @opencode_zen.OpenCodeZenProvider(ctx~)
   let zai = @zai.ZaiProvider(ctx~)
+  let zai_coding_plan = @zai_coding_plan.ZaiCodingPlanProvider(ctx~)
   let openrouter = @openrouter.OpenRouterProvider(ctx~)
   [
     deepseek as &@llm.ProviderFactory,
@@ -33,6 +34,7 @@ pub fn provider_factories(
     openai as &@llm.ProviderFactory,
     opencode_zen as &@llm.ProviderFactory,
     zai as &@llm.ProviderFactory,
+    zai_coding_plan as &@llm.ProviderFactory,
     openrouter as &@llm.ProviderFactory,
   ]
 }
@@ -124,6 +126,7 @@ pub fn api_key_factories(
   let openai = @openai.OpenAIProvider()
   let opencode_zen = @opencode_zen.OpenCodeZenProvider(ctx~)
   let zai = @zai.ZaiProvider(ctx~)
+  let zai_coding_plan = @zai_coding_plan.ZaiCodingPlanProvider(ctx~)
   let openrouter = @openrouter.OpenRouterApiKeyFactory()
   [
     deepseek as &@llm.ApiKeyFactory,
@@ -131,6 +134,7 @@ pub fn api_key_factories(
     openai as &@llm.ApiKeyFactory,
     opencode_zen as &@llm.ApiKeyFactory,
     zai as &@llm.ApiKeyFactory,
+    zai_coding_plan as &@llm.ApiKeyFactory,
     openrouter as &@llm.ApiKeyFactory,
   ]
 }

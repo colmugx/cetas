@@ -46,16 +46,17 @@ test "model refresh selector validates provider ids and deduplicates requests" {
 }
 
 ///|
-test "factory registry exposes the six registered providers in order" {
+test "factory registry exposes the seven registered providers in order" {
   let ctx = @devkit.ExtContext::default()
   let factories = provider_factories(ctx)
-  assert_eq(factories.length(), 6)
+  assert_eq(factories.length(), 7)
   assert_eq(factories[0].provider_id(), "deepseek")
   assert_eq(factories[1].provider_id(), "kimi")
   assert_eq(factories[2].provider_id(), "openai")
   assert_eq(factories[3].provider_id(), "opencode")
   assert_eq(factories[4].provider_id(), "zai")
-  assert_eq(factories[5].provider_id(), "openrouter")
+  assert_eq(factories[5].provider_id(), "zai-coding-plan")
+  assert_eq(factories[6].provider_id(), "openrouter")
 }
 
 ///|
@@ -181,7 +182,7 @@ pub impl @llm.ProviderFactory for WbBrokenFactory with fn build(
 
 ///|
 test "try_build_provider_catalog isolates a failing factory" {
-  let broken : WbBrokenFactory = { dummy: 0 }
+  let broken : WbBrokenFactory = { dummy: 0, }
   let factory : &@llm.ProviderFactory = broken
   let snapshot = ProviderCredentialSnapshot::ProviderCredentialSnapshot()
   match try_build_provider_catalog(factory, snapshot) {

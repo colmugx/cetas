@@ -69,14 +69,17 @@ async test "build_default_features assembles the full set around the anchor" {
   // wbtest package): an empty environment keeps the set deterministic. The
   // returned trait objects cannot be downcast to the concrete tool structs,
   // so anchor storage itself is asserted above at the constructor level;
-  // here we pin that the anchored assembly still registers the full nine.
+  // here we pin that the anchored assembly still registers the full eleven
+  // (only the six file/shell tools carry the anchor; webfetch touches no
+  // workspace state).
   let fs = SkillsCtxFs::{
     files: Map::from_array([]),
     dirs: Map::from_array([]),
   }
   let exts = build_default_features(
-    ctx={ fs, cwd: "/tmp/proj", home: "/home/u" },
+    ctx={ fs, cwd: "/tmp/proj", home: "/home/u", },
+    enable_nmem=false,
     detect_herdr=false,
   )
-  assert_eq(exts.length(), 9)
+  assert_eq(exts.length(), 11)
 }

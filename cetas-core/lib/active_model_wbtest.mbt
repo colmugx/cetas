@@ -13,7 +13,7 @@ priv struct FakeFs {
 
 ///|
 fn FakeFs::FakeFs() -> FakeFs {
-  { files: Map::from_array([]), fail_ops: Map::from_array([]) }
+  { files: Map::from_array([]), fail_ops: Map::from_array([]), }
 }
 
 ///|
@@ -156,7 +156,7 @@ test "parse: valid flat keys round into a selection" {
     _ => fail("fixture must parse")
   }
   match parse_active_model_selection(json) {
-    Some({ slot, effort }) => {
+    Some({ slot, effort, }) => {
       assert_eq(slot, "qwen/glm-4.6")
       assert_eq(effort, Some("high"))
     }
@@ -194,14 +194,14 @@ test "parse: wrong shapes fail loudly instead of being sanitized" {
 test "resolve: no selection or drifted slot keeps the router default" {
   let catalogs = [tk_catalog([tk_slot("a/x"), tk_slot("b/y")])]
   assert_eq(resolve_default_slot_id(catalogs, None), "")
-  let drifted = Some({ slot: "gone/z", effort: None })
+  let drifted = Some({ slot: "gone/z", effort: None, })
   assert_eq(resolve_default_slot_id(catalogs, drifted), "")
 }
 
 ///|
 test "resolve: a live selection wins over slot order" {
   let catalogs = [tk_catalog([tk_slot("a/x"), tk_slot("b/y")])]
-  let selected = Some({ slot: "b/y", effort: Some("high") })
+  let selected = Some({ slot: "b/y", effort: Some("high"), })
   assert_eq(resolve_default_slot_id(catalogs, selected), "b/y")
 }
 
@@ -249,7 +249,7 @@ async test "write/read round-trip preserves unknown keys and drops effort on Non
   assert_true(fields.get("reasoning_effort") is Some(Json::String("high")))
   // Round-trip through the read path.
   match read_active_model_selection(fs, home="/h") {
-    Some({ slot, effort }) => {
+    Some({ slot, effort, }) => {
       assert_eq(slot, "b/y")
       assert_eq(effort, Some("high"))
     }

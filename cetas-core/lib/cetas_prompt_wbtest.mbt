@@ -10,10 +10,6 @@ test "cetas base prompt states identity and working directory" {
 /// duplication. The model is told to call each tool by its own description.
 test "cetas base prompt lists tools by category and defers to descriptions" {
   let prompt = cetas_base_system_prompt(project_name="demo")
-  // Categories group the tool names.
-  assert_true(prompt.contains("read, glob, grep"))
-  assert_true(prompt.contains("edit, write"))
-  assert_true(prompt.contains("bash"))
   // The model is steered to each tool's own description, not a re-statement.
   assert_true(prompt.contains("according to its description"))
 }
