@@ -75,6 +75,70 @@ describe("parseCetasEvent", () => {
     ).toThrow("stream_chunk.kind must be text or reasoning");
   });
 
+  describe("tool_args_delta", () => {
+    test("parses the full first-fragment shape", () => {
+      expect(
+        parseCetasEvent({
+          type: "tool_args_delta",
+          index: 0,
+          id: "call_1",
+          name: "write",
+          delta: '{"path":"a',
+        }),
+      ).toEqual({
+        type: "tool_args_delta",
+        index: 0,
+        id: "call_1",
+        name: "write",
+        delta: '{"path":"a',
+      });
+    });
+
+    test("parses a minimal later fragment (index + delta only)", () => {
+      expect(
+        parseCetasEvent({ type: "tool_args_delta", index: 2, delta: "abc" }),
+      ).toEqual({ type: "tool_args_delta", index: 2, delta: "abc" });
+    });
+
+    test("absent and null optional fields both parse to absent", () => {
+      expect(parseCetasEvent({ type: "tool_args_delta", index: 0 })).toEqual({
+        type: "tool_args_delta",
+        index: 0,
+      });
+      expect(
+        parseCetasEvent({
+          type: "tool_args_delta",
+          index: 0,
+          id: null,
+          name: null,
+          delta: null,
+        }),
+      ).toEqual({ type: "tool_args_delta", index: 0 });
+    });
+
+    test("rejects a missing / non-integer / negative index", () => {
+      expect(() => parseCetasEvent({ type: "tool_args_delta" })).toThrow(
+        "tool_args_delta.index must be a non-negative integer",
+      );
+      expect(() =>
+        parseCetasEvent({ type: "tool_args_delta", index: 1.5 }),
+      ).toThrow("tool_args_delta.index must be a non-negative integer");
+      expect(() =>
+        parseCetasEvent({ type: "tool_args_delta", index: -1 }),
+      ).toThrow("tool_args_delta.index must be a non-negative integer");
+    });
+
+    test("rejects a non-string optional field instead of coercing", () => {
+      expect(() =>
+        parseCetasEvent({
+          type: "tool_args_delta",
+          index: 0,
+          delta: 42,
+        }),
+      ).toThrow("tool_args_delta.delta must be a string");
+    });
+  });
+
   test("returns null for an unknown versioned tag", () => {
     expect(parseCetasEvent({ type: "future_event" })).toBeNull();
   });

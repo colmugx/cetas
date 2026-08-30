@@ -97,6 +97,20 @@ export type CetasEvent =
       kind: "text" | "reasoning";
     }
   | {
+      /**
+       * One streamed tool-call argument fragment. Fragments for a call always
+       * precede its `tool_call_started` (which carries the authoritative
+       * args). The first fragment carries `id` + `name` per OpenAI convention;
+       * later fragments normally only `index` + `delta`. `delta` fragments
+       * concatenate into the full arguments JSON string.
+       */
+      type: "tool_args_delta";
+      index: number;
+      id?: string;
+      name?: string;
+      delta?: string;
+    }
+  | {
       type: "custom";
       source: string;
       label: string;
@@ -135,6 +149,22 @@ function requireRecord(value: unknown, path: string): Record<string, unknown> {
     throw new Error(`${path} must be an object`);
   }
   return value as Record<string, unknown>;
+}
+
+function requireNonNegativeInt(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${path} must be a non-negative integer`);
+  }
+  return value;
+}
+
+/** Optional string field: absent and null both mean undefined. */
+function optionalString(value: unknown, path: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") {
+    throw new Error(`${path} must be a string`);
+  }
+  return value;
 }
 
 function parseUsage(value: unknown): BridgeUsage | undefined {
@@ -317,6 +347,19 @@ export function parseCetasEvent(raw: unknown): CetasEvent | null {
         raw: requireString(ev.raw, "stream_chunk.raw"),
         kind: requireStreamKind(ev.kind),
       };
+    case "tool_args_delta": {
+      const deltaEvent: CetasEvent = {
+        type: "tool_args_delta",
+        index: requireNonNegativeInt(ev.index, "tool_args_delta.index"),
+      };
+      const id = optionalString(ev.id, "tool_args_delta.id");
+      if (id !== undefined) deltaEvent.id = id;
+      const name = optionalString(ev.name, "tool_args_delta.name");
+      if (name !== undefined) deltaEvent.name = name;
+      const delta = optionalString(ev.delta, "tool_args_delta.delta");
+      if (delta !== undefined) deltaEvent.delta = delta;
+      return deltaEvent;
+    }
     case "custom":
       return {
         type: "custom",

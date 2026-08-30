@@ -74,7 +74,14 @@ const readSpec: ToolRowSpec = {
   },
 };
 
-const writeSpec: ToolRowSpec = {
+/**
+ * write keeps its declarative spec (its finalized views are produced by
+ * `specRenderer(writeSpec)` in write.ts and are byte-identical to the old
+ * table entry), but it is NOT registered here: its hook renderer extends
+ * the spec view with live streaming args, so it registers through the
+ * REGISTRY hook path instead (see write.ts / index.ts).
+ */
+export const writeSpec: ToolRowSpec = {
   primary: [{ keys: ["path"], fallback: "(no path)" }],
   secondary: [{ keys: ["content"], render: (c) => `(${c.length} bytes)` }],
 };
@@ -130,7 +137,6 @@ const grepSpec: ToolRowSpec = {
 
 export const TOOL_ROW_SPECS: Record<string, ToolRowSpec> = {
   read: readSpec,
-  write: writeSpec,
   edit: editSpec,
   glob: globSpec,
   grep: grepSpec,

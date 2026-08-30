@@ -34,6 +34,7 @@ export interface CetasTheme {
   info: StyleFn;
   muted: StyleFn;
   yellow: StyleFn;
+  red: StyleFn;
   // Tool rendering.
   toolTitle: StyleFn;
   toolArgs: StyleFn;
@@ -67,6 +68,7 @@ export const theme: CetasTheme = {
   info: chalk.blue,
   muted: chalk.gray,
   yellow: chalk.yellow,
+  red: chalk.red,
   toolTitle: chalk.bold.yellow,
   toolArgs: chalk.gray,
   toolOutput: chalk.white,

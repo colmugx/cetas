@@ -1,9 +1,10 @@
 /**
  * index.ts — registerToolRenderer side-effects for hook-style renderers.
  *
- * The read/write/edit/glob/grep rows are driven by the declarative spec
- * table (specs.ts) and need no registration; only renderers with bespoke
- * behavior register here (bash: elapsed timer, ask_question: option list).
+ * read/edit/glob/grep rows are driven by the declarative spec table
+ * (specs.ts) and need no registration; renderers with bespoke behavior
+ * register here (bash: elapsed timer, ask_question: option list, write:
+ * live streaming-args view over the spec's finalized output).
  *
  * Import this module once at host startup:
  *   import "./tool-renderers/index.ts";
@@ -13,6 +14,7 @@
 import { registerToolRenderer } from "./registry.ts";
 import { askQuestionRenderer } from "./askquestion.ts";
 import { bashRenderer } from "./bash.ts";
+import { writeRenderer } from "./write.ts";
 
 let registered = false;
 
@@ -22,6 +24,7 @@ export function registerBuiltinToolRenderers(): void {
   registered = true;
   registerToolRenderer("ask_question", askQuestionRenderer);
   registerToolRenderer("bash", bashRenderer);
+  registerToolRenderer("write", writeRenderer);
 }
 
 // Side-effect on import — covers the case where callers just `import

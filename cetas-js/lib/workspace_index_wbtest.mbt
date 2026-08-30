@@ -23,7 +23,7 @@ fn FakeIndexFs::make(
   for path in dir_kinds {
     kind_map[path] = Dir
   }
-  { dirs: Map::from_array(dirs), kinds: kind_map, unreadable }
+  { dirs: Map::from_array(dirs), kinds: kind_map, unreadable, }
 }
 
 ///|

@@ -8,6 +8,7 @@
  */
 
 import chalk from "chalk";
+import { existsSync, readFileSync } from "node:fs";
 import {
   Container,
   Editor,
@@ -29,7 +30,8 @@ import {
   type CetasHostConfig,
   type ProviderAuthCapability,
 } from "../src/app/index.ts";
-import { newSessionId } from "../src/app/session-id.ts";
+import { newSessionId, sessionFilePath } from "../src/app/session-id.ts";
+import { parseSessionReplay, type ReplayItem } from "../src/transcript/replay.ts";
 import { parseCetasEvent } from "../src/events.ts";
 import {
   hasImageMention,
@@ -40,6 +42,7 @@ import { EventRouter } from "../src/controllers/event-router.ts";
 import {
   errorNotice,
   systemNotice,
+  AssistantMessage,
   QueuedUserMessage,
   ToolRow,
   UserMessage,
@@ -66,6 +69,21 @@ import { SessionsOverlay, listSessionEntries } from "./sessions-overlay.ts";
 import { theme } from "./theme.ts";
 
 const identity = (value: string): string => value;
+
+/**
+ * TUI keybinding and input conventions, surfaced through the forme
+ * extension's /help command. Lives here because only the shell knows its own
+ * keys; the host passes it into the agent config as the help note.
+ */
+export const CETAS_TUI_HELP_NOTE = [
+  "During a turn:",
+  "  ESC — interrupt the running turn (denies a pending approval first)",
+  "  Typing while a turn runs stays live; Enter queues it as a follow-up",
+  "  @path — autocomplete a workspace file (Tab/Enter applies it; the agent reads it)",
+  "  /permission <mode> works mid-turn (readonly | workspace_write | interactive | yolo)",
+  "  ctrl+t — collapse/expand thinking blocks",
+  "  ctrl+o — collapse/expand tool output",
+].join("\n");
 
 const selectListTheme: SelectListTheme = {
   selectedPrefix: identity,
@@ -192,6 +210,8 @@ export class TerminalShell {
   private readonly authPromptOverlay: AuthPromptOverlay;
   private readonly skillsOverlay: SkillsOverlay;
   private readonly sessionsOverlay: SessionsOverlay;
+  /** Replay: tool-call rows awaiting their result line during resume. */
+  private readonly replayedToolRows = new Map<string, ToolRow>();
   /** Lazily fetched once: the skills catalog is snapshotted at agent composition. */
   private skillsAutocompleteItems?: ReadonlyArray<{ label: string; detail: string; insert_text: string }>;
   /** Workspace file index for `@` mentions; TTL-cached because the walk is bounded but not free. */
@@ -639,7 +659,6 @@ export class TerminalShell {
               );
             }
             const local = [
-              ["/help", "Show slash commands"],
               ["/new", "Start a new session"],
               ["/sessions", "Browse and resume past sessions"],
               ["/model", "Select a model and effort"],
@@ -791,10 +810,6 @@ export class TerminalShell {
     const command = spaceIndex === -1 ? input : input.slice(0, spaceIndex);
     const rawArgs = spaceIndex === -1 ? "" : input.slice(spaceIndex + 1).trim();
 
-    if (command === "/help" || command === "/?") {
-      this.showHelp();
-      return;
-    }
     if (command === "/new") {
       if (this.inTurn || this.commandBusy) {
         this.addTranscriptChild(errorNotice("/new cannot run while an operation is active"));
@@ -832,56 +847,6 @@ export class TerminalShell {
       return;
     }
     await this.invokeCommand(command, rawArgs);
-  }
-
-  private showHelp(): void {
-    const commands = [
-      ["/help", "Show slash commands"],
-      ["/new", "Start a new session"],
-      ["/sessions", "Browse and resume past sessions"],
-      ["/model", "List models, then choose model + effort"],
-      ["/skills", "Browse discovered agent skills ($name activates one)"],
-      ["/login [provider] [method]", "Authenticate with an API key or OAuth"],
-      ["/exit", "Quit cetas-js"],
-    ];
-    const usageLines = [
-      "  ESC — interrupt the running turn (denies a pending approval first)",
-      "  Typing while a turn runs stays live; Enter queues it as a follow-up",
-      "  @path — autocomplete a workspace file (Tab/Enter applies it; the agent reads it)",
-      "  /permission <mode> works mid-turn (readonly | workspace_write | interactive | yolo)",
-      "  ctrl+t — collapse/expand thinking blocks",
-      "  ctrl+o — collapse/expand tool output",
-    ];
-    const extensionLines = this.requireApp()
-      .listCommands()
-      .filter((descriptor) => !["model", "login"].includes(descriptor.id))
-      .map((descriptor) => `  ${theme.accent(`/${descriptor.id}`)}  ${descriptor.description || descriptor.label}`);
-    const lines = [
-      theme.brandBold("Slash Commands"),
-      "",
-      ...commands.map(([name, description]) => `  ${theme.accent(name)}  ${description}`),
-      ...(extensionLines.length === 0
-        ? []
-        : ["", theme.muted("Extension commands"), ...extensionLines]),
-      "",
-      theme.muted("During a turn"),
-      ...usageLines,
-      "",
-      theme.muted("Press any key to close"),
-    ];
-    const text = new Text(lines.join("\n"), 2, 1);
-    let handle: OverlayHandle | undefined;
-    const panel = new DismissibleTextOverlay(text, () => {
-      handle?.hide();
-      this.tui.requestRender();
-    });
-    handle = this.tui.showOverlay(panel, {
-      width: "64%",
-      maxHeight: "70%",
-      anchor: "center",
-      margin: 1,
-    });
-    this.tui.requestRender();
   }
 
   private async openModelPicker(): Promise<void> {
@@ -1045,8 +1010,73 @@ export class TerminalShell {
     for (const component of banner("cetas-js", `resumed session ${sessionId}`)) {
       this.transcript.addChild(component);
     }
+    // Replay the persisted history into the view. The session store already
+    // fed it to the model through setSession; this makes the screen match
+    // what the model sees. Read errors and empty sessions render the banner
+    // only — resume must not fail because a transcript is unreadable.
+    try {
+      const path = sessionFilePath(this.sessionsDir, sessionId);
+      if (existsSync(path)) {
+        const items = parseSessionReplay(readFileSync(path, "utf8"));
+        for (const component of this.replayComponents(items)) {
+          this.addTranscriptChild(component);
+        }
+      }
+    } catch (error: unknown) {
+      this.addTranscriptChild(
+        errorNotice(`could not replay session history: ${errorMessage(error)}`),
+      );
+    }
     this.tui.terminal.clearScreen();
     this.tui.requestRender(true);
+  }
+
+  /** Turn replay items into the same components live turns render with. */
+  private replayComponents(items: readonly ReplayItem[]): Component[] {
+    const components: Component[] = [];
+    for (const item of items) {
+      switch (item.kind) {
+        case "user": {
+          const suffix = item.hasImage ? " 🖼" : "";
+          const text = item.text.length === 0 ? "(image attachment)" : item.text;
+          components.push(new UserMessage(text + suffix));
+          break;
+        }
+        case "reasoning":
+          components.push(new ThinkingComponent(item.text, "finalized"));
+          break;
+        case "assistant":
+          components.push(new AssistantMessage(item.text));
+          break;
+        case "tool_call": {
+          const row = new ToolRow(
+            item.toolName,
+            item.toolCallId,
+            item.args,
+            this.cwd,
+            () => this.tui.requestRender(),
+            toolDisplayLabel(undefined, item.toolName),
+          );
+          this.replayedToolRows.set(item.toolCallId, row);
+          components.push(row);
+          break;
+        }
+        case "tool_result": {
+          // Results attach to their call's row when possible so output
+          // collapses into the same line as the call; stray results (call in
+          // an unreadable earlier record) stand alone.
+          const row = this.replayedToolRows.get(item.toolCallId);
+          if (row !== undefined) {
+            row.setResult(item.content, item.isError, undefined);
+            this.replayedToolRows.delete(item.toolCallId);
+          } else {
+            components.push(systemNotice(`[result] ${item.content}`));
+          }
+          break;
+        }
+      }
+    }
+    return components;
   }
 
   /**

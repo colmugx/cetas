@@ -1,0 +1,151 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "colmugx/cetas-js/lib"
+
+import {
+  "colmugx/posoco",
+  "colmugx/posoco-ext-goal",
+  "colmugx/posoco-ext-llm",
+  "colmugx/posoco-ext-mcp",
+  "colmugx/posoco-ext-oauth",
+  "colmugx/posoco-ext-permission",
+  "colmugx/posoco-ext-plan",
+  "colmugx/posoco-ext-ratelimit",
+  "colmugx/posoco-ext-statusbar",
+  "colmugx/posoco-ext-workspace",
+  "colmugx/posoco/error",
+  "colmugx/posoco/port",
+  "colmugx/posoco/types",
+  "moonbitlang/async/js_async",
+}
+
+// Values
+pub fn cetas_js_abort_turn(CetasJsAgent) -> String
+
+pub fn cetas_js_active_model_supports_images(CetasJsAgent) -> String
+
+pub fn cetas_js_create_agent(CetasJsConfig, JsCallback, JsUiRenderCallback, JsUiRequestCallback, JsCancelCheck) -> @js_async.Promise[CetasJsAgent]
+
+pub fn cetas_js_describe_setup(CetasJsConfig) -> @js_async.Promise[String]
+
+pub fn cetas_js_enqueue_follow_up(CetasJsAgent, String, String) -> String
+
+pub fn cetas_js_invoke_command(CetasJsAgent, String, String) -> @js_async.Promise[String]
+
+pub fn cetas_js_list_commands(CetasJsAgent) -> String
+
+pub fn cetas_js_list_workspace_files(CetasJsConfig) -> @js_async.Promise[String]
+
+pub fn cetas_js_login_provider(CetasJsConfig, String, JsCallback, JsUiRequestCallback, JsCancelCheck, String) -> @js_async.Promise[String]
+
+pub fn cetas_js_refresh_model_catalogs(CetasJsConfig, String) -> @js_async.Promise[String]
+
+pub fn cetas_js_run_goal(CetasJsAgent, String) -> @js_async.Promise[String]
+
+pub fn cetas_js_run_turn(CetasJsAgent, String, String, String, @js_async.AbortSignal) -> @js_async.Promise[String]
+
+pub fn cetas_js_runtime_create_agent(CetasJsRuntime, JsCallback, JsUiRenderCallback, JsUiRequestCallback, JsCancelCheck) -> @js_async.Promise[CetasJsAgent]
+
+pub fn cetas_js_runtime_describe_setup(CetasJsRuntime) -> @js_async.Promise[String]
+
+pub fn cetas_js_runtime_login_provider(CetasJsRuntime, String, JsCallback, JsUiRequestCallback, JsCancelCheck, String) -> @js_async.Promise[String]
+
+pub fn cetas_js_runtime_refresh_model_catalogs(CetasJsRuntime, String) -> @js_async.Promise[String]
+
+pub fn cetas_js_set_goal(CetasJsRuntime, String) -> Unit
+
+pub fn cetas_js_shutdown(CetasJsAgent) -> @js_async.Promise[Unit]
+
+pub fn cetas_js_tool_catalog(CetasJsAgent) -> String
+
+// Errors
+
+// Types and methods
+pub(all) struct BlockingApprovalSource {
+  ui : &@port.UiPort
+}
+pub fn BlockingApprovalSource::BlockingApprovalSource(&@port.UiPort) -> Self
+pub impl @posoco-ext-permission.ApprovalSource for BlockingApprovalSource
+
+pub struct CetasJsAgent {
+  agent : @posoco.Agent
+  profile_errors : Array[String]
+  router : @posoco-ext-llm.RouterModelPort
+  statusbar : @posoco-ext-statusbar.StatusBar
+  plan : @posoco-ext-plan.PlanMode
+  home : String
+  observer : JsCallbackObserver
+  ratelimit : @posoco-ext-ratelimit.RateLimitGuard
+  goal : @posoco-ext-goal.GoalRunner?
+  tool_catalog : Map[String, String]
+  mcp : @posoco-ext-mcp.MCPToolBridge
+  mcp_fs : &@posoco-ext-workspace.WorkspaceFs
+}
+
+pub(all) struct CetasJsConfig {
+  cwd : String
+  max_tool_rounds : Int
+  home : String
+  permission_mode : String
+  sessions_dir : String
+  host_help_note : String
+}
+pub fn CetasJsConfig::CetasJsConfig(String, Int, String, String, String, String) -> Self
+
+pub(all) struct CetasJsRuntime {
+  config : CetasJsConfig
+  catalog_cache : Map[String, @posoco-ext-llm.ProviderModelCatalog]
+  mut catalog_issues : Array[@colmugx/cetas-core/lib.CatalogBuildIssue]
+  mut goal_condition : String?
+}
+pub fn CetasJsRuntime::CetasJsRuntime(CetasJsConfig) -> Self
+
+type JsAuthInteraction
+pub impl @posoco-ext-oauth.AuthInteraction for JsAuthInteraction
+pub impl @posoco-ext-oauth.AuthPromptInteraction for JsAuthInteraction
+
+#external
+pub type JsCallback
+
+pub(all) struct JsCallbackObserver {
+  callback : JsCallback
+}
+pub fn JsCallbackObserver::JsCallbackObserver(JsCallback) -> Self
+pub fn JsCallbackObserver::extension_id(Self) -> String
+pub fn JsCallbackObserver::manifest(Self) -> @port.ExtensionManifest
+pub impl @port.Extension for JsCallbackObserver
+pub impl @port.Observer for JsCallbackObserver
+
+#external
+pub type JsCancelCheck
+
+type JsMcpAuthInteraction
+pub fn JsMcpAuthInteraction::is_cancelled(Self) -> Bool
+pub fn JsMcpAuthInteraction::notify(Self, @posoco-ext-oauth.AuthMessage) -> Unit
+pub impl @posoco-ext-oauth.AuthInteraction for JsMcpAuthInteraction
+
+pub(all) struct JsUiPort {
+  render_callback : JsUiRenderCallback
+  request_callback : JsUiRequestCallback
+  mut next_request_id : Int
+}
+pub fn JsUiPort::JsUiPort(JsUiRenderCallback, JsUiRequestCallback) -> Self
+pub fn JsUiPort::extension_id(Self) -> String
+pub fn JsUiPort::manifest(Self) -> @port.ExtensionManifest
+pub impl @port.Extension for JsUiPort
+pub impl @port.UiPort for JsUiPort
+
+#external
+pub type JsUiRenderCallback
+
+#external
+pub type JsUiRequestCallback
+
+pub(all) struct PlanApprovalSource {
+  ui : &@port.UiPort
+}
+pub fn PlanApprovalSource::PlanApprovalSource(&@port.UiPort) -> Self
+pub impl @posoco-ext-plan.PlanReviewSource for PlanApprovalSource
+
+// Type aliases
+
+// Traits

@@ -15,10 +15,10 @@ import { ProcessTerminal, TUI } from "@earendil-works/pi-tui";
 import { buildCetasHostConfig, CetasApplication } from "./src/app/index.ts";
 import { MoonbitCetasAgentBridge } from "./src/app/moonbit-bridge.ts";
 import { newSessionId } from "./src/app/session-id.ts";
-import { TerminalShell } from "./ui/terminal-shell.ts";
+import { TerminalShell, CETAS_TUI_HELP_NOTE } from "./ui/terminal-shell.ts";
 
 async function main(): Promise<void> {
-  const config = buildCetasHostConfig();
+  const config = buildCetasHostConfig({ hostHelpNote: CETAS_TUI_HELP_NOTE });
   const sessionId = newSessionId();
   const bridge = new MoonbitCetasAgentBridge(config);
   // The shell is constructed before the agent exists, so it receives the

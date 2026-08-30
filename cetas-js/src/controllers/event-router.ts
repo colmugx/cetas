@@ -30,6 +30,10 @@ import {
 import { ThinkingComponent } from "../transcript/thinking.ts";
 import { AssistantMessage } from "../transcript/components.ts";
 import { StreamingUIController, type StreamingComponentFactory } from "./streaming-ui.ts";
+import {
+  ToolStreamingController,
+  type StreamingToolRowFactory,
+} from "./tool-streaming.ts";
 
 export interface EventRouterCallbacks {
   /** Append a component to the transcript Container. */
@@ -55,6 +59,12 @@ export class EventRouter {
    * of mutating the previous turn's frozen components.
    */
   private stream: StreamingUIController | null = null;
+  /**
+   * Per-turn streaming tool-args controller. Same lifecycle contract as
+   * `stream`: fresh per turn, dropped in endTurn(). Adopted rows move into
+   * `toolRows` so `tool_call_completed` keeps routing to them.
+   */
+  private toolStream: ToolStreamingController | null = null;
   private toolRows = new Map<string, ToolRow>();
   private inTurn = false;
 
@@ -81,6 +91,9 @@ export class EventRouter {
         break;
       case "tool_call_started":
         this.handleToolCallStarted(ev.tool_call_id, ev.tool_name, ev.args);
+        break;
+      case "tool_args_delta":
+        this.toolStream?.onArgsDelta(ev.index, ev.id, ev.name, ev.delta);
         break;
       case "tool_call_completed":
         this.handleToolCallCompleted(
@@ -230,6 +243,18 @@ export class EventRouter {
     toolName: string,
     args: unknown,
   ): void {
+    // Streaming reconciliation: deltas for this call reached us BEFORE the
+    // started event, so a pending row may already be mounted. Adoption hands
+    // the row the authoritative full args (replacement, not merge — the
+    // chunk channel is lossy) and registers it here so completed results
+    // route normally. Without prior deltas this returns null and the classic
+    // path below runs unchanged (history replay / non-streaming providers).
+    const adopted = this.toolStream?.onCallStarted(toolCallId, toolName, args);
+    if (adopted) {
+      this.toolRows.set(toolCallId, adopted);
+      this.cb.setStatus("working", `running ${toolName}`);
+      return;
+    }
     const row = new ToolRow(
       toolName,
       toolCallId,
@@ -286,6 +311,29 @@ export class EventRouter {
       () => this.cb.requestRender(),
       factory,
     );
+    // Streaming tool rows mount via the same pattern: the controller owns
+    // accumulation + throttled flushes; the factory only mounts components.
+    const toolFactory: StreamingToolRowFactory = {
+      createStreamingRow: (index, id, name) => {
+        const displayName = name ?? "";
+        const row = new ToolRow(
+          displayName,
+          id ?? `#${index}`,
+          {},
+          this.cb.cwd,
+          () => this.cb.requestRender(),
+          displayName.length > 0 ? this.cb.toolLabel(displayName) : undefined,
+          this.cb.initialToolExpanded(),
+          { streaming: true, labelFor: (n) => this.cb.toolLabel(n) },
+        );
+        this.cb.addTranscriptChild(row);
+        return row;
+      },
+    };
+    this.toolStream = new ToolStreamingController(
+      () => this.cb.requestRender(),
+      toolFactory,
+    );
     this.toolRows.clear();
     this.cb.setStatus("working", "thinking");
   }
@@ -298,6 +346,9 @@ export class EventRouter {
     // references are released so the next turn's controller starts clean.
     this.stream?.end();
     this.stream = null;
+    // Drop pending tool-args state; mounted rows stay as frozen children.
+    this.toolStream?.endTurn();
+    this.toolStream = null;
     this.cb.setStatus("idle");
     this.toolRows.clear();
   }

@@ -153,8 +153,31 @@ export class AssistantMessage extends Container {
 }
 
 /**
+ * Options for rows mounted before their call is fully known.
+ */
+export interface ToolRowOptions {
+  /**
+   * Mount in streaming state (`executionStarted/argsComplete false`,
+   * `isPartial true`) so renderers can show args arriving live from
+   * `tool_args_delta` fragments.
+   */
+  streaming?: boolean;
+  /**
+   * Display-label resolver used when the authoritative tool name arrives
+   * late (kept separate from `toolLabel` so `ext:` prefixes survive a
+   * rename). Defaults to identity.
+   */
+  labelFor?: (name: string) => string;
+}
+
+/**
  * A single tool-call row. Owns its renderer context and renders
  * call/result via the registered ToolRenderer.
+ *
+ * Rows mount either complete (`tool_call_started` path) or streaming
+ * (`tool_args_delta` path, via `{ streaming: true }`). Streaming rows are
+ * fed incrementally by {@link setStreamingArgs} and finalized — with the
+ * authoritative full-args replace — by {@link markCallStarted}.
  */
 export class ToolRow extends Container {
   private ctx: ToolRenderContext;
@@ -162,19 +185,23 @@ export class ToolRow extends Container {
   private result?: { content: string; isError: boolean; structured?: unknown };
   private finished = false;
   private expanded: boolean;
+  private labelFor: (name: string) => string;
 
   constructor(
-    private readonly toolName: string,
+    private toolName: string,
     toolCallId: string,
     args: unknown,
     cwd: string,
     invalidateParent: () => void,
     toolLabel?: string,
     expanded = false,
+    options?: ToolRowOptions,
   ) {
     super();
+    const streaming = options?.streaming ?? false;
     this.renderer = pickToolRenderer(toolName);
     this.expanded = expanded;
+    this.labelFor = options?.labelFor ?? ((n) => n);
     this.ctx = {
       toolCallId,
       toolName,
@@ -182,9 +209,9 @@ export class ToolRow extends Container {
       args,
       cwd,
       state: {},
-      executionStarted: true,
-      argsComplete: true,
-      isPartial: false,
+      executionStarted: !streaming,
+      argsComplete: !streaming,
+      isPartial: streaming,
       isError: false,
       invalidate: () => {
         this.rebuild();
@@ -193,6 +220,41 @@ export class ToolRow extends Container {
     };
     this.addChild(new Spacer(1));
     this.rebuild();
+  }
+
+  /**
+   * Push a freshly parsed partial-args record while streaming (called at
+   * flush cadence, at most once per throttle interval). An optional name
+   * update applies when a fragment carries it (possibly for the first time).
+   */
+  setStreamingArgs(partialArgs: unknown, name?: string): void {
+    this.applyOptionalName(name);
+    this.ctx.args = partialArgs;
+    this.rebuild();
+  }
+
+  /**
+   * Flip a streaming row to its finalized call state: full authoritative
+   * args replace whatever accumulated (the chunk channel is lossy under
+   * backpressure, so replacement — not merge — is the contract).
+   */
+  markCallStarted(args: unknown, name?: string): void {
+    this.applyOptionalName(name);
+    this.ctx.args = args;
+    this.ctx.executionStarted = true;
+    this.ctx.argsComplete = true;
+    this.ctx.isPartial = false;
+    this.rebuild();
+  }
+
+  private applyOptionalName(name?: string): void {
+    if (name === undefined || name.length === 0 || name === this.toolName) return;
+    // Late rename (or first sight of the name after streaming started):
+    // re-resolve label + renderer.
+    this.toolName = name;
+    this.ctx.toolName = name;
+    this.ctx.toolLabel = this.labelFor(name);
+    this.renderer = pickToolRenderer(name);
   }
 
   /** Apply a result; rebuilds the row with the success/error background. */

@@ -19,6 +19,7 @@ import {
 import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 
+import { formatPricingBadge } from "./pricing-phase.ts";
 import { theme } from "./theme.ts";
 
 export interface ModelCatalogEntry {
@@ -207,6 +208,7 @@ class TabbedPickerPanel implements Component {
     entries: readonly ModelCatalogEntry[],
     onSelect: (selection: ModelSelection) => void,
     onCancel: () => void,
+    private readonly now: () => Date = () => new Date(),
   ) {
     this.tabs = ["All"];
     for (const entry of entries) {
@@ -441,18 +443,20 @@ class TabbedPickerPanel implements Component {
         row.entry.model !== undefined && !row.entry.label.includes(row.entry.model)
           ? ` · ${row.entry.model}`
           : "";
+      const badge = formatPricingBadge(row.entry.provider, row.entry.model, this.now());
       return {
         value: row.entry.id,
-        label: `${row.entry.active ? "* " : "  "}${row.entry.label}${modelText}${effortText}`,
+        label: `${row.entry.active ? "* " : "  "}${row.entry.label}${modelText}${badge}${effortText}`,
         description: row.entry.provider ?? tab,
       };
     });
     // The SelectList default locks the primary column to 32 chars, which
     // truncates ` · effort: X` off real provider labels. Widen the column so
-    // the effort segment stays visible; it still clamps to the overlay width.
+    // the effort segment and pricing badge stay visible; it still clamps to
+    // the overlay width.
     const list = new SelectList(items, Math.min(12, Math.max(1, items.length)), selectTheme, {
       minPrimaryColumnWidth: 32,
-      maxPrimaryColumnWidth: 64,
+      maxPrimaryColumnWidth: 80,
     });
     list.setSelectedIndex(selected);
     return list;
@@ -474,6 +478,7 @@ export class ModelPickerOverlay {
     entries: readonly ModelCatalogEntry[],
     onSelect: (selection: ModelSelection) => void,
     onCancel: () => void,
+    now: () => Date = () => new Date(),
   ): void {
     if (this.handle !== undefined) {
       throw new Error("model picker is already open");
@@ -497,6 +502,7 @@ export class ModelPickerOverlay {
         close();
         onCancel();
       },
+      now,
     );
     this.panel = panel;
     this.handle = this.tui.showOverlay(panel, {

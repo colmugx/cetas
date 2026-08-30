@@ -221,12 +221,14 @@ describe("unified invariant — result line 1 = bullet + title + primary", () =>
 
   test("every spec table entry is exercised by a renderer", () => {
     // Guards the loop above against silently dropping a spec entry.
+    // `write` is intentionally absent: it renders through its registered
+    // hook (write.ts) which delegates finalized views to
+    // specRenderer(writeSpec) and is covered by write.test.ts.
     expect(Object.keys(TOOL_ROW_SPECS).sort()).toEqual([
       "edit",
       "glob",
       "grep",
       "read",
-      "write",
     ]);
   });
 });

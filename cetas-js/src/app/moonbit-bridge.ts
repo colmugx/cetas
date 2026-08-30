@@ -1,4 +1,9 @@
-import * as moonbit from "../../../../_build/js/release/build/colmugx/cetas-js/lib/lib.js";
+// Runtime path: Bun's runtime resolver cannot be intercepted by plugins, so
+// the artifact is reached through a one-line re-export (moonbit-api.js) that
+// `bun host.ts` and Bun.build both follow natively. Types come from the
+// sibling moonbit-api.d.ts, which re-exports the generated declarations in
+// gen/mbt.d.ts.
+import * as moonbit from "./moonbit-api.js";
 import type {
   AgentCallbacks,
   CetasAgentBridge,
@@ -10,97 +15,18 @@ import type {
   ProviderSetupSnapshot,
 } from "./types.ts";
 
-type RawConfigConstructor = new (
-  cwd: string,
-  maxToolRounds: number,
-  home: string,
-  permissionMode: string,
-  sessionsDir: string,
-) => unknown;
-type RawRuntimeConstructor = new (config: unknown) => unknown;
-
-type RawRuntimeCreateAgent = (
-  runtime: unknown,
-  observerCallback: (eventJson: string) => void,
-  renderCallback: (eventJson: string) => void,
-  requestCallback: (eventJson: string) => Promise<string>,
-  cancelCheck: () => boolean,
-) => Promise<unknown>;
-
-type RawRuntimeDescribeSetup = (runtime: unknown) => Promise<string>;
-type RawRuntimeRefreshModelCatalogs = (runtime: unknown, providerIdsJson: string) => Promise<string>;
-type RawRuntimeLoginProvider = (
-  runtime: unknown,
-  provider: string,
-  observerCallback: (eventJson: string) => void,
-  requestCallback: (eventJson: string) => Promise<string>,
-  cancelCheck: () => boolean,
-  method: string,
-) => Promise<string>;
-type RawRunTurn = (
-  agent: unknown,
-  prompt: string,
-  imagesJson: string,
-  sessionId: string,
-  signal: AbortSignal,
-) => Promise<string>;
-type RawAbortTurn = (agent: unknown) => string;
-type RawEnqueueFollowUp = (
-  agent: unknown,
-  prompt: string,
-  imagesJson: string,
-) => string;
-type RawActiveModelSupportsImages = (agent: unknown) => string;
-type RawShutdown = (agent: unknown) => Promise<void>;
-type RawListCommands = (agent: unknown) => string;
-type RawToolCatalog = (agent: unknown) => string;
-type RawInvokeCommand = (agent: unknown, id: string, argsJson: string) => Promise<string>;
-type RawListWorkspaceFiles = (config: unknown) => Promise<string>;
-
-const RawConfig = moonbit.CetasJsConfig as unknown as RawConfigConstructor;
-const RawRuntime = (moonbit as unknown as {
-  CetasJsRuntime: RawRuntimeConstructor;
-}).CetasJsRuntime;
-const rawRuntimeCreateAgent = (moonbit as unknown as {
-  cetas_js_runtime_create_agent: RawRuntimeCreateAgent;
-}).cetas_js_runtime_create_agent;
-const rawRuntimeDescribeSetup = (moonbit as unknown as {
-  cetas_js_runtime_describe_setup: RawRuntimeDescribeSetup;
-}).cetas_js_runtime_describe_setup;
-const rawRuntimeRefreshModelCatalogs = (moonbit as unknown as {
-  cetas_js_runtime_refresh_model_catalogs: RawRuntimeRefreshModelCatalogs;
-}).cetas_js_runtime_refresh_model_catalogs;
-const rawRuntimeLoginProvider = (moonbit as unknown as {
-  cetas_js_runtime_login_provider: RawRuntimeLoginProvider;
-}).cetas_js_runtime_login_provider;
-const rawRunTurn = moonbit.cetas_js_run_turn as unknown as RawRunTurn;
-const rawAbortTurn = moonbit.cetas_js_abort_turn as unknown as RawAbortTurn;
-const rawActiveModelSupportsImages = (moonbit as unknown as {
-  cetas_js_active_model_supports_images: RawActiveModelSupportsImages;
-}).cetas_js_active_model_supports_images;
-const rawEnqueueFollowUp = (moonbit as unknown as {
-  cetas_js_enqueue_follow_up: RawEnqueueFollowUp;
-}).cetas_js_enqueue_follow_up;
-const rawShutdown = moonbit.cetas_js_shutdown as unknown as RawShutdown;
-const rawListCommands = moonbit.cetas_js_list_commands as unknown as RawListCommands;
-const rawToolCatalog = moonbit.cetas_js_tool_catalog as unknown as RawToolCatalog;
-const rawInvokeCommand = moonbit.cetas_js_invoke_command as unknown as RawInvokeCommand;
-const rawListWorkspaceFiles = (moonbit as unknown as {
-  cetas_js_list_workspace_files: RawListWorkspaceFiles;
-}).cetas_js_list_workspace_files;
-
 /**
  * Adapter for the generated MoonBit boundary. Provider settings and
  * credentials remain behind the MoonBit/provider extension seam; this TS
  * layer only carries capability snapshots and command JSON.
  */
 export class MoonbitCetasAgentBridge implements CetasAgentBridge {
-  private readonly configValue: unknown;
-  private readonly runtimeValue: unknown;
+  private readonly configValue: moonbit.CetasJsConfig;
+  private readonly runtimeValue: moonbit.CetasJsRuntime;
   private toolCatalogValue: Readonly<Record<string, string>> = {};
 
   constructor(config: CetasHostConfig) {
-    this.configValue = new RawConfig(
+    this.configValue = new moonbit.CetasJsConfig(
       config.cwd,
       config.maxToolRounds,
       config.home,
@@ -108,8 +34,10 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
       // Empty string is the bridge's "not chosen" convention; the MoonBit
       // constructor then falls back to `<home>/.cetas/sessions`.
       config.sessionsDir ?? "",
+      // Same empty-string convention for the /help host note.
+      config.hostHelpNote ?? "",
     );
-    this.runtimeValue = new RawRuntime(this.configValue);
+    this.runtimeValue = new moonbit.CetasJsRuntime(this.configValue);
   }
 
   /**
@@ -121,7 +49,7 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
   }
 
   async describeSetup(_config: CetasHostConfig): Promise<ProviderSetupSnapshot> {
-    const raw = await rawRuntimeDescribeSetup(this.runtimeValue);
+    const raw = await moonbit.cetas_js_runtime_describe_setup(this.runtimeValue);
     return parseProviderSetup(raw);
   }
 
@@ -130,7 +58,7 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
     providers?: readonly string[],
   ): Promise<ProviderSetupSnapshot> {
     const providerIdsJson = providers === undefined ? "" : JSON.stringify([...providers]);
-    const raw = await rawRuntimeRefreshModelCatalogs(this.runtimeValue, providerIdsJson);
+    const raw = await moonbit.cetas_js_runtime_refresh_model_catalogs(this.runtimeValue, providerIdsJson);
     return parseProviderSetup(raw);
   }
 
@@ -139,7 +67,7 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
     callbacks: AgentCallbacks,
     cancellation?: CancellationToken,
   ): Promise<unknown> {
-    const agent = await rawRuntimeCreateAgent(
+    const agent = await moonbit.cetas_js_runtime_create_agent(
       this.runtimeValue,
       callbacks.observerCallback,
       callbacks.renderCallback,
@@ -157,7 +85,7 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
     cancellation?: CancellationToken,
     method?: string,
   ): Promise<string> {
-    return rawRuntimeLoginProvider(
+    return moonbit.cetas_js_runtime_login_provider(
       this.runtimeValue,
       provider,
       callbacks.observerCallback,
@@ -176,8 +104,8 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
   ): Promise<string> {
     // The MoonBit export takes the signal positionally; a fresh never-aborted
     // controller keeps signal-less callers (tests, smoke) on the same path.
-    return rawRunTurn(
-      agent,
+    return moonbit.cetas_js_run_turn(
+      agent as moonbit.CetasJsAgent,
       prompt,
       imagesJsonFor(images),
       sessionId,
@@ -186,11 +114,11 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
   }
 
   activeModelSupportsImages(agent: unknown): boolean {
-    return rawActiveModelSupportsImages(agent) === "true";
+    return moonbit.cetas_js_active_model_supports_images(agent as moonbit.CetasJsAgent) === "true";
   }
 
   abortTurn(agent: unknown): string {
-    return rawAbortTurn(agent);
+    return moonbit.cetas_js_abort_turn(agent as moonbit.CetasJsAgent);
   }
 
   enqueueFollowUp(
@@ -198,23 +126,23 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
     prompt: string,
     images?: readonly ImageAttachment[],
   ): string {
-    return rawEnqueueFollowUp(agent, prompt, imagesJsonFor(images));
+    return moonbit.cetas_js_enqueue_follow_up(agent as moonbit.CetasJsAgent, prompt, imagesJsonFor(images));
   }
 
   shutdown(agent: unknown): Promise<void> {
-    return rawShutdown(agent);
+    return moonbit.cetas_js_shutdown(agent as moonbit.CetasJsAgent);
   }
 
   listCommands(agent: unknown): readonly CommandDescriptor[] {
-    return parseCommandList(rawListCommands(agent));
+    return parseCommandList(moonbit.cetas_js_list_commands(agent as moonbit.CetasJsAgent));
   }
 
   invokeCommand(agent: unknown, id: string, argsJson: string): Promise<string> {
-    return rawInvokeCommand(agent, id, argsJson);
+    return moonbit.cetas_js_invoke_command(agent as moonbit.CetasJsAgent, id, argsJson);
   }
 
   listWorkspaceFiles(_config: CetasHostConfig): Promise<string> {
-    return rawListWorkspaceFiles(this.configValue);
+    return moonbit.cetas_js_list_workspace_files(this.configValue);
   }
 }
 
@@ -227,9 +155,9 @@ function imagesJsonFor(images?: readonly ImageAttachment[]): string {
 // Intentionally lenient unlike the strict parsers below: the catalog only
 // feeds display titles, so any failure degrades to an empty mapping instead
 // of failing agent creation.
-function snapshotToolCatalog(agent: unknown): Record<string, string> {
+function snapshotToolCatalog(agent: moonbit.CetasJsAgent): Record<string, string> {
   try {
-    const value: unknown = JSON.parse(rawToolCatalog(agent));
+    const value: unknown = JSON.parse(moonbit.cetas_js_tool_catalog(agent));
     if (!isRecord(value)) return {};
     const catalog: Record<string, string> = {};
     for (const [name, extId] of Object.entries(value)) {

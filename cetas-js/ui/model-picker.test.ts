@@ -428,3 +428,85 @@ describe("model picker search", () => {
     expect(rendered).toContain("All");
   });
 });
+
+describe("model picker pricing badge", () => {
+  const fridayPeak = () => new Date(Date.UTC(2026, 7, 28, 8)); // Friday 16:00 Beijing
+  const saturdayAfternoon = () => new Date(Date.UTC(2026, 7, 29, 8)); // Saturday 16:00 Beijing
+
+  test("deepseek row shows the peak multiplier and its two-window range", () => {
+    const tui = new FakeTui();
+    const picker = new ModelPickerOverlay(tui as never);
+    picker.open(
+      [
+        {
+          id: "deepseek/deepseek-v4-pro",
+          label: "DeepSeek / deepseek-v4-pro",
+          provider: "deepseek",
+          model: "deepseek-v4-pro",
+          active: true,
+          efforts: [],
+        },
+      ],
+      () => {},
+      () => {},
+      fridayPeak,
+    );
+    const rendered = tui.shown!.render(100).join("\n");
+    expect(rendered).toContain("2x");
+    expect(rendered).toContain("(9:00 ~ 12:00, 14:00 ~ 18:00)");
+  });
+
+  test("zai-coding-plan rows show per-model peak multipliers while other providers show no badge", () => {
+    const tui = new FakeTui();
+    const picker = new ModelPickerOverlay(tui as never);
+    picker.open(
+      [
+        { id: "zai-coding-plan/glm-5.3", label: "Z.ai Coding Plan / glm-5.3", provider: "zai-coding-plan", model: "glm-5.3", active: false, efforts: [] },
+        {
+          id: "zai-coding-plan/glm-5.3-flash",
+          label: "Z.ai Coding Plan / glm-5.3-flash",
+          provider: "zai-coding-plan",
+          model: "glm-5.3-flash",
+          active: false,
+          efforts: [],
+        },
+        { id: "kimi/kimi-k2", label: "Kimi Code", provider: "kimi", model: "kimi-k2", active: true, efforts: [] },
+      ],
+      () => {},
+      () => {},
+      fridayPeak,
+    );
+    const lines = tui.shown!.render(100);
+    // Trailing space keeps "Z.ai Coding Plan / glm-5.3" from matching the flash row too.
+    const glmLine = lines.find((line) => line.includes("Z.ai Coding Plan / glm-5.3 "));
+    const flashLine = lines.find((line) => line.includes("Z.ai Coding Plan / glm-5.3-flash"));
+    const kimiLine = lines.find((line) => line.includes("Kimi Code"));
+    expect(glmLine).toContain("3x");
+    expect(glmLine).toContain("(14:00 ~ 18:00)");
+    expect(flashLine).toContain("1.2x");
+    expect(kimiLine).not.toContain("x (");
+  });
+
+  test("zai-coding-plan flash row shows the bare off-peak multiplier on weekends", () => {
+    const tui = new FakeTui();
+    const picker = new ModelPickerOverlay(tui as never);
+    picker.open(
+      [
+        {
+          id: "zai-coding-plan/glm-5.3-flash",
+          label: "Z.ai Coding Plan / glm-5.3-flash",
+          provider: "zai-coding-plan",
+          model: "glm-5.3-flash",
+          active: true,
+          efforts: [],
+        },
+      ],
+      () => {},
+      () => {},
+      saturdayAfternoon,
+    );
+    const rendered = tui.shown!.render(100).join("\n");
+    expect(rendered).toContain("0.4x");
+    expect(rendered).not.toContain("(");
+  });
+});

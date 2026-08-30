@@ -35,6 +35,11 @@ export interface CetasHostConfig {
    * `projectSessionsDir(home, cwd)` (see `./session-id.ts`).
    */
   sessionsDir?: string;
+  /**
+   * Host-specific note appended to the forme extension's /help output
+   * (keybindings and input conventions). Omitted or empty means no note.
+   */
+  hostHelpNote?: string;
 }
 
 export interface ProviderModelCapability {

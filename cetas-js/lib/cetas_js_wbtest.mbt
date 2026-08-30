@@ -96,7 +96,7 @@ test "model refresh selector validates provider ids and deduplicates requests" {
 ///|
 test "CetasJsConfig empty sessions_dir falls back to the flat home root" {
   let config = CetasJsConfig::CetasJsConfig(
-    "/work", 0, "/home/u", "workspace_write", "",
+    "/work", 0, "/home/u", "workspace_write", "", "",
   )
   assert_eq(config.sessions_dir, "/home/u/.cetas/sessions")
 }
@@ -104,7 +104,62 @@ test "CetasJsConfig empty sessions_dir falls back to the flat home root" {
 ///|
 test "CetasJsConfig keeps an explicit sessions_dir" {
   let config = CetasJsConfig::CetasJsConfig(
-    "/work", 0, "/home/u", "yolo", "/home/u/.cetas/sessions/--work--",
+    "/work", 0, "/home/u", "yolo", "/home/u/.cetas/sessions/--work--", "",
   )
   assert_eq(config.sessions_dir, "/home/u/.cetas/sessions/--work--")
+}
+
+///|
+test "turn_event_to_json maps ToolCallDelta onto tool_args_delta" {
+  let event : @posoco.TurnEvent = StreamChunkReceived(
+    chunk=ToolCallDelta(
+      index=1,
+      id=Some("call_9"),
+      name=Some("write"),
+      arguments_delta=Some("{\"path\""),
+    ),
+  )
+  let json = @json.parse(turn_event_to_json(event).stringify())
+  match json {
+    Json::Object(fields) => {
+      assert_eq(fields["type"], Json::string("tool_args_delta"))
+      assert_eq(fields["index"], Json::number(1.0))
+      assert_eq(fields["id"], Json::string("call_9"))
+      assert_eq(fields["name"], Json::string("write"))
+      assert_eq(fields["delta"], Json::string("{\"path\""))
+    }
+    _ => fail("event must be an object")
+  }
+}
+
+///|
+test "turn_event_to_json carries only Some fields on later fragments" {
+  let event : @posoco.TurnEvent = StreamChunkReceived(
+    chunk=ToolCallDelta(
+      index=0,
+      id=None,
+      name=None,
+      arguments_delta=Some("abc"),
+    ),
+  )
+  let json = @json.parse(turn_event_to_json(event).stringify())
+  match json {
+    Json::Object(fields) => {
+      assert_eq(fields["type"], Json::string("tool_args_delta"))
+      assert_eq(fields["index"], Json::number(0.0))
+      assert_eq(fields.get("id"), None)
+      assert_eq(fields.get("name"), None)
+      assert_eq(fields["delta"], Json::string("abc"))
+    }
+    _ => fail("event must be an object")
+  }
+}
+
+///|
+test "turn_event_to_json skips StreamChunksDropped (null sentinel)" {
+  let event : @posoco.TurnEvent = StreamChunksDropped(count=3)
+  match turn_event_to_json(event) {
+    Json::Null => ()
+    _ => fail("expected Json null skip sentinel")
+  }
 }

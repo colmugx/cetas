@@ -11,6 +11,8 @@ export interface CetasHostConfigOverrides {
   permissionMode?: CetasHostConfig["permissionMode"];
   /** Derived per-project layout under `<home>/.cetas/sessions` unless set. */
   sessionsDir?: string;
+  /** Host /help note; see `CetasHostConfig.hostHelpNote`. */
+  hostHelpNote?: string;
 }
 
 /**
@@ -33,5 +35,8 @@ export function buildCetasHostConfig(
       ? {}
       : { permissionMode: overrides.permissionMode }),
     sessionsDir: overrides.sessionsDir ?? projectSessionsDir(home, cwd),
+    ...(overrides.hostHelpNote === undefined || overrides.hostHelpNote === ""
+      ? {}
+      : { hostHelpNote: overrides.hostHelpNote }),
   };
 }

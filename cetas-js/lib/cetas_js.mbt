@@ -163,6 +163,13 @@ fn usage_to_json(usage : @posoco.Usage?) -> Json {
 ///                            unknown to posoco's core)
 ///   SessionRedirect        → session_redirect { from, to }
 ///   StreamChunkReceived    → stream_chunk { raw } (UI may accumulate deltas)
+///     ToolCallDelta         → tool_args_delta { index, id?, name?, delta? }
+///                             (fragments concatenate into the arguments
+///                             JSON string; they always precede
+///                             tool_call_started, which carries the
+///                             authoritative args)
+///   StreamChunksDropped(_) → skipped (Json null sentinel — backpressure
+///                             bookkeeping, nothing renderable)
 ///   Custom                 → custom { source, label, data }
 fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
   let json : Json = match event {
@@ -293,13 +300,28 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
             ]),
           )
         }
-        @posoco.StreamChunk::ToolCallDelta(..) =>
-          // Tool-call argument deltas arrive fragmented; the UI cannot act on
-          // them until the full call resolves to ToolCallPending. Return Null
-          // so on_event skips emission entirely — no wire type reaches TS.
-          // (An earlier "_noop" type crashed parseCetasEvent's unknown-type
-          // path. Null is the observer-level skip sentinel.)
-          Json::null()
+        @posoco.StreamChunk::ToolCallDelta(index~, id~, name~, arguments_delta~) => {
+          // Streamed tool-call argument fragment. Fragments concatenate into
+          // the full arguments JSON string; id/name ride the first fragment
+          // per OpenAI convention but are carried whenever Some.
+          let fields : Array[(String, Json)] = [
+            ("type", Json::string("tool_args_delta")),
+            ("index", Json::number(index.to_double())),
+          ]
+          match id {
+            Some(v) => fields.push(("id", Json::string(v)))
+            None => ()
+          }
+          match name {
+            Some(v) => fields.push(("name", Json::string(v)))
+            None => ()
+          }
+          match arguments_delta {
+            Some(d) => fields.push(("delta", Json::string(d)))
+            None => ()
+          }
+          Json::object(Map::from_array(fields))
+        }
         @posoco.StreamChunk::Finish(reason~) => {
           let _ = reason
           // Finish reason is already reflected in ModelResponseReceived /
@@ -334,7 +356,11 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
           ("reason", Json::string(reason)),
         ]),
       )
-    @posoco.TurnEvent::StreamChunksDropped(_) => Json::object({})
+    @posoco.TurnEvent::StreamChunksDropped(_) =>
+      // Backpressure bookkeeping (oldest chunk drops). Nothing renderable;
+      // an empty Json object would fail parseCetasEvent's type check, so
+      // return the Null skip sentinel.
+      Json::null()
   }
   json
 }
@@ -352,9 +378,9 @@ pub impl @posoco.Observer for JsCallbackObserver with fn on_event(
   // itself throws, MoonBit's js backend surfaces it as an uncaught exception
   // (intentional — observers should not throw, and silencing would hide bugs).
   let parsed = turn_event_to_json(event)
-  // Null is the skip sentinel for chunks with no UI action (ToolCallDelta /
-  // Finish). Do not emit anything — the TS parser would reject an unknown
-  // `_noop` type and crash the turn mid-stream.
+  // Null is the skip sentinel for events with no UI action (Finish chunk /
+  // StreamChunksDropped). Do not emit anything — the TS parser would reject
+  // an unknown type and crash the turn mid-stream.
   match parsed {
     Json::Null => ()
     Json::Array(items) =>
@@ -379,11 +405,74 @@ pub impl @posoco.Extension for JsCallbackObserver with fn manifest(
   self : JsCallbackObserver,
 ) -> @posoco.ExtensionManifest {
   let m = @posoco.ExtensionManifest::empty(id="cetas_js_observer")
-  { ..m, observers: [self] }
+  { ..m, observers: [self], }
 }
 
 ///|
 pub extend JsCallbackObserver with @posoco.Extension::{extension_id, manifest}
+
+///|
+/// AuthInteraction adapter for MCP server login: device codes, login URLs,
+/// and progress surface as observer Custom events (source "cetas-js.mcp") so
+/// the TS host renders them through the normal event channel. v1 has no
+/// mid-flow cancel.
+struct JsMcpAuthInteraction {
+  observer : JsCallbackObserver
+}
+
+///|
+fn JsMcpAuthInteraction::JsMcpAuthInteraction(
+  observer : JsCallbackObserver,
+) -> JsMcpAuthInteraction {
+  { observer, }
+}
+
+///|
+pub impl @oauth.AuthInteraction for JsMcpAuthInteraction with fn notify(
+  self : JsMcpAuthInteraction,
+  message : @oauth.AuthMessage,
+) -> Unit {
+  let event : @posoco.TurnEvent = match message {
+    @oauth.AuthMessage::DeviceCode(uri, code) =>
+      Custom(
+        source="cetas-js.mcp",
+        label="mcp_login_code",
+        data=Json::object(
+          Map::from_array([
+            ("verification_uri", Json::string(uri)),
+            ("user_code", Json::string(code)),
+            ("hint", Json::string("open the URL and enter the code")),
+          ]),
+        ),
+      )
+    @oauth.AuthMessage::AuthUrl(url) =>
+      Custom(
+        source="cetas-js.mcp",
+        label="mcp_login_url",
+        data=Json::object(Map::from_array([("url", Json::string(url))])),
+      )
+    @oauth.AuthMessage::Progress(msg) =>
+      Custom(
+        source="cetas-js.mcp",
+        label="mcp_login_progress",
+        data=Json::object(Map::from_array([("message", Json::string(msg))])),
+      )
+  }
+  self.observer.on_event(event)
+}
+
+///|
+pub impl @oauth.AuthInteraction for JsMcpAuthInteraction with fn is_cancelled(
+  _self : JsMcpAuthInteraction,
+) -> Bool {
+  false
+}
+
+///|
+pub extend JsMcpAuthInteraction with @oauth.AuthInteraction::{
+  notify,
+  is_cancelled,
+}
 
 ///|
 /// JS callback type for one-way render events: `(eventJson: string) => void`.
@@ -433,7 +522,7 @@ pub fn JsUiPort::JsUiPort(
   render_callback : JsUiRenderCallback,
   request_callback : JsUiRequestCallback,
 ) -> JsUiPort {
-  { render_callback, request_callback, next_request_id: 0 }
+  { render_callback, request_callback, next_request_id: 0, }
 }
 
 ///|
@@ -760,7 +849,7 @@ pub impl @posoco.Extension for JsUiPort with fn extension_id(_self : JsUiPort) -
 ///|
 pub impl @posoco.Extension for JsUiPort with fn manifest(self : JsUiPort) -> @posoco.ExtensionManifest {
   let m = @posoco.ExtensionManifest::empty(id="cetas_js_ui")
-  { ..m, ui: [self] }
+  { ..m, ui: [self], }
 }
 
 ///|
@@ -785,6 +874,10 @@ pub(all) struct CetasJsConfig {
   /// "host did not choose a layout" convention) resolves to the legacy flat
   /// root `<home>/.cetas/sessions` in the constructor below.
   sessions_dir : String
+  /// Host-specific /help note (TUI keys and input conventions). Empty string
+  /// means no note; cetas-js owns this content because the kernel cannot know
+  /// the host's keybindings.
+  host_help_note : String
 }
 
 ///|
@@ -792,13 +885,15 @@ pub(all) struct CetasJsConfig {
 /// `permission_mode` is `"readonly" | "workspace_write" | "interactive" |
 /// "yolo"`; an unrecognized value falls back to `"workspace_write"` at policy
 /// assembly. An empty `sessions_dir` falls back to `<home>/.cetas/sessions`
-/// so callers that predate per-project session layout keep working.
+/// so callers that predate per-project session layout keep working. An empty
+/// `host_help_note` contributes no note.
 pub fn CetasJsConfig::CetasJsConfig(
   cwd : String,
   max_tool_rounds : Int,
   home : String,
   permission_mode : String,
   sessions_dir : String,
+  host_help_note : String,
 ) -> CetasJsConfig {
   let resolved_sessions_dir = if sessions_dir == "" {
     home + "/.cetas/sessions"
@@ -811,6 +906,7 @@ pub fn CetasJsConfig::CetasJsConfig(
     home,
     permission_mode,
     sessions_dir: resolved_sessions_dir,
+    host_help_note,
   }
 }
 
@@ -826,13 +922,23 @@ pub(all) struct CetasJsRuntime {
   /// instead of aborting composition: one misconfigured provider must not
   /// take down the whole host.
   mut catalog_issues : Array[@cetas_core.CatalogBuildIssue]
+  /// Goal condition for the next composed agent, set via `cetas_js_set_goal`
+  /// before `cetas_js_runtime_create_agent`. The runner must join the Agent's
+  /// extensions at composition time, so the condition cannot ride a later
+  /// turn call. Empty clears it.
+  mut goal_condition : String?
 }
 
 ///|
 /// Positional constructor exported for the JavaScript bridge. The runtime
 /// remains opaque to JS; only the bridge functions can inspect its cache.
 pub fn CetasJsRuntime::CetasJsRuntime(config : CetasJsConfig) -> CetasJsRuntime {
-  { config, catalog_cache: Map::from_array([]), catalog_issues: [] }
+  {
+    config,
+    catalog_cache: Map::from_array([]),
+    catalog_issues: [],
+    goal_condition: None,
+  }
 }
 
 ///|
@@ -854,13 +960,27 @@ pub struct CetasJsAgent {
   profile_errors : Array[String]
   router : @llm.RouterModelPort
   statusbar : @statusbar.StatusBar
+  /// Plan-mode extension reference, so the bridge can stamp the session
+  /// label onto plan file names when a session starts.
+  plan : @plan.PlanMode
   /// Cetas home (`~/.cetas`) for persisting the active-model selection.
   home : String
   /// The live observer channel, so persistence warnings reach the TS host.
   observer : JsCallbackObserver
+  /// Rate-limit guard, so due quota resumes can drain at the next
+  /// host-driven turn (js has no long-lived task group for the monitor).
+  ratelimit : @ratelimit.RateLimitGuard
+  /// Goal runner when the runtime carried a goal condition at composition;
+  /// `cetas_js_run_goal` drives it, regular turns ignore it.
+  goal : @goal.GoalRunner?
   /// Tool name → owning extension id, snapshotted once at composition so the
   /// host can render `ext:tool_name` titles without per-event attribution.
   tool_catalog : Map[String, String]
+  /// The MCP bridge seam: the intercepted `/mcp login` action drives OAuth
+  /// on this instance (the same bridge the composed agent serves tools from).
+  mcp : @mcp.MCPToolBridge
+  /// Workspace fs handle for the MCP login credential store at command time.
+  mcp_fs : &@workspace.WorkspaceFs
 }
 
 ///|
@@ -922,7 +1042,7 @@ async fn warn_legacy_project_cetas(
   let legacy_path = cwd + "/.cetas"
   let home_path = home + "/.cetas"
   let legacy_present = fs.exists(legacy_path) catch { _ => return }
-  if not(legacy_present) {
+  if !legacy_present {
     return
   }
   let home_present = fs.exists(home_path) catch { _ => return }
@@ -1083,17 +1203,53 @@ pub fn cetas_js_runtime_create_agent(
         )
       },
     )
+    // Cross-extension event bus, constructed before any reporting or
+    // subscribing extension so no report is dropped (fire-and-forget).
+    // Extensions below share this one instance: statusbar subscribes to
+    // "status" facts, the permission policy subscribes to tool-exemption
+    // reports, plan mode publishes them.
+    let event_bus = @devkit.EventBus()
+    // Permission policy: gates write/shell/unknown tools through a UI confirm.
+    // ReadOnly rejects every non-read tool without a prompt; the other modes
+    // bridge through BlockingApprovalSource → JsUiPort::request (.wait()).
+    // Subscribed to the bus BEFORE plan mode constructs so the enter/exit
+    // tools are exempt from approval asks — their decision is the plan
+    // approval flow (plan.approve / plan.reject), not a tool-permission
+    // prompt.
+    let mode = parse_permission_mode(runtime.config.permission_mode)
+    let policy = match mode {
+      @permission.ReadOnly =>
+        @permission.PermissionPolicy(mode, bus=Some(event_bus))
+      _ => {
+        let source = BlockingApprovalSource(ui as &@posoco.UiPort)
+        @permission.PermissionPolicy(
+          mode,
+          approval=Some(source as &@permission.ApprovalSource),
+          bus=Some(event_bus),
+        )
+      }
+    }
     // Plan mode: read-only investigation gated by Hook, toggled via
     // /plan or shift+tab (declared on the command's shortcut), model entry
-    // via enter_plan_mode, exit only via plan.approve.
-    let plan_mode = @plan.PlanMode(config=@plan.PlanModeConfig::{
-      ..@plan.PlanModeConfig::default()
-      // ask_question rides the read class (permission classifies it read);
-      // shell tools gate per invocation via the default shell_tools.
-      ,
-      allowed_tools: ["read", "glob", "grep", "ask_question"],
-      allow_model_entry: true,
-    })
+    // via enter_plan_mode, exit only via plan.approve. Its enter/exit tools
+    // are reported on the bus and skip the permission gate above.
+    let plan_mode = @plan.PlanMode(
+      config=@plan.PlanModeConfig::{
+        ..@plan.PlanModeConfig::default()
+        // ask_question rides the read class (permission classifies it read);
+        // shell tools gate per invocation via the default shell_tools.
+        ,
+        allowed_tools: ["read", "glob", "grep", "ask_question"],
+        allow_model_entry: true,
+      },
+      review=Some(
+        PlanApprovalSource(ui as &@posoco.UiPort) as &@plan.PlanReviewSource,
+      ),
+      bus=Some(event_bus),
+      // Plan-file persistence: planning narrative + named final plans go
+      // to .cetas/plan/ through the workspace boundary.
+      fs=Some(context_fs as &@workspace.WorkspaceFs),
+    )
     // Status bar: data-driven status-line segments rendered over the shared
     // JsUiPort (slot Status, key "statusbar"); the host mounts that key in
     // whichever region its layout provides. Initial model facts come from
@@ -1101,26 +1257,11 @@ pub fn cetas_js_runtime_create_agent(
     // cross-extension EventBus lets any extension publish status facts
     // (topic "status") the bar picks up; with no interested peer it stays
     // silent. Future extension constructors take the same bus instance.
-    let event_bus = @devkit.EventBus()
     let statusbar = @statusbar.StatusBar(
       ui as &@posoco.UiPort,
       bus=Some(event_bus),
     )
     push_model_facts(model, statusbar)
-    // Permission policy: gates write/shell/unknown tools through a UI confirm.
-    // ReadOnly rejects every non-read tool without a prompt; the other modes
-    // bridge through BlockingApprovalSource → JsUiPort::request (.wait()).
-    let mode = parse_permission_mode(runtime.config.permission_mode)
-    let policy = match mode {
-      @permission.ReadOnly => @permission.PermissionPolicy(mode)
-      _ => {
-        let source = BlockingApprovalSource(ui as &@posoco.UiPort)
-        @permission.PermissionPolicy(
-          mode,
-          approval=Some(source as &@permission.ApprovalSource),
-        )
-      }
-    }
     let exts : Array[&@posoco.Extension] = [
       cetas,
       model as &@posoco.Extension,
@@ -1131,6 +1272,26 @@ pub fn cetas_js_runtime_create_agent(
       statusbar,
       policy,
     ]
+    // Rate-limit guard: records quota verdicts (ModelError::RateLimited) per
+    // session through its Observer/PipelineHook views. js has no long-lived
+    // task group for `spawn_monitor`, so due resumes drain at the next
+    // host-driven turn instead (see `cetas_js_run_turn`) — the same
+    // boundary-over-background-loop trade the js host makes for nmem.
+    let ratelimit = @ratelimit.RateLimitGuard()
+    exts.push(ratelimit as &@posoco.Extension)
+    // Goal runner rides composition: its `goal_update_plan` tool must join
+    // the routing table below, and the condition cannot change afterwards.
+    // Regular turns are unaffected; the loop is driven explicitly by
+    // `cetas_js_run_goal`.
+    let goal : @goal.GoalRunner? = match runtime.goal_condition {
+      Some(condition) if condition.trim().length() > 0 =>
+        Some(@goal.goal_extension(goal_condition=condition))
+      _ => None
+    }
+    match goal {
+      Some(runner) => exts.push(runner as &@posoco.Extension)
+      None => ()
+    }
     // Default features (six tools + agent skills + ask_question) take the
     // host context: fs injection plus cwd/home. Skills policy (activation
     // budget) is single-sourced inside cetas-core; ask_question asks through
@@ -1144,9 +1305,59 @@ pub fn cetas_js_runtime_create_agent(
           home: runtime.config.home,
         },
         ui=Some(ui as &@posoco.UiPort),
+        host_help_note=if runtime.config.host_help_note == "" {
+          None
+        } else {
+          Some(runtime.config.host_help_note)
+        },
       ) {
       exts.push(tool)
     }
+    // MCP servers from mcp.json (`<cwd>/.mcp.json` overriding
+    // `<home>/.cetas/mcp.json`), self-governed by the ext-mcp bridge in Lazy
+    // mode: servers connect in the first turn's on_start and the tool catalog
+    // is admitted through the runtime seam. The static routing table and
+    // catalog base are captured BEFORE the bridge joins exts (the catalog
+    // source already appends the bridge's live tools). On js the mcp stdio
+    // transport ignores the task group — child lifetime is owned by the
+    // JS-side close choreography — so a composition-scoped group is safe even
+    // though activation happens later, at the first turn.
+    let mcp_bridge = match
+      @mcp.MCPToolBridge::discover(
+        cwd=runtime.config.cwd,
+        home=runtime.config.home,
+        mode=@mcp.LoadMode::Lazy,
+      ) {
+      Ok(bridge) => bridge
+      Err(message) =>
+        raise @posoco.CompositionError::ManifestSchemaError(
+          manifest_id="cetas-js.mcp",
+          detail=message,
+        )
+    }
+    @async.with_task_group(group => mcp_bridge.attach(group))
+    // Stored MCP OAuth credentials: refresh expired ones, then inject the
+    // access tokens before lazy activation connects. Best-effort per server
+    // (see mcp_inject_stored_tokens) — one unreadable record or a dead
+    // authorization server degrades to the 401 shown by `/mcp`, never a
+    // failed composition.
+    mcp_inject_stored_tokens(
+      mcp_bridge,
+      mcp_credential_store(context_fs, runtime.config.home),
+      @oauth.DefaultOAuthHttpTransport::DefaultOAuthHttpTransport(),
+      (@async.now() / 1000L).to_int(),
+    )
+    let routing : Map[String, &@posoco.ToolProvider] = Map::from_array([])
+    let base_defs : Array[@posoco.ToolDef] = []
+    for ext in exts {
+      for provider in ext.manifest().tools {
+        for def in provider.list_tools() {
+          routing[def.name.to_string()] = provider
+          base_defs.push(def)
+        }
+      }
+    }
+    exts.push(mcp_bridge as &@posoco.Extension)
     let tool_catalog = build_tool_catalog(exts)
     // The JS FFI seam carries a plain Int (no optional arguments); the
     // bridge convention is `<= 0` = unbounded.
@@ -1155,18 +1366,47 @@ pub fn cetas_js_runtime_create_agent(
     } else {
       Some(runtime.config.max_tool_rounds)
     }
-    let agent = @posoco.Agent(
-      exts~,
-      config=@cetas_core.default_agent_config(max_tool_rounds~),
+    // Lazy MCP activation changes the tool set mid-life, so the catalog is
+    // owned by the runtime-seam source; MCP tool execution routes through
+    // the decorator, everything else through the default port runtime.
+    let base_runtime = @runtime.PortRuntime(
+      model=model as &@posoco.ModelPort,
+      tools=routing,
     )
+    let mcp_runtime = @mcp.McpRuntime(
+      bridge=mcp_bridge,
+      fallback=base_runtime as &@runtime.Runtime,
+    )
+    let catalog_source = @mcp.McpCatalogSource(
+      bridge=mcp_bridge,
+      base_tools=base_defs,
+    )
+    let agent = @posoco.Agent::with_runtime(
+      exts~,
+      config=@cetas_core.default_agent_config(
+        max_tool_rounds~,
+        system_prompt=Some(
+          @cetas_core.cetas_system_prompt(cwd=runtime.config.cwd),
+        ),
+      ),
+      runtime=mcp_runtime as &@runtime.Runtime,
+      catalog_source=catalog_source as &@runtime.CatalogSource,
+    )
+    // The guard re-runs turns itself, so it needs the composed agent.
+    ratelimit.bind(agent)
     {
       agent,
       profile_errors,
       router: model,
       statusbar,
+      plan: plan_mode,
       home: runtime.config.home,
       observer,
+      ratelimit,
+      goal,
       tool_catalog,
+      mcp: mcp_bridge,
+      mcp_fs: context_fs,
     }
   }
 }
@@ -1645,6 +1885,17 @@ pub fn cetas_js_run_turn(
   let promise = @js_async.Promise::from_async(abort_signal=signal) <| () => {
     let started = host_now_ms()
     handle.statusbar.set_session(session_id)
+    handle.plan.set_session_name(session_id)
+    // Drain quota-verdict resumes that came due while no turn was running:
+    // each is a full resumed turn on its own session, reported through the
+    // normal observer channel. A drain failure must not sink the user's
+    // turn, so it is swallowed here (the guard already retried or gave up
+    // per its max_attempts policy).
+    if !handle.ratelimit.pending_snapshots().is_empty() {
+      handle.ratelimit.poll() catch {
+        _ => ()
+      }
+    }
     let result : Result[String, Error] = Ok(
       @cetas_core.run_prompt(handle.agent, prompt, session_id, images~),
     ) catch {
@@ -1673,6 +1924,83 @@ pub fn cetas_js_run_turn(
 /// Promise and remain visible to the JS host.
 pub fn cetas_js_shutdown(handle : CetasJsAgent) -> @js_async.Promise[Unit] {
   @js_async.Promise::from_async() <| () => { handle.agent.shutdown() }
+}
+
+///|
+/// Set the goal condition the NEXT composed agent runs under. Must be
+/// called on the runtime before `cetas_js_runtime_create_agent`: the goal
+/// runner's `goal_update_plan` tool has to join the Agent's extension list
+/// at composition, and an empty/blank condition clears the goal.
+pub fn cetas_js_set_goal(runtime : CetasJsRuntime, condition : String) -> Unit {
+  if condition.trim().length() == 0 {
+    runtime.goal_condition = None
+  } else {
+    runtime.goal_condition = Some(condition)
+  }
+}
+
+///|
+/// Drive the composed goal runner to completion on the given session:
+/// repeated autonomous turns (charter, per-turn progress recitation,
+/// verifier round) until the completion claim survives, the model declares
+/// itself blocked, the budget is exhausted, or the run stalls. Each inner
+/// turn streams through the normal observer channel, so the TS host renders
+/// it like any other turn. Resolves with a JSON summary
+/// (`{"ok":true,"status":...,"turns_completed":...,"total_tokens":...,
+/// "plan":"...","stall_reason":...}`); `{"ok":false,"error":...}` when the
+/// agent was composed without a goal condition.
+pub fn cetas_js_run_goal(
+  handle : CetasJsAgent,
+  session_id : String,
+) -> @js_async.Promise[String] {
+  @js_async.Promise::from_async() <| () => {
+    let runner = match handle.goal {
+      Some(runner) => runner
+      None =>
+        return Json::object(
+          Map::from_array([
+            ("ok", Json::boolean(false)),
+            (
+              "error",
+              Json::string(
+                "no goal condition configured: call cetas_js_set_goal before creating the agent",
+              ),
+            ),
+          ]),
+        ).stringify()
+    }
+    let outcome : Result[@goal.GoalResult, Error] = Ok(
+      runner.execute(handle.agent, session_id),
+    ) catch {
+      error => Err(error)
+    }
+    match outcome {
+      Err(error) =>
+        Json::object(
+          Map::from_array([
+            ("ok", Json::boolean(false)),
+            ("error", Json::string(error.to_string())),
+          ]),
+        ).stringify()
+      Ok(result) => {
+        let fields : Array[(String, Json)] = [
+          ("ok", Json::boolean(true)),
+          ("status", Json::string(result.final_status.to_string())),
+          ("turns_completed", Json::number(result.turns_completed.to_double())),
+          (
+            "total_tokens",
+            Json::number(result.total_usage.total_tokens.to_double()),
+          ),
+          ("plan", Json::string(result.final_plan.progress_line())),
+        ]
+        match result.stall_reason {
+          Some(reason) => fields.push(("stall_reason", Json::string(reason)))
+          None => ()
+        }
+        Json::object(Map::from_array(fields)).stringify()
+      }
+    }
+  }
 }
 
 ///|
@@ -1902,6 +2230,58 @@ async fn persist_active_model_selection(handle : CetasJsAgent) -> Unit noraise {
 }
 
 ///|
+/// The `/mcp` command with `action:"login"` handled host-side: the
+/// interactive OAuth chain needs the host's credential store and observer
+/// wiring, which the bridge's read-only status command knows nothing about.
+/// Returns None for every other shape (including other `mcp` actions) so
+/// dispatch falls through to the owning port unchanged.
+async fn mcp_login_command_outcome(
+  handle : CetasJsAgent,
+  id : String,
+  args : Json,
+) -> @port.CommandOutcome? noraise {
+  if id != "mcp" {
+    return None
+  }
+  let fields = match args {
+    Json::Object(fields) => fields
+    _ => return None
+  }
+  match fields.get("action") {
+    Some(Json::String("login")) => ()
+    _ => return None
+  }
+  let server = match fields.get("server") {
+    Some(Json::String(server)) if server.trim().length() > 0 => server
+    _ =>
+      return Some(
+        @port.CommandOutcome::Failure(reason="login requires a server name"),
+      )
+  }
+  // Login is one-shot: the store, transport, and UI adapter are built here,
+  // not retained on the handle.
+  let outcome = mcp_login_flow(
+    handle.mcp,
+    server,
+    mcp_credential_store(handle.mcp_fs, handle.home),
+    @oauth.DefaultOAuthHttpTransport::DefaultOAuthHttpTransport(),
+    JsMcpAuthInteraction(handle.observer),
+    (@async.now() / 1000L).to_int(),
+  )
+  Some(
+    match outcome {
+      Ok(feedback) =>
+        @port.CommandOutcome::Success(
+          feedback~,
+          structured=None,
+          ui_hint=Some(@port.UiHint::None),
+        )
+      Err(reason) => @port.CommandOutcome::Failure(reason~)
+    },
+  )
+}
+
+///|
 /// Invoke a command by id. Routes to the first CommandPort that declares it.
 /// Returns a CommandOutcome as JSON. Unknown ids yield Failure (not a Promise
 /// rejection) so the TS host can render uniformly. Errors raised by invoke
@@ -1922,6 +2302,12 @@ pub fn cetas_js_invoke_command(
         raise @posoco.CommandError::InvalidArgs(
           reason="command arguments must be valid JSON",
         )
+    }
+    // `/mcp login <server>` never reaches the ports loop: the bridge's own
+    // `mcp` command is read-only and would reject the action.
+    match mcp_login_command_outcome(handle, id, args) {
+      Some(outcome) => return command_outcome_to_json(outcome).stringify()
+      None => ()
     }
     let ports = handle.agent.commands()
     let mut result_json = ""

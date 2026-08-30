@@ -44,7 +44,7 @@ fn JsAuthInteraction::JsAuthInteraction(
   request_callback : JsUiRequestCallback,
   cancel_check : JsCancelCheck,
 ) -> JsAuthInteraction {
-  { observer_callback, request_callback, cancel_check }
+  { observer_callback, request_callback, cancel_check, }
 }
 
 ///|
