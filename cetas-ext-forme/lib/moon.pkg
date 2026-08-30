@@ -1,0 +1,10 @@
+import {
+  "colmugx/posoco",
+  "colmugx/posoco-ext-skills" @skills,
+}
+
+import {
+  "moonbitlang/async",
+} for "wbtest"
+
+supported_targets = "+native +js"
