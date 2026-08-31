@@ -43,7 +43,7 @@ function activePrefix(
   textBeforeCursor: string,
   trigger: string,
   spanSpaces: boolean,
-): { query: string; replacementPrefix: string } | null {
+): { triggerIndex: number; query: string; replacementPrefix: string } | null {
   const triggerIndex = textBeforeCursor.lastIndexOf(trigger);
   if (
     triggerIndex < 0 ||
@@ -56,6 +56,7 @@ function activePrefix(
     return null;
   }
   return {
+    triggerIndex,
     query: replacementPrefix.slice(trigger.length),
     replacementPrefix,
   };
@@ -113,6 +114,12 @@ export class UiRegistry implements AutocompleteProvider {
     this.descriptors.push({ extensionId, descriptor });
   }
 
+  /**
+   * The longest replacementPrefix wins. When different triggers produce
+   * equal-length prefixes, only the trigger occurrence closest to the
+   * cursor is used; sources whose replacementPrefix string is identical
+   * (same trigger occurrence) still merge their items.
+   */
   async getSuggestions(
     lines: string[],
     cursorLine: number,
@@ -129,6 +136,7 @@ export class UiRegistry implements AutocompleteProvider {
     const textBeforeCursor = line.slice(0, cursorCol);
     const matches: Array<{
       source: UiAutocompleteSource;
+      triggerIndex: number;
       query: string;
       replacementPrefix: string;
     }> = [];
@@ -146,13 +154,19 @@ export class UiRegistry implements AutocompleteProvider {
     }
     if (matches.length === 0) return null;
 
-    const longest = Math.max(
-      ...matches.map(({ replacementPrefix }) => replacementPrefix.length),
-    );
+    let winner = matches[0]!;
+    for (const match of matches) {
+      if (
+        match.replacementPrefix.length > winner.replacementPrefix.length ||
+        (match.replacementPrefix.length === winner.replacementPrefix.length &&
+          match.triggerIndex > winner.triggerIndex)
+      ) {
+        winner = match;
+      }
+    }
     const active = matches.filter(
-      ({ replacementPrefix }) => replacementPrefix.length === longest,
+      ({ replacementPrefix }) => replacementPrefix === winner.replacementPrefix,
     );
-    const replacementPrefix = active[0]!.replacementPrefix;
     const fetched = await Promise.all(
       active.map(({ source, query }) => source.fetch(query, options.signal)),
     );
@@ -164,7 +178,7 @@ export class UiRegistry implements AutocompleteProvider {
         label: item.label,
         description: item.detail.length > 0 ? item.detail : undefined,
       }));
-    return items.length === 0 ? null : { items, prefix: replacementPrefix };
+    return items.length === 0 ? null : { items, prefix: winner.replacementPrefix };
   }
 
   applyCompletion(

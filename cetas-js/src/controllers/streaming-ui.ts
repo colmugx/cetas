@@ -60,7 +60,7 @@ export class StreamingUIController {
    * step boundaries (closeStep does not reset it) so that the post-hoc
    * `message_end` replay can tell "streaming happened this turn, reconcile
    * only" from "non-streaming provider, build from message_end". Reset only on
-   * end()/abort() (turn boundary).
+   * end() (turn boundary).
    */
   private streamedThisTurn = false;
 
@@ -173,30 +173,6 @@ export class StreamingUIController {
     this.scheduleFlush();
   }
 
-  // -- set model (message_end full content — replace) ---------------------
-
-  /**
-   * Replace the current step's reasoning with full content. Used by the
-   * non-streaming fallback path (Path B in EventRouter.handleMessageEnd) when
-   * no stream_chunks arrived at all. No-op if no step is open.
-   */
-  setFullThinking(text: string): void {
-    const s = this.step;
-    if (s === null) return;
-    s.thinkingText = text;
-    this.dirty = true;
-    this.flushNow();
-  }
-
-  /** Replace the current step's text with full content (non-streaming path). */
-  setFullText(text: string): void {
-    const s = this.step;
-    if (s === null) return;
-    s.textText = text;
-    this.dirty = true;
-    this.flushNow();
-  }
-
   // -- component attachment (Path B: caller pre-creates finalized blocks) -
 
   /**
@@ -228,17 +204,6 @@ export class StreamingUIController {
       this.flushTimer = null;
     }
     this.closeStep();
-    this.dirty = false;
-    this.streamedThisTurn = false;
-  }
-
-  /** Abort: clear timers and state. Mounted components stay in the transcript. */
-  abort(): void {
-    if (this.flushTimer) {
-      clearTimeout(this.flushTimer);
-      this.flushTimer = null;
-    }
-    this.step = null;
     this.dirty = false;
     this.streamedThisTurn = false;
   }

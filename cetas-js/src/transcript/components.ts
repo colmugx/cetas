@@ -26,7 +26,6 @@ import {
   statusBullet,
   type ToolRenderContext,
 } from "../tool-renderers/index.ts";
-import type { BridgeMessage } from "../events.ts";
 
 /**
  * User prompt echo.
@@ -311,18 +310,4 @@ export function errorNotice(text: string): Container {
   c.addChild(new Spacer(1));
   c.addChild(new Text(theme.error("● ") + text, 1, 0));
   return c;
-}
-
-/**
- * Build a transcript row from a finalized BridgeMessage.
- * Returns an AssistantMessage pre-populated with text + optional reasoning.
- */
-export function assistantRowFromMessage(msg: BridgeMessage): AssistantMessage {
-  const text = msg.content
-    .filter((b) => b.type === "text")
-    .map((b) => b.text)
-    .join("\n\n");
-  const row = new AssistantMessage(text);
-  if (msg.reasoning) row.setReasoning(msg.reasoning);
-  return row;
 }

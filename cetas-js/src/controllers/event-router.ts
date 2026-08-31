@@ -48,6 +48,11 @@ export interface EventRouterCallbacks {
   toolLabel(toolName: string): string;
   /** Global ctrl+o state — new tool rows honor it from construction. */
   initialToolExpanded(): boolean;
+  /**
+   * The app redirected the live session (e.g. compact-NewThread). Optional:
+   * hosts that don't follow redirects still get the notice rendering.
+   */
+  onSessionRedirect?(from: string, to: string): void;
 }
 
 export class EventRouter {
@@ -112,6 +117,7 @@ export class EventRouter {
         this.cb.addTranscriptChild(
           systemNotice(`↻ redirect: ${ev.from} → ${ev.to}`),
         );
+        this.cb.onSessionRedirect?.(ev.from, ev.to);
         break;
       case "model_invoked":
         // Token-usage surfacing is a future enhancement.
@@ -151,7 +157,7 @@ export class EventRouter {
     }
   }
 
-  // -- message_end / message_update full-content handling -----------------
+  // -- message_end full-content handling -----------------------------------
 
   /**
    * Best-effort reconciliation for the post-hoc `message_end` replay.
@@ -202,40 +208,6 @@ export class EventRouter {
     s.closeStep();
   }
 
-  /**
-   * Handle message_update (full content replace — not emitted by current
-   * bridge, but handle defensively for future wire compatibility).
-   *
-   * Same dedup discipline as handleMessageEnd: if streaming happened this turn,
-   * treat the full-replace as a no-op reconciliation; otherwise build from the
-   * message.
-   */
-  private handleStreamContent(msg: BridgeMessage): void {
-    const s = this.stream;
-    if (!s) return;
-    if (s.hasStreamedThisTurn) {
-      // Streaming already rendered this turn — don't clobber with a replace.
-      return;
-    }
-    const reasoning = (msg.reasoning ?? "").trim();
-    const text = msg.content
-      .filter((b) => b.type === "text")
-      .map((b) => b.text)
-      .join("\n\n");
-    if (reasoning) {
-      const comp = new ThinkingComponent("", "live");
-      this.cb.addTranscriptChild(comp);
-      s.attachThinking(comp);
-      s.setFullThinking(reasoning);
-    }
-    if (text) {
-      const comp = new AssistantMessage("");
-      this.cb.addTranscriptChild(comp);
-      s.attachText(comp);
-      s.setFullText(text);
-    }
-  }
-
   // -- tool call lifecycle -------------------------------------------------
 
   private handleToolCallStarted(
@@ -282,8 +254,12 @@ export class EventRouter {
       row.setResult(result, isError, structured);
     }
     // Tool results go back to the model; the next visible activity is either
-    // another tool call (overwrites this) or the follow-up model stream.
-    this.cb.setStatus("working", "waiting for model");
+    // another tool call (overwrites this) or the follow-up model stream. A
+    // late completion after endTurn must not resurrect the working status —
+    // nothing would reset it.
+    if (this.inTurn) {
+      this.cb.setStatus("working", "waiting for model");
+    }
   }
 
   // -- turn lifecycle ------------------------------------------------------

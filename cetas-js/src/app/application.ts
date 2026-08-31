@@ -488,7 +488,8 @@ export class CetasApplication<AgentHandle = unknown> {
     return parsed.filter((entry): entry is string => typeof entry === "string");
   }
 
-  /** Invoke a provider/router command through the extension command port. */  async invokeCommand(id: string, argsJson = "{}"): Promise<string> {
+  /** Invoke a provider/router command through the extension command port. */
+  async invokeCommand(id: string, argsJson = "{}"): Promise<string> {
     if (id.length === 0) {
       throw new CetasApplicationError("invalid_state", "command id must not be empty");
     }
@@ -677,7 +678,16 @@ function errorMessage(error: unknown): string {
 }
 
 function loginArguments(argsJson: string): { provider: string; method?: string } {
-  const raw: unknown = JSON.parse(argsJson);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(argsJson);
+  } catch (error: unknown) {
+    throw new CetasApplicationError(
+      "invalid_state",
+      `/login arguments must be valid JSON: ${errorMessage(error)}`,
+      error,
+    );
+  }
   if (typeof raw === "string") {
     if (raw.length === 0) throw new CetasApplicationError("invalid_state", "/login requires a provider string");
     return { provider: raw };
@@ -706,24 +716,44 @@ function loginArguments(argsJson: string): { provider: string; method?: string }
  * shape; malformed output is a bridge failure rather than an implicit success.
  */
 function commandOutcomeSucceeded(raw: string): boolean {
-  const value: unknown = JSON.parse(raw);
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch (error: unknown) {
+    throw new CetasApplicationError(
+      "bridge_failure",
+      `login outcome must be valid JSON: ${errorMessage(error)}`,
+      error,
+    );
+  }
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("login outcome must be an object");
+    throw new CetasApplicationError("bridge_failure", "login outcome must be an object");
   }
   const type = (value as Record<string, unknown>).type;
   if (type === "success") return true;
   if (type === "failure" || type === "needs_input") return false;
-  throw new Error("login outcome.type is unsupported");
+  throw new CetasApplicationError("bridge_failure", "login outcome.type is unsupported");
 }
 
 function commandRequestsSetupRefresh(raw: string): boolean {
-  const value: unknown = JSON.parse(raw);
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch (error: unknown) {
+    throw new CetasApplicationError(
+      "bridge_failure",
+      `command outcome must be valid JSON: ${errorMessage(error)}`,
+      error,
+    );
+  }
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("command outcome must be an object");
+    throw new CetasApplicationError("bridge_failure", "command outcome must be an object");
   }
   const hint = (value as Record<string, unknown>).ui_hint;
   if (hint === undefined) return false;
-  if (typeof hint !== "string") throw new Error("command outcome.ui_hint must be a string");
+  if (typeof hint !== "string") {
+    throw new CetasApplicationError("bridge_failure", "command outcome.ui_hint must be a string");
+  }
   // `/model` returns the already-composed router catalog. It must never cause
   // an implicit setup rediscovery or provider network call; only profile/settings
   // changes request the explicit recompose path.

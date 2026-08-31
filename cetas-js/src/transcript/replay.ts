@@ -115,8 +115,10 @@ export function parseSessionReplay(jsonl: string): ReplayItem[] {
           toolCallId: id,
           toolName: typeof rec.name === "string" ? rec.name : callNames.get(id),
           content,
-          // Only the store's explicit error marker is an error; a normal
-          // tool output stays neutral.
+          // The fs-session JSONL format persists no error marker for tool
+          // results, so replay cannot recover error-ness; rows render
+          // neutral. Fixing this requires extending the on-disk format
+          // (tracked as an open question).
           isError: false,
         });
         break;

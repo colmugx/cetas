@@ -230,6 +230,8 @@ export class TerminalShell {
   private setupNoticeShown = false;
   private setupErrorShown?: string;
   private shutdownPromise?: Promise<void>;
+  /** session_redirect target awaiting the end-of-turn app sync. */
+  private pendingSessionSync?: string;
 
   constructor(options: TerminalShellOptions) {
     if (options.initialSessionId.length === 0) {
@@ -319,25 +321,31 @@ export class TerminalShell {
       cwd: this.cwd,
       toolLabel: (name) => toolDisplayLabel(options.toolLabels?.get(name), name),
       initialToolExpanded: () => this.toolOutputExpanded,
+      onSessionRedirect: (_from, to) => {
+        // Follow the redirect immediately so later prompts target the new
+        // thread; the app-side sync waits for the turn to end because
+        // setSession throws while an operation is active.
+        this.sessionId = to;
+        this.pendingSessionSync = to;
+      },
     });
 
     this.tui.addInputListener((data) => this.handleInput(data));
-    this.editor.onSubmit = (prompt) => this.submit(prompt);
+    this.editor.onSubmit = (prompt) => {
+      void this.submit(prompt).catch((error) =>
+        this.addTranscriptChild(errorNotice(errorMessage(error))),
+      );
+    };
     this.registerAutocomplete();
   }
 
   attachApplication(app: CetasApplication): void {
     if (this.app !== undefined) throw new Error("cetas application is already attached");
     this.app = app;
-    // Generic command shortcuts: any extension command that declares a
-    // pi-tui key id (e.g. ext-plan's "shift+tab") becomes a live keybinding.
-    this.commandShortcuts = app
-      .listCommands()
-      .filter((descriptor) => descriptor.visible && descriptor.shortcut !== undefined)
-      .map((descriptor) => ({
-        keyId: descriptor.shortcut as KeyId,
-        command: `/${descriptor.id}`,
-      }));
+    // The host attaches before app.start() composes the agent, so this first
+    // pass only sees the hardcoded entries; handleSnapshot refreshes once the
+    // bridge catalog (with extension shortcuts) exists.
+    this.refreshCommandShortcuts();
   }
 
   /** Start application discovery and then enter pi-tui's render loop. */
@@ -389,15 +397,15 @@ export class TerminalShell {
       }
       return;
     }
-    if (prompt.length === 0) return;
+    if (trimmed.length === 0) return;
 
     const app = this.requireApp();
-    const { images, paths } = await this.resolveImageMentions(app, prompt);
+    const { images, paths } = await this.resolveImageMentions(app, trimmed);
     if (this.inTurn) {
-      this.queueDuringTurn(app, prompt, images);
+      this.queueDuringTurn(app, trimmed, images);
       return;
     }
-    await this.runTurnAndRender(app, prompt, new UserMessage(prompt, paths), images);
+    await this.runTurnAndRender(app, trimmed, new UserMessage(trimmed, paths), images);
   }
 
   /**
@@ -454,6 +462,25 @@ export class TerminalShell {
       this.tui.requestRender();
     } finally {
       this.inTurn = false;
+      // A failed turn never reaches its next TurnStarted, so queued bubbles
+      // would stay pending forever — promote whatever is left.
+      while (this.queuedPrompts.length > 0) {
+        this.queuedPrompts.shift()?.promote();
+      }
+      // Follow a session_redirect at the app boundary too. setSession throws
+      // while another operation is active; surface that as a notice instead
+      // of failing the already-finished turn.
+      const syncTarget = this.pendingSessionSync;
+      this.pendingSessionSync = undefined;
+      if (syncTarget !== undefined) {
+        try {
+          app.setSession(syncTarget);
+        } catch (error: unknown) {
+          this.addTranscriptChild(
+            systemNotice(`session switch deferred: ${errorMessage(error)}`),
+          );
+        }
+      }
       this.statusLoader.stop();
       this.tui.requestRender();
     }
@@ -490,7 +517,7 @@ export class TerminalShell {
       this.addTranscriptChild(bubble);
     } catch (error: unknown) {
       if (app.appState !== "running") {
-        void this.runTurnAndRender(app, prompt, new UserMessage(prompt));
+        void this.runTurnAndRender(app, prompt, new UserMessage(prompt), images);
         return;
       }
       this.addTranscriptChild(errorNotice(errorMessage(error)));
@@ -540,7 +567,23 @@ export class TerminalShell {
       );
       this.ensureSetupNotice(snapshot.error);
     }
+    // Extension command shortcuts only exist after app.start() composed the
+    // agent — attachApplication ran too early to see them.
+    if (snapshot.state === "ready") this.refreshCommandShortcuts();
     this.tui.requestRender();
+  }
+
+  /**
+   * Generic command shortcuts: any extension command that declares a pi-tui
+   * key id (e.g. ext-plan's "shift+tab") becomes a live keybinding.
+   */
+  private refreshCommandShortcuts(): void {
+    this.commandShortcuts = (this.app?.listCommands() ?? [])
+      .filter((descriptor) => descriptor.visible && descriptor.shortcut !== undefined)
+      .map((descriptor) => ({
+        keyId: descriptor.shortcut as KeyId,
+        command: `/${descriptor.id}`,
+      }));
   }
 
   private requireApp(): CetasApplication {
@@ -943,7 +986,7 @@ export class TerminalShell {
     }
     if (instructions === undefined) return;
     const prompt =
-      `<activated-skill name="${name}">\n${instructions}\n</activated-skill>\n\n` +
+      `<activated-skill name="${escapeXml(name)}">\n${instructions}\n</activated-skill>\n\n` +
       (tail.length > 0 ? tail : "Follow the activated skill's instructions.");
     await this.runTurnAndRender(this.requireApp(), prompt, new UserMessage(input));
   }
@@ -1000,35 +1043,41 @@ export class TerminalShell {
   }
 
   private resumeSession(sessionId: string): void {
-    if (sessionId === this.sessionId) {
-      this.addTranscriptChild(systemNotice("already in this session"));
-      return;
-    }
-    this.requireApp().setSession(sessionId);
-    this.sessionId = sessionId;
-    this.transcript.clear();
-    for (const component of banner("cetas-js", `resumed session ${sessionId}`)) {
-      this.transcript.addChild(component);
-    }
-    // Replay the persisted history into the view. The session store already
-    // fed it to the model through setSession; this makes the screen match
-    // what the model sees. Read errors and empty sessions render the banner
-    // only — resume must not fail because a transcript is unreadable.
+    // The overlay already closed before this callback runs; a throw here
+    // would reach pi-tui's unguarded input dispatch and kill the process.
     try {
-      const path = sessionFilePath(this.sessionsDir, sessionId);
-      if (existsSync(path)) {
-        const items = parseSessionReplay(readFileSync(path, "utf8"));
-        for (const component of this.replayComponents(items)) {
-          this.addTranscriptChild(component);
-        }
+      if (sessionId === this.sessionId) {
+        this.addTranscriptChild(systemNotice("already in this session"));
+        return;
       }
+      this.requireApp().setSession(sessionId);
+      this.sessionId = sessionId;
+      this.transcript.clear();
+      for (const component of banner("cetas-js", `resumed session ${sessionId}`)) {
+        this.transcript.addChild(component);
+      }
+      // Replay the persisted history into the view. The session store already
+      // fed it to the model through setSession; this makes the screen match
+      // what the model sees. Read errors and empty sessions render the banner
+      // only — resume must not fail because a transcript is unreadable.
+      try {
+        const path = sessionFilePath(this.sessionsDir, sessionId);
+        if (existsSync(path)) {
+          const items = parseSessionReplay(readFileSync(path, "utf8"));
+          for (const component of this.replayComponents(items)) {
+            this.addTranscriptChild(component);
+          }
+        }
+      } catch (error: unknown) {
+        this.addTranscriptChild(
+          errorNotice(`could not replay session history: ${errorMessage(error)}`),
+        );
+      }
+      this.tui.terminal.clearScreen();
+      this.tui.requestRender(true);
     } catch (error: unknown) {
-      this.addTranscriptChild(
-        errorNotice(`could not replay session history: ${errorMessage(error)}`),
-      );
+      this.addTranscriptChild(errorNotice(`resume failed: ${errorMessage(error)}`));
     }
-    this.tui.terminal.clearScreen();
-    this.tui.requestRender(true);
   }
 
   /** Turn replay items into the same components live turns render with. */
@@ -1301,12 +1350,19 @@ export class TerminalShell {
       });
     };
     list.onCancel = close;
-    handle = this.tui.showOverlay(panel, {
-      width: "56%",
-      maxHeight: "60%",
-      anchor: "center",
-      margin: 1,
-    });
+    try {
+      handle = this.tui.showOverlay(panel, {
+        width: "56%",
+        maxHeight: "60%",
+        anchor: "center",
+        margin: 1,
+      });
+    } catch (error: unknown) {
+      // The command lock is already held — release it or the terminal bricks.
+      this.finishCommand();
+      this.addTranscriptChild(errorNotice(`/login failed: ${errorMessage(error)}`));
+      return;
+    }
     this.providerPickerHandle = handle;
     this.tui.requestRender();
   }
@@ -1338,12 +1394,19 @@ export class TerminalShell {
       });
     };
     list.onCancel = close;
-    handle = this.tui.showOverlay(panel, {
-      width: "62%",
-      maxHeight: "60%",
-      anchor: "center",
-      margin: 1,
-    });
+    try {
+      handle = this.tui.showOverlay(panel, {
+        width: "62%",
+        maxHeight: "60%",
+        anchor: "center",
+        margin: 1,
+      });
+    } catch (error: unknown) {
+      // The command lock is already held — release it or the terminal bricks.
+      this.finishCommand();
+      this.addTranscriptChild(errorNotice(`/login failed: ${errorMessage(error)}`));
+      return;
+    }
     this.providerPickerHandle = handle;
     this.tui.requestRender();
   }
@@ -1495,8 +1558,11 @@ export function parsePositionalArgs(raw: string, command = ""): string {
       ...(parts[1] === undefined ? {} : { method: parts[1] }),
     });
   }
-  const asNumber = Number(trimmed);
-  if (Number.isInteger(asNumber)) return JSON.stringify({ index: asNumber });
+  // Strict integer literal only — Number() would also accept "0x10"/"1e3",
+  // which no session list ever produces as an index.
+  if (/^-?\d+$/.test(trimmed)) {
+    return JSON.stringify({ index: Number(trimmed) });
+  }
   return JSON.stringify({ _positional: trimmed });
 }
 
@@ -1550,18 +1616,29 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Escape `& < > "` for safe XML embedding (skill names in prompts). */
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 /**
  * A turn interrupted via ESC. The bridge rejects in two shapes: from_async's
  * AbortError when the coroutine cancel surfaces directly, or — the common
- * path — a stringified `AgentError::Model(... Cancelled)` because the
- * provider wraps the cancelled fetch as a transport failure. Both mean the
- * user interrupted, not a real failure.
+ * path — a stringified `AgentError::<Kind>(... Cancelled ...)` because the
+ * provider wraps the cancelled fetch as a transport failure. A bare
+ * "Cancelled" substring is not enough: ordinary failures may carry that word.
  */
-function isAbortError(error: unknown): boolean {
+const AGENT_ERROR_CANCELLED = /AgentError::\w+\([^)]*Cancelled/;
+
+export function isAbortError(error: unknown): boolean {
   if (error instanceof Error) {
-    return error.name === "AbortError" || error.message.includes("Cancelled");
+    return error.name === "AbortError" || AGENT_ERROR_CANCELLED.test(error.message);
   }
-  return typeof error === "string" && error.includes("Cancelled");
+  return typeof error === "string" && AGENT_ERROR_CANCELLED.test(error);
 }
 
 function authMethodLabel(method: string): string {

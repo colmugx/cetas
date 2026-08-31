@@ -7,6 +7,7 @@ import {
   Text,
   type Component,
   type TUI,
+  truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
 
@@ -315,7 +316,8 @@ function renderBody(
 }
 
 /**
- * Owns keyed ext-rendered components. Re-rendering the same key replaces the
+ * Owns keyed ext-rendered components, keyed by `slot:key` so the same key in
+ * different slots stays independent. Re-rendering a `slot:key` replaces the
  * previous component and disposes any running loader/timer.
  */
 export class UiRenderHost {
@@ -332,9 +334,10 @@ export class UiRenderHost {
 
   render(intent: UiRender): void {
     assertRender(intent);
-    this.remove(intent.key);
+    const slotKey = `${intent.slot}:${intent.key}`;
+    this.unmount(slotKey);
 
-    const route = this.keyRoutes[`${intent.slot}:${intent.key}`];
+    const route = this.keyRoutes[slotKey];
     const renderedBody =
       route?.format === "line" && intent.body.type === "key_value"
         ? renderKeyValueLine(intent.body.entries)
@@ -346,31 +349,35 @@ export class UiRenderHost {
       dispose: renderedBody.dispose,
     };
     container.addChild(mounted.component);
-    this.rendered.set(intent.key, mounted);
+    this.rendered.set(slotKey, mounted);
 
     if (intent.ttl_ms !== undefined) {
       mounted.ttl = setTimeout(() => {
-        this.remove(intent.key);
+        this.unmount(slotKey);
         this.tui.requestRender();
       }, intent.ttl_ms);
     }
     this.tui.requestRender();
   }
 
-  remove(key: string): void {
-    const mounted = this.rendered.get(key);
+  remove(slot: UiSlot, key: string): void {
+    this.unmount(`${slot}:${key}`);
+  }
+
+  private unmount(slotKey: string): void {
+    const mounted = this.rendered.get(slotKey);
     if (!mounted) return;
     if (mounted.ttl !== undefined) {
       clearTimeout(mounted.ttl);
     }
     mounted.dispose();
     mounted.container.removeChild(mounted.component);
-    this.rendered.delete(key);
+    this.rendered.delete(slotKey);
   }
 
   dispose(): void {
-    for (const key of [...this.rendered.keys()]) {
-      this.remove(key);
+    for (const slotKey of [...this.rendered.keys()]) {
+      this.unmount(slotKey);
     }
     this.tui.requestRender();
   }
@@ -466,16 +473,16 @@ class AskPanel implements Component {
     const [firstTitle, ...restTitles] = this.titleLines;
     const lines: string[] = [];
     if (firstTitle !== undefined && firstTitle.length > 0) {
-      lines.push(theme.bold(firstTitle));
+      lines.push(theme.bold(truncateToWidth(firstTitle, width)));
     }
-    for (const line of restTitles) lines.push(theme.muted(line));
+    for (const line of restTitles) lines.push(theme.muted(truncateToWidth(line, width)));
     if (this.input !== undefined) {
       // The TUI focuses this panel, not the Input; forward the flag so the
       // caret renders (same passthrough the old overlay panel used).
       const input = this.input as Input & { focused?: boolean };
       if (typeof input.focused === "boolean") input.focused = this.focused;
       if (this.placeholderLine !== undefined) {
-        lines.push(theme.muted(this.placeholderLine));
+        lines.push(theme.muted(truncateToWidth(this.placeholderLine, width)));
       }
       lines.push(...this.input.render(width));
       lines.push(theme.muted(" ⏎ submit · esc cancel"));

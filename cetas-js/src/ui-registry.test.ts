@@ -6,6 +6,36 @@ function signal(): AbortSignal {
   return new AbortController().signal;
 }
 
+// Two sources with different triggers that produce equal-length prefixes.
+function tieRegistry(): UiRegistry {
+  const registry = new UiRegistry();
+  registry.register("files", {
+    component_keys: [],
+    autocomplete: [{
+      trigger: "@",
+      kind: "file",
+      fetch: (prefix) => [{
+        label: `file:${prefix}`,
+        detail: "file",
+        insert_text: `@${prefix}`,
+      }],
+    }],
+  });
+  registry.register("skills", {
+    component_keys: [],
+    autocomplete: [{
+      trigger: "$",
+      kind: "custom",
+      fetch: (prefix) => [{
+        label: `skill:${prefix}`,
+        detail: "skill",
+        insert_text: `$${prefix}`,
+      }],
+    }],
+  });
+  return registry;
+}
+
 describe("UiRegistry", () => {
   test("aggregates sources with the same trigger in registration order", async () => {
     const registry = new UiRegistry();
@@ -157,5 +187,34 @@ describe("UiRegistry", () => {
     expect(
       await plainOnly.getSuggestions(["/cmd "], 0, 5, { signal: signal() }),
     ).toBeNull();
+  });
+
+  test("equal-length prefixes from different triggers: the trigger closest to the cursor wins", async () => {
+    // "@a $b" — "@" and "$" both match with a 2-char prefix; "$" starts
+    // closer to the cursor, so only skill items appear under prefix "$b".
+    const result = await tieRegistry().getSuggestions(
+      ["@a $b"],
+      0,
+      5,
+      { signal: signal() },
+    );
+    expect(result).toEqual({
+      prefix: "$b",
+      items: [{ value: "$b", label: "skill:b", description: "skill" }],
+    });
+  });
+
+  test("equal-length prefixes from different triggers: winner follows cursor position", async () => {
+    // "$b @a" — mirrored line; "@" now owns the closest trigger occurrence.
+    const result = await tieRegistry().getSuggestions(
+      ["$b @a"],
+      0,
+      5,
+      { signal: signal() },
+    );
+    expect(result).toEqual({
+      prefix: "@a",
+      items: [{ value: "@a", label: "file:a", description: "file" }],
+    });
   });
 });

@@ -104,4 +104,45 @@ describe("sessions overlay contract", () => {
     tui.shown!.handleInput!("\r");
     expect(overlay.isActive).toBe(false);
   });
+
+  test("hides the 8-hex uniqueness suffix on timestamp ids but still resumes the full id", () => {
+    const tui = new FakeTui();
+    const overlay = new SessionsOverlay(tui as never);
+    const picked: string[] = [];
+    overlay.open(
+      [entry("2026-08-29T12-17-57-155Z_2c30a4ff")],
+      (id) => picked.push(id),
+      () => {},
+    );
+    const rendered = tui.shown!.render!(120).join("\n");
+    expect(rendered).toContain("2026-08-29 12-17-57-155Z");
+    expect(rendered).not.toContain("2c30a4ff");
+    tui.shown!.handleInput!("\r");
+    expect(picked).toEqual(["2026-08-29T12-17-57-155Z_2c30a4ff"]);
+  });
+
+  test("keeps ids without the 8-hex uniqueness suffix unchanged", () => {
+    const tui = new FakeTui();
+    const overlay = new SessionsOverlay(tui as never);
+    overlay.open(
+      [entry("cetas-1756fffffff01234")],
+      () => {},
+      () => {},
+    );
+    const rendered = tui.shown!.render!(120).join("\n");
+    expect(rendered).toContain("cetas-1756fffffff01234");
+  });
+
+  test("keeps ids whose trailing underscore run is not exactly 8 lowercase hex", () => {
+    const tui = new FakeTui();
+    const overlay = new SessionsOverlay(tui as never);
+    overlay.open(
+      [entry("session_ABCDEF12"), entry("run_1234567")],
+      () => {},
+      () => {},
+    );
+    const rendered = tui.shown!.render!(120).join("\n");
+    expect(rendered).toContain("session_ABCDEF12");
+    expect(rendered).toContain("run_1234567");
+  });
 });

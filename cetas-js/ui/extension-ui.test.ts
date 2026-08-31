@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import chalk from "chalk";
-import { Container, type Component } from "@earendil-works/pi-tui";
+import { Container, visibleWidth, type Component } from "@earendil-works/pi-tui";
 
 import {
   UiRenderHost,
@@ -92,6 +92,52 @@ describe("UiRenderHost", () => {
         body: { type: "progress", current: 1.1 },
       }),
     ).toThrow("within [0, 1]");
+  });
+
+  // Regression: the rendered map used to be keyed by the bare key, so the
+  // same key rendered into two slots evicted the first mount.
+  test("keeps same-key renders in different slots independent", () => {
+    const tui = new FakeTui();
+    const status = new Container();
+    const widget = new Container();
+    const host = new UiRenderHost(tui as never, {
+      status,
+      notice: new Container(),
+      widget,
+    });
+
+    host.render({
+      slot: "status",
+      key: "main",
+      title: "Status",
+      body: { type: "text", text: "status-main" },
+    });
+    host.render({
+      slot: "widget",
+      key: "main",
+      title: "Widget",
+      body: { type: "text", text: "widget-main" },
+    });
+
+    expect(status.children).toHaveLength(1);
+    expect(widget.children).toHaveLength(1);
+
+    // Re-rendering one slot must not evict the other.
+    host.render({
+      slot: "status",
+      key: "main",
+      title: "Status",
+      body: { type: "text", text: "status-v2" },
+    });
+    expect(status.children).toHaveLength(1);
+    expect(widget.children).toHaveLength(1);
+    expect(status.render(80).join("\n")).toContain("status-v2");
+    expect(widget.render(80).join("\n")).toContain("widget-main");
+
+    // Removal is slot-scoped too.
+    host.remove("widget", "main");
+    expect(widget.children).toHaveLength(0);
+    expect(status.children).toHaveLength(1);
   });
 
   test("routes a keyed render to its dedicated mount instead of the slot mount", () => {
@@ -284,6 +330,31 @@ describe("UiRequestBar", () => {
         ),
       );
     expect(labelLines).toHaveLength(3);
+
+    bar.cancel();
+    await expect(pending).resolves.toEqual({ type: "cancelled" });
+  });
+
+  // Regression for the crash "Rendered line exceeds terminal width": the
+  // permission ask embeds an arguments-preview JSON line in the select
+  // title; CJK content made it wider than the terminal even though it was
+  // char-capped upstream. Every panel line must fit the render width.
+  test("truncates title and detail lines to the render width", async () => {
+    const { mount, bar } = makeBar();
+    const argsPreview =
+      '{"path":"小红书/01-国产新语言MoonBit有多猛.md","content":"# 01 · 国产新语言 MoonBit 有多猛？它已经能跑';
+    const pending = bar.request({
+      type: "select",
+      title: `Allow tool 'obsidian_create_note' (unknown)?\n${argsPreview}`,
+      options: ["Allow once", "Allow for this session", "Deny"],
+    });
+
+    const lines = mount.render(95);
+    for (const line of lines) {
+      expect(visibleWidth(line)).toBeLessThanOrEqual(95);
+    }
+    const detail = lines.find((line) => line.includes("小红书"));
+    expect(detail).toBeDefined();
 
     bar.cancel();
     await expect(pending).resolves.toEqual({ type: "cancelled" });

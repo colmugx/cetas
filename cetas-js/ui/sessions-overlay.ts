@@ -99,7 +99,10 @@ function formatSize(bytes: number): string {
 /** Session ids embed the UTC timestamp (`2026-08-26T19-02-…`); surface it. */
 function sessionLabel(entry: SessionEntry): string {
   const marker = entry.current ? "* " : "  ";
-  return `${marker}${entry.id.replace("T", " ")}`;
+  // Display-only: drop the 8-hex uniqueness suffix (`_2c30a4ff`); the id
+  // itself and all logic keep the full value.
+  const label = entry.id.replace("T", " ").replace(/_[0-9a-f]{8}$/, "");
+  return `${marker}${label}`;
 }
 
 class SessionsPanel implements Component {

@@ -1020,4 +1020,79 @@ describe("CetasApplication", () => {
 
     await expect(app.listWorkspaceFiles()).rejects.toThrow("must be a JSON array");
   });
+
+  test("rejects malformed /login arguments with a typed invalid_state error", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const base = bridgeFor({ providers: [], oauthProviders: [] }, counters);
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        login: async () => JSON.stringify({ type: "success" }),
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    const error: unknown = await app.invokeCommand("login", "not json").then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+    expect(error).toBeInstanceOf(CetasApplicationError);
+    expect((error as CetasApplicationError).code).toBe("invalid_state");
+  });
+
+  test("rejects a malformed login outcome as a typed bridge_failure error", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const base = bridgeFor({ providers: [], oauthProviders: [] }, counters);
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        login: async () => "not json",
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    await app.start();
+    await expect(
+      app.invokeCommand("login", JSON.stringify({ provider: "kimi" })),
+    ).rejects.toMatchObject({ code: "bridge_failure" });
+  });
+
+  test("rejects a malformed command outcome as a typed bridge_failure error", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const base = bridgeFor(
+      {
+        providers: [
+          {
+            id: "deepseek/chat",
+            label: "DeepSeek Chat",
+            provider: "deepseek",
+            model: "deepseek-chat",
+            active: true,
+            efforts: [],
+            oauth: false,
+          },
+        ],
+        oauthProviders: [],
+      },
+      counters,
+    );
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        invokeCommand: async () => "not json",
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    await app.start();
+    await expect(app.invokeCommand("model")).rejects.toMatchObject({
+      code: "bridge_failure",
+    });
+  });
 });
