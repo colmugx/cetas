@@ -28,6 +28,7 @@ import {
   "colmugx/posoco-ext-rtk" @rtk,
   "colmugx/posoco-ext-handoff" @handoff,
   "colmugx/posoco-ext-obsidian" @obsidian,
+  "colmugx/posoco-ext-lazytools" @lazytools,
   "moonbitlang/core/json",
   "moonbitlang/core/env",
   "moonbitlang/async",
@@ -60,11 +61,14 @@ dev_build(
   output: "platform_gen.mbt",
 )
 
-// Bakes the Nowledge Mem opt-in at compile time: sh lib/nmem_gen.sh
-// regenerates nmem_gen.mbt from the nmem_target knob (on|off|auto). "on" is
-// the personal build, "off" the public release, "auto" the committed default
-// that keeps a CETAS_NMEM runtime fallback for plain dev builds. The knob file
-// is the rule input for the same cache reason as gen_platform.
-rule(name: "gen_nmem", command: "sh lib/nmem_gen.sh")
+// Bakes the preference-tied extension set at compile time: sh
+// lib/flavor_gen.sh regenerates flavor_gen.mbt from the flavor_target knob
+// (public|personal|auto). "public" is the release build (Nowledge Mem,
+// Obsidian, and the RTK shell router are never constructed — no env check
+// survives), "personal" the maintainer's build with all three baked in,
+// "auto" the committed default that keeps each extension's runtime fallback
+// for plain dev builds. The knob file is the rule input for the same cache
+// reason as gen_platform.
+rule(name: "gen_flavor", command: "sh lib/flavor_gen.sh")
 
-dev_build(rule: "gen_nmem", input: "nmem_target", output: "nmem_gen.mbt")
+dev_build(rule: "gen_flavor", input: "flavor_target", output: "flavor_gen.mbt")

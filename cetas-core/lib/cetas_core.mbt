@@ -214,12 +214,13 @@ fn shell_platform_is_windows() -> Bool {
 ///
 /// The RTKHook sits after the shell tool: it validates shell arguments
 /// (`cmd`/`command` must be a string) and routes shell commands through the
-/// rtk subprocess at the declared path.
+/// rtk subprocess at the declared path. It is preference-tied: the
+/// flavor_target knob decides at compile time whether it registers at all.
 ///
-/// Nowledge Mem is opt-in, decided at compile time by the nmem_target knob
-/// (gen_nmem rule): "on" bakes it in for personal builds, "off" excludes it
-/// from public releases, "auto" (the committed default) falls back to a
-/// CETAS_NMEM=1 runtime check so plain dev builds need no rebuild. An off
+/// Nowledge Mem is opt-in, decided at compile time by the flavor_target knob
+/// (gen_flavor rule): "personal" bakes it in, "public" excludes it entirely,
+/// "auto" (the committed default) falls back to a CETAS_NMEM=1 runtime check
+/// so plain dev builds need no rebuild. A public
 /// build constructs nothing — no memory tools, no prompt guidance, no boot
 /// drain. `enable_nmem~` remains the explicit override; tests pin it for
 /// determinism. When enabled it registers over its production seams (`HttpNmemTransport` + `LazyNmemMcp` + `PlatformFs`): without
@@ -245,10 +246,11 @@ pub async fn build_default_features(
   ctx~ : HostContext,
   ui? : &@posoco.UiPort? = None,
   enable_nmem? : Bool = compiled_nmem_enabled(),
+  enable_rtk? : Bool = compiled_rtk_enabled(),
   nmem_group? : @async.TaskGroup[Unit]? = None,
   detect_herdr? : Bool = true,
   host_help_note? : String? = None,
-) -> Array[&@posoco.Extension] noraise {
+) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
   let freshness = @devkit.FreshnessGuard::FreshnessGuard()
   let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
   let exts : Array[&@posoco.Extension] = [
@@ -257,20 +259,36 @@ pub async fn build_default_features(
     @edit.EditTools(freshness~, anchor=Some(anchor)),
     @glob.GlobTools(anchor=Some(anchor)),
     @grep.GrepTools(anchor=Some(anchor)),
-    // webfetch is a read-only tool (URL fetch, no workspace writes): it
-    // belongs in the permission read class.
-    @webfetch.WebFetchTools(),
   ]
-  // Shell tool choice per platform, then the forme self-description surface
-  // (manuals + /help). The manuals merge into the one skills extension below
-  // so both share the activate_skill tool; a second Skills instance would
-  // collide on tool names at composition.
+  // Episodic tools defer behind the lazytools gateway — including bash:
+  // the gateway is the only shell surface the model sees, and both the
+  // permission policy (read-only shell pre-approval, per-segment approval
+  // scopes) and the rtk router classify gateway calls by the inner tool
+  // name via the shared unwrap convention, so deferred bash keeps its
+  // gating semantics. Each extension's non-tool ports (hooks, commands,
+  // memory, prompt) register through its toolless view.
+  // webfetch is a read-only tool (URL fetch, no workspace writes) and
+  // keeps its permission read class behind the gateway.
+  let episodic : Array[&@posoco.Extension] = [
+    @webfetch.WebFetchTools() as &@posoco.Extension,
+  ]
+  // Shell tool choice per platform — deferred behind the gateway like the
+  // other episodic tools. The manuals merge into the one skills extension
+  // below so both share the activate_skill tool; a second Skills instance
+  // would collide on tool names at composition.
   if shell_platform_is_windows() {
-    exts.push(@ps1.PowerShellTools(anchor=Some(anchor)) as &@posoco.Extension)
+    episodic.push(
+      @ps1.PowerShellTools(anchor=Some(anchor)) as &@posoco.Extension,
+    )
   } else {
-    exts.push(@bash.ShellTools(anchor=Some(anchor)) as &@posoco.Extension)
+    episodic.push(@bash.ShellTools(anchor=Some(anchor)) as &@posoco.Extension)
   }
-  exts.push(@rtk.RTKHook("rtk"))
+  // RTK shell routing is preference-tied (a local rtk install): the
+  // flavor_target knob decides at compile time — public builds never
+  // register the hook, so shell tools call the platform shell directly.
+  if enable_rtk {
+    exts.push(@rtk.RTKHook("rtk") as &@posoco.Extension)
+  }
   let builtin_manuals = @forme.builtin_manual_skills()
   let discovered : @skills.SkillCatalog = match
     @skills.Skills::discover(
@@ -315,7 +333,7 @@ pub async fn build_default_features(
       Some(group) => nmem.attach(group)
       None => ()
     }
-    exts.push(nmem as &@posoco.Extension)
+    episodic.push(nmem as &@posoco.Extension)
   }
   // Handoff: the `/handoff` command over the extension's own default store
   // (native @fs / node:fs behind the HandoffStore seam — this package itself
@@ -334,25 +352,44 @@ pub async fn build_default_features(
     )
     as &@posoco.Extension,
   )
-  // Obsidian vault tools via the official Obsidian CLI. Opt-in through
-  // CETAS_OBSIDIAN so machines without Obsidian keep a lean catalog:
-  // "on"/"1" targets the active vault, any other non-"off" value names the
-  // vault (first CLI argument vault=<name>). Opting in grants whole-vault
-  // read/write; destructive writes (permanent delete, overwrite,
-  // heading replace/delete) still consent through the composed UI, and the
-  // extension degrades per-call when the CLI or the app is unavailable.
-  match @env.get_env_var("CETAS_OBSIDIAN") {
-    Some(value) if value != "off" =>
-      exts.push(
-        @obsidian.ObsidianTools::new(
-          config=@obsidian.ObsidianConfig::ObsidianConfig(
-            vault=if value == "on" || value == "1" { None } else { Some(value) },
-            read_only=false,
-          ),
-        )
-        as &@posoco.Extension,
+  // Obsidian vault tools via the official Obsidian CLI. Preference-tied:
+  // the flavor_target knob decides inclusion at compile time (public builds
+  // exclude it entirely — no env check survives). When enabled, the
+  // CETAS_OBSIDIAN value still names the vault: "on"/"1"/unset targets the
+  // active vault, any other non-"off" value names the vault (first CLI
+  // argument vault=<name>). Opting in grants whole-vault read/write;
+  // destructive writes (permanent delete, overwrite, heading replace/delete)
+  // still consent through the composed UI, and the extension degrades
+  // per-call when the CLI or the app is unavailable.
+  if compiled_obsidian_enabled() {
+    let vault : String? = match @env.get_env_var("CETAS_OBSIDIAN") {
+      Some(value) if value != "on" && value != "1" && value != "off" =>
+        Some(value)
+      _ => None
+    }
+    episodic.push(
+      @obsidian.ObsidianTools::new(
+        config=@obsidian.ObsidianConfig::ObsidianConfig(vault~, read_only=false),
       )
-    _ => ()
+      as &@posoco.Extension,
+    )
+  }
+  // Assemble the gateway last: deferred providers are indexed here, the
+  // toolless views take their originals' places, and only lazy_search /
+  // lazy_list / lazy_execute reach the model catalog.
+  match @lazytools.LazyTools::defer_extensions(exts=episodic) {
+    Ok((gateway, views)) => {
+      for view in views {
+        exts.push(view)
+      }
+      exts.push(gateway as &@posoco.Extension)
+    }
+    Err(message) =>
+      raise @posoco.CompositionError::ToolCollision(
+        "deferred tool name collision",
+        message,
+        manifests=["cetas-core.default_features"],
+      )
   }
   exts
 }
@@ -375,5 +412,6 @@ pub fn default_agent_config(
     max_output_tokens: None,
     model_context_window: None,
     compact_threshold: None,
+    memory_inbound_timeout_ms: None,
   }
 }

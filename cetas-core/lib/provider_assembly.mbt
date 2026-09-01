@@ -166,12 +166,14 @@ pub fn refreshable_factories(
   let kimi = @kimi.KimiProvider(ctx~, device_id~)
   let openai = @openai.OpenAIProvider()
   let opencode_zen = @opencode_zen.OpenCodeZenProvider(ctx~)
+  let zai = @zai.ZaiProvider(ctx~)
   let openrouter = @openrouter.OpenRouterProvider(ctx~)
   [
     deepseek as &@llm.RefreshableProviderFactory,
     kimi as &@llm.RefreshableProviderFactory,
     openai as &@llm.RefreshableProviderFactory,
     opencode_zen as &@llm.RefreshableProviderFactory,
+    zai as &@llm.RefreshableProviderFactory,
     openrouter as &@llm.RefreshableProviderFactory,
   ]
 }
