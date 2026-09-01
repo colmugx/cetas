@@ -19,6 +19,7 @@ import {
 import { matchesKey } from "@earendil-works/pi-tui";
 
 import { theme } from "./theme.ts";
+import { translateSelectArrows } from "./select-nav.ts";
 
 export type SkillScope = "project" | "user" | "extra";
 
@@ -178,7 +179,7 @@ class SkillsPanel implements Component {
       this.list.onCancel = () => this.close();
       this.empty = new Text("", 0, 0);
     }
-    this.footer = new Text(theme.muted("↑↓ browse · enter/esc close · display only — activate with $name"), 1, 0);
+    this.footer = new Text(theme.muted("←→/↑↓ browse · enter/esc close · display only — activate with $name"), 1, 0);
   }
 
   render(width: number): string[] {
@@ -192,12 +193,12 @@ class SkillsPanel implements Component {
 
   handleInput(data: string): void {
     // 'q' mirrors the esc dismissal for vi muscle memory; everything else
-    // (up/down/enter/esc) is SelectList navigation.
+    // (arrows/enter/esc) is SelectList navigation.
     if (this.list === undefined || matchesKey(data, "q")) {
       this.close();
       return;
     }
-    this.list.handleInput(data);
+    this.list.handleInput(translateSelectArrows(data));
   }
 
   invalidate(): void {

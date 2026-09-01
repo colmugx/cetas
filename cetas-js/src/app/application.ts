@@ -315,6 +315,69 @@ export class CetasApplication<AgentHandle = unknown> {
   }
 
   /**
+   * Record an observed session_redirect as an application fact.
+   *
+   * A redirect arrives mid-turn after the runtime already moved the live
+   * thread (e.g. compact-NewThread), so hosts adopt it the moment they see
+   * it — deliberately without setSession's running/activeTurn/startPromise
+   * guards, which exist for user-intent switches only. setSession remains
+   * the user-intent path and keeps those guards.
+   */
+  adoptSessionRedirect(to: string): void {
+    if (to.length === 0) {
+      throw new CetasApplicationError(
+        "invalid_state",
+        "redirect target session id must not be empty",
+      );
+    }
+    if (this.state === "shutting_down") {
+      throw new CetasApplicationError(
+        "shutting_down",
+        "cannot adopt a session redirect after shutdown has begun",
+      );
+    }
+    this.currentSessionId = to;
+    this.publish();
+  }
+
+  /**
+   * Rewind the persisted session transcript: drop stored messages at
+   * `fromIndex` and after, keeping `[0, fromIndex)`. The next turn on the
+   * session reloads from the truncated point. Idle-only: a rewind racing the
+   * run loop's own session writes would corrupt the transcript, so the same
+   * busy guards as setSession apply.
+   */
+  async rewind(sessionId: string, fromIndex: number): Promise<void> {
+    if (sessionId.length === 0) {
+      throw new CetasApplicationError("invalid_state", "session id must not be empty");
+    }
+    if (this.state === "shutting_down") {
+      throw new CetasApplicationError(
+        "shutting_down",
+        "cannot rewind after shutdown has begun",
+      );
+    }
+    if (
+      this.state === "running" ||
+      this.activeTurn !== undefined ||
+      this.activeCommand !== undefined ||
+      this.startPromise !== undefined
+    ) {
+      throw new CetasApplicationError(
+        "already_running",
+        "cannot rewind while another application operation is running",
+      );
+    }
+    if (this.agent === undefined) {
+      throw new CetasApplicationError(
+        "not_ready",
+        "no Agent is composed; configure a provider first",
+      );
+    }
+    await this.options.bridge.rewind(this.agent, sessionId, fromIndex);
+  }
+
+  /**
    * Whether the active model accepts image input (`image_in` capability).
    * Absent bridge support (older bundles) reads as `true` so the gate never
    * blocks on a stale build; the encoder still downgrades safely.

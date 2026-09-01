@@ -49,6 +49,20 @@ export type UiResponse =
 
 type UnknownRecord = Record<string, unknown>;
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Bound free-form bridge payloads for console logs (~200 chars). */
+function boundedJson(value: string, max = 200): string {
+  return value.length <= max ? value : `${value.slice(0, max)}…`;
+}
+
+/** Bounded error text — engine SyntaxErrors embed raw input snippets. */
+function boundedReason(error: unknown): string {
+  return boundedJson(errorMessage(error), 120);
+}
+
 function requireRecord(value: unknown, path: string): UnknownRecord {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`${path} must be an object`);
@@ -383,16 +397,27 @@ export class UiRenderHost {
   }
 }
 
-/** Build the strict one-way callback consumed by JsUiPort.render. */
+/**
+ * Build the one-way callback consumed by JsUiPort.render. It crosses the
+ * MoonBit FFI, where a throw kills the whole turn, so any failure — bad
+ * json, wrong type tag, malformed render body — is logged (bounded) and the
+ * render dropped: a lost status widget beats a dead turn.
+ */
 export function createUiRenderCallback(
   host: UiRenderHost,
 ): (eventJson: string) => void {
   return (eventJson) => {
-    const event = requireRecord(JSON.parse(eventJson), "ui_render");
-    if (event.type !== "ui_render") {
-      throw new Error(`expected ui_render event, got ${String(event.type)}`);
+    try {
+      const event = requireRecord(JSON.parse(eventJson), "ui_render");
+      if (event.type !== "ui_render") {
+        throw new Error(`expected ui_render event, got ${String(event.type)}`);
+      }
+      host.render(parseUiRender(event.render));
+    } catch (error: unknown) {
+      console.warn(
+        `cetas: dropped ui_render (${boundedReason(error)}): ${boundedJson(eventJson)}`,
+      );
     }
-    host.render(parseUiRender(event.render));
   };
 }
 
@@ -579,12 +604,19 @@ interface AskTui {
 /**
  * Presents one strict ask at a time, inline directly above the editor —
  * not as a centered modal. The panel takes keyboard focus while active;
- * `restoreFocus` runs after the panel settles. A second concurrent request
- * is rejected because stacking interactive asks is ambiguous.
+ * `restoreFocus` runs after the panel settles.
+ *
+ * One ask at a time; a newer ask withdraws the older. Presenting while an
+ * ask is active auto-settles the previous one as `{type:"cancelled"}` (the
+ * existing cancel path) before the new panel mounts — the old reject-on-
+ * concurrent behavior surfaced as an opaque bridge failure on the MoonBit
+ * side.
  */
 export class UiRequestBar {
   private active = false;
   private cancelActive?: () => void;
+  /** Identifies the request allowed to reset bar state in its finally. */
+  private epoch = 0;
 
   constructor(
     private readonly tui: AskTui,
@@ -603,15 +635,18 @@ export class UiRequestBar {
   }
 
   async request(request: UiRequest): Promise<UiResponse> {
-    if (this.active) {
-      throw new Error("concurrent UiRequest is not supported");
-    }
+    if (this.active) this.cancel();
     this.active = true;
+    const epoch = ++this.epoch;
     try {
       return await this.open(request);
     } finally {
-      this.active = false;
-      this.cancelActive = undefined;
+      // A superseded request must not clear the newer one's state: its
+      // continuation resumes only after the new ask already mounted.
+      if (epoch === this.epoch) {
+        this.active = false;
+        this.cancelActive = undefined;
+      }
     }
   }
 
@@ -642,7 +677,12 @@ export class UiRequestBar {
   }
 }
 
-/** Build the exact Promise callback consumed by JsUiPort. */
+/**
+ * Build the exact Promise callback consumed by JsUiPort. The callback must
+ * never reject across the FFI: malformed request bytes (bad json, wrong
+ * type tag, unparsable request payload, unpresentable ask) degrade to a
+ * correlated ui_response error instead of an opaque bridge failure.
+ */
 export function createUiRequestCallback(
   bar: UiRequestBar,
   timeoutMs: number,
@@ -651,38 +691,52 @@ export function createUiRequestCallback(
     throw new Error("UI request timeout must be a positive integer");
   }
   return async (eventJson) => {
-    const event = requireRecord(JSON.parse(eventJson), "ui_request");
-    if (event.type !== "ui_request") {
-      throw new Error(`expected ui_request event, got ${String(event.type)}`);
-    }
-    const requestId = requireString(event.request_id, "ui_request.request_id");
-    if (requestId.length === 0) {
-      throw new Error("ui_request.request_id must not be empty");
-    }
-    const request = parseUiRequest(event.request);
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    const timed = new Promise<"timeout">((resolve) => {
-      timeout = setTimeout(() => {
-        resolve("timeout");
-        bar.cancel();
-      }, timeoutMs);
-    });
+    // "unknown" until a usable request_id is recovered from the bytes.
+    let requestId = "unknown";
     try {
-      const outcome = await Promise.race([bar.request(request), timed]);
-      if (outcome === "timeout") {
+      const event = requireRecord(JSON.parse(eventJson), "ui_request");
+      if (event.type !== "ui_request") {
+        throw new Error(`expected ui_request event, got ${String(event.type)}`);
+      }
+      const parsedRequestId = requireString(event.request_id, "ui_request.request_id");
+      if (parsedRequestId.length === 0) {
+        throw new Error("ui_request.request_id must not be empty");
+      }
+      requestId = parsedRequestId;
+      const request = parseUiRequest(event.request);
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const timed = new Promise<"timeout">((resolve) => {
+        timeout = setTimeout(() => {
+          resolve("timeout");
+          bar.cancel();
+        }, timeoutMs);
+      });
+      try {
+        const outcome = await Promise.race([bar.request(request), timed]);
+        if (outcome === "timeout") {
+          return JSON.stringify({
+            type: "ui_response",
+            request_id: requestId,
+            error: { code: "timeout" },
+          });
+        }
         return JSON.stringify({
           type: "ui_response",
           request_id: requestId,
-          error: { code: "timeout" },
+          response: outcome,
         });
+      } finally {
+        if (timeout !== undefined) clearTimeout(timeout);
       }
+    } catch (error: unknown) {
+      console.warn(
+        `cetas: rejected ui_request (${boundedReason(error)}): ${boundedJson(eventJson)}`,
+      );
       return JSON.stringify({
         type: "ui_response",
         request_id: requestId,
-        response: outcome,
+        error: { code: "malformed_request" },
       });
-    } finally {
-      if (timeout !== undefined) clearTimeout(timeout);
     }
   };
 }

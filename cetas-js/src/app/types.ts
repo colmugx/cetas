@@ -176,6 +176,13 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
   listCommands(agent: AgentHandle): readonly CommandDescriptor[];
   invokeCommand(agent: AgentHandle, id: string, argsJson: string): Promise<string>;
   /**
+   * Rewind a persisted session: drop stored messages at `fromIndex` and
+   * after, keeping `[0, fromIndex)`; the session metadata line is preserved
+   * and out-of-range indexes are clamped. Storage failures reject (the
+   * runTurn error path) rather than resolving.
+   */
+  rewind(agent: AgentHandle, sessionId: string, fromIndex: number): Promise<void>;
+  /**
    * One-shot workspace file index (paths relative to `config.cwd`,
    * directories with a trailing `/`) for `@`-mention autocomplete.
    * Stateless and Agent-free: available before setup and mid-turn. Optional

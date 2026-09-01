@@ -21,7 +21,7 @@ import {
   type OverlayHandle,
   type SelectListTheme,
 } from "@earendil-works/pi-tui";
-import { matchesKey, type KeyId } from "@earendil-works/pi-tui";
+import { isKeyRelease, matchesKey, type KeyId } from "@earendil-works/pi-tui";
 
 import {
   CetasApplication,
@@ -32,7 +32,15 @@ import {
 } from "../src/app/index.ts";
 import { newSessionId, sessionFilePath } from "../src/app/session-id.ts";
 import { parseSessionReplay, type ReplayItem } from "../src/transcript/replay.ts";
-import { parseCetasEvent } from "../src/events.ts";
+import {
+  listRewindPoints,
+  readUserMessage,
+  type RewindPoint,
+} from "../src/transcript/rewind-points.ts";
+import {
+  parseCetasEvent,
+  type CetasEvent,
+} from "../src/events.ts";
 import {
   hasImageMention,
   resolveImageAttachments,
@@ -56,6 +64,7 @@ import {
   createUiRenderCallback,
   createUiRequestCallback,
 } from "./extension-ui.ts";
+import { CommandLock } from "./command-lock.ts";
 import { banner } from "./primitives.ts";
 import { ModelPickerOverlay, parseModelPickerOutcome, type ModelSelection } from "./model-picker.ts";
 import {
@@ -66,6 +75,8 @@ import {
 import { OAuthOverlay } from "./oauth-overlay.ts";
 import { AuthPromptOverlay, parseAuthPromptRequest } from "./auth-prompt-overlay.ts";
 import { SessionsOverlay, listSessionEntries } from "./sessions-overlay.ts";
+import { RewindOverlay } from "./rewind-overlay.ts";
+import { translateSelectArrows } from "./select-nav.ts";
 import { theme } from "./theme.ts";
 
 const identity = (value: string): string => value;
@@ -78,6 +89,7 @@ const identity = (value: string): string => value;
 export const CETAS_TUI_HELP_NOTE = [
   "During a turn:",
   "  ESC — interrupt the running turn (denies a pending approval first)",
+  "  double-ESC while idle — first press clears the input, second opens /rewind",
   "  Typing while a turn runs stays live; Enter queues it as a follow-up",
   "  @path — autocomplete a workspace file (Tab/Enter applies it; the agent reads it)",
   "  /permission <mode> works mid-turn (readonly | workspace_write | interactive | yolo)",
@@ -170,7 +182,7 @@ class ProviderPickerOverlay implements Component {
   }
 
   handleInput(data: string): void {
-    this.list.handleInput(data);
+    this.list.handleInput(translateSelectArrows(data));
   }
 
   invalidate(): void {
@@ -210,6 +222,7 @@ export class TerminalShell {
   private readonly authPromptOverlay: AuthPromptOverlay;
   private readonly skillsOverlay: SkillsOverlay;
   private readonly sessionsOverlay: SessionsOverlay;
+  private readonly rewindOverlay: RewindOverlay;
   /** Replay: tool-call rows awaiting their result line during resume. */
   private readonly replayedToolRows = new Map<string, ToolRow>();
   /** Lazily fetched once: the skills catalog is snapshotted at agent composition. */
@@ -220,6 +233,16 @@ export class TerminalShell {
 
   private inTurn = false;
   private commandBusy = false;
+  /** Timestamp of the last idle ESC — arms the double-press rewind window. */
+  private lastEscapeAt?: number;
+  /**
+   * Single command-busy gate for every local command flow. An empty label
+   * arms the gate without touching the status line (picker/session flows
+   * never showed one); runLogin re-acquires under the provider picker, which
+   * the lock tolerates by re-arming. Release is idempotent, so overlay
+   * close/select callbacks and finally blocks can never double-release.
+   */
+  private readonly commandLock: CommandLock;
   /** ctrl+o state — persists across messages; new tool rows inherit it. */
   private toolOutputExpanded = false;
   /** Follow-up bubbles awaiting their TurnStarted; promoted oldest-first. */
@@ -230,8 +253,13 @@ export class TerminalShell {
   private setupNoticeShown = false;
   private setupErrorShown?: string;
   private shutdownPromise?: Promise<void>;
-  /** session_redirect target awaiting the end-of-turn app sync. */
-  private pendingSessionSync?: string;
+  /**
+   * Bridge events the lenient parser skipped since the last turn_started.
+   * Grows in-memory across skips within one turn window.
+   */
+  private skippedBridgeEvents = 0;
+  /** Whether this turn window already rendered the single skip notice. */
+  private skippedEventsNoticed = false;
 
   constructor(options: TerminalShellOptions) {
     if (options.initialSessionId.length === 0) {
@@ -313,6 +341,15 @@ export class TerminalShell {
     this.authPromptOverlay = new AuthPromptOverlay(this.tui);
     this.skillsOverlay = new SkillsOverlay(this.tui);
     this.sessionsOverlay = new SessionsOverlay(this.tui);
+    this.rewindOverlay = new RewindOverlay(this.tui);
+    this.commandLock = new CommandLock(
+      (label) => {
+        this.commandBusy = true;
+        this.editor.disableSubmit = true;
+        if (label.length > 0) this.setCommandStatus(label);
+      },
+      () => this.finishCommand(),
+    );
 
     this.router = new EventRouter({
       addTranscriptChild: (component) => this.addTranscriptChild(component),
@@ -323,10 +360,17 @@ export class TerminalShell {
       initialToolExpanded: () => this.toolOutputExpanded,
       onSessionRedirect: (_from, to) => {
         // Follow the redirect immediately so later prompts target the new
-        // thread; the app-side sync waits for the turn to end because
-        // setSession throws while an operation is active.
+        // thread, and adopt it at the app boundary as an observed runtime
+        // fact — adoptSessionRedirect carries no running-operation guards,
+        // unlike setSession. `app` may be undefined pre-attach.
         this.sessionId = to;
-        this.pendingSessionSync = to;
+        try {
+          this.app?.adoptSessionRedirect(to);
+        } catch (error: unknown) {
+          this.addTranscriptChild(
+            systemNotice(`session switch deferred: ${errorMessage(error)}`),
+          );
+        }
       },
     });
 
@@ -467,20 +511,6 @@ export class TerminalShell {
       while (this.queuedPrompts.length > 0) {
         this.queuedPrompts.shift()?.promote();
       }
-      // Follow a session_redirect at the app boundary too. setSession throws
-      // while another operation is active; surface that as a notice instead
-      // of failing the already-finished turn.
-      const syncTarget = this.pendingSessionSync;
-      this.pendingSessionSync = undefined;
-      if (syncTarget !== undefined) {
-        try {
-          app.setSession(syncTarget);
-        } catch (error: unknown) {
-          this.addTranscriptChild(
-            systemNotice(`session switch deferred: ${errorMessage(error)}`),
-          );
-        }
-      }
       this.statusLoader.stop();
       this.tui.requestRender();
     }
@@ -542,6 +572,7 @@ export class TerminalShell {
       this.oauthOverlay.hide();
       this.authPromptOverlay.hide();
       this.skillsOverlay.hide();
+      this.rewindOverlay.hide();
       this.providerPickerHandle?.hide();
       this.providerPickerHandle = undefined;
       try {
@@ -646,14 +677,40 @@ export class TerminalShell {
   }
 
   private handleObserverEvent(eventJson: string): void {
-    const parsed: unknown = JSON.parse(eventJson);
-    const event = parseCetasEvent(parsed);
-    if (event === null) throw new Error("unknown or malformed cetas event");
-    if (event.type === "turn_started") this.promoteQueuedPrompt();
+    const outcome = parseCetasEventLenient(eventJson);
+    if ("skipped" in outcome) {
+      this.noteSkippedBridgeEvent(outcome.skipped, eventJson);
+      return;
+    }
+    const event = outcome.event;
+    if (event.type === "turn_started") {
+      this.skippedBridgeEvents = 0;
+      this.skippedEventsNoticed = false;
+      this.promoteQueuedPrompt();
+    }
     if (event.type === "custom" && this.commandBusy) {
       this.oauthOverlay.notify(event);
     }
     this.router.handleEvent(event);
+  }
+
+  /**
+   * Visible degradation for bridge bytes we cannot parse (version skew, bad
+   * payload): every skip is logged with a bounded payload, but at most one
+   * transcript notice renders per turn window so a skewed MoonBit bundle
+   * cannot flood the UI. The callback must never throw across the FFI.
+   */
+  private noteSkippedBridgeEvent(reason: string, eventJson: string): void {
+    console.warn(`cetas: skipped bridge event (${reason}): ${boundedJson(eventJson)}`);
+    this.skippedBridgeEvents += 1;
+    if (this.skippedEventsNoticed) return;
+    this.skippedEventsNoticed = true;
+    const count = this.skippedBridgeEvents;
+    this.addTranscriptChild(
+      errorNotice(
+        `⚠ skipped ${count} unrecognized bridge event${count === 1 ? "" : "s"} (last: ${reason})`,
+      ),
+    );
   }
 
   /** A drained follow-up's turn is starting: restyle the oldest queued bubble. */
@@ -669,14 +726,26 @@ export class TerminalShell {
   }
 
   private handleUiRequest(eventJson: string): Promise<string> {
-    const raw: unknown = JSON.parse(eventJson);
+    let raw: unknown;
+    try {
+      raw = JSON.parse(eventJson);
+    } catch {
+      // Unparseable bytes: the guarded generic callback below answers a
+      // malformed_request ui_response instead of throwing across the FFI.
+      raw = undefined;
+    }
     if (
       typeof raw === "object" &&
       raw !== null &&
       !Array.isArray(raw) &&
       (raw as Record<string, unknown>).type === "auth_prompt"
     ) {
-      return this.authPromptOverlay.request(parseAuthPromptRequest(raw));
+      try {
+        return this.authPromptOverlay.request(parseAuthPromptRequest(raw));
+      } catch {
+        // Malformed auth_prompt bytes must not reject the bridge promise;
+        // fall through to the guarded generic ui request path.
+      }
     }
     return createUiRequestCallback(this.uiRequestBar, 300_000)(eventJson);
   }
@@ -704,6 +773,7 @@ export class TerminalShell {
             const local = [
               ["/new", "Start a new session"],
               ["/sessions", "Browse and resume past sessions"],
+              ["/rewind", "Rewind to an earlier message of this session"],
               ["/model", "Select a model and effort"],
               ["/skills", "Browse discovered agent skills by scope"],
               ["/login", "Authenticate with a provider (API key or OAuth)"],
@@ -772,6 +842,15 @@ export class TerminalShell {
   }
 
   private handleInput(data: string): { consume?: boolean } | undefined {
+    // Input listeners receive kitty-protocol release events unfiltered (the
+    // TUI drops them only for the focused component), and matchesKey cannot
+    // tell press from release — so one physical keypress would run this
+    // handler twice: a single ESC satisfied the double-press rewind window,
+    // and ctrl+t/ctrl+o toggled on and instantly back off. Consume releases:
+    // a full press-release cycle counts as one key press.
+    if (isKeyRelease(data)) {
+      return { consume: true };
+    }
     if (matchesKey(data, "ctrl+c")) {
       this.requestShutdown(0);
       return { consume: true };
@@ -789,6 +868,7 @@ export class TerminalShell {
       this.authPromptOverlay.isActive ||
       this.skillsOverlay.isActive ||
       this.sessionsOverlay.isActive ||
+      this.rewindOverlay.isActive ||
       this.providerPickerHandle !== undefined
     ) {
       return undefined;
@@ -802,6 +882,22 @@ export class TerminalShell {
     // model request immediately.
     if (this.inTurn && matchesKey(data, "escape")) {
       this.app?.interruptActiveTurn();
+      return { consume: true };
+    }
+    // Idle double-ESC (Gemini semantics): the first press clears a non-empty
+    // editor, the second within the window opens the rewind picker. This sits
+    // below every overlay check, so an overlay can never race it here.
+    if (!this.inTurn && !this.commandBusy && matchesKey(data, "escape")) {
+      const now = Date.now();
+      if (this.editor.getText().length > 0) {
+        this.editor.setText("");
+        this.lastEscapeAt = now;
+      } else if (shouldOpenRewindOnEscape(this.lastEscapeAt, now)) {
+        this.lastEscapeAt = undefined;
+        this.openRewindPicker();
+      } else {
+        this.lastEscapeAt = now;
+      }
       return { consume: true };
     }
     // Global collapse toggles (pi keymap parity): usable in and out of turns,
@@ -853,43 +949,58 @@ export class TerminalShell {
     const command = spaceIndex === -1 ? input : input.slice(0, spaceIndex);
     const rawArgs = spaceIndex === -1 ? "" : input.slice(spaceIndex + 1).trim();
 
-    if (command === "/new") {
-      if (this.inTurn || this.commandBusy) {
-        this.addTranscriptChild(errorNotice("/new cannot run while an operation is active"));
+    const route = matchLocalSlash(command);
+    if (route === undefined) {
+      await this.invokeCommand(command, rawArgs);
+      return;
+    }
+    await this.slashHandlers[route.id]?.(rawArgs);
+  }
+
+  /**
+   * Per-route behavior for the local slash commands, keyed by route id.
+   * The arg-empty checks for /model and /skills live here, not in the
+   * matcher: "/model <args>" keeps its extension-command path through
+   * invokeCommand.
+   */
+  private readonly slashHandlers: Readonly<
+    Record<string, (rawArgs: string) => Promise<void> | void>
+  > = {
+    new: () => this.startNewSession(),
+    sessions: () => this.openSessionsPicker(),
+    rewind: () => this.openRewindPicker(),
+    exit: () => this.requestShutdown(0),
+    model: async (rawArgs) => {
+      if (rawArgs.length === 0) {
+        await this.openModelPicker();
         return;
       }
-      const nextSession = newSessionId();
-      this.requireApp().setSession(nextSession);
-      this.sessionId = nextSession;
-      this.transcript.clear();
-      for (const component of banner("cetas-js", "new session started")) {
-        this.transcript.addChild(component);
+      await this.invokeCommand("/model", rawArgs);
+    },
+    skills: async (rawArgs) => {
+      if (rawArgs.length === 0) {
+        await this.openSkillsPicker();
+        return;
       }
-      this.tui.terminal.clearScreen();
-      this.tui.requestRender(true);
+      await this.invokeCommand("/skills", rawArgs);
+    },
+    login: (rawArgs) => this.openLogin(rawArgs),
+  };
+
+  private async startNewSession(): Promise<void> {
+    if (this.inTurn || this.commandBusy) {
+      this.addTranscriptChild(errorNotice("/new cannot run while an operation is active"));
       return;
     }
-    if (command === "/sessions") {
-      this.openSessionsPicker();
-      return;
+    const nextSession = newSessionId();
+    this.requireApp().setSession(nextSession);
+    this.sessionId = nextSession;
+    this.transcript.clear();
+    for (const component of banner("cetas-js", "new session started")) {
+      this.transcript.addChild(component);
     }
-    if (command === "/exit" || command === "/quit") {
-      this.requestShutdown(0);
-      return;
-    }
-    if (command === "/model" && rawArgs.length === 0) {
-      await this.openModelPicker();
-      return;
-    }
-    if (command === "/skills" && rawArgs.length === 0) {
-      await this.openSkillsPicker();
-      return;
-    }
-    if (command === "/login") {
-      await this.openLogin(rawArgs);
-      return;
-    }
-    await this.invokeCommand(command, rawArgs);
+    this.tui.terminal.clearScreen();
+    this.tui.requestRender(true);
   }
 
   private async openModelPicker(): Promise<void> {
@@ -897,31 +1008,29 @@ export class TerminalShell {
       this.addTranscriptChild(errorNotice("/model cannot run while another command is active"));
       return;
     }
-    this.commandBusy = true;
-    this.editor.disableSubmit = true;
-    this.setCommandStatus("loading model catalog");
+    this.commandLock.acquire("loading model catalog");
     try {
       const outcome = parseModelPickerOutcome(
         await this.requireApp().invokeCommand("model", "{}"),
       );
       if (outcome.type !== "success") {
         this.renderOutcome(outcome, "/model");
-        this.finishCommand();
+        this.commandLock.release();
         return;
       }
       if (outcome.entries.length === 0) {
         this.addTranscriptChild(errorNotice("/model: provider returned an empty model catalog"));
-        this.finishCommand();
+        this.commandLock.release();
         return;
       }
       this.modelPicker.open(
         outcome.entries,
         (selection) => void this.applyModelSelection(selection),
-        () => this.finishCommand(),
+        () => this.commandLock.release(),
       );
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice(`/model failed: ${errorMessage(error)}`));
-      this.finishCommand();
+      this.commandLock.release();
     }
   }
 
@@ -938,7 +1047,7 @@ export class TerminalShell {
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice(`/model failed: ${errorMessage(error)}`));
     } finally {
-      this.finishCommand();
+      this.commandLock.release();
     }
   }
 
@@ -965,9 +1074,7 @@ export class TerminalShell {
       this.addTranscriptChild(errorNotice(`$${name} cannot run while another command is active`));
       return;
     }
-    this.commandBusy = true;
-    this.editor.disableSubmit = true;
-    this.setCommandStatus(`activating skill ${name}`);
+    this.commandLock.acquire(`activating skill ${name}`);
     let instructions: string | undefined;
     try {
       const outcome = parseSkillActivation(
@@ -982,7 +1089,7 @@ export class TerminalShell {
       this.addTranscriptChild(errorNotice(`$${name} failed: ${errorMessage(error)}`));
       return;
     } finally {
-      this.finishCommand();
+      this.commandLock.release();
     }
     if (instructions === undefined) return;
     const prompt =
@@ -997,22 +1104,20 @@ export class TerminalShell {
       this.addTranscriptChild(errorNotice("/skills cannot run while another command is active"));
       return;
     }
-    this.commandBusy = true;
-    this.editor.disableSubmit = true;
-    this.setCommandStatus("loading skills catalog");
+    this.commandLock.acquire("loading skills catalog");
     try {
       const outcome = parseSkillsOutcome(await this.requireApp().invokeCommand("skills", "{}"));
       if (outcome.type !== "success") {
         this.addTranscriptChild(
           errorNotice(`/skills: ${outcome.type === "failure" ? outcome.reason : outcome.prompt}`),
         );
-        this.finishCommand();
+        this.commandLock.release();
         return;
       }
-      this.skillsOverlay.open(outcome.entries, () => this.finishCommand());
+      this.skillsOverlay.open(outcome.entries, () => this.commandLock.release());
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice(`/skills failed: ${errorMessage(error)}`));
-      this.finishCommand();
+      this.commandLock.release();
     }
   }
 
@@ -1028,17 +1133,98 @@ export class TerminalShell {
       this.addTranscriptChild(errorNotice("/sessions cannot run while an operation is active"));
       return;
     }
-    this.commandBusy = true;
-    this.editor.disableSubmit = true;
+    this.commandLock.acquire("");
     try {
       this.sessionsOverlay.open(
         listSessionEntries(this.sessionsDir, this.sessionId),
         (id) => this.resumeSession(id),
-        () => this.finishCommand(),
+        () => this.commandLock.release(),
       );
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice(`/sessions failed: ${errorMessage(error)}`));
-      this.finishCommand();
+      this.commandLock.release();
+    }
+  }
+
+  /**
+   * `/rewind` and the idle double-ESC gesture — list the current session's
+   * user messages and truncate the transcript back to the chosen one. The
+   * command lock covers the picker and the rewind itself, keeping submits
+   * and other command flows out of the window.
+   */
+  private openRewindPicker(): void {
+    if (this.inTurn || this.commandBusy) {
+      this.addTranscriptChild(errorNotice("/rewind cannot run while an operation is active"));
+      return;
+    }
+    const path = sessionFilePath(this.sessionsDir, this.sessionId);
+    if (!existsSync(path)) {
+      this.addTranscriptChild(
+        systemNotice("nothing to rewind — this session has no transcript yet"),
+      );
+      return;
+    }
+    let jsonl: string;
+    try {
+      jsonl = readFileSync(path, "utf8");
+    } catch (error: unknown) {
+      this.addTranscriptChild(
+        errorNotice(`/rewind: could not read the session transcript: ${errorMessage(error)}`),
+      );
+      return;
+    }
+    this.commandLock.acquire("");
+    try {
+      const points = listRewindPoints(jsonl);
+      if (points.length === 0) {
+        this.addTranscriptChild(
+          systemNotice("nothing to rewind — no user messages in this session yet"),
+        );
+        this.commandLock.release();
+        return;
+      }
+      this.rewindOverlay.open(
+        points,
+        (point) => void this.applyRewind(point),
+        () => this.commandLock.release(),
+      );
+    } catch (error: unknown) {
+      this.addTranscriptChild(errorNotice(`/rewind failed: ${errorMessage(error)}`));
+      this.commandLock.release();
+    }
+  }
+
+  private async applyRewind(point: RewindPoint): Promise<void> {
+    try {
+      await this.requireApp().rewind(this.sessionId, point.messageIndex);
+      this.transcript.clear();
+      this.addTranscriptChild(
+        systemNotice(
+          `rewound to message #${point.messageIndex} — the original prompt is back in the editor`,
+        ),
+      );
+      // Replay the truncated history so the screen matches what the model
+      // will see (resumeSession's path); read errors render the notice only.
+      let jsonl = "";
+      try {
+        jsonl = readFileSync(sessionFilePath(this.sessionsDir, this.sessionId), "utf8");
+      } catch (error: unknown) {
+        this.addTranscriptChild(
+          errorNotice(`could not replay session history: ${errorMessage(error)}`),
+        );
+      }
+      for (const component of this.replayComponents(parseSessionReplay(jsonl))) {
+        this.addTranscriptChild(component);
+      }
+      // The picker's preview is truncated; refill from the full record so the
+      // prompt can be edited and resubmitted.
+      this.editor.setText(readUserMessage(jsonl, point.messageIndex) ?? "");
+      this.tui.terminal.clearScreen();
+      this.tui.requestRender(true);
+    } catch (error: unknown) {
+      this.addTranscriptChild(errorNotice(`/rewind failed: ${errorMessage(error)}`));
+    } finally {
+      this.commandLock.release();
     }
   }
 
@@ -1317,8 +1503,7 @@ export class TerminalShell {
   }
 
   private showProviderPicker(capabilities: readonly ProviderAuthCapability[]): void {
-    this.commandBusy = true;
-    this.editor.disableSubmit = true;
+    this.commandLock.acquire("");
     const items = capabilities.map((capability) => ({
       value: capability.id,
       label: capability.id,
@@ -1333,20 +1518,20 @@ export class TerminalShell {
     const close = () => {
       handle?.hide();
       if (this.providerPickerHandle === handle) this.providerPickerHandle = undefined;
-      this.finishCommand();
+      this.commandLock.release();
     };
     list.onSelect = (item) => {
       handle?.hide();
       if (this.providerPickerHandle === handle) this.providerPickerHandle = undefined;
       const capability = capabilities.find((entry) => entry.id === item.value);
       if (capability === undefined) {
-        this.finishCommand();
+        this.commandLock.release();
         this.addTranscriptChild(errorNotice(`/login: unknown authentication provider ${item.value}`));
         return;
       }
       void this.chooseLoginMethod(capability).catch((error: unknown) => {
         this.addTranscriptChild(errorNotice(`/login failed: ${errorMessage(error)}`));
-        this.finishCommand();
+        this.commandLock.release();
       });
     };
     list.onCancel = close;
@@ -1359,7 +1544,7 @@ export class TerminalShell {
       });
     } catch (error: unknown) {
       // The command lock is already held — release it or the terminal bricks.
-      this.finishCommand();
+      this.commandLock.release();
       this.addTranscriptChild(errorNotice(`/login failed: ${errorMessage(error)}`));
       return;
     }
@@ -1368,8 +1553,7 @@ export class TerminalShell {
   }
 
   private showAuthMethodPicker(capability: ProviderAuthCapability): void {
-    this.commandBusy = true;
-    this.editor.disableSubmit = true;
+    this.commandLock.acquire("");
     const items = capability.methods.map((method) => ({
       value: method,
       label: authMethodLabel(method),
@@ -1384,7 +1568,7 @@ export class TerminalShell {
     const close = () => {
       handle?.hide();
       if (this.providerPickerHandle === handle) this.providerPickerHandle = undefined;
-      this.finishCommand();
+      this.commandLock.release();
     };
     list.onSelect = (item) => {
       handle?.hide();
@@ -1403,7 +1587,7 @@ export class TerminalShell {
       });
     } catch (error: unknown) {
       // The command lock is already held — release it or the terminal bricks.
-      this.finishCommand();
+      this.commandLock.release();
       this.addTranscriptChild(errorNotice(`/login failed: ${errorMessage(error)}`));
       return;
     }
@@ -1412,12 +1596,10 @@ export class TerminalShell {
   }
 
   private async runLogin(provider: string, method?: string): Promise<void> {
-    // Provider picker already owns the command lock. Direct `/login p` takes
-    // it here; the picker path leaves it set until this method finishes.
-    this.commandBusy = true;
-    this.editor.disableSubmit = true;
+    // Provider picker already owns the command lock; acquire tolerates that
+    // nested re-acquire. Direct `/login p` takes the lock fresh here.
+    this.commandLock.acquire(`authenticating ${provider}`);
     if (method === "oauth") this.oauthOverlay.show(provider);
-    this.setCommandStatus(`authenticating ${provider}`);
     try {
       const raw = await this.requireApp().invokeCommand(
         "login",
@@ -1439,7 +1621,7 @@ export class TerminalShell {
       if (method === "oauth") this.oauthOverlay.result(message, true);
       this.addTranscriptChild(errorNotice(`/login failed: ${message}`));
     } finally {
-      this.finishCommand();
+      this.commandLock.release();
     }
   }
 
@@ -1449,9 +1631,7 @@ export class TerminalShell {
       this.addTranscriptChild(errorNotice(`${command} cannot run while another command is active`));
       return;
     }
-    this.commandBusy = true;
-    this.editor.disableSubmit = true;
-    this.setCommandStatus(`running ${command}`);
+    this.commandLock.acquire(`running ${command}`);
     try {
       const outcome = parseCommandOutcome(
         await this.requireApp().invokeCommand(command.slice(1), parsePositionalArgs(rawArgs, command)),
@@ -1460,7 +1640,7 @@ export class TerminalShell {
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice(`${command} failed: ${errorMessage(error)}`));
     } finally {
-      this.finishCommand();
+      this.commandLock.release();
     }
   }
 
@@ -1543,6 +1723,35 @@ export function rankFileMentionItems(
   return scored.slice(0, MAX_FILE_MENTION_ITEMS).map((item) => item.path);
 }
 
+/** A slash command the shell handles locally instead of via extensions. */
+export interface SlashRoute {
+  id: string;
+  aliases?: readonly string[];
+}
+
+const LOCAL_SLASH_ROUTES: readonly SlashRoute[] = [
+  { id: "new" },
+  { id: "sessions" },
+  { id: "rewind" },
+  { id: "exit", aliases: ["quit"] },
+  { id: "model" },
+  { id: "skills" },
+  { id: "login" },
+];
+
+/**
+ * Match a parsed command token ("/model") against the local slash routes.
+ * Pure and case-sensitive ("/QUIT" stays unknown and reaches the extension
+ * fallback); sees only the token, so argument logic stays in the handlers.
+ */
+export function matchLocalSlash(command: string): SlashRoute | undefined {
+  return LOCAL_SLASH_ROUTES.find(
+    (route) =>
+      command === `/${route.id}` ||
+      (route.aliases ?? []).some((alias) => command === `/${alias}`),
+  );
+}
+
 export function parsePositionalArgs(raw: string, command = ""): string {
   const trimmed = raw.trim();
   if (trimmed.length === 0) return "{}";
@@ -1564,6 +1773,25 @@ export function parsePositionalArgs(raw: string, command = ""): string {
     return JSON.stringify({ index: Number(trimmed) });
   }
   return JSON.stringify({ _positional: trimmed });
+}
+
+/** Double-press window for the idle ESC → rewind gesture, in ms. */
+const REWIND_ESCAPE_WINDOW_MS = 500;
+
+/**
+ * Whether a second idle ESC opens the rewind picker: a previous ESC must be
+ * recorded and `now` must fall inside the window after it (Gemini CLI's
+ * useRepeatedKeyPress semantics). A backwards gap never counts. `now` is a
+ * plain parameter so tests pin the clock.
+ */
+export function shouldOpenRewindOnEscape(
+  lastEscapeAt: number | undefined,
+  now: number,
+  windowMs = REWIND_ESCAPE_WINDOW_MS,
+): boolean {
+  if (lastEscapeAt === undefined) return false;
+  const elapsed = now - lastEscapeAt;
+  return elapsed >= 0 && elapsed < windowMs;
 }
 
 function parseCommandOutcome(raw: string): CommandOutcome {
@@ -1614,6 +1842,46 @@ function formatStructuredOutcome(value: unknown): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** Bound free-form bridge payloads for console logs (~200 chars). */
+function boundedJson(value: string, max = 200): string {
+  return value.length <= max ? value : `${value.slice(0, max)}…`;
+}
+
+/** The wire `type` tag of a parsed payload, bounded for short skip reasons. */
+function eventTypeTag(parsed: unknown): string {
+  if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+    const type = (parsed as Record<string, unknown>).type;
+    if (typeof type === "string") return boundedJson(type, 80);
+  }
+  return "(no type)";
+}
+
+/**
+ * FFI-safe event parse: never throws. JSON.parse failures, malformed known
+ * types, and unknown type tags (TS/MoonBit version skew) all come back as a
+ * short `skipped` reason so the observer callback can degrade visibly
+ * instead of killing the turn.
+ */
+export function parseCetasEventLenient(
+  rawJson: string,
+): { event: CetasEvent } | { skipped: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch {
+    return { skipped: "unparseable json" };
+  }
+  try {
+    const event = parseCetasEvent(parsed);
+    if (event === null) {
+      return { skipped: `unknown type ${eventTypeTag(parsed)}` };
+    }
+    return { event };
+  } catch {
+    return { skipped: `malformed ${eventTypeTag(parsed)}` };
+  }
 }
 
 /** Escape `& < > "` for safe XML embedding (skill names in prompts). */

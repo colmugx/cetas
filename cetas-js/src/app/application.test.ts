@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { CetasApplication, CetasApplicationError } from "./index.ts";
 import type {
   AgentCallbacks,
+  AppSnapshot,
   CetasAgentBridge,
   CetasHostConfig,
   CancellationToken,
@@ -48,6 +49,7 @@ function bridgeFor(
     },
     listCommands: () => [command("model"), command("login")],
     invokeCommand: async (_agent, id) => JSON.stringify({ type: "success", id }),
+    rewind: async () => undefined,
   };
 }
 
@@ -197,6 +199,7 @@ describe("CetasApplication", () => {
       shutdown = base.shutdown;
       listCommands = base.listCommands;
       invokeCommand = base.invokeCommand;
+      rewind = base.rewind;
       async refreshModelCatalogs(): Promise<ProviderSetupSnapshot> {
         this.refreshes += 1;
         return { providers: [], oauthProviders: [] };
@@ -1094,5 +1097,163 @@ describe("CetasApplication", () => {
     await expect(app.invokeCommand("model")).rejects.toMatchObject({
       code: "bridge_failure",
     });
+  });
+
+  test("adoptSessionRedirect updates the session id while a turn is active", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    let markTurnStarted!: () => void;
+    let releaseTurn!: () => void;
+    const turnStarted = new Promise<void>((resolve) => {
+      markTurnStarted = resolve;
+    });
+    const turnReleased = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+    let lastSnapshot: AppSnapshot | undefined;
+    const base = bridgeFor(
+      {
+        providers: [
+          {
+            id: "deepseek/chat",
+            label: "DeepSeek Chat",
+            provider: "deepseek",
+            model: "deepseek-chat",
+            active: true,
+            efforts: [],
+            oauth: false,
+          },
+        ],
+        oauthProviders: [],
+      },
+      counters,
+    );
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        runTurn: async () => {
+          counters.runs += 1;
+          markTurnStarted();
+          await turnReleased;
+          return "reply";
+        },
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+      onStateChange: (snapshot) => {
+        lastSnapshot = snapshot;
+      },
+    });
+
+    await app.start();
+    const turn = app.runTurn("hello");
+    await turnStarted;
+    // A redirect is an observed runtime fact: it adopts mid-turn where
+    // setSession would reject with already_running.
+    app.adoptSessionRedirect("s_new");
+    expect(app.sessionId).toBe("s_new");
+    expect(lastSnapshot?.sessionId).toBe("s_new");
+    releaseTurn();
+    await expect(turn).resolves.toBe("reply");
+  });
+
+  test("adoptSessionRedirect rejects an empty target", () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const app = new CetasApplication({
+      bridge: bridgeFor({ providers: [], oauthProviders: [] }, counters),
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+    let caught: unknown;
+    try {
+      app.adoptSessionRedirect("");
+    } catch (error: unknown) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(CetasApplicationError);
+    expect((caught as CetasApplicationError).code).toBe("invalid_state");
+  });
+
+  test("adoptSessionRedirect rejects after shutdown has begun", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const app = new CetasApplication({
+      bridge: bridgeFor({ providers: [], oauthProviders: [] }, counters),
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+    await app.start();
+    await app.shutdown();
+    let caught: unknown;
+    try {
+      app.adoptSessionRedirect("s_new");
+    } catch (error: unknown) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(CetasApplicationError);
+    expect((caught as CetasApplicationError).code).toBe("shutting_down");
+  });
+
+  test("rewind passes through when idle and is rejected while a turn runs", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    let markTurnStarted!: () => void;
+    let releaseTurn!: () => void;
+    const turnStarted = new Promise<void>((resolve) => {
+      markTurnStarted = resolve;
+    });
+    const turnReleased = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+    const rewound: Array<{ agent: unknown; sessionId: string; fromIndex: number }> = [];
+    const base = bridgeFor(
+      {
+        providers: [
+          {
+            id: "deepseek/chat",
+            label: "DeepSeek Chat",
+            provider: "deepseek",
+            model: "deepseek-chat",
+            active: true,
+            efforts: [],
+            oauth: false,
+          },
+        ],
+        oauthProviders: [],
+      },
+      counters,
+    );
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        runTurn: async () => {
+          markTurnStarted();
+          await turnReleased;
+          return "reply";
+        },
+        rewind: async (agent, sessionId, fromIndex) => {
+          rewound.push({ agent, sessionId, fromIndex });
+        },
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    await app.start();
+    await app.rewind("session-1", 2);
+    expect(rewound).toEqual([{ agent: { id: "agent" }, sessionId: "session-1", fromIndex: 2 }]);
+
+    const turn = app.runTurn("hello");
+    await turnStarted;
+    await expect(app.rewind("session-1", 1)).rejects.toMatchObject({
+      code: "already_running",
+    });
+    expect(rewound).toHaveLength(1);
+    releaseTurn();
+    await expect(turn).resolves.toBe("reply");
+    // Idle again once the turn settles.
+    await app.rewind("session-1", 0);
+    expect(rewound).toHaveLength(2);
   });
 });

@@ -99,4 +99,40 @@ describe("session replay parser", () => {
       { kind: "tool_result", toolCallId: "lost", toolName: undefined, content: "orphan", isError: false },
     ]);
   });
+
+  test("recovers is_error from tool results, defaulting to neutral", () => {
+    const lines = [
+      JSON.stringify({
+        role: "assistant",
+        content: [],
+        tool_calls: [{ id: "call_a", name: "bash", arguments: {} }],
+      }),
+      JSON.stringify({
+        role: "tool",
+        content: [{ type: "text", text: "boom" }],
+        tool_call_id: "call_a",
+        is_error: true,
+      }),
+      JSON.stringify({
+        role: "tool",
+        content: [{ type: "text", text: "legacy" }],
+        tool_call_id: "call_a",
+      }),
+      JSON.stringify({
+        role: "tool",
+        content: [{ type: "text", text: "fine" }],
+        tool_call_id: "call_a",
+        is_error: false,
+      }),
+      JSON.stringify({
+        role: "tool",
+        content: [{ type: "text", text: "sneaky" }],
+        tool_call_id: "call_a",
+        is_error: "true",
+      }),
+    ].join("\n");
+    const results = parseSessionReplay(lines).filter((i) => i.kind === "tool_result");
+    expect(results.map((i) => i.content)).toEqual(["boom", "legacy", "fine", "sneaky"]);
+    expect(results.map((i) => i.isError)).toEqual([true, false, false, false]);
+  });
 });

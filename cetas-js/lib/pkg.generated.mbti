@@ -3,6 +3,7 @@ package "colmugx/cetas-js/lib"
 
 import {
   "colmugx/posoco",
+  "colmugx/posoco-ext-fs-session",
   "colmugx/posoco-ext-goal",
   "colmugx/posoco-ext-llm",
   "colmugx/posoco-ext-mcp",
@@ -38,6 +39,8 @@ pub fn cetas_js_list_workspace_files(CetasJsConfig) -> @js_async.Promise[String]
 pub fn cetas_js_login_provider(CetasJsConfig, String, JsCallback, JsUiRequestCallback, JsCancelCheck, String) -> @js_async.Promise[String]
 
 pub fn cetas_js_refresh_model_catalogs(CetasJsConfig, String) -> @js_async.Promise[String]
+
+pub fn cetas_js_rewind(CetasJsAgent, String, Int) -> @js_async.Promise[String]
 
 pub fn cetas_js_run_goal(CetasJsAgent, String) -> @js_async.Promise[String]
 
@@ -79,6 +82,7 @@ pub struct CetasJsAgent {
   tool_catalog : Map[String, String]
   mcp : @posoco-ext-mcp.MCPToolBridge
   mcp_fs : &@posoco-ext-workspace.WorkspaceFs
+  store : @posoco-ext-fs-session.JsonlSessionStore
 }
 
 pub(all) struct CetasJsConfig {

@@ -981,6 +981,9 @@ pub struct CetasJsAgent {
   mcp : @mcp.MCPToolBridge
   /// Workspace fs handle for the MCP login credential store at command time.
   mcp_fs : &@workspace.WorkspaceFs
+  /// Session transcript store, retained so bridge exports can manage
+  /// persisted sessions (rewind) without reconstructing composition state.
+  store : @fs_session.JsonlSessionStore
 }
 
 ///|
@@ -1292,11 +1295,12 @@ pub fn cetas_js_runtime_create_agent(
       Some(runner) => exts.push(runner as &@posoco.Extension)
       None => ()
     }
-    // Default features (six tools + agent skills + ask_question) take the
-    // host context: fs injection plus cwd/home. Skills policy (activation
-    // budget) is single-sourced inside cetas-core; ask_question asks through
-    // the same JsUiPort the approval source uses, so the TS host renders it
-    // with the standard extension-UI overlays.
+    // Default features (coding tools + agent skills + ask_question, with
+    // episodic tools like webfetch/nmem/obsidian deferred behind the
+    // lazytools gateway) take the host context: fs injection plus cwd/home.
+    // Skills policy (activation budget) is single-sourced inside cetas-core;
+    // ask_question asks through the same JsUiPort the approval source uses,
+    // so the TS host renders it with the standard extension-UI overlays.
     for
       tool in @cetas_core.build_default_features(
         ctx={
@@ -1407,6 +1411,7 @@ pub fn cetas_js_runtime_create_agent(
       tool_catalog,
       mcp: mcp_bridge,
       mcp_fs: context_fs,
+      store,
     }
   }
 }
@@ -2032,6 +2037,38 @@ pub fn cetas_js_enqueue_follow_up(
   }
   let message : @posoco.Message = @posoco.Message::UserMessage(content=blocks)
   handle.agent.control().enqueue_follow_up(message).to_string()
+}
+
+///|
+/// Rewind a persisted session: drop stored messages at `from_index` and
+/// after, keeping `[0, from_index)` (SessionStore::truncate semantics — the
+/// metadata line is preserved and out-of-range indexes are clamped). Returns
+/// `{"ok":true}` on success; storage failures are encoded as
+/// `{"ok":false,"error":"SessionError::..."}` instead of a Promise rejection
+/// so the host can render them like command outcomes.
+pub fn cetas_js_rewind(
+  handle : CetasJsAgent,
+  session_id : String,
+  from_index : Int,
+) -> @js_async.Promise[String] {
+  @js_async.Promise::from_async() <| () => {
+    let outcome : Result[Unit, Error] = Ok(
+      (handle.store as &@posoco.SessionStore).truncate(session_id, from_index),
+    ) catch {
+      err => Err(err)
+    }
+    match outcome {
+      Ok(_) =>
+        Json::object(Map::from_array([("ok", Json::boolean(true))])).stringify()
+      Err(err) =>
+        Json::object(
+          Map::from_array([
+            ("ok", Json::boolean(false)),
+            ("error", Json::string(err.to_string())),
+          ]),
+        ).stringify()
+    }
+  }
 }
 
 ///|

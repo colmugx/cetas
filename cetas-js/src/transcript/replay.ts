@@ -115,11 +115,11 @@ export function parseSessionReplay(jsonl: string): ReplayItem[] {
           toolCallId: id,
           toolName: typeof rec.name === "string" ? rec.name : callNames.get(id),
           content,
-          // The fs-session JSONL format persists no error marker for tool
-          // results, so replay cannot recover error-ness; rows render
-          // neutral. Fixing this requires extending the on-disk format
-          // (tracked as an open question).
-          isError: false,
+          // New fs-session files persist `is_error: true` on failed tool
+          // results (absent or false = success), so error-ness round-trips.
+          // Legacy files lack the field and render neutral. Only a boolean
+          // true counts; anything else (e.g. the string "true") does not.
+          isError: rec.is_error === true,
         });
         break;
       }

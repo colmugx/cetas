@@ -141,6 +141,19 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
     return moonbit.cetas_js_invoke_command(agent as moonbit.CetasJsAgent, id, argsJson);
   }
 
+  async rewind(agent: unknown, sessionId: string, fromIndex: number): Promise<void> {
+    // The MoonBit export encodes storage failures in its JSON envelope
+    // instead of rejecting; surface them as rejections so callers get the
+    // runTurn-style error path.
+    const raw = await moonbit.cetas_js_rewind(agent as moonbit.CetasJsAgent, sessionId, fromIndex);
+    const value: unknown = JSON.parse(raw);
+    if (!isRecord(value)) throw new Error("rewind response must be an object");
+    if (value.ok !== true) {
+      const message = typeof value.error === "string" ? value.error : "rewind failed";
+      throw new Error(message);
+    }
+  }
+
   listWorkspaceFiles(_config: CetasHostConfig): Promise<string> {
     return moonbit.cetas_js_list_workspace_files(this.configValue);
   }

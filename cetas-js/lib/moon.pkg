@@ -41,6 +41,7 @@ options(
         "cetas_js_run_turn",
         "cetas_js_abort_turn",
         "cetas_js_enqueue_follow_up",
+        "cetas_js_rewind",
         "cetas_js_active_model_supports_images",
         "cetas_js_shutdown",
         "cetas_js_set_goal",

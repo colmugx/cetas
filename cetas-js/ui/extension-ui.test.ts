@@ -5,6 +5,7 @@ import { Container, visibleWidth, type Component } from "@earendil-works/pi-tui"
 import {
   UiRenderHost,
   UiRequestBar,
+  createUiRenderCallback,
   createUiRequestCallback,
 } from "./extension-ui.ts";
 
@@ -19,6 +20,21 @@ class FakeTui {
   setFocus(component: Component | null): void {
     this.focused = component ?? undefined;
   }
+}
+
+/** Swap console.warn for a recorder; call restore() when done. */
+function captureWarn(): { warns: string[]; restore(): void } {
+  const warns: string[] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warns.push(args.map((item) => String(item)).join(" "));
+  };
+  return {
+    warns,
+    restore: () => {
+      console.warn = original;
+    },
+  };
 }
 
 describe("UiRenderHost", () => {
@@ -247,6 +263,76 @@ describe("UiRenderHost", () => {
   });
 });
 
+describe("createUiRenderCallback FFI guard", () => {
+  function makeCallback() {
+    const tui = new FakeTui();
+    const status = new Container();
+    const notice = new Container();
+    const widget = new Container();
+    const host = new UiRenderHost(tui as never, { status, notice, widget });
+    return { status, notice, widget, callback: createUiRenderCallback(host) };
+  }
+
+  test("malformed json does not throw and renders nothing", () => {
+    const { status, notice, widget, callback } = makeCallback();
+    const { warns, restore } = captureWarn();
+    try {
+      expect(() => callback("{broken json")).not.toThrow();
+      expect(status.children).toHaveLength(0);
+      expect(notice.children).toHaveLength(0);
+      expect(widget.children).toHaveLength(0);
+    } finally {
+      restore();
+    }
+    expect(warns).toHaveLength(1);
+  });
+
+  test("wrong type tag, malformed body, and huge payloads warn bounded", () => {
+    const { status, widget, callback } = makeCallback();
+    const { warns, restore } = captureWarn();
+    try {
+      expect(() => callback('{"type":"ui_request"}')).not.toThrow();
+      expect(() =>
+        callback(
+          '{"type":"ui_render","render":{"slot":"status","key":"k","title":"t","body":{"type":"text"}}}',
+        ),
+      ).not.toThrow();
+      expect(() => callback("x".repeat(500))).not.toThrow();
+    } finally {
+      restore();
+    }
+    expect(warns).toHaveLength(3);
+    for (const warn of warns) {
+      // Reason is bounded to 120 and the payload to ~200, prefix aside.
+      expect(warn.length).toBeLessThanOrEqual(360);
+    }
+    expect(status.children).toHaveLength(0);
+    expect(widget.children).toHaveLength(0);
+  });
+
+  test("a valid render still renders after previous drops", () => {
+    const { status, callback } = makeCallback();
+    const { restore } = captureWarn();
+    try {
+      callback("{broken");
+      callback(
+        JSON.stringify({
+          type: "ui_render",
+          render: {
+            slot: "status",
+            key: "goal.status",
+            title: "Goal",
+            body: { type: "text", text: "alive" },
+          },
+        }),
+      );
+    } finally {
+      restore();
+    }
+    expect(status.render(80).join("\n")).toContain("alive");
+  });
+});
+
 describe("UiRequestBar", () => {
   function makeBar() {
     const tui = new FakeTui();
@@ -374,23 +460,40 @@ describe("UiRequestBar", () => {
     await expect(responsePromise).resolves.toEqual({ type: "text", text: "a" });
   });
 
-  test("rejects concurrent requests explicitly", async () => {
-    const { tui, bar } = makeBar();
+  test("a newer ask auto-cancels the older concurrent one", async () => {
+    const { tui, mount, restores, bar } = makeBar();
     const first = bar.request({
       type: "confirm",
       prompt: "Continue?",
       default_yes: true,
     });
+    const second = bar.request({
+      type: "input",
+      prompt: "Name",
+    });
 
-    await expect(
-      bar.request({
-        type: "input",
-        prompt: "Name",
-      }),
-    ).rejects.toThrow("concurrent UiRequest");
-
-    tui.focused!.handleInput!("\u001b");
+    // The older ask settled as cancelled; the newer one is what's presented.
     await expect(first).resolves.toEqual({ type: "cancelled" });
+    expect(mount.children).toHaveLength(1);
+    expect(tui.focused).toBeDefined();
+
+    tui.focused!.handleInput!("ok");
+    tui.focused!.handleInput!("\r");
+    await expect(second).resolves.toEqual({ type: "text", text: "ok" });
+    expect(mount.children).toHaveLength(0);
+    expect(restores).toHaveLength(2);
+    expect(bar.isActive()).toBe(false);
+  });
+
+  test("auto-cancel leaves the bar cancellable during host shutdown", async () => {
+    const { mount, bar } = makeBar();
+    const first = bar.request({ type: "input", prompt: "One" });
+    const second = bar.request({ type: "input", prompt: "Two" });
+    await expect(first).resolves.toEqual({ type: "cancelled" });
+
+    bar.cancel();
+    await expect(second).resolves.toEqual({ type: "cancelled" });
+    expect(mount.children).toHaveLength(0);
   });
 
   test("cancels an active request during host shutdown", async () => {
@@ -433,18 +536,56 @@ describe("UiRequestBar", () => {
     );
   });
 
-  test("rejects malformed request events", async () => {
+  test("answers malformed request events with a correlated ui_response error", async () => {
     const { bar } = makeBar();
     const callback = createUiRequestCallback(bar, 1_000);
-    await expect(
-      callback(
+    const { restore } = captureWarn();
+    try {
+      // Unparseable bytes: no request_id is recoverable.
+      await expect(callback("{broken")).resolves.toBe(
         JSON.stringify({
-          type: "ui_request",
-          request_id: "",
-          request: { type: "confirm", prompt: "x" },
+          type: "ui_response",
+          request_id: "unknown",
+          error: { code: "malformed_request" },
         }),
-      ),
-    ).rejects.toThrow("request_id must not be empty");
+      );
+      // Recoverable request_id is echoed even when the payload is malformed.
+      await expect(
+        callback(
+          JSON.stringify({
+            type: "ui_request",
+            request_id: "request-8",
+            request: { type: "confirm", prompt: "x" },
+          }),
+        ),
+      ).resolves.toBe(
+        JSON.stringify({
+          type: "ui_response",
+          request_id: "request-8",
+          error: { code: "malformed_request" },
+        }),
+      );
+      // An empty request_id is not recoverable.
+      await expect(
+        callback(
+          JSON.stringify({
+            type: "ui_request",
+            request_id: "",
+            request: { type: "confirm", prompt: "x", default_yes: true },
+          }),
+        ),
+      ).resolves.toBe(
+        JSON.stringify({
+          type: "ui_response",
+          request_id: "unknown",
+          error: { code: "malformed_request" },
+        }),
+      );
+    } finally {
+      restore();
+    }
+    // Nothing was ever presented.
+    expect(bar.isActive()).toBe(false);
   });
 
   test("returns a correlated timeout error and closes the ask", async () => {
