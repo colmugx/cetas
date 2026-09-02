@@ -452,7 +452,7 @@ async fn login_provider(
   observer_callback : JsCallback,
   request_callback : JsUiRequestCallback,
   cancel_check : JsCancelCheck,
-  method : String,
+  http_method : String,
 ) -> String raise @posoco.CommandError {
   let interaction = JsAuthInteraction(
     observer_callback, request_callback, cancel_check,
@@ -468,7 +468,7 @@ async fn login_provider(
   }
   let outcome = @cetas_core.login_provider(
     provider_id,
-    method,
+    http_method,
     settings~,
     device_id~,
     interaction as &@oauth.AuthInteraction,

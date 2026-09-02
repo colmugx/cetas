@@ -16,7 +16,7 @@ fn FakeIndexFs::make(
   dir_kinds~ : Array[String],
   unreadable? : Array[String] = [],
 ) -> FakeIndexFs {
-  let kind_map : Map[String, @workspace.WorkspaceFileKind] = {}
+  let kind_map : Map[String, @workspace.WorkspaceFileKind] = Map::from_array([])
   for path in file_kinds {
     kind_map[path] = File
   }
@@ -32,7 +32,7 @@ fn index_fs_error(op : String) -> @workspace.WorkspaceFsError {
 }
 
 ///|
-pub impl @workspace.WorkspaceFs for FakeIndexFs with fn exists(self, path) -> Bool raise @workspace.WorkspaceFsError {
+pub impl @workspace.WorkspaceFs for FakeIndexFs with fn exists(_self, path) -> Bool raise @workspace.WorkspaceFsError {
   let _ = path
   raise index_fs_error("exists")
 }
@@ -51,14 +51,14 @@ pub impl @workspace.WorkspaceFs for FakeIndexFs with fn kind(
 }
 
 ///|
-pub impl @workspace.WorkspaceFs for FakeIndexFs with fn read_file(self, path) -> String raise @workspace.WorkspaceFsError {
+pub impl @workspace.WorkspaceFs for FakeIndexFs with fn read_file(_self, path) -> String raise @workspace.WorkspaceFsError {
   let _ = path
   raise index_fs_error("read_file")
 }
 
 ///|
 pub impl @workspace.WorkspaceFs for FakeIndexFs with fn write_file(
-  self,
+  _self,
   path,
   content,
 ) -> Unit raise @workspace.WorkspaceFsError {
@@ -68,7 +68,7 @@ pub impl @workspace.WorkspaceFs for FakeIndexFs with fn write_file(
 
 ///|
 pub impl @workspace.WorkspaceFs for FakeIndexFs with fn write_file_atomic(
-  self,
+  _self,
   path,
   content,
 ) -> Unit raise @workspace.WorkspaceFsError {
@@ -77,14 +77,14 @@ pub impl @workspace.WorkspaceFs for FakeIndexFs with fn write_file_atomic(
 }
 
 ///|
-pub impl @workspace.WorkspaceFs for FakeIndexFs with fn remove(self, path) -> Unit raise @workspace.WorkspaceFsError {
+pub impl @workspace.WorkspaceFs for FakeIndexFs with fn remove(_self, path) -> Unit raise @workspace.WorkspaceFsError {
   let _ = path
   raise index_fs_error("remove")
 }
 
 ///|
 pub impl @workspace.WorkspaceFs for FakeIndexFs with fn rename(
-  self,
+  _self,
   from,
   to_,
   replace~,
@@ -94,7 +94,7 @@ pub impl @workspace.WorkspaceFs for FakeIndexFs with fn rename(
 }
 
 ///|
-pub impl @workspace.WorkspaceFs for FakeIndexFs with fn realpath(self, path) -> String raise @workspace.WorkspaceFsError {
+pub impl @workspace.WorkspaceFs for FakeIndexFs with fn realpath(_self, path) -> String raise @workspace.WorkspaceFsError {
   let _ = path
   raise index_fs_error("realpath")
 }
@@ -117,7 +117,7 @@ pub impl @workspace.WorkspaceFs for FakeIndexFs with fn readdir(
 
 ///|
 pub impl @workspace.WorkspaceFs for FakeIndexFs with fn walk(
-  self,
+  _self,
   root,
   callback,
 ) -> Unit raise @workspace.WorkspaceFsError {
@@ -127,7 +127,7 @@ pub impl @workspace.WorkspaceFs for FakeIndexFs with fn walk(
 
 ///|
 pub impl @workspace.WorkspaceFs for FakeIndexFs with fn mkdir(
-  self,
+  _self,
   path,
   recursive~,
 ) -> Unit raise @workspace.WorkspaceFsError {

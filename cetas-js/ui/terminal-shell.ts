@@ -413,6 +413,18 @@ export class TerminalShell {
     for (const warning of app.snapshot().setup.warnings ?? []) {
       this.addTranscriptChild(systemNotice(`⚠ ${warning}`));
     }
+    // Pi-package load outcome was previously console.log'd, which flashed
+    // over the TUI; it renders as transcript notices now.
+    const pi = app.snapshot().piPackages;
+    if (pi !== undefined) {
+      if (pi.failures.length > 0) {
+        this.addTranscriptChild(errorNotice(`pi packages: ${pi.failures.join("; ")}`));
+      } else if (pi.packages > 0) {
+        this.addTranscriptChild(
+          systemNotice(`pi packages: ${pi.packages} loaded (${pi.entries} entr${pi.entries === 1 ? "y" : "ies"})`),
+        );
+      }
+    }
     this.started = true;
     this.tui.start();
     this.tui.requestRender(true);

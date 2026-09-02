@@ -10,6 +10,7 @@ import {
   type ImageAttachment,
   type ProviderSetupSnapshot,
 } from "./types.ts";
+import type { PiPackagesSummary } from "./pi-packages.ts";
 
 /**
  * Commands invocable while a turn is running. Membership requires that the
@@ -68,6 +69,7 @@ export class CetasApplication<AgentHandle = unknown> {
   private activeCommand: Promise<string> | undefined;
   private readonly cancellation = new ApplicationCancellation();
   private shutdownPromise: Promise<void> | undefined;
+  private piPackages: PiPackagesSummary | undefined;
 
   constructor(private readonly options: CetasApplicationOptions<AgentHandle>) {
     if (options.initialSessionId.length === 0) {
@@ -85,6 +87,7 @@ export class CetasApplication<AgentHandle = unknown> {
       setup: this.setup,
       sessionId: this.currentSessionId,
       ...(this.lastError === undefined ? {} : { error: this.lastError }),
+      ...(this.piPackages === undefined ? {} : { piPackages: this.piPackages }),
     };
   }
 
@@ -248,6 +251,7 @@ export class CetasApplication<AgentHandle = unknown> {
           this.options.callbacks,
           this.cancellation,
         );
+        this.piPackages = this.options.bridge.piPackages;
       }
       if ((this.state as AppState) !== "shutting_down") this.transition("ready");
       return this.snapshot();

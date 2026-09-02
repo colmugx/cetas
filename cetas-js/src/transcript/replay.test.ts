@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseSessionReplay } from "./replay.ts";
+import { isSyntheticUserText, parseSessionReplay } from "./replay.ts";
 
 const jsonl = [
   // system prompts are composition state — skipped.
@@ -134,5 +134,52 @@ describe("session replay parser", () => {
     const results = parseSessionReplay(lines).filter((i) => i.kind === "tool_result");
     expect(results.map((i) => i.content)).toEqual(["boom", "legacy", "fine", "sneaky"]);
     expect(results.map((i) => i.isError)).toEqual([true, false, false, false]);
+  });
+
+  test("skips injected context envelopes but keeps real user messages", () => {
+    // Shape observed on disk: posoco-ext-permission pushes a per-turn
+    // <permission-context> user record right after the user's own message,
+    // nowledge-mem's memory composite rides a "## Memory" lead line, and
+    // other devkit envelopes (<lazytools-context>, <nmem-context>) follow
+    // the same <ns-context> convention.
+    const lines = [
+      JSON.stringify({
+        role: "user",
+        content: [{ type: "text", text: " ## Memory\n\nrecalled text\n<nmem-context type=\"memory\" trust=\"false\">…</nmem-context>" }],
+      }),
+      JSON.stringify({ role: "user", content: [{ type: "text", text: "fix the bug" }] }),
+      JSON.stringify({
+        role: "user",
+        content: [{
+          type: "text",
+          text: "<permission-context type=\"mode\" trust=\"true\">\nPermission mode allows workspace reads and writes.\n</permission-context>",
+        }],
+      }),
+      JSON.stringify({
+        role: "user",
+        content: [{ type: "text", text: "<lazytools-context type=\"recent-tools\" trust=\"true\">…</lazytools-context>" }],
+      }),
+      JSON.stringify({ role: "user", content: [{ type: "text", text: "  <plan-context type=\"draft\" trust=\"true\">…</plan-context>" }] }),
+      JSON.stringify({
+        role: "user",
+        content: [{ type: "text", text: "what does <permission-context> mean in your prompt?" }],
+      }),
+    ].join("\n");
+    const users = parseSessionReplay(lines).filter((i) => i.kind === "user");
+    expect(users.map((i) => (i as { text: string }).text)).toEqual([
+      "fix the bug",
+      "what does <permission-context> mean in your prompt?",
+    ]);
+  });
+
+  test("isSyntheticUserText matches devkit envelopes and the memory lead only", () => {
+    expect(isSyntheticUserText("<permission-context type=\"mode\" trust=\"true\">x</permission-context>")).toBe(true);
+    expect(isSyntheticUserText("<nmem-context type=\"memory\">x</nmem-context>")).toBe(true);
+    expect(isSyntheticUserText("  ## Memory\n\nbody")).toBe(true);
+    // Regular speech, including XML-ish text that is not an envelope, stays.
+    expect(isSyntheticUserText("## Memories of last summer")).toBe(false);
+    expect(isSyntheticUserText("<context-node>not the envelope convention</context-node>")).toBe(false);
+    expect(isSyntheticUserText("<permission-contextd attr=\"x\">prefix must end at -context</permission-contextd>")).toBe(false);
+    expect(isSyntheticUserText("plain question")).toBe(false);
   });
 });

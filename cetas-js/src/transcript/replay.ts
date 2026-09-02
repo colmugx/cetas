@@ -43,6 +43,21 @@ function textOfContent(content: unknown): { text: string; hasImage: boolean } {
   return { text: parts.join("\n"), hasImage };
 }
 
+// Machine-injected context, not user speech. Two shapes reach the disk as
+// role:"user" records: posoco-devkit context envelopes that PipelineHook /
+// MemoryPort extensions push before each model call (`<permission-context …>`,
+// `<lazytools-context …>`, `<nmem-context …>`, …), and posoco's session-opening
+// memory composite, whose "## Memory" lead line wraps the provider envelope.
+// Rendering either on replay would show the user "sending" text they never
+// typed, so both are skipped wherever persisted user messages are surfaced.
+const ENVELOPE_PREFIX = /^<[A-Za-z][A-Za-z0-9-]*-context(?=[\s>])/;
+const MEMORY_LEAD = /^##\s+Memory\b/;
+
+export function isSyntheticUserText(text: string): boolean {
+  const trimmed = text.trimStart();
+  return ENVELOPE_PREFIX.test(trimmed) || MEMORY_LEAD.test(trimmed);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -66,6 +81,7 @@ export function parseSessionReplay(jsonl: string): ReplayItem[] {
     switch (role) {
       case "user": {
         const { text, hasImage } = textOfContent(rec.content);
+        if (isSyntheticUserText(text)) break;
         if (text.length > 0 || hasImage) {
           items.push({ kind: "user", text, hasImage });
         }

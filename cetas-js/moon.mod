@@ -33,6 +33,7 @@ import {
   "colmugx/posoco-ext-mcp@0.4.0",
   "colmugx/posoco-ext-oauth@0.1.0",
   "colmugx/posoco-ext-permission@0.2.0",
+  "colmugx/posoco-ext-pi-adaptor@0.1.0",
   "colmugx/posoco-ext-plan@0.1.0",
   "colmugx/posoco-ext-statusbar@0.1.0",
   "colmugx/posoco-ext-webfetch@0.1.0",

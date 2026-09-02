@@ -92,6 +92,24 @@ describe("rewind point enumeration", () => {
     ].join("\n");
     expect(listRewindPoints(jsonl)).toEqual([{ messageIndex: 1, preview: "real prompt" }]);
   });
+
+  test("synthetic context envelopes occupy a slot but are never rewind targets", () => {
+    const jsonl = [
+      META,
+      userMsg(" ## Memory\n\n<nmem-context type=\"memory\" trust=\"false\">…</nmem-context>"),
+      userMsg("real prompt"),
+      userMsg("<permission-context type=\"mode\" trust=\"true\">…</permission-context>"),
+      userMsg("follow-up"),
+    ].join("\n");
+    expect(listRewindPoints(jsonl)).toEqual([
+      { messageIndex: 1, preview: "real prompt" },
+      { messageIndex: 3, preview: "follow-up" },
+    ]);
+    // The editor refill refuses synthetic rows at the same addresses.
+    expect(readUserMessage(jsonl, 0)).toBeNull();
+    expect(readUserMessage(jsonl, 2)).toBeNull();
+    expect(readUserMessage(jsonl, 1)).toBe("real prompt");
+  });
 });
 
 describe("readUserMessage", () => {

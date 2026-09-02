@@ -927,6 +927,10 @@ pub(all) struct CetasJsRuntime {
   /// extensions at composition time, so the condition cannot ride a later
   /// turn call. Empty clears it.
   mut goal_condition : String?
+  /// Process-singleton pi adaptor, created lazily on the first composition
+  /// (or the first `cetas_js_pi_load_package`) and reused for the runtime's
+  /// lifetime.
+  mut pi : @pi.PiAdaptor?
 }
 
 ///|
@@ -938,6 +942,7 @@ pub fn CetasJsRuntime::CetasJsRuntime(config : CetasJsConfig) -> CetasJsRuntime 
     catalog_cache: Map::from_array([]),
     catalog_issues: [],
     goal_condition: None,
+    pi: None,
   }
 }
 
@@ -984,6 +989,12 @@ pub struct CetasJsAgent {
   /// Session transcript store, retained so bridge exports can manage
   /// persisted sessions (rewind) without reconstructing composition state.
   store : @fs_session.JsonlSessionStore
+  /// The pi runtime seam composed in front of MCP; emissions target this
+  /// adaptor instance.
+  pi : @pi.PiAdaptor
+  /// Last session id that received a pi session_start, so the event fires
+  /// once per session rather than once per turn.
+  mut pi_session : String?
 }
 
 ///|
@@ -1126,6 +1137,101 @@ fn build_tool_catalog(exts : Array[&@posoco.Extension]) -> Map[String, String] {
 }
 
 ///|
+/// Get or create the runtime's singleton pi adaptor. On first creation the
+/// adaptor's cwd is pinned and the user-level `~/.cetas/pi-packages` tree is
+/// marked trusted; project-local entries still go through pi's own trust
+/// policy.
+fn ensure_pi_adaptor(runtime : CetasJsRuntime) -> @pi.PiAdaptor {
+  match runtime.pi {
+    Some(pi) => pi
+    None => {
+      let pi = @pi.pi_adaptor_new()
+      @pi.pi_adaptor_set_cwd(pi, runtime.config.cwd)
+      @pi.pi_adaptor_set_project_trusted(pi, true)
+      runtime.pi = Some(pi)
+      pi
+    }
+  }
+}
+
+///|
+/// Attach String continuations to the adaptor's opaque Promise.
+extern "js" fn pi_promise_attach(
+  promise : @pi.JsPromise,
+  on_ok : (String) -> Unit,
+  on_error : (String) -> Unit,
+) -> Unit =
+  #| (promise, onOk, onError) => promise.then(
+  #|   value => onOk(String(value)),
+  #|   error => onError(error instanceof Error ? error.message : String(error)),
+  #| )
+
+///|
+/// @pi.JsPromise and @js_async.Promise are both opaque wrappers of the same
+/// JS Promise object, so the identity cast is sound.
+fn pi_promise_as_async(promise : @pi.JsPromise) -> @js_async.Promise[String] = "%identity"
+
+///|
+/// JS target has no background scheduler pump, so adaptor promises must be
+/// awaited through @js_async's waiter (wake + reschedule), never a raw
+/// %async.suspend.
+async fn pi_wait_string(
+  promise : @pi.JsPromise,
+) -> String raise @pi.JsPromiseError {
+  pi_promise_as_async(promise).wait() catch {
+    err => raise @pi.JsPromiseError::Rejected(err.to_string())
+  }
+}
+
+///|
+/// Fire a pi `session_start` into the extension handlers. Fire-and-forget is
+/// kept deliberately for turn-hook semantics; awaiting is now safe via the
+/// @js_async wait route but unnecessary here.
+fn emit_pi_session_start(handle : CetasJsAgent, session_id : String) -> Unit {
+  let payload = Json::object(
+    Map::from_array([
+      ("id", Json::string(session_id)),
+      ("title", Json::string(session_id)),
+    ]),
+  ).stringify()
+  let promise = @pi.pi_adaptor_emit_event(handle.pi, "session_start", payload)
+  pi_promise_attach(promise, fn(_ : String) { () }, fn(_ : String) { () })
+}
+
+///|
+/// Agent-wide tool catalog for composition: base defs served once, then the
+/// bridge's live MCP tools and the adaptor's live pi tools. Pi layers on top
+/// of the MCP source (instead of replacing it) because lazily-connected MCP
+/// tools would otherwise drop out of the model catalog.
+priv struct CetasLayeredCatalogSource {
+  base_tools : Array[@posoco.ToolDef]
+  mcp : @mcp.McpCatalogSource
+  pi : @pi.PiCatalogSource
+}
+
+///|
+impl @runtime.CatalogSource for CetasLayeredCatalogSource with fn revision(self) -> Int {
+  self.mcp.revision() + self.pi.revision()
+}
+
+///|
+impl @runtime.CatalogSource for CetasLayeredCatalogSource with fn tools(self) -> Array[
+  @posoco.ToolDef,
+] {
+  let defs : Array[@posoco.ToolDef] = []
+  for tool in self.base_tools {
+    defs.push(tool)
+  }
+  for tool in self.mcp.tools() {
+    defs.push(tool)
+  }
+  for tool in self.pi.tools() {
+    defs.push(tool)
+  }
+  defs
+}
+
+///|
 /// Stateful-runtime variant used by the TypeScript application. All provider
 /// catalog construction for one application instance shares this runtime's
 /// private repository; no host config or renderer stores provider internals.
@@ -1171,7 +1277,6 @@ pub fn cetas_js_runtime_create_agent(
     )
     // Cetas product extension: identity + system-prompt assembly + /profile.
     let cetas = @cetas_core.Cetas(
-      cwd=runtime.config.cwd,
       ui=ui as &@posoco.UiPort,
       context_contributor=Some(
         context_contributor as &@posoco.SystemPromptContributor,
@@ -1372,7 +1477,9 @@ pub fn cetas_js_runtime_create_agent(
     }
     // Lazy MCP activation changes the tool set mid-life, so the catalog is
     // owned by the runtime-seam source; MCP tool execution routes through
-    // the decorator, everything else through the default port runtime.
+    // the decorator, everything else through the default port runtime. Pi
+    // wraps MCP as the outermost runtime and shares the layered catalog so
+    // base, live MCP, and live pi tools all reach the model.
     let base_runtime = @runtime.PortRuntime(
       model=model as &@posoco.ModelPort,
       tools=routing,
@@ -1381,10 +1488,16 @@ pub fn cetas_js_runtime_create_agent(
       bridge=mcp_bridge,
       fallback=base_runtime as &@runtime.Runtime,
     )
-    let catalog_source = @mcp.McpCatalogSource(
-      bridge=mcp_bridge,
-      base_tools=base_defs,
+    let pi = ensure_pi_adaptor(runtime)
+    let pi_runtime = @pi.PiRuntime(
+      adaptor=pi,
+      fallback=mcp_runtime as &@runtime.Runtime,
     )
+    let catalog_source = CetasLayeredCatalogSource::{
+      base_tools: base_defs,
+      mcp: @mcp.McpCatalogSource(bridge=mcp_bridge),
+      pi: @pi.PiCatalogSource(adaptor=pi),
+    }
     let agent = @posoco.Agent::with_runtime(
       exts~,
       config=@cetas_core.default_agent_config(
@@ -1393,9 +1506,10 @@ pub fn cetas_js_runtime_create_agent(
           @cetas_core.cetas_system_prompt(cwd=runtime.config.cwd),
         ),
       ),
-      runtime=mcp_runtime as &@runtime.Runtime,
+      runtime=pi_runtime as &@runtime.Runtime,
       catalog_source=catalog_source as &@runtime.CatalogSource,
     )
+    pi_runtime.attach_control(agent.control())
     // The guard re-runs turns itself, so it needs the composed agent.
     ratelimit.bind(agent)
     {
@@ -1412,6 +1526,8 @@ pub fn cetas_js_runtime_create_agent(
       mcp: mcp_bridge,
       mcp_fs: context_fs,
       store,
+      pi,
+      pi_session: None,
     }
   }
 }
@@ -1466,7 +1582,7 @@ pub fn cetas_js_login_provider(
   observer_callback : JsCallback,
   request_callback : JsUiRequestCallback,
   cancel_check : JsCancelCheck,
-  method : String,
+  http_method : String,
 ) -> @js_async.Promise[String] {
   cetas_js_runtime_login_provider(
     CetasJsRuntime(config),
@@ -1474,7 +1590,7 @@ pub fn cetas_js_login_provider(
     observer_callback,
     request_callback,
     cancel_check,
-    method,
+    http_method,
   )
 }
 
@@ -1485,11 +1601,11 @@ pub fn cetas_js_runtime_login_provider(
   observer_callback : JsCallback,
   request_callback : JsUiRequestCallback,
   cancel_check : JsCancelCheck,
-  method : String,
+  http_method : String,
 ) -> @js_async.Promise[String] {
   @js_async.Promise::from_async() <| () => {
     login_provider(
-      runtime, provider_id, observer_callback, request_callback, cancel_check, method,
+      runtime, provider_id, observer_callback, request_callback, cancel_check, http_method,
     )
   }
 }
@@ -1891,6 +2007,16 @@ pub fn cetas_js_run_turn(
     let started = host_now_ms()
     handle.statusbar.set_session(session_id)
     handle.plan.set_session_name(session_id)
+    // Pi session_start fires once per session id: the first turn that names
+    // a session emits it (fire-and-forget, never awaited), later turns skip.
+    let pi_new_session = match handle.pi_session {
+      Some(id) => id != session_id
+      None => true
+    }
+    if pi_new_session {
+      emit_pi_session_start(handle, session_id)
+      handle.pi_session = Some(session_id)
+    }
     // Drain quota-verdict resumes that came due while no turn was running:
     // each is a full resumed turn on its own session, reported through the
     // normal observer channel. A drain failure must not sink the user's
@@ -2383,5 +2509,54 @@ pub fn cetas_js_invoke_command(
       result_json = command_outcome_to_json(miss).stringify()
     }
     result_json
+  }
+}
+
+///|
+/// Load one pi extension entry (file URL) into the runtime's singleton
+/// adaptor. Resolves `{"ok":true,"total_tools":N}` or
+/// `{"ok":false,"error":...}` and never rejects, so the host can aggregate
+/// per-package failures. Runs on from_async's own coroutine, so the load
+/// Promise is suspended properly here (unlike the turn path, where adaptor
+/// Promises must stay fire-and-forget).
+pub fn cetas_js_pi_load_package(
+  runtime : CetasJsRuntime,
+  entry_file_url : String,
+) -> @js_async.Promise[String] {
+  @js_async.Promise::from_async() <| () => {
+    let pi = ensure_pi_adaptor(runtime)
+    let outcome : Result[String, @pi.JsPromiseError] = Ok(
+      pi_wait_string(@pi.pi_adaptor_load(pi, entry_file_url)),
+    ) catch {
+      err => Err(err)
+    }
+    match outcome {
+      Ok(_) =>
+        Json::object(
+          Map::from_array([
+            ("ok", Json::boolean(true)),
+            (
+              "total_tools",
+              Json::number(@pi.pi_adaptor_tool_count(pi).to_double()),
+            ),
+          ]),
+        ).stringify()
+      Err(@pi.JsPromiseError::Rejected(reason)) =>
+        Json::object(
+          Map::from_array([
+            ("ok", Json::boolean(false)),
+            ("error", Json::string(reason)),
+          ]),
+        ).stringify()
+    }
+  }
+}
+
+///|
+/// The adaptor's live pi tool catalog as JSON; `[]` before any load.
+pub fn cetas_js_pi_catalog_json(runtime : CetasJsRuntime) -> String {
+  match runtime.pi {
+    Some(pi) => @pi.pi_adaptor_catalog_json(pi)
+    None => "[]"
   }
 }

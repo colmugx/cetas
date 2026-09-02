@@ -6,6 +6,8 @@
  * provider configuration.
  */
 
+import type { PiPackagesSummary } from "./pi-packages.ts";
+
 export type AppState = "needs_setup" | "ready" | "running" | "shutting_down";
 
 export interface CetasHostConfig {
@@ -79,6 +81,8 @@ export interface AppSnapshot {
   setup: ProviderSetupSnapshot;
   sessionId: string;
   error?: string;
+  /** Last pi-package load summary, when the bridge ran one; host-rendered info. */
+  piPackages?: PiPackagesSummary;
 }
 
 /** Wire-form inline image attachment (`media_type` + base64 `data`). */
@@ -115,6 +119,12 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
     providers?: readonly string[],
   ): Promise<ProviderSetupSnapshot>;
   describeSetup(config: CetasHostConfig): Promise<ProviderSetupSnapshot>;
+  /**
+   * Last pi-package load summary, updated whenever the bridge (re)loads
+   * `~/.cetas/pi-packages` before composing an Agent. Bridges without pi
+   * package support leave it undefined.
+   */
+  readonly piPackages?: PiPackagesSummary;
   createAgent(
     config: CetasHostConfig,
     callbacks: AgentCallbacks,

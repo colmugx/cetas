@@ -4,6 +4,8 @@
 // sibling moonbit-api.d.ts, which re-exports the generated declarations in
 // gen/mbt.d.ts.
 import * as moonbit from "./moonbit-api.js";
+import { join } from "node:path";
+import { scanAndLoadPiPackages, type PiPackagesSummary } from "./pi-packages.ts";
 import type {
   AgentCallbacks,
   CetasAgentBridge,
@@ -23,7 +25,9 @@ import type {
 export class MoonbitCetasAgentBridge implements CetasAgentBridge {
   private readonly configValue: moonbit.CetasJsConfig;
   private readonly runtimeValue: moonbit.CetasJsRuntime;
+  private readonly loadedPiEntries = new Set<string>();
   private toolCatalogValue: Readonly<Record<string, string>> = {};
+  private piPackagesValue: PiPackagesSummary | undefined;
 
   constructor(config: CetasHostConfig) {
     this.configValue = new moonbit.CetasJsConfig(
@@ -62,11 +66,42 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
     return parseProviderSetup(raw);
   }
 
+  /**
+   * Scan `<home>/.cetas/pi-packages` and load each pi extension entry into
+   * this runtime. Per-package failures are collected by the loader; this
+   * never throws. The last summary is exposed as `piPackages` for the host
+   * to render as a notice — stdout belongs to the TUI.
+   */
+  async loadPiPackages(home: string): Promise<PiPackagesSummary> {
+    const summary = await scanAndLoadPiPackages(
+      join(home, ".cetas", "pi-packages"),
+      async (entryFileUrl) => {
+        const raw = await moonbit.cetas_js_pi_load_package(this.runtimeValue, entryFileUrl);
+        const value: unknown = JSON.parse(raw);
+        if (!isRecord(value) || value.ok !== true) {
+          const message = isRecord(value) && typeof value.error === "string"
+            ? value.error
+            : "pi package load failed";
+          throw new Error(message);
+        }
+      },
+      this.loadedPiEntries,
+    );
+    this.piPackagesValue = summary;
+    return summary;
+  }
+
+  get piPackages(): PiPackagesSummary | undefined {
+    return this.piPackagesValue;
+  }
+
   async createAgent(
-    _config: CetasHostConfig,
+    config: CetasHostConfig,
     callbacks: AgentCallbacks,
     cancellation?: CancellationToken,
   ): Promise<unknown> {
+    // Pi tools must exist before composition so the agent's catalog sees them.
+    await this.loadPiPackages(config.home);
     const agent = await moonbit.cetas_js_runtime_create_agent(
       this.runtimeValue,
       callbacks.observerCallback,

@@ -10,6 +10,8 @@
  * line and make the host truncate the wrong message.
  */
 
+import { isSyntheticUserText } from "./replay.ts";
+
 export interface RewindPoint {
   /** Index into the session's `messages` array (physical line minus the metadata header). */
   messageIndex: number;
@@ -64,7 +66,9 @@ export function readUserMessage(jsonl: string, messageIndex: number): string | n
     return null;
   }
   if (!isRecord(rec) || rec.role !== "user") return null;
-  return textOfContent(rec.content).text;
+  const text = textOfContent(rec.content).text;
+  if (isSyntheticUserText(text)) return null;
+  return text;
 }
 
 /** User-message rewind points in transcript order, addressed by message index. */
@@ -83,6 +87,9 @@ export function listRewindPoints(jsonl: string): RewindPoint[] {
     }
     if (!isRecord(rec) || rec.role !== "user") continue;
     const { text, hasImage } = textOfContent(rec.content);
+    // Synthetic context envelopes occupy a physical line (index addressing
+    // below still counts them) but are never rewind targets.
+    if (isSyntheticUserText(text)) continue;
     // Guard on the flattened preview so whitespace-only rows don't render blank.
     const preview = previewOf(text, hasImage);
     if (preview.length === 0) continue;

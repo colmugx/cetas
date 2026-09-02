@@ -9,6 +9,7 @@ import {
   "colmugx/posoco-ext-mcp",
   "colmugx/posoco-ext-oauth",
   "colmugx/posoco-ext-permission",
+  "colmugx/posoco-ext-pi-adaptor",
   "colmugx/posoco-ext-plan",
   "colmugx/posoco-ext-ratelimit",
   "colmugx/posoco-ext-statusbar",
@@ -37,6 +38,10 @@ pub fn cetas_js_list_commands(CetasJsAgent) -> String
 pub fn cetas_js_list_workspace_files(CetasJsConfig) -> @js_async.Promise[String]
 
 pub fn cetas_js_login_provider(CetasJsConfig, String, JsCallback, JsUiRequestCallback, JsCancelCheck, String) -> @js_async.Promise[String]
+
+pub fn cetas_js_pi_catalog_json(CetasJsRuntime) -> String
+
+pub fn cetas_js_pi_load_package(CetasJsRuntime, String) -> @js_async.Promise[String]
 
 pub fn cetas_js_refresh_model_catalogs(CetasJsConfig, String) -> @js_async.Promise[String]
 
@@ -83,6 +88,8 @@ pub struct CetasJsAgent {
   mcp : @posoco-ext-mcp.MCPToolBridge
   mcp_fs : &@posoco-ext-workspace.WorkspaceFs
   store : @posoco-ext-fs-session.JsonlSessionStore
+  pi : @posoco-ext-pi-adaptor.PiAdaptor
+  mut pi_session : String?
 }
 
 pub(all) struct CetasJsConfig {
@@ -100,6 +107,7 @@ pub(all) struct CetasJsRuntime {
   catalog_cache : Map[String, @posoco-ext-llm.ProviderModelCatalog]
   mut catalog_issues : Array[@colmugx/cetas-core/lib.CatalogBuildIssue]
   mut goal_condition : String?
+  mut pi : @posoco-ext-pi-adaptor.PiAdaptor?
 }
 pub fn CetasJsRuntime::CetasJsRuntime(CetasJsConfig) -> Self
 
