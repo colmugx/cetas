@@ -49,7 +49,6 @@ impl @posoco.SystemPromptContributor for ProjectContextContributor with fn syste
 /// - Profile command callbacks are host-supplied because profile storage is
 ///   target-specific; cetas only owns the command surface.
 pub fn Cetas::Cetas(
-  cwd~ : String,
   ui~ : &@posoco.UiPort,
   context_contributor? : &@posoco.SystemPromptContributor? = None,
   tool_contributors? : Array[&@posoco.SystemPromptContributor] = [],
@@ -57,7 +56,7 @@ pub fn Cetas::Cetas(
   on_load~ : (String) -> Unit,
   on_save~ : (String) -> Unit,
   on_delete~ : (String) -> Unit,
-) -> Cetas raise @posoco.CompositionError {
+) -> Cetas {
   let prompt_contributors : Array[&@posoco.SystemPromptContributor] = []
   match context_contributor {
     Some(c) =>
@@ -405,13 +404,5 @@ pub fn default_agent_config(
   max_tool_rounds? : Int? = None,
   system_prompt? : String? = None,
 ) -> @posoco.AgentConfig {
-  {
-    max_tool_rounds,
-    system_prompt,
-    temperature: Some(0.0),
-    max_output_tokens: None,
-    model_context_window: None,
-    compact_threshold: None,
-    memory_inbound_timeout_ms: None,
-  }
+  @posoco.agent_config(max_tool_rounds~, temperature=Some(0.0), system_prompt~)
 }

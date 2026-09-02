@@ -21,7 +21,6 @@ async test "e2e: Cetas labels context contributor as project_context" {
   // Cetas owns identity + prompt assembly + /profile. Profile callbacks are
   // stubbed; this test only exercises prompt assembly.
   let cetas = Cetas(
-    cwd="/repo",
     ui=ui as &@posoco.UiPort,
     context_contributor=Some(
       context_contributor as &@posoco.SystemPromptContributor,
@@ -94,14 +93,10 @@ async test "e2e: Cetas labels context contributor as project_context" {
         requires: [],
       }),
     ],
-    config={
-      max_tool_rounds: Some(5),
-      system_prompt: Some(cetas_system_prompt(cwd="/repo")),
-      temperature: None,
-      max_output_tokens: None,
-      model_context_window: None,
-      compact_threshold: None,
-    },
+    config=@posoco.agent_config(
+      max_tool_rounds=Some(5),
+      system_prompt=Some(cetas_system_prompt(cwd="/repo")),
+    ),
   )
   ignore(agent.run_turn(@posoco.tk_user_msg("hello"), "s1"))
   // Inspect what the model received.
@@ -175,7 +170,6 @@ async test "e2e: base + cetas contributor + ext contributor share one SystemMess
     "/repo/AGENTS.md", "Build with: moon test",
   )
   let cetas = Cetas(
-    cwd="/repo",
     ui=ui as &@posoco.UiPort,
     context_contributor=Some(
       context_contributor as &@posoco.SystemPromptContributor,
@@ -262,14 +256,10 @@ async test "e2e: base + cetas contributor + ext contributor share one SystemMess
         requires: [],
       }),
     ],
-    config={
-      max_tool_rounds: Some(5),
-      system_prompt: Some(cetas_system_prompt(cwd="/repo")),
-      temperature: None,
-      max_output_tokens: None,
-      model_context_window: None,
-      compact_threshold: None,
-    },
+    config=@posoco.agent_config(
+      max_tool_rounds=Some(5),
+      system_prompt=Some(cetas_system_prompt(cwd="/repo")),
+    ),
   )
   ignore(agent.run_turn(@posoco.tk_user_msg("hello"), "s1"))
   assert_true(model.received_messages.length() > 0)

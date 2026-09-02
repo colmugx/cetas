@@ -151,8 +151,11 @@ test "settings-derived custom provider resolves api_key login and joins the setu
 /// A factory whose build always fails, standing in for a misconfigured
 /// provider. Used to pin the isolation seam: one bad provider must yield a
 /// recorded issue, never a fatal composition error.
-struct WbBrokenFactory {
-  dummy : Int
+struct WbBrokenFactory {}
+
+///|
+fn WbBrokenFactory::WbBrokenFactory() -> WbBrokenFactory {
+  WbBrokenFactory::{ }
 }
 
 ///|
@@ -182,7 +185,7 @@ pub impl @llm.ProviderFactory for WbBrokenFactory with fn build(
 
 ///|
 test "try_build_provider_catalog isolates a failing factory" {
-  let broken : WbBrokenFactory = { dummy: 0, }
+  let broken : WbBrokenFactory = WbBrokenFactory()
   let factory : &@llm.ProviderFactory = broken
   let snapshot = ProviderCredentialSnapshot::ProviderCredentialSnapshot()
   match try_build_provider_catalog(factory, snapshot) {

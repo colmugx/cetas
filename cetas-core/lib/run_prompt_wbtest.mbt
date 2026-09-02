@@ -24,14 +24,7 @@ fn run_prompt_test_agent(
         requires: [],
       }),
     ],
-    config={
-      max_tool_rounds: Some(2),
-      system_prompt: None,
-      temperature: None,
-      max_output_tokens: None,
-      model_context_window: None,
-      compact_threshold: None,
-    },
+    config=@posoco.agent_config(max_tool_rounds=Some(2)),
   )
 }
 
