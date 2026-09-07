@@ -40,6 +40,7 @@ class FakeVeilTui implements VeilTui {
       focus: () => {},
       unfocus: () => {},
       isFocused: () => false,
+      getBounds: () => undefined,
     };
   }
 

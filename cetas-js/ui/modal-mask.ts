@@ -102,6 +102,7 @@ export class ModalVeilHost {
       focus: () => inner.focus(),
       unfocus: (unfocusOptions) => inner.unfocus(unfocusOptions),
       isFocused: () => inner.isFocused(),
+      getBounds: () => inner.getBounds(),
     };
   }
 

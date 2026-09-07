@@ -91,6 +91,7 @@ jobs:
         working-directory: posoco/external/cetas/cetas-js
         run: |
           bun install
+          bun build.ts --dts-only
           bunx tsc --noEmit
 
   native-build:

@@ -13,6 +13,8 @@
 //   from https://github.com/oven-sh/bun/releases). --executable needs
 //   exactly one target.
 //
+//   bun build.ts --dts-only   # regenerate gen/mbt.d.ts only (no binaries)
+//
 // cetas-core bakes the flavor table into a gitignored build_config.mbt from
 // CETAS_FLAVOR (default public here) and CETAS_PLATFORM (per target OS);
 // extensions the flavor does not hit are never constructed. The plugin's
@@ -40,6 +42,7 @@ const executableIdx = args.indexOf("--executable");
 const executable = executableIdx >= 0 ? args[executableIdx + 1] : undefined;
 const positional =
   executableIdx >= 0 ? [...args.slice(0, executableIdx), ...args.slice(executableIdx + 2)] : args;
+const dtsOnly = positional.includes("--dts-only");
 const requested = new Set(positional.filter((a) => !a.startsWith("--")));
 
 const osFor = (name: string) => (name.startsWith("windows") ? "windows" : "unix");
@@ -58,6 +61,35 @@ if (unknown.length > 0) {
 if (executable && selected.length !== 1) {
   console.error("--executable needs exactly one target: bun build.ts windows-x64 --executable <path>");
   process.exit(2);
+}
+
+const MOONBIT_DTS = {
+  out: "gen/mbt.d.ts",
+  externPolicy: {
+    JsCallback: "(eventJson: string) => void",
+    JsUiRenderCallback: "(eventJson: string) => void",
+    JsUiRequestCallback: "(requestJson: string) => Promise<string>",
+    JsCancelCheck: "() => boolean",
+  },
+};
+
+// The d.ts describes the API surface, not a flavor build: one pass, default
+// env, no flavor bake, no re-exec, no binary output.
+if (dtsOnly) {
+  const result = await Bun.build({
+    entrypoints: ["host.ts"],
+    // bun target like the compile passes; browser (the default) rejects
+    // pi-tui's node builtin imports.
+    target: "bun",
+    plugins: [moonbit({ root: import.meta.dir, mode: "release", dts: MOONBIT_DTS })],
+  });
+  if (!result.success) {
+    console.error("✗ dts gen/mbt.d.ts");
+    for (const log of result.logs) console.error(log);
+    throw new Error("Bun.build failed for --dts-only");
+  }
+  console.log("✓ dts gen/mbt.d.ts");
+  process.exit(0);
 }
 
 console.log(`platform: per-target  flavor: ${flavorBake}${flavorBake === "personal" ? " (CETAS_FLAVOR=personal)" : ""}`);
@@ -113,15 +145,7 @@ for (const name of selected.filter((n) => osFor(n) === os)) {
       moonbit({
         root: import.meta.dir,
         mode: "release",
-        dts: {
-          out: "gen/mbt.d.ts",
-          externPolicy: {
-            JsCallback: "(eventJson: string) => void",
-            JsUiRenderCallback: "(eventJson: string) => void",
-            JsUiRequestCallback: "(requestJson: string) => Promise<string>",
-            JsCancelCheck: "() => boolean",
-          },
-        },
+        dts: MOONBIT_DTS,
       }),
     ],
     compile: { target: TARGETS[name], outfile, ...(executable ? { executablePath: executable } : {}) },
