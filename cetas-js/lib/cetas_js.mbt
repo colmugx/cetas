@@ -576,6 +576,26 @@ fn ui_body_to_json(body : @port.UiBody) -> Json {
         ]),
       )
     }
+    @port.UiBody::Entries(entries) => {
+      let values : Array[Json] = []
+      for entry in entries {
+        let fields : Array[(String, Json)] = [
+          ("key", Json::string(entry.key)),
+          ("value", Json::string(entry.value)),
+        ]
+        match entry.color {
+          Some(color) => fields.push(("color", Json::string(color)))
+          None => ()
+        }
+        values.push(Json::object(Map::from_array(fields)))
+      }
+      Json::object(
+        Map::from_array([
+          ("type", Json::string("entries")),
+          ("entries", Json::array(values)),
+        ]),
+      )
+    }
     @port.UiBody::Progress(current) =>
       Json::object(
         Map::from_array([
@@ -717,6 +737,7 @@ fn decode_ui_response_value(
     "selected" =>
       match (req, fields.get("index")) {
         (@port.UiRequest::Select(options~, ..), Some(Json::Number(value, ..))) =>
+          // Select indices must be integers: a fractional float is malformed.
           if value == value.floor() &&
             value >= 0.0 &&
             value < options.length().to_double() {
@@ -957,14 +978,12 @@ pub fn CetasJsRuntime::CetasJsRuntime(config : CetasJsConfig) -> CetasJsRuntime 
 /// bridge to compose a fresh handle; the handle itself does not expose Agent
 /// or provider internals.
 ///
-/// The handle retains the provider router and the status bar so bridge entry
-/// points can push bar facts (model/effort/session/latency) without
-/// reconstructing composition state.
+/// The handle retains the provider router so bridge entry points can act on
+/// the active model selection without reconstructing composition state.
 pub struct CetasJsAgent {
   agent : @posoco.Agent
   profile_errors : Array[String]
   router : @llm.RouterModelPort
-  statusbar : @statusbar.StatusBar
   /// Plan-mode extension reference, so the bridge can stamp the session
   /// label onto plan file names when a session starts.
   plan : @plan.PlanMode
@@ -972,8 +991,7 @@ pub struct CetasJsAgent {
   home : String
   /// The live observer channel, so persistence warnings reach the TS host.
   observer : JsCallbackObserver
-  /// Rate-limit guard, so due quota resumes can drain at the next
-  /// host-driven turn (js has no long-lived task group for the monitor).
+  /// Rate-limit guard retained for the host-owned cancellable monitor.
   ratelimit : @ratelimit.RateLimitGuard
   /// Goal runner when the runtime carried a goal condition at composition;
   /// `cetas_js_run_goal` drives it, regular turns ignore it.
@@ -998,55 +1016,17 @@ pub struct CetasJsAgent {
 }
 
 ///|
-/// The effort the status bar should display: the router's explicit selection
-/// when one exists, otherwise the active slot's advertised default.
-fn effective_effort(router : @llm.RouterModelPort) -> String? {
-  match router.active_effort() {
-    Some(effort) => Some(effort)
-    None => {
-      let active_id = router.active_slot_id()
-      let mut found : String? = None
-      for slot in router.list_slots() {
-        if slot.id == active_id {
-          found = slot.default_effort
-        }
-      }
-      found
-    }
-  }
-}
-
-///|
-/// Push the active model label and effective effort into the status bar.
-/// Called at agent construction and after every successful /model or /effort
-/// invocation so the bar tracks the router without polling.
-fn push_model_facts(
-  router : @llm.RouterModelPort,
-  statusbar : @statusbar.StatusBar,
-) -> Unit {
-  statusbar.set_model(
-    router.current_model_id(),
-    effort=effective_effort(router),
-  )
-}
-
-///|
-/// Detect a legacy project-local `.cetas` directory left over from before
-/// durable state moved to the user's HOME, and warn loudly once.
-///
-/// Before this fix, credentials, settings, profiles, and sessions were written
-/// into `<cwd>/.cetas/` — i.e. the project working tree — where they could be
-/// committed to a repository or shipped in an artifact. Those secrets are now
-/// read and written under `<home>/.cetas/`. If a project-local `.cetas` still
-/// exists AND the user has no home `.cetas` yet, they are very likely carrying
-/// live credentials in their project and will appear unconfigured after this
-/// change. Emit one `Custom` observer event describing the exposure and the
+/// Detect a legacy project-local `.cetas` directory and warn loudly once.
+/// Durable state (credentials, settings, profiles, sessions) lives under
+/// `<home>/.cetas/`; a leftover `<cwd>/.cetas/` from the old project-local
+/// layout may hold live credentials while the user appears unconfigured.
+/// Emit one `Custom` observer event describing the exposure and the
 /// remediation (`mv <cwd>/.cetas ~/.cetas`).
 ///
-/// This is warn-only: it never copies or deletes anything. Moving secrets
-/// across a trust boundary silently is itself risky, and the user must confirm
-/// where their credentials land. Best-effort and non-fatal — any filesystem
-/// probe failure just suppresses the warning.
+/// Warn-only: it never copies or deletes anything — moving secrets across a
+/// trust boundary silently is itself risky, and the user must confirm where
+/// their credentials land. Best-effort and non-fatal — any filesystem probe
+/// failure just suppresses the warning.
 async fn warn_legacy_project_cetas(
   fs : &@workspace.WorkspaceFs,
   home : String,
@@ -1184,18 +1164,164 @@ async fn pi_wait_string(
 }
 
 ///|
+/// The adaptor's ui callback types are opaque erasures of the same JS function
+/// values JsUiPort holds, so the identity casts are sound.
+fn js_ui_request_fn_of(callback : JsUiRequestCallback) -> @pi.JsUiRequestFn = "%identity"
+
+///|
+fn js_ui_render_fn_of(callback : JsUiRenderCallback) -> @pi.JsUiRenderFn = "%identity"
+
+///|
 /// Fire a pi `session_start` into the extension handlers. Fire-and-forget is
 /// kept deliberately for turn-hook semantics; awaiting is now safe via the
 /// @js_async wait route but unnecessary here.
-fn emit_pi_session_start(handle : CetasJsAgent, session_id : String) -> Unit {
+fn emit_pi_session_start(
+  handle : CetasJsAgent,
+  session_id : String,
+  reason : String,
+) -> Unit {
   let payload = Json::object(
     Map::from_array([
       ("id", Json::string(session_id)),
       ("title", Json::string(session_id)),
+      ("reason", Json::string(reason)),
     ]),
   ).stringify()
   let promise = @pi.pi_adaptor_emit_event(handle.pi, "session_start", payload)
   pi_promise_attach(promise, fn(_ : String) { () }, fn(_ : String) { () })
+}
+
+///|
+/// Session.metadata key holding pi custom session entries. The metadata free
+/// bag is the whole persistence seam — posoco core stays untouched.
+const PI_CUSTOM_ENTRIES_KEY : String = "pi.custom_entries"
+
+///|
+/// Seed pi custom entries from the persisted session metadata before
+/// session_start so package handlers see restored state via
+/// ctx.sessionManager. Best-effort: a missing session or unreadable metadata
+/// seeds nothing. Seeded entries never re-persist — the drain queue only
+/// sees fresh appendEntry calls.
+async fn seed_pi_custom_entries(
+  handle : CetasJsAgent,
+  session_id : String,
+) -> Unit {
+  let loaded : Result[@posoco.Session, Error] = Ok(
+    (handle.store as &@posoco.SessionStore).load(session_id),
+  ) catch {
+    err => Err(err)
+  }
+  let session = match loaded {
+    Ok(session) => session
+    Err(_) => return
+  }
+  let items = match session.metadata.get(PI_CUSTOM_ENTRIES_KEY) {
+    Some(Json::Array(items)) => items
+    _ => return
+  }
+  for item in items {
+    guard item is Json::Object(fields) else { continue }
+    let custom_type = match fields.get("customType") {
+      Some(Json::String(value)) => value
+      _ => continue
+    }
+    let data = match fields.get("data") {
+      Some(value) => value
+      None => Json::null()
+    }
+    @pi.pi_adaptor_seed_entry(handle.pi, custom_type, data.stringify())
+  }
+}
+
+///|
+/// Merge the turn's fresh pi custom entries into the persisted session's
+/// metadata["pi.custom_entries"] (load → merge → full save, the same legal
+/// whole-session path compact uses; later turns load the updated metadata so
+/// nothing is clobbered). Best-effort: failures emit one observer Custom
+/// warning and never sink the turn; a failed turn's entries stay queued for
+/// the next successful one.
+async fn persist_pi_custom_entries(
+  handle : CetasJsAgent,
+  session_id : String,
+) -> Unit {
+  let drained = match
+    @json.parse(@pi.pi_adaptor_take_custom_entries_json(handle.pi)) {
+    Json::Array(items) => items
+    _ => return
+  }
+  if drained.is_empty() {
+    return
+  }
+  let stored : Array[Json] = []
+  for item in drained {
+    guard item is Json::Object(fields) else { continue }
+    let custom_type = match fields.get("customType") {
+      Some(value) => value
+      None => Json::null()
+    }
+    let data = match fields.get("data") {
+      Some(value) => value
+      None => Json::null()
+    }
+    stored.push(
+      Json::object(
+        Map::from_array([("customType", custom_type), ("data", data)]),
+      ),
+    )
+  }
+  let loaded : Result[@posoco.Session, Error] = Ok(
+    (handle.store as &@posoco.SessionStore).load(session_id),
+  ) catch {
+    err => Err(err)
+  }
+  let session = match loaded {
+    Ok(session) => session
+    Err(err) => {
+      warn_pi_custom_entries(handle, session_id, err.to_string())
+      return
+    }
+  }
+  let merged : Array[Json] = match session.metadata.get(PI_CUSTOM_ENTRIES_KEY) {
+    Some(Json::Array(items)) => items
+    _ => []
+  }
+  for item in stored {
+    merged.push(item)
+  }
+  let metadata = session.metadata.copy()
+  metadata[PI_CUSTOM_ENTRIES_KEY] = Json::array(merged)
+  let saved : Result[Unit, Error] = Ok(
+    (handle.store as &@posoco.SessionStore).save(session_id, {
+      messages: session.messages,
+      metadata,
+    }),
+  ) catch {
+    err => Err(err)
+  }
+  match saved {
+    Ok(_) => ()
+    Err(err) => warn_pi_custom_entries(handle, session_id, err.to_string())
+  }
+}
+
+///|
+/// One observer Custom warning for a failed pi custom-entry persist.
+fn warn_pi_custom_entries(
+  handle : CetasJsAgent,
+  session_id : String,
+  cause : String,
+) -> Unit {
+  let event : @posoco.TurnEvent = Custom(
+    source="cetas-js.bridge",
+    label="pi_custom_entries_persist_failed",
+    data=Json::object(
+      Map::from_array([
+        ("session_id", Json::string(session_id)),
+        ("cause", Json::string(cause)),
+      ]),
+    ),
+  )
+  handle.observer.on_event(event)
 }
 
 ///|
@@ -1222,11 +1348,22 @@ impl @runtime.CatalogSource for CetasLayeredCatalogSource with fn tools(self) ->
   for tool in self.base_tools {
     defs.push(tool)
   }
+  let taken : Map[String, Bool] = Map::from_array([])
+  for tool in defs {
+    taken[tool.name.to_string()] = true
+  }
   for tool in self.mcp.tools() {
     defs.push(tool)
+    taken[tool.name.to_string()] = true
   }
+  // Shadow-hide: a pi tool colliding with a base or live-MCP name stays
+  // hidden (base wins — pi re-declaring base capability is out of boundary).
+  // Revision stays the sum of the sources, so it keeps moving monotonically
+  // whenever the filtered output can change.
   for tool in self.pi.tools() {
-    defs.push(tool)
+    if !taken.contains(tool.name.to_string()) {
+      defs.push(tool)
+    }
   }
   defs
 }
@@ -1248,10 +1385,25 @@ pub fn cetas_js_runtime_create_agent(
       observer_callback, request_callback, cancel_check,
     )
     let observer = JsCallbackObserver(observer_callback)
+    // Cross-extension event bus, constructed before any reporting or
+    // subscribing extension so no report is dropped (fire-and-forget).
+    // Extensions below share this one instance: the llm router and the
+    // stats observer publish model/token/speed facts, the session store and
+    // rate-limit guard publish session/resume ops, the status-bar bridge
+    // subscribes to status ops, the permission policy subscribes to
+    // tool-exemption reports, plan mode publishes them.
+    let event_bus = @devkit.EventBus()
     let model = build_provider_router(
-      runtime, cred_store, auth_interaction, observer,
+      runtime,
+      cred_store,
+      auth_interaction,
+      observer,
+      bus=Some(event_bus),
     )
-    let store = @fs_session.JsonlSessionStore(runtime.config.sessions_dir)
+    let store = @fs_session.JsonlSessionStore(
+      runtime.config.sessions_dir,
+      bus=Some(event_bus),
+    )
     let profile_errors : Array[String] = []
     let ui = JsUiPort(render_callback, request_callback)
     // Load AGENTS.md / CLAUDE.md context files from home + cwd ancestor
@@ -1311,12 +1463,6 @@ pub fn cetas_js_runtime_create_agent(
         )
       },
     )
-    // Cross-extension event bus, constructed before any reporting or
-    // subscribing extension so no report is dropped (fire-and-forget).
-    // Extensions below share this one instance: statusbar subscribes to
-    // "status" facts, the permission policy subscribes to tool-exemption
-    // reports, plan mode publishes them.
-    let event_bus = @devkit.EventBus()
     // Permission policy: gates write/shell/unknown tools through a UI confirm.
     // ReadOnly rejects every non-read tool without a prompt; the other modes
     // bridge through BlockingApprovalSource → JsUiPort::request (.wait()).
@@ -1358,18 +1504,18 @@ pub fn cetas_js_runtime_create_agent(
       // to .cetas/plan/ through the workspace boundary.
       fs=Some(context_fs as &@workspace.WorkspaceFs),
     )
-    // Status bar: data-driven status-line segments rendered over the shared
-    // JsUiPort (slot Status, key "statusbar"); the host mounts that key in
-    // whichever region its layout provides. Initial model facts come from
-    // the freshly built router; later mutations ride invoke_command. The
-    // cross-extension EventBus lets any extension publish status facts
-    // (topic "status") the bar picks up; with no interested peer it stays
-    // silent. Future extension constructors take the same bus instance.
-    let statusbar = @statusbar.StatusBar(
-      ui as &@posoco.UiPort,
-      bus=Some(event_bus),
-    )
-    push_model_facts(model, statusbar)
+    // Status bar bridge: renders peer-published status segments over the
+    // shared JsUiPort (slot Status); the host mounts that key in whichever
+    // region its layout provides. Publishers push facts on the shared
+    // event bus below — the bridge never polls the router.
+    let statusbar = @statusbar.StatusBar(bus=Some(event_bus))
+    // Speed metrics (ttft/tps/avg) derived from core turn events; publishes
+    // through the same status ops the bridge above renders.
+    let stats = @stats.Stats(bus=Some(event_bus))
+    // Codex 5h/weekly usage segments; the process-shared tracker inside the
+    // provider extension is fed by chat response headers and the usage
+    // endpoint probe, this publisher renders it onto the bar.
+    let codex_quota = @openai.CodexQuotaStatus(bus=Some(event_bus))
     let exts : Array[&@posoco.Extension] = [
       cetas,
       model as &@posoco.Extension,
@@ -1378,14 +1524,26 @@ pub fn cetas_js_runtime_create_agent(
       ui as &@posoco.Extension,
       plan_mode,
       statusbar,
+      stats,
+      codex_quota,
       policy,
     ]
     // Rate-limit guard: records quota verdicts (ModelError::RateLimited) per
-    // session through its Observer/PipelineHook views. js has no long-lived
-    // task group for `spawn_monitor`, so due resumes drain at the next
-    // host-driven turn instead (see `cetas_js_run_turn`) — the same
-    // boundary-over-background-loop trade the js host makes for nmem.
-    let ratelimit = @ratelimit.RateLimitGuard()
+    // session through its Observer/PipelineHook views. The TypeScript
+    // application owns its cancellable monitor lifetime.
+    let ratelimit = @ratelimit.RateLimitGuard(bus=Some(event_bus), trace=fn(
+      message : String,
+    ) {
+      observer.on_event(
+        @posoco.TurnEvent::Custom(
+          source="posoco_ext_ratelimit",
+          label="recovery_trace",
+          data=Json::object(
+            Map::from_array([("message", Json::string(message))]),
+          ),
+        ),
+      )
+    })
     exts.push(ratelimit as &@posoco.Extension)
     // Goal runner rides composition: its `goal_update_plan` tool must join
     // the routing table below, and the condition cannot change afterwards.
@@ -1454,6 +1612,7 @@ pub fn cetas_js_runtime_create_agent(
       mcp_bridge,
       mcp_credential_store(context_fs, runtime.config.home),
       @oauth.DefaultOAuthHttpTransport::DefaultOAuthHttpTransport(),
+      // @async.now() is epoch milliseconds; OAuth wants epoch seconds.
       (@async.now() / 1000L).to_int(),
     )
     let routing : Map[String, &@posoco.ToolProvider] = Map::from_array([])
@@ -1467,6 +1626,24 @@ pub fn cetas_js_runtime_create_agent(
       }
     }
     exts.push(mcp_bridge as &@posoco.Extension)
+    // The pi adaptor joins the composition as a real extension so its
+    // manifest observer rides along and its tools join the title catalog.
+    // Pushed after the routing snapshot: the layered catalog source already
+    // serves live pi tools, so manifest-derived routing must not double-add.
+    let pi = ensure_pi_adaptor(runtime)
+    // Base wins: pi tools named like a base tool are hidden before composition
+    // so the core's manifest-aggregate ToolCollision check keeps the base
+    // tool. Live-MCP names cannot collide at composition (lazy connect); those
+    // are shadowed at catalog level by CetasLayeredCatalogSource below.
+    let protected_names : Array[Json] = []
+    for def in base_defs {
+      protected_names.push(Json::string(def.name.to_string()))
+    }
+    @pi.pi_adaptor_set_hidden_tools_json(
+      pi,
+      Json::array(protected_names).stringify(),
+    )
+    exts.push(pi as &@posoco.Extension)
     let tool_catalog = build_tool_catalog(exts)
     // The JS FFI seam carries a plain Int (no optional arguments); the
     // bridge convention is `<= 0` = unbounded.
@@ -1488,7 +1665,6 @@ pub fn cetas_js_runtime_create_agent(
       bridge=mcp_bridge,
       fallback=base_runtime as &@runtime.Runtime,
     )
-    let pi = ensure_pi_adaptor(runtime)
     let pi_runtime = @pi.PiRuntime(
       adaptor=pi,
       fallback=mcp_runtime as &@runtime.Runtime,
@@ -1510,13 +1686,35 @@ pub fn cetas_js_runtime_create_agent(
       catalog_source=catalog_source as &@runtime.CatalogSource,
     )
     pi_runtime.attach_control(agent.control())
+    // pi custom session entries: every appendEntry projects as an observer
+    // Custom event (source "pi", label = customType) at emission time.
+    // Persistence rides Session.metadata["pi.custom_entries"] at turn end
+    // (cetas_js_run_turn); restore re-seeds via pi_adaptor_seed_entry.
+    @pi.pi_adaptor_set_custom_entry_callback(pi, fn(custom_type, data_json) {
+      let event : @posoco.TurnEvent = Custom(
+        source="pi",
+        label=custom_type,
+        data=@json.parse(data_json) catch { _ => Json::null() },
+      )
+      observer.on_event(event)
+    })
+    // Pi ui bridge: ctx.ui rides the same TS callback pair JsUiPort uses, so
+    // ui_request/ui_response/ui_render wire shapes match byte for byte and the
+    // TS ask/render layer needs no new code. The adaptor consults the
+    // callbacks only after this attach — earlier package-load or event-time
+    // ui calls degrade to the adaptor's no-op defaults (confirm=false,
+    // select/input=undefined, renders dropped) instead of crashing.
+    @pi.pi_adaptor_set_ui_callbacks(
+      pi,
+      js_ui_request_fn_of(request_callback),
+      js_ui_render_fn_of(render_callback),
+    )
     // The guard re-runs turns itself, so it needs the composed agent.
     ratelimit.bind(agent)
     {
       agent,
       profile_errors,
       router: model,
-      statusbar,
       plan: plan_mode,
       home: runtime.config.home,
       observer,
@@ -1908,10 +2106,6 @@ extern "js" fn host_delete_file_result(path : String) -> String =
   #| }
 
 ///|
-extern "js" fn host_now_ms() -> Double =
-  #| () => Date.now()
-
-///|
 /// Run one turn on an existing agent handle.
 ///
 /// Why this shape: `pub async fn` exported to JS compiles to a CPS state
@@ -2004,38 +2198,49 @@ pub fn cetas_js_run_turn(
 ) -> @js_async.Promise[String] {
   let images = parse_image_attachments(images_json)
   let promise = @js_async.Promise::from_async(abort_signal=signal) <| () => {
-    let started = host_now_ms()
-    handle.statusbar.set_session(session_id)
     handle.plan.set_session_name(session_id)
     // Pi session_start fires once per session id: the first turn that names
     // a session emits it (fire-and-forget, never awaited), later turns skip.
+    // pi's reason: a fresh session is "new", a switch away from a previously
+    // started session is "resume"; previousSessionFile has no cetas
+    // equivalent and stays omitted.
     let pi_new_session = match handle.pi_session {
       Some(id) => id != session_id
       None => true
     }
     if pi_new_session {
-      emit_pi_session_start(handle, session_id)
-      handle.pi_session = Some(session_id)
-    }
-    // Drain quota-verdict resumes that came due while no turn was running:
-    // each is a full resumed turn on its own session, reported through the
-    // normal observer channel. A drain failure must not sink the user's
-    // turn, so it is swallowed here (the guard already retried or gave up
-    // per its max_attempts policy).
-    if !handle.ratelimit.pending_snapshots().is_empty() {
-      handle.ratelimit.poll() catch {
-        _ => ()
+      let reason = match handle.pi_session {
+        Some(_) => "resume"
+        None => "new"
       }
+      // Restore persisted pi custom entries before handlers see session_start
+      // so package state (e.g. pi-web-access search caches) survives restarts.
+      seed_pi_custom_entries(handle, session_id)
+      emit_pi_session_start(handle, session_id, reason)
+      handle.pi_session = Some(session_id)
     }
     let result : Result[String, Error] = Ok(
       @cetas_core.run_prompt(handle.agent, prompt, session_id, images~),
     ) catch {
       err => Err(err)
     }
-    handle.statusbar.set_latency((host_now_ms() - started).to_int())
     match result {
-      Ok(text) => text
-      Err(err) => raise err
+      Ok(text) => {
+        // Persist pi custom entries appended during the turn(s) before the
+        // agent boundary (agent_end handlers may still appendEntry; those
+        // ride the next turn's save).
+        persist_pi_custom_entries(handle, session_id)
+        // Pi agent boundary: agent_end/agent_settled fire only when no
+        // queued follow-up will continue the run (pi loop-drain semantics).
+        if handle.agent.control().pending_follow_ups() == 0 {
+          handle.pi.events.emit_agent_boundary()
+        }
+        text
+      }
+      Err(err) => {
+        handle.pi.events.reset_agent_run()
+        raise err
+      }
     }
   }
   // from_async's own signal listener cancels the turn coroutine but does not
@@ -2048,6 +2253,34 @@ pub fn cetas_js_run_turn(
     ignore(@js_async.Promise::from_async() <| () => {  })
   })
   promise
+}
+
+///|
+/// Run the rate-limit scheduler for the handle lifetime. The JavaScript
+/// application owns the AbortController and restarts this monitor after an
+/// intentional session/model boundary.
+pub fn cetas_js_start_ratelimit_monitor(
+  handle : CetasJsAgent,
+  signal : @js_async.AbortSignal,
+) -> @js_async.Promise[Unit] {
+  let promise = @js_async.Promise::from_async(abort_signal=signal) <| () => {
+    handle.ratelimit.monitor()
+  }
+  // Same pump as cetas_js_run_turn: from_async's abort listener only cancels
+  // the sleeping monitor coroutine without pumping the scheduler, so a stop
+  // would otherwise wait out the current poll sleep (up to poll_interval_ms)
+  // before the JS host's await resolves. This listener forces the reschedule
+  // round that settles the monitor immediately.
+  js_signal_on_abort(signal, fn() {
+    ignore(@js_async.Promise::from_async() <| () => {  })
+  })
+  promise
+}
+
+///|
+/// Permanently invalidate recoveries recorded before a host context change.
+pub fn cetas_js_cancel_pending_ratelimit(handle : CetasJsAgent) -> Unit {
+  handle.ratelimit.cancel_pending()
 }
 
 ///|
@@ -2429,6 +2662,7 @@ async fn mcp_login_command_outcome(
     mcp_credential_store(handle.mcp_fs, handle.home),
     @oauth.DefaultOAuthHttpTransport::DefaultOAuthHttpTransport(),
     JsMcpAuthInteraction(handle.observer),
+    // @async.now() is epoch milliseconds; OAuth wants epoch seconds.
     (@async.now() / 1000L).to_int(),
   )
   Some(
@@ -2486,15 +2720,12 @@ pub fn cetas_js_invoke_command(
             raise @posoco.CommandError::ExecutionFailed(message)
           }
           result_json = command_outcome_to_json(outcome).stringify()
-          // Router-mutating commands keep the status bar in sync and persist
-          // the new selection: the invocation already committed the change,
-          // so mirror it as facts and make it outlive the process.
+          // Router-mutating commands persist the new selection: the
+          // invocation already committed the change, so make it outlive
+          // the process.
           if id == "model" || id == "effort" {
             match outcome {
-              Success(..) => {
-                push_model_facts(handle.router, handle.statusbar)
-                persist_active_model_selection(handle)
-              }
+              Success(..) => persist_active_model_selection(handle)
               _ => ()
             }
           }

@@ -10,7 +10,7 @@
  *   bun host.ts
  */
 
-import { ProcessTerminal, TUI } from "@earendil-works/pi-tui";
+import { ProcessTerminal, TuiMainScreen } from "@earendil-works/pi-tui";
 
 import { buildCetasHostConfig, CetasApplication } from "./src/app/index.ts";
 import { MoonbitCetasAgentBridge } from "./src/app/moonbit-bridge.ts";
@@ -31,7 +31,7 @@ async function main(): Promise<void> {
       toolLabels.set(name, ext);
     }
   };
-  const tui = new TUI(new ProcessTerminal());
+  const tui = new TuiMainScreen(new ProcessTerminal());
   const shell = new TerminalShell({
     tui,
     cwd: config.cwd,

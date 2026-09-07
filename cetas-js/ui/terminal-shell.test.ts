@@ -9,7 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TUI } from "@earendil-works/pi-tui";
+import { TUI, TuiMainScreen } from "@earendil-works/pi-tui";
 import {
   isAbortError,
   matchLocalSlash,
@@ -45,14 +45,17 @@ function makeShell(): { shell: TerminalShell; tui: TUI } {
     getRows: () => 40,
     getColumns: () => 120,
   };
-  const tui = new TUI(terminal as never);
+  const tui = new TuiMainScreen(terminal as never);
   const sessionsDir = mkdtempSync(join(tmpdir(), "cetas-shell-test-"));
   const sessionId = "2026-09-01T00-00-00-000Z_deadbeef";
   writeFileSync(
     join(sessionsDir, `${sessionId}.jsonl`),
     [
       JSON.stringify({ version: 1 }),
-      JSON.stringify({ role: "user", content: [{ type: "text", text: "hello" }] }),
+      JSON.stringify({
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+      }),
     ].join("\n") + "\n",
   );
   const shell = new TerminalShell({
@@ -73,12 +76,18 @@ describe("parsePositionalArgs", () => {
   });
 
   test("hex and exponent literals fall through to positional strings", () => {
-    expect(parsePositionalArgs("0x10")).toBe(JSON.stringify({ _positional: "0x10" }));
-    expect(parsePositionalArgs("1e3")).toBe(JSON.stringify({ _positional: "1e3" }));
+    expect(parsePositionalArgs("0x10")).toBe(
+      JSON.stringify({ _positional: "0x10" }),
+    );
+    expect(parsePositionalArgs("1e3")).toBe(
+      JSON.stringify({ _positional: "1e3" }),
+    );
   });
 
   test("non-numeric text falls through to positional strings", () => {
-    expect(parsePositionalArgs("plan")).toBe(JSON.stringify({ _positional: "plan" }));
+    expect(parsePositionalArgs("plan")).toBe(
+      JSON.stringify({ _positional: "plan" }),
+    );
   });
 
   test("empty input produces an empty args object", () => {
@@ -138,7 +147,11 @@ describe("parseCetasEventLenient", () => {
     expect(parseCetasEventLenient('{"type":"turn_started"}')).toEqual({
       event: { type: "turn_started" },
     });
-    expect(parseCetasEventLenient('{"type":"turn_failed","error_message":"x","error_kind":"Model"}')).toEqual({
+    expect(
+      parseCetasEventLenient(
+        '{"type":"turn_failed","error_message":"x","error_kind":"Model"}',
+      ),
+    ).toEqual({
       event: { type: "turn_failed", error_message: "x", error_kind: "Model" },
     });
   });
@@ -153,14 +166,18 @@ describe("parseCetasEventLenient", () => {
     expect(parseCetasEventLenient('{"type":"definitely_new_thing"}')).toEqual({
       skipped: "unknown type definitely_new_thing",
     });
-    expect(() => parseCetasEventLenient('{"type":"definitely_new_thing"}')).not.toThrow();
+    expect(() =>
+      parseCetasEventLenient('{"type":"definitely_new_thing"}'),
+    ).not.toThrow();
   });
 
   test("a malformed known type is skipped, never throws", () => {
     // turn_failed without its required fields.
     const outcome = parseCetasEventLenient('{"type":"turn_failed"}');
     expect(outcome).toEqual({ skipped: "malformed turn_failed" });
-    expect(() => parseCetasEventLenient('{"type":"turn_failed"}')).not.toThrow();
+    expect(() =>
+      parseCetasEventLenient('{"type":"turn_failed"}'),
+    ).not.toThrow();
     expect(parseCetasEventLenient('"just a string"')).toEqual({
       skipped: "malformed (no type)",
     });
@@ -169,7 +186,9 @@ describe("parseCetasEventLenient", () => {
 
 /** Drive one raw sequence through the real TUI → shell dispatch path. */
 function sendKey(tui: TUI, data: string): void {
-  (tui as any).handleInput(data);
+  // pi-tui renamed the internal terminal-data entry to handleTerminalInput;
+  // it still runs the full listener → overlay → focused-component dispatch.
+  (tui as any).handleTerminalInput(data);
 }
 
 describe("handleInput key-release filtering", () => {
@@ -221,7 +240,8 @@ describe("handleObserverEvent FFI degrade path", () => {
       (shell as any).handleObserverEvent('{"type":"definitely_new_thing"}');
       expect(warns).toHaveLength(2);
       const transcript = () => (shell as any).transcript.render(200).join("\n");
-      const notices = () => transcript().match(/unrecognized bridge event/g) ?? [];
+      const notices = () =>
+        transcript().match(/unrecognized bridge event/g) ?? [];
       expect(notices()).toHaveLength(1);
       expect(transcript()).toContain("(last: unparseable json)");
 
@@ -238,7 +258,9 @@ describe("handleObserverEvent FFI degrade path", () => {
     const { shell } = makeShell();
     const { restore } = captureWarn();
     try {
-      expect(() => (shell as any).handleObserverEvent("not json")).not.toThrow();
+      expect(() =>
+        (shell as any).handleObserverEvent("not json"),
+      ).not.toThrow();
       expect(() => (shell as any).handleObserverEvent("[]")).not.toThrow();
     } finally {
       restore();
@@ -251,9 +273,7 @@ describe("handleUiRequest FFI degrade path", () => {
     const { shell } = makeShell();
     const { restore } = captureWarn();
     try {
-      await expect(
-        (shell as any).handleUiRequest("{broken"),
-      ).resolves.toBe(
+      await expect((shell as any).handleUiRequest("{broken")).resolves.toBe(
         JSON.stringify({
           type: "ui_response",
           request_id: "unknown",
@@ -294,10 +314,12 @@ describe("isAbortError", () => {
   });
 
   test("stringified MoonBit AgentError Cancelled shapes mark an interrupt", () => {
-    expect(isAbortError("AgentError::Model(provider fetch failed: Cancelled)")).toBe(true);
-    expect(isAbortError(new Error("AgentError::Interrupted(turn Cancelled by ESC)"))).toBe(
-      true,
-    );
+    expect(
+      isAbortError("AgentError::Model(provider fetch failed: Cancelled)"),
+    ).toBe(true);
+    expect(
+      isAbortError(new Error("AgentError::Interrupted(turn Cancelled by ESC)")),
+    ).toBe(true);
   });
 
   test("a bare Cancelled message is a real failure, not an interrupt", () => {

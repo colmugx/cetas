@@ -24,6 +24,58 @@ test "JsUiPort wire encodes a structured render event" {
 }
 
 ///|
+test "JsUiPort wire encodes entries bodies with optional color roles" {
+  let raw = ui_render_event_to_json({
+    slot: @port.UiSlot::Status,
+    key: "statusbar",
+    title: None,
+    body: @port.UiBody::Entries([
+      { key: "model", value: "deepseek-v4-pro", color: Some("accent"), },
+      { key: "session", value: "s1", color: None, },
+    ]),
+    ttl_ms: None,
+  })
+  let json = @json.parse(raw)
+  match json {
+    Json::Object(event) =>
+      match event["render"] {
+        Json::Object(render) =>
+          match render["body"] {
+            Json::Object(body) => {
+              assert_eq(body["type"], Json::string("entries"))
+              match body["entries"] {
+                Json::Array(entries) => {
+                  assert_eq(entries.length(), 2)
+                  match entries[0] {
+                    Json::Object(first) => {
+                      assert_eq(first["key"], Json::string("model"))
+                      assert_eq(first["value"], Json::string("deepseek-v4-pro"))
+                      assert_eq(first["color"], Json::string("accent"))
+                    }
+                    _ => fail("first entry must be an object")
+                  }
+                  match entries[1] {
+                    Json::Object(second) => {
+                      assert_eq(second["key"], Json::string("session"))
+                      assert_eq(second["value"], Json::string("s1"))
+                      // Absent color stays absent on the wire.
+                      assert_eq(second.contains("color"), false)
+                    }
+                    _ => fail("second entry must be an object")
+                  }
+                }
+                _ => fail("entries must be an array")
+              }
+            }
+            _ => fail("body must be an object")
+          }
+        _ => fail("render must be an object")
+      }
+    _ => fail("event must be an object")
+  }
+}
+
+///|
 test "JsUiPort wire decodes a correlated input response" {
   let response = decode_ui_response_event(
     "{\"type\":\"ui_response\",\"request_id\":\"ui-7\",\"response\":{\"type\":\"text\",\"text\":\"answer\"}}",

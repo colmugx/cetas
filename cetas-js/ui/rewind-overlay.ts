@@ -18,7 +18,6 @@ import {
 } from "@earendil-works/pi-tui";
 
 import type { RewindPoint } from "../src/transcript/rewind-points.ts";
-import { translateSelectArrows } from "./select-nav.ts";
 import { theme } from "./theme.ts";
 
 export interface RewindTui {
@@ -77,7 +76,7 @@ class RewindPanel implements Component {
     };
     this.list.onCancel = () => this.close();
     this.footer = new Text(
-      theme.muted("←→/↑↓ choose · ⏎ confirm · esc cancel"),
+      theme.muted("↑↓ choose · ⏎ confirm · esc cancel"),
       1,
       0,
     );
@@ -92,7 +91,8 @@ class RewindPanel implements Component {
   }
 
   handleInput(data: string): void {
-    this.list.handleInput(translateSelectArrows(data));
+    // Vertical list: only the up/down arrows move the selection.
+    this.list.handleInput(data);
   }
 
   invalidate(): void {

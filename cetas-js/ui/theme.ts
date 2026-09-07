@@ -87,6 +87,31 @@ export const theme: CetasTheme = {
   dim: chalk.dim,
 };
 
+/**
+ * Resolve a wire color role (the ext-negotiated vocabulary: accent /
+ * warning / error / success / info / muted) onto this theme's style
+ * function. Unknown roles degrade to identity — the vocabulary may grow
+ * upstream without breaking this host.
+ */
+export function roleStyle(role: string): StyleFn {
+  switch (role) {
+    case "accent":
+      return theme.accent;
+    case "warning":
+      return theme.warning;
+    case "error":
+      return theme.error;
+    case "success":
+      return theme.success;
+    case "info":
+      return theme.info;
+    case "muted":
+      return theme.muted;
+    default:
+      return (text) => text;
+  }
+}
+
 /** Markdown theme — pi-tui Markdown component consumes this shape. */
 import type { MarkdownTheme } from "@earendil-works/pi-tui";
 

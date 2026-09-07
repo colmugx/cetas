@@ -10,7 +10,7 @@ import {
   cetas_js_run_turn,
   cetas_js_runtime_create_agent,
   cetas_js_shutdown,
-} from "../../../../_build/js/release/build/colmugx/cetas-js/lib/lib.js";
+} from "mbt:colmugx/cetas-js/lib";
 
 const cleanup: string[] = [];
 
@@ -92,7 +92,7 @@ describe("cetas_js_rewind wire format", () => {
         permissionMode: string,
         sessionsDir: string,
       ) => unknown)(cwd, 4, home, "workspace_write", sessionsDir);
-      const runtime = new (CetasJsRuntime as unknown as new (config: unknown) => unknown)(config);
+      const runtime = new (CetasJsRuntime as unknown as new (config: unknown) => CetasJsRuntime)(config);
       const agent = await cetas_js_runtime_create_agent(
         runtime,
         () => undefined,
@@ -110,30 +110,28 @@ describe("cetas_js_rewind wire format", () => {
 
         const sessionPath = join(sessionsDir, "rewind-session.jsonl");
         const before = jsonlLines(await Bun.file(sessionPath).text());
-        // Persisted layout: line 0 metadata, then one line per message — the
-        // first turn persists the system prompt (message 0) and injects a
-        // permission-context user message (message 2), so lines are:
-        // metadata | system | user1 | permission-context | assistant1 |
-        // user2 | assistant2.
-        expect(before).toHaveLength(7);
+        // Persisted layout: line 0 metadata, then one line per message. The
+        // permission policy injects its <permission-context> mode reminder
+        // only in ReadOnly mode, so workspace_write turns persist:
+        // metadata | system | user1 | assistant1 | user2 | assistant2.
+        expect(before).toHaveLength(6);
         expect(before[0]).toBe("{}");
         expect(before[1]).toContain("\"role\":\"system\"");
         expect(before[2]).toContain("first question");
-        expect(before[3]).toContain("permission-context");
-        expect(before[4]).toContain("first reply");
-        expect(before[5]).toContain("follow-up");
-        expect(before[6]).toContain("second reply");
+        expect(before[3]).toContain("first reply");
+        expect(before[4]).toContain("follow-up");
+        expect(before[5]).toContain("second reply");
 
-        // Rewind past the second exchange: keep messages [0, 4) =
-        // system + first question + permission context + first reply.
-        const rewound = await cetas_js_rewind(agent, "rewind-session", 4);
+        // Rewind past the second exchange: keep messages [0, 3) =
+        // system + first question + first reply.
+        const rewound = await cetas_js_rewind(agent, "rewind-session", 3);
         expect(JSON.parse(rewound)).toMatchObject({ ok: true });
 
         const afterText = await Bun.file(sessionPath).text();
         const after = jsonlLines(afterText);
-        expect(after).toHaveLength(5);
+        expect(after).toHaveLength(4);
         // Byte-for-byte: kept lines are the original prefix, nothing else.
-        expect(afterText).toBe(`${before.slice(0, 5).join("\n")}\n`);
+        expect(afterText).toBe(`${before.slice(0, 4).join("\n")}\n`);
 
         // An out-of-range index clamps to the message count: a full rewrite
         // that still reproduces every line byte-for-byte.
@@ -141,7 +139,7 @@ describe("cetas_js_rewind wire format", () => {
         expect(JSON.parse(clamped)).toMatchObject({ ok: true });
         const afterClampText = await Bun.file(sessionPath).text();
         expect(afterClampText).toBe(afterText);
-        expect(jsonlLines(afterClampText)).toHaveLength(5);
+        expect(jsonlLines(afterClampText)).toHaveLength(4);
 
         // Storage-level failures ride the JSON envelope, not a rejection.
         const invalid = await cetas_js_rewind(agent, "..", 0);

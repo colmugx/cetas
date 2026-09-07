@@ -12,7 +12,6 @@ import {
   "colmugx/posoco-ext-pi-adaptor",
   "colmugx/posoco-ext-plan",
   "colmugx/posoco-ext-ratelimit",
-  "colmugx/posoco-ext-statusbar",
   "colmugx/posoco-ext-workspace",
   "colmugx/posoco/error",
   "colmugx/posoco/port",
@@ -24,6 +23,8 @@ import {
 pub fn cetas_js_abort_turn(CetasJsAgent) -> String
 
 pub fn cetas_js_active_model_supports_images(CetasJsAgent) -> String
+
+pub fn cetas_js_cancel_pending_ratelimit(CetasJsAgent) -> Unit
 
 pub fn cetas_js_create_agent(CetasJsConfig, JsCallback, JsUiRenderCallback, JsUiRequestCallback, JsCancelCheck) -> @js_async.Promise[CetasJsAgent]
 
@@ -63,6 +64,8 @@ pub fn cetas_js_set_goal(CetasJsRuntime, String) -> Unit
 
 pub fn cetas_js_shutdown(CetasJsAgent) -> @js_async.Promise[Unit]
 
+pub fn cetas_js_start_ratelimit_monitor(CetasJsAgent, @js_async.AbortSignal) -> @js_async.Promise[Unit]
+
 pub fn cetas_js_tool_catalog(CetasJsAgent) -> String
 
 // Errors
@@ -78,7 +81,6 @@ pub struct CetasJsAgent {
   agent : @posoco.Agent
   profile_errors : Array[String]
   router : @posoco-ext-llm.RouterModelPort
-  statusbar : @posoco-ext-statusbar.StatusBar
   plan : @posoco-ext-plan.PlanMode
   home : String
   observer : JsCallbackObserver

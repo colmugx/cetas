@@ -4,6 +4,7 @@ import {
   Input,
   Loader,
   Markdown,
+  matchesKey,
   Text,
   type Component,
   type TUI,
@@ -11,7 +12,7 @@ import {
   visibleWidth,
 } from "@earendil-works/pi-tui";
 
-import { markdownTheme, theme } from "./theme.ts";
+import { markdownTheme, roleStyle, theme } from "./theme.ts";
 
 export type UiSlot = "status" | "notice" | "widget";
 
@@ -19,6 +20,10 @@ export type UiBody =
   | { type: "text"; text: string }
   | { type: "lines"; lines: string[] }
   | { type: "key_value"; entries: Array<{ key: string; value: string }> }
+  | {
+      type: "entries";
+      entries: Array<{ key: string; value: string; color?: string }>;
+    }
   | { type: "progress"; current: number; label?: string }
   | { type: "markdown"; text: string };
 
@@ -173,6 +178,33 @@ function parseUiBody(value: unknown): UiBody {
           };
         }),
       };
+    case "entries":
+      if (!Array.isArray(body.entries)) {
+        throw new Error("ui_render.render.body.entries must be an array");
+      }
+      return {
+        type,
+        entries: body.entries.map((entry, index) => {
+          const record = requireRecord(
+            entry,
+            `ui_render.render.body.entries[${index}]`,
+          );
+          return {
+            key: requireString(
+              record.key,
+              `ui_render.render.body.entries[${index}].key`,
+            ),
+            value: requireString(
+              record.value,
+              `ui_render.render.body.entries[${index}].value`,
+            ),
+            color: optionalString(
+              record.color,
+              `ui_render.render.body.entries[${index}].color`,
+            ),
+          };
+        }),
+      };
     case "progress":
       if (typeof body.current !== "number" || !Number.isFinite(body.current)) {
         throw new Error("ui_render.render.body.current must be a finite number");
@@ -217,8 +249,8 @@ interface RenderMounts {
 
 /**
  * Route one `slot:key` render to a dedicated mount instead of the slot's
- * shared container. `format: "line"` renders a key_value body as a single
- * status-bar line (first value bold, the rest muted `key: value` pairs)
+ * shared container. `format: "line"` renders a key_value or entries body as
+ * a single status-bar line of muted `key: value` segments joined by ` | `
  * instead of the default titled multi-line block.
  */
 export interface UiKeyRoute {
@@ -242,6 +274,26 @@ function assertRender(intent: UiRender): void {
   }
 }
 
+/**
+ * Status values that carry an absolute UTC timestamp (ISO-8601 `Z` form —
+ * the devkit status convention, e.g. the ratelimit reset announcement) are
+ * the one thing the host localizes: MoonBit publishers stay timezone-free,
+ * and the user's wall clock is a host concern. Rendered as local
+ * `yyyy-mm-dd hh:mm:ss`; every other value passes through untouched.
+ */
+const UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+
+export function formatStatusValue(value: string): string {
+  if (!UTC_TIMESTAMP.test(value)) return value;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  );
+}
+
 function formatKeyValue(entries: Array<{ key: string; value: string }>): string {
   const keyWidth = entries.reduce((width, entry) => Math.max(width, entry.key.length), 0);
   return entries
@@ -250,17 +302,25 @@ function formatKeyValue(entries: Array<{ key: string; value: string }>): string 
 }
 
 /**
- * Render key/value entries as one status-bar line: the first entry's value is
- * bold, the remaining entries are muted `key: value` pairs joined by ` | `.
- * The host decides line placement through key routes; this is only a shape.
+ * Render keyed entries as one status-bar line: every segment is a muted
+ * `key:` label plus its value, values styled by their color role, segments
+ * joined by a muted ` | `. A role-less first value keeps the legacy bold
+ * treatment; later role-less values stay plain. The host decides line
+ * placement through key routes; this is only a shape.
  */
 function renderKeyValueLine(
-  entries: Array<{ key: string; value: string }>,
+  entries: Array<{ key: string; value: string; color?: string }>,
 ): { component: Component; dispose(): void } {
-  const [first, ...rest] = entries;
-  const left = first === undefined ? "" : theme.bold(` ${first.value} `);
-  const right = rest.map((entry) => `${entry.key}: ${entry.value}`).join(" | ");
-  const line = right.length === 0 ? left.trimEnd() : left + theme.muted(right);
+  const segments = entries.map((entry, index) => {
+    const value =
+      entry.color !== undefined
+        ? roleStyle(entry.color)(formatStatusValue(entry.value))
+        : index === 0
+          ? theme.bold(formatStatusValue(entry.value))
+          : formatStatusValue(entry.value);
+    return `${theme.muted(`${entry.key}:`)} ${value}`;
+  });
+  const line = segments.join(theme.muted(" | "));
   return { component: new Text(line, 1, 0), dispose() {} };
 }
 
@@ -288,6 +348,19 @@ function renderBody(
       return {
         component: new Text(
           `${theme.bold(title)}\n${formatKeyValue(body.entries)}`,
+          1,
+          0,
+        ),
+        dispose() {},
+      };
+    case "entries":
+      // Non-line route: degrade to one `key: value` line per entry. Color
+      // roles are the line renderer's concern, not the block renderer's.
+      return {
+        component: new Text(
+          `${theme.bold(title)}\n${body.entries
+            .map((entry) => `${entry.key}: ${formatStatusValue(entry.value)}`)
+            .join("\n")}`,
           1,
           0,
         ),
@@ -352,10 +425,11 @@ export class UiRenderHost {
     this.unmount(slotKey);
 
     const route = this.keyRoutes[slotKey];
+    const body = intent.body;
     const renderedBody =
-      route?.format === "line" && intent.body.type === "key_value"
-        ? renderKeyValueLine(intent.body.entries)
-        : renderBody(this.tui, intent.title, intent.body);
+      route?.format === "line" && (body.type === "key_value" || body.type === "entries")
+        ? renderKeyValueLine(body.entries)
+        : renderBody(this.tui, intent.title, body);
     const container = route?.mount ?? this.mounts[intent.slot];
     const mounted: MountedRender = {
       component: renderedBody.component,
@@ -442,6 +516,8 @@ class AskPanel implements Component {
   private readonly input?: Input;
   private selectedIndex = 0;
   private settled = false;
+  /** Width of the most recent render; decides the layout, hence the arrow axis. */
+  private lastWidth = 0;
 
   constructor(
     request: UiRequest,
@@ -493,6 +569,7 @@ class AskPanel implements Component {
   }
 
   render(width: number): string[] {
+    this.lastWidth = width;
     // First title line is the question; the remaining lines are the detail
     // (e.g. the permission ask's arguments preview).
     const [firstTitle, ...restTitles] = this.titleLines;
@@ -534,7 +611,12 @@ class AskPanel implements Component {
         lines.push(theme.muted(` (${this.selectedIndex + 1}/${this.options.length})`));
       }
     }
-    lines.push(theme.muted(" ←→/↑↓ choose · ⏎ confirm · esc cancel"));
+    // The footer names the axis that actually drives the current layout.
+    lines.push(theme.muted(
+      buttonRow !== undefined
+        ? " ←→ choose · ⏎ confirm · esc cancel"
+        : " ↑↓ choose · ⏎ confirm · esc cancel",
+    ));
     return lines;
   }
 
@@ -544,15 +626,21 @@ class AskPanel implements Component {
       return;
     }
     const kb = getKeybindings();
-    // Left/right are not in pi-tui's select actions; the arrow escape
-    // sequences are matched directly so the horizontal row navigates the
-    // way it reads.
-    const up = kb.matches(data, "tui.select.up") || data === "\u001b[D";
-    const down = kb.matches(data, "tui.select.down") || data === "\u001b[C";
-    if (up) {
+    // The navigation axis follows the layout, never both: the horizontal
+    // button row moves with left/right only, the stacked fallback with
+    // up/down only. Left/right are not in pi-tui's select actions; matchesKey
+    // covers every terminal encoding of those arrows.
+    const horizontal = this.renderButtonRow(this.lastWidth) !== undefined;
+    const back = horizontal
+      ? matchesKey(data, "left")
+      : kb.matches(data, "tui.select.up");
+    const forward = horizontal
+      ? matchesKey(data, "right")
+      : kb.matches(data, "tui.select.down");
+    if (back) {
       this.selectedIndex =
         this.selectedIndex === 0 ? this.options.length - 1 : this.selectedIndex - 1;
-    } else if (down) {
+    } else if (forward) {
       this.selectedIndex =
         this.selectedIndex === this.options.length - 1 ? 0 : this.selectedIndex + 1;
     } else if (kb.matches(data, "tui.select.confirm")) {

@@ -18,7 +18,6 @@ import {
 } from "@earendil-works/pi-tui";
 
 import { theme } from "./theme.ts";
-import { translateSelectArrows } from "./select-nav.ts";
 
 export interface AuthPromptOption {
   id: string;
@@ -103,7 +102,8 @@ class SelectPromptPanel implements Component {
   }
 
   handleInput(data: string): void {
-    this.list.handleInput(translateSelectArrows(data));
+    // Vertical list: only the up/down arrows move the selection.
+    this.list.handleInput(data);
   }
 
   invalidate(): void {

@@ -21,7 +21,6 @@ import {
 } from "@earendil-works/pi-tui";
 
 import { theme } from "./theme.ts";
-import { translateSelectArrows } from "./select-nav.ts";
 
 export interface SessionEntry {
   /** Session id — the `.jsonl` filename stem under the sessions directory. */
@@ -143,7 +142,7 @@ class SessionsPanel implements Component {
       this.empty = new Text("", 0, 0);
     }
     this.footer = new Text(
-      theme.muted("←→/↑↓ browse · enter resume · esc close · history stays on disk"),
+      theme.muted("↑↓ browse · enter resume · esc close · history stays on disk"),
       1,
       0,
     );
@@ -159,12 +158,13 @@ class SessionsPanel implements Component {
 
   handleInput(data: string): void {
     // 'q' mirrors the esc dismissal for vi muscle memory; everything else
-    // (arrows/enter/esc) is SelectList navigation.
+    // (arrows/enter/esc) is SelectList navigation. The list is vertical, so
+    // only the up/down arrows move the selection.
     if (this.list === undefined || matchesKey(data, "q")) {
       this.close();
       return;
     }
-    this.list.handleInput(translateSelectArrows(data));
+    this.list.handleInput(data);
   }
 
   invalidate(): void {

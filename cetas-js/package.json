@@ -1,6 +1,6 @@
 {
   "name": "cetas-js",
-  "version": "0.1.1",
+  "version": "0.3.0",
   "type": "module",
   "description": "Bun-runtime host for cetas — provider-neutral posoco agent with pi-tui",
   "scripts": {
@@ -13,16 +13,16 @@
     "build:linux-musl": "bun build.ts linux-x64-musl",
     "build:linux-arm64": "bun build.ts linux-arm64",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test --preload ./moonbit-preload.ts"
   },
   "license": "Apache-2.0",
   "devDependencies": {
     "@types/bun": "latest",
-    "bun-plugin-moonbit": "^0.1.0-beta.0",
+    "bun-plugin-moonbit": "^0.1.0-beta.1",
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@earendil-works/pi-tui": "^0.84.3",
+    "@earendil-works/pi-tui": "^0.85.1",
     "chalk": "^6.0.0"
   }
 }

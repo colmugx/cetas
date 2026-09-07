@@ -5,8 +5,6 @@
 /// and registration of public provider-extension seams. Provider extensions
 /// receive an opaque `ProviderConfigSource` and own defaults, endpoint/path
 /// handling, protocol, model capabilities, and OAuth credential rebuilding.
-/// There is deliberately no provider-id switch or legacy environment fallback
-/// in this package.
 ///
 /// All filesystem access goes through `posoco-ext-workspace` (`WorkspaceFs`);
 /// credential persistence is delegated to `posoco-ext-credentials`
@@ -345,12 +343,15 @@ fn active_model_warning(
 /// pick the default slot and effort instead of always resetting to the first
 /// catalog slot. A drifted slot or stale effort degrades to the router default
 /// with one observer warning; malformed settings still fail composition
-/// loudly (the same file is already validated for `providers`).
+/// loudly (the same file is already validated for `providers`). The shared
+/// event bus rides along so the router can publish model/token/cache status
+/// ops alongside the other cetas extensions.
 async fn build_provider_router(
   runtime : CetasJsRuntime,
   store : @credentials.FileProviderCredentialStore,
   auth : JsAuthInteraction,
   observer : &@posoco.Observer,
+  bus? : @devkit.EventBus? = None,
 ) -> @llm.RouterModelPort raise @posoco.CompositionError {
   let catalogs = cached_provider_catalogs(runtime)
   if catalogs.is_empty() {
@@ -377,6 +378,7 @@ async fn build_provider_router(
   let router = @llm.RouterModelPort::from_catalogs(
     catalogs,
     default_slot_id~,
+    bus~,
     provider_credential_store=Some(store as &@oauth.ProviderCredentialStore),
     auth_interaction=Some(auth as &@oauth.AuthInteraction),
     auth_prompt=Some(auth as &@oauth.AuthPromptInteraction),

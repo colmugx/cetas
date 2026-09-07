@@ -9,6 +9,7 @@
 
 import chalk from "chalk";
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import {
   Container,
   Editor,
@@ -31,6 +32,7 @@ import {
   type ProviderAuthCapability,
 } from "../src/app/index.ts";
 import { newSessionId, sessionFilePath } from "../src/app/session-id.ts";
+import { PiCommands, piCommandArgItems } from "../src/app/pi-commands.ts";
 import { parseSessionReplay, type ReplayItem } from "../src/transcript/replay.ts";
 import {
   listRewindPoints,
@@ -76,7 +78,7 @@ import { OAuthOverlay } from "./oauth-overlay.ts";
 import { AuthPromptOverlay, parseAuthPromptRequest } from "./auth-prompt-overlay.ts";
 import { SessionsOverlay, listSessionEntries } from "./sessions-overlay.ts";
 import { RewindOverlay } from "./rewind-overlay.ts";
-import { translateSelectArrows } from "./select-nav.ts";
+import { ModalVeilHost } from "./modal-mask.ts";
 import { theme } from "./theme.ts";
 
 const identity = (value: string): string => value;
@@ -113,6 +115,8 @@ const editorTheme: EditorTheme = {
 export interface TerminalShellOptions {
   tui: TUI;
   cwd: string;
+  /** User home for the /pi package surface; defaults to the OS home. */
+  home?: string;
   /** Project sessions directory — `<home>/.cetas/sessions/--<encoded-cwd>--`. */
   sessionsDir: string;
   maxToolRounds: number;
@@ -182,7 +186,7 @@ class ProviderPickerOverlay implements Component {
   }
 
   handleInput(data: string): void {
-    this.list.handleInput(translateSelectArrows(data));
+    this.list.handleInput(data);
   }
 
   invalidate(): void {
@@ -203,6 +207,7 @@ export class TerminalShell {
   private sessionId: string;
   private readonly cwd: string;
   private readonly sessionsDir: string;
+  private readonly piCommands: PiCommands;
   private readonly onExit: (code: number) => void;
 
   private readonly transcript: Container;
@@ -217,6 +222,7 @@ export class TerminalShell {
   private readonly uiRenderHost: UiRenderHost;
   private readonly uiRequestBar: UiRequestBar;
   private readonly uiRegistry = new UiRegistry();
+  private readonly modals: ModalVeilHost;
   private readonly modelPicker: ModelPickerOverlay;
   private readonly oauthOverlay: OAuthOverlay;
   private readonly authPromptOverlay: AuthPromptOverlay;
@@ -247,6 +253,8 @@ export class TerminalShell {
   private toolOutputExpanded = false;
   /** Follow-up bubbles awaiting their TurnStarted; promoted oldest-first. */
   private readonly queuedPrompts: QueuedUserMessage[] = [];
+  /** True only while a monitor-triggered recovery owns the Agent loop. */
+  private rateLimitRecoveryInTurn = false;
   private commandShortcuts: ReadonlyArray<{ keyId: KeyId; command: string }> = [];
   private providerPickerHandle?: OverlayHandle;
   private started = false;
@@ -271,6 +279,17 @@ export class TerminalShell {
     this.tui = options.tui;
     this.cwd = options.cwd;
     this.sessionsDir = options.sessionsDir;
+    this.piCommands = new PiCommands({
+      home: options.home ?? homedir(),
+      // Reload through the application's public boundary: refreshSetup
+      // recomposes the agent, and the bridge re-scans pi packages
+      // (idempotently) before creating it.
+      reload: async () => {
+        await this.requireApp().refreshSetup();
+        return this.requireApp().snapshot().piPackages;
+      },
+      lastSummary: () => this.app?.snapshot().piPackages,
+    });
     this.sessionId = options.initialSessionId;
     this.onExit = options.onExit ?? (() => {});
     this.callbacks = {
@@ -334,14 +353,17 @@ export class TerminalShell {
     this.uiRequestBar = new UiRequestBar(this.tui, askRegion, () => {
       this.tui.setFocus(this.editor);
     });
-    this.modelPicker = new ModelPickerOverlay(this.tui);
-    this.oauthOverlay = new OAuthOverlay(this.tui, () => {
+    // Every overlay-style popup goes through the veil host so centered
+    // modals render over a dimmed background.
+    this.modals = new ModalVeilHost(this.tui);
+    this.modelPicker = new ModelPickerOverlay(this.modals);
+    this.oauthOverlay = new OAuthOverlay(this.modals, () => {
       this.app?.cancelCurrentOperation();
     });
-    this.authPromptOverlay = new AuthPromptOverlay(this.tui);
-    this.skillsOverlay = new SkillsOverlay(this.tui);
-    this.sessionsOverlay = new SessionsOverlay(this.tui);
-    this.rewindOverlay = new RewindOverlay(this.tui);
+    this.authPromptOverlay = new AuthPromptOverlay(this.modals);
+    this.skillsOverlay = new SkillsOverlay(this.modals);
+    this.sessionsOverlay = new SessionsOverlay(this.modals);
+    this.rewindOverlay = new RewindOverlay(this.modals);
     this.commandLock = new CommandLock(
       (label) => {
         this.commandBusy = true;
@@ -618,11 +640,13 @@ export class TerminalShell {
 
   /**
    * Generic command shortcuts: any extension command that declares a pi-tui
-   * key id (e.g. ext-plan's "shift+tab") becomes a live keybinding.
+   * key id (e.g. ext-plan's "shift+tab") becomes a live keybinding. Invisible
+   * defs qualify on purpose: pi shortcuts register as shortcut-only entries
+   * that must never surface in command lists but still need their key.
    */
   private refreshCommandShortcuts(): void {
     this.commandShortcuts = (this.app?.listCommands() ?? [])
-      .filter((descriptor) => descriptor.visible && descriptor.shortcut !== undefined)
+      .filter((descriptor) => descriptor.shortcut !== undefined)
       .map((descriptor) => ({
         keyId: descriptor.shortcut as KeyId,
         command: `/${descriptor.id}`,
@@ -696,6 +720,10 @@ export class TerminalShell {
     }
     const event = outcome.event;
     if (event.type === "turn_started") {
+      if (this.app?.rateLimitRecoveryActive === true) {
+        this.rateLimitRecoveryInTurn = true;
+        this.inTurn = true;
+      }
       this.skippedBridgeEvents = 0;
       this.skippedEventsNoticed = false;
       this.promoteQueuedPrompt();
@@ -704,6 +732,15 @@ export class TerminalShell {
       this.oauthOverlay.notify(event);
     }
     this.router.handleEvent(event);
+    if (
+      this.rateLimitRecoveryInTurn &&
+      (event.type === "turn_completed" || event.type === "turn_failed")
+    ) {
+      this.rateLimitRecoveryInTurn = false;
+      this.inTurn = false;
+      this.statusLoader.stop();
+      this.tui.requestRender();
+    }
   }
 
   /**
@@ -788,6 +825,7 @@ export class TerminalShell {
               ["/rewind", "Rewind to an earlier message of this session"],
               ["/model", "Select a model and effort"],
               ["/skills", "Browse discovered agent skills by scope"],
+              ["/pi", "Manage pi packages (install/remove/list)"],
               ["/login", "Authenticate with a provider (API key or OAuth)"],
               ["/exit", "Quit cetas-js"],
             ].map(([label, detail]) => ({
@@ -799,8 +837,10 @@ export class TerminalShell {
             // (the router also contributes /model and /login); without this
             // filter the dropdown lists those commands twice.
             const localIds = new Set(local.map((item) => item.label));
+            // Invisible defs (pi shortcut-only entries) stay out of the
+            // dropdown; they are reachable via their keybinding, not `/id`.
             const extension = this.requireApp().listCommands()
-              .filter((descriptor) => !localIds.has(`/${descriptor.id}`))
+              .filter((descriptor) => descriptor.visible && !localIds.has(`/${descriptor.id}`))
               .map((descriptor) => ({
                 label: `/${descriptor.id}`,
                 detail: descriptor.description || descriptor.label,
@@ -997,7 +1037,26 @@ export class TerminalShell {
       await this.invokeCommand("/skills", rawArgs);
     },
     login: (rawArgs) => this.openLogin(rawArgs),
+    pi: (rawArgs) => this.runPiCommand(rawArgs),
   };
+
+  /** /pi — pi package surface management (install/remove/list) via PiCommands. */
+  private async runPiCommand(rawArgs: string): Promise<void> {
+    if (this.inTurn || this.commandBusy) {
+      this.addTranscriptChild(errorNotice("/pi cannot run while an operation is active"));
+      return;
+    }
+    this.commandLock.acquire("managing pi packages");
+    try {
+      const outcome = await this.piCommands.run(rawArgs);
+      const text = outcome.lines.join("\n");
+      this.addTranscriptChild(outcome.ok ? systemNotice(text) : errorNotice(text));
+    } catch (error: unknown) {
+      this.addTranscriptChild(errorNotice(`/pi failed: ${errorMessage(error)}`));
+    } finally {
+      this.commandLock.release();
+    }
+  }
 
   private async startNewSession(): Promise<void> {
     if (this.inTurn || this.commandBusy) {
@@ -1435,6 +1494,7 @@ export class TerminalShell {
     argPrefix: string,
   ): Array<{ label: string; detail: string; insert_text: string }> {
     if (command === "login") return this.loginArgItems(argPrefix);
+    if (command === "pi") return piCommandArgItems(this.piCommands.home, argPrefix);
     const descriptor = this.requireApp()
       .listCommands()
       .find(
@@ -1548,7 +1608,7 @@ export class TerminalShell {
     };
     list.onCancel = close;
     try {
-      handle = this.tui.showOverlay(panel, {
+      handle = this.modals.showOverlay(panel, {
         width: "56%",
         maxHeight: "60%",
         anchor: "center",
@@ -1591,7 +1651,7 @@ export class TerminalShell {
     };
     list.onCancel = close;
     try {
-      handle = this.tui.showOverlay(panel, {
+      handle = this.modals.showOverlay(panel, {
         width: "62%",
         maxHeight: "60%",
         anchor: "center",
@@ -1662,11 +1722,13 @@ export class TerminalShell {
         if (outcome.feedback !== undefined && outcome.feedback.length > 0) {
           this.addTranscriptChild(systemNotice(`${command}: ${outcome.feedback}`));
         }
-        // These commands return structured data for pickers (slot catalog,
-        // bar layout); the status bar already reflects it, so don't dump it.
+        // /model and /effort return structured data for pickers (slot
+        // catalog, effort levels); the status bar already reflects the
+        // choice, so don't dump it. /statusbar is an informational provider
+        // listing — its output should be shown.
         if (
           outcome.structured !== undefined &&
-          !["/model", "/effort", "/statusbar"].includes(command)
+          !["/model", "/effort"].includes(command)
         ) {
           this.addTranscriptChild(systemNotice(formatStructuredOutcome(outcome.structured)));
         }
@@ -1748,6 +1810,7 @@ const LOCAL_SLASH_ROUTES: readonly SlashRoute[] = [
   { id: "exit", aliases: ["quit"] },
   { id: "model" },
   { id: "skills" },
+  { id: "pi" },
   { id: "login" },
 ];
 

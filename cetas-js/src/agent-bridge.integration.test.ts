@@ -3,15 +3,20 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import {
+const {
   CetasJsConfig,
   CetasJsRuntime,
   cetas_js_abort_turn,
+  cetas_js_cancel_pending_ratelimit,
   cetas_js_runtime_create_agent,
   cetas_js_invoke_command,
   cetas_js_run_turn,
+  cetas_js_start_ratelimit_monitor,
   cetas_js_shutdown,
-} from "../../../_build/js/release/build/colmugx/cetas-js/lib/lib.js";
+} = await import("mbt:colmugx/cetas-js/lib") as unknown as typeof import("mbt:colmugx/cetas-js/lib") & {
+  cetas_js_start_ratelimit_monitor(agent: unknown, signal: AbortSignal): Promise<void>;
+  cetas_js_cancel_pending_ratelimit(agent: unknown): void;
+};
 
 const cleanup: string[] = [];
 
@@ -22,6 +27,23 @@ const cleanup: string[] = [];
 // synchronously) is gone.
 async function readRequestBody(body: unknown): Promise<string> {
   return new TextDecoder().decode(body as Uint8Array);
+}
+
+async function waitFor(predicate: () => boolean, message: string): Promise<void> {
+  const deadline = Date.now() + 3000;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error(message);
+    await Bun.sleep(10);
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    (error as { name?: unknown }).name === "AbortError"
+  );
 }
 
 afterEach(async () => {
@@ -47,7 +69,9 @@ describe("long-lived cetas-js bridge", () => {
       permissionMode: string,
       sessionsDir: string,
     ) => unknown)(cwd, 4, home, "workspace_write", "");
-    const runtime = new (CetasJsRuntime as unknown as new (config: unknown) => unknown)(config);
+    const runtime = new (CetasJsRuntime as unknown as new (
+      config: unknown,
+    ) => Parameters<typeof cetas_js_runtime_create_agent>[0])(config);
 
     await expect(
       cetas_js_runtime_create_agent(
@@ -121,9 +145,17 @@ describe("long-lived cetas-js bridge", () => {
       permissionMode: string,
       sessionsDir: string,
     ) => unknown)(cwd, 4, home, "workspace_write", "");
-    const runtime = new (CetasJsRuntime as unknown as new (config: unknown) => unknown)(config);
+    const runtime = new (CetasJsRuntime as unknown as new (
+      config: unknown,
+    ) => Parameters<typeof cetas_js_runtime_create_agent>[0])(config);
     const events: unknown[] = [];
-    const renders: Array<{ type?: string; render?: { key?: string } }> = [];
+    const renders: Array<{
+      type?: string;
+      render?: {
+        key?: string;
+        body?: { type?: string; entries?: Array<{ key?: unknown; value?: unknown }> };
+      };
+    }> = [];
     const agent = await cetas_js_runtime_create_agent(
       runtime,
       (json: string) => events.push(JSON.parse(json)),
@@ -135,9 +167,18 @@ describe("long-lived cetas-js bridge", () => {
     );
 
     try {
-      // create_agent pushes the initial status bar facts through the UI port.
+      // Resident segments announce their initial state at composition:
+      // the model segment renders during create_agent, before any turn —
+      // the startup bar is no longer empty (user ruling 2026-09-04).
       expect(
-        renders.some((event) => event.type === "ui_render" && event.render?.key === "statusbar"),
+        renders.some(
+          (event) =>
+            event.type === "ui_render" &&
+            event.render?.key === "statusbar" &&
+            event.render?.body?.entries?.some(
+              (entry) => entry.key === "model",
+            ),
+        ),
       ).toBe(true);
 
       await expect(
@@ -188,6 +229,38 @@ describe("long-lived cetas-js bridge", () => {
         new AbortController().signal,
       );
       expect(firstReply).toContain("first reply");
+      // Status publishes are event-driven beyond the composed initial
+      // state: during the first turn the llm observer publishes token
+      // facts and the session store publishes the session segment on the
+      // shared bus; the statusbar bridge renders each applied change over
+      // the UI port, proving the publisher → bus → bridge → render wire
+      // end to end.
+      expect(
+        renders.some((event) => event.type === "ui_render" && event.render?.key === "statusbar"),
+      ).toBe(true);
+      // The statusbar bridge now always publishes Entries bodies: at least
+      // one statusbar render must carry a non-empty entries array whose
+      // key/value pairs are strings, ready for the host's line renderer.
+      // (Color roles stay unit-tested; no colored segment publishes here.)
+      expect(
+        renders
+          .filter(
+            (event) =>
+              event.type === "ui_render" && event.render?.key === "statusbar",
+          )
+          .some(({ render }) => {
+            const body = render?.body;
+            return (
+              body?.type === "entries" &&
+              (body.entries?.length ?? 0) > 0 &&
+              (body.entries ?? []).every(
+                (entry) =>
+                  typeof entry.key === "string" &&
+                  typeof entry.value === "string",
+              )
+            );
+          }),
+      ).toBe(true);
       const secondReply = await cetas_js_run_turn(
         agent,
         "follow-up",
@@ -209,6 +282,118 @@ describe("long-lived cetas-js bridge", () => {
     } finally {
       await cetas_js_shutdown(agent);
       globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("rate-limit monitor retries the interrupted user turn at reset without another host send", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cetas-js-ratelimit-"));
+    const home = await mkdtemp(join(tmpdir(), "cetas-js-ratelimit-home-"));
+    cleanup.push(cwd, home);
+    const requests: Array<Record<string, unknown>> = [];
+    const events: Array<Record<string, unknown>> = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input, init) => {
+      if (!String(input).startsWith("http://cetas.test")) {
+        return new Response("service unavailable", { status: 503 });
+      }
+      if (init?.body === undefined || init.body === null) {
+        throw new Error("model request body is required");
+      }
+      requests.push(JSON.parse(await readRequestBody(init.body)) as Record<string, unknown>);
+      if (requests.length === 1) {
+        return new Response(JSON.stringify({
+          error: {
+            type: "usage_limit_reached",
+            message: "test quota reset",
+            resets_in_seconds: 0,
+          },
+        }), {
+          status: 429,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(
+        [
+          `data: ${JSON.stringify({ choices: [{ delta: { content: "recovered" } }] })}`,
+          `data: ${JSON.stringify({
+            choices: [{ finish_reason: "stop" }],
+            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+          })}`,
+          "data: [DONE]",
+          "",
+        ].join("\n\n"),
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    }) as typeof fetch;
+
+    await mkdir(join(home, ".cetas"), { recursive: true });
+    await Bun.write(join(home, ".cetas/settings.json"), JSON.stringify({
+      providers: {
+        openrouter: {
+          api_key: "test-key",
+          base_url: "http://cetas.test/v1",
+          model: "scripted-model",
+        },
+      },
+    }));
+    const config = new (CetasJsConfig as unknown as new (
+      cwd: string,
+      maxToolRounds: number,
+      home: string,
+      permissionMode: string,
+      sessionsDir: string,
+    ) => unknown)(cwd, 4, home, "workspace_write", "");
+    const runtime = new (CetasJsRuntime as unknown as new (
+      config: unknown,
+    ) => Parameters<typeof cetas_js_runtime_create_agent>[0])(config);
+    const agent = await cetas_js_runtime_create_agent(
+      runtime as never,
+      (raw: string) => events.push(JSON.parse(raw) as Record<string, unknown>),
+      () => undefined,
+      async () => "",
+      () => false,
+    );
+    const monitorController = new AbortController();
+    const monitor = cetas_js_start_ratelimit_monitor(agent, monitorController.signal);
+
+    try {
+      await expect(cetas_js_run_turn(
+        agent,
+        "retry this exact request",
+        "[]",
+        "ratelimit-session",
+        new AbortController().signal,
+      )).rejects.toThrow();
+      await waitFor(
+        () => requests.length >= 2 && events.some((event) => event.type === "turn_completed"),
+        "rate-limit reset did not trigger an automatic resumed turn",
+      );
+
+      expect(requests).toHaveLength(2);
+      const resumedMessages = JSON.stringify(requests[1]!.messages);
+      expect(resumedMessages.match(/retry this exact request/g)).toHaveLength(1);
+      expect(resumedMessages).not.toContain("previous request was interrupted");
+      const recoveryTraces = events.filter(
+        (event) =>
+          event.type === "custom" &&
+          event.source === "posoco_ext_ratelimit" &&
+          event.label === "recovery_trace",
+      );
+      expect(recoveryTraces.length).toBeGreaterThan(0);
+      const traceJson = JSON.stringify(recoveryTraces);
+      expect(traceJson).toContain("encountered_at_ms=");
+      expect(traceJson).not.toContain("retry this exact request");
+    } finally {
+      try {
+        cetas_js_cancel_pending_ratelimit(agent);
+        monitorController.abort();
+        await monitor.catch((error: unknown) => {
+          if (!isAbortError(error)) throw error;
+        });
+        await cetas_js_shutdown(agent);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     }
   });
 
@@ -276,7 +461,9 @@ describe("long-lived cetas-js bridge", () => {
       permissionMode: string,
       sessionsDir: string,
     ) => unknown)(cwd, 4, home, "workspace_write", "");
-    const runtime = new (CetasJsRuntime as unknown as new (config: unknown) => unknown)(config);
+    const runtime = new (CetasJsRuntime as unknown as new (
+      config: unknown,
+    ) => Parameters<typeof cetas_js_runtime_create_agent>[0])(config);
     const agent = await cetas_js_runtime_create_agent(
       runtime,
       () => undefined,
@@ -371,7 +558,9 @@ describe("long-lived cetas-js bridge", () => {
       permissionMode: string,
       sessionsDir: string,
     ) => unknown)(cwd, 4, home, "workspace_write", "");
-    const runtime = new (CetasJsRuntime as unknown as new (config: unknown) => unknown)(config);
+    const runtime = new (CetasJsRuntime as unknown as new (
+      config: unknown,
+    ) => Parameters<typeof cetas_js_runtime_create_agent>[0])(config);
     const agent = await cetas_js_runtime_create_agent(
       runtime,
       () => undefined,

@@ -157,6 +157,13 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
     images?: readonly ImageAttachment[],
   ): Promise<string>;
   /**
+   * Run the Agent's rate-limit scheduler for this handle. The promise stays
+   * pending for the handle lifetime and is cancelled through `signal`.
+   */
+  startRateLimitMonitor(agent: AgentHandle, signal: AbortSignal): Promise<void>;
+  /** Permanently invalidate every recovery recorded before a context change. */
+  cancelPendingRateLimit(agent: AgentHandle): void;
+  /**
    * Whether the active model slot advertises the `image_in` capability.
    * Used as the attach-time gate: `false` means send no images and warn
    * (switch model via /model). Absent on older bridges — callers treat that

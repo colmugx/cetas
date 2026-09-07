@@ -65,7 +65,7 @@ describe("rewind overlay contract", () => {
     expect(overlay.isActive).toBe(false);
   });
 
-  test("right arrow moves down and left arrow wraps to the bottom", () => {
+  test("vertical list ignores left/right; up wraps to the bottom", () => {
     const tui = new FakeTui();
     const overlay = new RewindOverlay(tui as never);
     const picked: RewindPoint[] = [];
@@ -74,11 +74,10 @@ describe("rewind overlay contract", () => {
       (p) => picked.push(p),
       () => {},
     );
-    tui.shown!.handleInput!("\u001b[C"); // right → index 1
-    tui.shown!.handleInput!("\u001b[D"); // left → index 0
-    tui.shown!.handleInput!("\u001b[C"); // right → index 1
+    tui.shown!.handleInput!("\u001b[C"); // right: not a vertical-list key
+    tui.shown!.handleInput!("\u001b[D"); // left: not a vertical-list key
     tui.shown!.handleInput!("\r");
-    expect(picked).toEqual([{ messageIndex: 3, preview: "second prompt" }]);
+    expect(picked).toEqual([{ messageIndex: 0, preview: "first prompt" }]);
 
     const wrapped: RewindPoint[] = [];
     const overlay2 = new RewindOverlay(tui as never);
@@ -87,7 +86,7 @@ describe("rewind overlay contract", () => {
       (p) => wrapped.push(p),
       () => {},
     );
-    tui.shown!.handleInput!("\u001b[D"); // left at index 0 wraps to bottom
+    tui.shown!.handleInput!("\u001b[A"); // up at index 0 wraps to the bottom
     tui.shown!.handleInput!("\r");
     expect(wrapped).toEqual([{ messageIndex: 3, preview: "second prompt" }]);
   });

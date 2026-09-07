@@ -17,7 +17,7 @@ import type { PiPackagesSummary } from "./pi-packages.ts";
  * command mutates only host-side policy state without touching the run loop,
  * session, or provider catalogs.
  */
-const MID_TURN_COMMANDS = new Set(["permission"]);
+const MID_TURN_COMMANDS = new Set(["permission", "status"]);
 
 export interface CetasApplicationOptions<AgentHandle = unknown> {
   bridge: CetasAgentBridge<AgentHandle>;
@@ -41,6 +41,13 @@ class ApplicationCancellation implements CancellationToken {
   cancel(): void {
     this.cancelled = true;
   }
+}
+
+interface RateLimitMonitor<AgentHandle> {
+  agent: AgentHandle;
+  controller: AbortController;
+  settled: Promise<void>;
+  generation: number;
 }
 
 /**
@@ -67,6 +74,23 @@ export class CetasApplication<AgentHandle = unknown> {
   /** Abort controller for the in-flight turn; aborting interrupts the model fetch. */
   private activeAbort: AbortController | undefined;
   private activeCommand: Promise<string> | undefined;
+  private rateLimitMonitor: RateLimitMonitor<AgentHandle> | undefined;
+  /** A monitor teardown remains a serialization barrier until its promise settles. */
+  private rateLimitMonitorSettling: Promise<void> | undefined;
+  /** Host generation for pending recovery; context changes invalidate older callbacks. */
+  private rateLimitContextGeneration = 0;
+  /** Deferred restart requested while a command/turn owns the Agent. */
+  private rateLimitMonitorRestartRequest:
+    { agent: AgentHandle; generation: number } | undefined;
+  /** Only a live monitor may turn an otherwise idle observer event into recovery. */
+  private rateLimitRecoveryEligible = false;
+  private recoveryTurnActive = false;
+  /**
+   * Follow-ups accepted while a recovery run owns the busy state. Each drains
+   * as another turn after TurnCompleted, so the busy state must persist until
+   * the last queued follow-up's turn completes.
+   */
+  private recoveryFollowUpsQueued = 0;
   private readonly cancellation = new ApplicationCancellation();
   private shutdownPromise: Promise<void> | undefined;
   private piPackages: PiPackagesSummary | undefined;
@@ -97,6 +121,10 @@ export class CetasApplication<AgentHandle = unknown> {
 
   get sessionId(): string {
     return this.currentSessionId;
+  }
+
+  get rateLimitRecoveryActive(): boolean {
+    return this.recoveryTurnActive;
   }
 
   /**
@@ -228,6 +256,8 @@ export class CetasApplication<AgentHandle = unknown> {
         if (this.agent !== undefined && (this.state as AppState) !== "shutting_down") {
           const previousAgent = this.agent;
           this.agent = undefined;
+          this.rateLimitContextGeneration += 1;
+          await this.stopRateLimitMonitor(true);
           await this.options.bridge.shutdown(previousAgent);
         }
         if ((this.state as AppState) !== "shutting_down") this.transition("needs_setup");
@@ -243,17 +273,24 @@ export class CetasApplication<AgentHandle = unknown> {
       ) {
         const previousAgent = this.agent;
         this.agent = undefined;
+        this.rateLimitContextGeneration += 1;
+        await this.stopRateLimitMonitor(true);
         await this.options.bridge.shutdown(previousAgent);
       }
       if ((this.state as AppState) !== "shutting_down" && this.agent === undefined) {
         this.agent = await this.options.bridge.createAgent(
           this.options.config,
-          this.options.callbacks,
+          this.agentCallbacks(),
           this.cancellation,
         );
         this.piPackages = this.options.bridge.piPackages;
       }
-      if ((this.state as AppState) !== "shutting_down") this.transition("ready");
+      if ((this.state as AppState) !== "shutting_down") {
+        this.transition("ready");
+        if (this.agent !== undefined) {
+          this.startRateLimitMonitor(this.agent, this.rateLimitContextGeneration);
+        }
+      }
       return this.snapshot();
     } catch (error: unknown) {
       const primaryError = error;
@@ -269,6 +306,8 @@ export class CetasApplication<AgentHandle = unknown> {
         const staleAgent = this.agent;
         this.agent = undefined;
         try {
+          this.rateLimitContextGeneration += 1;
+          await this.stopRateLimitMonitor(true);
           await this.options.bridge.shutdown(staleAgent);
         } catch (error: unknown) {
           cleanupError = error;
@@ -314,6 +353,7 @@ export class CetasApplication<AgentHandle = unknown> {
         "cannot change session after shutdown has begun",
       );
     }
+    this.invalidateRateLimitContext();
     this.currentSessionId = sessionId;
     this.publish();
   }
@@ -433,6 +473,8 @@ export class CetasApplication<AgentHandle = unknown> {
     this.currentSessionId = sessionId;
     this.transition("running");
     const agent = this.agent;
+    const turnGeneration = ++this.rateLimitContextGeneration;
+    this.rateLimitRecoveryEligible = false;
     const abort = new AbortController();
     this.activeAbort = abort;
     const turnPromise = (async () => {
@@ -440,6 +482,10 @@ export class CetasApplication<AgentHandle = unknown> {
         // Install activeTurn before invoking the bridge, including for a
         // synchronous/re-entrant bridge implementation.
         await Promise.resolve();
+        // A fresh user intent supersedes the interrupted request. Cancelling
+        // before entering the Agent also serializes this turn with a recovery
+        // that became due in the preceding microtask.
+        await this.stopRateLimitMonitor(true);
         return await this.options.bridge.runTurn(
           agent,
           prompt,
@@ -465,6 +511,9 @@ export class CetasApplication<AgentHandle = unknown> {
       return await turnPromise;
     } finally {
       if (this.activeTurn === turnPromise) this.activeTurn = undefined;
+      if ((this.state as AppState) !== "shutting_down" && this.agent === agent) {
+        this.startRateLimitMonitor(agent, turnGeneration);
+      }
     }
   }
 
@@ -484,14 +533,22 @@ export class CetasApplication<AgentHandle = unknown> {
     if (this.state === "shutting_down") {
       throw new CetasApplicationError("shutting_down", "cannot queue a message after shutdown has begun");
     }
-    if (this.activeTurn === undefined || this.agent === undefined) {
+    if (
+      (this.activeTurn === undefined && !this.recoveryTurnActive) ||
+      this.agent === undefined
+    ) {
       throw new CetasApplicationError("invalid_state", "no turn is active; use runTurn");
     }
     if (this.options.bridge.enqueueFollowUp === undefined) {
       throw new CetasApplicationError("bridge_failure", "bridge does not support follow-up queuing");
     }
     const raw = this.options.bridge.enqueueFollowUp(this.agent, prompt, images);
-    if (raw.startsWith("Accepted")) return "accepted";
+    if (raw.startsWith("Accepted")) {
+      // A user run drains its own follow-ups inside the runTurn promise; a
+      // recovery run is host-tracked, so its queued follow-ups extend it.
+      if (this.recoveryTurnActive) this.recoveryFollowUpsQueued += 1;
+      return "accepted";
+    }
     if (raw.startsWith("RejectedStale")) return "stale";
     if (raw.startsWith("RejectedQueueFull")) return "full";
     throw new CetasApplicationError("bridge_failure", `unexpected follow-up outcome: ${raw}`);
@@ -601,6 +658,7 @@ export class CetasApplication<AgentHandle = unknown> {
     } finally {
       if (this.activeCommand === commandPromise) this.activeCommand = undefined;
       this.cancellation.reset();
+      this.flushRateLimitMonitorRestart();
     }
   }
 
@@ -620,12 +678,16 @@ export class CetasApplication<AgentHandle = unknown> {
    * Returns false when no turn is active or the bridge has no abort seam.
    */
   interruptActiveTurn(): boolean {
-    if (this.activeTurn === undefined || this.agent === undefined) return false;
+    if (
+      (this.activeTurn === undefined && !this.recoveryTurnActive) ||
+      this.agent === undefined
+    ) return false;
     if (this.options.bridge.abortTurn === undefined && this.activeAbort === undefined) {
       return false;
     }
     this.options.bridge.abortTurn?.(this.agent);
     this.activeAbort?.abort();
+    if (this.recoveryTurnActive) this.invalidateRateLimitContext();
     return true;
   }
 
@@ -666,7 +728,27 @@ export class CetasApplication<AgentHandle = unknown> {
         code: "not_ready",
       });
     }
-    const outcome = await this.options.bridge.invokeCommand(this.agent, id, argsJson);
+    const agent = this.agent;
+    const switchesModel = id === "model" && modelSelectionRequested(argsJson);
+    if (switchesModel) await this.stopRateLimitMonitor(false);
+    let outcome: string;
+    try {
+      outcome = await this.options.bridge.invokeCommand(agent, id, argsJson);
+      if (switchesModel && commandOutcomeSucceeded(outcome)) {
+        this.rateLimitContextGeneration += 1;
+        this.rateLimitRecoveryEligible = false;
+        this.recoveryFollowUpsQueued = 0;
+        this.options.bridge.cancelPendingRateLimit(agent);
+      }
+    } finally {
+      if (
+        switchesModel &&
+        (this.state as AppState) !== "shutting_down" &&
+        this.agent === agent
+      ) {
+        this.startRateLimitMonitor(agent, this.rateLimitContextGeneration);
+      }
+    }
     if (commandRequestsSetupRefresh(outcome)) {
       // Setup discovery is the serialization barrier while a profile load
       // rebuilds provider state. Avoid a re-entrant shutdown waiting on this
@@ -694,6 +776,7 @@ export class CetasApplication<AgentHandle = unknown> {
     this.transition("shutting_down");
     this.shutdownPromise = (async () => {
       let pendingError: unknown;
+      await this.stopRateLimitMonitor(true);
       for (const pending of [pendingSetup, pendingTurn, pendingCommand]) {
         if (pending === undefined) continue;
         try {
@@ -738,10 +821,199 @@ export class CetasApplication<AgentHandle = unknown> {
   private publish(): void {
     this.options.onStateChange?.(this.snapshot());
   }
+
+  private agentCallbacks(): AgentCallbacks {
+    return {
+      ...this.options.callbacks,
+      observerCallback: (eventJson) => this.handleAgentObserverEvent(eventJson),
+    };
+  }
+
+  private handleAgentObserverEvent(eventJson: string): void {
+    let type: unknown;
+    try {
+      const event: unknown = JSON.parse(eventJson);
+      if (typeof event === "object" && event !== null && !Array.isArray(event)) {
+        type = (event as Record<string, unknown>).type;
+      }
+    } catch {
+      // The renderer owns strict event diagnostics. Lifecycle tracking only
+      // classifies known boundaries and forwards all bytes unchanged below.
+    }
+
+    if (
+      type === "turn_started" &&
+      this.rateLimitRecoveryEligible &&
+      this.activeTurn === undefined &&
+      this.state === "ready"
+    ) {
+      this.recoveryTurnActive = true;
+      this.rateLimitRecoveryEligible = false;
+      this.transition("running");
+    } else if (
+      type === "turn_started" &&
+      this.recoveryTurnActive &&
+      this.recoveryFollowUpsQueued > 0
+    ) {
+      // A follow-up queued during the recovery drains as its own turn; this
+      // is that turn starting, not a stale event from a cancelled monitor.
+      this.recoveryFollowUpsQueued -= 1;
+    }
+    try {
+      this.options.callbacks.observerCallback(eventJson);
+    } finally {
+      // A throwing observer callback must not wedge the busy state: the
+      // renderer owns event diagnostics, lifecycle tracking still unwinds.
+      if (
+        this.recoveryTurnActive &&
+        (type === "turn_completed" || type === "turn_failed")
+      ) {
+        // A failed recovery drops its queue; a completed one with follow-ups
+        // still queued keeps the busy state until the last drain turn ends.
+        if (type === "turn_failed" || this.recoveryFollowUpsQueued === 0) {
+          this.recoveryTurnActive = false;
+          this.recoveryFollowUpsQueued = 0;
+          if ((this.state as AppState) === "running") this.transition("ready");
+        }
+      }
+    }
+  }
+
+  private startRateLimitMonitor(
+    agent: AgentHandle,
+    generation = this.rateLimitContextGeneration,
+  ): void {
+    if (this.rateLimitMonitor !== undefined) return;
+    if (this.agent !== agent || this.rateLimitContextGeneration !== generation) return;
+    if (this.state !== "ready" || this.activeTurn !== undefined || this.activeCommand !== undefined) {
+      this.rateLimitMonitorRestartRequest = {
+        agent,
+        generation,
+      };
+      return;
+    }
+    const settling = this.rateLimitMonitorSettling;
+    if (settling !== undefined) {
+      this.rateLimitMonitorRestartRequest = { agent, generation };
+      void settling.then(() => this.flushRateLimitMonitorRestart());
+      return;
+    }
+    this.rateLimitMonitorRestartRequest = undefined;
+    this.rateLimitRecoveryEligible = true;
+    const controller = new AbortController();
+    const settled = Promise.resolve()
+      .then(() => this.options.bridge.startRateLimitMonitor(agent, controller.signal))
+      .then(
+        () => {
+          if (!controller.signal.aborted) {
+            this.reportRateLimitMonitorFailure(
+              new Error("rate-limit monitor stopped before its Agent lifetime ended"),
+            );
+          }
+        },
+        (error: unknown) => {
+          if (!isRateLimitMonitorAbort(error, controller.signal)) {
+            this.reportRateLimitMonitorFailure(error);
+          }
+        },
+      );
+    const monitor = { agent, controller, settled, generation };
+    this.rateLimitMonitor = monitor;
+    void settled.then(() => {
+      if (this.rateLimitMonitor === monitor) {
+        this.rateLimitMonitor = undefined;
+        this.rateLimitRecoveryEligible = false;
+        // A recovery turn runs inline in the monitor coroutine: when the
+        // monitor dies mid-recovery (failure or host abort), no turn boundary
+        // event will ever arrive, so release the busy state here.
+        if (this.recoveryTurnActive && this.activeTurn === undefined) {
+          this.recoveryTurnActive = false;
+          this.recoveryFollowUpsQueued = 0;
+          if ((this.state as AppState) === "running") this.transition("ready");
+        }
+      }
+    });
+  }
+
+  private stopRateLimitMonitor(cancelPending: boolean): Promise<void> {
+    const agent = this.agent ?? this.rateLimitMonitor?.agent;
+    if (cancelPending && agent !== undefined) {
+      this.options.bridge.cancelPendingRateLimit(agent);
+    }
+    this.rateLimitRecoveryEligible = false;
+    const monitor = this.rateLimitMonitor;
+    const settling = this.rateLimitMonitorSettling;
+    if (monitor === undefined) return settling ?? Promise.resolve();
+    this.rateLimitMonitor = undefined;
+    monitor.controller.abort();
+    const wait = settling === undefined
+      ? monitor.settled
+      : Promise.all([settling, monitor.settled]).then(() => undefined);
+    this.rateLimitMonitorSettling = wait;
+    void wait.then(() => {
+      if (this.rateLimitMonitorSettling === wait) this.rateLimitMonitorSettling = undefined;
+    });
+    return wait;
+  }
+
+  private invalidateRateLimitContext(): void {
+    const agent = this.agent;
+    this.rateLimitContextGeneration += 1;
+    this.rateLimitRecoveryEligible = false;
+    this.recoveryFollowUpsQueued = 0;
+    if (agent === undefined) return;
+    const settled = this.stopRateLimitMonitor(true);
+    const generation = this.rateLimitContextGeneration;
+    void settled.then(() => {
+      if (
+        (this.state as AppState) === "ready" &&
+        this.activeTurn === undefined &&
+        this.activeCommand === undefined &&
+        (this.state as AppState) !== "shutting_down" &&
+        this.agent === agent &&
+        this.rateLimitContextGeneration === generation
+      ) {
+        this.startRateLimitMonitor(agent, generation);
+      }
+    });
+  }
+
+  private flushRateLimitMonitorRestart(): void {
+    const request = this.rateLimitMonitorRestartRequest;
+    if (request === undefined) return;
+    this.rateLimitMonitorRestartRequest = undefined;
+    if (
+      (this.state as AppState) === "shutting_down" ||
+      this.agent !== request.agent ||
+      this.rateLimitContextGeneration !== request.generation
+    ) return;
+    this.startRateLimitMonitor(request.agent, request.generation);
+  }
+
+  private reportRateLimitMonitorFailure(error: unknown): void {
+    const message = `rate-limit monitor failed: ${errorMessage(error)}`;
+    this.lastError = message;
+    this.publish();
+    try {
+      this.options.callbacks.observerCallback(JSON.stringify({
+        type: "custom",
+        source: "cetas-js.host",
+        label: "ratelimit_monitor_failed",
+        data: { message },
+      }));
+    } catch (callbackError: unknown) {
+      console.error(message, error, "observer callback failed", callbackError);
+    }
+  }
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isRateLimitMonitorAbort(error: unknown, signal: AbortSignal): boolean {
+  if (signal.aborted) return true;
+  return error instanceof Error && error.name === "AbortError";
 }
 
 function loginArguments(argsJson: string): { provider: string; method?: string } {
@@ -800,6 +1072,21 @@ function commandOutcomeSucceeded(raw: string): boolean {
   if (type === "success") return true;
   if (type === "failure" || type === "needs_input") return false;
   throw new CetasApplicationError("bridge_failure", "login outcome.type is unsupported");
+}
+
+function modelSelectionRequested(argsJson: string): boolean {
+  let value: unknown;
+  try {
+    value = JSON.parse(argsJson);
+  } catch {
+    // The command bridge owns malformed-argument diagnostics.
+    return false;
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const slot = (value as Record<string, unknown>).slot;
+  return typeof slot === "string" && slot.length > 0;
 }
 
 function commandRequestsSetupRefresh(raw: string): boolean {

@@ -1,9 +1,4 @@
-// Runtime path: Bun's runtime resolver cannot be intercepted by plugins, so
-// the artifact is reached through a one-line re-export (moonbit-api.js) that
-// `bun host.ts` and Bun.build both follow natively. Types come from the
-// sibling moonbit-api.d.ts, which re-exports the generated declarations in
-// gen/mbt.d.ts.
-import * as moonbit from "./moonbit-api.js";
+import * as moonbit from "mbt:colmugx/cetas-js/lib";
 import { join } from "node:path";
 import { scanAndLoadPiPackages, type PiPackagesSummary } from "./pi-packages.ts";
 import type {
@@ -16,6 +11,14 @@ import type {
   ProviderAuthCapability,
   ProviderSetupSnapshot,
 } from "./types.ts";
+
+const rateLimitExports = moonbit as unknown as {
+  cetas_js_start_ratelimit_monitor(
+    agent: moonbit.CetasJsAgent,
+    signal: AbortSignal,
+  ): Promise<void>;
+  cetas_js_cancel_pending_ratelimit(agent: moonbit.CetasJsAgent): void;
+};
 
 /**
  * Adapter for the generated MoonBit boundary. Provider settings and
@@ -146,6 +149,17 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
       sessionId,
       signal ?? new AbortController().signal,
     );
+  }
+
+  startRateLimitMonitor(agent: unknown, signal: AbortSignal): Promise<void> {
+    return rateLimitExports.cetas_js_start_ratelimit_monitor(
+      agent as moonbit.CetasJsAgent,
+      signal,
+    );
+  }
+
+  cancelPendingRateLimit(agent: unknown): void {
+    rateLimitExports.cetas_js_cancel_pending_ratelimit(agent as moonbit.CetasJsAgent);
   }
 
   activeModelSupportsImages(agent: unknown): boolean {
