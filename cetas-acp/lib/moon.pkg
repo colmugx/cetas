@@ -3,6 +3,7 @@ import {
   "colmugx/acp",
   "colmugx/posoco-ext-acp" @ext_acp,
   "colmugx/cetas-core/lib" @cetas_core,
+  "colmugx/mcp/transport",
   "colmugx/posoco-devkit" @devkit,
   "colmugx/posoco-ext-context" @context,
   "colmugx/posoco-ext-credentials" @credentials,
@@ -12,10 +13,15 @@ import {
   "colmugx/posoco-ext-oauth" @oauth,
   "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-plan" @plan,
+  "colmugx/posoco-ext-ratelimit" @ratelimit,
   "colmugx/posoco-ext-workspace" @workspace,
+  "colmugx/posoco-kit-lody" @lody_kit,
+  "colmugx/posoco-kit-paseo" @paseo_kit,
   "colmugx/posoco/runtime",
   "moonbitlang/async",
+  "moonbitlang/async/fs",
   "moonbitlang/async/stdio",
+  "moonbitlang/core/env",
   "moonbitlang/core/json",
 }
 
@@ -23,6 +29,7 @@ import {
   "moonbitlang/async",
   "colmugx/posoco-ext-mcp" @mcp,
   "colmugx/posoco-ext-permission" @permission,
+  "colmugx/posoco-ext-ratelimit" @ratelimit,
 } for "wbtest"
 
 supported_targets = "+native"

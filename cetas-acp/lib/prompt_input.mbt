@@ -1,12 +1,7 @@
 ///|
-/// ACP prompt content → Posoco user message.
-///
-/// `Text` and `Image` map one-to-one (the endpoint advertises
-/// `prompt_image`). The remaining v1 blocks degrade to text annotations the
-/// model can read: linked resources keep their uri, and embedded text
-/// resources inline their content. Embedded blobs and audio are dropped —
-/// neither capability is advertised, and a client that respects
-/// capabilities never sends them.
+/// ACP prompt content → Posoco user message. `Text` and `Image` map
+/// one-to-one; other v1 blocks degrade to text annotations (embedded blobs
+/// and audio are dropped — those capabilities are not advertised).
 
 ///|
 pub fn acp_prompt_to_message(

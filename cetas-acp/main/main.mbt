@@ -1,26 +1,22 @@
 ///|
 /// cetas-acp — serve one cetas agent as an ACP v1 agent over stdio.
 ///
-/// Protocol contract: stdout carries newline-delimited ACP JSON-RPC frames
-/// only; diagnostics go to stderr (the acp.mbt runtime's sanitized trace).
-/// Launch from the project root — tools run in the process working
-/// directory, matching how Zed spawns ACP agents.
-///
-/// Resolution: `CETAS_HOME` overrides the cetas home directory (settings,
-/// credentials, sessions); `HOME` is the default. A model provider must be
-/// configured (`~/.cetas/settings.json` or an existing cetas login) — an
-/// agent without a model cannot serve prompts, so startup fails loudly on
-/// stderr and exits.
-///
-/// MCP servers declared in mcp.json connect lazily at the first turn by
-/// default; `CETAS_MCP_MODE=eager` connects them all at startup instead.
+/// stdout carries newline-delimited ACP JSON-RPC frames only; diagnostics
+/// go to stderr. `--version` prints the version and exits. `CETAS_HOME`
+/// overrides the cetas home directory (default `HOME`). A model provider
+/// must be configured — startup fails loudly otherwise.
+/// `CETAS_MCP_MODE=eager` connects mcp.json servers at startup instead of
+/// lazily at the first turn.
 
 ///|
-/// This module's version, reported in `initialize` as the agent version.
-const CETAS_ACP_VERSION = "0.1.0"
+const CETAS_ACP_VERSION = "0.3.0"
 
 ///|
 async fn main {
+  if @env.args().contains("--version") {
+    println("cetas-acp \{CETAS_ACP_VERSION}")
+    return
+  }
   let home = match @env.get_env_var("CETAS_HOME") {
     Some(value) if value != "" => value
     _ =>
@@ -37,9 +33,8 @@ async fn main {
     Some("eager") => @mcp.LoadMode::Eager
     _ => @mcp.LoadMode::Lazy
   }
-  // The whole lifecycle runs inside one task group: stdio MCP servers spawn
-  // their child processes on it, and the group ends (cancelling them) only
-  // at stdin EOF.
+  // The whole lifecycle runs inside one task group: it ends (cancelling
+  // stdio MCP child processes) only at stdin EOF.
   @async.with_task_group(group => {
     let host = @lib.CetasAcpHost(
       home~,
@@ -68,11 +63,9 @@ async fn main {
       auth_methods: endpoint.auth_methods(),
       agent_info: Omitted,
     }
-    // The loop ends at stdin EOF; stdout stays pure ACP frames. The lazy model
-    // refresh runs alongside serving: composition already announced the cached
-    // (or static) list, and the refresh swaps in the live list and pushes a
-    // config_option_update once it lands. refresh_model_lists never raises, so
-    // it cannot fail the task group; stdin EOF cancels it with the group.
+    // The lazy model refresh runs alongside serving and pushes a
+    // config_option_update once it lands; stdin EOF cancels it with the
+    // group.
     let _ = group.spawn(() => host.refresh_model_lists())
     @acp.agent_serve_stdio_with_outbound(
       endpoint~,

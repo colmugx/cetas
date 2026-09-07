@@ -1,69 +1,104 @@
 ///|
-/// CetasAcpHost — the ACP host state for one cetas agent process.
-///
-/// Owns the composed Posoco `Agent` plus the `AcpBridge` that projects turn
-/// events onto ACP session updates and gates tools through ACP permission
-/// requests. The ACP endpoint, framing, and stdio runtime belong to
-/// `colmugx/acp`; this host only supplies the typed handlers:
-///
-/// - `session/new` mints one ACP session id and uses the same id as the
-///   Posoco session id (the stores accept unknown ids as fresh sessions).
-/// - `session/prompt` attaches the invocation's `AgentContext`, runs a
-///   concurrent update pump for real-time streaming, drives
-///   `Agent::run_turn`, flushes, closes the pump scope, and answers with the
-///   bridge-derived stop reason.
-/// - `session/cancel` cancels the session's in-flight turn task; the prompt
-///   request then settles with `stopReason: cancelled`.
-///
-/// v1 scope: one process serves one working directory (launch cetas-acp
-/// from the project root — Zed does this). `session/new` acknowledges
-/// `cwd`, and all file/shell tools anchor to that directory via the shared
-/// WorkspaceAnchor built in `build_default_features`.
-///
-/// Model/effort selection is process-global: one Agent owns one router, so
-/// `session/set_config_option` on any session retunes every session (v1:
-/// the last selection wins) and is persisted to `~/.cetas/settings.json`
-/// for the next launch.
+/// CetasAcpHost — the ACP host state for one cetas agent process. One
+/// private `SessionHandle` per ACP session (prompts serialize per session
+/// via the handle's `turn_lock`, so distinct sessions run concurrently);
+/// process-level state is assembled once by `build_platform` and shared;
+/// mode/effort selection is session-runtime state the sidecar never carries.
 
 ///|
-/// ACP session ids double as Posoco session ids, so no id mapping table
-/// exists. One counter covers the process lifetime.
-pub struct CetasAcpHost {
-  agent : @posoco.Agent
+/// One live ACP session's private machinery; its bridge is bound to it for
+/// life (the ext-acp contract).
+priv struct SessionHandle {
   bridge : @ext_acp.AcpBridge
-  version : String
   router : @llm.RouterModelPort
-  /// Cetas home (`~/.cetas`), where the selection is persisted.
-  home : String
-  /// The fs the selection is read/written through; the same instance the
-  /// assembly used, so tests can substitute a fake.
-  fs : &@workspace.WorkspaceFs
-  /// Live sessions' outbound contexts, captured at `session/new` so the
-  /// background model refresh can push `config_option_update` frames to
-  /// editors without waiting for the next request.
-  contexts : Map[String, @acp.AgentContext]
-  /// Refreshable provider seams plus the snapshot they refresh against —
-  /// the pieces `refresh_model_lists` needs, captured at assembly. Embedding
-  /// and test constructors may substitute fakes via `CetasAcpHost::of`.
-  refreshables : Array[&@llm.RefreshableProviderFactory]
-  refresh_snapshot : @cetas_core.ProviderCredentialSnapshot
-  mut session_counter : Int
-  /// In-flight turn task per session, so `session/cancel` can interrupt it.
-  in_flight : Map[String, @async.Task[@posoco.TurnResult]]
+  agent : @posoco.Agent
+  /// The session's working directory (params.cwd, else process cwd), for the sidecar.
+  cwd : String
+  plan : @plan.PlanMode
+  /// The `permission` config option reads and switches this policy's mode.
+  permission : @permission.PermissionPolicy
+  /// The fs delegate when `CETAS_DELEGATE_FS=host`; its context mirrors
+  /// `context` (see `set_handle_context`) so reads/writes ride the client.
+  fs_delegate : AcpDelegateFs?
+  /// Outbound context, refreshed each prompt, so refresh can push config_option_update.
+  mut context : @acp.AgentContext?
+  /// In-flight turn task, so `session/cancel` can interrupt it.
+  mut in_flight : @async.Task[@posoco.TurnResult]?
+  /// Held from before bridge attach until the whole turn lifecycle settles,
+  /// so a queued prompt runs strictly after instead of interleaving turns.
+  turn_lock : @async.Mutex
+  /// Mode id last reported, so mode pushes only fire on an actual move.
+  mut last_mode_id : String
+}
+
+// ------------------------------------------------------- session id minting
+
+///|
+/// Process-global (not per host) so two hosts in one process cannot mint the same id.
+priv struct DurableIdState {
+  mut last_ms : Int64
+  mut last_seq : Int
 }
 
 ///|
-/// Compose the production host: native agent assembly (providers from
-/// `~/.cetas/settings.json` + credentials, JSONL session store under
-/// `~/.cetas/sessions`, context files, plan mode, the default cetas tool
-/// set, MCP servers from mcp.json) plus the ACP bridge. Fails loudly when
-/// no model provider is configured — an ACP agent without a model cannot
-/// serve any prompt.
-///
-/// `mcp_group` is the host's long-lived task group; stdio MCP servers spawn
-/// their child processes on it, so it must outlive the agent. `mcp_mode`
-/// selects when mcp.json servers connect: `Lazy` (default) at the first
-/// turn's lifecycle start, `Eager` right here at composition.
+let durable_id_state : DurableIdState = { last_ms: 0L, last_seq: -1, }
+
+///|
+/// `cetas-<epoch-ms>`, with a `-<seq>` suffix once mints outpace the clock;
+/// the sequence only grows, so ids stay fresh across a clock regression.
+/// Shape passes ext-fs-session's `validate_session_id` (safe JSONL stem).
+fn mint_session_id() -> String {
+  let now = @async.now()
+  let state = durable_id_state
+  if now > state.last_ms {
+    state.last_ms = now
+    state.last_seq = 0
+    "cetas-\{now}"
+  } else {
+    state.last_seq += 1
+    "cetas-\{now}-\{state.last_seq}"
+  }
+}
+
+///|
+/// ACP session ids double as Posoco session ids (no id mapping table);
+/// clock-minted (`mint_session_id`), so a restart never re-mints a live id.
+pub struct CetasAcpHost {
+  version : String
+  /// Cetas home (`~/.cetas`), where the selection is persisted.
+  home : String
+  /// The same fs instance the assembly used, so tests can substitute a fake.
+  fs : &@workspace.WorkspaceFs
+  priv sessions : Map[String, SessionHandle]
+  /// The load/resume/list view of persisted history; tests may use a scratch root.
+  priv session_store : @fs_session.JsonlSessionStore
+  /// The fallback a sidecar-less session advertises in `session/list`.
+  priv process_cwd : String
+  /// Production wires `build_session_agent`; tests substitute lightweight
+  /// assemblies.
+  priv spawn_session : async (String, @acp.NewSessionParams) -> Result[
+    SessionHandle,
+    String,
+  ]
+  /// Shared with the platform; the lazy refresh swaps entries in place for
+  /// later sessions.
+  priv catalogs : Array[@llm.ProviderModelCatalog]
+  /// Refresh seams plus snapshot for the lazy refresh; tests substitute
+  /// fakes via `CetasAcpHost::of`.
+  refreshables : Array[&@llm.RefreshableProviderFactory]
+  refresh_snapshot : @cetas_core.ProviderCredentialSnapshot
+  /// The wire debug tap (`CETAS_DEBUG_WIRE`, see debug.mbt).
+  priv wire_log : Bool
+  /// The wire append path: true when `fs` is the process-native fs, so
+  /// records take the O(1) `@fs` open-append-write; fakes (tests) take the
+  /// read-modify-write workspace-fs path so they observe every record.
+  priv wire_native_append : Bool
+}
+
+///|
+/// Compose the production host: the platform is built once and every
+/// `session/new` assembles a fresh agent over it; fails loudly with no
+/// provider configured. `mcp_group` must outlive the agent (stdio MCP).
 pub async fn CetasAcpHost::CetasAcpHost(
   home~ : String,
   cwd~ : String,
@@ -71,37 +106,146 @@ pub async fn CetasAcpHost::CetasAcpHost(
   mcp_group? : @async.TaskGroup[Unit],
   mcp_mode? : @mcp.LoadMode = @mcp.LoadMode::Lazy,
 ) -> CetasAcpHost raise @posoco.CompositionError {
-  let bridge = @ext_acp.AcpBridge()
   let fs = @workspace.NativeWorkspaceFs()
-  let (agent, router, refreshables, refresh_snapshot) = build_native_agent(
+  let platform = build_platform(
     home~,
     cwd~,
-    bridge,
     fs,
     mcp_group~,
     mcp_mode~,
+    delegation=startup_delegation_mode(),
+    debug=startup_debug_taps(),
   )
+  let spawn_session = async fn(
+    session_id : String,
+    params : @acp.NewSessionParams,
+  ) -> Result[SessionHandle, String] {
+    // The session anchors to params.cwd (process cwd when empty); the cwd
+    // flows through the whole assembly; injected MCP names pick the profile.
+    let cwd = if params.cwd.length() > 0 { params.cwd } else { platform.cwd }
+    Ok(
+      build_session_agent(
+        platform~,
+        cwd~,
+        session_id~,
+        mcp_servers=params.mcp_servers,
+        host_profile=detect_host_profile(
+          acp_mcp_server_names(params.mcp_servers),
+        ),
+      ),
+    ) catch {
+      error => Err(error.to_string())
+    }
+  }
   {
-    agent,
-    bridge,
+    spawn_session,
     version: agent_version,
-    router,
     home,
     fs,
-    contexts: Map::from_array([]),
-    refreshables,
-    refresh_snapshot,
-    session_counter: 0,
-    in_flight: Map::from_array([]),
+    sessions: Map::from_array([]),
+    session_store: platform.session_store,
+    process_cwd: cwd,
+    catalogs: platform.catalogs,
+    refreshables: platform.refreshables,
+    refresh_snapshot: platform.refresh_snapshot,
+    wire_log: platform.debug.wire,
+    wire_native_append: true,
   }
 }
 
 ///|
-/// Plan review over the same ACP reverse request the permission bridge
-/// already speaks. The host may attach workspace integrity info (git
-/// status) when rendering the request — product UX, not framework state.
-struct AcpPlanReview {
+/// Plan review over a plan-specific `session/request_permission` with named
+/// options — editors render each option's name as a button, not a generic card.
+priv struct AcpPlanReview {
   bridge : @ext_acp.AcpBridge
+}
+
+///|
+/// Option ids the client echoes back in `SelectedPermissionOutcome.option_id`.
+const PLAN_OPTION_APPROVE = "plan-approve"
+
+///|
+const PLAN_OPTION_KEEP_PLANNING = "plan-keep-planning"
+
+///|
+const PLAN_OPTION_AUTO_EDIT = "plan-auto-edit"
+
+///|
+/// One pending tool-call update titled with an 80-char plan preview,
+/// carrying the full plan as `raw_input`, plus the three named options.
+fn acp_plan_request(
+  session_id : String,
+  request : @plan.PlanReviewRequest,
+) -> @acp.RequestPermissionRequest {
+  let preview = if request.plan.length() <= 80 {
+    request.plan
+  } else {
+    request.plan.sub(end=77).to_owned() + "..."
+  }
+  {
+    session_id,
+    tool_call: {
+      tool_call_id: "plan-review",
+      kind: Value(@ext_acp.acp_tool_kind("exit_plan_mode")),
+      status: Value(Pending),
+      title: Value(preview),
+      content: Omitted,
+      locations: Omitted,
+      raw_input: Value(Json::object({ "plan": Json::string(request.plan) })),
+      raw_output: Omitted,
+      meta: Omitted,
+    },
+    options: [
+      {
+        option_id: PLAN_OPTION_APPROVE,
+        name: "Approve plan",
+        kind: AllowOnce,
+        meta: Omitted,
+      },
+      {
+        option_id: PLAN_OPTION_KEEP_PLANNING,
+        name: "Keep planning",
+        kind: RejectOnce,
+        meta: Omitted,
+      },
+      {
+        option_id: PLAN_OPTION_AUTO_EDIT,
+        name: "Auto-edit (approve & stop asking)",
+        kind: AllowAlways,
+        meta: Omitted,
+      },
+    ],
+    meta: Omitted,
+  }
+}
+
+///|
+/// Every failure mode keeps planning (`Revise`), never `Dismiss` — an
+/// accidental Escape must not kill the turn. `plan-auto-edit`'s `AllowAlways`
+/// maps to plain `Accept` (the "always" memory lives client-side).
+fn acp_plan_decision(
+  response : @acp.RequestPermissionResponse,
+) -> @plan.PlanReviewDecision {
+  match response.outcome {
+    Selected(outcome) =>
+      if outcome.option_id == PLAN_OPTION_APPROVE {
+        @plan.PlanReviewDecision::Accept
+      } else if outcome.option_id == PLAN_OPTION_AUTO_EDIT {
+        @plan.PlanReviewDecision::Accept
+      } else if outcome.option_id == PLAN_OPTION_KEEP_PLANNING {
+        @plan.PlanReviewDecision::Revise(
+          feedback="The user chose to keep planning. Ask what to change or refine the plan.",
+        )
+      } else {
+        @plan.PlanReviewDecision::Revise(
+          feedback="The plan review returned an unrecognized choice ('\{@devkit.sanitize_label(outcome.option_id)}'). Ask what to change or refine the plan.",
+        )
+      }
+    Cancelled =>
+      @plan.PlanReviewDecision::Revise(
+        feedback="The plan review was dismissed. Continue planning.",
+      )
+  }
 }
 
 ///|
@@ -109,61 +253,30 @@ impl @plan.PlanReviewSource for AcpPlanReview with fn review(
   self,
   request : @plan.PlanReviewRequest,
 ) -> @plan.PlanReviewDecision {
-  let preview = if request.plan.length() <= 80 {
-    request.plan
-  } else {
-    request.plan.sub(end=77).to_string() + "..."
-  }
-  let approval : @permission.ApprovalRequest = {
-    tool_name: "exit_plan_mode",
-    call_id: "plan-review",
-    category: "plan",
-    arguments_preview: preview,
-    arguments: Json::object({ "plan": Json::string(request.plan) }),
-  }
-  match (self.bridge as &@permission.ApprovalSource).ask(approval) {
-    AllowOnce | AllowSession | AllowAlways => @plan.PlanReviewDecision::Accept
-    Deny(reason~) => @plan.PlanReviewDecision::Revise(feedback=reason)
-  }
-}
-
-///|
-/// Embedding and test constructor: wrap an already-composed agent, bridge,
-/// router, and the fs the selection persists through. `refreshables` and
-/// `refresh_snapshot` drive the lazy model refresh; tests substitute fake
-/// refreshable factories here to exercise `refresh_model_lists` without a
-/// network. Production code uses `CetasAcpHost`.
-pub fn CetasAcpHost::of(
-  agent~ : @posoco.Agent,
-  bridge~ : @ext_acp.AcpBridge,
-  router~ : @llm.RouterModelPort,
-  home~ : String,
-  fs~ : &@workspace.WorkspaceFs,
-  agent_version? : String = "0.1.0",
-  refreshables? : Array[&@llm.RefreshableProviderFactory] = [],
-  refresh_snapshot? : @cetas_core.ProviderCredentialSnapshot = @cetas_core.ProviderCredentialSnapshot::ProviderCredentialSnapshot(),
-) -> CetasAcpHost {
-  {
-    agent,
-    bridge,
-    version: agent_version,
-    router,
-    home,
-    fs,
-    contexts: Map::from_array([]),
-    refreshables,
-    refresh_snapshot,
-    session_counter: 0,
-    in_flight: Map::from_array([]),
+  match (self.bridge.context, self.bridge.session_id()) {
+    (Some(context), Some(session_id)) => {
+      // Flush first so streamed plan text reaches the client before the decision UI.
+      ignore(self.bridge.flush())
+      let response = context.request_permission(
+        acp_plan_request(session_id, request),
+      ) catch {
+        // A transport failure must not end the turn: fall back to planning.
+        _ =>
+          return @plan.PlanReviewDecision::Revise(
+            feedback="plan review request failed; continuing planning",
+          )
+      }
+      acp_plan_decision(response)
+    }
+    // Unreachable in practice; a detached bridge must never kill the turn.
+    _ => @plan.PlanReviewDecision::Revise(feedback="plan review unavailable")
   }
 }
 
 ///|
-/// The ACP endpoint specification for this host. Capabilities are derived
-/// from service presence inside `colmugx/acp`: only the required session
-/// operations plus `set_config_option` are wired (no
-/// load/resume/list/delete/modes yet — v1), and image prompts are accepted
-/// (`prompt_image=true`).
+/// Capabilities are derived from service presence inside `colmugx/acp`;
+/// `mcp_http=true` must be advertised or the protocol gate rejects injected
+/// HTTP MCP servers before the handler runs (SSE: no ext-mcp SSE client).
 pub fn CetasAcpHost::agent_spec(
   self : CetasAcpHost,
 ) -> Result[@acp.AgentSpec, @acp.AgentCompositionError] {
@@ -178,44 +291,139 @@ pub fn CetasAcpHost::agent_spec(
       new_session=(context, params) => self.handle_new_session(context, params),
       prompt=(context, params) => self.handle_prompt(context, params),
       cancel=(context, params) => self.handle_cancel(context, params),
-      set_config_option=(context, params) => {
-        self.handle_set_config_option(context, params)
+      close=(context, params) => self.handle_close(context, params),
+      load=(context, params) => self.handle_load_session(context, params),
+      resume_session=(context, params) => {
+        self.handle_resume_session(context, params)
       },
+      fork_session=(context, params) => {
+        self.handle_fork_session(context, params)
+      },
+      list=(context, params) => self.handle_list_sessions(context, params),
+      delete=(context, params) => self.handle_delete_session(context, params),
+      set_config_option=(context, params) => {
+        self.handle_set_config_option_sidecar(context, params)
+      },
+      set_mode=(context, params) => self.handle_set_mode(context, params),
     ),
-    support=@acp.agent_support(prompt_image=true),
+    support=@acp.agent_support(prompt_image=true, mcp_http=true),
   )
 }
 
 ///|
-/// `session/new`: mint a fresh session id shared by both sides of the
-/// bridge. The Posoco session store treats unknown ids as empty sessions,
-/// so there is no create call. The router's model/effort selectors ride
-/// along as configOptions (see `config_options.mbt`); with a seeded model
-/// cache the full discovered list is announced here immediately, otherwise
-/// the background refresh pushes a `config_option_update` once it lands.
-pub fn CetasAcpHost::handle_new_session(
-  self : CetasAcpHost,
-  context : @acp.AgentContext,
-  _params : @acp.NewSessionParams,
-) -> @acp.NewSessionResult {
-  self.session_counter += 1
-  let session_id = "cetas-\{self.session_counter}"
-  self.contexts[session_id] = context
+/// The two ACP session modes cetas advertises: the plain agent surface and
+/// ext-plan's planning state machine — the editor's mode selector drives the
+/// same state machine the model's `enter_plan_mode` tool and `/plan` do.
+const ACP_MODE_DEFAULT_ID = "default"
+
+///|
+const ACP_MODE_PLAN_ID = "plan"
+
+///|
+fn acp_available_modes() -> Array[@acp.SessionMode] {
+  [
+    {
+      id: ACP_MODE_DEFAULT_ID,
+      name: "Default",
+      description: Omitted,
+      meta: Omitted,
+    },
+    {
+      id: ACP_MODE_PLAN_ID,
+      name: "Plan",
+      description: Value(
+        "Read-only research and plan drafting; changes wait until the plan is approved",
+      ),
+      meta: Omitted,
+    },
+  ]
+}
+
+///|
+/// `Planning`/`ReadyForApproval` are both "plan" — an awaiting plan is still planning.
+fn acp_mode_id_of(plan : @plan.PlanMode) -> String {
+  match plan.status() {
+    Off => ACP_MODE_DEFAULT_ID
+    _ => ACP_MODE_PLAN_ID
+  }
+}
+
+///|
+/// Mode is runtime state, never in the sidecar — a restored session re-advertises `default`.
+fn acp_modes_block(current : String) -> @acp.SessionModeState {
   {
-    session_id,
-    modes: Omitted,
-    config_options: Value(build_config_options(self.router)),
+    current_mode_id: current,
+    available_modes: acp_available_modes(),
     meta: Omitted,
   }
 }
 
 ///|
-/// Render one turn failure for the client error channel: the error's own
-/// display text, single-lined and length-bounded. The observer-facing
-/// `TurnFailed` event stays category-only by contract (M0-T07 sanitized
-/// terminal events); this is the host-to-client channel, where the detail is
-/// the point — the user must be able to read, and paste to a developer, what
-/// actually happened instead of a bare "AgentError::Model".
+/// Unknown ids reject invalid params — no cross-session fallback may improvise state.
+fn CetasAcpHost::require_session(
+  self : CetasAcpHost,
+  session_id : String,
+) -> SessionHandle raise @acp.HandlerError {
+  match self.sessions.get(session_id) {
+    Some(handle) => handle
+    None =>
+      raise @acp.HandlerError::InvalidParams(
+        message="cetas-acp: unknown session '" + session_id + "'",
+      )
+  }
+}
+
+///|
+/// `session/new`: mint a fresh session id shared by both bridge sides and
+/// assemble the agent over the process platform. With a seeded model cache
+/// the full list is announced; otherwise refresh pushes `config_option_update`.
+pub async fn CetasAcpHost::handle_new_session(
+  self : CetasAcpHost,
+  context : @acp.AgentContext,
+  params : @acp.NewSessionParams,
+) -> @acp.NewSessionResult raise @acp.HandlerError {
+  let session_id = mint_session_id()
+  self.debug_wire_in(
+    session_id~,
+    rpc_method="session/new",
+    params=debug_new_session_params(params),
+  )
+  // Only an async-machinery defect folds into this failure channel.
+  let spawned : Result[SessionHandle, String] = (self.spawn_session)(
+    session_id, params,
+  ) catch {
+    error => Err(error.to_string())
+  }
+  let handle = match spawned {
+    Ok(handle) => handle
+    Err(message) =>
+      raise @acp.HandlerError::Application(
+        message="cetas-acp: session assembly failed: " + message,
+      )
+  }
+  // The host mints the id, so it stamps every handle's plan label.
+  handle.plan.set_session_name(session_id)
+  let context = self.debug_tap_context(context)
+  set_handle_context(handle, context)
+  self.sessions[session_id] = handle
+  // Best-effort sidecar record (cwd, router selection, injected MCP names)
+  // for later load/resume/list; failure never fails session/new.
+  let mcp_names : Array[String] = []
+  for server in params.mcp_servers {
+    mcp_names.push(acp_mcp_server_name(server))
+  }
+  self.update_session_sidecar(session_id, handle, mcp_names)
+  {
+    session_id,
+    modes: Value(acp_modes_block(acp_mode_id_of(handle.plan))),
+    config_options: Value(
+      build_config_options(handle.router, handle.permission.mode),
+    ),
+    meta: Omitted,
+  }
+}
+
+///|
 fn acp_failure_detail(error : Error) -> String {
   let text = error.to_string()
   let chars : Array[Char] = []
@@ -239,56 +447,83 @@ fn acp_failure_detail(error : Error) -> String {
 }
 
 ///|
-/// `session/prompt`: one turn with live streaming and cancellable execution.
-///
-/// The turn runs in its own task (registered per session) so
-/// `session/cancel` can interrupt it; the pump task forwards queued updates
-/// as they arrive. On completion the host flushes any remainder and closes
-/// the pump scope (the next prompt's `attach` reopens the queue). A turn
-/// failure raises a typed `HandlerError` carrying the full failure detail
-/// (see `acp_failure_detail`), which the ACP engine settles as the prompt's
-/// error response — the adapter forwards it verbatim to the client; a
-/// cancelled turn settles as `stopReason: cancelled`.
+/// `session/prompt`: one turn with live streaming, on the session's own agent
+/// and bridge. Prompts serialize per session on `turn_lock` (a queued prompt
+/// waits out the previous turn's whole lifecycle; cancel interrupts only the
+/// active turn, never the queue); cancelled settles `stopReason: cancelled`.
 pub async fn CetasAcpHost::handle_prompt(
   self : CetasAcpHost,
   context : @acp.AgentContext,
   params : @acp.PromptParams,
 ) -> @acp.PromptResult raise @acp.HandlerError {
-  self.contexts[params.session_id] = context
-  self.bridge.attach(context~, session_id=params.session_id)
+  let handle = self.require_session(params.session_id)
+  self.debug_wire_in(
+    session_id=params.session_id,
+    rpc_method="session/prompt",
+    params=debug_prompt_params(params),
+  )
+  // acquire is cancellation safe: a prompt cancelled while queued settles
+  // here — no turn runs, the bridge is never attached, nothing to unwind.
+  handle.turn_lock.acquire() catch {
+    error =>
+      if @async.is_cancellation_error(error) {
+        raise @acp.HandlerError::Cancelled
+      } else {
+        raise @acp.HandlerError::Application(
+          message="cetas-acp: turn lock acquire failed (session=\{params.session_id})",
+        )
+      }
+  }
+  // Held until the whole turn lifecycle settles — the next prompt starts quiesced.
+  defer handle.turn_lock.release()
+  // The wait can outlive this handle: close/load/resume may retire exactly
+  // this machinery while queued. Re-validate by identity (physical_equal —
+  // a restored session may reuse the id) so a woken waiter fails as unknown.
+  match self.sessions.get(params.session_id) {
+    Some(live) if physical_equal(live, handle) => ()
+    _ =>
+      raise @acp.HandlerError::InvalidParams(
+        message="cetas-acp: session '" +
+          params.session_id +
+          "' was closed while the prompt was queued",
+      )
+  }
+  let context = self.debug_tap_context(context)
+  set_handle_context(handle, context)
+  handle.bridge.attach(context~, session_id=params.session_id)
   let outcome : Result[@acp.PromptResult, @acp.HandlerError] = @async.with_task_group(group => {
-      self.bridge.spawn_pump(group)
+      handle.bridge.spawn_pump(group)
       // allow_failure: the turn's AgentError is reported through task.wait()
-      // below (sanitized via the bridge), not through the group's fail-fast
-      // path, so the pump and this handler still settle in order.
+      // below, so the pump and this handler still settle in order.
       let task = group.spawn(
         () => {
-          self.agent.run_turn(
+          handle.agent.run_turn(
             acp_prompt_to_message(params.prompt),
             params.session_id,
           )
         },
         allow_failure=true,
       )
-      self.in_flight[params.session_id] = task
+      handle.in_flight = Some(task)
       let failure : Error? = try {
         let _ = task.wait()
         None
       } catch {
         error => Some(error)
       }
-      ignore(self.in_flight.remove(params.session_id))
-      ignore(self.bridge.flush())
-      self.bridge.close()
+      handle.in_flight = None
+      ignore(handle.bridge.flush())
+      // The turn may have moved the mode on its own — sync before the pump closes.
+      push_mode_update(params.session_id, handle)
+      handle.bridge.close()
       match failure {
-        None => Ok({ stop_reason: self.bridge.stop_reason(), meta: Omitted })
+        None => Ok({ stop_reason: handle.bridge.stop_reason(), meta: Omitted, })
         Some(error) =>
           if @async.is_cancellation_error(error) {
-            Ok({ stop_reason: Cancelled, meta: Omitted })
+            Ok({ stop_reason: Cancelled, meta: Omitted, })
           } else {
-            // The raised error's display text carries the cause (transport
-            // failure, hook rejection, ...); the bridge's TurnFailed text is
-            // category-only (M0-T07) and never reaches the client from here.
+            // The raised error's text carries the cause; the bridge's
+            // TurnFailed text is category-only and never reaches the client.
             let detail = acp_failure_detail(error)
             acp_warn(
               "cetas-acp: session/prompt failed (session=\{params.session_id}): \{detail}\n",
@@ -298,8 +533,7 @@ pub async fn CetasAcpHost::handle_prompt(
       }
     },
   ) catch {
-    // The group itself only fails through an unexpected pump defect; the
-    // turn's own errors never reach this arm (allow_failure above).
+    // Only an unexpected pump defect reaches this arm (allow_failure above).
     error =>
       if @async.is_cancellation_error(error) {
         Err(@acp.HandlerError::Cancelled)
@@ -311,6 +545,9 @@ pub async fn CetasAcpHost::handle_prompt(
         )
       }
   }
+  // The wire's last fact for the request lands after the bridge has closed,
+  // so the settlement record never delays the response it describes.
+  self.debug_wire_prompt_out(session_id=params.session_id, outcome~)
   match outcome {
     Ok(result) => result
     Err(error) => raise error
@@ -318,31 +555,920 @@ pub async fn CetasAcpHost::handle_prompt(
 }
 
 ///|
-/// `session/cancel`: interrupt the session's in-flight turn. The engine
-/// invokes this handler for the notification; the prompt request settles
-/// separately when the cancelled task unwinds.
-pub fn CetasAcpHost::handle_cancel(
-  self : CetasAcpHost,
-  _context : @acp.AgentContext,
-  params : @acp.CancelParams,
-) -> Unit {
-  match self.in_flight.get(params.session_id) {
-    Some(task) => task.cancel()
+/// Push a `current_mode_update` on an actual mode move. The push rides the
+/// outbound context directly — not the bridge queue — so it works even
+/// outside a running pump; best-effort, and closed sessions never push.
+async fn push_mode_update(
+  session_id : String,
+  handle : SessionHandle,
+) -> Unit noraise {
+  let current = acp_mode_id_of(handle.plan)
+  if current == handle.last_mode_id {
+    return
+  }
+  handle.last_mode_id = current
+  match handle.context {
+    Some(context) =>
+      context.session_update({
+        session_id,
+        update: @acp.SessionUpdate::CurrentModeUpdate({
+          current_mode_id: current,
+          meta: Omitted,
+        }),
+        meta: Omitted,
+      }) catch {
+        _ =>
+          acp_warn(
+            "cetas-acp: current_mode_update push failed (session=" +
+            session_id +
+            ")\n",
+          )
+      }
     None => ()
   }
 }
 
 ///|
+/// `session/set_mode`: `"plan"` enters via the same `/plan on` command path
+/// (idempotent); `"default"` exits unconditionally — no review is deliberate
+/// (a host switch is itself the user's decision). The client learns via push.
+pub async fn CetasAcpHost::handle_set_mode(
+  self : CetasAcpHost,
+  _context : @acp.AgentContext,
+  params : @acp.SetSessionModeParams,
+) -> @acp.SetSessionModeResult raise @acp.HandlerError {
+  let handle = self.require_session(params.session_id)
+  self.debug_wire_in(
+    session_id=params.session_id,
+    rpc_method="session/set_mode",
+    params=debug_set_mode_params(params),
+  )
+  match params.mode_id {
+    ACP_MODE_PLAN_ID => {
+      // A failure warns; the follow-up push reports the state that holds.
+      let outcome : Result[@posoco.CommandOutcome, Error] = Ok(
+        handle.plan.invoke("plan", Json::string("on")),
+      ) catch {
+        error => Err(error)
+      }
+      match outcome {
+        Ok(@posoco.CommandOutcome::Success(..)) => ()
+        Ok(@posoco.CommandOutcome::Failure(reason~)) =>
+          acp_warn(
+            "cetas-acp: set_mode 'plan' refused (session=" +
+            params.session_id +
+            "): " +
+            reason +
+            "\n",
+          )
+        Ok(_) => ()
+        Err(error) =>
+          acp_warn(
+            "cetas-acp: set_mode 'plan' failed (session=" +
+            params.session_id +
+            "): " +
+            error.to_string() +
+            "\n",
+          )
+      }
+    }
+    ACP_MODE_DEFAULT_ID => handle.plan.stop()
+    other =>
+      raise @acp.HandlerError::InvalidParams(
+        message="cetas-acp: unknown mode '" +
+          other +
+          "' (expected 'default' or 'plan')",
+      )
+  }
+  push_mode_update(params.session_id, handle)
+  { meta: Omitted, }
+}
+
+///|
+/// Stamp the invocation context on the handle and (when delegating) the fs
+/// delegate — one helper so the two mirrors can never drift.
+fn set_handle_context(
+  handle : SessionHandle,
+  context : @acp.AgentContext,
+) -> Unit {
+  handle.context = Some(context)
+  match handle.fs_delegate {
+    Some(delegate) => delegate.attach(context~)
+    None => ()
+  }
+}
+
+///|
+/// Cut the outbound contexts: no more config pushes; the fs delegate degrades to local.
+fn clear_handle_context(handle : SessionHandle) -> Unit {
+  handle.context = None
+  match handle.fs_delegate {
+    Some(delegate) => delegate.detach()
+    None => ()
+  }
+}
+
+///|
+/// `session/cancel`: interrupt the in-flight turn; the prompt settles when the task unwinds.
+pub async fn CetasAcpHost::handle_cancel(
+  self : CetasAcpHost,
+  _context : @acp.AgentContext,
+  params : @acp.CancelParams,
+) -> Unit {
+  if self.sessions.contains(params.session_id) {
+    self.debug_wire_in(
+      session_id=params.session_id,
+      rpc_method="session/cancel",
+      params=debug_session_params(params.session_id),
+    )
+  }
+  match self.sessions.get(params.session_id) {
+    Some(handle) =>
+      match handle.in_flight {
+        Some(task) => task.cancel()
+        None => ()
+      }
+    None => ()
+  }
+}
+
+///|
+/// Retire one live session through the close semantics: removed from the map
+/// synchronously first (queued prompts re-validate and fail as unknown; a
+/// refresh snapshot only captures the session fully alive or not at all),
+/// then the turn is cancelled/drained before `Agent::shutdown`; a shutdown
+/// failure only warns.
+async fn CetasAcpHost::retire_live_session(
+  self : CetasAcpHost,
+  session_id : String,
+  handle : SessionHandle,
+) -> Unit noraise {
+  ignore(self.sessions.remove(session_id))
+  match handle.in_flight {
+    Some(task) => {
+      task.cancel()
+      // Drain: the turn's own failure (the cancellation) belongs to
+      // the prompt request it settles, not to the retirement.
+      try {
+        let _ = task.wait()
+      } catch {
+        _ => ()
+      }
+    }
+    None => ()
+  }
+  handle.agent.shutdown() catch {
+    error =>
+      acp_warn(
+        "cetas-acp: session shutdown failed (session=" +
+        session_id +
+        "): " +
+        error.to_string() +
+        "\n",
+      )
+  }
+  // Cut the outbound context: a refresh that snapshotted before the removal
+  // cannot push into a retired session; the fs delegate degrades to local.
+  clear_handle_context(handle)
+}
+
+///|
+/// `session/close`: retire one session; unknown id is a silent no-op (the
+/// client may race a close it already believes done).
+pub async fn CetasAcpHost::handle_close(
+  self : CetasAcpHost,
+  _context : @acp.AgentContext,
+  params : @acp.CloseSessionParams,
+) -> @acp.CloseSessionResult {
+  match self.sessions.get(params.session_id) {
+    None => { meta: Omitted, }
+    Some(handle) => {
+      self.debug_wire_in(
+        session_id=params.session_id,
+        rpc_method="session/close",
+        params=debug_session_params(params.session_id),
+      )
+      self.retire_live_session(params.session_id, handle)
+      { meta: Omitted, }
+    }
+  }
+}
+
+///|
+/// A missing file stays absent, so delete is idempotent per file; a failed
+/// removal raises an application error naming the file.
+async fn CetasAcpHost::delete_persisted_file(
+  self : CetasAcpHost,
+  path : String,
+  label : String,
+  session_id : String,
+) -> Unit raise @acp.HandlerError {
+  let exists = self.fs.exists(path) catch { _ => false }
+  if exists {
+    self.fs.remove(path) catch {
+      error =>
+        raise @acp.HandlerError::Application(
+          message="cetas-acp: failed to delete session " +
+            session_id +
+            " " +
+            label +
+            " (" +
+            path +
+            "): " +
+            error.to_string(),
+        )
+    }
+  }
+}
+
+///|
+/// `session/delete`: retire a live session, then delete its JSONL history
+/// and sidecar — unrecoverable. Unknown/malformed id rejects invalid params,
+/// deliberately not the cancel/close silent no-op (a mistyped id must not hide).
+pub async fn CetasAcpHost::handle_delete_session(
+  self : CetasAcpHost,
+  _context : @acp.AgentContext,
+  params : @acp.DeleteSessionParams,
+) -> @acp.DeleteSessionResult raise @acp.HandlerError {
+  // Live first (fork posture): a session whose sidecar write failed and has not turned is live.
+  match self.sessions.get(params.session_id) {
+    Some(handle) => self.retire_live_session(params.session_id, handle)
+    None => self.require_known_session(params.session_id)
+  }
+  self.debug_wire_in(
+    session_id=params.session_id,
+    rpc_method="session/delete",
+    params=debug_session_params(params.session_id),
+  )
+  self.delete_persisted_file(
+    @fs_session.jsonl_session_path(
+      self.session_store.root_dir,
+      params.session_id,
+    ),
+    "history",
+    params.session_id,
+  )
+  self.delete_persisted_file(
+    sidecar_path(self.home, params.session_id),
+    "sidecar",
+    params.session_id,
+  )
+  { meta: Omitted, }
+}
+
+// -------------------------------------------------------------- host sidecar
+
+///|
+/// Empty strings and an empty roster mean "unknown" — a missing or corrupt
+/// sidecar degrades to these defaults instead of failing the restore.
+priv struct SessionSidecar {
+  cwd : String
+  model : String
+  effort : String?
+  mcp_servers : Array[String]
+}
+
+///|
+/// Beside the JSONL history, but host-owned (workspace fs, never the session store).
+fn sidecar_path(home : String, session_id : String) -> String {
+  home + "/.cetas/sessions/" + session_id + ".host.json"
+}
+
+///|
+fn sidecar_string_field(fields : Map[String, Json], key : String) -> String {
+  match fields.get(key) {
+    Some(Json::String(value)) => value
+    _ => ""
+  }
+}
+
+///|
+fn sidecar_effort_field(fields : Map[String, Json]) -> String? {
+  match fields.get("effort") {
+    Some(Json::String(value)) => Some(value)
+    _ => None
+  }
+}
+
+///|
+fn sidecar_mcp_names(fields : Map[String, Json]) -> Array[String] {
+  let names : Array[String] = []
+  match fields.get("mcp_servers") {
+    Some(Json::Array(items)) =>
+      for item in items {
+        match item {
+          Json::String(name) => names.push(name)
+          _ => ()
+        }
+      }
+    _ => ()
+  }
+  names
+}
+
+///|
+/// Missing, unreadable, or malformed content is `None`, never an error; a
+/// corrupt file warns once so the data loss stays observable.
+async fn read_session_sidecar(
+  fs : &@workspace.WorkspaceFs,
+  home~ : String,
+  session_id~ : String,
+) -> SessionSidecar? noraise {
+  let path = sidecar_path(home, session_id)
+  match @workspace.read_file_result(fs, path) {
+    Missing => None
+    Failed(message) => {
+      acp_warn(
+        "cetas-acp: session sidecar unreadable (" +
+        path +
+        "): " +
+        message +
+        "; restoring defaults\n",
+      )
+      None
+    }
+    Content(text) => {
+      let parsed : Result[Json, Error] = Ok(@json.parse(text)) catch {
+        error => Err(error)
+      }
+      match parsed {
+        Ok(Json::Object(fields)) =>
+          Some({
+            cwd: sidecar_string_field(fields, "cwd"),
+            model: sidecar_string_field(fields, "model"),
+            effort: sidecar_effort_field(fields),
+            mcp_servers: sidecar_mcp_names(fields),
+          })
+        _ => {
+          acp_warn(
+            "cetas-acp: session sidecar is not a JSON object (" +
+            path +
+            "); restoring defaults\n",
+          )
+          None
+        }
+      }
+    }
+  }
+}
+
+///|
+/// Refresh one session's sidecar from its live handle: model/effort come
+/// from the router; cwd and the MCP roster survive from the existing sidecar
+/// (the roster cannot be recomputed later); `fresh_mcp_names` seeds a fresh
+/// one. Runs under the process persistence mutex; atomic and best-effort.
+async fn CetasAcpHost::update_session_sidecar(
+  self : CetasAcpHost,
+  session_id : String,
+  handle : SessionHandle,
+  fresh_mcp_names : Array[String],
+) -> Unit noraise {
+  acp_persist_mutex.acquire() catch {
+    _ => {
+      acp_warn(
+        "cetas-acp: session sidecar write skipped (session=" +
+        session_id +
+        ")\n",
+      )
+      return
+    }
+  }
+  // The body below has no early return, so the lock releases once at the end.
+  let existing = read_session_sidecar(self.fs, home=self.home, session_id~)
+  let cwd = match existing {
+    Some({ cwd, .. }) => if cwd.length() > 0 { cwd } else { handle.cwd }
+    None => handle.cwd
+  }
+  let mcp_servers = match existing {
+    Some({ mcp_servers, .. }) =>
+      if mcp_servers.is_empty() {
+        fresh_mcp_names
+      } else {
+        mcp_servers
+      }
+    None => fresh_mcp_names
+  }
+  let effort_json = match handle.router.active_effort() {
+    Some(value) => Json::string(value)
+    None => Json::null()
+  }
+  let json = Json::object(
+    Map::from_array([
+      ("cwd", Json::string(cwd)),
+      ("model", Json::string(handle.router.active_slot_id())),
+      ("effort", effort_json),
+      ("mcp_servers", Json::array(mcp_servers.map(name => Json::string(name)))),
+    ]),
+  )
+  self.fs.write_file_atomic(
+    sidecar_path(self.home, session_id),
+    json.stringify(indent=2) + "\n",
+  ) catch {
+    _ =>
+      acp_warn(
+        "cetas-acp: session sidecar write failed (session=" + session_id + ")\n",
+      )
+  }
+  acp_persist_mutex.release()
+}
+
+///|
+/// `session/set_config_option` plus the sidecar refresh the config file cannot
+/// own (model/effort must reach the next load/resume); `permission` never writes.
+pub async fn CetasAcpHost::handle_set_config_option_sidecar(
+  self : CetasAcpHost,
+  context : @acp.AgentContext,
+  params : @acp.SetSessionConfigOptionParams,
+) -> @acp.SetSessionConfigOptionResult raise @acp.HandlerError {
+  if self.sessions.contains(params.session_id) {
+    self.debug_wire_in(
+      session_id=params.session_id,
+      rpc_method="session/set_config_option",
+      params=debug_config_option_params(params),
+    )
+  }
+  let context = self.debug_tap_context(context)
+  let result = self.handle_set_config_option(context, params)
+  if params.config_id == "model" || params.config_id == "effort" {
+    match self.sessions.get(params.session_id) {
+      Some(handle) => self.update_session_sidecar(params.session_id, handle, [])
+      None => ()
+    }
+  }
+  result
+}
+
+// --------------------------------------------------------- load / resume / list
+
+///|
+/// Invalid shapes and ids with neither history nor sidecar are unknown (invalid params).
+async fn CetasAcpHost::require_known_session(
+  self : CetasAcpHost,
+  session_id : String,
+) -> Unit raise @acp.HandlerError {
+  match @fs_session.validate_session_id(session_id) {
+    Err(reason) =>
+      raise @acp.HandlerError::InvalidParams(
+        message="cetas-acp: invalid session id: " + reason,
+      )
+    Ok(_) => {
+      let persisted = self.fs.exists(
+        @fs_session.jsonl_session_path(self.session_store.root_dir, session_id),
+      ) catch {
+        _ => false
+      }
+      let has_sidecar = self.fs.exists(sidecar_path(self.home, session_id)) catch {
+        _ => false
+      }
+      if !(persisted || has_sidecar) {
+        raise @acp.HandlerError::InvalidParams(
+          message="cetas-acp: unknown session '" + session_id + "'",
+        )
+      }
+    }
+  }
+}
+
+///|
+/// Rebuild one persisted session as live: retire a same-id live session first
+/// (one id never backs two agents); cwd resolves client_cwd > sidecar >
+/// platform fallback; the client's MCP set wins verbatim (empty set with a
+/// recorded roster only warns — only names were persisted). Sidecar
+/// model/effort restore is best-effort; rebuilt sessions start `default`.
+async fn CetasAcpHost::restore_session(
+  self : CetasAcpHost,
+  context : @acp.AgentContext,
+  session_id : String,
+  client_cwd : String,
+  client_mcp : Array[@acp.McpServer],
+  sidecar_of? : String,
+) -> SessionHandle raise @acp.HandlerError {
+  let origin = match sidecar_of {
+    Some(id) => id
+    None => session_id
+  }
+  match self.sessions.get(session_id) {
+    Some(handle) => self.retire_live_session(session_id, handle)
+    None => ()
+  }
+  let sidecar = read_session_sidecar(self.fs, home=self.home, session_id=origin)
+  let cwd = if client_cwd.length() > 0 {
+    client_cwd
+  } else {
+    match sidecar {
+      Some({ cwd, .. }) => cwd
+      None => ""
+    }
+  }
+  if client_mcp.is_empty() {
+    match sidecar {
+      Some({ mcp_servers, .. }) =>
+        if !mcp_servers.is_empty() {
+          let roster = StringBuilder()
+          roster.write_string(mcp_servers[0])
+          for i = 1; i < mcp_servers.length(); i = i + 1 {
+            roster.write_string(", ")
+            roster.write_string(mcp_servers[i])
+          }
+          acp_warn(
+            "cetas-acp: session " +
+            origin +
+            " previously had MCP servers [" +
+            roster.to_string() +
+            "]; the client sent none, they are not reconnected\n",
+          )
+        }
+      None => ()
+    }
+  }
+  let spawned : Result[SessionHandle, String] = (self.spawn_session)(
+    session_id,
+    {
+      cwd,
+      additional_directories: Omitted,
+      mcp_servers: client_mcp,
+      meta: Omitted,
+    },
+  ) catch {
+    error => Err(error.to_string())
+  }
+  let handle = match spawned {
+    Ok(handle) => handle
+    Err(message) =>
+      raise @acp.HandlerError::Application(
+        message="cetas-acp: session restore failed: " + message,
+      )
+  }
+  match sidecar {
+    Some({ model, effort, .. }) => {
+      if model.length() > 0 {
+        if handle.router.list_slot_ids().contains(model) {
+          handle.router.switch_slot(model) catch {
+            error =>
+              acp_warn(
+                "cetas-acp: sidecar model '" +
+                model +
+                "' failed to restore (session=" +
+                origin +
+                "): " +
+                error.to_string() +
+                "\n",
+              )
+          }
+        } else {
+          acp_warn(
+            "cetas-acp: sidecar model '" +
+            model +
+            "' is not in the session's slots (session=" +
+            origin +
+            "); keeping the default\n",
+          )
+        }
+      }
+      match effort {
+        Some(value) =>
+          handle.router.select_effort(handle.router.active_slot_id(), value) catch {
+            _ =>
+              acp_warn(
+                "cetas-acp: sidecar effort '" +
+                value +
+                "' is not advertised by the restored slot (session=" +
+                origin +
+                "); keeping the slot default\n",
+              )
+          }
+        None => ()
+      }
+    }
+    None => ()
+  }
+  handle.plan.set_session_name(session_id)
+  set_handle_context(handle, context)
+  self.sessions[session_id] = handle
+  handle
+}
+
+///|
+async fn replay_push_chunk(
+  context : @acp.AgentContext,
+  session_id : String,
+  wrap : (@acp.ContentChunk) -> @acp.SessionUpdate,
+  text : String,
+) -> Unit noraise {
+  context.session_update({
+    session_id,
+    update: wrap({
+      content: Text({ annotations: Omitted, text, meta: Omitted, }),
+      message_id: Omitted,
+      meta: Omitted,
+    }),
+    meta: Omitted,
+  }) catch {
+    _ =>
+      acp_warn(
+        "cetas-acp: history replay push failed (session=" + session_id + ")\n",
+      )
+  }
+}
+
+///|
+/// Replay one persisted session's history as `session/update` chunks, straight
+/// through the invocation's context (not the bridge queue — replay must reach
+/// the client even though no turn is running): user → `user_message_chunk`,
+/// assistant → `agent_thought_chunk` (when persisted) + `agent_message_chunk`s;
+/// tool rounds have no faithful replay.
+async fn CetasAcpHost::replay_session_history(
+  self : CetasAcpHost,
+  context : @acp.AgentContext,
+  session_id : String,
+) -> Unit noraise {
+  let loaded : Result[@posoco.Session, Error] = Ok(
+    self.session_store.load(session_id),
+  ) catch {
+    error => Err(error)
+  }
+  match loaded {
+    Err(error) =>
+      acp_warn(
+        "cetas-acp: history replay skipped (session=" +
+        session_id +
+        "): " +
+        error.to_string() +
+        "\n",
+      )
+    Ok(session) =>
+      for message in session.messages {
+        match message {
+          UserMessage(content~) =>
+            for block in content {
+              match block {
+                Text(text) =>
+                  replay_push_chunk(
+                    context,
+                    session_id,
+                    chunk => UserMessageChunk(chunk),
+                    text,
+                  )
+                _ => ()
+              }
+            }
+          AssistantMessage(content~, reasoning~, ..) => {
+            match reasoning {
+              Some(thought) =>
+                if thought.content.length() > 0 {
+                  replay_push_chunk(
+                    context,
+                    session_id,
+                    chunk => AgentThoughtChunk(chunk),
+                    thought.content,
+                  )
+                }
+              None => ()
+            }
+            for block in content {
+              match block {
+                Text(text) =>
+                  replay_push_chunk(
+                    context,
+                    session_id,
+                    chunk => AgentMessageChunk(chunk),
+                    text,
+                  )
+                _ => ()
+              }
+            }
+          }
+          _ => ()
+        }
+      }
+  }
+}
+
+///|
+/// `session/load`: rebuild and replay. The SDK expects the replay after the
+/// result is accepted; the codec has no post-acceptance seam, so chunks
+/// stream through the invocation's context before answering.
+pub async fn CetasAcpHost::handle_load_session(
+  self : CetasAcpHost,
+  context : @acp.AgentContext,
+  params : @acp.LoadSessionParams,
+) -> @acp.LoadSessionResult raise @acp.HandlerError {
+  self.require_known_session(params.session_id)
+  self.debug_wire_in(
+    session_id=params.session_id,
+    rpc_method="session/load",
+    params=debug_restore_params(session_id=params.session_id, cwd=params.cwd),
+  )
+  let context = self.debug_tap_context(context)
+  let handle = self.restore_session(
+    context,
+    params.session_id,
+    params.cwd,
+    params.mcp_servers,
+  )
+  self.replay_session_history(context, params.session_id)
+  {
+    modes: Value(acp_modes_block(acp_mode_id_of(handle.plan))),
+    config_options: Value(
+      build_config_options(handle.router, handle.permission.mode),
+    ),
+    meta: Omitted,
+  }
+}
+
+///|
+/// `session/resume`: rebuild without replaying — the client already holds the history.
+pub async fn CetasAcpHost::handle_resume_session(
+  self : CetasAcpHost,
+  context : @acp.AgentContext,
+  params : @acp.ResumeSessionParams,
+) -> @acp.ResumeSessionResult raise @acp.HandlerError {
+  self.require_known_session(params.session_id)
+  let client_mcp : Array[@acp.McpServer] = match params.mcp_servers {
+    Value(servers) => servers
+    _ => []
+  }
+  self.debug_wire_in(
+    session_id=params.session_id,
+    rpc_method="session/resume",
+    params=debug_restore_params(session_id=params.session_id, cwd=params.cwd),
+  )
+  let context = self.debug_tap_context(context)
+  let handle = self.restore_session(
+    context,
+    params.session_id,
+    params.cwd,
+    client_mcp,
+  )
+  {
+    modes: Value(acp_modes_block(acp_mode_id_of(handle.plan))),
+    config_options: Value(
+      build_config_options(handle.router, handle.permission.mode),
+    ),
+    meta: Omitted,
+  }
+}
+
+///|
+/// `session/fork`: the parent is untouched; the child gets a new durable id,
+/// a copy of the parent's committed history, its own machinery and sidecar —
+/// immediately promptable. Existence follows the load posture, live checked
+/// first (a session whose sidecar write failed and has not turned is still
+/// forkable); cwd and MCP mirror load.
+pub async fn CetasAcpHost::handle_fork_session(
+  self : CetasAcpHost,
+  context : @acp.AgentContext,
+  params : @acp.ForkSessionParams,
+) -> @acp.ForkSessionResult raise @acp.HandlerError {
+  if !self.sessions.contains(params.session_id) {
+    self.require_known_session(params.session_id)
+  }
+  self.debug_wire_in(
+    session_id=params.session_id,
+    rpc_method="session/fork",
+    params=debug_session_params(params.session_id),
+  )
+  let parent_sidecar = read_session_sidecar(
+    self.fs,
+    home=self.home,
+    session_id=params.session_id,
+  )
+  let client_mcp : Array[@acp.McpServer] = match params.mcp_servers {
+    Value(servers) => servers
+    _ => []
+  }
+  let child_id = mint_session_id()
+  // History copy: the store reads from disk, so a live parent forks its last
+  // committed state, and the copy lands before the child assembles. A read
+  // or write failure fails the fork; an empty history is legal (no save).
+  let loaded : Result[@posoco.Session, Error] = Ok(
+    self.session_store.load(params.session_id),
+  ) catch {
+    error => Err(error)
+  }
+  let parent_session = match loaded {
+    Ok(session) => session
+    Err(error) =>
+      raise @acp.HandlerError::Application(
+        message="cetas-acp: fork history read failed (session=" +
+          params.session_id +
+          "): " +
+          error.to_string(),
+      )
+  }
+  if parent_session.messages.length() > 0 {
+    let saved : Result[Unit, Error] = Ok(
+      self.session_store.save(child_id, parent_session),
+    ) catch {
+      error => Err(error)
+    }
+    match saved {
+      Ok(_) => ()
+      Err(error) =>
+        raise @acp.HandlerError::Application(
+          message="cetas-acp: fork history write failed (session=" +
+            child_id +
+            "): " +
+            error.to_string(),
+        )
+    }
+  }
+  // The child assembles like a load: parent sidecar facts + the fork's cwd override.
+  let context = self.debug_tap_context(context)
+  let handle = self.restore_session(
+    context,
+    child_id,
+    params.cwd,
+    client_mcp,
+    sidecar_of=params.session_id,
+  )
+  // Child sidecar: parent's roster carries over unless the fork injected its own set.
+  let fresh_roster : Array[String] = if client_mcp.is_empty() {
+    match parent_sidecar {
+      Some({ mcp_servers, .. }) => mcp_servers
+      None => []
+    }
+  } else {
+    client_mcp.map(server => acp_mcp_server_name(server))
+  }
+  self.update_session_sidecar(child_id, handle, fresh_roster)
+  {
+    session_id: child_id,
+    modes: Value(acp_modes_block(acp_mode_id_of(handle.plan))),
+    config_options: Value(
+      build_config_options(handle.router, handle.permission.mode),
+    ),
+    meta: Omitted,
+  }
+}
+
+///|
+/// `session/list`: every persisted session id with its sidecar cwd (process
+/// cwd when missing). One page: the incoming cursor is ignored and
+/// `next_cursor` omitted — clients read that as the end of the list.
+pub async fn CetasAcpHost::handle_list_sessions(
+  self : CetasAcpHost,
+  _context : @acp.AgentContext,
+  params : @acp.ListSessionsParams,
+) -> @acp.ListSessionsResult raise @acp.HandlerError {
+  self.debug_wire_in(
+    session_id="host",
+    rpc_method="session/list",
+    params=debug_list_params(params),
+  )
+  let listed : Result[Array[String], Error] = Ok(self.session_store.list_ids()) catch {
+    error => Err(error)
+  }
+  let ids = match listed {
+    Ok(ids) => ids
+    Err(error) =>
+      raise @acp.HandlerError::Application(
+        message="cetas-acp: session list failed: " + error.to_string(),
+      )
+  }
+  let sessions : Array[@acp.SessionInfo] = []
+  for id in ids {
+    let sidecar = read_session_sidecar(self.fs, home=self.home, session_id=id)
+    let cwd = match sidecar {
+      Some({ cwd, .. }) => if cwd.length() > 0 { cwd } else { self.process_cwd }
+      None => self.process_cwd
+    }
+    sessions.push({
+      session_id: id,
+      cwd,
+      additional_directories: Omitted,
+      title: Omitted,
+      updated_at: Omitted,
+      meta: Omitted,
+    })
+  }
+  let filtered : Array[@acp.SessionInfo] = match params.cwd {
+    Value(want) => sessions.filter(info => info.cwd == want)
+    _ => sessions
+  }
+  { sessions: filtered, next_cursor: Omitted, meta: Omitted, }
+}
+
+///|
+fn CetasAcpHost::snapshot_sessions(
+  self : CetasAcpHost,
+) -> Array[(String, SessionHandle)] {
+  let snapshot : Array[(String, SessionHandle)] = []
+  for pair in self.sessions {
+    snapshot.push(pair)
+  }
+  snapshot
+}
+
+///|
 /// Lazily refresh every refreshable provider's model list after startup:
-/// refresh → persist the projected records to the model cache → hot-swap the
-/// router's slots for that provider → push one `config_option_update` to
-/// every live session so editors see the full list without a restart. Any
-/// per-provider failure only warns on stderr and leaves the cached/static
-/// slots standing; the process and its sessions are never at risk.
+/// refresh → persist to the model cache → swap the catalog in the shared
+/// platform list → hot-swap live routers → push `config_option_update` per
+/// live session. Per-provider failures only warn; cached slots keep standing.
 pub async fn CetasAcpHost::refresh_model_lists(
   self : CetasAcpHost,
 ) -> Unit noraise {
-  let mut changed = false
+  let landed : Array[(String, @llm.ProviderModelCatalog)] = []
   for factory in self.refreshables {
     let provider_id = factory.provider_id()
     let outcome : Result[@llm.ProviderModelCatalog?, Error] = Ok(
@@ -379,92 +1505,215 @@ pub async fn CetasAcpHost::refresh_model_lists(
               "\n",
             )
         }
-        let swapped : Result[Unit, Error] = try {
-          self.router.replace_provider_slots(provider_id, catalog.slots())
-          Ok(())
-        } catch {
-          error => Err(error)
-        }
-        match swapped {
-          Ok(_) => changed = true
-          Err(error) =>
-            acp_warn(
-              "cetas-acp: router slot replacement failed for provider " +
-              provider_id +
-              ": " +
-              error.to_string() +
-              "\n",
-            )
-        }
+        swap_platform_catalog(self.catalogs, provider_id, catalog)
+        landed.push((provider_id, catalog))
       }
     }
   }
-  if changed {
-    self.push_config_option_update()
+  if landed.is_empty() {
+    return
   }
+  for pair in self.snapshot_sessions() {
+    let (_session_id, handle) = pair
+    for landed_pair in landed {
+      let (provider_id, catalog) = landed_pair
+      let swapped : Result[Unit, Error] = try {
+        handle.router.replace_provider_slots(provider_id, catalog.slots())
+        Ok(())
+      } catch {
+        error => Err(error)
+      }
+      match swapped {
+        Ok(_) => ()
+        Err(error) =>
+          acp_warn(
+            "cetas-acp: router slot replacement failed for provider " +
+            provider_id +
+            ": " +
+            error.to_string() +
+            "\n",
+          )
+      }
+    }
+  }
+  self.push_config_option_update()
 }
 
 ///|
-/// Push the router's current configOptions to every live session as a
-/// `config_option_update`, so editors re-render the model/effort selectors
-/// after a background refresh. Best-effort: a failing push warns and never
-/// affects the process.
+/// Push each live session's current configOptions as `config_option_update`
+/// after a background refresh; best-effort, a failing push only warns.
 async fn CetasAcpHost::push_config_option_update(
   self : CetasAcpHost,
 ) -> Unit noraise {
-  let config_options = build_config_options(self.router)
-  for session_id, context in self.contexts {
-    context.session_update({
-      session_id,
-      update: @acp.SessionUpdate::ConfigOptionUpdate({
-        config_options,
-        meta: Omitted,
-      }),
-      meta: Omitted,
-    }) catch {
-      _ =>
-        acp_warn(
-          "cetas-acp: config_option_update push failed (session=" +
-          session_id +
-          ")\n",
-        )
+  for pair in self.snapshot_sessions() {
+    let (session_id, handle) = pair
+    match handle.context {
+      Some(context) =>
+        context.session_update({
+          session_id,
+          update: @acp.SessionUpdate::ConfigOptionUpdate({
+            config_options: build_config_options(
+              handle.router,
+              handle.permission.mode,
+            ),
+            meta: Omitted,
+          }),
+          meta: Omitted,
+        }) catch {
+          _ =>
+            acp_warn(
+              "cetas-acp: config_option_update push failed (session=" +
+              session_id +
+              ")\n",
+            )
+        }
+      None => ()
     }
   }
 }
 
-// ------------------------------------------------------- native assembly
+///|
+/// The active model slot's provider-declared context window, or `None` when
+/// the slot does not declare one. The bridge stamps it onto
+/// `UsageUpdate.size`; cetas has no `AgentConfig.model_context_window`
+/// source to prefer (default_agent_config passes nothing).
+fn active_slot_context_window(router : @llm.RouterModelPort) -> Int? {
+  let active = router.active_slot_id()
+  for slot in router.list_slots() {
+    if slot.id == active {
+      return slot.context_window
+    }
+  }
+  None
+}
 
 ///|
-/// Compose the cetas agent for a native process: model router from
-/// configured providers, JSONL session persistence, context files, the
-/// cetas product extension, plan mode, the ACP bridge, and the default tool
-/// set. Returns the agent together with its router, the refreshable provider
-/// seams, and the credential snapshot so the host can lazily refresh model
-/// lists after startup on the same inputs composition used.
-///
-/// The persisted active-model selection (`~/.cetas/settings.json` flat keys)
-/// is restored onto the router before composition: a drifted slot or stale
-/// effort degrades to the router default with one stderr warning (assembly
-/// has no session/observer yet); malformed settings fail composition loudly.
-/// The model-list disk cache (`~/.cetas/model_lists.json`) seeds provider
-/// builds so a restart announces the full discovered list without a network
-/// request; an unreadable cache warns once and degrades to static catalogs.
-async fn build_native_agent(
+/// Union the session's MCP sources onto one bridge: the discover-produced
+/// registration (mcp.json locals in `pending`/`configs`) plus the
+/// `params.mcp_servers` declarations. Injection wins conflicts — a local
+/// server leaves `pending` and `configs` (a reconnect can never resurrect it)
+/// when it shares its name with an injected server or dials the same endpoint
+/// (`same_server`), with one warning per shadowed server. Every mapped
+/// injected config then registers exactly as discover does: `pending` feeds
+/// activate, `configs` stays reconnectable.
+async fn union_mcp_servers(
+  bridge : @mcp.MCPToolBridge,
+  servers : Array[@acp.McpServer],
+) -> Unit noraise {
+  let injected : Array[@mcp.MCPServerConfig] = []
+  for server in servers {
+    let name = @devkit.sanitize_label(acp_mcp_server_name(server))
+    for index in acp_invalid_headers(server) {
+      acp_warn(
+        "cetas-acp: MCP server '" +
+        name +
+        "': http header at index " +
+        index.to_string() +
+        " has an empty name and was skipped\n",
+      )
+    }
+    match acp_mcp_to_config(server) {
+      Ok(config) => injected.push(config)
+      Err(message) => acp_warn("cetas-acp: " + message + "\n")
+    }
+  }
+  // Backward so an in-place removal never skips the next local.
+  for i = bridge.pending.length() - 1; i >= 0; i = i - 1 {
+    let disk = bridge.pending[i]
+    let mut shadowed = false
+    for config in injected {
+      if config.name == disk.name || same_server(config, disk) {
+        shadowed = true
+        break
+      }
+    }
+    if shadowed {
+      acp_warn(
+        "cetas-acp: local mcp server '" +
+        @devkit.sanitize_label(disk.name) +
+        "' shadowed by injected\n",
+      )
+      ignore(bridge.pending.remove(i))
+      ignore(bridge.configs.remove(disk.name))
+    }
+  }
+  for config in injected {
+    bridge.pending.push(config)
+    bridge.configs[config.name] = config
+  }
+}
+
+// ----------------------------------------------------------- process platform
+
+///|
+/// Process-level assembly shared by every session of one host process; built
+/// once per process, the catalogs array is swapped in place by the lazy
+/// refresh.
+priv struct Platform {
+  home : String
+  cwd : String
+  fs : &@workspace.WorkspaceFs
+  catalogs : Array[@llm.ProviderModelCatalog]
+  default_slot_id : String
+  /// Persisted reasoning effort restored onto every session's router.
+  persisted_effort : String?
+  /// Startup tool-approval posture, resolved at assembly and stamped on
+  /// every session; never persisted.
+  permission_mode : @permission.PermissionMode
+  credential_store : @credentials.FileProviderCredentialStore
+  session_store : @fs_session.JsonlSessionStore
+  refreshables : Array[&@llm.RefreshableProviderFactory]
+  refresh_snapshot : @cetas_core.ProviderCredentialSnapshot
+  /// The host's process task group (nmem flusher, MCP monitors);
+  /// `None` in tests without a group.
+  mcp_group : @async.TaskGroup[Unit]?
+  /// The MCP discovery load mode every session's bridge discovers under.
+  mcp_mode : @mcp.LoadMode
+  /// The `CETAS_DELEGATE_FS` resolution stamped at assembly.
+  delegation : DelegateFsMode
+  /// The `CETAS_DEBUG_*` taps stamped at assembly.
+  debug : DebugTaps
+}
+
+///|
+/// Swap one provider's catalog in the shared platform list so sessions minted
+/// after a refresh compose from it; an empty list (tests) is left alone.
+fn swap_platform_catalog(
+  catalogs : Array[@llm.ProviderModelCatalog],
+  provider_id : String,
+  catalog : @llm.ProviderModelCatalog,
+) -> Unit {
+  if catalogs.is_empty() {
+    return
+  }
+  for i in 0..<catalogs.length() {
+    if catalogs[i].provider_id == provider_id {
+      catalogs[i] = catalog
+      return
+    }
+  }
+  catalogs.push(catalog)
+}
+
+///|
+/// Assemble the process platform once: settings → factories → credentials →
+/// model cache → catalogs → persisted selection; fails loudly with no
+/// provider configured. The persisted selection resolves here (drifted
+/// slot/stale effort degrades with one warning); the model-list disk cache
+/// seeds a restart's announcements without network. `delegation`/`debug`
+/// default to the static test posture; production passes the env resolutions.
+async fn build_platform(
   home~ : String,
   cwd~ : String,
-  bridge : @ext_acp.AcpBridge,
   fs : &@workspace.WorkspaceFs,
   mcp_group~ : @async.TaskGroup[Unit]?,
   mcp_mode~ : @mcp.LoadMode,
-) -> (
-  @posoco.Agent,
-  @llm.RouterModelPort,
-  Array[&@llm.RefreshableProviderFactory],
-  @cetas_core.ProviderCredentialSnapshot,
-) raise @posoco.CompositionError {
+  delegation? : DelegateFsMode = DelegateFsMode::Local,
+  debug? : DebugTaps = { catalog: false, wire: false, },
+) -> Platform raise @posoco.CompositionError {
   let settings = load_provider_settings(fs, home~)
-  let ctx = @devkit.ExtContext::default()
-  let factories = @cetas_core.all_provider_factories(ctx, settings)
+  let ext_ctx = @devkit.ExtContext::default()
+  let factories = @cetas_core.all_provider_factories(ext_ctx, settings)
   @cetas_core.validate_provider_settings(settings, factories)
   let store = @credentials.FileProviderCredentialStore(
     fs,
@@ -495,8 +1744,7 @@ async fn build_native_agent(
       Ok(Some(catalog)) => catalogs.push(catalog)
       Ok(None) => ()
       Err(err) =>
-        // One misconfigured provider must not take down the whole host:
-        // skip it, warn on stderr, keep the healthy providers alive.
+        // One misconfigured provider must not take down the whole host.
         acp_warn(
           "cetas-acp: provider " +
           provider_id +
@@ -511,9 +1759,8 @@ async fn build_native_agent(
       "cetas-acp.providers: no configured model provider — configure one in ~/.cetas/settings.json or log in via cetas first",
     )
   }
-  // No OAuth interaction surface exists in an ACP stdio process (v1);
-  // token refresh through the credential store still works for providers
-  // whose credentials are already on disk.
+  // No OAuth surface in a headless/stdio process; token refresh works for
+  // on-disk credentials.
   let selection = @cetas_core.read_active_model_selection(fs, home~)
   let default_slot_id = @cetas_core.resolve_default_slot_id(catalogs, selection)
   match selection {
@@ -527,162 +1774,31 @@ async fn build_native_agent(
       }
     None => ()
   }
-  let router = @llm.RouterModelPort::from_catalogs(
+  let persisted_effort = match selection {
+    Some({ effort: Some(effort), .. }) => Some(effort)
+    _ => None
+  }
+  let session_store = @fs_session.JsonlSessionStore(home + "/.cetas/sessions")
+  let permission_mode = startup_permission_mode()
+  // `device_id` stays empty: no host crypto surface in stdio; providers mint a local id.
+  let refreshables = @cetas_core.refreshable_factories(ext_ctx)
+  {
+    home,
+    cwd,
+    fs,
     catalogs,
-    default_slot_id~,
-    provider_credential_store=Some(store as &@oauth.ProviderCredentialStore),
-  )
-  match selection {
-    Some({ effort: Some(effort), .. }) =>
-      if default_slot_id != "" {
-        router.select_effort(default_slot_id, effort) catch {
-          _ =>
-            acp_warn(
-              "cetas-acp: persisted reasoning effort '" +
-              effort +
-              "' is not advertised by model slot '" +
-              default_slot_id +
-              "'; using the slot's default effort\n",
-            )
-        }
-      }
-    _ => ()
+    default_slot_id,
+    persisted_effort,
+    permission_mode,
+    credential_store: store,
+    session_store,
+    refreshables,
+    refresh_snapshot: snapshot,
+    mcp_group,
+    mcp_mode,
+    delegation,
+    debug,
   }
-  let sessions = @fs_session.JsonlSessionStore(home + "/.cetas/sessions")
-  // Context files (AGENTS.md / CLAUDE.md) are best-effort: a failure to
-  // read them never blocks composition.
-  let loader = @context.ContextLoader(fs, home~)
-  let bundle = loader.load(cwd) catch { _ => @context.ContextBundle::empty() }
-  let context_contributor = @context.ContextPromptContributor(
-    bundle~,
-    ns="cetas",
-  )
-  // ACP surfaces tool approval through session/request_permission (the
-  // bridge's ApprovalSource translation under the composed permission
-  // policy), so the product UI port stays headless.
-  let cetas = @cetas_core.Cetas(
-    cwd~,
-    ui=@posoco.NoopUiPort::NoopUiPort() as &@posoco.UiPort,
-    context_contributor=Some(
-      context_contributor as &@posoco.SystemPromptContributor,
-    ),
-    list_profiles=fn() { [] },
-    on_load=fn(_name : String) { () },
-    on_save=fn(_name : String) { () },
-    on_delete=fn(_name : String) { () },
-  )
-  // Permission: the policy (modes, tool classification, session cache) is
-  // ext-permission's; the ACP bridge is its approval source, translating
-  // each ask into a session/request_permission the editor renders. Reads
-  // are pre-approved; side-effecting tools go through the client's
-  // decision UI. "Always allow" is remembered per the policy's call-shape
-  // cache for the rest of the agent lifetime.
-  let permission_policy = @permission.PermissionPolicy(
-    @permission.Interactive,
-    approval=Some(bridge as &@permission.ApprovalSource),
-  )
-  let acp_plan_review = AcpPlanReview::{ bridge, }
-  let plan_mode = @plan.PlanMode(
-    config={
-      ..@plan.PlanModeConfig::default()
-      // ask_question rides the permission read class.
-      ,
-      allowed_tools: ["read", "glob", "grep", "ask_question"],
-      allow_model_entry: true,
-    },
-    review=Some(acp_plan_review as &@plan.PlanReviewSource),
-  )
-  let exts : Array[&@posoco.Extension] = [
-    cetas,
-    router as &@posoco.Extension,
-    sessions as &@posoco.Extension,
-    bridge as &@posoco.Extension,
-    permission_policy,
-    plan_mode,
-  ]
-  // Default features (six tools + agent skills + ask_question) take the host
-  // context: the injected Workspace port plus cwd/home. Skills policy is
-  // single-sourced inside cetas-core, so the ACP host gets skills for free;
-  // ask_question's UI rides the bridge's UiPort view, which maps each ask
-  // onto an ACP elicitation form (Unsupported → model-visible tool error
-  // when the client has no elicitation capability).
-  for
-    tool in @cetas_core.build_default_features(
-      ctx={ fs, cwd, home },
-      ui=Some(bridge as &@posoco.UiPort),
-    ) {
-    exts.push(tool)
-  }
-  // MCP servers from mcp.json (`<cwd>/.mcp.json` overriding
-  // `<home>/.cetas/mcp.json`), self-governed by the ext-mcp bridge. The
-  // static routing table and catalog base are captured BEFORE the bridge
-  // joins exts: the catalog source already appends the bridge's live tools,
-  // so including them here would duplicate every MCP name.
-  let mcp_bridge = match
-    @mcp.MCPToolBridge::discover(cwd~, home~, mode=mcp_mode) {
-    Ok(discovered) => discovered
-    Err(message) =>
-      raise @posoco.CompositionError::ManifestSchemaError(
-        manifest_id="cetas-acp.mcp",
-        detail=message,
-      )
-  }
-  match mcp_group {
-    Some(group) => mcp_bridge.attach(group)
-    None => ()
-  }
-  let routing : Map[String, &@posoco.ToolProvider] = Map::from_array([])
-  let base_defs : Array[@posoco.ToolDef] = []
-  for ext in exts {
-    for provider in ext.manifest().tools {
-      for def in provider.list_tools() {
-        routing[def.name.to_string()] = provider
-        base_defs.push(def)
-      }
-    }
-  }
-  if mcp_mode is @mcp.LoadMode::Eager {
-    // Composition happens once at process start; a raise here is degenerate
-    // (async machinery), so it degrades to "no servers connected".
-    let failures = mcp_bridge.activate() catch { _ => [] }
-    for pair in failures {
-      let (server, reason) = pair
-      acp_warn(
-        "cetas-acp: MCP server '" +
-        server +
-        "' failed to connect: " +
-        reason +
-        "\n",
-      )
-    }
-  }
-  exts.push(mcp_bridge as &@posoco.Extension)
-  // Lazy activation changes the tool set mid-life, so the catalog is owned
-  // by the runtime-seam source; MCP tool execution routes through the
-  // decorator, everything else through the default port runtime.
-  let base_runtime = @runtime.PortRuntime(
-    model=router as &@posoco.ModelPort,
-    tools=routing,
-  )
-  let runtime = @mcp.McpRuntime(
-    bridge=mcp_bridge,
-    fallback=base_runtime as &@runtime.Runtime,
-  )
-  let catalog_source = @mcp.McpCatalogSource(
-    bridge=mcp_bridge,
-    base_tools=base_defs,
-  )
-  let agent = @posoco.Agent::with_runtime(
-    exts~,
-    config=@cetas_core.default_agent_config(),
-    runtime=runtime as &@runtime.Runtime,
-    catalog_source=catalog_source as &@runtime.CatalogSource,
-  )
-  // The lazy refresh runs against the same registry and snapshot composition
-  // used. `device_id` stays empty: an ACP stdio process has no host crypto
-  // surface, and providers mint a process-local id when handed "".
-  let refreshables = @cetas_core.refreshable_factories(ctx)
-  (agent, router, refreshables, snapshot)
 }
 
 ///|
@@ -730,8 +1846,7 @@ async fn load_provider_settings(
 }
 
 ///|
-/// Read every provider's credential once into a snapshot map, mirroring the
-/// cetas-js host: missing files and unconfigured providers map to no entry.
+/// Read every provider's credential once; missing/unconfigured providers map to no entry.
 async fn read_credential_snapshot(
   store : @credentials.FileProviderCredentialStore,
   factories : Array[&@llm.ProviderFactory],
@@ -756,4 +1871,240 @@ async fn read_credential_snapshot(
     settings~,
     credentials~,
   )
+}
+
+///|
+/// Assemble one session's machinery over the shared platform: the product
+/// pieces compose here in product order exactly as every cetas host composes
+/// them, and this adapter wires only the ACP protocol surface around them —
+/// the session-lifetime bridge (approval source, UI port, context window),
+/// plan review, the fs-delegate shell, MCP discovery/union, and the host
+/// profile prompt section.
+async fn build_session_agent(
+  platform~ : Platform,
+  cwd~ : String,
+  session_id? : String = "",
+  mcp_servers? : Array[@acp.McpServer] = [],
+  host_profile? : HostProfile = HostProfile::Generic,
+) -> SessionHandle raise @posoco.CompositionError {
+  // The router is built first so the bridge can stamp the active slot's
+  // context window; the assembly reuses it instead of minting another.
+  let router = @llm.RouterModelPort::from_catalogs(
+    platform.catalogs,
+    default_slot_id=platform.default_slot_id,
+    provider_credential_store=Some(
+      platform.credential_store as &@oauth.ProviderCredentialStore,
+    ),
+  )
+  match platform.persisted_effort {
+    Some(effort) =>
+      if platform.default_slot_id != "" {
+        router.select_effort(platform.default_slot_id, effort) catch {
+          _ =>
+            acp_warn(
+              "cetas-acp: persisted reasoning effort '" +
+              effort +
+              "' is not advertised by model slot '" +
+              platform.default_slot_id +
+              "'; using the slot's default effort\n",
+            )
+        }
+      }
+    None => ()
+  }
+  let bridge = @ext_acp.AcpBridge(
+    context_window=active_slot_context_window(router),
+  )
+  // Context files (AGENTS.md/CLAUDE.md) are best-effort: a read failure
+  // never blocks composition.
+  let loader = @context.ContextLoader(platform.fs, home=platform.home)
+  let bundle = loader.load(cwd) catch { _ => @context.ContextBundle::empty() }
+  let context_contributor = @context.ContextPromptContributor(
+    bundle~,
+    ns="cetas",
+  )
+  let cetas = @cetas_core.Cetas(
+    ui=@posoco.NoopUiPort::NoopUiPort() as &@posoco.UiPort,
+    context_contributor=Some(
+      context_contributor as &@posoco.SystemPromptContributor,
+    ),
+    list_profiles=fn() { [] },
+    on_load=fn(_name : String) { () },
+    on_save=fn(_name : String) { () },
+    on_delete=fn(_name : String) { () },
+  )
+  // Session-private so plan/permission facts never leak into another's hooks.
+  let event_bus = @devkit.EventBus()
+  // Plan mode's enter/exit tools bypass the permission ask — their decision
+  // is the plan review, not a tool-permission prompt.
+  let plan_mode = @plan.PlanMode(
+    config={
+      ..@plan.PlanModeConfig::default()
+      // ask_question rides the permission read class.
+      ,
+      allowed_tools: ["read", "glob", "grep", "ask_question"],
+      allow_model_entry: true,
+    },
+    review=Some(AcpPlanReview::{ bridge, } as &@plan.PlanReviewSource),
+    bus=Some(event_bus),
+    fs=Some(platform.fs),
+  )
+  // `CETAS_DELEGATE_FS=host`: the tool-facing fs is a delegate shell; the
+  // host stamps the invocation context at every attach point, so until the
+  // first prompt (and after retirement) reads/writes stay local.
+  let mut fs_delegate : AcpDelegateFs? = None
+  let session_fs : &@workspace.WorkspaceFs = match platform.delegation {
+    DelegateFsMode::Host => {
+      let delegate = AcpDelegateFs::AcpDelegateFs(
+        local_fs=platform.fs,
+        session_id~,
+      )
+      fs_delegate = Some(delegate)
+      delegate as &@workspace.WorkspaceFs
+    }
+    DelegateFsMode::Local => platform.fs
+  }
+  // The bridge is the policy's approval source (asks become
+  // session/request_permission renders) and ask_question's UI (each ask
+  // maps onto an ACP elicitation form). Nowledge Mem stays on
+  // unconditionally (User ruling 2026-09-02: acp is a personal host, so it
+  // never rides the shared CETAS_NMEM runtime knob). Without the nowledge
+  // service the extension degrades silently — that is its design guarantee,
+  // not this host's concern.
+  let permission_policy = @permission.PermissionPolicy(
+    platform.permission_mode,
+    approval=Some(bridge as &@permission.ApprovalSource),
+    bus=Some(event_bus),
+  )
+  let exts : Array[&@posoco.Extension] = [
+    cetas,
+    router as &@posoco.Extension,
+    platform.session_store as &@posoco.Extension,
+    bridge as &@posoco.Extension,
+    permission_policy,
+    plan_mode,
+  ]
+  // Records quota verdicts per session and re-runs the interrupted session
+  // at the provider-stated reset time; one guard per session agent.
+  let ratelimit = @ratelimit.RateLimitGuard()
+  exts.push(ratelimit as &@posoco.Extension)
+  for
+    tool in @cetas_core.build_default_features(
+      ctx={ fs: session_fs, cwd, home: platform.home, },
+      ui=Some(bridge as &@posoco.UiPort),
+      enable_nmem=true,
+      nmem_group=platform.mcp_group,
+    ) {
+    exts.push(tool)
+  }
+  // The routing table and catalog base are captured BEFORE the MCP bridge
+  // joins: the bridge's decorator source appends its own live tools, so
+  // including them here would duplicate every name.
+  let routing : Map[String, &@posoco.ToolProvider] = Map::from_array([])
+  let base_defs : Array[@posoco.ToolDef] = []
+  for ext in exts {
+    for provider in ext.manifest().tools {
+      for def in provider.list_tools() {
+        routing[def.name.to_string()] = provider
+        base_defs.push(def)
+      }
+    }
+  }
+  let config = @cetas_core.default_agent_config(
+    system_prompt=Some(compose_system_prompt(host_profile, cwd~)),
+  )
+  // One bridge per session so each session's server set/catalog stay private.
+  // The sources union: mcp.json discovery always runs over the session cwd,
+  // and the params-injected declarations merge onto the same bridge —
+  // injected wins when the two sources conflict.
+  let mcp_bridge = match
+    @mcp.MCPToolBridge::discover(
+      cwd~,
+      home=platform.home,
+      mode=platform.mcp_mode,
+    ) {
+    Ok(discovered) => {
+      union_mcp_servers(discovered, mcp_servers)
+      discovered
+    }
+    Err(message) =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id="cetas-acp.mcp",
+        detail=message,
+      )
+  }
+  match platform.mcp_group {
+    Some(group) => mcp_bridge.attach(group)
+    None => ()
+  }
+  // Always when params inject servers: their connect happens at session/new
+  // even under Lazy (the bridge keeps the discovery mode, whose on_start
+  // activation would only be guaranteed for the locals). A raise here is
+  // degenerate async machinery; per-server failures only warn.
+  if platform.mcp_mode is @mcp.LoadMode::Eager || !mcp_servers.is_empty() {
+    let failures = mcp_bridge.activate() catch { _ => [] }
+    for pair in failures {
+      let (server, reason) = pair
+      acp_warn(
+        "cetas-acp: MCP server '" +
+        server +
+        "' failed to connect: " +
+        reason +
+        "\n",
+      )
+    }
+  }
+  // Lazy activation changes the tool set mid-life, so the catalog is owned
+  // by the runtime-seam source; MCP execution routes through the decorator.
+  let base_runtime = @runtime.PortRuntime(
+    model=router as &@posoco.ModelPort,
+    tools=routing,
+  )
+  let runtime = @mcp.McpRuntime(
+    bridge=mcp_bridge,
+    fallback=base_runtime as &@runtime.Runtime,
+  )
+  let catalog_source = @mcp.McpCatalogSource(
+    bridge=mcp_bridge,
+    base_tools=base_defs,
+  )
+  exts.push(mcp_bridge as &@posoco.Extension)
+  let agent = @posoco.Agent::with_runtime(
+    exts~,
+    config~,
+    runtime=runtime as &@runtime.Runtime,
+    catalog_source=catalog_source as &@runtime.CatalogSource,
+  )
+  // The guard re-runs turns itself, so it needs the composed agent.
+  ratelimit.bind(agent)
+  // The monitor dies with the host group at stdin EOF.
+  match platform.mcp_group {
+    Some(group) => ratelimit.spawn_monitor(group)
+    None => ()
+  }
+  // After activation, dump the full session catalog (bridge cache + base_defs).
+  if platform.debug.catalog && session_id.length() > 0 {
+    debug_dump_catalog(
+      platform.fs,
+      home=platform.home,
+      session_id~,
+      host_profile~,
+      injected=!mcp_servers.is_empty(),
+      mcp_tools=(mcp_bridge as &@posoco.ToolProvider).list_tools(),
+      base_tools=base_defs,
+    )
+  }
+  {
+    bridge,
+    router,
+    agent,
+    cwd,
+    plan: plan_mode,
+    permission: permission_policy,
+    fs_delegate,
+    context: None,
+    in_flight: None,
+    turn_lock: @async.Mutex::Mutex(),
+    last_mode_id: ACP_MODE_DEFAULT_ID,
+  }
 }

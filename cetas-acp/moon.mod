@@ -7,7 +7,7 @@
 
 name = "colmugx/cetas-acp"
 
-version = "0.1.0"
+version = "0.3.0"
 
 readme = "README.mbt.md"
 
@@ -20,19 +20,24 @@ keywords = [ "cetas", "acp", "agent-client-protocol", "zed", "stdio" ]
 description = "Cetas ACP host — serves a cetas agent over stdio via Agent Client Protocol v1"
 
 import {
-  "colmugx/posoco@0.12.0",
-  "colmugx/acp@0.1.3",
-  "colmugx/posoco-ext-acp@0.2.0",
+  "colmugx/posoco@0.14.5",
+  "colmugx/acp@0.2.0",
+  "colmugx/posoco-ext-acp@0.3.0",
   "colmugx/posoco-ext-permission@0.2.0",
-  "colmugx/cetas-core@0.1.0",
-  "colmugx/posoco-devkit@0.1.0",
-  "colmugx/posoco-ext-context@0.1.0",
+  "colmugx/cetas-core@0.2.0",
+  "colmugx/mcp@0.17.5",
+  "colmugx/posoco-devkit@0.3.0",
+  "colmugx/posoco-ext-context@0.2.0",
   "colmugx/posoco-ext-credentials@0.1.0",
-  "colmugx/posoco-ext-fs-session@0.1.0",
-  "colmugx/posoco-ext-llm@0.1.0",
-  "colmugx/posoco-ext-mcp@0.2.0",
+  "colmugx/posoco-ext-fs-session@0.3.0",
+  "colmugx/posoco-ext-llm@0.2.0",
+  "colmugx/posoco-ext-mcp@0.4.0",
   "colmugx/posoco-ext-oauth@0.1.0",
-  "colmugx/posoco-ext-plan@0.1.0",
+  "colmugx/posoco-ext-plan@0.3.0",
+  "colmugx/posoco-ext-webfetch@0.1.0",
   "colmugx/posoco-ext-workspace@0.1.0",
-  "moonbitlang/async@0.21.0",
+  "colmugx/posoco-ext-ratelimit@0.3.0",
+  "colmugx/posoco-kit-lody@0.1.0",
+  "colmugx/posoco-kit-paseo@0.1.0",
+  "moonbitlang/async@0.21.2",
 }
