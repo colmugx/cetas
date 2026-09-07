@@ -2,44 +2,35 @@
 
 **Cetas** 是一个构建在 [Posoco](https://github.com/colmugx/posoco) 之上的编程智能体。
 
+> 无论你在哪里访问 Cetas，Cetas 都在那里。无论你怎么访问 Cetas，都是同一个 Cetas。
+>
+> Cetas 只有一个，抵达它的方式有很多。
+
 ### 目录结构
 
-| 目录 | 说明 |
-|---|---|
-| [`cetas-core/`](./cetas-core/) | 库。所有宿主共享的目标无关宿主逻辑：`Cetas` 扩展（身份、系统提示词组装、`/profile` 命令）、provider 组装 / 凭据 / 登录、模型目录缓存、prompt 执行器。不做任何目标相关 IO——IO 全部由宿主注入。 |
-| [`cetas-js/`](./cetas-js/) | **终端 UI 宿主。** 运行在 **Bun** 运行时上（js 目标），通过 Node 兼容的 `node:fs` / `node:crypto` FFI 做文件与加密 IO，用 **pi-tui** 渲染。 |
-| [`cetas-acp/`](./cetas-acp/) | **编辑器宿主。** native 可执行文件，通过 stdio 把一个 Cetas Agent 暴露为 **ACP v1** agent，供 **Zed** 等 ACP 客户端驱动。 |
-
-两个宿主都复用 `cetas-core`；它们自身都不包含 agent 循环逻辑——那属于它们组合出来的 Posoco `Agent`。
+每个表示面组合的都是同一份 `cetas-core` 组装、同一个 Posoco `Agent`；
+没有任何表示面自带 agent 循环逻辑，也没有任何表示面自定义身份。
+新的表示面只是新的入口——不是新的 Cetas。
 
 ### 前置要求
 
 - [MoonBit 工具链](https://docs.moonbitlang.com)（`moon`）。
 - [Bun](https://bun.sh) —— 仅 `cetas-js` 需要。
-- 本仓库作为 Posoco 的 `external/examples` 子模块开发，并在该工作区（`external/moon.work`）内构建。MoonBit 依赖经工作区 / mooncakes.io 解析。
+- 本仓库位于 Posoco 工作区的 `external/cetas`，并在该工作区（`external/cetas/moon.work`）内构建。MoonBit 依赖经工作区 / mooncakes.io 解析。
 
 ### cetas-js —— 交互式终端 UI
 
 ```bash
-cd external/examples/cetas-js
-moon build --target js --release     # 构建 MoonBit 侧，产物在 _build/js/release/build/colmugx/cetas-js/lib/lib.js
-bun install
-bun run start              # 即 bun host.ts —— 完整 TUI
+cd cetas-js
+bun run build
 ```
-
-- 输入提示词后回车。工具调用实时流式呈现；助手回复按 Markdown 渲染。
-- `/model` 打开模型选择器（`All` + 各 provider 标签页；←/→ 切换高亮模型的
-  reasoning effort）。
-- `/login` 通过 API key 或 OAuth 配置 provider
-  （Codex/Kimi 目前走 device-code 流程，浮层会显示验证 URL 和代码）。
-- `/help` 列出全部斜杠命令（`/clear`、`/new`、`/skills`、`/exit` 等）。
 
 Provider 配置放在家目录下的 `.cetas/settings.json`。settings 对象会原样传给所选的 provider 扩展——Cetas 本身不解析 endpoint 或凭据。
 
 ### cetas-acp —— 从编辑器（Zed）驱动 Cetas
 
 ```bash
-cd external/examples/cetas-acp
+cd cetas-acp
 moon build --target native --release
 # 二进制位于 _build/native/release/build/colmugx/cetas-acp/main/main.exe
 ```
@@ -53,7 +44,7 @@ moon build --target native --release
   "agent": {
     "acp_agents": {
       "cetas": {
-        "command": "/absolute/path/to/external/_build/native/debug/build/colmugx/cetas-acp/main/main.exe",
+        "command": "/absolute/path/to/cetas/_build/native/release/build/colmugx/cetas-acp/main/main.exe",
         "args": []
       }
     }
@@ -68,6 +59,14 @@ moon build --target native --release
 - `CETAS_HOME` 可覆盖 Cetas 主目录（settings、凭据、sessions）；默认取 `HOME`。
 - `<cwd>/.mcp.json`（覆盖 `~/.cetas/mcp.json`）声明的 MCP server 默认在第一轮才懒连接；设置 `CETAS_MCP_MODE=eager` 可改为启动时全部连接。
 
-### 共享状态
+### 发版
 
-两个宿主读写同一个 Cetas 主目录（默认 `~/.cetas/`）：`settings.json`（provider 配置 + 当前模型/effort）、凭据文件、`mcp.json`，以及 `sessions/`下的 JSONL 会话记录。
+发版通过在仓库根目录运行 `python3 scripts/release.py` 完成：它根据 git 历史建议版本号，打开编辑器填写发版说明，同步 `VERSION` 与各组件版本文件，更新 `CHANGELOG.md`，并创建 `cetas-vX.Y.Z` 标签。推送该标签会触发 `.github/workflows/release.yml`，为 darwin-arm64 / windows-x64 / linux-x64 构建 cetas-bun（内嵌 Bun 的二进制）与 cetas-acp（原生二进制），并连同 SHA256SUMS 一起附到 GitHub Release。`python3 scripts/release.py check` 是版本一致性门禁。
+
+### 共享状态——"同一个 Cetas"今天意味着什么
+
+所有表示面读写同一个 Cetas 主目录（默认 `~/.cetas/`）：`settings.json`
+（provider 配置 + 当前模型/effort）、凭据文件、`mcp.json`，以及
+`sessions/` 下的 JSONL 会话记录。这份共享主目录让上面的定义在今天就是
+字面事实：登录一次，所有表示面都已登录；选一次模型，所有表示面都用它。
+跨表示面续接同一场对话（跨宿主 session resume）是这个定义的下一块拼图。

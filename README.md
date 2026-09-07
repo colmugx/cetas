@@ -3,42 +3,34 @@
 **Cetas** is a coding agent built on [Posoco](https://github.com/colmugx/posoco),
 a protocol-first LLM agent framework for MoonBit.
 
+> Wherever you access Cetas, Cetas is there.
+> However you access Cetas, it is the same Cetas.
+
 ### Repository layout
 
-| Directory | What it is |
-|---|---|
-| [`cetas-core/`](./cetas-core/) | Library. Target-agnostic host logic shared by every host: the `Cetas` extension (identity, system-prompt assembly, `/profile` command), provider assembly / credentials / login, model catalog cache, and the prompt runner. It performs no target-specific IO — all IO is injected by the host. |
-| [`cetas-js/`](./cetas-js/) | **Terminal UI host.** Runs on the **Bun** runtime (js target) with Node-compatible `node:fs` / `node:crypto` FFI, and renders with **pi-tui**. |
-| [`cetas-acp/`](./cetas-acp/) | **Editor host.** Native executable that serves one Cetas agent over stdio as an **ACP v1** agent, so ACP clients such as **Zed** can drive it. |
-
-Both hosts reuse `cetas-core`; neither contains agent-loop logic of its own — that belongs to the Posoco `Agent` they compose.
+Every surface composes the same `cetas-core` assembly and the same Posoco
+`Agent`; none contains agent-loop logic of its own, and none defines its own
+identity. A new surface is a new way in — not a new Cetas.
 
 ### Prerequisites
 
 - The [MoonBit toolchain](https://docs.moonbitlang.com) (`moon`).
 - [Bun](https://bun.sh) — only for `cetas-js`.
-- This repo is developed as the `external/examples` submodule of Posoco and builds inside that workspace (`external/moon.work`). MoonBit dependencies resolve through the workspace / mooncakes.io.
+- This repo lives at `external/cetas` in the Posoco workspace and builds inside that workspace (`external/cetas/moon.work`). MoonBit dependencies resolve through the workspace / mooncakes.io.
 
 ### cetas-js — interactive terminal UI
 
 ```bash
-cd external/examples/cetas-js
-moon build --target js --release     # builds the MoonBit side into _build/js/release/build/colmugx/cetas-js/lib/lib.js
-bun install
-bun run start              # = bun host.ts — full TUI
+cd cetas-js
+bun run build
 ```
-
-- Type a prompt and press Enter. Tool calls stream in as they happen; assistant replies render as Markdown.
-- `/model` opens the model picker (`All` + provider tabs; ←/→ selects the reasoning effort of the highlighted model).
-- `/login` configures a provider via API key or OAuth (Codex/Kimi uses the device-code flow; the overlay shows URL and code).
-- `/help` lists all slash commands (`/clear`, `/new`, `/skills`, `/exit`, …).
 
 Provider configuration lives in `.cetas/settings.json` under your home directory. The settings object is passed opaquely to the selected provider extension — Cetas itself never parses endpoints or credentials.
 
 ### cetas-acp — drive Cetas from an editor (Zed)
 
 ```bash
-cd external/examples/cetas-acp
+cd cetas-acp
 moon build --target native --release
 # binary lands at _build/native/release/build/colmugx/cetas-acp/main/main.exe
 ```
@@ -52,7 +44,7 @@ Register the binary in Zed's settings (see [Zed's external-agents docs](https://
   "agent": {
     "acp_agents": {
       "cetas": {
-        "command": "/absolute/path/to/external/_build/native/debug/build/colmugx/cetas-acp/main/main.exe",
+        "command": "/absolute/path/to/cetas/_build/native/release/build/colmugx/cetas-acp/main/main.exe",
         "args": []
       }
     }
@@ -67,6 +59,16 @@ Notes:
 - `CETAS_HOME` overrides the Cetas home directory (settings, credentials, sessions); `HOME` is the default.
 - MCP servers declared in `<cwd>/.mcp.json` (overriding `~/.cetas/mcp.json`) connect lazily at the first turn by default; set `CETAS_MCP_MODE=eager` to connect them all at startup.
 
-### Shared state
+### Releasing
 
-Both hosts read and write the same Cetas home (default `~/.cetas/`): `settings.json` (provider config + active model/effort), credential files, `mcp.json`, and JSONL session transcripts under `sessions/`.
+Releases are cut by running `python3 scripts/release.py` from the repo root: it suggests a version from git history, opens your editor for the release notes, syncs `VERSION` and the component version files, updates `CHANGELOG.md`, and creates the annotated `cetas-vX.Y.Z` tag. Pushing that tag triggers `.github/workflows/release.yml`, which builds cetas-bun (bun-embedded binaries) and cetas-acp (native binaries) for darwin-arm64 / windows-x64 / linux-x64 and attaches them, with SHA256SUMS, to the GitHub Release. `python3 scripts/release.py check` is the version-consistency gate.
+
+### Shared state — what "the same Cetas" means today
+
+All surfaces read and write the same Cetas home (default `~/.cetas/`):
+`settings.json` (provider config + active model/effort), credential files,
+`mcp.json`, and JSONL session transcripts under `sessions/`. That shared
+home is what makes the definition literal today: log in once, and every
+surface is signed in; pick a model once, and every surface uses it.
+Continuing one conversation across surfaces (cross-host session resume) is
+the next piece of the definition.

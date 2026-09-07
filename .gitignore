@@ -1,1 +1,9 @@
+gen
 node_modules
+dist
+.cetas
+
+.DS_Store
+_build/
+.mooncakes/
+.moonagent/

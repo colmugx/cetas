@@ -1,0 +1,174 @@
+# cetas CI — push to main + pull requests.
+#
+# Every job checks out colmugx/posoco@main recursively and pins the embedded
+# external/cetas submodule to the commit under test. This stays correct
+# whatever the committed state of cetas' moon.work turns out to be: with no
+# moon.work (or one without "../..") each module resolves deps from its
+# moon.mod pins and the parent checkout is harmless; with "../.." the
+# workspace resolves against the checked-out parent.
+
+name: cetas ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CETAS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout posoco parent (recursively)
+        uses: actions/checkout@v4
+        with:
+          repository: colmugx/posoco
+          ref: main
+          path: posoco
+          submodules: recursive
+
+      - name: Switch cetas submodule to event commit
+        shell: bash
+        working-directory: posoco/external/cetas
+        run: |
+          git fetch --depth=1 origin "${CETAS_SHA}"
+          git checkout "${CETAS_SHA}"
+          # nested extension/ gitlinks come from the cetas commit under test
+          git submodule update --init --recursive
+
+      - name: Install moon (Unix)
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+
+      - name: moon version
+        run: moon version --all
+
+      - name: Version-sync gate
+        working-directory: posoco/external/cetas
+        run: python3 scripts/release.py check
+
+      - name: moon update
+        working-directory: posoco/external/cetas/cetas-acp
+        run: moon update
+
+      - name: moon check
+        working-directory: posoco/external/cetas/cetas-acp
+        run: moon check
+
+      - name: moon test (native)
+        id: test
+        working-directory: posoco/external/cetas/cetas-acp
+        run: moon test --target native
+
+      # host_wbtest.mbt "a queued second prompt runs only after the first turn
+      # fully settles" is known-flaky (async ordering): rerun the suite once
+      # before failing the job.
+      - name: moon test (native, flake rerun)
+        if: failure() && steps.test.outcome == 'failure()'
+        working-directory: posoco/external/cetas/cetas-acp
+        run: moon test --target native
+
+      - name: moon fmt (check)
+        working-directory: posoco/external/cetas/cetas-acp
+        run: moon fmt --check
+
+      # drift gate scoped to the cetas dirs; the posoco root is at main and
+      # not ours to gate
+      - name: moon info + interface drift gate
+        working-directory: posoco/external/cetas/cetas-acp
+        run: |
+          moon info
+          git diff --exit-code -- . ../cetas-js ../cetas-core ../cetas-headless ../cetas-ext-forme
+
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: cetas-js typecheck
+        working-directory: posoco/external/cetas/cetas-js
+        run: |
+          bun install
+          bunx tsc --noEmit
+
+  native-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, target: darwin-arm64 }
+          - { os: ubuntu-latest, target: linux-x64 }
+          - { os: windows-latest, target: windows-x64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      CETAS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Disable auto CRLF (Windows)
+        if: matrix.os == 'windows-latest'
+        run: git config --global core.autocrlf false
+
+      - name: Checkout posoco parent (recursively)
+        uses: actions/checkout@v4
+        with:
+          repository: colmugx/posoco
+          ref: main
+          path: posoco
+          submodules: recursive
+
+      - name: Switch cetas submodule to event commit
+        shell: bash
+        working-directory: posoco/external/cetas
+        run: |
+          git fetch --depth=1 origin "${CETAS_SHA}"
+          git checkout "${CETAS_SHA}"
+          git submodule update --init --recursive
+
+      - name: Install MSVC (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install moon (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> $GITHUB_PATH
+
+      - name: Install moon (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          "C:\Users\runneradmin\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: moon version
+        run: moon version --all
+
+      - name: moon update
+        working-directory: posoco/external/cetas/cetas-acp
+        run: moon update
+
+      - name: moon build (native, release)
+        working-directory: posoco/external/cetas/cetas-acp
+        run: moon build --target native --release
+
+      # _build lives at the cetas workspace ROOT (moon.work), not under cetas-acp
+      - name: Smoke --version
+        working-directory: posoco/external/cetas/cetas-acp
+        run: ../_build/native/release/build/colmugx/cetas-acp/main/main.exe --version
+
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: bun install
+        working-directory: posoco/external/cetas/cetas-js
+        run: bun install
+
+      - name: moon update (cetas-js)
+        working-directory: posoco/external/cetas/cetas-js
+        run: moon update
+
+      - name: build cetas-bun (native target)
+        working-directory: posoco/external/cetas/cetas-js
+        run: bun build.ts ${{ matrix.target }}

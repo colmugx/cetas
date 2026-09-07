@@ -1,0 +1,249 @@
+# Release pipeline for the cetas submodule (repo github.com/colmugx/cetas).
+# Tag builds publish cetas-acp and cetas-bun binaries plus a GitHub release.
+#
+# Every build job checks out colmugx/posoco and points the embedded
+# external/cetas submodule at the tag being released. This stays correct
+# whatever the committed state of cetas' moon.work turns out to be: with no
+# moon.work (or one without "../..") each module resolves deps from its
+# moon.mod pins and the parent checkout is harmless; with "../.." the
+# workspace resolves against the checked-out parent.
+name: cetas release
+
+on:
+  push:
+    tags: ["cetas-v*"]
+  workflow_dispatch:
+    inputs:
+      posoco_ref:
+        description: "posoco ref to build against"
+        default: "main"
+
+permissions:
+  contents: write
+
+env:
+  POSOCO_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.posoco_ref || 'main' }}
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, target: darwin-arm64 }
+          - { os: ubuntu-latest, target: linux-x64 }
+          - { os: windows-latest, target: windows-x64 }
+    steps:
+      # core.autocrlf must be off before any checkout or generated/checked-in
+      # LF files get CRLF-mangled on disk.
+      - name: disable auto CRLF (Windows)
+        if: matrix.os == 'windows-latest'
+        run: git config --global core.autocrlf false
+
+      - name: checkout posoco workspace
+        uses: actions/checkout@v4
+        with:
+          repository: colmugx/posoco
+          ref: ${{ env.POSOCO_REF }}
+          path: posoco
+          submodules: recursive
+
+      # Tag builds must compile exactly the tagged revision, not whatever
+      # posoco@POSOCO_REF currently points at.
+      - name: switch embedded cetas to the release tag
+        if: github.event_name == 'push'
+        working-directory: posoco/external/cetas
+        shell: bash
+        run: |
+          git fetch --depth=1 origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          git checkout "${GITHUB_REF_NAME}"
+
+      # On dispatch the submodule stays at the posoco@ref pointer; this still
+      # syncs the nested extension/ submodule.
+      - name: init nested submodules
+        working-directory: posoco/external/cetas
+        shell: bash
+        run: git submodule update --init --recursive
+
+      - name: install MSVC (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: install moon (unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: install moon (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser; irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          "C:\Users\runneradmin\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: moon version
+        run: moon version --all
+
+      # release.py needs python3, absent from windows runners; the gate is
+      # platform-independent so the ubuntu entry covers all targets.
+      - name: release check (version sync gate)
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: posoco/external/cetas
+        run: python3 scripts/release.py check
+
+      - name: moon update (cetas-acp)
+        working-directory: posoco/external/cetas/cetas-acp
+        run: moon update
+
+      # _build lands at the cetas workspace ROOT (moon.work dir), not under cetas-acp
+      - name: moon build (native release)
+        working-directory: posoco/external/cetas/cetas-acp
+        run: moon build --target native --release
+
+      # moon names the native binary main.exe on every platform; stage/ holds
+      # both products under their bare release names before packaging.
+      - name: collect cetas-acp (unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: posoco/external/cetas/cetas-acp
+        run: |
+          mkdir -p ../stage
+          cp "../_build/native/release/build/colmugx/cetas-acp/main/main.exe" "../stage/cetas-acp"
+
+      - name: collect cetas-acp (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: posoco/external/cetas/cetas-acp
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "..\stage" | Out-Null
+          Copy-Item "..\_build\native\release\build\colmugx\cetas-acp\main\main.exe" -Destination "..\stage\cetas-acp.exe"
+
+      - name: version smoke (unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: posoco/external/cetas/stage
+        run: |
+          out="$(./cetas-acp --version)"
+          echo "$out"
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            expected="cetas-acp ${GITHUB_REF_NAME#cetas-v}"
+            [[ "$out" == "$expected" ]] || { echo "::error::--version mismatch: got '$out', want '$expected'"; exit 1; }
+          fi
+
+      - name: version smoke (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: posoco/external/cetas/stage
+        shell: pwsh
+        run: |
+          $out = (& ".\cetas-acp.exe" --version) -join ' '
+          $out
+          if ($env:GITHUB_EVENT_NAME -eq 'push') {
+            $expected = "cetas-acp " + ($env:GITHUB_REF_NAME -replace '^cetas-v', '')
+            if ($out.Trim() -ne $expected) {
+              Write-Host "::error::--version mismatch: got '$out', want '$expected'"
+              exit 1
+            }
+          }
+
+      - name: setup bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: bun install
+        working-directory: posoco/external/cetas/cetas-js
+        run: bun install
+
+      - name: moon update (cetas-js)
+        working-directory: posoco/external/cetas/cetas-js
+        run: moon update
+
+      - name: build cetas-bun (native target)
+        working-directory: posoco/external/cetas/cetas-js
+        run: bun build.ts ${{ matrix.target }}
+
+      # tsc is platform-independent; the ubuntu entry runs it for all targets.
+      - name: typecheck
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: posoco/external/cetas/cetas-js
+        run: bunx tsc --noEmit
+
+      - name: collect cetas-bun (unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: posoco/external/cetas/cetas-js
+        run: cp "dist/cetas-bun-${{ matrix.target }}" "../stage/cetas-bun"
+
+      - name: collect cetas-bun (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: posoco/external/cetas/cetas-js
+        shell: pwsh
+        run: Copy-Item "dist\cetas-bun-${{ matrix.target }}.exe" -Destination "..\stage\cetas-bun.exe"
+
+      # Release body = the CHANGELOG section for this version, up to (not
+      # including) the next `## ` heading. No body on workflow_dispatch.
+      - name: extract release body
+        if: matrix.os == 'ubuntu-latest' && github.event_name == 'push'
+        working-directory: posoco/external/cetas
+        run: |
+          ver="${GITHUB_REF_NAME#cetas-v}"
+          awk -v hdr="## ${ver} " 'index($0, hdr) == 1 {on=1; next} /^## / {on=0} on' CHANGELOG.md > stage/release_body.md
+
+      - name: package (unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: posoco/external/cetas/stage
+        run: |
+          tar -czf "cetas-bun-${{ matrix.target }}.tar.gz" cetas-bun
+          tar -czf "cetas-acp-${{ matrix.target }}.tar.gz" cetas-acp
+
+      - name: package (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: posoco/external/cetas/stage
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "cetas-bun.exe" -DestinationPath "cetas-bun-windows-x64.zip" -Force
+          Compress-Archive -Path "cetas-acp.exe" -DestinationPath "cetas-acp-windows-x64.zip" -Force
+
+      - name: upload binaries
+        uses: actions/upload-artifact@v6
+        with:
+          name: binaries-${{ matrix.target }}
+          path: |
+            posoco/external/cetas/stage/*.tar.gz
+            posoco/external/cetas/stage/*.zip
+            posoco/external/cetas/stage/release_body.md
+
+  release:
+    name: publish GitHub release
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/cetas-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: download all artifacts (flattened)
+        uses: actions/download-artifact@v7
+        with:
+          path: staging
+          merge-multiple: true
+
+      # Drop the body file when missing or empty; the empty output then omits
+      # body_path so the release is created without a body.
+      - name: guard release body
+        id: relbody
+        run: |
+          if [[ -s staging/release_body.md ]]; then
+            echo "path=staging/release_body.md" >> "$GITHUB_OUTPUT"
+          else
+            rm -f staging/release_body.md
+          fi
+
+      - name: checksums
+        working-directory: staging
+        run: sha256sum *.tar.gz *.zip > SHA256SUMS
+
+      - name: create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            staging/*.tar.gz
+            staging/*.zip
+            staging/SHA256SUMS
+          body_path: ${{ steps.relbody.outputs.path }}
