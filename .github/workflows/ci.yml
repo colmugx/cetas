@@ -55,14 +55,14 @@ jobs:
         working-directory: posoco/external/cetas/cetas-acp
         run: moon update
 
-      - name: moon check (deny warnings)
+      - name: moon check (native, deny warnings)
         working-directory: posoco/external/cetas/cetas-acp
-        run: moon check --deny-warn
+        run: moon check --target native --deny-warn --output-json
 
       - name: moon test (native)
         id: test
         working-directory: posoco/external/cetas/cetas-acp
-        run: moon test --target native
+        run: moon test --target native --output-json
 
       # host_wbtest.mbt "a queued second prompt runs only after the first turn
       # fully settles" is known-flaky (async ordering): rerun the suite once
@@ -70,11 +70,11 @@ jobs:
       - name: moon test (native, flake rerun)
         if: failure() && steps.test.outcome == 'failure()'
         working-directory: posoco/external/cetas/cetas-acp
-        run: moon test --target native
+        run: moon test --target native --output-json
 
-      - name: moon fmt (check)
+      - name: moon fmt
         working-directory: posoco/external/cetas/cetas-acp
-        run: moon fmt --check
+        run: moon fmt
 
       # drift gate scoped to the cetas dirs; the posoco root is at main and
       # not ours to gate
