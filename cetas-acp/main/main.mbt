@@ -6,7 +6,8 @@
 /// overrides the cetas home directory (default `HOME`). A model provider
 /// must be configured — startup fails loudly otherwise.
 /// `CETAS_MCP_MODE=eager` connects mcp.json servers at startup instead of
-/// lazily at the first turn.
+/// lazily at the first turn. `CETAS_GOAL=<condition>` arms the goal runner
+/// (personal host) for each session; regular turns are unaffected.
 
 ///|
 const CETAS_ACP_VERSION = "0.3.0"

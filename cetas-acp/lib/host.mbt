@@ -1874,12 +1874,23 @@ async fn read_credential_snapshot(
 }
 
 ///|
+/// The CETAS_GOAL seam: a non-empty condition arms the goal runner; unset
+/// or blank degrades to no goal ext.
+fn goal_ext_from_env(value : String?) -> @goal.GoalRunner? {
+  match value {
+    Some(condition) if condition.trim().length() > 0 =>
+      Some(@goal.goal_extension(goal_condition=condition))
+    _ => None
+  }
+}
+
+///|
 /// Assemble one session's machinery over the shared platform: the product
 /// pieces compose here in product order exactly as every cetas host composes
 /// them, and this adapter wires only the ACP protocol surface around them —
 /// the session-lifetime bridge (approval source, UI port, context window),
-/// plan review, the fs-delegate shell, MCP discovery/union, and the host
-/// profile prompt section.
+/// plan review, the fs-delegate shell, MCP discovery/union, the personal
+/// zcode opt-in, and the host profile prompt section.
 async fn build_session_agent(
   platform~ : Platform,
   cwd~ : String,
@@ -1935,20 +1946,6 @@ async fn build_session_agent(
   )
   // Session-private so plan/permission facts never leak into another's hooks.
   let event_bus = @devkit.EventBus()
-  // Plan mode's enter/exit tools bypass the permission ask — their decision
-  // is the plan review, not a tool-permission prompt.
-  let plan_mode = @plan.PlanMode(
-    config={
-      ..@plan.PlanModeConfig::default()
-      // ask_question rides the permission read class.
-      ,
-      allowed_tools: ["read", "glob", "grep", "ask_question"],
-      allow_model_entry: true,
-    },
-    review=Some(AcpPlanReview::{ bridge, } as &@plan.PlanReviewSource),
-    bus=Some(event_bus),
-    fs=Some(platform.fs),
-  )
   // `CETAS_DELEGATE_FS=host`: the tool-facing fs is a delegate shell; the
   // host stamps the invocation context at every attach point, so until the
   // first prompt (and after retirement) reads/writes stay local.
@@ -1966,16 +1963,32 @@ async fn build_session_agent(
   }
   // The bridge is the policy's approval source (asks become
   // session/request_permission renders) and ask_question's UI (each ask
-  // maps onto an ACP elicitation form). Nowledge Mem stays on
-  // unconditionally (User ruling 2026-09-02: acp is a personal host, so it
-  // never rides the shared CETAS_NMEM runtime knob). Without the nowledge
-  // service the extension degrades silently — that is its design guarantee,
-  // not this host's concern.
+  // maps onto an ACP elicitation form). nmem registers because acp builds
+  // as a personal flavor — the compile-time constant is the only gate.
   let permission_policy = @permission.PermissionPolicy(
     platform.permission_mode,
     approval=Some(bridge as &@permission.ApprovalSource),
     bus=Some(event_bus),
   )
+  // Plan mode's enter/exit tools bypass the permission ask — their decision
+  // is the plan review, not a tool-permission prompt. It must be built
+  // after the policy above: its constructor publishes the tool exemptions
+  // on the shared bus and only a subscribed gate receives them.
+  let plan_mode = @plan.PlanMode(
+    config={
+      ..@plan.PlanModeConfig::default()
+      // ask_question rides the permission read class.
+      ,
+      allowed_tools: ["read", "glob", "grep", "ask_question"],
+      allow_model_entry: true,
+    },
+    review=Some(AcpPlanReview::{ bridge, } as &@plan.PlanReviewSource),
+    bus=Some(event_bus),
+    fs=Some(platform.fs),
+  )
+  // Personal host holds goal: the condition arrives via CETAS_GOAL; no
+  // driver loop this round, so regular turns are unaffected.
+  let goal = goal_ext_from_env(read_env_var("CETAS_GOAL"))
   let exts : Array[&@posoco.Extension] = [
     cetas,
     router as &@posoco.Extension,
@@ -1984,6 +1997,10 @@ async fn build_session_agent(
     permission_policy,
     plan_mode,
   ]
+  match goal {
+    Some(runner) => exts.push(runner as &@posoco.Extension)
+    None => ()
+  }
   // Records quota verdicts per session and re-runs the interrupted session
   // at the provider-stated reset time; one guard per session agent.
   let ratelimit = @ratelimit.RateLimitGuard()
@@ -1992,10 +2009,24 @@ async fn build_session_agent(
     tool in @cetas_core.build_default_features(
       ctx={ fs: session_fs, cwd, home: platform.home, },
       ui=Some(bridge as &@posoco.UiPort),
-      enable_nmem=true,
       nmem_group=platform.mcp_group,
     ) {
     exts.push(tool)
+  }
+  // Personal host opt-in: zcode delegation registers when detected, degrades to absent otherwise.
+  let zcode_ext = @zcode.zcode_ext_if_detected(
+    env=fn(key : String) { read_env_var(key) },
+    exists=async fn(path : String) -> Bool {
+      session_fs.exists(path) catch {
+        _ => false
+      }
+    },
+  ) catch {
+    _ => None
+  }
+  match zcode_ext {
+    Some(ext) => exts.push(ext as &@posoco.Extension)
+    None => ()
   }
   // The routing table and catalog base are captured BEFORE the MCP bridge
   // joins: the bridge's decorator source appends its own live tools, so

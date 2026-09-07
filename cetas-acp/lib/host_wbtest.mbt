@@ -1643,6 +1643,23 @@ async test "startup permission posture defaults to workspace_write and validates
 }
 
 ///|
+/// CETAS_GOAL arms the personal goal runner; the raw-value seam substitutes
+/// for the untestable process env (see the convention above).
+async test "goal_ext_from_env arms goal_update_plan on a non-empty condition and degrades on blank or unset" {
+  match goal_ext_from_env(Some("make the build green")) {
+    Some(runner) => {
+      assert_eq(runner.extension_id(), "posoco_ext_goal")
+      let defs = @posoco.ToolProvider::list_tools(runner)
+      assert_eq(defs.length(), 1)
+      assert_eq(defs[0].name.to_string(), "goal_update_plan")
+    }
+    None => fail("a non-empty CETAS_GOAL must arm the goal runner")
+  }
+  assert_true(goal_ext_from_env(None) is None)
+  assert_true(goal_ext_from_env(Some("   ")) is None)
+}
+
+///|
 async test "set_config_option permission yolo stops asking for write-class calls" {
   let tools = @posoco.RecordingToolProvider(
     [@posoco.tk_tool_def("edit", "edit a file")],
