@@ -1,0 +1,12 @@
+import {
+  "colmugx/cetas-headless/lib",
+  "colmugx/posoco",
+  "colmugx/posoco-ext-permission" @permission,
+  "moonbitlang/async",
+  "moonbitlang/async/stdio",
+  "moonbitlang/core/env",
+}
+
+pkgtype(kind: "executable")
+
+supported_targets = "native"

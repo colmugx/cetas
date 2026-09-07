@@ -1,0 +1,17 @@
+import {
+  "colmugx/posoco",
+  "colmugx/posoco/error",
+  "colmugx/cetas-core/lib" @cetas_core,
+  "colmugx/posoco-devkit" @devkit,
+  "colmugx/posoco-ext-permission" @permission,
+  "colmugx/posoco-ext-workspace" @workspace,
+  "colmugx/posoco-ext-zcode" @zcode,
+  "colmugx/posoco-ext-llm" @llm,
+  "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/stdio",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+}
+
+supported_targets = "+native"
