@@ -2,6 +2,7 @@
 /// cli.mbt — the decided command surface (cetas-headless-design §二):
 ///
 ///   cetas-headless [--model <id>] [--effort <level>] [--session <id>]
+///                  [--goal <condition>]
 ///                  [--yolo | --permission <readonly|workspace_write|interactive>]
 ///                  [--jsonl] [-- "<task>"]
 ///
@@ -19,6 +20,8 @@ pub(all) struct HeadlessCli {
   effort : String
   /// Existing session id to resume; "" mints a fresh session id.
   session_id : String
+  /// Goal condition for the goal runner ("" = no goal ext).
+  goal : String
   /// Unattended master switch: Yolo mode AND no terminal UI.
   yolo : Bool
   /// Structured face: stdout carries the pure JSONL event stream instead of
@@ -48,6 +51,7 @@ pub fn parse_headless_cli(argv : Array[String]) -> Result[HeadlessCli, String] {
   let mut model = ""
   let mut effort = ""
   let mut session_id = ""
+  let mut goal = ""
   let mut yolo = false
   let mut jsonl = false
   let mut permission_mode : @permission.PermissionMode? = None
@@ -78,6 +82,12 @@ pub fn parse_headless_cli(argv : Array[String]) -> Result[HeadlessCli, String] {
         return Err("--session requires a value (<session id>)")
       }
       session_id = argv[i]
+    } else if arg == "--goal" {
+      i += 1
+      if i >= argv.length() {
+        return Err("--goal requires a value (<goal condition>)")
+      }
+      goal = argv[i]
     } else if arg == "--yolo" {
       yolo = true
     } else if arg == "--jsonl" {
@@ -108,7 +118,7 @@ pub fn parse_headless_cli(argv : Array[String]) -> Result[HeadlessCli, String] {
   if yolo && permission_mode is Some(_) {
     return Err("--yolo and --permission are mutually exclusive")
   }
-  Ok({ model, effort, session_id, yolo, jsonl, permission_mode, task, })
+  Ok({ model, effort, session_id, goal, yolo, jsonl, permission_mode, task, })
 }
 
 ///|

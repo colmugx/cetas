@@ -195,7 +195,6 @@ async fn tk_scripted_agent(
   let session = @cetas_core.build_cetas_session(
     platform~,
     cwd="/w",
-    enable_nmem=false,
     label="cetas-headless-tests",
   )
   (@cetas_core.compose_cetas_agent(session~, tail_exts~), model)

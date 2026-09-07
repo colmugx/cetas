@@ -1,9 +1,13 @@
 import {
   "colmugx/posoco",
   "colmugx/posoco/error",
+  "colmugx/posoco/runtime",
   "colmugx/cetas-core/lib" @cetas_core,
   "colmugx/posoco-devkit" @devkit,
+  "colmugx/posoco-ext-goal" @goal,
+  "colmugx/posoco-ext-mcp" @mcp,
   "colmugx/posoco-ext-permission" @permission,
+  "colmugx/posoco-ext-plan" @plan,
   "colmugx/posoco-ext-workspace" @workspace,
   "colmugx/posoco-ext-zcode" @zcode,
   "colmugx/posoco-ext-llm" @llm,

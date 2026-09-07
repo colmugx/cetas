@@ -23,6 +23,7 @@ async fn tk_host(
   model_override~ : String,
   effort_override~ : String,
   session_id~ : String,
+  goal? : String = "",
 ) -> (CetasHeadlessHost, Array[String]) {
   let warnings : Array[String] = []
   let host = CetasHeadlessHost::CetasHeadlessHost(
@@ -34,7 +35,7 @@ async fn tk_host(
     model_override~,
     effort_override~,
     session_id~,
-    enable_nmem=Some(false),
+    goal~,
     fs=Some(fs as &@workspace.WorkspaceFs),
     warn=fn(text : String) { warnings.push(text) },
   )
@@ -53,8 +54,8 @@ async test "host composes over the core seam with the persisted selection and a 
   )
   assert_eq(host.router.active_slot_id(), "opencode/claude-sonnet-5")
   assert_true(host.session_id.has_prefix("cetas-"))
-  // HerdrReporter comes free via build_default_features when herdr is
-  // undetectable in tests, and nmem is off — the composition stays silent.
+  // nmem rides the compiled personal flavor; nothing warns — the
+  // composition stays silent.
   assert_eq(warnings, [])
 }
 
@@ -131,47 +132,77 @@ async test "host resumes an explicit --session id verbatim" {
 }
 
 ///|
-async test "build_default_features registers HerdrReporter when HERDR env is set" {
-  // Zero-wiring inheritance, positive path: with the herdr gate env set,
-  // the composition itself (build_default_features' default detect_herdr)
-  // must register a live reporter. Observable through the reporter's spawn:
-  // the Idle emit at detect() time runs our fake herdr binary, which touches
-  // a sentinel file.
-  let scratch = @fs.tmpdir(prefix="cetas-headless-herdr-") catch {
-    _ => abort("cetas-headless herdr test: tmpdir failed")
-  }
-  let sentinel = scratch + "/report-sentinel"
-  let fake_bin = scratch + "/fake-herdr"
-  @fs.write_file(
-    fake_bin,
-    "#!/bin/sh\ntouch \"" + sentinel + "\"\n",
-    create_mode=@fs.CreateMode::CreateOrTruncate,
-    permission=0o755,
-  ) catch {
-    _ => abort("cetas-headless herdr test: fake binary write failed")
-  }
-  @env.set_env_var("HERDR_ENV", "1")
-  @env.set_env_var("HERDR_PANE_ID", "pane-test")
-  @env.set_env_var("HERDR_BIN_PATH", fake_bin)
+async test "--goal arms the goal runner and goal_update_plan is routable" {
   let (fs, home) = tk_host_fs()
-  let (_, warnings) = tk_host(
+  let (host, warnings) = tk_host(
+    fs,
+    home~,
+    model_override="",
+    effort_override="",
+    session_id="",
+    goal="make the build green",
+  )
+  assert_true(host.routing.contains("goal_update_plan"))
+  // Composition stays silent with the runner armed.
+  assert_eq(warnings, [])
+}
+
+///|
+async test "plan mode joins via bus_exts and its enter/exit tools are routable" {
+  let (fs, home) = tk_host_fs()
+  let (host, _) = tk_host(
     fs,
     home~,
     model_override="",
     effort_override="",
     session_id="",
   )
-  assert_eq(warnings, [])
-  let mut registered = false
-  for _ in 0..<40 {
-    if @fs.exists(sentinel) {
-      registered = true
-      break
-    }
-    @async.sleep(50)
+  assert_true(host.routing.contains("enter_plan_mode"))
+  assert_true(host.routing.contains("exit_plan_mode"))
+}
+
+///|
+async test "terminal plan review without a tty dismisses; EOF dismisses too" {
+  let notes : Array[String] = []
+  let review = TerminalPlanReview::TerminalPlanReview(tty=None, notice=fn(
+    text : String,
+  ) {
+    notes.push(text)
+  })
+  let decision = @plan.PlanReviewSource::review(review, @plan.PlanReviewRequest::{
+    plan: "refactor the loop",
+  })
+  // Dismiss is the only no-terminal decision that ends planning without
+  // granting edits — Revise would loop the model with no one to answer.
+  assert_true(decision is @plan.PlanReviewDecision::Dismiss)
+  assert_true(notes[0].contains("no terminal"))
+  // EOF on a live tty is the same degradation.
+  let eof_review = TerminalPlanReview::TerminalPlanReview(
+    tty=Some(FakeTty::FakeTty([]).channel()),
+  )
+  assert_true(
+    @plan.PlanReviewSource::review(eof_review, @plan.PlanReviewRequest::{
+      plan: "refactor the loop",
+    })
+    is @plan.PlanReviewDecision::Dismiss,
+  )
+}
+
+///|
+async test "without mcp.json the host composes with an MCP-free routing table" {
+  let (fs, home) = tk_host_fs()
+  let (host, warnings) = tk_host(
+    fs,
+    home~,
+    model_override="",
+    effort_override="",
+    session_id="",
+  )
+  // Discovery degrades to an empty bridge: composition succeeds, no MCP
+  // tool reaches the routing table, nothing warns.
+  for name in host.routing.keys() {
+    assert_false(name.has_prefix("mcp__"))
   }
-  @env.unset_env_var("HERDR_ENV")
-  @env.unset_env_var("HERDR_PANE_ID")
-  @env.unset_env_var("HERDR_BIN_PATH")
-  assert_true(registered)
+  assert_false(host.routing.contains("goal_update_plan"))
+  assert_eq(warnings, [])
 }

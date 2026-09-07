@@ -19,7 +19,7 @@
 extern "C" fn exit(code : Int) = "exit"
 
 ///|
-const USAGE : String = "usage: cetas-headless [--model <id>] [--effort <level>] [--session <id>] [--yolo | --permission <readonly|workspace_write|interactive>] [--jsonl] [-- \"<task>\"]\n"
+const USAGE : String = "usage: cetas-headless [--model <id>] [--effort <level>] [--session <id>] [--goal <condition>] [--yolo | --permission <readonly|workspace_write|interactive>] [--jsonl] [-- \"<task>\"]\n"
 
 ///|
 async fn main {
@@ -137,8 +137,10 @@ async fn main {
       model_override=cli.model,
       effort_override=cli.effort,
       session_id=cli.session_id,
+      goal=cli.goal,
       mcp_group=Some(group),
       tail_exts~,
+      tty~,
     ) catch {
       error => {
         @stdio.stderr.write(

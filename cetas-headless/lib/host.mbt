@@ -7,9 +7,7 @@
 /// `build_cetas_session` + `compose_cetas_agent` for the single session.
 /// Host-specific wiring is only the approval source and UI port (both
 /// terminal-side, or absent under `--yolo`), plus the personal zcode opt-in
-/// below — no askquestion bridge beyond
-/// what `ui~` already buys, and HerdrReporter comes free via
-/// `build_default_features`' default `detect_herdr`.
+/// below — no askquestion bridge beyond what `ui~` already buys.
 ///
 /// `--model` / `--effort` are run-scoped: they override the persisted
 /// `ActiveModelSelection` on the session router and are NEVER written back
@@ -25,6 +23,8 @@ pub struct CetasHeadlessHost {
   router : @llm.RouterModelPort
   /// Minted fresh or resumed from `--session <id>`.
   session_id : String
+  /// The session's captured tool routing (base table, before any tail ext).
+  routing : Map[String, &@posoco.ToolProvider]
 }
 
 ///|
@@ -33,7 +33,8 @@ pub struct CetasHeadlessHost {
 /// `--yolo`. `tail_exts~` weaves host-side extensions at the composition
 /// tail (ACP precedent: the `--jsonl` observer rides here). `fs~`
 /// substitutes the workspace fs in tests; production passes None for the
-/// native fs.
+/// native fs. `goal~` arms the goal runner (`--goal`). `tty~` feeds the
+/// terminal plan review; without one the review degrades to Dismiss.
 pub async fn CetasHeadlessHost::CetasHeadlessHost(
   home~ : String,
   cwd~ : String,
@@ -43,10 +44,11 @@ pub async fn CetasHeadlessHost::CetasHeadlessHost(
   model_override? : String = "",
   effort_override? : String = "",
   session_id? : String = "",
+  goal? : String = "",
   mcp_group? : @async.TaskGroup[Unit]? = None,
   tail_exts? : Array[&@posoco.Extension] = [],
-  enable_nmem? : Bool? = None,
   fs? : &@workspace.WorkspaceFs? = None,
+  tty? : TtyChannel? = None,
   label? : String = "cetas-headless",
   warn? : async (String) -> Unit noraise = async fn(text : String) noraise {
     @stdio.stderr.write(text) catch {
@@ -67,11 +69,6 @@ pub async fn CetasHeadlessHost::CetasHeadlessHost(
     label~,
     warn~,
   )
-  let nmem = match enable_nmem {
-    Some(enabled) => enabled
-    // Mirror cetas-core's committed "auto" flavor default for dev builds.
-    None => @env.get_env_var("CETAS_NMEM") == Some("1")
-  }
   // Personal host opt-in: zcode delegation registers when detected, degrades to absent otherwise.
   let zcode_ext = @zcode.zcode_ext_if_detected(
     env=fn(key : String) { @env.get_env_var(key) },
@@ -83,16 +80,44 @@ pub async fn CetasHeadlessHost::CetasHeadlessHost(
   ) catch {
     _ => None
   }
+  let client_exts : Array[&@posoco.Extension] = []
+  match zcode_ext {
+    Some(ext) => client_exts.push(ext as &@posoco.Extension)
+    None => ()
+  }
+  // --goal arms the goal runner; its goal_update_plan tool must be routable,
+  // so it rides client_exts ahead of the routing capture.
+  if goal.trim().length() > 0 {
+    client_exts.push(
+      @goal.goal_extension(goal_condition=goal) as &@posoco.Extension,
+    )
+  }
   let session = @cetas_core.build_cetas_session(
     platform~,
     cwd~,
     approval~,
     ui~,
-    enable_nmem=nmem,
-    client_exts=match zcode_ext {
-      Some(ext) => [ext as &@posoco.Extension]
-      None => []
-    },
+    client_exts~,
+    bus_exts=Some(fn(bus) {
+      // Same plan config as acp/js; the review is the terminal seam and it
+      // must build here — after the policy subscribes, before the capture.
+      [
+        @plan.PlanMode(
+          config={
+            ..@plan.PlanModeConfig::default(),
+            allowed_tools: ["read", "glob", "grep", "ask_question"],
+            allow_model_entry: true,
+          },
+          review=Some(
+            TerminalPlanReview::TerminalPlanReview(tty~, notice=warn)
+            as &@plan.PlanReviewSource,
+          ),
+          bus=Some(bus),
+          fs=Some(fs),
+        )
+        as &@posoco.Extension,
+      ]
+    }),
     label~,
     warn~,
   )
@@ -104,13 +129,65 @@ pub async fn CetasHeadlessHost::CetasHeadlessHost(
     label~,
     warn~,
   )
-  let agent = @cetas_core.compose_cetas_agent(session~, tail_exts~)
+  // MCP joins AFTER the routing capture (tail_exts): the bridge serves its
+  // tools through the decorator runtime + catalog source, never the
+  // manifest; a malformed mcp.json warns and skips MCP entirely.
+  let bridge = match
+    @mcp.MCPToolBridge::discover(cwd~, home~, mode=@mcp.LoadMode::Lazy) {
+    Ok(bridge) => {
+      match mcp_group {
+        Some(group) => bridge.attach(group)
+        None => ()
+      }
+      Some(bridge)
+    }
+    Err(message) => {
+      warn(
+        label + ": mcp.json discovery failed, MCP disabled: " + message + "\n",
+      )
+      None
+    }
+  }
+  let agent = match bridge {
+    Some(bridge) => {
+      let base_runtime = @runtime.PortRuntime(
+        model=session.router as &@posoco.ModelPort,
+        tools=session.routing,
+      )
+      let runtime = @mcp.McpRuntime(
+        bridge~,
+        fallback=base_runtime as &@runtime.Runtime,
+      )
+      let catalog_source = @mcp.McpCatalogSource(
+        bridge~,
+        base_tools=session.base_defs,
+      )
+      let tails : Array[&@posoco.Extension] = [bridge as &@posoco.Extension]
+      for ext in tail_exts {
+        tails.push(ext)
+      }
+      @cetas_core.compose_cetas_agent(
+        session~,
+        tail_exts=tails,
+        runtime=Some(runtime as &@runtime.Runtime),
+        catalog_source=Some(catalog_source as &@runtime.CatalogSource),
+      )
+    }
+    None => @cetas_core.compose_cetas_agent(session~, tail_exts~)
+  }
   let sid = if session_id.length() > 0 {
     session_id
   } else {
     @cetas_core.mint_session_id()
   }
-  { home, cwd, agent, router: session.router, session_id: sid, }
+  {
+    home,
+    cwd,
+    agent,
+    router: session.router,
+    session_id: sid,
+    routing: session.routing,
+  }
 }
 
 ///|
