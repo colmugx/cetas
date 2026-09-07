@@ -48,7 +48,9 @@ pub fn build_cetas_router(
 /// and ask_question, `client_exts~`/`policy_exts~` weave host extensions at
 /// their product positions, `prompt_suffix~` appends a host profile section
 /// to the cetas system prompt, and `session_fs~` substitutes a delegating
-/// workspace shell.
+/// workspace shell. `bus_exts~` builds extensions that publish to the bus at
+/// construction (e.g. tool exemptions): it runs only after the policy has
+/// subscribed, so such publications always reach a live gate.
 pub async fn build_cetas_session(
   platform~ : CetasPlatform,
   cwd~ : String,
@@ -58,9 +60,9 @@ pub async fn build_cetas_session(
   event_bus? : @devkit.EventBus? = None,
   client_exts? : Array[&@posoco.Extension] = [],
   policy_exts? : Array[&@posoco.Extension] = [],
+  bus_exts? : ((@devkit.EventBus) -> Array[&@posoco.Extension])? = None,
   prompt_suffix? : String? = None,
   session_fs? : &@workspace.WorkspaceFs? = None,
-  enable_nmem? : Bool = compiled_nmem_enabled(),
   label? : String = "cetas-acp",
   warn? : async (String) -> Unit noraise = fn(_ : String) { () },
 ) -> CetasSession raise @posoco.CompositionError {
@@ -125,6 +127,16 @@ pub async fn build_cetas_session(
   for ext in policy_exts {
     exts.push(ext)
   }
+  // Exts that publish to the bus at construction (e.g. plan's tool
+  // exemptions) must be built after the policy subscribes and before the
+  // routing capture, so their manifest tools are routable.
+  match bus_exts {
+    Some(build) =>
+      for ext in build(event_bus) {
+        exts.push(ext)
+      }
+    None => ()
+  }
   // Records quota verdicts per session and re-runs the interrupted session
   // at the provider-stated reset time; one guard per session agent.
   let ratelimit = @ratelimit.RateLimitGuard()
@@ -137,11 +149,7 @@ pub async fn build_cetas_session(
     tool in build_default_features(
       ctx={ fs: session_fs, cwd, home: platform.home, },
       ui~,
-      enable_nmem~,
       nmem_group=platform.mcp_group,
-      // The gate above is already subscribed; exemption self-reports
-      // (mbtx, plan) publish at construction and fire-and-forget.
-      bus=Some(event_bus),
     ) {
     exts.push(tool)
   }

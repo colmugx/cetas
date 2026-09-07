@@ -160,36 +160,26 @@ fn cetas_skills_config() -> @skills.SkillsConfig {
 
 ///|
 /// Shell-tool platform selection: `compiled_target_os` is baked at compile
-/// time by the gen_platform rule from CETAS_TARGET_OS ("windows"/"unix"),
+/// time by the gen_build_config rule from CETAS_PLATFORM ("windows"/"unix"),
 /// so a unix build never registers the ps1 ext and a windows build never
-/// registers the bash ext. "auto" (env unset, or the committed default when
-/// the rule does not fire) falls back to runtime detection.
+/// registers the bash ext.
 fn shell_platform_is_windows() -> Bool {
-  match compiled_target_os() {
-    "windows" => true
-    "unix" => false
-    _ => @ps1.is_windows()
-  }
+  compiled_target_os() == "windows"
 }
 
 ///|
 /// Default feature set: read/write/edit/glob/grep/bash plus agent skills
-/// and (with `ui~`) the interactive ask_question tool; Nowledge Mem joins
-/// only when baked in or explicitly enabled (the nmem_target knob).
+/// and (with `ui~`) the interactive ask_question tool. The flavor-gated
+/// extensions (Nowledge Mem, RTK, Obsidian) register only in personal
+/// builds: the flavor table baked at compile time is the only gate, no
+/// runtime knob exists.
 ///
 /// The six file/shell tools are context-free constructors; skills needs the
 /// host process context (fs/cwd/home) for discovery, so the function takes
 /// `ctx~`. Knobs: `ui~` gates ask_question (a headless host omits it — an
 /// always-erroring tool would only pollute the model's tool list);
-/// `enable_rtk~` registers the RTK shell router, decided at compile time by
-/// the flavor_target knob; `enable_nmem~` opts into Nowledge Mem, which
-/// degrades silently without the service, and a supplied `nmem_group~`
-/// starts its background flusher; `shell_family~` swaps bash for the
-/// sandboxed mbtx script tool on unix — models stall without a bash-shaped
-/// action surface, so bash is the default and mbtx is opt-in; Windows keeps
-/// ps1 either way (`bus~` carries the already-subscribed session event bus
-/// mbtx self-reports on); `detect_herdr~` registers the herdr presence
-/// reporter when the host runs inside a herdr pane.
+/// `nmem_group~` starts nmem's background flusher; the unix shell is bash
+/// and Windows keeps ps1.
 ///
 /// Attention budget: the file tools, the two skill tools, and ask_question
 /// are the only tools in the model catalog; every episodic tool (shell,
@@ -209,12 +199,7 @@ fn shell_platform_is_windows() -> Bool {
 pub async fn build_default_features(
   ctx~ : HostContext,
   ui? : &@posoco.UiPort? = None,
-  enable_nmem? : Bool = compiled_nmem_enabled(),
-  enable_rtk? : Bool = compiled_rtk_enabled(),
-  shell_family? : String = compiled_shell_family(),
-  bus? : @devkit.EventBus? = None,
   nmem_group? : @async.TaskGroup[Unit]? = None,
-  detect_herdr? : Bool = true,
   host_help_note? : String? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
   let freshness = @devkit.FreshnessGuard::FreshnessGuard()
@@ -241,25 +226,19 @@ pub async fn build_default_features(
   // Shell tool choice per platform — deferred behind the gateway like the
   // other episodic tools. The manuals merge into the one skills extension
   // below so both share the activate_skill tool; a second Skills instance
-  // would collide on tool names at composition. The unix side is the
-  // shell_family knob: "mbtx" swaps bash for the sandboxed MoonBit script
-  // tool (bus-threaded so its exemption self-report reaches the already-
-  // subscribed gate); Windows keeps ps1 — the knob never reroutes it.
+  // would collide on tool names at composition. Unix keeps bash; Windows
+  // keeps ps1.
   if shell_platform_is_windows() {
     episodic.push(
       @ps1.PowerShellTools(anchor=Some(anchor)) as &@posoco.Extension,
     )
-  } else if shell_family == "mbtx" {
-    episodic.push(
-      @mbtx.MbtxTools(anchor=Some(anchor), bus~) as &@posoco.Extension,
-    )
   } else {
     episodic.push(@bash.ShellTools(anchor=Some(anchor)) as &@posoco.Extension)
   }
-  // RTK shell routing is preference-tied (a local rtk install): the
-  // flavor_target knob decides at compile time — public builds never
-  // register the hook, so shell tools call the platform shell directly.
-  if enable_rtk {
+  // RTK shell routing is preference-tied (a local rtk install): the flavor
+  // table bakes the default at compile time — public builds never register
+  // the hook, so shell tools call the platform shell directly.
+  if compiled_rtk_enabled() {
     exts.push(@rtk.RTKHook("rtk") as &@posoco.Extension)
   }
   let builtin_manuals = @forme.builtin_manual_skills()
@@ -285,16 +264,12 @@ pub async fn build_default_features(
     Err(_) => ()
   }
   exts.push(@forme.Forme::Forme(host_note=host_help_note) as &@posoco.Extension)
-  match (if detect_herdr { @herdr.HerdrReporter::detect() } else { None }) {
-    Some(reporter) => exts.push(reporter as &@posoco.Extension)
-    None => ()
-  }
   match ui {
     Some(port) =>
       exts.push(@askquestion.AskQuestionTools(port) as &@posoco.Extension)
     None => ()
   }
-  if enable_nmem {
+  if compiled_nmem_enabled() {
     let nmem = @nmem.NowledgeMem(
       source_app="cetas",
       transport=@nmem.HttpNmemTransport::HttpNmemTransport()
@@ -326,14 +301,14 @@ pub async fn build_default_features(
     as &@posoco.Extension,
   )
   // Obsidian vault tools via the official Obsidian CLI. Preference-tied:
-  // the flavor_target knob decides inclusion at compile time (public builds
-  // exclude it entirely — no env check survives). When enabled, the
-  // CETAS_OBSIDIAN value still names the vault: "on"/"1"/unset targets the
-  // active vault, any other non-"off" value names the vault (first CLI
-  // argument vault=<name>). Opting in grants whole-vault read/write;
-  // destructive writes (permanent delete, overwrite, heading replace/delete)
-  // still consent through the composed UI, and the extension degrades
-  // per-call when the CLI or the app is unavailable.
+  // the flavor table bakes inclusion at compile time (public builds exclude
+  // it entirely). When enabled, the CETAS_OBSIDIAN value still names the
+  // vault: "on"/"1"/unset targets the active vault, any other non-"off"
+  // value names the vault (first CLI argument vault=<name>). Opting in
+  // grants whole-vault read/write; destructive writes (permanent delete,
+  // overwrite, heading replace/delete) still consent through the composed
+  // UI, and the extension degrades per-call when the CLI or the app is
+  // unavailable.
   if compiled_obsidian_enabled() {
     let vault : String? = match @env.get_env_var("CETAS_OBSIDIAN") {
       Some(value) if value != "on" && value != "1" && value != "off" =>

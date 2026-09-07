@@ -217,16 +217,94 @@ async test "the session assembly joins the host prompt suffix onto the cetas pro
     permission_mode=@permission.WorkspaceWrite,
   )
   let base = cetas_system_prompt(cwd="/w")
-  let plain = build_cetas_session(platform~, cwd="/w", enable_nmem=false)
+  let plain = build_cetas_session(platform~, cwd="/w")
   assert_eq(plain.config.system_prompt, Some(base))
   let suffixed = build_cetas_session(
     platform~,
     cwd="/w",
     prompt_suffix=Some("## Delegated tasks"),
-    enable_nmem=false,
   )
   assert_eq(
     suffixed.config.system_prompt,
     Some(base + "\n\n" + "## Delegated tasks"),
   )
+}
+
+///|
+/// Minimal bus-built extension: reports one tool. The closure's bus
+/// argument is recorded separately (the seam type is non-optional).
+priv struct BusExtProbe {}
+
+///|
+fn BusExtProbe::tool_def() -> @posoco.ToolDef {
+  @posoco.ToolDef::ToolDef(
+    name=@posoco.ToolName::unchecked("bus_probe_tool"),
+    description="probe",
+    input_schema=Json::null(),
+    owner=@posoco.OwnerId::unchecked("placeholder"),
+    policy=@posoco.ExecutionPolicy::Parallel,
+    provenance=None,
+  )
+}
+
+///|
+impl @posoco.ToolProvider for BusExtProbe with fn list_tools(_self) {
+  [BusExtProbe::tool_def()]
+}
+
+///|
+impl @posoco.ToolProvider for BusExtProbe with fn execute(
+  _self,
+  _name : String,
+  _call : @posoco.ToolCall,
+) -> @posoco.ToolOutcome raise @posoco.RuntimeError {
+  @posoco.ToolOutcome::Success(content="probe", structured=None)
+}
+
+///|
+impl @posoco.Extension for BusExtProbe with fn extension_id(_self) -> String {
+  "bus_probe"
+}
+
+///|
+impl @posoco.Extension for BusExtProbe with fn manifest(self : BusExtProbe) -> @posoco.ExtensionManifest {
+  {
+    id: "bus_probe",
+    models: [],
+    tools: [self],
+    sessions: [],
+    observers: [],
+    hooks: [],
+    memory: [],
+    lifecycle: [],
+    commands: [],
+    ui: [],
+    prompt_contributors: [],
+    requires: [],
+  }
+}
+
+///|
+async test "bus_exts builds after the policy subscribes and lands in the routing capture" {
+  let fs = FakeFs()
+  fs.files["/home/.cetas/settings.json"] = "{\"providers\":{\"opencode\":{\"api_key\":\"sk-zen-test\"}}}"
+  let platform = build_cetas_platform(
+    home="/home",
+    cwd="/w",
+    fs,
+    permission_mode=@permission.WorkspaceWrite,
+  )
+  let seen_bus : Array[@devkit.EventBus] = []
+  let session = build_cetas_session(
+    platform~,
+    cwd="/w",
+    bus_exts=Some(fn(bus) {
+      seen_bus.push(bus)
+      [BusExtProbe::{ } as &@posoco.Extension]
+    }),
+  )
+  // The closure ran exactly once, over the session's bus.
+  assert_eq(seen_bus.length(), 1)
+  // The probe's tool is routable: the closure ran before the capture.
+  assert_true(session.routing.contains("bus_probe_tool"))
 }

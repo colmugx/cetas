@@ -76,10 +76,10 @@ async test "build_default_features assembles the full set around the anchor" {
     files: Map::from_array([]),
     dirs: Map::from_array([]),
   }
-  let exts = build_default_features(
-    ctx={ fs, cwd: "/tmp/proj", home: "/home/u", },
-    enable_nmem=false,
-    detect_herdr=false,
-  )
-  assert_eq(exts.length(), 12)
+  let exts = build_default_features(ctx={
+    fs,
+    cwd: "/tmp/proj",
+    home: "/home/u",
+  })
+  assert_eq(exts.length(), 14)
 }

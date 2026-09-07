@@ -127,18 +127,13 @@ async test "default features include discovered skills through injected ctx" {
       ("/repo/.agents/skills/demo", ["SKILL.md"]),
     ]),
   }
-  let exts = build_default_features(
-    ctx={ fs, cwd: "/repo", home: "/home/u", },
-    enable_nmem=false,
-    detect_herdr=false,
-  )
-  // The seven tool extensions (read/write/edit/glob/grep direct; bash and
-  // webfetch as toolless gateway views), the RTK hook, the skills extension
-  // (with the built-in manuals merged in), the forme self-description
-  // extension, and the handoff extension.
-  // enable_nmem=false pins the count against dev machines with CETAS_NMEM=1
-  // or an on-baked nmem_target knob.
-  assert_eq(exts.length(), 12)
+  let exts = build_default_features(ctx={ fs, cwd: "/repo", home: "/home/u", })
+  // The nine feature extensions (read/write/edit/glob/grep direct, the RTK
+  // hook, skills with the built-in manuals merged in, forme, handoff), the
+  // four toolless gateway views (bash, webfetch, nmem, obsidian), and the
+  // gateway itself — the default compiled flavor is personal, so all three
+  // flavor-gated extensions register.
+  assert_eq(exts.length(), 14)
   let ids : Array[String] = []
   for ext in exts {
     ids.push(ext.extension_id())
@@ -161,28 +156,18 @@ async test "default features include discovered skills through injected ctx" {
 }
 
 ///|
-async test "enable_nmem registers the nowledge-mem extension" {
+async test "nowledge-mem registers in the personal flavor" {
   let fs = SkillsCtxFs::{
     files: Map::from_array([]),
     dirs: Map::from_array([]),
   }
   let ctx : HostContext = { fs, cwd: "/nowhere", home: "/home/u", }
-  // Explicitly off build: no memory tools, no boot drain — nothing
-  // registers, independent of the baked knob or dev-machine env.
-  let off = build_default_features(ctx~, enable_nmem=false, detect_herdr=false)
-  let mut off_found = false
-  for ext in off {
-    if ext.extension_id() == "posoco_ext_nowledge_mem" {
-      off_found = true
-    }
-  }
-  assert_false(off_found)
-  // Opt-in build: the default set plus Nowledge Mem.
-  let on = build_default_features(ctx~, enable_nmem=true, detect_herdr=false)
-  assert_eq(on.length(), 13)
+  // Personal builds bake nmem in: the default set plus Nowledge Mem.
+  let exts = build_default_features(ctx~)
+  assert_eq(exts.length(), 14)
   let mut found = false
   let mut gateway_tools = 0
-  for ext in on {
+  for ext in exts {
     if ext.extension_id() == "posoco_ext_nowledge_mem" {
       found = true
       // The toolless view keeps the MemoryPort session briefing (core
@@ -213,15 +198,15 @@ async test "default features register skills even with no discovered skills: the
     files: Map::from_array([]),
     dirs: Map::from_array([]),
   }
-  let exts = build_default_features(
-    ctx={ fs, cwd: "/nowhere", home: "/home/u", },
-    enable_nmem=false,
-    detect_herdr=false,
-  )
+  let exts = build_default_features(ctx={
+    fs,
+    cwd: "/nowhere",
+    home: "/home/u",
+  })
   // An empty environment still registers the skills extension: the built-in
   // manuals (cetas-about/usage/config) are merged into the catalog, so both
   // skill tools stay live and the `skills` command always has content.
-  assert_eq(exts.length(), 12)
+  assert_eq(exts.length(), 14)
   let mut found = false
   for ext in exts {
     if ext.extension_id() == "posoco_ext_skills" {
@@ -241,27 +226,6 @@ async test "default features register skills even with no discovered skills: the
 }
 
 ///|
-async test "enable_rtk=false registers no RTK hook (public flavor)" {
-  let fs = SkillsCtxFs::{
-    files: Map::from_array([]),
-    dirs: Map::from_array([]),
-  }
-  let ctx : HostContext = { fs, cwd: "/nowhere", home: "/home/u", }
-  // Public builds bake enable_rtk=false: shell tool calls reach the platform
-  // shell directly instead of routing through a missing rtk subprocess.
-  let exts = build_default_features(
-    ctx~,
-    enable_nmem=false,
-    enable_rtk=false,
-    detect_herdr=false,
-  )
-  assert_eq(exts.length(), 11)
-  for ext in exts {
-    assert_true(ext.extension_id() != "posoco_ext_rtk")
-  }
-}
-
-///|
 async test "forme registers with /help and its prompt note; host note flows through" {
   let fs = SkillsCtxFs::{
     files: Map::from_array([]),
@@ -269,8 +233,6 @@ async test "forme registers with /help and its prompt note; host note flows thro
   }
   let exts = build_default_features(
     ctx={ fs, cwd: "/nowhere", home: "/home/u", },
-    enable_nmem=false,
-    detect_herdr=false,
     host_help_note=Some("ESC — interrupt the turn"),
   )
   let mut found = false
@@ -321,11 +283,11 @@ async test "ask_question registers only when the host supplies a UI port" {
     dirs: Map::from_array([]),
   }
   let ctx : HostContext = { fs, cwd: "/nowhere", home: "/home/u", }
-  // Without a UI port: the seven tool extensions (read/write/edit/glob/grep
-  // direct; bash and webfetch as gateway views) + RTK hook + skills + forme
-  // + handoff + the gateway ext — no ask_question.
-  let bare = build_default_features(ctx~, enable_nmem=false, detect_herdr=false)
-  assert_eq(bare.length(), 12)
+  // Without a UI port: the nine feature extensions (read/write/edit/glob/grep
+  // direct; RTK hook, skills, forme, handoff), the four gateway views, and
+  // the gateway ext — no ask_question.
+  let bare = build_default_features(ctx~)
+  assert_eq(bare.length(), 14)
   let bare_ids : Array[String] = []
   for ext in bare {
     bare_ids.push(ext.extension_id())
@@ -336,10 +298,8 @@ async test "ask_question registers only when the host supplies a UI port" {
   let with_ui = build_default_features(
     ctx~,
     ui=Some(HeadlessUi::{ } as &@posoco.UiPort),
-    enable_nmem=false,
-    detect_herdr=false,
   )
-  assert_eq(with_ui.length(), 13)
+  assert_eq(with_ui.length(), 15)
   let mut found = false
   for ext in with_ui {
     if ext.extension_id() == "posoco_ext_askquestion" {
@@ -366,8 +326,6 @@ async test "direct tool surface stays under ten; episodic tools defer" {
   let exts = build_default_features(
     ctx={ fs, cwd: "/nowhere", home: "/home/u", },
     ui=Some(HeadlessUi::{ } as &@posoco.UiPort),
-    enable_nmem=true,
-    detect_herdr=false,
   )
   let direct : Array[String] = []
   let mut gateway_meta = 0
@@ -395,76 +353,4 @@ async test "direct tool surface stays under ten; episodic tools defer" {
   assert_false(direct.contains("webfetch"))
   assert_false(direct.contains("memory_search"))
   assert_false(direct.contains("obsidian_search"))
-}
-
-// ------------------------------------------------------------ shell family
-
-///|
-/// Records `tool_exemptions` self-reports so the mbtx-state test pins the
-/// bus threading: the report fires at extension construction, so its arrival
-/// proves the injected session bus actually reached MbtxTools.
-priv struct ExemptionRecorder {
-  sources : Array[String]
-}
-
-///|
-impl @devkit.BusSubscriber for ExemptionRecorder with fn on_bus_event(
-  self,
-  event : @devkit.BusEvent,
-) {
-  if event.topic == "tool_exemptions" {
-    self.sources.push(event.source)
-  }
-}
-
-///|
-async test "shell_family=mbtx swaps bash for the script tool and reports exemptions" {
-  let fs = SkillsCtxFs::{
-    files: Map::from_array([]),
-    dirs: Map::from_array([]),
-  }
-  let bus = @devkit.EventBus()
-  let recorder = ExemptionRecorder::{ sources: [], }
-  bus.subscribe(recorder as &@devkit.BusSubscriber)
-  let exts = build_default_features(
-    ctx={ fs, cwd: "/nowhere", home: "/home/u", },
-    enable_nmem=false,
-    detect_herdr=false,
-    shell_family="mbtx",
-    bus=Some(bus),
-  )
-  // One-for-one swap with the platform shell: the ext count is unchanged.
-  assert_eq(exts.length(), 12)
-  let ids : Array[String] = []
-  for ext in exts {
-    ids.push(ext.extension_id())
-  }
-  assert_true(ids.contains("posoco_ext_mbtx"))
-  assert_false(ids.contains("posoco_ext_bash"))
-  // The exemption self-report fired at construction — the bus threaded
-  // through to MbtxTools, so a subscribed permission gate would have
-  // recorded the sandboxed-call trust channel.
-  assert_eq(recorder.sources.length(), 1)
-  assert_true(recorder.sources[0] == "posoco_ext_mbtx")
-}
-
-///|
-async test "shell_family=platform keeps the bash extension and omits mbtx" {
-  let fs = SkillsCtxFs::{
-    files: Map::from_array([]),
-    dirs: Map::from_array([]),
-  }
-  let exts = build_default_features(
-    ctx={ fs, cwd: "/nowhere", home: "/home/u", },
-    enable_nmem=false,
-    detect_herdr=false,
-    shell_family="platform",
-  )
-  assert_eq(exts.length(), 12)
-  let ids : Array[String] = []
-  for ext in exts {
-    ids.push(ext.extension_id())
-  }
-  assert_true(ids.contains("posoco_ext_bash"))
-  assert_false(ids.contains("posoco_ext_mbtx"))
 }

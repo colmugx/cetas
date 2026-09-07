@@ -1,9 +1,9 @@
 members = [
   "./cetas-acp",
   "./cetas-core",
-  "./cetas-ext-forme",
   "./cetas-headless",
   "./cetas-js",
+  "./cetas-ext-forme",
   "./extension/posoco-devkit",
   "./extension/posoco-ext-acp",
   "./extension/posoco-ext-askquestion",

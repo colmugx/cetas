@@ -6,7 +6,6 @@ import {
   "colmugx/posoco-ext-write" @write,
   "colmugx/posoco-ext-edit" @edit,
   "colmugx/posoco-ext-bash" @bash,
-  "colmugx/posoco-ext-mbtx" @mbtx,
   "colmugx/posoco-ext-ps1" @ps1,
   "colmugx/posoco-ext-glob" @glob,
   "colmugx/posoco-ext-grep" @grep,
@@ -24,7 +23,6 @@ import {
   "colmugx/posoco-ext-workspace" @workspace,
   "colmugx/posoco-ext-skills" @skills,
   "colmugx/posoco-ext-nowledge-mem" @nmem,
-  "colmugx/posoco-ext-herdr" @herdr,
   "colmugx/posoco-ext-askquestion" @askquestion,
   "colmugx/posoco-ext-rtk" @rtk,
   "colmugx/posoco-ext-handoff" @handoff,
@@ -35,8 +33,6 @@ import {
   "colmugx/posoco-ext-fs-session" @fs_session,
   "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-ratelimit" @ratelimit,
-  "colmugx/posoco-ext-subagent" @subagent,
-  "colmugx/posoco-kit-subagent" @kit,
   "colmugx/posoco/runtime",
   "moonbitlang/core/json",
   "moonbitlang/core/env",
@@ -58,43 +54,18 @@ warnings = "-unused_package"
 
 supported_targets = "+native +js"
 
-// Bakes the shell-ext platform choice at compile time: sh lib/platform_gen.sh
-// (cwd is the module root) regenerates platform_gen.mbt from the
-// platform_target knob (windows|unix|auto). The knob file is the rule input,
-// so every change re-triggers generation; the committed defaults ("auto") keep
-// builds where this author-side rule does not fire (published-package
-// consumers) on runtime platform detection.
-rule(name: "gen_platform", command: "sh lib/platform_gen.sh")
+// Compiles the flavor table into the build: sh ../scripts/gen-build-config.sh
+// (cwd is the module root) reads ../flavors.tsv under CETAS_FLAVOR
+// (public|personal, default personal) and CETAS_PLATFORM (windows|unix,
+// default host) and regenerates build_config.mbt — gitignored, literal
+// constants only; extensions the flavor does not hit are never constructed.
+// moon tracks the table file, not the environment: after switching
+// CETAS_FLAVOR/CETAS_PLATFORM, delete lib/build_config.mbt (or run moon clean)
+// so the rule regenerates.
+rule(name: "gen_build_config", command: "sh ../scripts/gen-build-config.sh")
 
 dev_build(
-  rule: "gen_platform",
-  input: "platform_target",
-  output: "platform_gen.mbt",
-)
-
-// Bakes the preference-tied extension set at compile time: sh
-// lib/flavor_gen.sh regenerates flavor_gen.mbt from the flavor_target knob
-// (public|personal|auto). "public" is the release build (Nowledge Mem,
-// Obsidian, and the RTK shell router are never constructed — no env check
-// survives), "personal" the maintainer's build with all three baked in,
-// "auto" the committed default that keeps each extension's runtime fallback
-// for plain dev builds. The knob file is the rule input for the same cache
-// reason as gen_platform.
-rule(name: "gen_flavor", command: "sh lib/flavor_gen.sh")
-
-dev_build(rule: "gen_flavor", input: "flavor_target", output: "flavor_gen.mbt")
-
-// Bakes the unix shell-family choice at compile time: sh
-// lib/shell_family_gen.sh regenerates shell_family_gen.mbt from the
-// shell_family_target knob (mbtx|platform|auto). "mbtx" registers the
-// sandboxed MoonBit script tool instead of the bash ext (registration only —
-// the bash dependency stays); "platform" keeps bash; "auto" (the committed
-// default) falls back to the CETAS_SHELL_FAMILY runtime check. Windows keeps
-// the ps1 branch regardless: the knob only reroutes the unix branch.
-rule(name: "gen_shell_family", command: "sh lib/shell_family_gen.sh")
-
-dev_build(
-  rule: "gen_shell_family",
-  input: "shell_family_target",
-  output: "shell_family_gen.mbt",
+  rule: "gen_build_config",
+  input: "../flavors.tsv",
+  output: "build_config.mbt",
 )
