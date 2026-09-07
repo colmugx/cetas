@@ -68,7 +68,7 @@ jobs:
       # fully settles" is known-flaky (async ordering): rerun the suite once
       # before failing the job.
       - name: moon test (native, flake rerun)
-        if: failure() && steps.test.outcome == 'failure()'
+        if: failure() && steps.test.outcome == 'failure'
         working-directory: posoco/external/cetas/cetas-acp
         run: moon test --target native --output-json
 
