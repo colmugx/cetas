@@ -2138,10 +2138,12 @@ async test "cancel one session leaves the other's turn running" {
 ///|
 /// Chat `i` parks while `gates[i]` is false; the entry/exit log is the serialization
 /// witness. Slot index taken at entry, so a cancelled chat never redirects the next.
+/// `parked` records each slot in the same step it first blocks, for test handshakes.
 priv struct GatedModel {
   responses : Array[String]
   gates : Array[Bool]
   log : Array[String]
+  parked : Array[Int]
   mut next : Int
 }
 
@@ -2157,6 +2159,9 @@ impl @posoco.ModelPort for GatedModel with fn chat(
   let i = self.next
   self.next = i + 1
   self.log.push("enter \{i}")
+  if !self.gates[i] {
+    self.parked.push(i)
+  }
   while !self.gates[i] {
     @async.sleep(1) catch {
       error =>
@@ -2198,6 +2203,16 @@ async fn tk_wait_log(model : GatedModel, count : Int) -> Unit {
 }
 
 ///|
+async fn tk_wait_parked(model : GatedModel, call_index : Int) -> Unit {
+  let mut spins = 0
+  while !model.parked.contains(call_index) && spins < 5000 {
+    @async.pause()
+    spins += 1
+  }
+  assert_true(model.parked.contains(call_index))
+}
+
+///|
 fn tk_agent_chunk_texts(client : FakeAcpClient) -> Array[String] {
   let texts : Array[String] = []
   for frame in client.sent {
@@ -2219,6 +2234,7 @@ async test "a queued second prompt runs only after the first turn fully settles"
     responses: ["one", "two"],
     gates: [false, true],
     log: [],
+    parked: [],
     next: 0,
   }
   let model_port : &@posoco.ModelPort = model
@@ -2261,6 +2277,7 @@ async test "cancel hits the active turn and a queued prompt still runs" {
     responses: ["one", "two"],
     gates: [false, true],
     log: [],
+    parked: [],
     next: 0,
   }
   let model_port : &@posoco.ModelPort = model
@@ -2279,6 +2296,8 @@ async test "cancel hits the active turn and a queued prompt still runs" {
       allow_failure=true,
     )
     tk_wait_log(model, 1)
+    // Handshake: call 0 must be parked on its gate before the turn is raced.
+    tk_wait_parked(model, 0)
     let second = group.spawn(() => {
       host.handle_prompt(fake_acp_context(client), {
         session_id,
@@ -2286,12 +2305,17 @@ async test "cancel hits the active turn and a queued prompt still runs" {
         meta: Omitted,
       })
     })
+    // Scheduling slack for the second prompt to park on the session lock.
+    @async.pause()
     @async.pause()
     // Cancel must not wake the queued prompt's lock wait (it does not drain the queue).
     host.handle_cancel(fake_acp_context(FakeAcpClient::FakeAcpClient()), {
       session_id,
       meta: Omitted,
     })
+    // The cancel must interrupt the parked call before the gate opens; a
+    // wall-clock window is robust on slow runners where scheduler ticks are not.
+    @async.sleep(100)
     model.gates[0] = true
     let settled_first : Result[@acp.PromptResult, Error] = Ok(first.wait()) catch {
       error => Err(error)
@@ -2313,6 +2337,7 @@ async test "different sessions still run their turns in parallel" {
     responses: ["a", "b"],
     gates: [false, false],
     log: [],
+    parked: [],
     next: 0,
   }
   let model_port : &@posoco.ModelPort = model
@@ -2367,6 +2392,7 @@ async test "close while a turn runs fails the queued prompt instead of orphaning
     responses: ["one", "two"],
     gates: [false, false],
     log: [],
+    parked: [],
     next: 0,
   }
   let model_port : &@posoco.ModelPort = model
