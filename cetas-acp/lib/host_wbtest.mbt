@@ -4809,7 +4809,7 @@ async test "every wire record leads with a numeric epoch-ms ts" {
       fail("each wire line must be a JSON object")
     }
     match fields.get("ts") {
-      Some(Json::Number(ms)) => assert_true(ms > 0.0)
+      Some(Json::Number(ms, repr=_)) => assert_true(ms > 0.0)
       _ => fail("every wire record carries a numeric ts")
     }
     match fields.get("dir") {

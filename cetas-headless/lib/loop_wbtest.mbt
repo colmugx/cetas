@@ -7,7 +7,10 @@
 
 ///|
 /// A scripted stdin reader: `lines` are consumed in order, then EOF. The
-/// cell records how often the reader was polled.
+/// cell records how often the reader was polled. The async annotation is
+/// required by the slot (loop.mbt reads the real tty asynchronously) but
+/// this fake never awaits, so the unused_async flag is suppressed.
+#warnings("-unused_async")
 fn tk_reader(
   lines : Array[String],
 ) -> (async () -> String? noraise, Array[Int]) {
@@ -28,6 +31,9 @@ fn tk_reader(
 
 ///|
 /// A captured stdout sink: every protocol line written lands in the array.
+/// The async annotation is required by the slot but this fake never awaits,
+/// so the unused_async flag is suppressed.
+#warnings("-unused_async")
 fn tk_sink() -> (async (String) -> Unit noraise, Array[String]) {
   let out : Array[String] = []
   let write_out = async fn(text : String) noraise { out.push(text) }
