@@ -132,11 +132,10 @@ async test "default features include discovered skills through injected ctx" {
     enable_nmem=false,
     detect_herdr=false,
   )
-  // Seven context-free tools (read/write/edit/glob/grep/webfetch), the RTK
-  // hook, the skills extension (with the built-in manuals merged in), the
-  // forme self-description extension, and the handoff extension. webfetch
-  // defers behind the lazytools gateway (one extra ext, toolless view), so
-  // the set is one larger than the pre-gateway twelve.
+  // The seven tool extensions (read/write/edit/glob/grep direct; bash and
+  // webfetch as toolless gateway views), the RTK hook, the skills extension
+  // (with the built-in manuals merged in), the forme self-description
+  // extension, and the handoff extension.
   // enable_nmem=false pins the count against dev machines with CETAS_NMEM=1
   // or an on-baked nmem_target knob.
   assert_eq(exts.length(), 12)
@@ -203,10 +202,8 @@ async test "enable_nmem registers the nowledge-mem extension" {
     }
   }
   assert_true(found)
-  // The gateway exposes exactly the three meta tools; the deferred nmem
-  // tools ride behind them (webfetch + nmem's eight default tools — the
-  // five official MCP names plus posoco additions; memory_delete hidden,
-  // thread_create dropped with the CLI runner).
+  // The gateway exposes exactly its two meta tools (tool_list /
+  // tool_execute); the deferred webfetch and nmem tools ride behind them.
   assert_eq(gateway_tools, 2)
 }
 
@@ -324,8 +321,9 @@ async test "ask_question registers only when the host supplies a UI port" {
     dirs: Map::from_array([]),
   }
   let ctx : HostContext = { fs, cwd: "/nowhere", home: "/home/u", }
-  // Without a UI port: seven tools + RTK hook + skills + forme + handoff,
-  // no ask_question (webfetch defers behind the gateway, adding one ext).
+  // Without a UI port: the seven tool extensions (read/write/edit/glob/grep
+  // direct; bash and webfetch as gateway views) + RTK hook + skills + forme
+  // + handoff + the gateway ext — no ask_question.
   let bare = build_default_features(ctx~, enable_nmem=false, detect_herdr=false)
   assert_eq(bare.length(), 12)
   let bare_ids : Array[String] = []
@@ -386,9 +384,9 @@ async test "direct tool surface stays under ten; episodic tools defer" {
     }
   }
   // Direct surface: read/write/edit/glob/grep + the two skill tools +
-  // ask_question — eight, under the pre-gateway attention budget. Shell
-  // rides behind the gateway too: permission and rtk classify gateway
-  // calls by the inner tool name, so gating semantics survive.
+  // ask_question — eight. Shell rides behind the gateway too: permission
+  // and rtk classify gateway calls by the inner tool name, so gating
+  // semantics survive.
   assert_eq(gateway_meta, 2)
   assert_eq(direct.length(), 8)
   // Episodic tools never appear directly: they are reachable only through
@@ -397,4 +395,76 @@ async test "direct tool surface stays under ten; episodic tools defer" {
   assert_false(direct.contains("webfetch"))
   assert_false(direct.contains("memory_search"))
   assert_false(direct.contains("obsidian_search"))
+}
+
+// ------------------------------------------------------------ shell family
+
+///|
+/// Records `tool_exemptions` self-reports so the mbtx-state test pins the
+/// bus threading: the report fires at extension construction, so its arrival
+/// proves the injected session bus actually reached MbtxTools.
+priv struct ExemptionRecorder {
+  sources : Array[String]
+}
+
+///|
+impl @devkit.BusSubscriber for ExemptionRecorder with fn on_bus_event(
+  self,
+  event : @devkit.BusEvent,
+) {
+  if event.topic == "tool_exemptions" {
+    self.sources.push(event.source)
+  }
+}
+
+///|
+async test "shell_family=mbtx swaps bash for the script tool and reports exemptions" {
+  let fs = SkillsCtxFs::{
+    files: Map::from_array([]),
+    dirs: Map::from_array([]),
+  }
+  let bus = @devkit.EventBus()
+  let recorder = ExemptionRecorder::{ sources: [], }
+  bus.subscribe(recorder as &@devkit.BusSubscriber)
+  let exts = build_default_features(
+    ctx={ fs, cwd: "/nowhere", home: "/home/u", },
+    enable_nmem=false,
+    detect_herdr=false,
+    shell_family="mbtx",
+    bus=Some(bus),
+  )
+  // One-for-one swap with the platform shell: the ext count is unchanged.
+  assert_eq(exts.length(), 12)
+  let ids : Array[String] = []
+  for ext in exts {
+    ids.push(ext.extension_id())
+  }
+  assert_true(ids.contains("posoco_ext_mbtx"))
+  assert_false(ids.contains("posoco_ext_bash"))
+  // The exemption self-report fired at construction — the bus threaded
+  // through to MbtxTools, so a subscribed permission gate would have
+  // recorded the sandboxed-call trust channel.
+  assert_eq(recorder.sources.length(), 1)
+  assert_true(recorder.sources[0] == "posoco_ext_mbtx")
+}
+
+///|
+async test "shell_family=platform keeps the bash extension and omits mbtx" {
+  let fs = SkillsCtxFs::{
+    files: Map::from_array([]),
+    dirs: Map::from_array([]),
+  }
+  let exts = build_default_features(
+    ctx={ fs, cwd: "/nowhere", home: "/home/u", },
+    enable_nmem=false,
+    detect_herdr=false,
+    shell_family="platform",
+  )
+  assert_eq(exts.length(), 12)
+  let ids : Array[String] = []
+  for ext in exts {
+    ids.push(ext.extension_id())
+  }
+  assert_true(ids.contains("posoco_ext_bash"))
+  assert_false(ids.contains("posoco_ext_mbtx"))
 }

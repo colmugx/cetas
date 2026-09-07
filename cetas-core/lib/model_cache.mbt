@@ -1,27 +1,16 @@
 ///|
 /// model_cache.mbt — Disk cache of discovered model lists, shared by every
-/// cetas host.
-///
-/// `~/.cetas/model_lists.json` holds one record array per provider id — the
-/// projection of a previously refreshed provider catalog:
-///
-/// ```json
-/// { "opencode": [ { "model_id": "claude-sonnet-5", "thinking_efforts": [],
-///                   "default_effort": null, "context_window": null } ] }
-/// ```
-///
-/// Hosts seed composition with the cache so a restart announces the full
-/// model list without a network request; a lazy refresh after startup
-/// rewrites it. Unlike `settings.json`, a malformed cache never fails
-/// composition: it is wholly derived, re-derivable data, so reads degrade to
-/// an empty cache (the caller warns once) and writes self-heal a malformed
-/// root rather than refusing to update.
+/// cetas host. `~/.cetas/model_lists.json` holds one record array per
+/// provider id — the projection of a refreshed provider catalog. Hosts seed
+/// composition with the cache so a restart announces the full model list
+/// without a network request; the cache is wholly derived, re-derivable
+/// data, so it never fails composition: reads degrade to an empty cache
+/// (the caller warns once) and writes self-heal a malformed root.
 
 ///|
-/// Extract the per-provider record arrays from the cache root. Permissive by
-/// design: any non-object root (or a read that failed earlier) yields an
-/// empty cache — providers then build their static catalogs as if no cache
-/// existed.
+/// Extract the per-provider record arrays from the cache root. Any
+/// non-object root yields an empty cache — providers then build their
+/// static catalogs as if no cache existed.
 pub fn parse_model_list_cache(json : Json) -> Map[String, Json] {
   match json {
     Json::Object(fields) => fields
@@ -30,10 +19,9 @@ pub fn parse_model_list_cache(json : Json) -> Map[String, Json] {
 }
 
 ///|
-/// Read `~/.cetas/model_lists.json`. A missing file is a normal cold state
-/// (`Ok` with an empty map); an unreadable or malformed file is `Err` with a
-/// human-readable message — the caller warns and continues without the
-/// cache, never failing composition.
+/// Read `~/.cetas/model_lists.json`: a missing file is a normal cold state
+/// (`Ok` with an empty map); an unreadable or malformed file is `Err` — the
+/// caller warns and continues without the cache.
 pub async fn read_model_list_cache(
   fs : &@workspace.WorkspaceFs,
   home~ : String,
@@ -52,10 +40,9 @@ pub async fn read_model_list_cache(
 
 ///|
 /// Project one refreshed catalog into its cache record array, preserving
-/// slot order. The record carries exactly the serializable discovery facts
-/// providers need to rebuild slots offline (zen consumes only `model_id`;
-/// others may read the capability fields). Labels and display groups are
-/// deliberately excluded — every provider regenerates them deterministically.
+/// slot order: exactly the serializable discovery facts providers need to
+/// rebuild slots offline. Labels and display groups are excluded — every
+/// provider regenerates them deterministically.
 pub fn catalog_model_records(catalog : @llm.ProviderModelCatalog) -> Json {
   let items : Array[Json] = []
   for slot in catalog.slots() {
@@ -92,9 +79,9 @@ pub fn catalog_model_records(catalog : @llm.ProviderModelCatalog) -> Json {
 
 ///|
 /// Return the cache root with one provider's records replaced. Unknown
-/// providers and keys survive untouched. A non-object root is replaced with a
-/// fresh object: the cache is wholly derived, so a malformed file has no
-/// value worth preserving and the write self-heals it.
+/// providers and keys survive untouched; a non-object root is replaced with
+/// a fresh object — wholly derived data has no malformed state worth
+/// preserving.
 pub fn merge_model_list_cache(
   existing : Json,
   provider_id : String,
@@ -110,8 +97,7 @@ pub fn merge_model_list_cache(
 
 ///|
 /// Persist one provider's refreshed records into `~/.cetas/model_lists.json`
-/// with an atomic write. A missing file (or a malformed one — see
-/// `merge_model_list_cache`) starts from a fresh object.
+/// atomically; a missing or malformed file starts from a fresh object.
 pub async fn write_model_list_cache(
   fs : &@workspace.WorkspaceFs,
   home~ : String,

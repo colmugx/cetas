@@ -25,6 +25,32 @@ test "cetas base prompt declares behavioral limits" {
 }
 
 ///|
+/// Greetings vs self-introduction: a bare greeting must never trigger
+/// workspace exploration; hallmark-file inspection belongs only to the
+/// self-introduction template and stays bounded. Regression: a "hi" once
+/// caused a glob plus four file reads.
+test "cetas base prompt separates greetings from self-introduction" {
+  let prompt = cetas_base_system_prompt(project_name="demo")
+  assert_true(
+    prompt.contains("Do not call any tools and do not inspect the workspace"),
+  )
+  assert_true(prompt.contains("Only when the user asks"))
+  assert_true(
+    prompt.contains("Do not read source files for a self-introduction"),
+  )
+  assert_true(prompt.contains("Match effort to the request"))
+}
+
+///|
+/// The set-phrase opener is Chinese-only: Chinese replies must open with it
+/// verbatim; any other language must not use or translate it.
+test "cetas base prompt locks the set phrase to Chinese replies" {
+  let prompt = cetas_base_system_prompt(project_name="demo")
+  assert_true(prompt.contains("If the user's language is Chinese"))
+  assert_true(prompt.contains("never use that phrase and never translate it"))
+}
+
+///|
 /// Honesty: three hard constraints (verify before claiming done; surface
 /// failures exactly; admit uncertainty).
 test "cetas base prompt demands honesty" {

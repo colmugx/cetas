@@ -6,6 +6,7 @@ import {
   "colmugx/posoco-ext-write" @write,
   "colmugx/posoco-ext-edit" @edit,
   "colmugx/posoco-ext-bash" @bash,
+  "colmugx/posoco-ext-mbtx" @mbtx,
   "colmugx/posoco-ext-ps1" @ps1,
   "colmugx/posoco-ext-glob" @glob,
   "colmugx/posoco-ext-grep" @grep,
@@ -29,6 +30,14 @@ import {
   "colmugx/posoco-ext-handoff" @handoff,
   "colmugx/posoco-ext-obsidian" @obsidian,
   "colmugx/posoco-ext-lazytools" @lazytools,
+  "colmugx/posoco-ext-context" @context,
+  "colmugx/posoco-ext-credentials" @credentials,
+  "colmugx/posoco-ext-fs-session" @fs_session,
+  "colmugx/posoco-ext-permission" @permission,
+  "colmugx/posoco-ext-ratelimit" @ratelimit,
+  "colmugx/posoco-ext-subagent" @subagent,
+  "colmugx/posoco-kit-subagent" @kit,
+  "colmugx/posoco/runtime",
   "moonbitlang/core/json",
   "moonbitlang/core/env",
   "moonbitlang/async",
@@ -36,6 +45,8 @@ import {
 
 import {
   "moonbitlang/async",
+  "colmugx/posoco-ext-fs-session" @fs_session,
+  "colmugx/posoco-ext-workspace" @workspace,
 } for "wbtest"
 
 warnings = "-unused_package"
@@ -72,3 +83,18 @@ dev_build(
 rule(name: "gen_flavor", command: "sh lib/flavor_gen.sh")
 
 dev_build(rule: "gen_flavor", input: "flavor_target", output: "flavor_gen.mbt")
+
+// Bakes the unix shell-family choice at compile time: sh
+// lib/shell_family_gen.sh regenerates shell_family_gen.mbt from the
+// shell_family_target knob (mbtx|platform|auto). "mbtx" registers the
+// sandboxed MoonBit script tool instead of the bash ext (registration only —
+// the bash dependency stays); "platform" keeps bash; "auto" (the committed
+// default) falls back to the CETAS_SHELL_FAMILY runtime check. Windows keeps
+// the ps1 branch regardless: the knob only reroutes the unix branch.
+rule(name: "gen_shell_family", command: "sh lib/shell_family_gen.sh")
+
+dev_build(
+  rule: "gen_shell_family",
+  input: "shell_family_target",
+  output: "shell_family_gen.mbt",
+)

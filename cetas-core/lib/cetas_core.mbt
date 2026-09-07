@@ -121,7 +121,6 @@ pub async fn run_prompt(
   let user_msg : @posoco.Message = @posoco.Message::UserMessage(content=blocks)
   let result = agent.run_turn(user_msg, session_id)
   let builder = StringBuilder()
-  // Extract Text blocks from the assistant's final message.
   let content_blocks = match result.message {
     AssistantMessage(content~, ..) => content
     _ => []
@@ -175,35 +174,27 @@ fn shell_platform_is_windows() -> Bool {
 
 ///|
 /// Default feature set: read/write/edit/glob/grep/bash plus agent skills
-/// and (with `ui~`) the interactive ask_question tool. Nowledge Mem joins
+/// and (with `ui~`) the interactive ask_question tool; Nowledge Mem joins
 /// only when baked in or explicitly enabled (the nmem_target knob).
 ///
-/// The six tools are context-free constructors. Skills needs the host
-/// process context (fs/cwd/home) for discovery, so the function takes
-/// `ctx~`: startup parses only SKILL.md frontmatter — bodies are discarded
-/// and re-read on activation (progressive disclosure). A `None`
-/// precondition failure from the skills constructor simply skips
-/// registration; environment problems surface as catalog diagnostics, never
-/// as construction failure.
+/// The six file/shell tools are context-free constructors; skills needs the
+/// host process context (fs/cwd/home) for discovery, so the function takes
+/// `ctx~`. Knobs: `ui~` gates ask_question (a headless host omits it — an
+/// always-erroring tool would only pollute the model's tool list);
+/// `enable_rtk~` registers the RTK shell router, decided at compile time by
+/// the flavor_target knob; `enable_nmem~` opts into Nowledge Mem, which
+/// degrades silently without the service, and a supplied `nmem_group~`
+/// starts its background flusher; `shell_family~` swaps bash for the
+/// sandboxed mbtx script tool on unix — models stall without a bash-shaped
+/// action surface, so bash is the default and mbtx is opt-in; Windows keeps
+/// ps1 either way (`bus~` carries the already-subscribed session event bus
+/// mbtx self-reports on); `detect_herdr~` registers the herdr presence
+/// reporter when the host runs inside a herdr pane.
 ///
-/// `ui~` supplies the host's interactive UI port for ask_question: cetas-js
-/// passes its JsUiPort, cetas-acp passes the ACP bridge (elicitation). A
-/// headless host omits it and no ask_question tool is registered at all —
-/// an always-erroring tool would only pollute the model's tool list.
-///
-/// When the host process runs inside a herdr pane (HERDR_ENV detected), the
-/// herdr presence reporter registers as a pure Observer: it maps turn
-/// lifecycle onto herdr agent states so cetas appears in the agent rollup.
-/// Outside herdr the constructor returns None and nothing registers.
-///
-/// Order matters for diagnostics readability; it does not affect execution.
-///
-/// The three file tools share one `FreshnessGuard`: a successful `read`
-/// records the file's stamp, and `write`/`edit` refuse to modify files that
-/// were not read in this session or that changed since (model-visible tool
-/// errors, so the model re-reads instead of losing the turn). The guard is
-/// passed by value; MoonBit structs are reference-backed, so its map is
-/// shared across the three tools.
+/// Attention budget: the file tools, the two skill tools, and ask_question
+/// are the only tools in the model catalog; every episodic tool (shell,
+/// webfetch, nmem, obsidian) defers behind the lazytools gateway, whose
+/// tool_list / tool_execute are the sole route to it.
 ///
 /// All six file/shell tools share one `WorkspaceAnchor` built from `ctx.cwd`:
 /// relative paths in tool calls resolve against the launch directory instead
@@ -211,41 +202,17 @@ fn shell_platform_is_windows() -> Bool {
 /// host side — it never appears in model-visible prompts or tool results,
 /// which speak workspace-relative paths only.
 ///
-/// The RTKHook sits after the shell tool: it validates shell arguments
-/// (`cmd`/`command` must be a string) and routes shell commands through the
-/// rtk subprocess at the declared path. It is preference-tied: the
-/// flavor_target knob decides at compile time whether it registers at all.
-///
-/// Nowledge Mem is opt-in, decided at compile time by the flavor_target knob
-/// (gen_flavor rule): "personal" bakes it in, "public" excludes it entirely,
-/// "auto" (the committed default) falls back to a CETAS_NMEM=1 runtime check
-/// so plain dev builds need no rebuild. A public
-/// build constructs nothing — no memory tools, no prompt guidance, no boot
-/// drain. `enable_nmem~` remains the explicit override; tests pin it for
-/// determinism. When enabled it registers over its production seams (`HttpNmemTransport` + `LazyNmemMcp` + `PlatformFs`): without
-/// the service the extension degrades silently instead of
-/// failing the host. `memory_delete` stays hidden (destructive remote op;
-/// opt-in flag lives with the extension constructor). `nmem_group~` follows
-/// the acp `mcp_group~` precedent (`TaskGroup[Unit]` threaded in from the
-/// host's `with_task_group` scope): passing it starts the 750ms flusher
-/// loop for the agent's lifetime. Without a group the loop does not run —
-/// boundary drains still carry the functionality (`on_start` drains once at
-/// boot, `on_shutdown` performs the final flush, `flush_pending` forces one
-/// on demand), only the background debounce cadence is lost.
-///
-/// All six file/shell tools share one `WorkspaceAnchor` built from `ctx.cwd`,
-/// so relative paths resolve against the launch directory instead of the
-/// process cwd of wherever the host happens to run. The absolute anchor root
-/// lives only on the host side; it never appears in model-visible prompts or
-/// tool results.
-///
-/// Returns Extensions (each tool ext already impls Extension). Hosts place
-/// the result directly into `Agent(exts=[...])`.
+/// Returns Extensions (each tool ext already impls Extension); hosts place
+/// the result directly into `Agent(exts=[...])`. Per-knob rationale lives
+/// in the inline comments at each registration site and in the contributing
+/// extension packages.
 pub async fn build_default_features(
   ctx~ : HostContext,
   ui? : &@posoco.UiPort? = None,
   enable_nmem? : Bool = compiled_nmem_enabled(),
   enable_rtk? : Bool = compiled_rtk_enabled(),
+  shell_family? : String = compiled_shell_family(),
+  bus? : @devkit.EventBus? = None,
   nmem_group? : @async.TaskGroup[Unit]? = None,
   detect_herdr? : Bool = true,
   host_help_note? : String? = None,
@@ -274,10 +241,17 @@ pub async fn build_default_features(
   // Shell tool choice per platform — deferred behind the gateway like the
   // other episodic tools. The manuals merge into the one skills extension
   // below so both share the activate_skill tool; a second Skills instance
-  // would collide on tool names at composition.
+  // would collide on tool names at composition. The unix side is the
+  // shell_family knob: "mbtx" swaps bash for the sandboxed MoonBit script
+  // tool (bus-threaded so its exemption self-report reaches the already-
+  // subscribed gate); Windows keeps ps1 — the knob never reroutes it.
   if shell_platform_is_windows() {
     episodic.push(
       @ps1.PowerShellTools(anchor=Some(anchor)) as &@posoco.Extension,
+    )
+  } else if shell_family == "mbtx" {
+    episodic.push(
+      @mbtx.MbtxTools(anchor=Some(anchor), bus~) as &@posoco.Extension,
     )
   } else {
     episodic.push(@bash.ShellTools(anchor=Some(anchor)) as &@posoco.Extension)
@@ -374,8 +348,8 @@ pub async fn build_default_features(
     )
   }
   // Assemble the gateway last: deferred providers are indexed here, the
-  // toolless views take their originals' places, and only lazy_search /
-  // lazy_list / lazy_execute reach the model catalog.
+  // toolless views take their originals' places, and only the gateway's
+  // tool_list / tool_execute reach the model catalog.
   match @lazytools.LazyTools::defer_extensions(exts=episodic) {
     Ok((gateway, views)) => {
       for view in views {
