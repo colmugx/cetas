@@ -1580,6 +1580,11 @@ pub fn cetas_js_runtime_create_agent(
       ) {
       exts.push(tool)
     }
+    // cetas-bun is the only outlet that reports presence to herdr; absent env → absent ext.
+    match @herdr.HerdrReporter::detect() {
+      Some(reporter) => exts.push(reporter as &@posoco.Extension)
+      None => ()
+    }
     // MCP servers from mcp.json (`<cwd>/.mcp.json` overriding
     // `<home>/.cetas/mcp.json`), self-governed by the ext-mcp bridge in Lazy
     // mode: servers connect in the first turn's on_start and the tool catalog

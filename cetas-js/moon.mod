@@ -29,6 +29,7 @@ import {
   "colmugx/posoco-ext-context@0.2.0",
   "colmugx/posoco-ext-credentials@0.1.0",
   "colmugx/posoco-ext-fs-session@0.3.0",
+  "colmugx/posoco-ext-herdr@0.1.0",
   "colmugx/posoco-ext-llm@0.2.0",
   "colmugx/posoco-ext-mcp@0.4.0",
   "colmugx/posoco-ext-oauth@0.1.0",

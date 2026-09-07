@@ -8,6 +8,7 @@ import {
   "colmugx/posoco-ext-context" @context,
   "colmugx/posoco-ext-credentials" @credentials,
   "colmugx/posoco-ext-fs-session" @fs_session,
+  "colmugx/posoco-ext-herdr" @herdr,
   "colmugx/posoco-ext-llm" @llm,
   "colmugx/posoco-ext-mcp" @mcp,
   "colmugx/posoco-ext-oauth" @oauth,

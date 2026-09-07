@@ -13,15 +13,14 @@
 //   from https://github.com/oven-sh/bun/releases). --executable needs
 //   exactly one target.
 //
-// The MoonBit artifact is reached through the logical mbt: import, and the
-// plugin owns the Moon build plus the .mbti/.d.ts refresh. The shell-ext platform bakes per target
-// OS through cetas-core's platform_target knob (unix builds never register the
-// ps1 ext, windows builds never register the bash ext); the preference-tied
-// set (Nowledge Mem, Obsidian, RTK) bakes through the flavor_target knob from
-// CETAS_FLAVOR (personal) or its absence (public). Each OS group is moon-built
-// and immediately compiled, because the artifact on disk is always the last
-// build. Both knobs restore to "auto" afterwards, so plain moon dev builds
-// keep runtime detection.
+// cetas-core bakes the flavor table into a gitignored build_config.mbt from
+// CETAS_FLAVOR (default public here) and CETAS_PLATFORM (per target OS);
+// extensions the flavor does not hit are never constructed. The plugin's
+// moon children re-fire that bake rule with the inherited environment, and
+// Bun does not forward runtime process.env writes to children, so this
+// script re-execs itself once per OS group with the group's env baked into
+// the child's real environment.
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { moonbit } from "bun-plugin-moonbit";
 
@@ -44,10 +43,9 @@ const positional =
 const requested = new Set(positional.filter((a) => !a.startsWith("--")));
 
 const osFor = (name: string) => (name.startsWith("windows") ? "windows" : "unix");
-const PLATFORM_KNOB = join(import.meta.dir, "../cetas-core/lib/platform_target");
-const PLATFORM_GEN = join(import.meta.dir, "../cetas-core/lib/platform_gen.sh");
-const FLAVOR_KNOB = join(import.meta.dir, "../cetas-core/lib/flavor_target");
-const FLAVOR_GEN = join(import.meta.dir, "../cetas-core/lib/flavor_gen.sh");
+const CORE_ROOT = join(import.meta.dir, "../cetas-core");
+const BUILD_CONFIG = join(CORE_ROOT, "lib/build_config.mbt");
+const GENERATOR = join(import.meta.dir, "../scripts/gen-build-config.sh");
 const flavorBake = process.env.CETAS_FLAVOR === "personal" ? "personal" : "public";
 const selected = (Object.keys(TARGETS) as (keyof typeof TARGETS)[]).filter(
   (name) => requested.size === 0 || requested.has(name),
@@ -61,82 +59,80 @@ if (executable && selected.length !== 1) {
   console.error("--executable needs exactly one target: bun build.ts windows-x64 --executable <path>");
   process.exit(2);
 }
-async function bakeKnobs(os: string, flavor: string) {
-  await Bun.write(PLATFORM_KNOB, os + "\n");
-  await Bun.write(FLAVOR_KNOB, flavor + "\n");
-  for (const generator of [PLATFORM_GEN, FLAVOR_GEN]) {
-    const result = Bun.spawnSync(["sh", generator], {
-      cwd: import.meta.dir,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const stderr = result.stderr.toString().trim();
-    if (result.exitCode !== 0) {
-      throw new Error(
-        `generator failed (${generator}): exitCode=${result.exitCode}` +
-        (stderr.length > 0 ? `\nstderr:\n${stderr}` : ""),
-      );
-    }
-    if (stderr.length > 0) {
-      console.warn(`generator stderr (${generator}):\n${stderr}`);
-    }
+
+console.log(`platform: per-target  flavor: ${flavorBake}${flavorBake === "personal" ? " (CETAS_FLAVOR=personal)" : ""}`);
+
+const group = process.env.CETAS_BUILD_GROUP ?? "";
+if (group === "") {
+  // Parent pass: one child per OS group, each with the group's env in its
+  // real environment so every moon grandchild (dev_build rule included)
+  // bakes the same flavor.
+  for (const os of [...new Set(selected.map(osFor))]) {
+    const child = Bun.spawnSync(
+      [process.execPath, import.meta.path, ...positional],
+      {
+        env: { ...process.env, CETAS_FLAVOR: flavorBake, CETAS_PLATFORM: os, CETAS_BUILD_GROUP: os },
+        stdio: ["inherit", "inherit", "inherit"],
+      },
+    );
+    if (child.exitCode !== 0) process.exit(child.exitCode ?? 1);
   }
+  process.exit(0);
 }
 
-let primaryFailure: unknown;
-let hasPrimaryFailure = false;
-try {
-  console.log(`platform: per-target  flavor: ${flavorBake}${flavorBake === "personal" ? " (CETAS_FLAVOR=personal)" : ""}`);
-  for (const os of [...new Set(selected.map(osFor))]) {
-    await bakeKnobs(os, flavorBake);
-    for (const name of selected.filter((n) => osFor(n) === os)) {
-      const outfile = `dist/cetas-bun-${name}`;
-      const result = await Bun.build({
-        entrypoints: ["host.ts"],
-        plugins: [
-          moonbit({
-            root: import.meta.dir,
-            mode: "release",
-            dts: {
-              out: "gen/mbt.d.ts",
-              externPolicy: {
-                JsCallback: "(eventJson: string) => void",
-                JsUiRenderCallback: "(eventJson: string) => void",
-                JsUiRequestCallback: "(requestJson: string) => Promise<string>",
-                JsCancelCheck: "() => boolean",
-              },
-            },
-          }),
-        ],
-        compile: { target: TARGETS[name], outfile, ...(executable ? { executablePath: executable } : {}) },
-        minify: true,
-      });
-      if (!result.success) {
-        console.error(`✗ ${name}`);
-        for (const log of result.logs) console.error(log);
-        throw new Error(`Bun.build failed for ${name}`);
-      }
-      const ext = name.startsWith("windows") ? ".exe" : "";
-      const stat = await Bun.file(outfile + ext).stat();
-      console.log(`✓ ${name}  ${(stat.size / 1024 / 1024).toFixed(1)} MB`);
-    }
+const os = group as ReturnType<typeof osFor>;
+for (const name of selected.filter((n) => osFor(n) === os)) {
+  // Bake this group's flavor before the plugin's moon build sees the tree:
+  // drop the generated config, regenerate it from the cetas-core module root,
+  // then moon-build once under the same env.
+  rmSync(BUILD_CONFIG, { force: true });
+  const gen = Bun.spawnSync(["sh", GENERATOR], {
+    cwd: CORE_ROOT,
+    env: process.env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (gen.exitCode !== 0) {
+    console.error(`gen-build-config failed for ${os}:\n${gen.stderr.toString().trim()}`);
+    process.exit(2);
   }
-} catch (error) {
-  hasPrimaryFailure = true;
-  primaryFailure = error;
-  throw error;
-} finally {
-  // Leave the knobs and generated files at "auto" so the tree stays clean
-  // and plain moon builds keep runtime detection for both dimensions.
-  try {
-    await bakeKnobs("auto", "auto");
-  } catch (restoreError) {
-    if (hasPrimaryFailure) {
-      throw new AggregateError(
-        [primaryFailure, restoreError],
-        "Cetas build failed and restoring platform/flavor knobs also failed",
-      );
-    }
-    throw restoreError;
+  const moonBuild = Bun.spawnSync(["moon", "build", "--target", "js", "--release"], {
+    cwd: import.meta.dir,
+    env: process.env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (moonBuild.exitCode !== 0) {
+    console.error(`moon build failed for ${os}:\n${moonBuild.stderr.toString().trim()}`);
+    process.exit(2);
   }
+  const outfile = `dist/cetas-bun-${name}`;
+  const result = await Bun.build({
+    entrypoints: ["host.ts"],
+    plugins: [
+      moonbit({
+        root: import.meta.dir,
+        mode: "release",
+        dts: {
+          out: "gen/mbt.d.ts",
+          externPolicy: {
+            JsCallback: "(eventJson: string) => void",
+            JsUiRenderCallback: "(eventJson: string) => void",
+            JsUiRequestCallback: "(requestJson: string) => Promise<string>",
+            JsCancelCheck: "() => boolean",
+          },
+        },
+      }),
+    ],
+    compile: { target: TARGETS[name], outfile, ...(executable ? { executablePath: executable } : {}) },
+    minify: true,
+  });
+  if (!result.success) {
+    console.error(`✗ ${name}`);
+    for (const log of result.logs) console.error(log);
+    throw new Error(`Bun.build failed for ${name}`);
+  }
+  const ext = name.startsWith("windows") ? ".exe" : "";
+  const stat = await Bun.file(outfile + ext).stat();
+  console.log(`✓ ${name}  ${(stat.size / 1024 / 1024).toFixed(1)} MB`);
 }
