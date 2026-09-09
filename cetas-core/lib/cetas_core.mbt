@@ -163,7 +163,7 @@ pub(all) struct HostContext {
 /// hosts do not restate it. The activation budget is raised above the
 /// portable default so large real-world skills (50k+ chars of instructions)
 /// stay loadable.
-pub fn cetas_skills_config() -> @skills.SkillsConfig {
+fn cetas_skills_config() -> @skills.SkillsConfig {
   { ..@skills.SkillsConfig::default(), max_instruction_chars: 65536, }
 }
 
