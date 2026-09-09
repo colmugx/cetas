@@ -1594,7 +1594,7 @@ pub fn cetas_js_runtime_create_agent(
       None => ()
     }
     // Personal host opt-in: zcode delegation registers when detected, degrades to absent otherwise.
-    if @cetas_core.compiled_flavor() == "personal" {
+    if @cetas_core.compiled_zcode_enabled() {
       let zcode_ext = @zcode.zcode_ext_if_detected(
         env=fn(key : String) { @env.get_env_var(key) },
         exists=async fn(path : String) -> Bool {
