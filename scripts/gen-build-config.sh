@@ -8,13 +8,15 @@ table=flavors.tsv
 out=lib/build_config.mbt
 
 flavor=${CETAS_FLAVOR-personal}
-case "$flavor" in
-  public | personal) ;;
-  *)
-    echo "gen-build-config: CETAS_FLAVOR must be public or personal (got '$flavor')" >&2
-    exit 2
-    ;;
-esac
+
+# Any column in the table header is a legal flavor; the lookup below is the
+# validation.
+column=$(awk -F '\t' -v want="$flavor" '/^#/ { for (i = 2; i <= NF; i++) if ($i == want) { print i; exit } }' "$table")
+[ -n "$column" ] || {
+  valid=$(awk -F '\t' '/^#/ { for (i = 2; i <= NF; i++) printf "%s ", $i; exit }' "$table")
+  echo "gen-build-config: CETAS_FLAVOR must be one of: ${valid}(got '$flavor')" >&2
+  exit 2
+}
 
 if [ "${CETAS_PLATFORM+set}" = set ]; then
   platform=$CETAS_PLATFORM
@@ -31,12 +33,6 @@ else
     *) platform=unix ;;
   esac
 fi
-
-column=$(awk -F '\t' -v want="$flavor" '/^#/ { for (i = 2; i <= NF; i++) if ($i == want) { print i; exit } }' "$table")
-[ -n "$column" ] || {
-  echo "gen-build-config: no '$flavor' column in $table" >&2
-  exit 2
-}
 
 value_of() {
   awk -F '\t' -v ext="$1" -v col="$column" '!/^#/ && $1 == ext { print $col; exit }' "$table"
@@ -56,6 +52,7 @@ flag() {
 nmem=$(flag "$(value_of nmem)" nmem)
 obsidian=$(flag "$(value_of obsidian)" obsidian)
 rtk=$(flag "$(value_of rtk)" rtk)
+zcode=$(flag "$(value_of zcode)" zcode)
 
 mkdir -p lib
 cat > "$out" <<EOF
@@ -69,6 +66,9 @@ fn compiled_obsidian_enabled() -> Bool { $obsidian }
 
 ///|
 fn compiled_rtk_enabled() -> Bool { $rtk }
+
+///|
+pub fn compiled_zcode_enabled() -> Bool { $zcode }
 
 ///|
 fn compiled_target_os() -> String { "$platform" }
