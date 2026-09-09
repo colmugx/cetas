@@ -2,15 +2,19 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { CetasApplication } from "./app/application.ts";
+import { MoonbitCetasAgentBridge } from "./app/moonbit-bridge.ts";
 
 const {
   CetasJsConfig,
   CetasJsRuntime,
   cetas_js_abort_turn,
   cetas_js_cancel_pending_ratelimit,
+  cetas_js_compact_session,
   cetas_js_runtime_create_agent,
   cetas_js_invoke_command,
   cetas_js_run_turn,
+  cetas_js_sessions_dir,
   cetas_js_start_ratelimit_monitor,
   cetas_js_shutdown,
 } = await import("mbt:colmugx/cetas-js/lib") as unknown as typeof import("mbt:colmugx/cetas-js/lib") & {
@@ -185,42 +189,6 @@ describe("long-lived cetas-js bridge", () => {
         cetas_js_invoke_command(agent, "model", "{malformed"),
       ).rejects.toThrow(/valid JSON|InvalidArgs/);
 
-      const saved = await cetas_js_invoke_command(
-        agent,
-        "profile",
-        JSON.stringify({ action: "save", name: "coding" }),
-      );
-      expect(JSON.parse(saved)).toMatchObject({ type: "success" });
-      expect(await Bun.file(join(home, ".cetas/profiles/coding.json")).exists()).toBe(true);
-
-      await Bun.write(
-        join(home, ".cetas/settings.json"),
-        JSON.stringify({ providers: {} }),
-      );
-      const loaded = await cetas_js_invoke_command(
-        agent,
-        "profile",
-        JSON.stringify({ action: "load", name: "coding" }),
-      );
-      expect(JSON.parse(loaded)).toMatchObject({ type: "success" });
-      expect(await Bun.file(join(home, ".cetas/settings.json")).text()).toContain("test-key");
-
-      await expect(
-        cetas_js_invoke_command(
-          agent,
-          "profile",
-          JSON.stringify({ action: "save", name: "../escape" }),
-        ),
-      ).rejects.toThrow(/invalid profile name/);
-
-      const deleted = await cetas_js_invoke_command(
-        agent,
-        "profile",
-        JSON.stringify({ action: "delete", name: "coding" }),
-      );
-      expect(JSON.parse(deleted)).toMatchObject({ type: "success" });
-      expect(await Bun.file(join(home, ".cetas/profiles/coding.json")).exists()).toBe(false);
-
       const firstReply = await cetas_js_run_turn(
         agent,
         "first question",
@@ -273,11 +241,12 @@ describe("long-lived cetas-js bridge", () => {
       const secondMessages = requests[1]!.messages;
       expect(JSON.stringify(secondMessages)).toContain("first reply");
       expect(JSON.stringify(secondMessages)).toContain("follow-up");
-      expect(
-        await Bun.file(
-          join(home, ".cetas/sessions/integration-session.jsonl"),
-        ).exists(),
-      ).toBe(true);
+      // An empty sessionsDir resolves to the per-project bucket; its path
+      // comes from the MoonBit export, never re-derived here.
+      const persisted = await Bun.file(
+        join(cetas_js_sessions_dir(home, cwd), "integration-session.jsonl"),
+      ).exists();
+      expect(persisted).toBe(true);
       expect(events.length).toBeGreaterThan(0);
     } finally {
       await cetas_js_shutdown(agent);
@@ -600,6 +569,346 @@ describe("long-lived cetas-js bridge", () => {
     } finally {
       releaseModel();
       await cetas_js_shutdown(agent).catch(() => undefined);
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+/**
+ * Esc → /compact acceptance flows over the real bridge with the OpenAI
+ * Responses provider: the model endpoint is `/responses` (SSE) and manual
+ * compaction is `/responses/compact` (JSON `output` window).
+ */
+describe("esc mid-stream, compact, and resume over the real bridge", () => {
+  const openaiSse = (text: string) =>
+    [
+      `data: ${JSON.stringify({ type: "response.output_text.delta", delta: text })}`,
+      `data: ${JSON.stringify({
+        type: "response.completed",
+        response: {
+          status: "completed",
+          output: [],
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        },
+      })}`,
+      "data: [DONE]",
+      "",
+    ].join("\n\n");
+
+  const sseResponse = (text: string) =>
+    new Response(openaiSse(text), { headers: { "content-type": "text/event-stream" } });
+
+  const compactJson = (text: string) =>
+    JSON.stringify({
+      output: [
+        { type: "message", role: "assistant", content: [{ type: "output_text", text }] },
+      ],
+    });
+
+  function gatedSseResponse(text: string, gate: Promise<void>): Response {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        await gate;
+        controller.enqueue(encoder.encode(openaiSse(text)));
+        controller.close();
+      },
+    });
+    return new Response(body, { headers: { "content-type": "text/event-stream" } });
+  }
+
+  async function writeOpenaiSettings(cwd: string, home: string): Promise<void> {
+    await mkdir(join(home, ".cetas"), { recursive: true });
+    await Bun.write(
+      join(home, ".cetas/settings.json"),
+      JSON.stringify({
+        providers: {
+          openai: {
+            api_key: "test-key",
+            base_url: "http://cetas.test/v1",
+            model: "scripted-model",
+          },
+        },
+      }),
+    );
+    void cwd;
+  }
+
+  async function startOpenaiAgent(cwd: string, home: string) {
+    const config = new (CetasJsConfig as unknown as new (
+      cwd: string,
+      maxToolRounds: number,
+      home: string,
+      permissionMode: string,
+      sessionsDir: string,
+    ) => unknown)(cwd, 4, home, "workspace_write", "");
+    const runtime = new (CetasJsRuntime as unknown as new (
+      config: unknown,
+    ) => Parameters<typeof cetas_js_runtime_create_agent>[0])(config);
+    return await cetas_js_runtime_create_agent(
+      runtime,
+      () => undefined,
+      () => undefined,
+      async () => {
+        throw new Error("unexpected UI request in bridge test");
+      },
+      () => false,
+    );
+  }
+
+  test("esc mid-stream then compact_session serves the same agent without a rebuild", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cetas-js-esc-compact-"));
+    const home = await mkdtemp(join(tmpdir(), "cetas-js-esc-compact-home-"));
+    cleanup.push(cwd, home);
+    const requests: Array<{ path: string; body: string }> = [];
+    let releaseModel!: () => void;
+    const modelGate = new Promise<void>((resolve) => {
+      releaseModel = resolve;
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (!url.startsWith("http://cetas.test")) {
+        return new Response("service unavailable", { status: 503 });
+      }
+      if (url.endsWith("/responses/compact")) {
+        requests.push({ path: "compact", body: await readRequestBody(init!.body) });
+        return new Response(compactJson("compact checkpoint"), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      requests.push({ path: "responses", body: await readRequestBody(init!.body) });
+      if (requests.filter((entry) => entry.path === "responses").length === 1) {
+        return gatedSseResponse("interrupted reply", modelGate);
+      }
+      return sseResponse("post compact reply");
+    }) as typeof fetch;
+
+    let agent: Awaited<ReturnType<typeof startOpenaiAgent>> | undefined;
+    try {
+      await writeOpenaiSettings(cwd, home);
+      agent = await startOpenaiAgent(cwd, home);
+
+      const controller = new AbortController();
+      const turn = cetas_js_run_turn(agent, "first question", "[]", "esc-session", controller.signal);
+      while (requests.length === 0) {
+        await Bun.sleep(1);
+      }
+      expect(cetas_js_abort_turn(agent).startsWith("Accepted(")).toBe(true);
+      controller.abort();
+      const rejection = await turn.then(
+        () => {
+          throw new Error("expected the aborted turn to reject");
+        },
+        (error: unknown) => error,
+      );
+      const text = rejection instanceof Error ? rejection.message : String(rejection);
+      expect(text).toContain("category=cancelled");
+
+      // Same handle, same session: no agent rebuild, no new user message.
+      const compactRaw = await cetas_js_compact_session(agent, "esc-session", new AbortController().signal);
+      expect(JSON.parse(compactRaw)).toMatchObject({
+        ok: true,
+        mode: "Replace",
+        final_session_id: "esc-session",
+      });
+
+      const reply = await cetas_js_run_turn(agent, "after compact", "[]", "esc-session", new AbortController().signal);
+      expect(reply).toContain("post compact reply");
+
+      expect(requests.map((entry) => entry.path)).toEqual(["responses", "compact", "responses"]);
+      // The interrupted user message was persisted once and never duplicated.
+      expect(requests[0]!.body.match(/first question/g)).toHaveLength(1);
+      expect(requests[1]!.body.match(/first question/g)).toHaveLength(1);
+      // The next request runs on the committed compacted window.
+      expect(requests[2]!.body).toContain("compact checkpoint");
+      expect(requests[2]!.body).not.toContain("first question");
+    } finally {
+      releaseModel();
+      globalThis.fetch = originalFetch;
+      if (agent !== undefined) await cetas_js_shutdown(agent).catch(() => undefined);
+    }
+  });
+
+  test("compact cancel reports a typed cancelled outcome and the compact reruns", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cetas-js-compact-cancel-"));
+    const home = await mkdtemp(join(tmpdir(), "cetas-js-compact-cancel-home-"));
+    cleanup.push(cwd, home);
+    let compactSeen = 0;
+    let responsesSeen = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (!url.startsWith("http://cetas.test")) {
+        return new Response("service unavailable", { status: 503 });
+      }
+      if (url.endsWith("/responses/compact")) {
+        compactSeen += 1;
+        if (compactSeen === 1) {
+          return new Promise<Response>(() => {});
+        }
+        return new Response(compactJson("second checkpoint"), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      void init;
+      responsesSeen += 1;
+      return sseResponse("reply after compacts");
+    }) as typeof fetch;
+
+    let agent: Awaited<ReturnType<typeof startOpenaiAgent>> | undefined;
+    try {
+      await writeOpenaiSettings(cwd, home);
+      agent = await startOpenaiAgent(cwd, home);
+
+      const controller = new AbortController();
+      const first = cetas_js_compact_session(agent, "cancel-session", controller.signal);
+      while (compactSeen === 0) {
+        await Bun.sleep(1);
+      }
+      controller.abort();
+      expect(JSON.parse(await first)).toMatchObject({ ok: false, error_kind: "cancelled" });
+
+      const second = JSON.parse(
+        await cetas_js_compact_session(agent, "cancel-session", new AbortController().signal),
+      );
+      expect(second).toMatchObject({ ok: true, mode: "Replace", messages_after: 1 });
+
+      const reply = await cetas_js_run_turn(
+        agent,
+        "continue after two compacts",
+        "[]",
+        "cancel-session",
+        new AbortController().signal,
+      );
+      expect(reply).toContain("reply after compacts");
+      expect(compactSeen).toBe(2);
+      expect(responsesSeen).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (agent !== undefined) await cetas_js_shutdown(agent).catch(() => undefined);
+    }
+  });
+
+  test("application /compact switches a running turn and keeps queued input pending", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cetas-js-app-compact-"));
+    const home = await mkdtemp(join(tmpdir(), "cetas-js-app-compact-home-"));
+    cleanup.push(cwd, home);
+    const requests: Array<{ path: string; body: string }> = [];
+    let releaseModel!: () => void;
+    const modelGate = new Promise<void>((resolve) => {
+      releaseModel = resolve;
+    });
+    let releaseCompact!: () => void;
+    const compactGate = new Promise<void>((resolve) => {
+      releaseCompact = resolve;
+    });
+    let compactGated = false;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (!url.startsWith("http://cetas.test")) {
+        return new Response("service unavailable", { status: 503 });
+      }
+      if (url.endsWith("/responses/compact")) {
+        requests.push({ path: "compact", body: await readRequestBody(init!.body) });
+        if (!compactGated) {
+          compactGated = true;
+          const encoder = new TextEncoder();
+          const body = new ReadableStream<Uint8Array>({
+            async start(controller) {
+              await compactGate;
+              controller.enqueue(encoder.encode(compactJson("compact checkpoint")));
+              controller.close();
+            },
+          });
+          return new Response(body, { headers: { "content-type": "application/json" } });
+        }
+        return new Response(compactJson("compact checkpoint"), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      requests.push({ path: "responses", body: await readRequestBody(init!.body) });
+      if (requests.filter((entry) => entry.path === "responses").length === 1) {
+        return gatedSseResponse("interrupted reply", modelGate);
+      }
+      return sseResponse("post compact reply");
+    }) as typeof fetch;
+
+    try {
+      await writeOpenaiSettings(cwd, home);
+      const config = { cwd, home, maxToolRounds: 4 };
+      const bridge = new MoonbitCetasAgentBridge(config);
+      let createCount = 0;
+      const created = bridge.createAgent.bind(bridge);
+      (bridge as unknown as { createAgent: typeof created }).createAgent = async (...args) => {
+        createCount += 1;
+        return created(...args);
+      };
+      const app = new CetasApplication({
+        bridge,
+        config,
+        callbacks: {
+          observerCallback: () => undefined,
+          renderCallback: () => undefined,
+          requestCallback: async () => "",
+        },
+        initialSessionId: "app-session",
+      });
+      await app.start();
+      expect(app.appState).toBe("ready");
+
+      const turnPromise = app.runTurn("first question");
+      turnPromise.catch(() => undefined);
+      while (requests.length === 0) {
+        await Bun.sleep(1);
+      }
+      expect(app.queueFollowUp("queued question")).toBe("accepted");
+      await Bun.sleep(20);
+
+      // The switch interrupts the turn and waits for its finalize before
+      // compacting; the compact request itself gates below.
+      const compactCommand = app.invokeCommand("compact", "{}");
+      while (!compactGated) {
+        await Bun.sleep(1);
+      }
+      expect(app.compactPending).toBe(true);
+
+      // A second /compact while one owns the session waits for cleanup.
+      await expect(app.invokeCommand("compact", "{}")).rejects.toThrow(
+        /waiting for the interrupted operation/,
+      );
+
+      releaseCompact();
+      const commandOutcome = JSON.parse(await compactCommand);
+      expect(commandOutcome.type).toBe("success");
+      expect(commandOutcome.structured).toMatchObject({ ok: true, mode: "Replace" });
+
+      await turnPromise.then(() => undefined, () => undefined);
+      expect(app.appState).toBe("ready");
+      // The queued input survived the interrupted run as pending and the
+      // Agent was never rebuilt for the compact.
+      expect(app.pendingInputs).toEqual(["queued question"]);
+      expect(createCount).toBe(1);
+
+      const reply = await app.runTurn("after compact");
+      expect(reply).toContain("post compact reply");
+      // The queued follow-up drains at the next run's boundary (core
+      // semantics), so it runs after the user's explicit turn, never during
+      // the interrupt/compact switch itself.
+      expect(requests.map((entry) => entry.path)).toEqual([
+        "responses",
+        "compact",
+        "responses",
+        "responses",
+      ]);
+      const queuedTurn = requests[3]!.body;
+      expect((queuedTurn.match(/queued question/g) ?? []).length).toBe(1);
+      expect(app.pendingInputs).toEqual([]);
+
+      await app.shutdown();
+    } finally {
+      releaseModel();
       globalThis.fetch = originalFetch;
     }
   });

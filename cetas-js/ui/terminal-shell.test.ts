@@ -15,9 +15,11 @@ import {
   matchLocalSlash,
   parseCetasEventLenient,
   parsePositionalArgs,
+  positionalArgsFor,
   shouldOpenRewindOnEscape,
   TerminalShell,
 } from "./terminal-shell.ts";
+import type { CommandDescriptor } from "../src/app/index.ts";
 
 /** Swap console.warn for a recorder; call restore() when done. */
 function captureWarn(): { warns: string[]; restore(): void } {
@@ -107,6 +109,10 @@ describe("matchLocalSlash", () => {
     expect(matchLocalSlash("/skills")?.id).toBe("skills");
   });
 
+  test("/name is unknown locally and falls through to the extension fallback", () => {
+    expect(matchLocalSlash("/name")).toBeUndefined();
+  });
+
   test("/handoff is unknown and falls through to the extension fallback", () => {
     expect(matchLocalSlash("/handoff")).toBeUndefined();
   });
@@ -114,6 +120,96 @@ describe("matchLocalSlash", () => {
   test("matching is case-sensitive", () => {
     expect(matchLocalSlash("/QUIT")).toBeUndefined();
     expect(matchLocalSlash("/Model")).toBeUndefined();
+  });
+});
+
+describe("positionalArgsFor", () => {
+  function descriptor(partial: {
+    id: string;
+    params?: CommandDescriptor["params"];
+    aliases?: readonly string[];
+  }): CommandDescriptor {
+    return {
+      id: partial.id,
+      label: partial.id,
+      description: "",
+      category: "session",
+      ctype: "input",
+      params: partial.params ?? [],
+      aliases: partial.aliases ?? [],
+      visible: true,
+    };
+  }
+
+  const catalog = [
+    descriptor({
+      id: "name",
+      params: [
+        {
+          name: "value",
+          label: "Title",
+          description: "",
+          ptype: "str",
+          required: true,
+          positional: true,
+        },
+      ],
+    }),
+    descriptor({
+      id: "wrap",
+      params: [
+        {
+          name: "action",
+          label: "Action",
+          description: "",
+          ptype: "str",
+          required: true,
+          positional: true,
+        },
+        {
+          name: "name",
+          label: "Name",
+          description: "",
+          ptype: "str",
+          required: false,
+          positional: true,
+        },
+      ],
+    }),
+  ];
+
+  test("a single declared positional param receives the raw remainder", () => {
+    expect(positionalArgsFor("/name", "my title", catalog)).toBe(
+      JSON.stringify({ value: "my title" }),
+    );
+    expect(positionalArgsFor("/name", "  spaced  ", catalog)).toBe(
+      JSON.stringify({ value: "spaced" }),
+    );
+  });
+
+  test("several declared positional params keep the generic _positional", () => {
+    expect(positionalArgsFor("/wrap", "load coding-fast", catalog)).toBe(
+      JSON.stringify({ _positional: "load coding-fast" }),
+    );
+  });
+
+  test("commands without a declared positional keep the generic _positional", () => {
+    expect(positionalArgsFor("/statusbar", "extra", catalog)).toBe(
+      JSON.stringify({ _positional: "extra" }),
+    );
+    expect(positionalArgsFor("/unknown", "extra", catalog)).toBe(
+      JSON.stringify({ _positional: "extra" }),
+    );
+  });
+
+  test("empty args and dedicated shapers pass through untouched", () => {
+    expect(positionalArgsFor("/name", "", catalog)).toBe("{}");
+    expect(positionalArgsFor("/model", "kimi high", catalog)).toBe(
+      JSON.stringify({ slot: "kimi", effort: "high" }),
+    );
+    expect(positionalArgsFor("/login", "prov oauth", catalog)).toBe(
+      JSON.stringify({ provider: "prov", method: "oauth" }),
+    );
   });
 });
 
@@ -186,8 +282,8 @@ describe("parseCetasEventLenient", () => {
 
 /** Drive one raw sequence through the real TUI → shell dispatch path. */
 function sendKey(tui: TUI, data: string): void {
-  // pi-tui renamed the internal terminal-data entry to handleTerminalInput;
-  // it still runs the full listener → overlay → focused-component dispatch.
+  // pi-tui's terminal-data entry is handleTerminalInput; it runs the full
+  // listener → overlay → focused-component dispatch.
   (tui as any).handleTerminalInput(data);
 }
 
@@ -313,16 +409,25 @@ describe("isAbortError", () => {
     expect(isAbortError(error)).toBe(true);
   });
 
-  test("stringified MoonBit AgentError Cancelled shapes mark an interrupt", () => {
+  test("the provider's stable category=cancelled marker marks an interrupt", () => {
     expect(
-      isAbortError("AgentError::Model(provider fetch failed: Cancelled)"),
+      isAbortError(
+        new Error(
+          "AgentError::Model(model transport: OpenAI transport failure (stage=read_stream, category=cancelled))",
+        ),
+      ),
     ).toBe(true);
     expect(
-      isAbortError(new Error("AgentError::Interrupted(turn Cancelled by ESC)")),
+      isAbortError(
+        "AgentError::Model(model transport: OpenAI transport failure (stage=wait_headers, category=cancelled))",
+      ),
     ).toBe(true);
   });
 
   test("a bare Cancelled message is a real failure, not an interrupt", () => {
+    expect(
+      isAbortError(new Error("AgentError::Model(provider fetch failed: Cancelled)")),
+    ).toBe(false);
     expect(isAbortError(new Error("task Cancelled by user"))).toBe(false);
     expect(isAbortError(new Error("Cancelled"))).toBe(false);
     expect(isAbortError("Cancelled")).toBe(false);
@@ -332,5 +437,168 @@ describe("isAbortError", () => {
     expect(isAbortError(new Error("provider 500"))).toBe(false);
     expect(isAbortError(undefined)).toBe(false);
     expect(isAbortError(42)).toBe(false);
+  });
+});
+
+describe("operation lifecycle wire events", () => {
+  function transcriptOf(shell: TerminalShell): string {
+    return (shell as any).transcript.render(200).join("\n");
+  }
+
+  test("compact started/finished and completed finalize render without skip notices", () => {
+    const { shell } = makeShell();
+    const { warns, restore } = captureWarn();
+    try {
+      (shell as any).handleObserverEvent(
+        JSON.stringify({ type: "compact_started", trigger: "manual" }),
+      );
+      (shell as any).handleObserverEvent(
+        JSON.stringify({
+          type: "compact_finished",
+          trigger: "manual",
+          mode: "Replace",
+          final_session_id: "s1",
+          messages_after: 3,
+        }),
+      );
+      (shell as any).handleObserverEvent(
+        JSON.stringify({ type: "operation_finalized", operation: "compact", outcome: "completed", detail: "" }),
+      );
+      const transcript = transcriptOf(shell);
+      expect(transcript).toContain("context compacted (Replace, 3 messages)");
+      expect(transcript).not.toContain("unrecognized bridge event");
+      expect(warns).toHaveLength(0);
+    } finally {
+      restore();
+    }
+  });
+
+  test("a cancelled finalize renders the interrupt exactly once", () => {
+    const { shell } = makeShell();
+    (shell as any).handleObserverEvent(
+      JSON.stringify({ type: "operation_finalized", operation: "compact", outcome: "cancelled", detail: "compact cancelled" }),
+    );
+    const transcript = transcriptOf(shell);
+    expect(transcript).toContain("⏹ compact interrupted");
+    expect(transcript.match(/⏹ compact interrupted/g)).toHaveLength(1);
+    expect((shell as any).terminationNotices).toBe(1);
+  });
+
+  test("a failed finalize renders operation and reason, not a bare label", () => {
+    const { shell } = makeShell();
+    (shell as any).handleObserverEvent(
+      JSON.stringify({
+        type: "operation_finalized",
+        operation: "compact",
+        outcome: "failed",
+        detail: "puppet rejected the compact: stage=output, category=missing_output",
+      }),
+    );
+    const transcript = transcriptOf(shell);
+    expect(transcript).toContain("compact failed: puppet rejected the compact: stage=output, category=missing_output");
+  });
+
+  test("context_state is consumed silently — the statusbar owns its display", () => {
+    const { shell } = makeShell();
+    const { warns, restore } = captureWarn();
+    try {
+      expect(
+        (shell as any).handleObserverEvent(
+          JSON.stringify({ type: "context_state", state: { session_id: "s1" } }),
+        ),
+      ).toBeUndefined();
+      expect(warns).toHaveLength(0);
+      expect(transcriptOf(shell)).not.toContain("unrecognized bridge event");
+    } finally {
+      restore();
+    }
+  });
+
+  test("a requested interrupt turns turn_failed into a single ⏹ interrupted notice", () => {
+    const { shell } = makeShell();
+    (shell as any).interruptRequested = true;
+    (shell as any).handleObserverEvent(
+      JSON.stringify({ type: "turn_failed", error_message: "turn failed: AgentError::Model", error_kind: "Model" }),
+    );
+    const transcript = transcriptOf(shell);
+    expect(transcript).toContain("⏹ interrupted");
+    expect(transcript.match(/⏹/g)).toHaveLength(1);
+    expect(transcript).not.toContain("turn failed: AgentError::Model");
+    expect((shell as any).interruptRequested).toBe(false);
+  });
+
+  test("an unrequested turn_failed still renders the router's error notice", () => {
+    const { shell } = makeShell();
+    (shell as any).handleObserverEvent(
+      JSON.stringify({ type: "turn_failed", error_message: "turn failed: AgentError::Session", error_kind: "Session" }),
+    );
+    const transcript = transcriptOf(shell);
+    expect(transcript).toContain("turn failed: AgentError::Session");
+    expect(transcript).not.toContain("⏹");
+  });
+});
+
+describe("/compact command rendering", () => {
+  function makeCompactShell(
+    invoke: (id: string, args: string) => Promise<string>,
+  ): TerminalShell {
+    const { shell } = makeShell();
+    (shell as any).attachApplication({
+      listCommands: () => [],
+      invokeCommand: invoke,
+    });
+    return shell;
+  }
+
+  function transcriptOf(shell: TerminalShell): string {
+    return (shell as any).transcript.render(200).join("\n");
+  }
+
+  test("success renders the typed summary when no wire finalize fired", async () => {
+    const shell = makeCompactShell(async () =>
+      JSON.stringify({ type: "success", structured: { ok: true, mode: "Replace", messages_after: 3 } }),
+    );
+    await (shell as any).runCompactCommand("");
+    expect(transcriptOf(shell)).toContain("context compacted (Replace, 3 messages)");
+  });
+
+  test("a cancelled compact renders the interrupt from the typed outcome", async () => {
+    const shell = makeCompactShell(async () =>
+      JSON.stringify({ type: "failure", reason: "compact cancelled", structured: { error_kind: "cancelled" } }),
+    );
+    await (shell as any).runCompactCommand("");
+    const transcript = transcriptOf(shell);
+    expect(transcript).toContain("⏹ compact interrupted");
+    expect(transcript).not.toContain("/compact failed");
+  });
+
+  test("a wire finalize during the command suppresses the outcome display", async () => {
+    const shell = makeCompactShell(async () => {
+      (shell as any).finalizedOperations += 1;
+      return JSON.stringify({ type: "failure", reason: "compact cancelled", structured: { error_kind: "cancelled" } });
+    });
+    await (shell as any).runCompactCommand("");
+    const transcript = transcriptOf(shell);
+    expect(transcript).not.toContain("⏹ compact interrupted");
+    expect(transcript).not.toContain("/compact failed");
+  });
+
+  test("a failing compact surfaces the reason when no finalize event fired", async () => {
+    const shell = makeCompactShell(async () =>
+      JSON.stringify({ type: "failure", reason: "provider rejected the compact window", structured: { error_kind: "error" } }),
+    );
+    await (shell as any).runCompactCommand("");
+    expect(transcriptOf(shell)).toContain("/compact failed: provider rejected the compact window");
+  });
+
+  test("mid-turn compact shows the finalize wait before switching", async () => {
+    const shell = makeCompactShell(async () =>
+      JSON.stringify({ type: "success", structured: { ok: true, mode: "Replace", messages_after: 1 } }),
+    );
+    (shell as any).inTurn = true;
+    await (shell as any).runCompactCommand("");
+    expect(transcriptOf(shell)).toContain(
+      "⏸ /compact — waiting for the running operation to finish cleanup",
+    );
   });
 });

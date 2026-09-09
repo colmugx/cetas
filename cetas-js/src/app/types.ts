@@ -32,9 +32,9 @@ export interface CetasHostConfig {
   permissionMode?: "readonly" | "workspace_write" | "interactive" | "yolo";
   /**
    * Root directory for session transcripts. When omitted the MoonBit side
-   * falls back to the legacy flat layout `<home>/.cetas/sessions`; hosts
-   * that want pi's per-project layout pass
-   * `projectSessionsDir(home, cwd)` (see `./session-id.ts`).
+   * resolves the per-project bucket `<home>/.cetas/sessions/session_<slug>_<hash>`
+   * itself; hosts that want a custom layout pass an explicit directory.
+   * Use `resolvedSessionsDir` (moonbit-bridge) to read the resolved path.
    */
   sessionsDir?: string;
   /**
@@ -206,6 +206,12 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
    * because test bridges may omit it; callers degrade to no `@` completion.
    */
   listWorkspaceFiles?(config: CetasHostConfig): Promise<string>;
+  /**
+   * Session picker titles for one sessions directory as a JSON array
+   * `[{"id":...,"title":...}]` (MoonBit `display_title` per session).
+   * Stateless and Agent-free. Optional; callers degrade to id-based labels.
+   */
+  sessionTitles?(sessionsDir: string): Promise<string>;
 }
 
 export interface CommandParameter {
@@ -217,6 +223,12 @@ export interface CommandParameter {
   positional: boolean;
   default?: unknown;
   choices?: readonly string[];
+}
+
+/** Picker title for one persisted session (MoonBit `display_title`). */
+export interface SessionTitle {
+  id: string;
+  title: string;
 }
 
 export interface CommandDescriptor {

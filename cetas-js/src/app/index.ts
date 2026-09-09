@@ -13,5 +13,6 @@ export type {
   ProviderAuthCapability,
   ProviderModelCapability,
   ProviderSetupSnapshot,
+  SessionTitle,
 } from "./types.ts";
 export { CetasApplicationError } from "./types.ts";

@@ -12,6 +12,7 @@ import {
   "colmugx/posoco-ext-pi-adaptor",
   "colmugx/posoco-ext-plan",
   "colmugx/posoco-ext-ratelimit",
+  "colmugx/posoco-ext-subagent",
   "colmugx/posoco-ext-workspace",
   "colmugx/posoco/error",
   "colmugx/posoco/port",
@@ -25,6 +26,8 @@ pub fn cetas_js_abort_turn(CetasJsAgent) -> String
 pub fn cetas_js_active_model_supports_images(CetasJsAgent) -> String
 
 pub fn cetas_js_cancel_pending_ratelimit(CetasJsAgent) -> Unit
+
+pub fn cetas_js_compact_session(CetasJsAgent, String, @js_async.AbortSignal) -> @js_async.Promise[String]
 
 pub fn cetas_js_create_agent(CetasJsConfig, JsCallback, JsUiRenderCallback, JsUiRequestCallback, JsCancelCheck) -> @js_async.Promise[CetasJsAgent]
 
@@ -60,6 +63,10 @@ pub fn cetas_js_runtime_login_provider(CetasJsRuntime, String, JsCallback, JsUiR
 
 pub fn cetas_js_runtime_refresh_model_catalogs(CetasJsRuntime, String) -> @js_async.Promise[String]
 
+pub fn cetas_js_session_titles(String) -> @js_async.Promise[String]
+
+pub fn cetas_js_sessions_dir(String, String) -> String
+
 pub fn cetas_js_set_goal(CetasJsRuntime, String) -> Unit
 
 pub fn cetas_js_shutdown(CetasJsAgent) -> @js_async.Promise[Unit]
@@ -79,7 +86,6 @@ pub impl @posoco-ext-permission.ApprovalSource for BlockingApprovalSource
 
 pub struct CetasJsAgent {
   agent : @posoco.Agent
-  profile_errors : Array[String]
   router : @posoco-ext-llm.RouterModelPort
   plan : @posoco-ext-plan.PlanMode
   home : String
@@ -159,6 +165,13 @@ pub(all) struct PlanApprovalSource {
 }
 pub fn PlanApprovalSource::PlanApprovalSource(&@port.UiPort) -> Self
 pub impl @posoco-ext-plan.PlanReviewSource for PlanApprovalSource
+
+pub struct PlatformChildComposer {
+  platform : @colmugx/cetas-core/lib.CetasPlatform
+}
+pub fn PlatformChildComposer::PlatformChildComposer(platform~ : @colmugx/cetas-core/lib.CetasPlatform) -> Self
+pub async fn PlatformChildComposer::compose(Self, @posoco-ext-subagent.ChildSpec) -> @posoco.Agent raise @posoco-ext-subagent.ComposerError
+pub impl @posoco-ext-subagent.ChildComposer for PlatformChildComposer
 
 // Type aliases
 

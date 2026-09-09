@@ -21,6 +21,20 @@ const rateLimitExports = moonbit as unknown as {
 };
 
 /**
+ * Typed outcome of the Agent-level server compaction. `ok:false` carries a
+ * machine-readable `errorKind` (`cancelled` | `auto_compact_failed` |
+ * `error`) from the MoonBit envelope — never matched against detail text.
+ */
+export interface CompactSessionOutcome {
+  ok: boolean;
+  finalSessionId?: string;
+  mode?: string;
+  messagesAfter?: number;
+  errorKind?: "cancelled" | "auto_compact_failed" | "error";
+  detail?: string;
+}
+
+/**
  * Adapter for the generated MoonBit boundary. Provider settings and
  * credentials remain behind the MoonBit/provider extension seam; this TS
  * layer only carries capability snapshots and command JSON.
@@ -39,7 +53,7 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
       config.home,
       config.permissionMode ?? "workspace_write",
       // Empty string is the bridge's "not chosen" convention; the MoonBit
-      // constructor then falls back to `<home>/.cetas/sessions`.
+      // constructor then resolves the per-project session bucket.
       config.sessionsDir ?? "",
       // Same empty-string convention for the /help host note.
       config.hostHelpNote ?? "",
@@ -170,6 +184,42 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
     return moonbit.cetas_js_abort_turn(agent as moonbit.CetasJsAgent);
   }
 
+  /**
+   * Agent-level server compaction on the long-lived handle (same Agent, no
+   * recomposition). The MoonBit export never rejects; failures arrive as the
+   * typed envelope, cancellations included.
+   */
+  async compactSession(
+    agent: unknown,
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<CompactSessionOutcome> {
+    const raw = await moonbit.cetas_js_compact_session(
+      agent as moonbit.CetasJsAgent,
+      sessionId,
+      signal ?? new AbortController().signal,
+    );
+    const value: unknown = JSON.parse(raw);
+    if (!isRecord(value)) throw new Error("compact response must be an object");
+    if (value.ok === true) {
+      return {
+        ok: true,
+        finalSessionId: requireString(value.final_session_id, "compact.final_session_id"),
+        mode: requireString(value.mode, "compact.mode"),
+        messagesAfter: requireNumber(value.messages_after, "compact.messages_after"),
+      };
+    }
+    const kind = value.error_kind;
+    if (kind !== "cancelled" && kind !== "auto_compact_failed" && kind !== "error") {
+      throw new Error("compact response.error_kind is unsupported");
+    }
+    return {
+      ok: false,
+      errorKind: kind,
+      detail: requireString(value.detail, "compact.detail"),
+    };
+  }
+
   enqueueFollowUp(
     agent: unknown,
     prompt: string,
@@ -206,6 +256,22 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
   listWorkspaceFiles(_config: CetasHostConfig): Promise<string> {
     return moonbit.cetas_js_list_workspace_files(this.configValue);
   }
+
+  sessionTitles(sessionsDir: string): Promise<string> {
+    return moonbit.cetas_js_session_titles(sessionsDir);
+  }
+}
+
+/**
+ * Resolved per-project sessions directory for a host config. The bucket
+ * formula lives in posoco-ext-fs-session; TypeScript only asks for the
+ * resolved path (never re-derives it). Mirrors the MoonBit config
+ * constructor: an explicit `sessionsDir` wins, otherwise the per-project
+ * bucket is resolved here.
+ */
+export function resolvedSessionsDir(config: CetasHostConfig): string {
+  return config.sessionsDir ??
+    moonbit.cetas_js_sessions_dir(config.home, config.cwd);
 }
 
 function imagesJsonFor(images?: readonly ImageAttachment[]): string {
@@ -364,17 +430,21 @@ function parseParameter(value: unknown, path: string) {
   return result;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function requireRecord(value: unknown, path: string): Record<string, unknown> {
-  if (!isRecord(value)) throw new Error(`${path} must be an object`);
+function requireString(value: unknown, path: string): string {
+  if (typeof value !== "string") throw new Error(`${path} must be a string`);
   return value;
 }
 
-function requireString(value: unknown, path: string): string {
-  if (typeof value !== "string") throw new Error(`${path} must be a string`);
+function requireNumber(value: unknown, path: string): number {
+  if (typeof value !== "number") throw new Error(`${path} must be a number`);
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function requireRecord(value: unknown, path: string): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error(`${path} must be an object`);
   return value;
 }
 

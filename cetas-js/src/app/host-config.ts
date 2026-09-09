@@ -1,6 +1,5 @@
 import { homedir } from "node:os";
 
-import { projectSessionsDir } from "./session-id.ts";
 import type { CetasHostConfig } from "./types.ts";
 
 /** Fields an entry point may override; everything else keeps the defaults. */
@@ -9,7 +8,11 @@ export interface CetasHostConfigOverrides {
   home?: string;
   maxToolRounds?: number;
   permissionMode?: CetasHostConfig["permissionMode"];
-  /** Derived per-project layout under `<home>/.cetas/sessions` unless set. */
+  /**
+   * Explicit sessions directory for hosts that choose their own layout; when
+   * omitted the MoonBit config resolves the per-project bucket itself (see
+   * `resolvedSessionsDir` for the resolved path).
+   */
   sessionsDir?: string;
   /** Host /help note; see `CetasHostConfig.hostHelpNote`. */
   hostHelpNote?: string;
@@ -17,12 +20,12 @@ export interface CetasHostConfigOverrides {
 
 /**
  * Shared host-config assembly for the cetas-js entry points (host.ts,
- * smoke.ts): process working directory, user home, and pi's per-project
- * sessions layout.
+ * smoke.ts): process working directory, user home, and permission posture.
+ * The sessions layout is left to the MoonBit side unless explicitly set.
  */
 export function buildCetasHostConfig(
   overrides: CetasHostConfigOverrides = {},
-): CetasHostConfig & { sessionsDir: string } {
+): CetasHostConfig {
   const cwd = overrides.cwd ?? process.cwd();
   const home = overrides.home ?? homedir();
   return {
@@ -34,7 +37,9 @@ export function buildCetasHostConfig(
     ...(overrides.permissionMode === undefined
       ? {}
       : { permissionMode: overrides.permissionMode }),
-    sessionsDir: overrides.sessionsDir ?? projectSessionsDir(home, cwd),
+    ...(overrides.sessionsDir === undefined
+      ? {}
+      : { sessionsDir: overrides.sessionsDir }),
     ...(overrides.hostHelpNote === undefined || overrides.hostHelpNote === ""
       ? {}
       : { hostHelpNote: overrides.hostHelpNote }),

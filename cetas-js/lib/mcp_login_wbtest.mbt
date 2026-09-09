@@ -76,7 +76,7 @@ async test "js mcp login flow and startup token injection" {
   let bridge = match
     @mcp.MCPToolBridge::discover(
       cwd=dir,
-      home=dir + "/nohome",
+      user_mcp_json=dir + "/nohome/.cetas/mcp.json",
       mode=@mcp.LoadMode::Lazy,
     ) {
     Ok(bridge) => bridge

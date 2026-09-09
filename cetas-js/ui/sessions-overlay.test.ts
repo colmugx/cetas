@@ -3,7 +3,12 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import type { Component } from "@earendil-works/pi-tui";
 
-import { SessionsOverlay, listSessionEntries, type SessionEntry } from "./sessions-overlay.ts";
+import {
+  SessionsOverlay,
+  applySessionTitles,
+  listSessionEntries,
+  type SessionEntry,
+} from "./sessions-overlay.ts";
 
 class FakeTui {
   shown?: Component;
@@ -144,5 +149,46 @@ describe("sessions overlay contract", () => {
     const rendered = tui.shown!.render!(120).join("\n");
     expect(rendered).toContain("session_ABCDEF12");
     expect(rendered).toContain("run_1234567");
+  });
+});
+
+describe("applySessionTitles", () => {
+  test("titles win over the id-derived label", () => {
+    const tui = new FakeTui();
+    const overlay = new SessionsOverlay(tui as never);
+    overlay.open(
+      applySessionTitles([entry("2026-08-29T12-17-57-155Z_2c30a4ff")], [
+        { id: "2026-08-29T12-17-57-155Z_2c30a4ff", title: "Fix the login bug" },
+      ]),
+      () => {},
+      () => {},
+    );
+    const rendered = tui.shown!.render!(160).join("\n");
+    expect(rendered).toContain("Fix the login bug");
+    expect(rendered).not.toContain("2026-08-29 12-17-57-155Z");
+  });
+
+  test("entries without a title keep the id-based label", () => {
+    const tui = new FakeTui();
+    const overlay = new SessionsOverlay(tui as never);
+    overlay.open(
+      applySessionTitles([entry("2026-08-29T12-17-57-155Z_2c30a4ff")], []),
+      () => {},
+      () => {},
+    );
+    const rendered = tui.shown!.render!(120).join("\n");
+    expect(rendered).toContain("2026-08-29 12-17-57-155Z");
+  });
+
+  test("merging preserves order and the current marker", () => {
+    const old = entry("a-old", true);
+    const recent = entry("b-new");
+    const merged = applySessionTitles([old, recent], [
+      { id: "a-old", title: "Named session" },
+      { id: "b-new", title: "Other session" },
+    ]);
+    expect(merged.map((e) => e.title)).toEqual(["Named session", "Other session"]);
+    expect(merged[0]?.current).toBe(true);
+    expect(merged[1]?.current).toBe(false);
   });
 });

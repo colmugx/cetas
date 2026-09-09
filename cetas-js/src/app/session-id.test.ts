@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  newSessionId,
-  projectSessionsDir,
-  sessionFilePath,
-} from "./session-id.ts";
+import { newSessionId, sessionFilePath } from "./session-id.ts";
 
 describe("newSessionId", () => {
   test("matches UTC timestamp + 8-hex layout", () => {
@@ -21,20 +17,6 @@ describe("newSessionId", () => {
 
   test("two calls differ", () => {
     expect(newSessionId()).not.toBe(newSessionId());
-  });
-});
-
-describe("projectSessionsDir", () => {
-  test("encodes an absolute POSIX cwd (spaces kept)", () => {
-    expect(projectSessionsDir("/home/u", "/Users/x/My Proj")).toBe(
-      "/home/u/.cetas/sessions/--Users-x-My Proj--",
-    );
-  });
-
-  test("encodes a Windows-style cwd including drive colon", () => {
-    expect(projectSessionsDir("C:\\Users\\u", "C:\\Users\\x\\My Proj")).toBe(
-      "C:\\Users\\u/.cetas/sessions/--C--Users-x-My Proj--",
-    );
   });
 });
 

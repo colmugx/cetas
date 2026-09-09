@@ -8,7 +8,7 @@
 
 import { CetasApplication } from "./src/app/application.ts";
 import { buildCetasHostConfig } from "./src/app/host-config.ts";
-import { MoonbitCetasAgentBridge } from "./src/app/moonbit-bridge.ts";
+import { MoonbitCetasAgentBridge, resolvedSessionsDir } from "./src/app/moonbit-bridge.ts";
 import { newSessionId } from "./src/app/session-id.ts";
 
 const observerCallback = (eventJson: string): void => {
@@ -32,7 +32,7 @@ async function main(): Promise<number> {
   const config = buildCetasHostConfig();
   const sessionId = newSessionId();
   console.log(`[repro] cwd=${config.cwd}`);
-  console.log(`[repro] sessionsDir=${config.sessionsDir}`);
+  console.log(`[repro] sessionsDir=${resolvedSessionsDir(config)}`);
   console.log(`[repro] sessionId=${sessionId}`);
 
   const app = new CetasApplication({

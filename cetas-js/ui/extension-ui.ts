@@ -305,20 +305,25 @@ function formatKeyValue(entries: Array<{ key: string; value: string }>): string 
  * Render keyed entries as one status-bar line: every segment is a muted
  * `key:` label plus its value, values styled by their color role, segments
  * joined by a muted ` | `. A role-less first value keeps the legacy bold
- * treatment; later role-less values stay plain. The host decides line
- * placement through key routes; this is only a shape.
+ * treatment; later role-less values stay plain. A value that already carries
+ * its own `key:` label (the llm ctx segment publishes `ctx: …`) is not
+ * double-prefixed. The host decides line placement through key routes; this
+ * is only a shape.
  */
 function renderKeyValueLine(
   entries: Array<{ key: string; value: string; color?: string }>,
 ): { component: Component; dispose(): void } {
   const segments = entries.map((entry, index) => {
-    const value =
+    const style = (text: string) =>
       entry.color !== undefined
-        ? roleStyle(entry.color)(formatStatusValue(entry.value))
+        ? roleStyle(entry.color)(text)
         : index === 0
-          ? theme.bold(formatStatusValue(entry.value))
-          : formatStatusValue(entry.value);
-    return `${theme.muted(`${entry.key}:`)} ${value}`;
+          ? theme.bold(text)
+          : text;
+    const raw = formatStatusValue(entry.value);
+    const prefix = `${entry.key}:`;
+    const value = raw.startsWith(prefix) ? raw.slice(prefix.length).trimStart() : raw;
+    return `${theme.muted(prefix)} ${style(value)}`;
   });
   const line = segments.join(theme.muted(" | "));
   return { component: new Text(line, 1, 0), dispose() {} };
@@ -580,7 +585,7 @@ class AskPanel implements Component {
     for (const line of restTitles) lines.push(theme.muted(truncateToWidth(line, width)));
     if (this.input !== undefined) {
       // The TUI focuses this panel, not the Input; forward the flag so the
-      // caret renders (same passthrough the old overlay panel used).
+      // caret renders.
       const input = this.input as Input & { focused?: boolean };
       if (typeof input.focused === "boolean") input.focused = this.focused;
       if (this.placeholderLine !== undefined) {

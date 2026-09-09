@@ -112,8 +112,6 @@ describe("UiRenderHost", () => {
     ).toThrow("within [0, 1]");
   });
 
-  // Regression: the rendered map used to be keyed by the bare key, so the
-  // same key rendered into two slots evicted the first mount.
   test("keeps same-key renders in different slots independent", () => {
     const tui = new FakeTui();
     const status = new Container();
@@ -257,6 +255,59 @@ describe("UiRenderHost", () => {
     expect(line).toContain(`${theme.muted("resume:")} ${theme.warning("12:00")}`);
     expect(line).toContain(`${theme.muted("session:")} s1`);
     expect(line.split(theme.muted(" | "))).toHaveLength(4);
+  });
+
+  test("renders the llm ctx segment without doubling its self-carried key label", () => {
+    const tui = new FakeTui();
+    const statusBar = new Container();
+    const host = new UiRenderHost(
+      tui as never,
+      { status: new Container(), notice: new Container(), widget: new Container() },
+      { "status:statusbar": { mount: statusBar, format: "line" } },
+    );
+
+    host.render({
+      slot: "status",
+      key: "statusbar",
+      title: "Status",
+      body: {
+        type: "entries",
+        entries: [
+          { key: "model", value: "deepseek-v4-pro" },
+          { key: "ctx", value: "ctx: 200.0K/1.0M · 20%" },
+        ],
+      },
+    });
+
+    const line = statusBar.render(80).join("\n");
+    expect(line).toContain(`${theme.muted("ctx:")} 200.0K/1.0M · 20%`);
+    expect(line).not.toContain("ctx: ctx:");
+    // The other segments keep the standard label form.
+    expect(line).toContain(`${theme.muted("model:")} ${theme.bold("deepseek-v4-pro")}`);
+  });
+
+  test("ctx unknown renders ? through the line renderer, never zero", () => {
+    const tui = new FakeTui();
+    const statusBar = new Container();
+    const host = new UiRenderHost(
+      tui as never,
+      { status: new Container(), notice: new Container(), widget: new Container() },
+      { "status:statusbar": { mount: statusBar, format: "line" } },
+    );
+
+    host.render({
+      slot: "status",
+      key: "statusbar",
+      title: "Status",
+      body: {
+        type: "entries",
+        entries: [{ key: "ctx", value: "ctx: ?" }],
+      },
+    });
+
+    const line = statusBar.render(80).join("\n");
+    expect(line).toContain(`${theme.muted("ctx:")} ?`);
+    expect(line).not.toContain("ctx: ctx: ?");
   });
 
   test("renders the 🕐 reset announcement with a localized reset moment", () => {
@@ -689,10 +740,6 @@ describe("UiRequestBar", () => {
     await expect(pending).resolves.toEqual({ type: "cancelled" });
   });
 
-  // Regression for the crash "Rendered line exceeds terminal width": the
-  // permission ask embeds an arguments-preview JSON line in the select
-  // title; CJK content made it wider than the terminal even though it was
-  // char-capped upstream. Every panel line must fit the render width.
   test("truncates title and detail lines to the render width", async () => {
     const { mount, bar } = makeBar();
     const argsPreview =

@@ -3,7 +3,6 @@ import { homedir } from "node:os";
 import { describe, expect, test } from "bun:test";
 
 import { buildCetasHostConfig } from "./host-config.ts";
-import { projectSessionsDir } from "./session-id.ts";
 
 describe("buildCetasHostConfig", () => {
   test("defaults mirror the interactive host wiring", () => {
@@ -11,13 +10,13 @@ describe("buildCetasHostConfig", () => {
     expect(config.cwd).toBe(process.cwd());
     expect(config.home).toBe(homedir());
     expect(config.maxToolRounds).toBe(0);
-    expect(config.sessionsDir).toBe(
-      projectSessionsDir(config.home, config.cwd),
-    );
+    // The sessions layout is left unset so the MoonBit config resolves the
+    // per-project bucket itself (TypeScript never re-derives the name).
+    expect(config.sessionsDir).toBeUndefined();
     expect(config.permissionMode).toBeUndefined();
   });
 
-  test("overrides replace defaults and re-derive the sessions layout", () => {
+  test("overrides replace defaults", () => {
     const config = buildCetasHostConfig({
       cwd: "/tmp/proj",
       home: "/tmp/home",
@@ -29,11 +28,10 @@ describe("buildCetasHostConfig", () => {
       maxToolRounds: 5,
       home: "/tmp/home",
       permissionMode: "readonly",
-      sessionsDir: "/tmp/home/.cetas/sessions/--tmp-proj--",
     });
   });
 
-  test("explicit sessionsDir wins over the derived per-project layout", () => {
+  test("explicit sessionsDir passes through unchanged", () => {
     const config = buildCetasHostConfig({ sessionsDir: "/custom/sessions" });
     expect(config.sessionsDir).toBe("/custom/sessions");
   });

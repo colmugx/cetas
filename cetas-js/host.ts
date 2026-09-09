@@ -13,7 +13,7 @@
 import { ProcessTerminal, TuiMainScreen } from "@earendil-works/pi-tui";
 
 import { buildCetasHostConfig, CetasApplication } from "./src/app/index.ts";
-import { MoonbitCetasAgentBridge } from "./src/app/moonbit-bridge.ts";
+import { MoonbitCetasAgentBridge, resolvedSessionsDir } from "./src/app/moonbit-bridge.ts";
 import { newSessionId } from "./src/app/session-id.ts";
 import { TerminalShell, CETAS_TUI_HELP_NOTE } from "./ui/terminal-shell.ts";
 
@@ -35,7 +35,8 @@ async function main(): Promise<void> {
   const shell = new TerminalShell({
     tui,
     cwd: config.cwd,
-    sessionsDir: config.sessionsDir,
+    // Resolved through the MoonBit bucket formula, never re-derived in TS.
+    sessionsDir: resolvedSessionsDir(config),
     maxToolRounds: config.maxToolRounds,
     initialSessionId: sessionId,
     toolLabels,

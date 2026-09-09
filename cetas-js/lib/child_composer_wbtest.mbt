@@ -556,3 +556,23 @@ async test "an unadvertised effort fails the child compose (no fallback)" {
     _ => fail("an unadvertised effort must fail the child composition")
   }
 }
+
+///|
+/// The cetas-bun personal gate composes exactly this assembly (builtin kind
+/// catalog, default config, the platform composer); its `agent` tool must be
+/// visible to the host's routing snapshot.
+async test "the personal subagent registration exposes the agent tool" {
+  let platform = child_wb_platform(model=@posoco.ScriptedModel([]), cwd="/w")
+  let tools = @subagent.SubagentTools(
+    catalog=@kind.KindCatalog::builtin(),
+    config=@kit.SubagentConfig::defaults(),
+    composer=PlatformChildComposer::PlatformChildComposer(platform~)
+      as &@subagent.ChildComposer,
+    parent_slot="opencode/claude-sonnet-5",
+  )
+  let names : Array[String] = []
+  for def in tools.list_tools() {
+    names.push(def.name.to_string())
+  }
+  assert_true(names.contains("agent"))
+}

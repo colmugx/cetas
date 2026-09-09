@@ -197,8 +197,6 @@ describe("CetasApplication", () => {
   test("invokes the startup catalog refresh with the bridge instance as receiver", async () => {
     const counters = { created: 0, runs: 0, shutdowns: 0 };
     const base = bridgeFor({ providers: [], oauthProviders: [] }, counters);
-    // Regression: a class-backed bridge relies on its own `this`; calling the
-    // optional refresh unbound must not crash setup discovery.
     class ClassBridge implements CetasAgentBridge<{ id: string }> {
       refreshes = 0;
       describeSetup = base.describeSetup;

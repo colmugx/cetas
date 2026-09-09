@@ -29,7 +29,9 @@ import {
   type AgentCallbacks,
   type AppSnapshot,
   type CetasHostConfig,
+  type CommandDescriptor,
   type ProviderAuthCapability,
+  type SessionTitle,
 } from "../src/app/index.ts";
 import { newSessionId, sessionFilePath } from "../src/app/session-id.ts";
 import { PiCommands, piCommandArgItems } from "../src/app/pi-commands.ts";
@@ -76,7 +78,11 @@ import {
 } from "./skills-overlay.ts";
 import { OAuthOverlay } from "./oauth-overlay.ts";
 import { AuthPromptOverlay, parseAuthPromptRequest } from "./auth-prompt-overlay.ts";
-import { SessionsOverlay, listSessionEntries } from "./sessions-overlay.ts";
+import {
+  SessionsOverlay,
+  applySessionTitles,
+  listSessionEntries,
+} from "./sessions-overlay.ts";
 import { RewindOverlay } from "./rewind-overlay.ts";
 import { ModalVeilHost } from "./modal-mask.ts";
 import { theme } from "./theme.ts";
@@ -117,7 +123,7 @@ export interface TerminalShellOptions {
   cwd: string;
   /** User home for the /pi package surface; defaults to the OS home. */
   home?: string;
-  /** Project sessions directory — `<home>/.cetas/sessions/--<encoded-cwd>--`. */
+  /** Resolved project sessions directory (MoonBit-owned bucket layout). */
   sessionsDir: string;
   maxToolRounds: number;
   initialSessionId: string;
@@ -241,6 +247,21 @@ export class TerminalShell {
   private commandBusy = false;
   /** Timestamp of the last idle ESC — arms the double-press rewind window. */
   private lastEscapeAt?: number;
+  /**
+   * Set when the shell (or a /compact switch) requests an interrupt and
+   * cleared when the operation settles: turn_failed carries only a safe
+   * category, so this flag — not the wire text — identifies a requested
+   * interrupt and picks the single termination display.
+   */
+  private interruptRequested = false;
+  /** Termination notices already rendered; guards against double display. */
+  private terminationNotices = 0;
+  /**
+   * operation_finalized wire events observed. A /compact command outcome
+   * renders only when no finalize event was rendered for the same operation
+   * (the fallback for a bundle without the finalize wire events).
+   */
+  private finalizedOperations = 0;
   /**
    * Single command-busy gate for every local command flow. An empty label
    * arms the gate without touching the status line (picker/session flows
@@ -435,8 +456,8 @@ export class TerminalShell {
     for (const warning of app.snapshot().setup.warnings ?? []) {
       this.addTranscriptChild(systemNotice(`⚠ ${warning}`));
     }
-    // Pi-package load outcome was previously console.log'd, which flashed
-    // over the TUI; it renders as transcript notices now.
+    // Pi-package load outcomes render as transcript notices; console output
+    // would flash over the TUI.
     const pi = app.snapshot().piPackages;
     if (pi !== undefined) {
       if (pi.failures.length > 0) {
@@ -527,12 +548,19 @@ export class TerminalShell {
     images: readonly ImageAttachment[] = [],
   ): Promise<void> {
     this.inTurn = true;
+    const terminationBefore = this.terminationNotices;
     this.addTranscriptChild(echo);
     try {
       await app.runTurn(prompt, this.sessionId, images.length > 0 ? images : undefined);
     } catch (error: unknown) {
       if (isAbortError(error)) {
-        this.addTranscriptChild(systemNotice("⏹ interrupted"));
+        // The wire turn_failed already displayed this interrupt when it
+        // reached the run; render here only when the abort landed before the
+        // run registered and emitted nothing.
+        if (this.terminationNotices === terminationBefore) {
+          this.terminationNotices += 1;
+          this.addTranscriptChild(systemNotice("⏹ interrupted"));
+        }
       } else {
         const message = error instanceof Error ? error.message : String(error);
         this.addTranscriptChild(errorNotice(message));
@@ -540,6 +568,7 @@ export class TerminalShell {
       this.tui.requestRender();
     } finally {
       this.inTurn = false;
+      this.interruptRequested = false;
       // A failed turn never reaches its next TurnStarted, so queued bubbles
       // would stay pending forever — promote whatever is left.
       while (this.queuedPrompts.length > 0) {
@@ -713,6 +742,7 @@ export class TerminalShell {
   }
 
   private handleObserverEvent(eventJson: string): void {
+    if (this.handleOperationLifecycleEvent(eventJson)) return;
     const outcome = parseCetasEventLenient(eventJson);
     if ("skipped" in outcome) {
       this.noteSkippedBridgeEvent(outcome.skipped, eventJson);
@@ -726,12 +756,21 @@ export class TerminalShell {
       }
       this.skippedBridgeEvents = 0;
       this.skippedEventsNoticed = false;
+      this.interruptRequested = false;
       this.promoteQueuedPrompt();
     }
     if (event.type === "custom" && this.commandBusy) {
       this.oauthOverlay.notify(event);
     }
-    this.router.handleEvent(event);
+    let routed = event;
+    if (event.type === "turn_failed" && this.interruptRequested) {
+      this.interruptRequested = false;
+      this.terminationNotices += 1;
+      this.addTranscriptChild(systemNotice("⏹ interrupted"));
+      // Same router lifecycle as turn_completed, minus its error notice.
+      routed = { type: "turn_completed" };
+    }
+    this.router.handleEvent(routed);
     if (
       this.rateLimitRecoveryInTurn &&
       (event.type === "turn_completed" || event.type === "turn_failed")
@@ -740,6 +779,59 @@ export class TerminalShell {
       this.inTurn = false;
       this.statusLoader.stop();
       this.tui.requestRender();
+    }
+  }
+
+  /**
+   * Wire operation-lifecycle events (context state, compact progress,
+   * operation finalize) the TS event union may not know yet. They must render
+   * here instead of degrading to "skipped event" notices — they are the
+   * user-visible compact feedback and the single finalize display. Returns
+   * true when the bytes carried one of these tags.
+   */
+  private handleOperationLifecycleEvent(eventJson: string): boolean {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(eventJson);
+    } catch {
+      return false;
+    }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return false;
+    }
+    const event = parsed as Record<string, unknown>;
+    const text = (key: string): string =>
+      typeof event[key] === "string" ? (event[key] as string) : "";
+    switch (event.type) {
+      case "context_state":
+        // The statusbar ctx segment is extension-projected over ui_render;
+        // the raw snapshot needs no host-side display.
+        return true;
+      case "compact_started":
+        this.setTurnStatus("compaction", `compacting (${text("trigger")})`);
+        return true;
+      case "compact_finished": {
+        const messages = event.messages_after;
+        const count = typeof messages === "number" ? `${messages}` : "?";
+        this.addTranscriptChild(
+          systemNotice(`context compacted (${text("mode")}, ${count} messages)`),
+        );
+        return true;
+      }
+      case "operation_finalized": {
+        this.finalizedOperations += 1;
+        const operation = text("operation") || "operation";
+        const outcome = text("outcome");
+        if (outcome === "cancelled") {
+          this.terminationNotices += 1;
+          this.addTranscriptChild(systemNotice(`⏹ ${operation} interrupted`));
+        } else if (outcome === "failed") {
+          this.addTranscriptChild(errorNotice(`${operation} failed: ${text("detail")}`));
+        }
+        return true;
+      }
+      default:
+        return false;
     }
   }
 
@@ -823,6 +915,7 @@ export class TerminalShell {
               ["/new", "Start a new session"],
               ["/sessions", "Browse and resume past sessions"],
               ["/rewind", "Rewind to an earlier message of this session"],
+              ["/compact", "Compact this session's context on the server"],
               ["/model", "Select a model and effort"],
               ["/skills", "Browse discovered agent skills by scope"],
               ["/pi", "Manage pi packages (install/remove/list)"],
@@ -907,9 +1000,8 @@ export class TerminalShell {
       this.requestShutdown(0);
       return { consume: true };
     }
-    // Interactive overlays must receive their own keyboard events. The old
-    // host closed every overlay from this listener, making model selection
-    // impossible as soon as pi-tui gained real focus-aware overlays.
+    // Interactive overlays must receive their own keyboard events; this
+    // listener must not close or consume them.
     // uiRequestBar (permission approval ask) takes keyboard focus too —
     // Up/Down/Enter/ESC must reach its inline panel, otherwise the user is
     // stuck while a turn is parked in .wait().
@@ -929,10 +1021,15 @@ export class TerminalShell {
       this.tui.hideOverlay();
       return { consume: true };
     }
-    // ESC interrupts the active turn: the mailbox abort gives the loop its
-    // clean Cancelled path and the turn's AbortController stops an in-flight
-    // model request immediately.
-    if (this.inTurn && matchesKey(data, "escape")) {
+    // ESC interrupts the active operation: a running turn (mailbox abort plus
+    // an immediate in-flight request stop) or an in-flight compact (its own
+    // abort controller). compactPending also covers the /compact switch's
+    // finalize wait. When both settle, ESC falls through to the idle gesture.
+    if (
+      matchesKey(data, "escape") &&
+      (this.inTurn || this.app?.compactPending === true)
+    ) {
+      this.interruptRequested = true;
       this.app?.interruptActiveTurn();
       return { consume: true };
     }
@@ -1022,6 +1119,7 @@ export class TerminalShell {
     sessions: () => this.openSessionsPicker(),
     rewind: () => this.openRewindPicker(),
     exit: () => this.requestShutdown(0),
+    compact: (rawArgs) => this.runCompactCommand(rawArgs),
     model: async (rawArgs) => {
       if (rawArgs.length === 0) {
         await this.openModelPicker();
@@ -1072,6 +1170,69 @@ export class TerminalShell {
     }
     this.tui.terminal.clearScreen();
     this.tui.requestRender(true);
+  }
+
+  /**
+   * /compact — the app boundary's first-class operation. Mid-turn it is the
+   * switch: interrupt the running operation, show the finalize wait, then
+   * compact and stay idle. Start/finish/finalize render from the wire
+   * operation events; the typed command outcome renders only when the bundle
+   * emitted no finalize event for this compact (version-skew fallback).
+   */
+  private async runCompactCommand(rawArgs: string): Promise<void> {
+    if (this.commandBusy) {
+      this.addTranscriptChild(errorNotice("/compact cannot run while another command is active"));
+      return;
+    }
+    if (this.inTurn) {
+      this.interruptRequested = true;
+      this.addTranscriptChild(
+        systemNotice("⏸ /compact — waiting for the running operation to finish cleanup"),
+      );
+    }
+    const finalizeBefore = this.finalizedOperations;
+    const terminationBefore = this.terminationNotices;
+    this.commandLock.acquire("compacting context");
+    try {
+      const outcome = parseCommandOutcome(
+        await this.requireApp().invokeCommand(
+          "compact",
+          positionalArgsFor("/compact", rawArgs, this.requireApp().listCommands()),
+        ),
+      );
+      if (this.finalizedOperations === finalizeBefore) {
+        this.renderCompactOutcome(outcome, terminationBefore);
+      }
+    } catch (error: unknown) {
+      this.addTranscriptChild(errorNotice(`/compact failed: ${errorMessage(error)}`));
+    } finally {
+      this.commandLock.release();
+    }
+  }
+
+  /** Fallback rendering when no operation_finalized wire event was observed. */
+  private renderCompactOutcome(outcome: CommandOutcome, terminationBefore: number): void {
+    if (outcome.type === "success") {
+      const structured = (outcome.structured ?? {}) as Record<string, unknown>;
+      const messages = structured.messages_after;
+      const count = typeof messages === "number" ? `${messages}` : "?";
+      const mode = typeof structured.mode === "string" ? structured.mode : "?";
+      this.addTranscriptChild(systemNotice(`context compacted (${mode}, ${count} messages)`));
+      return;
+    }
+    if (outcome.type === "failure") {
+      const structured = (outcome.structured ?? {}) as Record<string, unknown>;
+      if (structured.error_kind === "cancelled") {
+        if (this.terminationNotices === terminationBefore) {
+          this.terminationNotices += 1;
+          this.addTranscriptChild(systemNotice("⏹ compact interrupted"));
+        }
+        return;
+      }
+      this.addTranscriptChild(errorNotice(`/compact failed: ${outcome.reason ?? "failed"}`));
+      return;
+    }
+    this.addTranscriptChild(systemNotice(`/compact needs input: ${outcome.prompt ?? ""}`));
   }
 
   private async openModelPicker(): Promise<void> {
@@ -1194,20 +1355,30 @@ export class TerminalShell {
 
   /**
    * `/sessions` — list this project's session transcripts and resume one.
-   * Entries are stat metadata from the sessions directory; picking one
-   * repoints the application at that session (the /new switch in reverse).
-   * Prior history is not replayed into the transcript — the session store
-   * feeds it to the model on the next turn.
+   * Entries are stat metadata from the sessions directory, decorated with
+   * the bridge's `display_title` titles when available (a failed fetch or
+   * unsupported bridge keeps the id-based labels). Picking one repoints the
+   * application at that session (the /new switch in reverse). Prior history
+   * is not replayed into the transcript — the session store feeds it to the
+   * model on the next turn.
    */
-  private openSessionsPicker(): void {
+  private async openSessionsPicker(): Promise<void> {
     if (this.inTurn || this.commandBusy) {
       this.addTranscriptChild(errorNotice("/sessions cannot run while an operation is active"));
       return;
     }
     this.commandLock.acquire("");
     try {
+      const entries = listSessionEntries(this.sessionsDir, this.sessionId);
+      // Titles are best-effort decoration; never let them block the picker.
+      let titles: readonly SessionTitle[] = [];
+      try {
+        titles = await this.requireApp().sessionTitles(this.sessionsDir);
+      } catch {
+        // keep id-based labels
+      }
       this.sessionsOverlay.open(
-        listSessionEntries(this.sessionsDir, this.sessionId),
+        applySessionTitles(entries, titles),
         (id) => this.resumeSession(id),
         () => this.commandLock.release(),
       );
@@ -1706,7 +1877,10 @@ export class TerminalShell {
     this.commandLock.acquire(`running ${command}`);
     try {
       const outcome = parseCommandOutcome(
-        await this.requireApp().invokeCommand(command.slice(1), parsePositionalArgs(rawArgs, command)),
+        await this.requireApp().invokeCommand(
+          command.slice(1),
+          positionalArgsFor(command, rawArgs, this.requireApp().listCommands()),
+        ),
       );
       this.renderOutcome(outcome, command);
     } catch (error: unknown) {
@@ -1808,6 +1982,7 @@ const LOCAL_SLASH_ROUTES: readonly SlashRoute[] = [
   { id: "sessions" },
   { id: "rewind" },
   { id: "exit", aliases: ["quit"] },
+  { id: "compact" },
   { id: "model" },
   { id: "skills" },
   { id: "pi" },
@@ -1848,6 +2023,30 @@ export function parsePositionalArgs(raw: string, command = ""): string {
     return JSON.stringify({ index: Number(trimmed) });
   }
   return JSON.stringify({ _positional: trimmed });
+}
+
+/**
+ * Map the raw slash remainder onto the command's declared arguments. A
+ * command that declares exactly one positional parameter (e.g. `/name`'s
+ * `value`) receives the remainder under that name; commands without one —
+ * or with several — keep the generic `_positional` convention. `/model` and
+ * `/login` keep their dedicated shapes from parsePositionalArgs.
+ */
+export function positionalArgsFor(
+  command: string,
+  rawArgs: string,
+  descriptors: readonly CommandDescriptor[],
+): string {
+  const generic = parsePositionalArgs(rawArgs, command);
+  if (!generic.startsWith("{\"_positional\":")) return generic;
+  const id = command.slice(1);
+  const positional = descriptors
+    .find((d) => d.id === id || d.aliases.includes(id))
+    ?.params.filter((p) => p.positional);
+  if (positional === undefined || positional.length !== 1) return generic;
+  const name = positional[0].name;
+  if (name === undefined || name.length === 0) return generic;
+  return JSON.stringify({ [name]: rawArgs.trim() });
 }
 
 /** Double-press window for the idle ESC → rewind gesture, in ms. */
@@ -1969,19 +2168,18 @@ function escapeXml(value: string): string {
 }
 
 /**
- * A turn interrupted via ESC. The bridge rejects in two shapes: from_async's
- * AbortError when the coroutine cancel surfaces directly, or — the common
- * path — a stringified `AgentError::<Kind>(... Cancelled ...)` because the
- * provider wraps the cancelled fetch as a transport failure. A bare
- * "Cancelled" substring is not enough: ordinary failures may carry that word.
+ * Stable cancellation marker the provider classifies into the AgentError text
+ * before wrapping it as a transport failure. Typed cancellation needs a core
+ * seam (round 2); until then this marker — not a `Cancelled` substring
+ * regex — is the turn-level interrupt identifier.
  */
-const AGENT_ERROR_CANCELLED = /AgentError::\w+\([^)]*Cancelled/;
+const CANCELLED_MARKER = "category=cancelled";
 
 export function isAbortError(error: unknown): boolean {
   if (error instanceof Error) {
-    return error.name === "AbortError" || AGENT_ERROR_CANCELLED.test(error.message);
+    return error.name === "AbortError" || error.message.includes(CANCELLED_MARKER);
   }
-  return typeof error === "string" && AGENT_ERROR_CANCELLED.test(error);
+  return typeof error === "string" && error.includes(CANCELLED_MARKER);
 }
 
 function authMethodLabel(method: string): string {

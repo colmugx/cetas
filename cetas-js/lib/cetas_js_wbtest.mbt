@@ -108,10 +108,6 @@ test "JsUiPort wire rejects a response for another request" {
 }
 
 ///|
-/// `resolve_login_method` now lives in cetas-core; its provider-neutral
-/// inference is tested there (provider_login_wbtest.mbt).
-
-///|
 test "model refresh selector validates provider ids and deduplicates requests" {
   match parse_refresh_provider_ids("") {
     None => ()
@@ -137,20 +133,16 @@ test "model refresh selector validates provider ids and deduplicates requests" {
 }
 
 ///|
-/// The factory registry (provider/oauth/api_key/refreshable) now lives in
-/// cetas-core and is covered by provider_login_wbtest.mbt there. The JS host
-/// forwards to it, so this test is no longer host-specific.
-
-///|
-/// Credential persistence (tagged record codec, file backend, atomic replace)
-/// lives in posoco-ext-credentials and is covered by its white-box tests.
-
-///|
-test "CetasJsConfig empty sessions_dir falls back to the flat home root" {
+test "CetasJsConfig empty sessions_dir falls back to the per-project bucket" {
   let config = CetasJsConfig::CetasJsConfig(
     "/work", 0, "/home/u", "workspace_write", "", "",
   )
-  assert_eq(config.sessions_dir, "/home/u/.cetas/sessions")
+  assert_eq(
+    config.sessions_dir,
+    @fs_session.project_sessions_dir("/home/u", "/work"),
+  )
+  // The fallback is a `session_<slug>_<hash>` bucket, not the flat root.
+  assert_true(config.sessions_dir.contains("/.cetas/sessions/session_"))
 }
 
 ///|
@@ -159,6 +151,26 @@ test "CetasJsConfig keeps an explicit sessions_dir" {
     "/work", 0, "/home/u", "yolo", "/home/u/.cetas/sessions/--work--", "",
   )
   assert_eq(config.sessions_dir, "/home/u/.cetas/sessions/--work--")
+}
+
+///|
+test "cetas_js_sessions_dir agrees with the fs-session project layout" {
+  assert_eq(
+    cetas_js_sessions_dir("/home/u", "/work"),
+    @fs_session.project_sessions_dir("/home/u", "/work"),
+  )
+  // Sibling paths that a slug alone would collide get distinct buckets.
+  assert_true(
+    cetas_js_sessions_dir("/home/u", "/a/b_c") !=
+    cetas_js_sessions_dir("/home/u", "/a/b/c"),
+  )
+}
+
+///|
+async test "cetas_js_session_titles lists a missing directory as empty" {
+  let missing = "/tmp/cetas-js-titles-missing-nonexistent"
+  let raw = cetas_js_session_titles(missing).wait()
+  assert_eq(raw, "[]")
 }
 
 ///|

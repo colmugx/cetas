@@ -30,6 +30,34 @@ export interface SessionEntry {
   sizeBytes: number;
   /** True for the session the application currently writes to. */
   current: boolean;
+  /**
+   * Display title (MoonBit `display_title`): the user-chosen name or a
+   * prefix of the first user message. Absent for old listings — the label
+   * falls back to the id.
+   */
+  title?: string;
+}
+
+/** Minimal shape of the bridge's session titles (`id` → `title`). */
+export interface SessionTitleLike {
+  id: string;
+  title: string;
+}
+
+/**
+ * Merge bridge titles onto listed entries by id. Pure and sync so the picker
+ * stays trivially testable; ids without a title (old files, fetch failure)
+ * keep the id-based label.
+ */
+export function applySessionTitles(
+  entries: readonly SessionEntry[],
+  titles: readonly SessionTitleLike[],
+): SessionEntry[] {
+  const byId = new Map(titles.map((t) => [t.id, t.title]));
+  return entries.map((entry) => {
+    const title = byId.get(entry.id);
+    return title === undefined ? entry : { ...entry, title };
+  });
 }
 
 /**
@@ -96,9 +124,12 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Session ids embed the UTC timestamp (`2026-08-26T19-02-…`); surface it. */
+/** Label prefers the session title; ids fall back to the timestamp display. */
 function sessionLabel(entry: SessionEntry): string {
   const marker = entry.current ? "* " : "  ";
+  if (entry.title !== undefined && entry.title.length > 0) {
+    return `${marker}${entry.title}`;
+  }
   // Display-only: drop the 8-hex uniqueness suffix (`_2c30a4ff`); the id
   // itself and all logic keep the full value.
   const label = entry.id.replace("T", " ").replace(/_[0-9a-f]{8}$/, "");

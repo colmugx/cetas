@@ -9,15 +9,30 @@ import {
   type CommandDescriptor,
   type ImageAttachment,
   type ProviderSetupSnapshot,
+  type SessionTitle,
 } from "./types.ts";
 import type { PiPackagesSummary } from "./pi-packages.ts";
+import type { CompactSessionOutcome } from "./moonbit-bridge.ts";
 
 /**
  * Commands invocable while a turn is running. Membership requires that the
  * command mutates only host-side policy state without touching the run loop,
- * session, or provider catalogs.
+ * session, or provider catalogs. `/compact` is not a member: it is a
+ * first-class operation with its own mid-turn switch semantics (compactSession).
  */
 const MID_TURN_COMMANDS = new Set(["permission", "status"]);
+
+/**
+ * Bridges exposing the Agent-level server compaction entry. An intersection
+ * so older bridges without `compactSession` still compose.
+ */
+type CompactCapableBridge<AgentHandle> = CetasAgentBridge<AgentHandle> & {
+  compactSession?(
+    agent: AgentHandle,
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<CompactSessionOutcome>;
+};
 
 export interface CetasApplicationOptions<AgentHandle = unknown> {
   bridge: CetasAgentBridge<AgentHandle>;
@@ -74,6 +89,21 @@ export class CetasApplication<AgentHandle = unknown> {
   /** Abort controller for the in-flight turn; aborting interrupts the model fetch. */
   private activeAbort: AbortController | undefined;
   private activeCommand: Promise<string> | undefined;
+  /** Set while a /compact switch waits for the interrupted operation's finalize. */
+  private waitingForCleanup = false;
+  /** Set while a compact operation owns the busy state. */
+  private compactInFlight = false;
+  /** Abort controller for the in-flight compact; Esc reaches it like a turn. */
+  private compactAbort: AbortController | undefined;
+  /**
+   * Mirror of follow-ups accepted but not yet drained by the Agent (the
+   * core keeps them queued across operations and starts them at a later
+   * run's boundary). Hosts render these as pending user input.
+   */
+  private pendingFollowUps: Array<{
+    prompt: string;
+    images?: readonly ImageAttachment[];
+  }> = [];
   private rateLimitMonitor: RateLimitMonitor<AgentHandle> | undefined;
   /** A monitor teardown remains a serialization barrier until its promise settles. */
   private rateLimitMonitorSettling: Promise<void> | undefined;
@@ -125,6 +155,19 @@ export class CetasApplication<AgentHandle = unknown> {
 
   get rateLimitRecoveryActive(): boolean {
     return this.recoveryTurnActive;
+  }
+
+  /**
+   * Prompts accepted on a run that ended before draining them. They were
+   * dropped from the Agent's queue by its finalize; the app keeps them
+   * visible and pending until the user explicitly resubmits.
+   */
+  get pendingInputs(): readonly string[] {
+    return this.pendingFollowUps.map((entry) => entry.prompt);
+  }
+
+  get compactPending(): boolean {
+    return this.compactInFlight || this.waitingForCleanup;
   }
 
   /**
@@ -547,11 +590,140 @@ export class CetasApplication<AgentHandle = unknown> {
       // A user run drains its own follow-ups inside the runTurn promise; a
       // recovery run is host-tracked, so its queued follow-ups extend it.
       if (this.recoveryTurnActive) this.recoveryFollowUpsQueued += 1;
+      this.pendingFollowUps.push({ prompt, images });
       return "accepted";
     }
     if (raw.startsWith("RejectedStale")) return "stale";
     if (raw.startsWith("RejectedQueueFull")) return "full";
     throw new CetasApplicationError("bridge_failure", `unexpected follow-up outcome: ${raw}`);
+  }
+
+  /**
+   * Run the Agent-level server compaction for one session.
+   *
+   * Idle: a direct compact on the long-lived Agent. While a turn or recovery
+   * run is active: interrupt it, wait for its single finalize, then compact —
+   * the interrupted task is not resumed and its undrained follow-ups stay
+   * pending (pendingInputs). Concurrent operations are rejected with a
+   * waiting-for-cleanup error instead of writing the session concurrently.
+   * The compact carries its own AbortController (Esc reaches it); a cancelled
+   * compact reports `cancelled` and can be rerun.
+   */
+  async compactSession(
+    sessionId: string = this.currentSessionId,
+  ): Promise<CompactSessionOutcome> {
+    if (sessionId.length === 0) {
+      throw new CetasApplicationError("invalid_state", "session id must not be empty");
+    }
+    if (this.state === "shutting_down") {
+      throw new CetasApplicationError(
+        "shutting_down",
+        "cannot compact after shutdown has begun",
+      );
+    }
+    if (this.state === "needs_setup" || this.agent === undefined) {
+      throw new CetasApplicationError(
+        "not_ready",
+        "no Agent is composed; configure a provider first",
+      );
+    }
+    if (this.startPromise !== undefined) {
+      throw new CetasApplicationError(
+        "already_running",
+        "cannot compact while setup discovery is in progress",
+      );
+    }
+    if (this.compactInFlight || this.activeCommand !== undefined) {
+      throw new CetasApplicationError(
+        "already_running",
+        this.waitingForCleanup
+          ? "waiting for the interrupted operation to finish cleanup; retry the compact once it settles"
+          : "another command is already running",
+      );
+    }
+    const bridge = this.options.bridge as CompactCapableBridge<AgentHandle>;
+    if (bridge.compactSession === undefined) {
+      throw new CetasApplicationError(
+        "bridge_failure",
+        "bridge does not support session compaction",
+      );
+    }
+    const agent = this.agent;
+    const switchRequested = this.activeTurn !== undefined || this.recoveryTurnActive;
+    this.currentSessionId = sessionId;
+    const compactPromise = Promise.resolve().then(() =>
+      this.runCompactLocked(bridge, agent, sessionId, switchRequested),
+    );
+    // The command lock is typed Promise<string>; the compact rides it only to
+    // serialize against other commands and shutdown.
+    const lock = compactPromise as unknown as Promise<string>;
+    this.compactInFlight = true;
+    this.activeCommand = lock;
+    try {
+      return await compactPromise;
+    } finally {
+      if (this.activeCommand === lock) {
+        this.activeCommand = undefined;
+      }
+      this.compactInFlight = false;
+      this.waitingForCleanup = false;
+      this.flushRateLimitMonitorRestart();
+    }
+  }
+
+  /** Compact body; the caller owns the activeCommand lock. */
+  private async runCompactLocked(
+    bridge: CompactCapableBridge<AgentHandle>,
+    agent: AgentHandle,
+    sessionId: string,
+    switchRequested: boolean,
+  ): Promise<CompactSessionOutcome> {
+    if ((this.state as AppState) !== "shutting_down") this.transition("running");
+    const turnGeneration = this.rateLimitContextGeneration;
+    if (switchRequested) {
+      this.waitingForCleanup = true;
+      this.publish();
+      this.interruptActiveTurn();
+      await this.waitForActiveOperationFinalize();
+      if (this.agent !== agent || (this.state as AppState) === "shutting_down") {
+        if ((this.state as AppState) === "running") this.transition("ready");
+        return {
+          ok: false,
+          errorKind: "error",
+          detail: "compact abandoned: the agent was replaced during cleanup",
+        };
+      }
+    }
+    const abort = new AbortController();
+    this.compactAbort = abort;
+    try {
+      await this.stopRateLimitMonitor(true);
+      return await bridge.compactSession!(agent, sessionId, abort.signal);
+    } finally {
+      if (this.compactAbort === abort) this.compactAbort = undefined;
+      if ((this.state as AppState) === "running") this.transition("ready");
+      if ((this.state as AppState) !== "shutting_down" && this.agent === agent) {
+        this.startRateLimitMonitor(agent, turnGeneration);
+      }
+    }
+  }
+
+  /**
+   * Wait until the interrupted operation's single finalize has released the
+   * busy state. The turn path settles its own promise; a monitor-driven
+   * recovery run is host-tracked, so poll its flag.
+   */
+  private async waitForActiveOperationFinalize(): Promise<void> {
+    const deadline = Date.now() + 5000;
+    while (this.activeTurn !== undefined || this.recoveryTurnActive) {
+      if (Date.now() >= deadline) {
+        throw new CetasApplicationError(
+          "already_running",
+          "timed out waiting for the interrupted operation to finish cleanup",
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
   }
 
   /**
@@ -612,6 +784,46 @@ export class CetasApplication<AgentHandle = unknown> {
     return parsed.filter((entry): entry is string => typeof entry === "string");
   }
 
+  /**
+   * One-shot session titles for the /sessions picker (MoonBit `display_title`:
+   * metadata name ?? first user message prefix ?? id). Stateless and
+   * Agent-free like the workspace index; unavailable bridges degrade to an
+   * empty list so the picker keeps its id-based labels.
+   */
+  async sessionTitles(sessionsDir: string): Promise<readonly SessionTitle[]> {
+    if (this.state === "shutting_down") {
+      throw new CetasApplicationError(
+        "shutting_down",
+        "cannot list session titles after shutdown has begun",
+      );
+    }
+    if (this.options.bridge.sessionTitles === undefined) return [];
+    const raw = await this.options.bridge.sessionTitles(sessionsDir);
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      throw new CetasApplicationError(
+        "bridge_failure",
+        "session titles response must be a JSON array",
+      );
+    }
+    return parsed.map((entry, index) => {
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+        throw new CetasApplicationError(
+          "bridge_failure",
+          `session titles entry ${index} must be an object`,
+        );
+      }
+      const record = entry as Record<string, unknown>;
+      if (typeof record.id !== "string" || typeof record.title !== "string") {
+        throw new CetasApplicationError(
+          "bridge_failure",
+          `session titles entry ${index} must carry string id and title`,
+        );
+      }
+      return { id: record.id, title: record.title };
+    });
+  }
+
   /** Invoke a provider/router command through the extension command port. */
   async invokeCommand(id: string, argsJson = "{}"): Promise<string> {
     if (id.length === 0) {
@@ -626,11 +838,15 @@ export class CetasApplication<AgentHandle = unknown> {
     if (this.state === "running" || this.activeTurn !== undefined) {
       // Allowlisted commands only touch host-side policy state (e.g.
       // PermissionPolicy's mutable mode, re-read before every tool call), so
-      // they are safe to invoke mid-turn. Everything else still waits.
-      if (!MID_TURN_COMMANDS.has(id)) {
+      // they are safe to invoke mid-turn. `/compact` is likewise admitted:
+      // it owns mid-turn switch semantics (interrupt → finalize → compact).
+      // Everything else still waits.
+      if (!MID_TURN_COMMANDS.has(id) && id !== "compact") {
         throw new CetasApplicationError(
           "already_running",
-          "cannot invoke a command while a turn is running",
+          this.waitingForCleanup
+            ? "waiting for the interrupted operation to finish cleanup"
+            : "cannot invoke a command while a turn is running",
         );
       }
     }
@@ -643,7 +859,9 @@ export class CetasApplication<AgentHandle = unknown> {
     if (this.activeCommand !== undefined) {
       throw new CetasApplicationError(
         "already_running",
-        "another command is already running",
+        this.waitingForCleanup
+          ? "waiting for the interrupted operation to finish cleanup before starting the compact"
+          : "another command is already running",
       );
     }
     this.cancellation.reset();
@@ -678,6 +896,13 @@ export class CetasApplication<AgentHandle = unknown> {
    * Returns false when no turn is active or the bridge has no abort seam.
    */
   interruptActiveTurn(): boolean {
+    if (this.compactAbort !== undefined) {
+      // Esc during a compact cancels the compact operation itself; the
+      // mailbox abort gives the compact run its typed cancelled finalize.
+      if (this.agent !== undefined) this.options.bridge.abortTurn?.(this.agent);
+      this.compactAbort.abort();
+      return true;
+    }
     if (
       (this.activeTurn === undefined && !this.recoveryTurnActive) ||
       this.agent === undefined
@@ -728,6 +953,30 @@ export class CetasApplication<AgentHandle = unknown> {
         code: "not_ready",
       });
     }
+    // `/compact` is a first-class app operation, not a pass-through command:
+    // this path carries the mid-turn switch semantics, and the session id
+    // comes from the app's session context (never derived from an active run).
+    if (id === "compact") {
+      const requested = compactSessionArgument(argsJson);
+      const sessionId = requested ?? this.currentSessionId;
+      if (requested === undefined) this.currentSessionId = sessionId;
+      const bridge = this.options.bridge as CompactCapableBridge<AgentHandle>;
+      if (bridge.compactSession === undefined) {
+        throw new CetasApplicationError(
+          "bridge_failure",
+          "bridge does not support session compaction",
+        );
+      }
+      const switchRequested = this.activeTurn !== undefined || this.recoveryTurnActive;
+      this.compactInFlight = true;
+      try {
+        const outcome = await this.runCompactLocked(bridge, this.agent, sessionId, switchRequested);
+        return compactCommandOutcomeJson(outcome);
+      } finally {
+        this.compactInFlight = false;
+        this.waitingForCleanup = false;
+      }
+    }
     const agent = this.agent;
     const switchesModel = id === "model" && modelSelectionRequested(argsJson);
     if (switchesModel) await this.stopRateLimitMonitor(false);
@@ -750,9 +999,9 @@ export class CetasApplication<AgentHandle = unknown> {
       }
     }
     if (commandRequestsSetupRefresh(outcome)) {
-      // Setup discovery is the serialization barrier while a profile load
-      // rebuilds provider state. Avoid a re-entrant shutdown waiting on this
-      // command promise during the ready-state publication.
+      // Setup discovery is the serialization barrier while a refresh_settings
+      // outcome rebuilds provider state. Avoid a re-entrant shutdown waiting on
+      // this command promise during the ready-state publication.
       this.activeCommand = undefined;
       await this.beginSetup(true);
     }
@@ -773,6 +1022,7 @@ export class CetasApplication<AgentHandle = unknown> {
     // shutdown must request cancellation before waiting for the command;
     // otherwise only TerminalShell's overlay close path can unblock polling.
     if (pendingCommand !== undefined) this.cancellation.cancel();
+    this.compactAbort?.abort();
     this.transition("shutting_down");
     this.shutdownPromise = (async () => {
       let pendingError: unknown;
@@ -858,6 +1108,12 @@ export class CetasApplication<AgentHandle = unknown> {
       // A follow-up queued during the recovery drains as its own turn; this
       // is that turn starting, not a stale event from a cancelled monitor.
       this.recoveryFollowUpsQueued -= 1;
+    }
+    if (type === "turn_started" && this.pendingFollowUps.length > 0) {
+      // Each Agent-side follow-up drain runs as its own turn; one queue
+      // entry per started turn keeps the pending mirror in sync.
+      this.pendingFollowUps.shift();
+      this.publish();
     }
     try {
       this.options.callbacks.observerCallback(eventJson);
@@ -1009,6 +1265,34 @@ export class CetasApplication<AgentHandle = unknown> {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Optional `session_id` override for `/compact`; absence means the app's
+ * session context decides (currentSessionId), never an active run id.
+ */
+function compactSessionArgument(argsJson: string): string | undefined {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(argsJson);
+  } catch {
+    return undefined;
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
+  const sessionId = (raw as Record<string, unknown>).session_id;
+  return typeof sessionId === "string" && sessionId.length > 0 ? sessionId : undefined;
+}
+
+/** Typed compact outcome rendered in the CommandOutcome JSON envelope. */
+function compactCommandOutcomeJson(outcome: CompactSessionOutcome): string {
+  if (outcome.ok) {
+    return JSON.stringify({ type: "success", structured: outcome });
+  }
+  return JSON.stringify({
+    type: "failure",
+    reason: outcome.detail ?? "compact failed",
+    structured: { error_kind: outcome.errorKind },
+  });
 }
 
 function isRateLimitMonitorAbort(error: unknown, signal: AbortSignal): boolean {

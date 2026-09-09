@@ -115,7 +115,10 @@ describe("cetas_js_rewind wire format", () => {
         // only in ReadOnly mode, so workspace_write turns persist:
         // metadata | system | user1 | assistant1 | user2 | assistant2.
         expect(before).toHaveLength(6);
-        expect(before[0]).toBe("{}");
+        // Line 0 is the metadata record; posoco core persists its projected
+        // context state there since 0.15.0.
+        const metadata = JSON.parse(before[0]!) as Record<string, unknown>;
+        expect(Object.hasOwn(metadata, "posoco.context_state")).toBe(true);
         expect(before[1]).toContain("\"role\":\"system\"");
         expect(before[2]).toContain("first question");
         expect(before[3]).toContain("first reply");
