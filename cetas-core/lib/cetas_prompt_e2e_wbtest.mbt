@@ -18,17 +18,12 @@ async test "e2e: Cetas labels context contributor as project_context" {
   let context_contributor = CetasContextStub(
     "/repo/AGENTS.md", "Build with: moon test",
   )
-  // Cetas owns identity + prompt assembly + /profile. Profile callbacks are
-  // stubbed; this test only exercises prompt assembly.
+  // Cetas owns identity + prompt assembly. This test only exercises prompt
+  // assembly.
   let cetas = Cetas(
-    ui=ui as &@posoco.UiPort,
     context_contributor=Some(
       context_contributor as &@posoco.SystemPromptContributor,
     ),
-    list_profiles=fn() { [] },
-    on_load=fn(_name) { () },
-    on_save=fn(_name) { () },
-    on_delete=fn(_name) { () },
   )
   // Compose exactly the way a host does: every part is an Extension.
   // Test fakes (store / observer / ui / scripted model) are not Extensions
@@ -170,14 +165,9 @@ async test "e2e: base + cetas contributor + ext contributor share one SystemMess
     "/repo/AGENTS.md", "Build with: moon test",
   )
   let cetas = Cetas(
-    ui=ui as &@posoco.UiPort,
     context_contributor=Some(
       context_contributor as &@posoco.SystemPromptContributor,
     ),
-    list_profiles=fn() { [] },
-    on_load=fn(_name) { () },
-    on_save=fn(_name) { () },
-    on_delete=fn(_name) { () },
   )
   let ext_contributor : &@posoco.SystemPromptContributor = FakeExtContributor::{
     text: "EXT_SECTION",

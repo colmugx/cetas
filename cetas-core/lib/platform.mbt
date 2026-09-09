@@ -81,7 +81,7 @@ pub async fn build_cetas_platform(
   validate_provider_settings(settings, factories)
   let store = @credentials.FileProviderCredentialStore(
     fs,
-    home + "/.cetas/credentials",
+    credentials_path(home),
   )
   let snapshot = read_credential_snapshot(store, factories, settings~, label~)
   let model_cache = match read_model_list_cache(fs, home~) {
@@ -141,7 +141,7 @@ pub async fn build_cetas_platform(
     Some({ effort: Some(effort), .. }) => Some(effort)
     _ => None
   }
-  let session_store = @fs_session.JsonlSessionStore(home + "/.cetas/sessions")
+  let session_store = @fs_session.JsonlSessionStore::of_project(home~, cwd~)
   // `device_id` stays empty: no host crypto surface in stdio; providers mint a local id.
   let refreshables = refreshable_factories(ext_ctx)
   {
@@ -169,7 +169,7 @@ pub async fn load_provider_settings(
   label? : String = "cetas-acp",
 ) -> Map[String, Json] raise @posoco.CompositionError {
   let manifest_id = label + ".providers"
-  match @workspace.read_file_result(fs, home + "/.cetas/settings.json") {
+  match @workspace.read_file_result(fs, settings_path(home)) {
     Missing => Map::from_array([])
     Failed(message) =>
       raise @posoco.CompositionError::ManifestSchemaError(
@@ -276,12 +276,6 @@ pub(all) struct SessionSidecar {
 }
 
 ///|
-/// Beside the JSONL history, but host-owned (workspace fs, never the session store).
-pub fn sidecar_path(home : String, session_id : String) -> String {
-  home + "/.cetas/sessions/" + session_id + ".host.json"
-}
-
-///|
 fn sidecar_string_field(fields : Map[String, Json], key : String) -> String {
   match fields.get(key) {
     Some(Json::String(value)) => value
@@ -323,7 +317,10 @@ pub async fn read_session_sidecar(
   label? : String = "cetas-acp",
   warn? : async (String) -> Unit noraise = fn(_ : String) { () },
 ) -> SessionSidecar? noraise {
-  let path = sidecar_path(home, session_id)
+  let path = match sidecar_path(home, session_id) {
+    Some(path) => path
+    None => return None
+  }
   match @workspace.read_file_result(fs, path) {
     Missing => None
     Failed(message) => {
@@ -381,6 +378,13 @@ pub async fn update_session_sidecar(
   label? : String = "cetas-acp",
   warn? : async (String) -> Unit noraise = fn(_ : String) { () },
 ) -> Unit noraise {
+  let path = match sidecar_path(home, session_id) {
+    Some(path) => path
+    None => {
+      warn(label + ": session sidecar write skipped (invalid session id)\n")
+      return
+    }
+  }
   match persist_lock {
     Some(lock) =>
       lock.acquire() catch {
@@ -423,10 +427,7 @@ pub async fn update_session_sidecar(
       ("mcp_servers", Json::array(mcp_servers.map(name => Json::string(name)))),
     ]),
   )
-  fs.write_file_atomic(
-    sidecar_path(home, session_id),
-    json.stringify(indent=2) + "\n",
-  ) catch {
+  fs.write_file_atomic(path, json.stringify(indent=2) + "\n") catch {
     _ =>
       warn(
         label + ": session sidecar write failed (session=" + session_id + ")\n",

@@ -1,4 +1,4 @@
-# ext	public	personal
-nmem	0	1
-rtk	0	1
-obsidian	0	1
+# ext	public	personal	lean
+nmem	0	1	1
+rtk	0	1	1
+obsidian	0	1	0

@@ -26,7 +26,7 @@ pub async fn read_model_list_cache(
   fs : &@workspace.WorkspaceFs,
   home~ : String,
 ) -> Result[Map[String, Json], String] noraise {
-  match @workspace.read_file_result(fs, home + "/.cetas/model_lists.json") {
+  match @workspace.read_file_result(fs, model_list_cache_path(home)) {
     Missing => Ok(Map::from_array([]))
     Failed(message) => Err(".cetas/model_lists.json read failed: " + message)
     Content(text) => {
@@ -104,8 +104,8 @@ pub async fn write_model_list_cache(
   provider_id : String,
   records : Json,
 ) -> Unit raise @posoco.CompositionError {
-  let dir = home + "/.cetas"
-  let path = dir + "/model_lists.json"
+  let dir = cetas_dir(home)
+  let path = model_list_cache_path(home)
   let current = match @workspace.read_file_result(fs, path) {
     Missing => Json::object(Map::from_array([]))
     Failed(message) =>

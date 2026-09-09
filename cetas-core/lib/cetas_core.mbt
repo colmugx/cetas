@@ -5,12 +5,10 @@
 /// no extern "js"). All IO is injected by the caller via trait impls.
 ///
 /// The only product-facing surface is the `Cetas` extension: it bundles
-/// cetas identity, system-prompt assembly, and the `/profile` command into
-/// one Extension so hosts compose `Agent(exts=[cetas, ...])` without
-/// reassembling scattered ports.
+/// cetas identity and system-prompt assembly into one Extension so hosts
+/// compose `Agent(exts=[cetas, ...])` without reassembling scattered ports.
 pub(all) struct Cetas {
   prompt_contributors : Array[&@posoco.SystemPromptContributor]
-  profile_command : ProfileCommand
 }
 
 ///|
@@ -46,16 +44,9 @@ impl @posoco.SystemPromptContributor for ProjectContextContributor with fn syste
 ///   prompt contributor when present.
 /// - `tool_contributors` (e.g. tool usage guidance) are appended in the
 ///   order they are supplied.
-/// - Profile command callbacks are host-supplied because profile storage is
-///   target-specific; cetas only owns the command surface.
 pub fn Cetas::Cetas(
-  ui~ : &@posoco.UiPort,
   context_contributor? : &@posoco.SystemPromptContributor? = None,
   tool_contributors? : Array[&@posoco.SystemPromptContributor] = [],
-  list_profiles~ : () -> Array[ProfileSpec],
-  on_load~ : (String) -> Unit,
-  on_save~ : (String) -> Unit,
-  on_delete~ : (String) -> Unit,
 ) -> Cetas {
   let prompt_contributors : Array[&@posoco.SystemPromptContributor] = []
   match context_contributor {
@@ -68,14 +59,7 @@ pub fn Cetas::Cetas(
   for c in tool_contributors {
     prompt_contributors.push(c)
   }
-  let profile_command = ProfileCommand(
-    ui,
-    list_profiles~,
-    on_load~,
-    on_save~,
-    on_delete~,
-  )
-  { prompt_contributors, profile_command, }
+  { prompt_contributors, }
 }
 
 ///|
@@ -86,11 +70,7 @@ pub impl @posoco.Extension for Cetas with fn extension_id(_self) -> String {
 ///|
 pub impl @posoco.Extension for Cetas with fn manifest(self) -> @posoco.ExtensionManifest {
   let m = @posoco.ExtensionManifest::empty(id="cetas")
-  {
-    ..m,
-    prompt_contributors: self.prompt_contributors,
-    commands: [self.profile_command],
-  }
+  { ..m, prompt_contributors: self.prompt_contributors, commands: [], }
 }
 
 ///|
@@ -138,6 +118,35 @@ pub async fn run_prompt(
 }
 
 ///|
+/// Server-side compaction result projected for hosts (the raw kernel outcome
+/// type is not part of the posoco root re-exports).
+pub(all) struct CompactRunOutcome {
+  final_session_id : String
+  mode : String
+  messages_after : Int
+} derive(Eq)
+
+///|
+/// Server-side compaction for a session through the Agent's manual compact
+/// entry: same submit/cancel/commit path as turns, no fabricated user turn.
+pub async fn run_compact(
+  agent : @posoco.Agent,
+  session_id : String,
+) -> CompactRunOutcome raise @posoco.AgentError {
+  let outcome = agent.compact_session(session_id)
+  let mode = match outcome.mode {
+    NewThread => "NewThread"
+    Replace => "Replace"
+    Append => "Append"
+  }
+  {
+    final_session_id: outcome.final_session_id,
+    mode,
+    messages_after: outcome.messages_after,
+  }
+}
+
+///|
 /// Host-process context for default features that need it. cetas-core is a
 /// library: it has no cwd/home and owns no filesystem adapter — hosts inject
 /// the Workspace port implementation they run on (JsWorkspaceFs /
@@ -154,7 +163,7 @@ pub(all) struct HostContext {
 /// hosts do not restate it. The activation budget is raised above the
 /// portable default so large real-world skills (50k+ chars of instructions)
 /// stay loadable.
-fn cetas_skills_config() -> @skills.SkillsConfig {
+pub fn cetas_skills_config() -> @skills.SkillsConfig {
   { ..@skills.SkillsConfig::default(), max_instruction_chars: 65536, }
 }
 

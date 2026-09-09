@@ -96,14 +96,9 @@ pub async fn build_cetas_session(
     ns="cetas",
   )
   let cetas = Cetas(
-    ui=@posoco.NoopUiPort::NoopUiPort() as &@posoco.UiPort,
     context_contributor=Some(
       context_contributor as &@posoco.SystemPromptContributor,
     ),
-    list_profiles=fn() { [] },
-    on_load=fn(_name : String) { () },
-    on_save=fn(_name : String) { () },
-    on_delete=fn(_name : String) { () },
   )
   // Session-private so plan/permission facts never leak into another's hooks.
   let event_bus = match event_bus {

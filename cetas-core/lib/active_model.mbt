@@ -140,7 +140,7 @@ pub async fn read_active_model_selection(
   fs : &@workspace.WorkspaceFs,
   home~ : String,
 ) -> ActiveModelSelection? raise @posoco.CompositionError {
-  match @workspace.read_file_result(fs, home + "/.cetas/settings.json") {
+  match @workspace.read_file_result(fs, settings_path(home)) {
     Missing => None
     Failed(message) =>
       raise @posoco.CompositionError::ManifestSchemaError(
@@ -168,7 +168,7 @@ pub async fn write_active_model_selection(
   home~ : String,
   selection : ActiveModelSelection,
 ) -> Unit raise @posoco.CompositionError {
-  let path = home + "/.cetas/settings.json"
+  let path = settings_path(home)
   let current = match @workspace.read_file_result(fs, path) {
     Missing => Json::object(Map::from_array([]))
     Failed(message) =>

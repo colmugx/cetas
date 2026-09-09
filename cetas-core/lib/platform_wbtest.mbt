@@ -59,7 +59,7 @@ async test "sidecar round-trips fields, merges survival facts, and degrades on c
     warn=tk_capturing_warn(warnings),
   )
   assert_eq(
-    fs.files[sidecar_path("/home", "cetas-1")],
+    fs.files["/home/.cetas/sessions/cetas-1.host.json"],
     "{\n  \"cwd\": \"/w\",\n  \"model\": \"p/m\",\n  \"effort\": \"high\",\n  \"mcp_servers\": []\n}\n",
   )
   // A refresh with no recorded roster seeds the fresh names; cwd survives.
@@ -84,7 +84,7 @@ async test "sidecar round-trips fields, merges survival facts, and degrades on c
     None => fail("the refreshed sidecar must read back")
   }
   // A corrupt file degrades to None with one warn; defaults restore.
-  fs.files[sidecar_path("/home", "cetas-2")] = "{corrupt"
+  fs.files["/home/.cetas/sessions/cetas-2.host.json"] = "{corrupt"
   let corrupt = read_session_sidecar(
     fs,
     home="/home",
@@ -149,6 +149,11 @@ async test "the platform assembly seeds catalogs from the model cache and swaps 
   assert_eq(router.list_slot_ids(), [
     "opencode/claude-sonnet-5", "opencode/gpt-5.1-codex",
   ])
+  // The session store lives in the cwd's project bucket, not the shared root.
+  assert_eq(
+    platform.session_store.root_dir,
+    "/home/.cetas/sessions/session_project_8a5edab28263",
+  )
   assert_true(platform.permission_mode is WorkspaceWrite)
   assert_eq(platform.default_slot_id, "")
   assert_true(platform.persisted_effort is None)
@@ -204,6 +209,52 @@ async test "the platform assembly seeds catalogs from the model cache and swaps 
       assert_true(message.contains("no configured model provider"))
     _ => fail("an empty provider roster must fail composition")
   }
+}
+
+///|
+async test "the session store buckets per cwd and its /name command reaches the agent" {
+  // The dash-era collision pair: basenames alone would collide, the cwd
+  // fingerprint must separate the buckets (fs-session golden vectors).
+  let mk_fs = fn() {
+    let fs = FakeFs()
+    fs.files["/home/.cetas/settings.json"] = "{\"providers\":{\"opencode\":{\"api_key\":\"sk-zen-test\"}}}"
+    fs
+  }
+  let fs_underscore = mk_fs()
+  let underscore = build_cetas_platform(
+    home="/home",
+    cwd="/a/b_c",
+    fs_underscore,
+    permission_mode=@permission.WorkspaceWrite,
+  )
+  let fs_nested = mk_fs()
+  let nested = build_cetas_platform(
+    home="/home",
+    cwd="/a/b/c",
+    fs_nested,
+    permission_mode=@permission.WorkspaceWrite,
+  )
+  assert_eq(
+    underscore.session_store.root_dir,
+    "/home/.cetas/sessions/session_b_c_df04c2002ded",
+  )
+  assert_eq(
+    nested.session_store.root_dir,
+    "/home/.cetas/sessions/session_c_42146b29e39f",
+  )
+  // The store rides the session exts, so its /name command lands in the
+  // composed agent's command table with no host-side wiring.
+  let session = build_cetas_session(platform=underscore, cwd="/a/b_c")
+  let agent = compose_cetas_agent(session~)
+  let mut name_registered = false
+  for port in agent.commands() {
+    for def in port.commands() {
+      if def.id == "name" {
+        name_registered = true
+      }
+    }
+  }
+  assert_true(name_registered)
 }
 
 ///|
