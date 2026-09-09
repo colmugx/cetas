@@ -11,7 +11,8 @@ Flags (release):
   --dry-run         print every action prefixed "DRY:"; no writes/commits/tags
   --yes             skip interactive confirmations (still prints the plan)
 
-Flow: preflight (clean tree, unused cetas-v* tag) -> scan commits since the
+Flow: preflight (repo root, unused cetas-v* tag; dirty tree allowed — release
+content counts committed changes only) -> scan commits since the
 newest cetas-v* tag -> suggest semver (feat/breaking -> minor, else patch;
 0.x forever) -> grouped notes draft -> $EDITOR or --notes-file -> preview ->
 apply (VERSION, 4 sync targets, CHANGELOG.md insert, commit, annotated tag)
@@ -215,10 +216,9 @@ def preflight(root, args):
     if args.version and not SEMVER.match(args.version):
         die(f"--version 不是 semver: {args.version!r}")
     dirty = git(root, "status", "--porcelain")
-    if dirty and args.dry_run:
-        print("警告: 工作区有未提交变更（dry-run 继续；正式发布前请先提交）")
-    elif dirty:
-        die("工作区有未提交变更；发布提交不允许夹带 WIP，请先提交或 stash")
+    if dirty:
+        n = len(dirty.splitlines())
+        print(f"警告: 工作区有 {n} 处未提交变更，不参与本次发布；发布内容只统计已提交记录")
     if args.version:
         ensure_tag_free(root, args.version)
 
