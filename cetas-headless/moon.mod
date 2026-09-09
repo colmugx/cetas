@@ -1,11 +1,12 @@
 // cetas-headless — terminal-text-world cetas host (one-shot turn over stdio).
 //
 // Target: native. One invocation = one user turn; the task comes from argv
-// after `--` or from one stdin line, and results go to stdout as a session
-// line, a human-readable summary line, and a fixed completion marker line.
-// Approval prompts and interactive UI requests bypass stdin via /dev/tty
-// (ssh-style), so the task protocol stays pure. Agent logic reuses
-// cetas-core; this package is only the shell.
+// after `--` or from one stdin line. Clean stdout (2026-09-08): text modes
+// put only the answer on stdout (one block, or deltas under --stream);
+// the session line, the completion marker, failures, and the process
+// event log ride stderr. Approval prompts and interactive UI requests
+// bypass stdin via /dev/tty (ssh-style), so the task protocol stays pure.
+// Agent logic reuses cetas-core; this package is only the shell.
 
 name = "colmugx/cetas-headless"
 

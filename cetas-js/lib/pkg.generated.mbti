@@ -12,7 +12,6 @@ import {
   "colmugx/posoco-ext-pi-adaptor",
   "colmugx/posoco-ext-plan",
   "colmugx/posoco-ext-ratelimit",
-  "colmugx/posoco-ext-subagent",
   "colmugx/posoco-ext-workspace",
   "colmugx/posoco/error",
   "colmugx/posoco/port",
@@ -165,13 +164,6 @@ pub(all) struct PlanApprovalSource {
 }
 pub fn PlanApprovalSource::PlanApprovalSource(&@port.UiPort) -> Self
 pub impl @posoco-ext-plan.PlanReviewSource for PlanApprovalSource
-
-pub struct PlatformChildComposer {
-  platform : @colmugx/cetas-core/lib.CetasPlatform
-}
-pub fn PlatformChildComposer::PlatformChildComposer(platform~ : @colmugx/cetas-core/lib.CetasPlatform) -> Self
-pub async fn PlatformChildComposer::compose(Self, @posoco-ext-subagent.ChildSpec) -> @posoco.Agent raise @posoco-ext-subagent.ComposerError
-pub impl @posoco-ext-subagent.ChildComposer for PlatformChildComposer
 
 // Type aliases
 

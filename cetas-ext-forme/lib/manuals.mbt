@@ -51,7 +51,6 @@ fn cetas_usage_manual() -> String {
     #|- /model — pick a model and effort level
     #|- /skills — browse discovered agent skills ($name activates one)
     #|- /login — authenticate a provider (API key or OAuth)
-    #|- /profile — save, load, or delete named configuration profiles
     #|- /compact — compact the conversation context
     #|- /help — quick self-description
     #|
@@ -83,19 +82,15 @@ fn cetas_config_manual() -> String {
     #|All state lives under ~/.cetas by default:
     #|- settings.json — provider configuration
     #|- sessions/ — journaled conversations
-    #|- profile files — saved configuration profiles
     #|Set the CETAS_HOME environment variable to move the whole directory;
-    #|HOME is the fallback when it is unset.
+    #|the fallback is the platform home — USERPROFILE on Windows, HOME
+    #|elsewhere.
     #|
     #|## Providers and models
     #|settings.json holds a providers object with one entry per provider and
     #|its model list. /login writes credentials after an interactive login.
     #|The active model selection persists across restarts; switch it with
     #|/model.
-    #|
-    #|## Profiles
-    #|/profile save <name> snapshots the current configuration,
-    #|/profile load <name> restores it, /profile delete <name> removes it.
     #|
     #|## What is not configurable at runtime
     #|The system prompt is assembled once per session and frozen afterwards;
