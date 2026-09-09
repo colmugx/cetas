@@ -33,6 +33,7 @@ test "cli defaults: no flags means the interactive default posture" {
   assert_false(cli.jsonl)
   assert_false(cli.verbose)
   assert_false(cli.stream)
+  assert_false(cli.show_thinking)
   assert_true(cli.permission_mode is None)
   assert_eq(cli.task, "")
   assert_true(resolve_permission_mode(cli) is @permission.WorkspaceWrite)
@@ -117,25 +118,37 @@ test "cli --jsonl switches stdout to the event stream face" {
 }
 
 ///|
-test "cli --verbose and --stream: stream implies verbose, both default off" {
+test "cli --verbose, --stream, --show-thinking: independent flags, all default off" {
   let cli = match parse_headless_cli(["--verbose", "--", "task"]) {
     Ok(cli) => cli
     Err(message) => fail("--verbose must parse: \{message}")
   }
   assert_true(cli.verbose)
   assert_false(cli.stream)
+  assert_false(cli.show_thinking)
   let streamed = match parse_headless_cli(["--stream", "--", "task"]) {
     Ok(cli) => cli
     Err(message) => fail("--stream must parse: \{message}")
   }
-  // --stream refines the trace, it does not replace it.
-  assert_true(streamed.verbose)
+  // --stream is independent of --verbose: the delta face and the event log
+  // may coexist, neither implies the other.
   assert_true(streamed.stream)
-  // Both compose with --jsonl (delta events ride the machine face).
-  let combined = parse_headless_cli(["--jsonl", "--stream", "--", "task"])
+  assert_false(streamed.verbose)
+  let thinking = match parse_headless_cli(["--show-thinking", "--", "task"]) {
+    Ok(cli) => cli
+    Err(message) => fail("--show-thinking must parse: \{message}")
+  }
+  assert_true(thinking.show_thinking)
+  assert_false(thinking.stream)
+  assert_false(thinking.verbose)
+  // All three compose with each other and with --jsonl (--jsonl wins stdout;
+  // the flag record stays truthful).
+  let combined = parse_headless_cli([
+    "--jsonl", "--stream", "--verbose", "--show-thinking", "--", "task",
+  ])
   assert_true(
     match combined {
-      Ok(cli) => cli.jsonl && cli.verbose && cli.stream
+      Ok(cli) => cli.jsonl && cli.verbose && cli.stream && cli.show_thinking
       Err(_) => false
     },
   )

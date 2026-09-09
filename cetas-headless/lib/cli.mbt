@@ -3,12 +3,18 @@
 ///
 ///   cetas-headless [--model <id>] [--effort <level>] [--session <id>]
 ///                  [--yolo | --permission <readonly|workspace_write|interactive>]
-///                  [--jsonl] [--verbose] [--stream] [-- "<task>"]
+///                  [--stream] [--verbose] [--show-thinking] [--jsonl]
+///                  [-- "<task>"]
 ///
 /// One invocation = one user turn: `--yolo` and `--permission` are mutually
 /// exclusive; `--` ends the flags — every argv after it is THE task (when
-/// absent, one line is read on stdin). Parsing is pure so the flag table and
-/// rejection rules stay unit-testable.
+/// absent, one line is read on stdin). Output faces (2026-09-08, stdout
+/// purity): text modes keep stdout answer-only — `--stream` delivers the
+/// answer as live text deltas, `--verbose` routes the jsonl-shaped event log
+/// to stderr, `--show-thinking` routes reasoning to stderr. `--jsonl` wins
+/// stdout over all three (the event stream is its machine contract);
+/// `--stream` and `--verbose` may coexist. Parsing is pure so the flag table
+/// and rejection rules stay unit-testable.
 
 ///|
 /// Parsed invocation. Zero values ("") mean "not given".
@@ -22,15 +28,20 @@ pub(all) struct HeadlessCli {
   /// Unattended master switch: Yolo mode AND no terminal UI.
   yolo : Bool
   /// Structured face: stdout carries the pure JSONL event stream instead of
-  /// the human summary + marker lines; prompts stay on stderr/tty regardless.
+  /// the answer; prompts stay on stderr/tty regardless. Wins stdout over
+  /// `--stream` / `--verbose` / `--show-thinking`.
   jsonl : Bool
-  /// Live human trace of the process (thinking, tool calls) on stderr,
-  /// event-granularity. Off by default; `--stream` implies it.
+  /// Full process event log on stderr (the frozen jsonl event machinery
+  /// routed to the stderr sink); stdout keeps its face. Off by default.
   verbose : Bool
-  /// Token-level streaming granularity for the trace (--verbose face) and
-  /// delta events (--jsonl face). Output is live either way — each unit is
-  /// written the moment it completes, never batched to turn end.
+  /// Answer deltas stream to stdout live in text modes (raw, one trailing
+  /// newline at end); with `--jsonl`, adds the delta telemetry events to the
+  /// event stream. Off by default; independent of `--verbose`.
   stream : Bool
+  /// Reasoning to stderr: deltas as they arrive under `--stream`, else the
+  /// final message's committed reasoning block before the answer. Off by
+  /// default.
+  show_thinking : Bool
   /// Explicit permission mode; None falls back to the default posture.
   permission_mode : @permission.PermissionMode?
   /// THE task (argv after `--`, joined with spaces); "" = read one line
@@ -59,6 +70,7 @@ pub fn parse_headless_cli(argv : Array[String]) -> Result[HeadlessCli, String] {
   let mut jsonl = false
   let mut verbose = false
   let mut stream = false
+  let mut show_thinking = false
   let mut permission_mode : @permission.PermissionMode? = None
   let mut task = ""
   let mut i = 0
@@ -95,6 +107,8 @@ pub fn parse_headless_cli(argv : Array[String]) -> Result[HeadlessCli, String] {
       verbose = true
     } else if arg == "--stream" {
       stream = true
+    } else if arg == "--show-thinking" {
+      show_thinking = true
     } else if arg == "--permission" {
       i += 1
       if i >= argv.length() {
@@ -121,11 +135,6 @@ pub fn parse_headless_cli(argv : Array[String]) -> Result[HeadlessCli, String] {
   if yolo && permission_mode is Some(_) {
     return Err("--yolo and --permission are mutually exclusive")
   }
-  // --stream refines how the process is displayed, it does not opt in: the
-  // trace rides along at delta granularity.
-  if stream {
-    verbose = true
-  }
   Ok({
     model,
     effort,
@@ -134,6 +143,7 @@ pub fn parse_headless_cli(argv : Array[String]) -> Result[HeadlessCli, String] {
     jsonl,
     verbose,
     stream,
+    show_thinking,
     permission_mode,
     task,
   })

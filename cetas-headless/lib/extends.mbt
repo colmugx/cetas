@@ -4,4 +4,4 @@
 pub extend JsonlObserver with @posoco.Observer::{on_event_at}
 
 ///|
-pub extend TraceObserver with @posoco.Observer::{on_event_at}
+pub extend StreamPrinter with @posoco.Observer::{on_event_at}

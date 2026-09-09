@@ -105,13 +105,19 @@ pub struct JsonlObserver {
   /// `--stream`: also project ReasoningDelta / TextDelta as telemetry
   /// events. Committed events are emitted regardless.
   stream : Bool
+  /// Extension id used for `extension_id` / `manifest` self-reporting (the
+  /// `--verbose` face rides the same machinery with its own id).
+  id : String
   /// Live sink: when attached, every completed line is delivered here the
   /// moment it is built; otherwise it buffers above.
   mut sink : ((String) -> Unit)?
 }
 
 ///|
-pub fn JsonlObserver::JsonlObserver(stream? : Bool = false) -> JsonlObserver {
+pub fn JsonlObserver::JsonlObserver(
+  stream? : Bool = false,
+  id? : String = "cetas_headless_jsonl",
+) -> JsonlObserver {
   {
     turn: 0,
     session_id: "",
@@ -120,6 +126,7 @@ pub fn JsonlObserver::JsonlObserver(stream? : Bool = false) -> JsonlObserver {
     output_tokens: 0,
     lines: [],
     stream,
+    id,
     sink: None,
   }
 }
@@ -332,14 +339,14 @@ pub impl @posoco.Observer for JsonlObserver with fn on_event_at(
 ///|
 /// Self-report the observer as an extension so it can ride `tail_exts` into
 /// the composition (ACP bridge registration precedent).
-pub impl @posoco.Extension for JsonlObserver with fn extension_id(_self) -> String {
-  "cetas_headless_jsonl"
+pub impl @posoco.Extension for JsonlObserver with fn extension_id(self) -> String {
+  self.id
 }
 
 ///|
 pub impl @posoco.Extension for JsonlObserver with fn manifest(self) -> @posoco.ExtensionManifest {
   {
-    id: "cetas_headless_jsonl",
+    id: self.id,
     models: [],
     tools: [],
     sessions: [],
