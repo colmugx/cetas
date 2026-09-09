@@ -2,6 +2,47 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.3.2 (2026-09-09)
+
+## Bun Ver.（cetas-js/cetas-bun）
+
+### Feats
+
+- Update package configurations to support native and JS targets
+
+### Fixes
+
+- Update posoco dependency to 0.15.0 and clean up unused imports in extensions
+- Remove strconv dependency and fix string conversion in the Kimi extension usage reporting
+- Update DeepSeek reasoning effort values to include `low` and improve model catalog handling
+
+## ACP Ver.（cetas-acp）
+
+### Feats
+
+- Update package configurations to support native and JS targets
+
+### Fixes
+
+- Update posoco dependency to 0.15.0 and clean up unused imports in extensions
+- Wrap libc system calls in a prefixed shim to avoid prototype collisions on Linux
+- Remove strconv dependency and fix string conversion in the Kimi extension usage reporting
+- Update DeepSeek reasoning effort values to include `low` and improve model catalog handling
+
+## Headless Ver.（cetas-headless）
+
+### Feats
+
+- Rework output handling with StreamPrinter for clean stdout output
+- Update package configurations to support native and JS targets
+
+### Fixes
+
+- Update posoco dependency to 0.15.0 and clean up unused imports in extensions
+- Wrap libc system calls in a prefixed shim to avoid prototype collisions on Linux
+- Remove strconv dependency and fix string conversion in the Kimi extension usage reporting
+- Update DeepSeek reasoning effort values to include `low` and improve model catalog handling
+
 ## 0.3.1 (2026-09-09)
 
 ## Bun Ver.（cetas-js/cetas-bun）
