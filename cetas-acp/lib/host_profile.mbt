@@ -5,7 +5,7 @@
 ///|
 /// Detected from the `session/new` mcpServers names; `Generic` is the
 /// no-host default.
-priv enum HostProfile {
+priv enum HostKind {
   Generic
   Lody
   Paseo
@@ -15,7 +15,7 @@ priv enum HostProfile {
 /// Lody wins the same-name round: the fixed check order (lody, then paseo)
 /// means a config injecting both hosts mounts one delegation prompt section,
 /// not two overlapping ones.
-fn detect_host_profile(mcp_server_names : Array[String]) -> HostProfile {
+fn detect_host_kind(mcp_server_names : Array[String]) -> HostKind {
   for name in mcp_server_names {
     if @lody_kit.is_lody_server(name) {
       return Lody
@@ -28,8 +28,8 @@ fn detect_host_profile(mcp_server_names : Array[String]) -> HostProfile {
 }
 
 ///|
-fn host_prompt_section(profile : HostProfile) -> String? {
-  match profile {
+fn host_prompt_section(kind : HostKind) -> String? {
+  match kind {
     Lody => Some(@lody_kit.prompt_section())
     Paseo => Some(@paseo_kit.prompt_section())
     Generic => None
@@ -39,8 +39,8 @@ fn host_prompt_section(profile : HostProfile) -> String? {
 ///|
 /// The session system prompt: the cetas product prompt plus the mounted
 /// host delegation section, if any.
-fn compose_system_prompt(profile : HostProfile, cwd~ : String) -> String {
-  match host_prompt_section(profile) {
+fn compose_system_prompt(kind : HostKind, cwd~ : String) -> String {
+  match host_prompt_section(kind) {
     Some(section) => @cetas_core.cetas_system_prompt(cwd~) + "\n\n" + section
     None => @cetas_core.cetas_system_prompt(cwd~)
   }

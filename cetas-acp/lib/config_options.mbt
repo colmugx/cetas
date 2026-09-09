@@ -282,8 +282,8 @@ async fn persist_active_model_selection(
     _ =>
       acp_warn(
         "cetas-acp: failed to persist the model selection to " +
-        home +
-        "/.cetas/settings.json; the change is active for this process only\n",
+        @cetas_core.settings_path(home) +
+        "; the change is active for this process only\n",
       )
   }
 }

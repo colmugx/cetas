@@ -3,7 +3,8 @@
 ///
 /// stdout carries newline-delimited ACP JSON-RPC frames only; diagnostics
 /// go to stderr. `--version` prints the version and exits. `CETAS_HOME`
-/// overrides the cetas home directory (default `HOME`). A model provider
+/// overrides the cetas home directory (default: platform home —
+/// `USERPROFILE` on Windows, `HOME` elsewhere). A model provider
 /// must be configured — startup fails loudly otherwise.
 /// `CETAS_MCP_MODE=eager` connects mcp.json servers at startup instead of
 /// lazily at the first turn. `CETAS_GOAL=<condition>` arms the goal runner
@@ -18,14 +19,7 @@ async fn main {
     println("cetas-acp \{CETAS_ACP_VERSION}")
     return
   }
-  let home = match @env.get_env_var("CETAS_HOME") {
-    Some(value) if value != "" => value
-    _ =>
-      match @env.get_env_var("HOME") {
-        Some(value) => value
-        None => "."
-      }
-  }
+  let home = @cetas_core.cetas_home()
   let cwd = match @env.current_dir() {
     Some(dir) => dir
     None => "."

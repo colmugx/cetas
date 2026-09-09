@@ -65,21 +65,6 @@ async fn startup_debug_taps() -> DebugTaps noraise {
 let debug_io_mutex : @async.Mutex = @async.Mutex::Mutex()
 
 ///|
-fn debug_dir(home : String) -> String {
-  home + "/.cetas/debug"
-}
-
-///|
-fn debug_wire_path(home : String, session_id : String) -> String {
-  debug_dir(home) + "/" + session_id + "-wire.jsonl"
-}
-
-///|
-fn debug_catalog_path(home : String, session_id : String) -> String {
-  debug_dir(home) + "/" + session_id + "-catalog.json"
-}
-
-///|
 /// The native fs needs the directory to exist before the first write
 /// (fakes ignore it).
 async fn debug_write_file(
@@ -421,8 +406,8 @@ async fn CetasAcpHost::debug_wire_in(
   debug_append_line(
     self.fs,
     native=self.wire_native_append,
-    dir=debug_dir(self.home),
-    path=debug_wire_path(self.home, session_id),
+    dir=@cetas_core.debug_dir(self.home),
+    path=@cetas_core.debug_wire_path(self.home, session_id),
     line=record.stringify(),
   )
 }
@@ -468,8 +453,8 @@ fn CetasAcpHost::debug_tap_context(
         debug_append_line(
           fs,
           native~,
-          dir=debug_dir(home),
-          path=debug_wire_path(home, params.session_id),
+          dir=@cetas_core.debug_dir(home),
+          path=@cetas_core.debug_wire_path(home, params.session_id),
           line=record.stringify(),
         )
       }
@@ -533,8 +518,8 @@ async fn CetasAcpHost::debug_wire_prompt_out(
   debug_append_line(
     self.fs,
     native=self.wire_native_append,
-    dir=debug_dir(self.home),
-    path=debug_wire_path(self.home, session_id),
+    dir=@cetas_core.debug_dir(self.home),
+    path=@cetas_core.debug_wire_path(self.home, session_id),
     line=Json::object(Map::from_array(fields)).stringify(),
   )
 }
@@ -542,8 +527,8 @@ async fn CetasAcpHost::debug_wire_prompt_out(
 // -------------------------------------------------------------- catalog dump
 
 ///|
-fn debug_host_profile_name(profile : HostProfile) -> String {
-  match profile {
+fn debug_host_kind_name(kind : HostKind) -> String {
+  match kind {
     Generic => "generic"
     Lody => "lody"
     Paseo => "paseo"
@@ -570,7 +555,7 @@ async fn debug_dump_catalog(
   fs : &@workspace.WorkspaceFs,
   home~ : String,
   session_id~ : String,
-  host_profile~ : HostProfile,
+  host_kind~ : HostKind,
   injected~ : Bool,
   mcp_tools~ : Array[@posoco.ToolDef],
   base_tools~ : Array[@posoco.ToolDef],
@@ -586,7 +571,7 @@ async fn debug_dump_catalog(
   let json = Json::object(
     Map::from_array([
       ("session_id", Json::string(session_id)),
-      ("host_profile", Json::string(debug_host_profile_name(host_profile))),
+      ("host_profile", Json::string(debug_host_kind_name(host_kind))),
       ("mcp_source", Json::string(mcp_source)),
       (
         "schema_note",
@@ -599,8 +584,8 @@ async fn debug_dump_catalog(
   )
   debug_write_file(
     fs,
-    dir=debug_dir(home),
-    path=debug_catalog_path(home, session_id),
+    dir=@cetas_core.debug_dir(home),
+    path=@cetas_core.debug_catalog_path(home, session_id),
     content=json.stringify(indent=2) + "\n",
   )
 }

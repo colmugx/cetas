@@ -178,6 +178,17 @@ impl @workspace.WorkspaceFs for FakeFs with fn mkdir(_self, _path, recursive~) {
 }
 
 ///|
+/// Sidecar path inside a sessions root. For the non-bucketed fakes the
+/// handle's project dir is the store root itself; the bucketed fixture
+/// passes the real bucket directory.
+fn tk_sidecar_path(project_dir : String, session_id : String) -> String raise {
+  match host_sidecar_path(project_dir, session_id) {
+    Some(path) => path
+    None => fail("test session ids must produce a sidecar path")
+  }
+}
+
+///|
 fn tk_router_slot(
   id : String,
   label : String,
@@ -209,22 +220,39 @@ fn tk_router() -> @llm.RouterModelPort raise @posoco.CompositionError {
 }
 
 ///|
-/// Production session factory in miniature; `store` swaps persistence onto a real JSONL store.
+/// Production session factory in miniature; `store` swaps persistence onto a
+/// real JSONL store. With `home` + `stores` the factory resolves per-cwd
+/// project buckets like the production spawn does.
 fn tk_spawn_session(
   model : &@posoco.ModelPort,
   tools : @posoco.RecordingToolProvider,
   process_cwd : String,
-  store? : &@posoco.SessionStore? = None,
+  store? : @fs_session.JsonlSessionStore? = None,
   context_window? : Int? = None,
+  home? : String = "",
+  stores? : Map[String, @fs_session.JsonlSessionStore] = Map::from_array([]),
 ) -> async (String, @acp.NewSessionParams) -> Result[SessionHandle, String] {
   fn(
     _session_id : String,
     params : @acp.NewSessionParams,
   ) -> Result[SessionHandle, String] {
     let cwd = if params.cwd.length() > 0 { params.cwd } else { process_cwd }
-    let sessions : Array[&@posoco.SessionStore] = match store {
-      Some(real) => [real]
-      None => [@posoco.RecordingSessionStore::RecordingSessionStore()]
+    let bucketed = home.length() > 0
+    let handle_store = if bucketed {
+      cached_project_store(stores, home~, cwd~)
+    } else {
+      match store {
+        Some(real) => real
+        None => @fs_session.JsonlSessionStore("/cetas-home/.cetas/sessions")
+      }
+    }
+    let sessions : Array[&@posoco.SessionStore] = if bucketed {
+      [handle_store as &@posoco.SessionStore]
+    } else {
+      match store {
+        Some(real) => [real as &@posoco.SessionStore]
+        None => [@posoco.RecordingSessionStore::RecordingSessionStore()]
+      }
     }
     try {
       let bridge = @ext_acp.AcpBridge(context_window~)
@@ -247,6 +275,8 @@ fn tk_spawn_session(
         router: tk_router(),
         agent,
         cwd,
+        store: handle_store,
+        project_dir: handle_store.root_dir,
         plan: @plan.PlanMode(),
         permission: policy,
         fs_delegate: None,
@@ -283,7 +313,7 @@ fn tk_host(
         model,
         tools,
         process_cwd,
-        store=Some(real as &@posoco.SessionStore),
+        store=Some(real),
         context_window~,
       )
     None => tk_spawn_session(model, tools, process_cwd, context_window~)
@@ -367,6 +397,8 @@ fn tk_spawn_session_plan(
         router: tk_router(),
         agent,
         cwd,
+        store: @fs_session.JsonlSessionStore("/cetas-home/.cetas/sessions"),
+        project_dir: "/cetas-home/.cetas/sessions",
         plan: plan_mode,
         permission: policy,
         fs_delegate: None,
@@ -2695,7 +2727,11 @@ async test "union keeps an injected server and a distinct local server" {
     label="union-both",
     entries="\"local-fs\":{\"command\":\"/nonexistent-cetas-mcp-binary\"}",
   )
-  guard @mcp.MCPToolBridge::discover(cwd~, home=cwd + "/nohome") is Ok(bridge) else {
+  guard @mcp.MCPToolBridge::discover(
+      cwd~,
+      user_mcp_json=cwd + "/nohome/.cetas/mcp.json",
+    )
+    is Ok(bridge) else {
     fail("discover must read the seeded mcp.json")
   }
   assert_eq(tk_pending_names(bridge), ["local-fs"])
@@ -2731,7 +2767,11 @@ async test "an injected URL shadows the local server on the same endpoint" {
     label="union-url",
     entries="\"local-remote\":{\"url\":\"http://127.0.0.1:1/mcp\"}",
   )
-  guard @mcp.MCPToolBridge::discover(cwd~, home=cwd + "/nohome") is Ok(bridge) else {
+  guard @mcp.MCPToolBridge::discover(
+      cwd~,
+      user_mcp_json=cwd + "/nohome/.cetas/mcp.json",
+    )
+    is Ok(bridge) else {
     fail("discover must read the seeded mcp.json")
   }
   let injected : Array[@acp.McpServer] = [
@@ -2757,7 +2797,11 @@ async test "an injected name shadows a local server with a different endpoint" {
     label="union-name",
     entries="\"remote\":{\"command\":\"/nonexistent-cetas-mcp-binary\"}",
   )
-  guard @mcp.MCPToolBridge::discover(cwd~, home=cwd + "/nohome") is Ok(bridge) else {
+  guard @mcp.MCPToolBridge::discover(
+      cwd~,
+      user_mcp_json=cwd + "/nohome/.cetas/mcp.json",
+    )
+    is Ok(bridge) else {
     fail("discover must read the seeded mcp.json")
   }
   let injected : Array[@acp.McpServer] = [
@@ -2790,7 +2834,11 @@ async test "an empty injection leaves the discovered locals untouched" {
       #|"local-remote":{"url":"http://127.0.0.1:1/mcp"}
     ),
   )
-  guard @mcp.MCPToolBridge::discover(cwd~, home=cwd + "/nohome") is Ok(bridge) else {
+  guard @mcp.MCPToolBridge::discover(
+      cwd~,
+      user_mcp_json=cwd + "/nohome/.cetas/mcp.json",
+    )
+    is Ok(bridge) else {
     fail("discover must read the seeded mcp.json")
   }
   union_mcp_servers(bridge, [])
@@ -2893,7 +2941,9 @@ async test "resume rebuilds the session without replaying history" {
     fake_acp_context(reconnected),
     tk_resume_params(session_id),
   )
-  assert_eq(reconnected.sent.length(), 0)
+  // Resume replays nothing; the one frame is the session_info_update title push.
+  assert_eq(reconnected.sent.length(), 1)
+  assert_true(reconnected.sent[0].update is SessionInfoUpdate(_))
   assert_true(result.config_options is Value(_))
   let after = host.handle_prompt(fake_acp_context(reconnected), {
     session_id,
@@ -2920,7 +2970,7 @@ async test "sidecar round-trips cwd model and effort through load" {
       meta: Omitted,
     }),
   )
-  let sidecar_file = sidecar_path("/cetas-home", session_id)
+  let sidecar_file = tk_sidecar_path("/cetas-home/.cetas/sessions", session_id)
   guard fs.files.contains(sidecar_file) else {
     fail("session/new must write the sidecar")
   }
@@ -2949,16 +2999,45 @@ async test "sidecar round-trips cwd model and effort through load" {
 }
 
 ///|
+/// Native host whose spawn resolves per-cwd project stores like production:
+/// one shared cache, so histories and sidecars land in their cwd's bucket
+/// under `<home>/.cetas/sessions` on real disk.
+async fn tk_host_bucketed(
+  steps : Array[@posoco.ScriptedModelStep],
+  home : String,
+) -> (CetasAcpHost, @posoco.ScriptedModel) {
+  let model = @posoco.ScriptedModel(steps)
+  let stores : Map[String, @fs_session.JsonlSessionStore] = Map::from_array([])
+  let spawn = tk_spawn_session(
+    model,
+    @posoco.RecordingToolProvider([], Map::from_array([])),
+    "/",
+    home~,
+    stores~,
+  )
+  let fs = @workspace.NativeWorkspaceFs()
+  fs.mkdir(home + "/.cetas/sessions", recursive=true) catch {
+    _ => ()
+  }
+  let host = CetasAcpHost::of(
+    spawn_session=spawn,
+    home~,
+    fs~,
+    session_store=@fs_session.JsonlSessionStore(home + "/.cetas/sessions"),
+    process_cwd="/",
+  )
+  (host, model)
+}
+
+///|
 async test "list answers persisted sessions and filters by cwd" {
-  let store = @fs_session.JsonlSessionStore(tk_temp_root("list"))
-  let fs = FakeFs()
-  let (host, _) = tk_host(
+  let home = tk_temp_root("list") + "/home"
+  let (host, _) = tk_host_bucketed(
     [
       @posoco.Respond(@posoco.tk_stop_response("a")),
       @posoco.Respond(@posoco.tk_stop_response("b")),
     ],
-    fs~,
-    store~,
+    home,
   )
   let a = host.handle_new_session(
       fake_acp_context(FakeAcpClient::FakeAcpClient()),
@@ -3001,6 +3080,293 @@ async test "list answers persisted sessions and filters by cwd" {
   assert_eq(filtered.sessions.length(), 1)
   assert_eq(filtered.sessions[0].session_id, a)
   assert_eq(filtered.sessions[0].cwd, "/w4-list-a")
+  // Titles come from the session summary (first user text), not the raw id.
+  match filtered.sessions[0].title {
+    Value(title) => assert_eq(title, "persist me")
+    _ => fail("cwd-scoped list must carry a title")
+  }
+}
+
+// ------------------------------------------------- W2: project buckets + /name
+
+///|
+async test "sessions bucket per cwd and never leak across buckets" {
+  let home = tk_temp_root("w2-buckets") + "/home"
+  let (host, _) = tk_host_bucketed(
+    [
+      @posoco.Respond(@posoco.tk_stop_response("a one")),
+      @posoco.Respond(@posoco.tk_stop_response("a two")),
+      @posoco.Respond(@posoco.tk_stop_response("b one")),
+    ],
+    home,
+  )
+  let a1 = host.handle_new_session(
+      fake_acp_context(FakeAcpClient::FakeAcpClient()),
+      tk_new_session_params(cwd="/w2-a"),
+    ).session_id
+  let a2 = host.handle_new_session(
+      fake_acp_context(FakeAcpClient::FakeAcpClient()),
+      tk_new_session_params(cwd="/w2-a"),
+    ).session_id
+  let b1 = host.handle_new_session(
+      fake_acp_context(FakeAcpClient::FakeAcpClient()),
+      tk_new_session_params(cwd="/w2-b"),
+    ).session_id
+  for id in [a1, a2, b1] {
+    let turn = host.handle_prompt(
+      fake_acp_context(FakeAcpClient::FakeAcpClient()),
+      { session_id: id, prompt: tk_prompt("persist me"), meta: Omitted, },
+    )
+    assert_true(turn.stop_reason is EndTurn)
+  }
+  // The store a session composes over is the cwd's bucket directory.
+  let bucket_a = host.store_for_cwd("/w2-a")
+  assert_eq(bucket_a.root_dir, @fs_session.project_sessions_dir(home, "/w2-a"))
+  assert_true(
+    bucket_a.root_dir.has_suffix(@fs_session.project_dir_name("/w2-a")),
+  )
+  let list_a = host.handle_list_sessions(
+    fake_acp_context(FakeAcpClient::FakeAcpClient()),
+    { cwd: Value("/w2-a"), cursor: Omitted, meta: Omitted, },
+  )
+  assert_eq(list_a.sessions.length(), 2)
+  let ids_a : Array[String] = []
+  for info in list_a.sessions {
+    assert_eq(info.cwd, "/w2-a")
+    match info.title {
+      Value(title) => assert_eq(title, "persist me")
+      _ => fail("bucketed list must carry titles")
+    }
+    assert_true(info.updated_at is Value(_))
+    ids_a.push(info.session_id)
+  }
+  assert_true(ids_a.contains(a1))
+  assert_true(ids_a.contains(a2))
+  // The buckets isolate: /w2-b never sees /w2-a's sessions.
+  let list_b = host.handle_list_sessions(
+    fake_acp_context(FakeAcpClient::FakeAcpClient()),
+    { cwd: Value("/w2-b"), cursor: Omitted, meta: Omitted, },
+  )
+  assert_eq(list_b.sessions.length(), 1)
+  assert_eq(list_b.sessions[0].session_id, b1)
+  assert_eq(list_b.sessions[0].cwd, "/w2-b")
+  // Without a cwd, every bucket on disk answers (sidecar-carrying sessions).
+  let all = host.handle_list_sessions(
+    fake_acp_context(FakeAcpClient::FakeAcpClient()),
+    { cwd: Omitted, cursor: Omitted, meta: Omitted, },
+  )
+  assert_eq(all.sessions.length(), 3)
+}
+
+///|
+async test "session sidecars live inside the project bucket" {
+  let home = tk_temp_root("w2-sidecar") + "/home"
+  let (host, _) = tk_host_bucketed(
+    [@posoco.Respond(@posoco.tk_stop_response("persisted"))],
+    home,
+  )
+  let session_id = host.handle_new_session(
+      fake_acp_context(FakeAcpClient::FakeAcpClient()),
+      tk_new_session_params(cwd="/w2-sidecar-proj"),
+    ).session_id
+  let project_dir = host.sessions[session_id].project_dir
+  assert_eq(
+    project_dir,
+    @fs_session.project_sessions_dir(home, "/w2-sidecar-proj"),
+  )
+  assert_true(
+    project_dir.has_suffix(@fs_session.project_dir_name("/w2-sidecar-proj")),
+  )
+  let sidecar = tk_sidecar_path(project_dir, session_id)
+  assert_true(tk_file_exists(host, sidecar))
+  let turn = host.handle_prompt(
+    fake_acp_context(FakeAcpClient::FakeAcpClient()),
+    { session_id, prompt: tk_prompt("persist me"), meta: Omitted, },
+  )
+  assert_true(turn.stop_reason is EndTurn)
+  // History lands in the same bucket as the sidecar.
+  assert_true(
+    tk_file_exists(
+      host,
+      @fs_session.jsonl_session_path(project_dir, session_id),
+    ),
+  )
+}
+
+///|
+async test "slash /name renames on disk without a model round" {
+  let home = tk_temp_root("w2-name") + "/home"
+  // Exactly one model step: the first turn consumes it, so a leaked /name
+  // would fail the turn instead of ending it.
+  let (host, _) = tk_host_bucketed(
+    [@posoco.Respond(@posoco.tk_stop_response("only turn"))],
+    home,
+  )
+  let client = FakeAcpClient::FakeAcpClient()
+  let session_id = host.handle_new_session(
+      fake_acp_context(client),
+      tk_new_session_params(cwd="/w2-name-proj"),
+    ).session_id
+  let first = host.handle_prompt(fake_acp_context(client), {
+    session_id,
+    prompt: tk_prompt("hello there"),
+    meta: Omitted,
+  })
+  assert_true(first.stop_reason is EndTurn)
+  // A settled turn titles the unnamed session from its first user text.
+  let mut saw_turn_title = false
+  for frame in client.sent {
+    match frame.update {
+      SessionInfoUpdate(info) =>
+        match info.title {
+          Value(title) => if title == "hello there" { saw_turn_title = true }
+          _ => ()
+        }
+      _ => ()
+    }
+  }
+  assert_true(saw_turn_title)
+  let renamer = FakeAcpClient::FakeAcpClient()
+  let renamed = host.handle_prompt(fake_acp_context(renamer), {
+    session_id,
+    prompt: tk_prompt("/name 新名字"),
+    meta: Omitted,
+  })
+  assert_true(renamed.stop_reason is EndTurn)
+  // The metadata name landed on disk in the project bucket.
+  let store = host.sessions[session_id].store
+  let summary = store.summary(session_id)
+  assert_eq(summary.name, Some("新名字"))
+  // The rename push carries the new title.
+  let mut saw_rename = false
+  for frame in renamer.sent {
+    match frame.update {
+      SessionInfoUpdate(info) =>
+        match info.title {
+          Value(title) => if title == "新名字" { saw_rename = true }
+          _ => ()
+        }
+      _ => ()
+    }
+  }
+  assert_true(saw_rename)
+}
+
+///|
+async test "slash /name without a persisted session reports the failure back" {
+  let (host, _) = tk_host([])
+  let client = FakeAcpClient::FakeAcpClient()
+  let session_id = tk_open_session(host, client)
+  let result = host.handle_prompt(fake_acp_context(client), {
+    session_id,
+    prompt: tk_prompt("/name no session"),
+    meta: Omitted,
+  })
+  assert_true(result.stop_reason is EndTurn)
+  // The store's failure reason reaches the client as a user-message chunk.
+  let mut saw_feedback = false
+  for frame in client.sent {
+    match frame.update {
+      UserMessageChunk(chunk) =>
+        match chunk.content {
+          Text({ text, .. }) =>
+            if text.contains("no active session") {
+              saw_feedback = true
+            }
+          _ => ()
+        }
+      _ => ()
+    }
+  }
+  assert_true(saw_feedback)
+}
+
+///|
+async test "an unmatched slash line still reaches the model" {
+  let (host, _) = tk_host([
+    @posoco.Respond(@posoco.tk_stop_response("model saw it")),
+  ])
+  let client = FakeAcpClient::FakeAcpClient()
+  let session_id = tk_open_session(host, client)
+  let result = host.handle_prompt(fake_acp_context(client), {
+    session_id,
+    prompt: tk_prompt("/definitely-not-a-command"),
+    meta: Omitted,
+  })
+  assert_true(result.stop_reason is EndTurn)
+  let mut saw_model_text = false
+  for frame in client.sent {
+    match frame.update {
+      AgentMessageChunk(chunk) =>
+        match chunk.content {
+          Text({ text, .. }) =>
+            if text == "model saw it" {
+              saw_model_text = true
+            }
+          _ => ()
+        }
+      _ => ()
+    }
+  }
+  assert_true(saw_model_text)
+}
+
+///|
+async test "load and resume push the session title" {
+  let home = tk_temp_root("w2-load-push") + "/home"
+  let (host, _) = tk_host_bucketed(
+    [@posoco.Respond(@posoco.tk_stop_response("answer"))],
+    home,
+  )
+  let client = FakeAcpClient::FakeAcpClient()
+  let session_id = host.handle_new_session(
+      fake_acp_context(client),
+      tk_new_session_params(cwd="/w2-load"),
+    ).session_id
+  let turn = host.handle_prompt(fake_acp_context(client), {
+    session_id,
+    prompt: tk_prompt("load me"),
+    meta: Omitted,
+  })
+  assert_true(turn.stop_reason is EndTurn)
+  let loader = FakeAcpClient::FakeAcpClient()
+  ignore(
+    host.handle_load_session(
+      fake_acp_context(loader),
+      tk_load_params(session_id, cwd="/w2-load"),
+    ),
+  )
+  let mut saw_load_title = false
+  for frame in loader.sent {
+    match frame.update {
+      SessionInfoUpdate(info) =>
+        match info.title {
+          Value(title) => if title == "load me" { saw_load_title = true }
+          _ => ()
+        }
+      _ => ()
+    }
+  }
+  assert_true(saw_load_title)
+  let resumer = FakeAcpClient::FakeAcpClient()
+  ignore(
+    host.handle_resume_session(
+      fake_acp_context(resumer),
+      tk_resume_params(session_id, cwd="/w2-load"),
+    ),
+  )
+  let mut saw_resume_title = false
+  for frame in resumer.sent {
+    match frame.update {
+      SessionInfoUpdate(info) =>
+        match info.title {
+          Value(title) => if title == "load me" { saw_resume_title = true }
+          _ => ()
+        }
+      _ => ()
+    }
+  }
+  assert_true(saw_resume_title)
 }
 
 ///|
@@ -3049,7 +3415,7 @@ async test "set_config_option updates the sidecar model field" {
       meta: Omitted,
     }),
   )
-  let sidecar_file = sidecar_path("/cetas-home", session_id)
+  let sidecar_file = tk_sidecar_path("/cetas-home/.cetas/sessions", session_id)
   guard fs.files.contains(sidecar_file) else {
     fail("the model switch must write the sidecar")
   }
@@ -3243,14 +3609,18 @@ async test "fork cwd override anchors the child at the fork cwd" {
     ).session_id
   assert_eq(host.sessions[child].cwd, "/forked")
   assert_eq(host.sessions[parent].cwd, "/worktree-main")
-  let parent_saved = @json.parse(fs.files[sidecar_path("/cetas-home", parent)]) catch {
+  let parent_saved = @json.parse(
+    fs.files[tk_sidecar_path("/cetas-home/.cetas/sessions", parent)],
+  ) catch {
     _ => fail("parent sidecar must parse")
   }
   guard parent_saved is Json::Object(parent_fields) else {
     fail("parent sidecar must be an object")
   }
   assert_true(parent_fields.get("cwd") is Some(Json::String("/worktree-main")))
-  let child_saved = @json.parse(fs.files[sidecar_path("/cetas-home", child)]) catch {
+  let child_saved = @json.parse(
+    fs.files[tk_sidecar_path("/cetas-home/.cetas/sessions", child)],
+  ) catch {
     _ => fail("child sidecar must parse")
   }
   guard child_saved is Json::Object(child_fields) else {
@@ -3294,7 +3664,9 @@ async test "fork inherits the parent sidecar roster and selection" {
     },
   )
   let child = result.session_id
-  let child_saved = @json.parse(fs.files[sidecar_path("/cetas-home", child)]) catch {
+  let child_saved = @json.parse(
+    fs.files[tk_sidecar_path("/cetas-home/.cetas/sessions", child)],
+  ) catch {
     _ => fail("child sidecar must parse")
   }
   guard child_saved is Json::Object(fields) else {
@@ -3316,7 +3688,9 @@ async test "fork inherits the parent sidecar roster and selection" {
     None => fail("effort arm missing on the forked session")
   }
   assert_eq(host.sessions[parent].router.active_effort(), Some("high"))
-  let parent_saved = @json.parse(fs.files[sidecar_path("/cetas-home", parent)]) catch {
+  let parent_saved = @json.parse(
+    fs.files[tk_sidecar_path("/cetas-home/.cetas/sessions", parent)],
+  ) catch {
     _ => fail("parent sidecar must parse")
   }
   guard parent_saved is Json::Object(parent_fields) else {
@@ -3377,7 +3751,7 @@ async test "fork leaves the parent sidecar and history byte-identical" {
     meta: Omitted,
   })
   assert_true(turn.stop_reason is EndTurn)
-  let sidecar_before = fs.files[sidecar_path("/cetas-home", parent)]
+  let sidecar_before = fs.files[tk_sidecar_path(store.root_dir, parent)]
   let history_before = tk_load_history(host, parent)
   ignore(
     host.handle_fork_session(
@@ -3386,7 +3760,7 @@ async test "fork leaves the parent sidecar and history byte-identical" {
     ),
   )
   // History compared via canonical JSONL (the real store file sits outside the fake fs).
-  assert_eq(fs.files[sidecar_path("/cetas-home", parent)], sidecar_before)
+  assert_eq(fs.files[tk_sidecar_path(store.root_dir, parent)], sidecar_before)
   let history_after = tk_load_history(host, parent)
   assert_eq(
     @fs_session.session_to_jsonl(history_after),
@@ -3418,7 +3792,7 @@ async fn tk_host_native(
       @posoco.ScriptedModel(steps),
       @posoco.RecordingToolProvider([], Map::from_array([])),
       "/",
-      store=Some(store as &@posoco.SessionStore),
+      store=Some(store),
     ),
     home~,
     fs~,
@@ -3458,7 +3832,7 @@ async test "delete retires a live session and removes both persisted files" {
     meta: Omitted,
   })
   assert_true(turn.stop_reason is EndTurn)
-  let sidecar_file = sidecar_path(home, session_id)
+  let sidecar_file = tk_sidecar_path(host.session_store.root_dir, session_id)
   let history_file = @fs_session.jsonl_session_path(
     host.session_store.root_dir,
     session_id,
@@ -3527,7 +3901,12 @@ async test "delete removes a closed session's persisted history and sidecar" {
     ),
   )
   assert_false(tk_file_exists(host, history_file))
-  assert_false(tk_file_exists(host, sidecar_path(home, session_id)))
+  assert_false(
+    tk_file_exists(
+      host,
+      tk_sidecar_path(host.session_store.root_dir, session_id),
+    ),
+  )
   let load : Result[@acp.LoadSessionResult, @acp.HandlerError] = Ok(
     host.handle_load_session(
       fake_acp_context(FakeAcpClient::FakeAcpClient()),
@@ -3591,8 +3970,12 @@ async test "delete leaves the other session untouched" {
     ),
   )
   assert_false(host.sessions.contains(a))
-  assert_false(tk_file_exists(host, sidecar_path("/cetas-home", a)))
-  assert_true(tk_file_exists(host, sidecar_path("/cetas-home", b)))
+  assert_false(
+    tk_file_exists(host, tk_sidecar_path("/cetas-home/.cetas/sessions", a)),
+  )
+  assert_true(
+    tk_file_exists(host, tk_sidecar_path("/cetas-home/.cetas/sessions", b)),
+  )
   let b_turn = host.handle_prompt(fake_acp_context(client_b), {
     session_id: b,
     prompt: tk_prompt("hello b"),
@@ -3606,7 +3989,7 @@ async test "delete failure surfaces as an application error naming the file" {
   let fs = FakeFs()
   let (host, _) = tk_host([], fs~)
   let session_id = tk_open_session(host, FakeAcpClient::FakeAcpClient())
-  let sidecar_file = sidecar_path("/cetas-home", session_id)
+  let sidecar_file = tk_sidecar_path("/cetas-home/.cetas/sessions", session_id)
   guard fs.files.contains(sidecar_file) else {
     fail("session/new must write the sidecar")
   }
@@ -3688,7 +4071,7 @@ async test "sidecar update waits on the process persist mutex" {
   let (host, _) = tk_host([], fs~)
   let client = FakeAcpClient::FakeAcpClient()
   let session_id = tk_open_session(host, client)
-  let sidecar_file = sidecar_path("/cetas-home", session_id)
+  let sidecar_file = tk_sidecar_path("/cetas-home/.cetas/sessions", session_id)
   guard fs.files.contains(sidecar_file) else {
     fail("session/new must write the sidecar")
   }
@@ -3941,6 +4324,8 @@ fn tk_spawn_session_plan_noreview(
         router: tk_router(),
         agent,
         cwd,
+        store: @fs_session.JsonlSessionStore("/cetas-home/.cetas/sessions"),
+        project_dir: "/cetas-home/.cetas/sessions",
         plan: plan_mode,
         permission: policy,
         fs_delegate: None,
@@ -4511,7 +4896,7 @@ fn tk_profile_server(name : String) -> @acp.McpServer {
 
 ///|
 /// Assemble like the production `spawn_session` closure: detect the profile, pass both to the builder.
-async fn tk_spawn_with_profile(
+async fn tk_spawn_with_host_kind(
   platform~ : Platform,
   cwd~ : String,
   injected~ : Array[@acp.McpServer],
@@ -4520,7 +4905,7 @@ async fn tk_spawn_with_profile(
     platform~,
     cwd~,
     mcp_servers=injected,
-    host_profile=detect_host_profile(acp_mcp_server_names(injected)),
+    host_kind=detect_host_kind(acp_mcp_server_names(injected)),
   )
 }
 
@@ -4530,11 +4915,11 @@ async test "lody injection mounts the lody delegation prompt section" {
     error => fail("platform assembly must succeed: " + error.to_string())
   }
   let injected = [tk_profile_server("lody")]
-  let _ = tk_spawn_with_profile(platform~, cwd="/w4-lody", injected~) catch {
+  let _ = tk_spawn_with_host_kind(platform~, cwd="/w4-lody", injected~) catch {
     error => fail("lody session must assemble: " + error.to_string())
   }
-  let profile = detect_host_profile(acp_mcp_server_names(injected))
-  assert_true(profile is Lody)
+  let kind = detect_host_kind(acp_mcp_server_names(injected))
+  assert_true(kind is Lody)
   let prompt = compose_system_prompt(Lody, cwd="/w4-lody")
   assert_true(prompt.contains(@lody_kit.prompt_section()))
   assert_true(prompt.contains("## Delegated tasks (lody)"))
@@ -4546,11 +4931,11 @@ async test "paseo injection mounts the paseo orchestration prompt section" {
     error => fail("platform assembly must succeed: " + error.to_string())
   }
   let injected = [tk_profile_server("paseo")]
-  let _ = tk_spawn_with_profile(platform~, cwd="/w4-paseo", injected~) catch {
+  let _ = tk_spawn_with_host_kind(platform~, cwd="/w4-paseo", injected~) catch {
     error => fail("paseo session must assemble: " + error.to_string())
   }
-  let profile = detect_host_profile(acp_mcp_server_names(injected))
-  assert_true(profile is Paseo)
+  let kind = detect_host_kind(acp_mcp_server_names(injected))
+  assert_true(kind is Paseo)
   let prompt = compose_system_prompt(Paseo, cwd="/w4-paseo")
   assert_true(prompt.contains(@paseo_kit.prompt_section()))
   assert_true(prompt.contains("## Delegated agents (paseo)"))
@@ -4563,22 +4948,22 @@ async test "dual injection resolves to lody regardless of declaration order" {
   }
   let lody_first = [tk_profile_server("lody"), tk_profile_server("paseo")]
   let paseo_first = [tk_profile_server("paseo"), tk_profile_server("lody")]
-  let _ = tk_spawn_with_profile(
+  let _ = tk_spawn_with_host_kind(
     platform~,
     cwd="/w4-both-a",
     injected=lody_first,
   ) catch {
     error => fail("dual session must assemble: " + error.to_string())
   }
-  let _ = tk_spawn_with_profile(
+  let _ = tk_spawn_with_host_kind(
     platform~,
     cwd="/w4-both-b",
     injected=paseo_first,
   ) catch {
     error => fail("dual session must assemble: " + error.to_string())
   }
-  let a = detect_host_profile(acp_mcp_server_names(lody_first))
-  let b = detect_host_profile(acp_mcp_server_names(paseo_first))
+  let a = detect_host_kind(acp_mcp_server_names(lody_first))
+  let b = detect_host_kind(acp_mcp_server_names(paseo_first))
   assert_true(a is Lody)
   assert_true(b is Lody)
   let prompt = compose_system_prompt(a, cwd="/w4-both-a")
@@ -4594,7 +4979,7 @@ async test "no injection keeps the generic profile" {
   let _ = build_session_agent(platform~, cwd="/w4-plain") catch {
     error => fail("plain session must assemble: " + error.to_string())
   }
-  assert_true(detect_host_profile([]) is Generic)
+  assert_true(detect_host_kind([]) is Generic)
   assert_eq(
     compose_system_prompt(Generic, cwd="/w4-plain"),
     @cetas_core.cetas_system_prompt(cwd="/w4-plain"),
@@ -4603,12 +4988,12 @@ async test "no injection keeps the generic profile" {
 
 ///|
 test "profile detection is pure and total" {
-  assert_true(detect_host_profile([]) is Generic)
-  assert_true(detect_host_profile(["editor-helper"]) is Generic)
-  assert_true(detect_host_profile(["lody"]) is Lody)
-  assert_true(detect_host_profile(["paseo"]) is Paseo)
-  assert_true(detect_host_profile(["paseo", "lody"]) is Lody)
-  assert_true(detect_host_profile(["lody", "paseo"]) is Lody)
+  assert_true(detect_host_kind([]) is Generic)
+  assert_true(detect_host_kind(["editor-helper"]) is Generic)
+  assert_true(detect_host_kind(["lody"]) is Lody)
+  assert_true(detect_host_kind(["paseo"]) is Paseo)
+  assert_true(detect_host_kind(["paseo", "lody"]) is Lody)
+  assert_true(detect_host_kind(["lody", "paseo"]) is Lody)
   assert_eq(
     acp_mcp_server_names([
       tk_profile_server("stdio-name"),
@@ -4719,7 +5104,7 @@ async test "the catalog dump lands after an injected session assembly" {
     cwd="/w21-a",
     session_id="cetas-w21cat",
     mcp_servers=injected,
-    host_profile=HostProfile::Lody,
+    host_kind=HostKind::Lody,
   ) catch {
     error =>
       fail("injected session assembly must succeed: " + error.to_string())
@@ -5168,6 +5553,7 @@ fn CetasAcpHost::of(
   session_store? : @fs_session.JsonlSessionStore = @fs_session.JsonlSessionStore(
     home + "/.cetas/sessions",
   ),
+  stores? : Map[String, @fs_session.JsonlSessionStore] = Map::from_array([]),
   process_cwd? : String = "/",
   wire_log? : Bool = false,
   native_append? : Bool = false,
@@ -5179,6 +5565,7 @@ fn CetasAcpHost::of(
     fs,
     sessions: Map::from_array([]),
     session_store,
+    stores,
     process_cwd,
     catalogs: [],
     refreshables,

@@ -1,6 +1,7 @@
 import {
   "colmugx/acp",
   "colmugx/cetas-acp/lib",
+  "colmugx/cetas-core/lib" @cetas_core,
   "colmugx/posoco-ext-mcp" @mcp,
   "moonbitlang/async",
   "moonbitlang/async/stdio",
