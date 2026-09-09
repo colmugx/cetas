@@ -254,6 +254,34 @@ async test "jsonl single-turn failure path: turn_failed carries the marker and f
 }
 
 ///|
+async test "trace face mirrors the process onto write_err live while stdout keeps the three-line contract" {
+  let trace = TraceObserver::TraceObserver()
+  let (agent, _model) = tk_scripted_agent(
+    [@posoco.Respond(@posoco.tk_stop_response("done one"))],
+    tail_exts=[trace as &@posoco.Extension],
+  )
+  let (write_out, out) = tk_sink()
+  let (write_err, err) = tk_sink()
+  let failed = run_one_turn(
+    agent~,
+    session_id="cetas-trace",
+    task="first task",
+    jsonl=None,
+    trace=Some(trace),
+    write_out~,
+    write_err~,
+  )
+  assert_false(failed)
+  // The assistant step's text is the only trace piece this scripted model
+  // produces (no reasoning, no tools); it lands on the stderr sink only.
+  assert_eq(err, ["· text: done one\n"])
+  // stdout is untouched by the trace: exactly the three protocol lines.
+  assert_eq(out, [
+    "session: cetas-trace\n", "[cetas-headless] turn 1: done one\n", "[cetas-headless] turn 1 done\n",
+  ])
+}
+
+///|
 test "the marker and single-line helpers are protocol-stable" {
   assert_eq(turn_marker(7), "[cetas-headless] turn 7 done")
   assert_eq(single_line("a\nb\r  c\td"), "a b c d")

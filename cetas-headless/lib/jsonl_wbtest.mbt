@@ -1,7 +1,9 @@
 ///|
 /// jsonl_wbtest.mbt — the JsonlObserver projection driven directly with
-/// synthesized kernel events: tool_result lines (both error polarities),
-/// per-turn usage windows, and the drained-buffer contract.
+/// synthesized kernel events: tool_result lines (both error polarities plus
+/// the outcome/content/truncated extension), tool_call lines, committed
+/// reasoning, delta telemetry under --stream, preview clipping, the live
+/// sink, per-turn usage windows, and the drained-buffer contract.
 
 ///|
 fn tk_observer_call(name~ : String, call_id~ : String) -> @posoco.ToolCall {
@@ -21,6 +23,18 @@ fn tk_observer_usage(input~ : Int, output~ : Int) -> @posoco.Usage {
     cached_input_tokens: None,
     uncached_input_tokens: None,
   }
+}
+
+///|
+/// An assistant message carrying reasoning, for ModelResponseReceived.
+fn tk_reasoning_msg(text~ : String, reasoning~ : String) -> @posoco.Message {
+  let message : @posoco.Message = AssistantMessage(
+    content=[Text(text)],
+    tool_calls=[],
+    reasoning=Some({ content: reasoning, raw: None, }),
+    finish_reason=Stop,
+  )
+  message
 }
 
 ///|
@@ -54,11 +68,153 @@ test "jsonl observer projects tool results with error polarity and folds usage" 
   observer.on_event_at(None, @posoco.TurnEvent::TurnCompleted)
   observer.emit_turn_completed(summary="all done", marker=turn_marker(3))
   assert_eq(observer.take_lines(), [
-    "{\"type\":\"turn_started\",\"turn\":3,\"session\":\"s-3\"}", "{\"type\":\"tool_result\",\"turn\":3,\"name\":\"bash\",\"call_id\":\"c-9\",\"is_error\":true}",
-    "{\"type\":\"tool_result\",\"turn\":3,\"name\":\"read\",\"call_id\":\"c-10\",\"is_error\":false}",
+    "{\"type\":\"turn_started\",\"turn\":3,\"session\":\"s-3\"}", "{\"type\":\"tool_result\",\"turn\":3,\"name\":\"bash\",\"call_id\":\"c-9\",\"is_error\":true,\"outcome\":\"tool_error\",\"content\":\"boom\",\"truncated\":false}",
+    "{\"type\":\"tool_result\",\"turn\":3,\"name\":\"read\",\"call_id\":\"c-10\",\"is_error\":false,\"outcome\":\"success\",\"content\":\"file body\",\"truncated\":false}",
     "{\"type\":\"turn_completed\",\"turn\":3,\"summary\":\"all done\",\"marker\":\"[cetas-headless] turn 3 done\",\"usage\":{\"turns\":1,\"input_tokens\":4,\"output_tokens\":2}}",
   ])
   // Drained: the buffer is empty afterwards.
+  assert_eq(observer.take_lines().length(), 0)
+}
+
+///|
+test "jsonl observer projects the process: tool_call with arguments and committed reasoning" {
+  let observer = JsonlObserver::JsonlObserver()
+  observer.begin_turn(turn_no=1, session_id="s-vis")
+  let call : @posoco.ToolCall = {
+    call_id: @posoco.CallId::unchecked("c-1"),
+    name: @posoco.ToolName::unchecked("read"),
+    arguments: Json::object(
+      Map::from_array([("path", Json::string("src/main.mbt"))]),
+    ),
+  }
+  observer.on_event_at(None, @posoco.TurnEvent::ToolCallPending(call))
+  observer.on_event_at(
+    None,
+    @posoco.TurnEvent::ModelResponseReceived(
+      message=tk_reasoning_msg(text="", reasoning="check the file first"),
+      usage=None,
+    ),
+  )
+  assert_eq(observer.take_lines(), [
+    "{\"type\":\"tool_call\",\"turn\":1,\"name\":\"read\",\"call_id\":\"c-1\",\"arguments\":{\"path\":\"src/main.mbt\"}}",
+    "{\"type\":\"reasoning\",\"turn\":1,\"content\":\"check the file first\",\"truncated\":false}",
+  ])
+}
+
+///|
+test "jsonl observer maps every non-success outcome to a wire tag with its payload" {
+  let observer = JsonlObserver::JsonlObserver()
+  observer.begin_turn(turn_no=2, session_id="s-out")
+  observer.on_event_at(
+    None,
+    @posoco.TurnEvent::ToolCallResult(
+      call=tk_observer_call(name="bash", call_id="c-r"),
+      result=RuntimeFailure(error_category="adapter", message="io broke"),
+      is_error=true,
+    ),
+  )
+  observer.on_event_at(
+    None,
+    @posoco.TurnEvent::ToolCallResult(
+      call=tk_observer_call(name="ghost", call_id="c-n"),
+      result=NotExecuted(
+        reason=UnknownTool,
+        original_call_id=@posoco.CallId::unchecked("c-n"),
+      ),
+      is_error=true,
+    ),
+  )
+  assert_eq(observer.take_lines(), [
+    "{\"type\":\"tool_result\",\"turn\":2,\"name\":\"bash\",\"call_id\":\"c-r\",\"is_error\":true,\"outcome\":\"runtime_failure\",\"content\":\"adapter: io broke\",\"truncated\":false}",
+    "{\"type\":\"tool_result\",\"turn\":2,\"name\":\"ghost\",\"call_id\":\"c-n\",\"is_error\":true,\"outcome\":\"not_executed\",\"content\":\"UnknownTool\",\"truncated\":false}",
+  ])
+}
+
+///|
+test "jsonl observer clips content and reasoning previews at the cap" {
+  let observer = JsonlObserver::JsonlObserver()
+  observer.begin_turn(turn_no=1, session_id="s-clip")
+  let builder = StringBuilder()
+  for i = 0; i < PREVIEW_CAP + 5; i = i + 1 {
+    builder.write_char('x')
+  }
+  let big = builder.to_string()
+  observer.on_event_at(
+    None,
+    @posoco.TurnEvent::ToolCallResult(
+      call=tk_observer_call(name="read", call_id="c-big"),
+      result=@posoco.tk_ok_result(big),
+      is_error=false,
+    ),
+  )
+  observer.on_event_at(
+    None,
+    @posoco.TurnEvent::ModelResponseReceived(
+      message=tk_reasoning_msg(text="", reasoning=big),
+      usage=None,
+    ),
+  )
+  let lines = observer.take_lines()
+  let parsed : Array[Json] = lines.map(line => @json.parse(line))
+  for event in parsed {
+    let fields = match event {
+      Object(map) => map
+      _ => fail("event line must be a json object")
+    }
+    assert_eq(fields.get("truncated").map(j => j.stringify()), Some("true"))
+    match fields.get("content") {
+      Some(String(content)) => assert_eq(content.length(), PREVIEW_CAP)
+      _ => fail("clipped events must carry a string content field")
+    }
+  }
+}
+
+///|
+test "jsonl observer emits delta telemetry only under stream and keeps committed events authoritative" {
+  let streaming = JsonlObserver::JsonlObserver(stream=true)
+  streaming.begin_turn(turn_no=1, session_id="s-d")
+  let reasoning_chunk : @posoco.StreamChunk = ReasoningDelta(token="thin")
+  streaming.on_event_at(
+    None,
+    @posoco.TurnEvent::StreamChunkReceived(chunk=reasoning_chunk),
+  )
+  let text_chunk : @posoco.StreamChunk = TextDelta(token="king")
+  streaming.on_event_at(
+    None,
+    @posoco.TurnEvent::StreamChunkReceived(chunk=text_chunk),
+  )
+  streaming.on_event_at(
+    None,
+    @posoco.TurnEvent::ModelResponseReceived(
+      message=tk_reasoning_msg(text="final", reasoning="thinking"),
+      usage=None,
+    ),
+  )
+  assert_eq(streaming.take_lines(), [
+    "{\"type\":\"reasoning_delta\",\"turn\":1,\"token\":\"thin\"}", "{\"type\":\"text_delta\",\"turn\":1,\"token\":\"king\"}",
+    "{\"type\":\"reasoning\",\"turn\":1,\"content\":\"thinking\",\"truncated\":false}",
+  ])
+  // Without --stream the same chunks are invisible: committed events only.
+  let plain = JsonlObserver::JsonlObserver()
+  plain.begin_turn(turn_no=1, session_id="s-d")
+  plain.on_event_at(
+    None,
+    @posoco.TurnEvent::StreamChunkReceived(chunk=reasoning_chunk),
+  )
+  assert_eq(plain.take_lines().length(), 0)
+}
+
+///|
+test "jsonl observer live sink receives each line the moment it is built" {
+  let observer = JsonlObserver::JsonlObserver()
+  observer.begin_turn(turn_no=1, session_id="s-live")
+  let delivered : Array[String] = []
+  observer.set_live_sink(fn(line : String) { delivered.push(line) })
+  observer.on_event_at(None, @posoco.TurnEvent::TurnStarted)
+  // The sink got the line immediately; the buffer stays empty.
+  assert_eq(delivered, [
+    "{\"type\":\"turn_started\",\"turn\":1,\"session\":\"s-live\"}",
+  ])
   assert_eq(observer.take_lines().length(), 0)
 }
 

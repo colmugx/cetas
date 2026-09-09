@@ -6,12 +6,15 @@
 /// credentials → catalogs → fs-session JSONL store) once per process, then
 /// `build_cetas_session` + `compose_cetas_agent` for the single session.
 /// Host-specific wiring is only the approval source and UI port (both
-/// terminal-side, or absent under `--yolo`), plus the personal zcode opt-in
-/// below — no askquestion bridge beyond what `ui~` already buys.
+/// terminal-side, or absent under `--yolo`) — no askquestion bridge beyond
+/// what `ui~` already buys.
 ///
 /// `--model` / `--effort` are run-scoped: they override the persisted
 /// `ActiveModelSelection` on the session router and are NEVER written back
-/// to `~/.cetas/settings.json`.
+/// to `~/.cetas/settings.json`. An override that names no configured slot,
+/// or a level the slot rejects, fails composition with the valid vocabulary
+/// listed — a one-shot CLI must exit loudly, never silently serve the
+/// persisted selection the operator just overruled.
 
 ///|
 pub struct CetasHeadlessHost {
@@ -33,8 +36,7 @@ pub struct CetasHeadlessHost {
 /// `--yolo`. `tail_exts~` weaves host-side extensions at the composition
 /// tail (ACP precedent: the `--jsonl` observer rides here). `fs~`
 /// substitutes the workspace fs in tests; production passes None for the
-/// native fs. `goal~` arms the goal runner (`--goal`). `tty~` feeds the
-/// terminal plan review; without one the review degrades to Dismiss.
+/// native fs.
 pub async fn CetasHeadlessHost::CetasHeadlessHost(
   home~ : String,
   cwd~ : String,
@@ -44,11 +46,8 @@ pub async fn CetasHeadlessHost::CetasHeadlessHost(
   model_override? : String = "",
   effort_override? : String = "",
   session_id? : String = "",
-  goal? : String = "",
-  mcp_group? : @async.TaskGroup[Unit]? = None,
   tail_exts? : Array[&@posoco.Extension] = [],
   fs? : &@workspace.WorkspaceFs? = None,
-  tty? : TtyChannel? = None,
   label? : String = "cetas-headless",
   warn? : async (String) -> Unit noraise = async fn(text : String) noraise {
     @stdio.stderr.write(text) catch {
@@ -65,32 +64,14 @@ pub async fn CetasHeadlessHost::CetasHeadlessHost(
     cwd~,
     fs,
     permission_mode=mode,
-    mcp_group~,
     label~,
     warn~,
   )
-  // Personal host opt-in: zcode delegation registers when detected, degrades to absent otherwise.
-  let zcode_ext = @zcode.zcode_ext_if_detected(
-    env=fn(key : String) { @env.get_env_var(key) },
-    exists=async fn(path : String) -> Bool {
-      fs.exists(path) catch {
-        _ => false
-      }
-    },
-  ) catch {
-    _ => None
-  }
   let client_exts : Array[&@posoco.Extension] = []
-  match zcode_ext {
-    Some(ext) => client_exts.push(ext as &@posoco.Extension)
+  // Headless reports presence to herdr when running inside a pane.
+  match @herdr.HerdrReporter::detect() {
+    Some(reporter) => client_exts.push(reporter as &@posoco.Extension)
     None => ()
-  }
-  // --goal arms the goal runner; its goal_update_plan tool must be routable,
-  // so it rides client_exts ahead of the routing capture.
-  if goal.trim().length() > 0 {
-    client_exts.push(
-      @goal.goal_extension(goal_condition=goal) as &@posoco.Extension,
-    )
   }
   let session = @cetas_core.build_cetas_session(
     platform~,
@@ -98,26 +79,6 @@ pub async fn CetasHeadlessHost::CetasHeadlessHost(
     approval~,
     ui~,
     client_exts~,
-    bus_exts=Some(fn(bus) {
-      // Same plan config as acp/js; the review is the terminal seam and it
-      // must build here — after the policy subscribes, before the capture.
-      [
-        @plan.PlanMode(
-          config={
-            ..@plan.PlanModeConfig::default(),
-            allowed_tools: ["read", "glob", "grep", "ask_question"],
-            allow_model_entry: true,
-          },
-          review=Some(
-            TerminalPlanReview::TerminalPlanReview(tty~, notice=warn)
-            as &@plan.PlanReviewSource,
-          ),
-          bus=Some(bus),
-          fs=Some(fs),
-        )
-        as &@posoco.Extension,
-      ]
-    }),
     label~,
     warn~,
   )
@@ -127,54 +88,8 @@ pub async fn CetasHeadlessHost::CetasHeadlessHost(
     model=model_override,
     effort=effort_override,
     label~,
-    warn~,
   )
-  // MCP joins AFTER the routing capture (tail_exts): the bridge serves its
-  // tools through the decorator runtime + catalog source, never the
-  // manifest; a malformed mcp.json warns and skips MCP entirely.
-  let bridge = match
-    @mcp.MCPToolBridge::discover(cwd~, home~, mode=@mcp.LoadMode::Lazy) {
-    Ok(bridge) => {
-      match mcp_group {
-        Some(group) => bridge.attach(group)
-        None => ()
-      }
-      Some(bridge)
-    }
-    Err(message) => {
-      warn(
-        label + ": mcp.json discovery failed, MCP disabled: " + message + "\n",
-      )
-      None
-    }
-  }
-  let agent = match bridge {
-    Some(bridge) => {
-      let base_runtime = @runtime.PortRuntime(
-        model=session.router as &@posoco.ModelPort,
-        tools=session.routing,
-      )
-      let runtime = @mcp.McpRuntime(
-        bridge~,
-        fallback=base_runtime as &@runtime.Runtime,
-      )
-      let catalog_source = @mcp.McpCatalogSource(
-        bridge~,
-        base_tools=session.base_defs,
-      )
-      let tails : Array[&@posoco.Extension] = [bridge as &@posoco.Extension]
-      for ext in tail_exts {
-        tails.push(ext)
-      }
-      @cetas_core.compose_cetas_agent(
-        session~,
-        tail_exts=tails,
-        runtime=Some(runtime as &@runtime.Runtime),
-        catalog_source=Some(catalog_source as &@runtime.CatalogSource),
-      )
-    }
-    None => @cetas_core.compose_cetas_agent(session~, tail_exts~)
-  }
+  let agent = @cetas_core.compose_cetas_agent(session~, tail_exts~)
   let sid = if session_id.length() > 0 {
     session_id
   } else {
@@ -191,53 +106,83 @@ pub async fn CetasHeadlessHost::CetasHeadlessHost(
 }
 
 ///|
-/// Apply the run-scoped overrides onto the session router. An unknown
-/// `--model` slot warns and keeps the composed selection (mirroring the
-/// platform's drifted-persisted-selection warning); an unsupported effort
-/// warns and keeps the slot's default. Neither path persists anything.
-async fn apply_model_override(
+/// Apply the run-scoped overrides onto the session router (before compose,
+/// so the same session router the agent rides serves the turn). A bad
+/// override raises instead of degrading: `--model` must name a configured
+/// slot and `--effort` must be advertised by the active slot, and each
+/// failure message lists the valid vocabulary. Neither path persists.
+fn apply_model_override(
   router : @llm.RouterModelPort,
   catalogs : Array[@llm.ProviderModelCatalog],
   model~ : String,
   effort~ : String,
   label~ : String,
-  warn~ : async (String) -> Unit noraise,
-) -> Unit noraise {
+) -> Unit raise @posoco.CompositionError {
   if model.length() > 0 {
     let selection = if effort.length() > 0 {
       @cetas_core.ActiveModelSelection::ActiveModelSelection(model, effort~)
     } else {
       @cetas_core.ActiveModelSelection::ActiveModelSelection(model)
     }
-    match @cetas_core.resolve_default_slot_id(catalogs, Some(selection)) {
-      "" =>
-        warn(
-          label +
-          ": --model '" +
-          model +
-          "' is not a configured model slot; keeping the active selection\n",
+    let slot = @cetas_core.resolve_default_slot_id(catalogs, Some(selection))
+    if slot == "" {
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id=label + ".model_override",
+        detail="unknown --model '\{model}' — available model slots: \{comma_joined(router.list_slot_ids())}",
+      )
+    }
+    // resolve guarantees the slot exists in the catalogs; a router missing
+    // it means the two views drifted apart mid-composition — fail loudly.
+    router.switch_slot(slot) catch {
+      error =>
+        raise @posoco.CompositionError::ManifestSchemaError(
+          manifest_id=label + ".model_override",
+          detail="--model '\{model}' switch failed: \{error.to_string()}",
         )
-      slot =>
-        router.switch_slot(slot) catch {
-          error =>
-            warn(label + ": --model switch failed: " + error.to_string() + "\n")
-        }
     }
   }
   if effort.length() > 0 {
     let slot = router.active_slot_id()
     router.select_effort(slot, effort) catch {
-      error =>
-        warn(
-          label +
-          ": --effort '" +
-          effort +
-          "' rejected by model slot '" +
-          slot +
-          "': " +
-          error.to_string() +
-          "\n",
+      error => {
+        let advertised = slot_advertised_efforts(router, slot)
+        let supported = if advertised.is_empty() {
+          "none advertised"
+        } else {
+          comma_joined(advertised)
+        }
+        raise @posoco.CompositionError::ManifestSchemaError(
+          manifest_id=label + ".model_override",
+          detail="--effort '\{effort}' rejected by model slot '\{slot}' (supported efforts: \{supported}): \{error.to_string()}",
         )
+      }
     }
   }
+}
+
+///|
+/// Comma-join for one-line error vocabularies, in composition order.
+fn comma_joined(items : Array[String]) -> String {
+  let builder = StringBuilder()
+  for i, item in items {
+    if i > 0 {
+      builder.write_string(", ")
+    }
+    builder.write_string(item)
+  }
+  builder.to_string()
+}
+
+///|
+/// The efforts one router slot advertises; empty when the slot is missing.
+fn slot_advertised_efforts(
+  router : @llm.RouterModelPort,
+  slot_id : String,
+) -> Array[String] {
+  for slot in router.list_slots() {
+    if slot.id == slot_id {
+      return slot.thinking_efforts
+    }
+  }
+  []
 }

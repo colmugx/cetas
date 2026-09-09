@@ -19,11 +19,17 @@
 /// Exit codes: 0 = the turn completed; 1 = the turn failed; 2 =
 /// startup/usage errors.
 ///
-/// `--jsonl` (a `JsonlObserver` passed): stdout becomes a pure event stream
-/// instead of the session/summary/marker lines. TurnStarted / ToolCallResult
-/// / usage are projected by the observer as the kernel emits them; the
-/// single-turn runner folds the summary and the marker into one terminal
-/// `turn_completed` / `turn_failed` event.
+/// Process visibility (2026-09-08): `--jsonl` (a `JsonlObserver` passed)
+/// turns stdout into a pure event stream — turn_started / tool_call /
+/// reasoning / tool_result / usage are projected live, and the runner folds
+/// the summary and the marker into one terminal `turn_completed` /
+/// `turn_failed` event. `--verbose` / `--stream` (a `TraceObserver` passed)
+/// mirror the process onto stderr as a human trace. Live means live: every
+/// observer rides an ordered queue with one background pump task
+/// (ChunkDispatcher precedent) so each unit is written to its channel the
+/// moment it completes — output is never batched to turn end. The queues
+/// close inside the task group after the terminal event, so the pump is
+/// fully flushed (marker last) before the turn returns.
 ///
 /// Peer attribution: a task prefixed
 /// `[cetas-peer from=<pane> session=<id>]` carries its task text wrapped in
@@ -88,13 +94,27 @@ pub async fn resolve_task(
 }
 
 ///|
-/// Write drained event lines, each newline-terminated.
-async fn write_event_lines(
-  write_out~ : async (String) -> Unit noraise,
-  lines : Array[String],
+/// Live queue capacity per output face. The pump drains continuously, so a
+/// backlog here means the writer stalled; overflow drops the line (trace is
+/// display telemetry, and the committed events carry the content anyway).
+const LIVE_QUEUE_CAPACITY : Int = 4096
+
+///|
+/// The pump body: drain one live queue to its channel until the queue
+/// closes. FIFO order is the queue's, which is push order — the emitted
+/// sequence is exactly what a buffered drain would have printed, only
+/// written per unit as units complete.
+async fn drain_live_queue(
+  queue : @aqueue.Queue[String],
+  write~ : async (String) -> Unit noraise,
 ) -> Unit noraise {
-  for line in lines {
-    write_out(line + "\n")
+  while true {
+    let text : String = queue.get() catch {
+      _ =>
+        // Queue closed: the turn is ending.
+        break
+    }
+    write(text)
   }
 }
 
@@ -103,68 +123,108 @@ async fn write_event_lines(
 /// the turn failed, `false` when it completed. In the human face the
 /// `session: <id>` line is written first so drivers capture the id before
 /// the summary; in the jsonl face the `turn_started` event already carries
-/// the session and nothing extra is written.
+/// the session and nothing extra is written. The optional trace observer
+/// (`--verbose` / `--stream`) mirrors the process onto `write_err`.
 pub async fn run_one_turn(
   agent~ : @posoco.Agent,
   session_id~ : String,
   task~ : String,
   jsonl~ : JsonlObserver?,
+  trace? : TraceObserver? = None,
   write_out~ : async (String) -> Unit noraise,
+  write_err? : async (String) -> Unit noraise = (_text : String) => (),
 ) -> Bool noraise {
-  match jsonl {
-    Some(observer) => observer.begin_turn(turn_no=1, session_id~)
-    None => write_out("session: \{session_id}\n")
-  }
-  // Peer-attributed tasks ride the low-trust herdr-peer envelope; plain
-  // tasks keep their exact text.
-  let prompt = match parse_peer_envelope(task) {
-    Some(peer) =>
-      @devkit.context_envelope(
-        ns="herdr-peer",
-        kind="task",
-        trust=false,
-        source=peer.from,
-        attrs=[("peer_session", peer.session)],
-        content=peer.task,
-      )
-    None => task
-  }
-  let outcome : Result[String, @posoco.AgentError] = Ok(
-    @cetas_core.run_prompt(agent, prompt, session_id),
-  ) catch {
-    error => Err(error)
-  }
-  match outcome {
-    Ok(text) => {
-      match jsonl {
-        Some(observer) => {
-          observer.emit_turn_completed(summary=text, marker=turn_marker(1))
-          write_event_lines(write_out~, observer.take_lines())
-        }
-        None => {
-          write_out("[cetas-headless] turn 1: \{single_line(text)}\n")
-          write_out(turn_marker(1) + "\n")
-        }
+  @async.with_task_group(async fn(group) {
+    // Attach live sinks and spawn one pump per active face. The jsonl sink
+    // terminates lines itself; the trace sink carries exact display pieces
+    // (streaming deltas have no newline until their block closes).
+    let queues : Array[@aqueue.Queue[String]] = []
+    match jsonl {
+      Some(observer) => {
+        observer.begin_turn(turn_no=1, session_id~)
+        let queue : @aqueue.Queue[String] = Queue(
+          kind=Blocking(LIVE_QUEUE_CAPACITY),
+        )
+        observer.set_live_sink(fn(line : String) {
+          ignore(queue.try_put(line + "\n") catch { _ => false })
+        })
+        group.spawn_bg(async fn() { drain_live_queue(queue, write=write_out) })
+        queues.push(queue)
       }
-      false
+      None => write_out("session: \{session_id}\n")
     }
-    Err(error) => {
-      match jsonl {
-        Some(observer) => {
-          observer.emit_turn_failed(
-            error=error.to_string(),
-            marker=turn_marker(1),
-          )
-          write_event_lines(write_out~, observer.take_lines())
-        }
-        None => {
-          write_out(
-            "[cetas-headless] turn 1 failed: \{single_line(error.to_string())}\n",
-          )
-          write_out(turn_marker(1) + "\n")
-        }
+    match trace {
+      Some(observer) => {
+        let queue : @aqueue.Queue[String] = Queue(
+          kind=Blocking(LIVE_QUEUE_CAPACITY),
+        )
+        observer.set_live_sink(fn(text : String) {
+          ignore(queue.try_put(text) catch { _ => false })
+        })
+        group.spawn_bg(async fn() { drain_live_queue(queue, write=write_err) })
+        queues.push(queue)
       }
-      true
+      None => ()
     }
+    // Peer-attributed tasks ride the low-trust herdr-peer envelope; plain
+    // tasks keep their exact text.
+    let prompt = match parse_peer_envelope(task) {
+      Some(peer) =>
+        @devkit.context_envelope(
+          ns="herdr-peer",
+          kind="task",
+          trust=false,
+          source=peer.from,
+          attrs=[("peer_session", peer.session)],
+          content=peer.task,
+        )
+      None => task
+    }
+    let outcome : Result[String, @posoco.AgentError] = Ok(
+      @cetas_core.run_prompt(agent, prompt, session_id),
+    ) catch {
+      error => Err(error)
+    }
+    let failed = match outcome {
+      Ok(text) => {
+        match jsonl {
+          Some(observer) =>
+            observer.emit_turn_completed(summary=text, marker=turn_marker(1))
+          None => {
+            write_out("[cetas-headless] turn 1: \{single_line(text)}\n")
+            write_out(turn_marker(1) + "\n")
+          }
+        }
+        false
+      }
+      Err(error) => {
+        match jsonl {
+          Some(observer) =>
+            observer.emit_turn_failed(
+              error=error.to_string(),
+              marker=turn_marker(1),
+            )
+          None => {
+            write_out(
+              "[cetas-headless] turn 1 failed: \{single_line(error.to_string())}\n",
+            )
+            write_out(turn_marker(1) + "\n")
+          }
+        }
+        true
+      }
+    }
+    // Close inside the group: `with_task_group` returns only after every
+    // child task has terminated, and the pump terminates only when the
+    // queue closes — so the return means every line (marker included) has
+    // been written.
+    for queue in queues {
+      queue.close()
+    }
+    failed
+  }) catch {
+    // The group body is raise-free by construction (run_prompt's raise is
+    // captured above; writers are noraise); this is the safety net.
+    _ => true
   }
 }

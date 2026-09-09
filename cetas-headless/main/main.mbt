@@ -6,11 +6,19 @@
 /// `--session <id>` mints a fresh session; the id is printed as a
 /// `session: <id>` line before the turn's summary (or carried by the
 /// `turn_started` event under `--jsonl`) so drivers can continue the
-/// conversation by re-invoking with `--session`. Approval prompts and
-/// interactive UI requests bypass stdin via /dev/tty; degraded (no tty) they
+/// conversation by re-invoking with `--session`. `--verbose` mirrors the
+/// process (thinking, tool calls) onto stderr live; `--stream` refines that
+/// trace to token deltas (and adds delta events under `--jsonl`) — output
+/// is per-unit live either way, never batched to turn end. Approval prompts
+/// and interactive UI requests bypass stdin via /dev/tty; degraded (no tty) they
 /// deny with a hint on stderr. `--yolo` is the unattended master switch.
-/// `CETAS_HOME` overrides the cetas home directory (default `HOME`). A model
+/// `CETAS_HOME` overrides the cetas home directory (default: platform home —
+/// `USERPROFILE` on Windows, `HOME` elsewhere). A model
 /// provider must be configured — startup fails loudly with exit code 2.
+/// So does a `--model` that names no configured slot (the message lists the
+/// valid `provider/model` slot ids) or an `--effort` the active slot
+/// rejects (the message lists that slot's supported efforts): a one-shot
+/// run must never silently fall back to the settings.json selection.
 /// Exit codes: 0 the turn completed; 1 the turn failed; 2 startup/usage.
 
 ///|
@@ -19,7 +27,7 @@
 extern "C" fn exit(code : Int) = "exit"
 
 ///|
-const USAGE : String = "usage: cetas-headless [--model <id>] [--effort <level>] [--session <id>] [--goal <condition>] [--yolo | --permission <readonly|workspace_write|interactive>] [--jsonl] [-- \"<task>\"]\n"
+const USAGE : String = "usage: cetas-headless [--model <id>] [--effort <level>] [--session <id>] [--yolo | --permission <readonly|workspace_write|interactive>] [--jsonl] [--verbose] [--stream] [-- \"<task>\"]\n"
 
 ///|
 async fn main {
@@ -37,14 +45,7 @@ async fn main {
       abort("cetas-headless: unreachable after exit")
     }
   }
-  let home = match @env.get_env_var("CETAS_HOME") {
-    Some(value) if value != "" => value
-    _ =>
-      match @env.get_env_var("HOME") {
-        Some(value) => value
-        None => "."
-      }
-  }
+  let home = @cetas_core.cetas_home()
   let cwd = match @env.current_dir() {
     Some(dir) => dir
     None => "."
@@ -111,57 +112,77 @@ async fn main {
       _ => ()
     }
   }
-  // The `--jsonl` structured face: the observer rides the composition as a
-  // tail extension and buffers event lines; the single-turn runner drains
-  // them to stdout after the turn. Without `--jsonl` nothing changes.
+  let write_err = async fn(text : String) noraise {
+    @stdio.stderr.write(text) catch {
+      _ => ()
+    }
+  }
+  // The structured face and the process trace ride the composition as tail
+  // extensions; the single-turn runner wires each to a live pump so every
+  // unit (event line / trace piece) is written the moment it completes.
+  // `--jsonl`: stdout becomes the pure event stream. `--verbose` (implied
+  // by `--stream`): the human trace on stderr. Neither: nothing changes.
   let observer : @lib.JsonlObserver? = if cli.jsonl {
-    Some(@lib.JsonlObserver::JsonlObserver())
+    Some(@lib.JsonlObserver::JsonlObserver(stream=cli.stream))
   } else {
     None
   }
-  let tail_exts : Array[&@posoco.Extension] = match observer {
-    Some(obs) => [obs as &@posoco.Extension]
-    None => []
+  let trace : @lib.TraceObserver? = if cli.verbose {
+    Some(@lib.TraceObserver::TraceObserver(stream=cli.stream))
+  } else {
+    None
   }
-  // The whole lifecycle runs inside one task group (the group's parameter
-  // is pinned to Unit — the MCP runtime rides it): compose, announce the
-  // session, run the single turn, shut down, exit by outcome.
-  let failed : Array[Bool] = [false]
-  @async.with_task_group(group => {
-    let host = @lib.CetasHeadlessHost(
-      home~,
-      cwd~,
-      mode=@lib.resolve_permission_mode(cli),
-      approval~,
-      ui~,
-      model_override=cli.model,
-      effort_override=cli.effort,
-      session_id=cli.session_id,
-      goal=cli.goal,
-      mcp_group=Some(group),
-      tail_exts~,
-      tty~,
-    ) catch {
-      error => {
-        @stdio.stderr.write(
-          "cetas-headless: agent composition failed: \{error.to_string()}\n",
-        )
-        exit(2)
-        abort("cetas-headless: unreachable after exit")
-      }
+  let tail_exts : Array[&@posoco.Extension] = match (observer, trace) {
+    (Some(obs), Some(tr)) =>
+      [obs as &@posoco.Extension, tr as &@posoco.Extension]
+    (Some(obs), None) => [obs as &@posoco.Extension]
+    (None, Some(tr)) => [tr as &@posoco.Extension]
+    (None, None) => []
+  }
+  // Compose, announce the session, run the single turn, shut down, exit by
+  // outcome.
+  let host = @lib.CetasHeadlessHost(
+    home~,
+    cwd~,
+    mode=@lib.resolve_permission_mode(cli),
+    approval~,
+    ui~,
+    model_override=cli.model,
+    effort_override=cli.effort,
+    session_id=cli.session_id,
+    tail_exts~,
+    // Every remaining composition warn reaches stderr — nothing degrades
+    // silently in a one-shot run.
+    warn=write_err,
+  ) catch {
+    @posoco.CompositionError::ManifestSchemaError(manifest_id~, detail~) if manifest_id.has_suffix(
+        ".model_override",
+      ) => {
+      @stdio.stderr.write("cetas-headless: \{detail}\n")
+      exit(2)
+      abort("cetas-headless: unreachable after exit")
     }
-    failed[0] = @lib.run_one_turn(
-      agent=host.agent,
-      session_id=host.session_id,
-      task~,
-      jsonl=observer,
-      write_out~,
-    )
-    host.agent.shutdown()
-  })
+    error => {
+      @stdio.stderr.write(
+        "cetas-headless: agent composition failed: \{error.to_string()}\n",
+      )
+      exit(2)
+      abort("cetas-headless: unreachable after exit")
+    }
+  }
+  let failed = @lib.run_one_turn(
+    agent=host.agent,
+    session_id=host.session_id,
+    task~,
+    jsonl=observer,
+    trace~,
+    write_out~,
+    write_err~,
+  )
+  host.agent.shutdown()
   // Exit codes: 0 the turn completed, 1 the turn failed; startup/usage
   // failures above keep exit 2.
-  if failed[0] {
+  if failed {
     exit(1)
   }
 }

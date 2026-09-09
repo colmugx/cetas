@@ -31,6 +31,8 @@ test "cli defaults: no flags means the interactive default posture" {
   assert_eq(cli.session_id, "")
   assert_false(cli.yolo)
   assert_false(cli.jsonl)
+  assert_false(cli.verbose)
+  assert_false(cli.stream)
   assert_true(cli.permission_mode is None)
   assert_eq(cli.task, "")
   assert_true(resolve_permission_mode(cli) is @permission.WorkspaceWrite)
@@ -109,6 +111,31 @@ test "cli --jsonl switches stdout to the event stream face" {
   assert_true(
     match solo {
       Ok(cli) => cli.jsonl && cli.yolo
+      Err(_) => false
+    },
+  )
+}
+
+///|
+test "cli --verbose and --stream: stream implies verbose, both default off" {
+  let cli = match parse_headless_cli(["--verbose", "--", "task"]) {
+    Ok(cli) => cli
+    Err(message) => fail("--verbose must parse: \{message}")
+  }
+  assert_true(cli.verbose)
+  assert_false(cli.stream)
+  let streamed = match parse_headless_cli(["--stream", "--", "task"]) {
+    Ok(cli) => cli
+    Err(message) => fail("--stream must parse: \{message}")
+  }
+  // --stream refines the trace, it does not replace it.
+  assert_true(streamed.verbose)
+  assert_true(streamed.stream)
+  // Both compose with --jsonl (delta events ride the machine face).
+  let combined = parse_headless_cli(["--jsonl", "--stream", "--", "task"])
+  assert_true(
+    match combined {
+      Ok(cli) => cli.jsonl && cli.verbose && cli.stream
       Err(_) => false
     },
   )

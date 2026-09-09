@@ -22,15 +22,12 @@ keywords = [ "cetas", "headless", "stdio", "one-shot", "agent" ]
 description = "Cetas headless host — runs exactly one cetas user turn per invocation (argv task or one stdin line) with a /dev/tty interactive bypass"
 
 import {
-  "colmugx/posoco@0.14.5",
+  "colmugx/posoco@0.15.0",
   "colmugx/cetas-core@0.2.0",
   "colmugx/posoco-devkit@0.3.0",
-  "colmugx/posoco-ext-goal@0.2.0",
+  "colmugx/posoco-ext-herdr@0.1.0",
   "colmugx/posoco-ext-llm@0.2.0",
-  "colmugx/posoco-ext-mcp@0.4.0",
   "colmugx/posoco-ext-permission@0.2.0",
-  "colmugx/posoco-ext-plan@0.3.0",
   "colmugx/posoco-ext-workspace@0.1.0",
-  "colmugx/posoco-ext-zcode@0.1.0",
   "moonbitlang/async@0.21.2",
 }
