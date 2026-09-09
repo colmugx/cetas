@@ -1593,48 +1593,6 @@ pub fn cetas_js_runtime_create_agent(
       Some(reporter) => exts.push(reporter as &@posoco.Extension)
       None => ()
     }
-    let subagent_tools : @subagent.SubagentTools? = if @cetas_core.compiled_flavor() ==
-      "personal" {
-      // Subagent delegation is personal-only and untested in the wild; the
-      // compile-time flavor gate folds this block out of public builds.
-      let catalogs = cached_provider_catalogs(runtime)
-      let selection = @cetas_core.read_active_model_selection(
-        context_fs,
-        home=runtime.config.home,
-      )
-      // Same facts the parent router was built from, so a child composes
-      // over the identical catalogs/credentials/session store ("same cetas").
-      let platform : @cetas_core.CetasPlatform = {
-        home: runtime.config.home,
-        cwd: runtime.config.cwd,
-        fs: context_fs,
-        catalogs,
-        default_slot_id: @cetas_core.resolve_default_slot_id(
-          catalogs, selection,
-        ),
-        persisted_effort: match selection {
-          Some({ effort: Some(effort), .. }) => Some(effort)
-          _ => None
-        },
-        permission_mode: mode,
-        credential_store: cred_store,
-        session_store: store,
-        refreshables: [],
-        refresh_snapshot: @cetas_core.ProviderCredentialSnapshot::ProviderCredentialSnapshot(),
-        mcp_group: None,
-      }
-      let tools = @subagent.SubagentTools(
-        catalog=@kind.KindCatalog::builtin(),
-        config=@kit.SubagentConfig::defaults(),
-        composer=PlatformChildComposer::PlatformChildComposer(platform~)
-          as &@subagent.ChildComposer,
-        parent_slot=platform.default_slot_id,
-      )
-      exts.push(tools as &@posoco.Extension)
-      Some(tools)
-    } else {
-      None
-    }
     // Personal host opt-in: zcode delegation registers when detected, degrades to absent otherwise.
     if @cetas_core.compiled_flavor() == "personal" {
       let zcode_ext = @zcode.zcode_ext_if_detected(
@@ -1783,12 +1741,6 @@ pub fn cetas_js_runtime_create_agent(
     )
     // The guard re-runs turns itself, so it needs the composed agent.
     ratelimit.bind(agent)
-    // Background subagent results ride the parent's follow-up queue; without
-    // the bind they fail closed with a model-visible refusal.
-    match subagent_tools {
-      Some(tools) => tools.bind_parent(agent)
-      None => ()
-    }
     {
       agent,
       router: model,
