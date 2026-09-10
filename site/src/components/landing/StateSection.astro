@@ -1,0 +1,4 @@
+---
+const state=[['settings','settings.json'],['credentials','credentials'],['MCP configuration','mcp.json'],['sessions','sessions/'],['model selection','model + effort']];
+---
+<section class="section"><div class="site-container state-section"><div class="state-copy"><div class="section-kicker">Cetas home</div><h2>A familiar home,<br/>wherever you enter.</h2><p>Cetas keeps durable configuration and state under <code>~/.cetas/</code>. Provider settings, credentials, MCP configuration, sessions, and active model selection share the same home.</p></div><div class="state-window" aria-label="Cetas home state"><div class="state-path">~/.cetas/</div><div class="state-list">{state.map(([title,file])=><div class="state-item"><strong>{title}</strong><span>{file}</span></div>)}</div></div></div></section>
