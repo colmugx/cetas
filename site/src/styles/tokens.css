@@ -1,11 +1,47 @@
 :root {
+  color-scheme: light;
   --cetas-font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --cetas-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  --cetas-accent: oklch(0.58 0.16 250);
-  --cetas-accent-soft: oklch(0.95 0.025 250);
+
+  --background: #f8f4ec;
+  --foreground: #201d19;
+  --muted: #6d665d;
+  --muted-foreground: #81796f;
+  --surface: #fffdf8;
+  --surface-strong: #f1eadf;
+  --border: #ddd4c7;
+  --border-strong: #c8bcad;
+  --accent: #d46f3f;
+  --accent-hover: #ba5b32;
+  --accent-soft: #f8dfce;
+  --accent-ink: #6f2f18;
+  --success: #47745a;
+  --code-bg: #24221f;
+  --code-fg: #f8f2e8;
+  --shadow-soft: 0 18px 60px rgb(59 43 28 / 0.09);
+  --shadow-card: 0 8px 28px rgb(59 43 28 / 0.07);
+
+  --cetas-accent: var(--accent);
+  --cetas-accent-soft: var(--accent-soft);
 }
 
 :root[data-theme='dark'] {
-  --cetas-accent: oklch(0.72 0.13 250);
-  --cetas-accent-soft: oklch(0.24 0.035 250);
+  color-scheme: dark;
+  --background: #1c1a18;
+  --foreground: #f4eee5;
+  --muted: #b7aea2;
+  --muted-foreground: #9b9288;
+  --surface: #24211e;
+  --surface-strong: #2d2925;
+  --border: #3d3832;
+  --border-strong: #554c43;
+  --accent: #ef9467;
+  --accent-hover: #f3a27a;
+  --accent-soft: #492b20;
+  --accent-ink: #ffd7c2;
+  --success: #7fb08d;
+  --code-bg: #11100f;
+  --code-fg: #f8f2e8;
+  --shadow-soft: 0 18px 60px rgb(0 0 0 / 0.24);
+  --shadow-card: 0 8px 28px rgb(0 0 0 / 0.18);
 }
