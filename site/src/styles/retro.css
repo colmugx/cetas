@@ -1,0 +1,158 @@
+/* Light-touch 1-bit / 8-bit references. Keep the product site readable first. */
+.marketing-shell {
+  position: relative;
+  isolation: isolate;
+}
+
+.marketing-shell::before {
+  position: fixed;
+  z-index: -1;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--foreground) 3%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--foreground) 3%, transparent) 1px, transparent 1px);
+  background-size: 24px 24px;
+  content: '';
+  pointer-events: none;
+  mask-image: linear-gradient(to bottom, rgb(0 0 0 / .6), transparent 72%);
+}
+
+.brand {
+  gap: 11px;
+}
+
+/* Brand artwork is intentionally left undecorated. */
+.brand-logo,
+.hero-logo {
+  display: block;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.brand-logo {
+  width: 34px;
+  height: 34px;
+}
+
+.hero-logo {
+  width: 52px;
+  height: 52px;
+  margin-bottom: 18px;
+}
+
+.brand-word {
+  font-weight: 800;
+  letter-spacing: -.03em;
+}
+
+.eyebrow,
+.section-kicker,
+.hero-meta,
+.repo-path,
+.repo-badge,
+.state-path {
+  font-variant-numeric: tabular-nums;
+}
+
+.eyebrow::before,
+.section-kicker::before {
+  content: '[ ';
+  color: var(--muted-foreground);
+}
+
+.eyebrow::after,
+.section-kicker::after {
+  content: ' ]';
+  color: var(--muted-foreground);
+}
+
+.button {
+  border-radius: 9px;
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--foreground) 16%, transparent);
+}
+
+.button:hover {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 color-mix(in srgb, var(--foreground) 13%, transparent);
+}
+
+.button-primary {
+  border-color: var(--foreground);
+}
+
+.terminal-frame,
+.architecture-stage,
+.open-source-panel,
+.final-cta {
+  border-radius: 18px;
+}
+
+.terminal-frame::after,
+.open-source-panel::after {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  width: 34px;
+  height: 8px;
+  background: repeating-linear-gradient(90deg, rgb(255 255 255 / .12) 0 3px, transparent 3px 6px);
+  content: '';
+  pointer-events: none;
+}
+
+.terminal-tab {
+  border-radius: 6px;
+}
+
+.terminal-dots i {
+  border-radius: 2px;
+}
+
+.surface-card,
+.state-window,
+.subpage-card {
+  border-radius: 14px;
+}
+
+.surface-card,
+.subpage-card {
+  position: relative;
+}
+
+.surface-card::after,
+.subpage-card::after {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 5px;
+  height: 5px;
+  background: var(--border-strong);
+  box-shadow: -7px 0 0 var(--border), 0 7px 0 var(--border);
+  content: '';
+  opacity: .55;
+}
+
+.arch-node,
+.arch-core {
+  border-radius: 8px;
+}
+
+.repo-badge {
+  border-radius: 6px;
+}
+
+@media (max-width: 680px) {
+  .marketing-shell::before {
+    background-size: 20px 20px;
+  }
+
+  .hero-logo {
+    margin-bottom: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button:hover {
+    transform: none;
+  }
+}
