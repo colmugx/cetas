@@ -21,54 +21,29 @@
   gap: 11px;
 }
 
-/* The supplied mark already contains its own black rounded-square field.
-   Do not wrap it in another black tile or force nearest-neighbor scaling. */
-.brand-mark {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  box-shadow: 2px 2px 0 color-mix(in srgb, var(--foreground) 14%, transparent);
-  overflow: hidden;
+/* Brand artwork is intentionally left undecorated. */
+.brand-logo,
+.hero-logo {
+  display: block;
+  width: auto;
+  height: auto;
+  object-fit: contain;
 }
 
-.brand-mark img,
-.hero-brandline img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.brand-logo {
+  width: 34px;
+  height: 34px;
+}
+
+.hero-logo {
+  width: 52px;
+  height: 52px;
+  margin-bottom: 18px;
 }
 
 .brand-word {
   font-weight: 800;
   letter-spacing: -.03em;
-}
-
-.hero-brandline {
-  display: inline-flex;
-  align-items: center;
-  gap: 11px;
-  margin-bottom: 18px;
-  padding: 5px 10px 5px 5px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--surface) 84%, transparent);
-  color: var(--muted-foreground);
-  box-shadow: 2px 2px 0 color-mix(in srgb, var(--foreground) 8%, transparent);
-  font-family: var(--cetas-font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .12em;
-}
-
-.hero-brandline img {
-  width: 38px;
-  height: 38px;
-  border-radius: 8px;
 }
 
 .eyebrow,
@@ -171,7 +146,7 @@
     background-size: 20px 20px;
   }
 
-  .hero-brandline {
+  .hero-logo {
     margin-bottom: 14px;
   }
 }
