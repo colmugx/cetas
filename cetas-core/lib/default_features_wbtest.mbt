@@ -1,5 +1,5 @@
 ///|
-/// White-box tests for the ctx-injected default feature set: the six
+/// White-box tests for the ctx-injected default feature set: the seven
 /// context-free tools plus skills discovery through the injected Workspace
 /// port.
 
@@ -127,13 +127,16 @@ async test "default features include discovered skills through injected ctx" {
       ("/repo/.agents/skills/demo", ["SKILL.md"]),
     ]),
   }
-  let exts = build_default_features(ctx={ fs, cwd: "/repo", home: "/home/u", })
-  // The nine feature extensions (read/write/edit/glob/grep direct, the RTK
-  // hook, skills with the built-in manuals merged in, forme, handoff), the
-  // four toolless gateway views (bash, webfetch, nmem, obsidian), and the
-  // gateway itself — the default compiled flavor is personal, so all three
-  // flavor-gated extensions register.
-  assert_eq(exts.length(), 14)
+  let exts = build_default_features(
+    ctx={ fs, cwd: "/repo", home: "/home/u", },
+    obsidian_vault=Some("test-vault"),
+  )
+  // The ten feature extensions (read/write/edit/glob/grep/astgrep direct,
+  // the RTK hook, skills with the built-in manuals merged in, forme,
+  // handoff), the four toolless gateway views (bash, webfetch, nmem,
+  // obsidian), and the gateway itself — the default compiled flavor is
+  // personal, so all three flavor-gated extensions register.
+  assert_eq(exts.length(), 15)
   let ids : Array[String] = []
   for ext in exts {
     ids.push(ext.extension_id())
@@ -163,8 +166,8 @@ async test "nowledge-mem registers in the personal flavor" {
   }
   let ctx : HostContext = { fs, cwd: "/nowhere", home: "/home/u", }
   // Personal builds bake nmem in: the default set plus Nowledge Mem.
-  let exts = build_default_features(ctx~)
-  assert_eq(exts.length(), 14)
+  let exts = build_default_features(ctx~, obsidian_vault=Some("test-vault"))
+  assert_eq(exts.length(), 15)
   let mut found = false
   let mut gateway_tools = 0
   for ext in exts {
@@ -198,15 +201,14 @@ async test "default features register skills even with no discovered skills: the
     files: Map::from_array([]),
     dirs: Map::from_array([]),
   }
-  let exts = build_default_features(ctx={
-    fs,
-    cwd: "/nowhere",
-    home: "/home/u",
-  })
+  let exts = build_default_features(
+    ctx={ fs, cwd: "/nowhere", home: "/home/u", },
+    obsidian_vault=Some("test-vault"),
+  )
   // An empty environment still registers the skills extension: the built-in
   // manuals (cetas-about/usage/config) are merged into the catalog, so both
   // skill tools stay live and the `skills` command always has content.
-  assert_eq(exts.length(), 14)
+  assert_eq(exts.length(), 15)
   let mut found = false
   for ext in exts {
     if ext.extension_id() == "posoco_ext_skills" {
@@ -234,6 +236,7 @@ async test "forme registers with /help and its prompt note; host note flows thro
   let exts = build_default_features(
     ctx={ fs, cwd: "/nowhere", home: "/home/u", },
     host_help_note=Some("ESC — interrupt the turn"),
+    obsidian_vault=Some("test-vault"),
   )
   let mut found = false
   for ext in exts {
@@ -283,11 +286,11 @@ async test "ask_question registers only when the host supplies a UI port" {
     dirs: Map::from_array([]),
   }
   let ctx : HostContext = { fs, cwd: "/nowhere", home: "/home/u", }
-  // Without a UI port: the nine feature extensions (read/write/edit/glob/grep
-  // direct; RTK hook, skills, forme, handoff), the four gateway views, and
-  // the gateway ext — no ask_question.
-  let bare = build_default_features(ctx~)
-  assert_eq(bare.length(), 14)
+  // Without a UI port: the ten feature extensions (read/write/edit/glob/
+  // grep/astgrep direct; RTK hook, skills, forme, handoff), the four gateway
+  // views, and the gateway ext — no ask_question.
+  let bare = build_default_features(ctx~, obsidian_vault=Some("test-vault"))
+  assert_eq(bare.length(), 15)
   let bare_ids : Array[String] = []
   for ext in bare {
     bare_ids.push(ext.extension_id())
@@ -298,8 +301,9 @@ async test "ask_question registers only when the host supplies a UI port" {
   let with_ui = build_default_features(
     ctx~,
     ui=Some(HeadlessUi::{ } as &@posoco.UiPort),
+    obsidian_vault=Some("test-vault"),
   )
-  assert_eq(with_ui.length(), 15)
+  assert_eq(with_ui.length(), 16)
   let mut found = false
   for ext in with_ui {
     if ext.extension_id() == "posoco_ext_askquestion" {
@@ -326,6 +330,7 @@ async test "direct tool surface stays under ten; episodic tools defer" {
   let exts = build_default_features(
     ctx={ fs, cwd: "/nowhere", home: "/home/u", },
     ui=Some(HeadlessUi::{ } as &@posoco.UiPort),
+    obsidian_vault=Some("test-vault"),
   )
   let direct : Array[String] = []
   let mut gateway_meta = 0
@@ -341,12 +346,12 @@ async test "direct tool surface stays under ten; episodic tools defer" {
       }
     }
   }
-  // Direct surface: read/write/edit/glob/grep + the two skill tools +
-  // ask_question — eight. Shell rides behind the gateway too: permission
+  // Direct surface: read/write/edit/glob/grep/astgrep + the two skill tools
+  // + ask_question — nine. Shell rides behind the gateway too: permission
   // and rtk classify gateway calls by the inner tool name, so gating
   // semantics survive.
   assert_eq(gateway_meta, 2)
-  assert_eq(direct.length(), 8)
+  assert_eq(direct.length(), 9)
   // Episodic tools never appear directly: they are reachable only through
   // tool_execute (and discoverable via tool_list).
   assert_false(direct.contains("bash"))

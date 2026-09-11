@@ -33,6 +33,52 @@ test "sidecar_path rejects ids that cannot be filename stems" {
 }
 
 ///|
-test "cetas_home resolves to something usable on the host platform" {
-  assert_true(cetas_home() != "")
+/// The platform contract `cetas_home`'s chain rests on, pinned over injected
+/// values: the resolution core is pure, so this needs no process env (the
+/// former `cetas_home()` smoke test read the real environment).
+test "home resolution keeps the platform contract over injected env" {
+  // Unix: HOME.
+  assert_eq(
+    @devkit.home_dir_from_env(
+      windows=false,
+      home=Some("/home/u"),
+      userprofile=None,
+      homedrive=None,
+      homepath=None,
+    ),
+    Some("/home/u"),
+  )
+  // Windows deliberately ignores HOME: USERPROFILE first ...
+  assert_eq(
+    @devkit.home_dir_from_env(
+      windows=true,
+      home=Some("/home/u"),
+      userprofile=Some("C:\\Users\\u"),
+      homedrive=None,
+      homepath=None,
+    ),
+    Some("C:\\Users\\u"),
+  )
+  // ... then HOMEDRIVE+HOMEPATH.
+  assert_eq(
+    @devkit.home_dir_from_env(
+      windows=true,
+      home=Some("/home/u"),
+      userprofile=None,
+      homedrive=Some("C:"),
+      homepath=Some("\\Users\\u"),
+    ),
+    Some("C:\\Users\\u"),
+  )
+  // No home at all: None (cetas_home then degrades to ".").
+  assert_true(
+    @devkit.home_dir_from_env(
+      windows=false,
+      home=None,
+      userprofile=None,
+      homedrive=None,
+      homepath=None,
+    )
+    is None,
+  )
 }

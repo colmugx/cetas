@@ -244,7 +244,11 @@ async test "the session store buckets per cwd and its /name command reaches the 
   )
   // The store rides the session exts, so its /name command lands in the
   // composed agent's command table with no host-side wiring.
-  let session = build_cetas_session(platform=underscore, cwd="/a/b_c")
+  let session = build_cetas_session(
+    platform=underscore,
+    cwd="/a/b_c",
+    obsidian_vault=Some("test-vault"),
+  )
   let agent = compose_cetas_agent(session~)
   let mut name_registered = false
   for port in agent.commands() {
@@ -268,12 +272,17 @@ async test "the session assembly joins the host prompt suffix onto the cetas pro
     permission_mode=@permission.WorkspaceWrite,
   )
   let base = cetas_system_prompt(cwd="/w")
-  let plain = build_cetas_session(platform~, cwd="/w")
+  let plain = build_cetas_session(
+    platform~,
+    cwd="/w",
+    obsidian_vault=Some("test-vault"),
+  )
   assert_eq(plain.config.system_prompt, Some(base))
   let suffixed = build_cetas_session(
     platform~,
     cwd="/w",
     prompt_suffix=Some("## Delegated tasks"),
+    obsidian_vault=Some("test-vault"),
   )
   assert_eq(
     suffixed.config.system_prompt,
@@ -353,6 +362,7 @@ async test "bus_exts builds after the policy subscribes and lands in the routing
       seen_bus.push(bus)
       [BusExtProbe::{ } as &@posoco.Extension]
     }),
+    obsidian_vault=Some("test-vault"),
   )
   // The closure ran exactly once, over the session's bus.
   assert_eq(seen_bus.length(), 1)

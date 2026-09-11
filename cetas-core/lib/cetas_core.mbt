@@ -177,25 +177,27 @@ fn shell_platform_is_windows() -> Bool {
 }
 
 ///|
-/// Default feature set: read/write/edit/glob/grep/bash plus agent skills
-/// and (with `ui~`) the interactive ask_question tool. The flavor-gated
+/// Default feature set: read/write/edit/glob/grep/astgrep/bash plus agent
+/// skills and (with `ui~`) the interactive ask_question tool. The flavor-gated
 /// extensions (Nowledge Mem, RTK, Obsidian) register only in personal
 /// builds: the flavor table baked at compile time is the only gate, no
 /// runtime knob exists.
 ///
-/// The six file/shell tools are context-free constructors; skills needs the
-/// host process context (fs/cwd/home) for discovery, so the function takes
-/// `ctx~`. Knobs: `ui~` gates ask_question (a headless host omits it — an
-/// always-erroring tool would only pollute the model's tool list);
-/// `nmem_group~` starts nmem's background flusher; the unix shell is bash
-/// and Windows keeps ps1.
+/// The seven file/search/shell tools are context-free constructors; skills
+/// needs the host process context (fs/cwd/home) for discovery, so the
+/// function takes `ctx~`. Knobs: `ui~` gates ask_question (a headless host
+/// omits it — an always-erroring tool would only pollute the model's tool
+/// list); `nmem_group~` starts nmem's background flusher; `obsidian_vault~`
+/// injects the obsidian vault name so composition can avoid process env
+/// (`None` keeps the CETAS_OBSIDIAN contract); the unix shell is bash and
+/// Windows keeps ps1.
 ///
-/// Attention budget: the file tools, the two skill tools, and ask_question
-/// are the only tools in the model catalog; every episodic tool (shell,
-/// webfetch, nmem, obsidian) defers behind the lazytools gateway, whose
-/// tool_list / tool_execute are the sole route to it.
+/// Attention budget: the file tools, astgrep, the two skill tools, and
+/// ask_question are the only tools in the model catalog; every episodic tool
+/// (shell, webfetch, nmem, obsidian) defers behind the lazytools gateway,
+/// whose tool_list / tool_execute are the sole route to it.
 ///
-/// All six file/shell tools share one `WorkspaceAnchor` built from `ctx.cwd`:
+/// All seven direct tools share one `WorkspaceAnchor` built from `ctx.cwd`:
 /// relative paths in tool calls resolve against the launch directory instead
 /// of the host process's inherited cwd. The absolute root exists only on the
 /// host side — it never appears in model-visible prompts or tool results,
@@ -210,6 +212,7 @@ pub async fn build_default_features(
   ui? : &@posoco.UiPort? = None,
   nmem_group? : @async.TaskGroup[Unit]? = None,
   host_help_note? : String? = None,
+  obsidian_vault? : String? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
   let freshness = @devkit.FreshnessGuard::FreshnessGuard()
   let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
@@ -219,6 +222,7 @@ pub async fn build_default_features(
     @edit.EditTools(freshness~, anchor=Some(anchor)),
     @glob.GlobTools(anchor=Some(anchor)),
     @grep.GrepTools(anchor=Some(anchor)),
+    @astgrep.AstGrepTools(anchor=Some(anchor)) as &@posoco.Extension,
   ]
   // Episodic tools defer behind the lazytools gateway — including bash:
   // the gateway is the only shell surface the model sees, and both the
@@ -311,18 +315,22 @@ pub async fn build_default_features(
   )
   // Obsidian vault tools via the official Obsidian CLI. Preference-tied:
   // the flavor table bakes inclusion at compile time (public builds exclude
-  // it entirely). When enabled, the CETAS_OBSIDIAN value still names the
-  // vault: "on"/"1"/unset targets the active vault, any other non-"off"
-  // value names the vault (first CLI argument vault=<name>). Opting in
-  // grants whole-vault read/write; destructive writes (permanent delete,
-  // overwrite, heading replace/delete) still consent through the composed
-  // UI, and the extension degrades per-call when the CLI or the app is
-  // unavailable.
+  // it entirely). When enabled, the vault name comes from `obsidian_vault~`
+  // when given, else the CETAS_OBSIDIAN env contract applies: "on"/"1"/unset
+  // targets the active vault, any other non-"off" value names the vault
+  // (first CLI argument vault=<name>). Opting in grants whole-vault
+  // read/write; destructive writes (permanent delete, overwrite, heading
+  // replace/delete) still consent through the composed UI, and the extension
+  // degrades per-call when the CLI or the app is unavailable.
   if compiled_obsidian_enabled() {
-    let vault : String? = match @env.get_env_var("CETAS_OBSIDIAN") {
-      Some(value) if value != "on" && value != "1" && value != "off" =>
-        Some(value)
-      _ => None
+    let vault : String? = match obsidian_vault {
+      Some(name) => Some(name)
+      None =>
+        match @env.get_env_var("CETAS_OBSIDIAN") {
+          Some(value) if value != "on" && value != "1" && value != "off" =>
+            Some(value)
+          _ => None
+        }
     }
     episodic.push(
       @obsidian.ObsidianTools::new(

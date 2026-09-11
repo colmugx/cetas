@@ -26,6 +26,7 @@ import {
   "colmugx/posoco-ext-ps1@0.1.0",
   "colmugx/posoco-ext-glob@0.2.0",
   "colmugx/posoco-ext-grep@0.2.0",
+  "colmugx/posoco-ext-astgrep@0.1.0",
   "colmugx/posoco-ext-webfetch@0.1.0",
   "colmugx/posoco-ext-llm@0.2.0",
   "colmugx/posoco-ext-skills@0.2.0",

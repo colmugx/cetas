@@ -9,6 +9,7 @@ import {
   "colmugx/posoco-ext-ps1" @ps1,
   "colmugx/posoco-ext-glob" @glob,
   "colmugx/posoco-ext-grep" @grep,
+  "colmugx/posoco-ext-astgrep" @astgrep,
   "colmugx/posoco-ext-webfetch" @webfetch,
   "colmugx/posoco-ext-llm" @llm,
   "colmugx/posoco-ext-oauth" @oauth,
