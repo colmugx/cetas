@@ -24,17 +24,6 @@ Entries in this file are written by `scripts/release.py` at release time, as `##
 ### Feats
 - Herd progress reporting now runs on a dedicated delegate with a native backend channel for one-shot runs.
 
-## Unreleased
-
-## Bun Ver.（cetas-js/cetas-bun）
-
-### Feats
-
-- New `herdr_delegate` tool from posoco-ext-herdr 0.1.0: pane delegation to a depth-1 cetas-headless child over a herdr CLI channel (concurrency cap 4, readonly by default), wired env-gated at composition
-- `herdr_delegate` now contributes a herdr-context system-prompt section (pane identity + delegation strategy) via the SystemPromptContributor port, and its tool description carries when-to-use guidance
-- `herdr_delegate` gains a `direction` split argument (`right` default, `down`) and success-only auto-close of the child pane (`close_pane`, default true; close failure degrades to a note footer, and failures/timeouts never close the pane)
-- `herdr_delegate` flows `child_session` back to the parent on failure and (best-effort, read-failure-tolerant) timeout paths too — not just success — and its system-prompt section and tool description now require related tasks to reuse the same child session via the `session` argument
-
 ## 0.3.2 (2026-09-09)
 
 ## Bun Ver.（cetas-js/cetas-bun）
