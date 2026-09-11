@@ -292,6 +292,13 @@ fn tk_spawn_session(
 }
 
 ///|
+/// Closed env for test compositions: no CETAS_GOAL, no zcode detection,
+/// regardless of the host process's real environment.
+fn tk_no_env(_key : String) -> String? {
+  None
+}
+
+///|
 /// Host over a shared scripted model (steps consumed in call order); `store` wires a real JSONL root.
 fn tk_host(
   steps : Array[@posoco.ScriptedModelStep],
@@ -1883,7 +1890,7 @@ async test "the model cache seeds the native assembly's router slots" {
   ) catch {
     error => fail("platform assembly must succeed: " + error.to_string())
   }
-  let handle = build_session_agent(platform~, cwd="/") catch {
+  let handle = build_session_agent(platform~, cwd="/", env=tk_no_env) catch {
     error => fail("session assembly must succeed: " + error.to_string())
   }
   assert_eq(handle.router.list_slot_ids(), [
@@ -1906,7 +1913,7 @@ async test "an unreadable model cache degrades to the static single slot" {
   ) catch {
     error => fail("platform assembly must succeed: " + error.to_string())
   }
-  let handle = build_session_agent(platform~, cwd="/") catch {
+  let handle = build_session_agent(platform~, cwd="/", env=tk_no_env) catch {
     _ => fail("a corrupt cache must never fail composition")
   }
   assert_eq(handle.router.list_slot_ids(), ["opencode/claude-sonnet-5"])
@@ -1926,7 +1933,7 @@ async test "a session assembles over the platform task group and retires inside 
     ) catch {
       error => fail("platform assembly must succeed: " + error.to_string())
     }
-    let handle = build_session_agent(platform~, cwd="/") catch {
+    let handle = build_session_agent(platform~, cwd="/", env=tk_no_env) catch {
       error => fail("session assembly must succeed: " + error.to_string())
     }
     assert_eq(handle.cwd, "/")
@@ -1950,7 +1957,7 @@ async test "the production session assembly always carries nowledge mem" {
   ) catch {
     error => fail("platform assembly must succeed: " + error.to_string())
   }
-  let handle = build_session_agent(platform~, cwd="/") catch {
+  let handle = build_session_agent(platform~, cwd="/", env=tk_no_env) catch {
     error => fail("session assembly must succeed: " + error.to_string())
   }
   // nmem's tools fold behind the lazytools gateway, so the command surface
@@ -2680,12 +2687,13 @@ async test "params MCP servers degrade per-server without failing the session" {
     platform~,
     cwd="/w2-a",
     mcp_servers=injected,
+    env=tk_no_env,
   ) catch {
     error =>
       fail("per-server failures must never fail assembly: " + error.to_string())
   }
   assert_eq(session.cwd, "/w2-a")
-  let fallback = build_session_agent(platform~, cwd="/w2-b") catch {
+  let fallback = build_session_agent(platform~, cwd="/w2-b", env=tk_no_env) catch {
     error => fail("discover fallback must compose: " + error.to_string())
   }
   assert_eq(fallback.cwd, "/w2-b")
@@ -2712,6 +2720,7 @@ async test "http servers with an unmappable header never fail the session" {
     platform~,
     cwd="/w2-c",
     mcp_servers=injected,
+    env=tk_no_env,
   ) catch {
     error =>
       fail(
@@ -2754,7 +2763,12 @@ async test "union keeps an injected server and a distinct local server" {
   let platform = tk_mcp_platform() catch {
     error => fail("platform assembly must succeed: " + error.to_string())
   }
-  let session = build_session_agent(platform~, cwd~, mcp_servers=injected) catch {
+  let session = build_session_agent(
+    platform~,
+    cwd~,
+    mcp_servers=injected,
+    env=tk_no_env,
+  ) catch {
     error => fail("union assembly must compose: " + error.to_string())
   }
   assert_eq(session.cwd, cwd)
@@ -4825,7 +4839,12 @@ async test "session assembly wires the fs delegate by the resolved mode" {
   ) catch {
     error => fail("platform assembly must succeed: " + error.to_string())
   }
-  let plain = build_session_agent(platform~, cwd="/", session_id="cetas-a") catch {
+  let plain = build_session_agent(
+    platform~,
+    cwd="/",
+    session_id="cetas-a",
+    env=tk_no_env,
+  ) catch {
     error => fail("local assembly must succeed: " + error.to_string())
   }
   assert_true(plain.fs_delegate is None)
@@ -4843,6 +4862,7 @@ async test "session assembly wires the fs delegate by the resolved mode" {
     platform=delegated_platform,
     cwd="/",
     session_id="cetas-b",
+    env=tk_no_env,
   ) catch {
     error => fail("host assembly must succeed: " + error.to_string())
   }
@@ -4906,6 +4926,7 @@ async fn tk_spawn_with_host_kind(
     cwd~,
     mcp_servers=injected,
     host_kind=detect_host_kind(acp_mcp_server_names(injected)),
+    env=tk_no_env,
   )
 }
 
@@ -4976,7 +4997,7 @@ async test "no injection keeps the generic profile" {
   let platform = tk_mcp_platform() catch {
     error => fail("platform assembly must succeed: " + error.to_string())
   }
-  let _ = build_session_agent(platform~, cwd="/w4-plain") catch {
+  let _ = build_session_agent(platform~, cwd="/w4-plain", env=tk_no_env) catch {
     error => fail("plain session must assemble: " + error.to_string())
   }
   assert_true(detect_host_kind([]) is Generic)
@@ -5105,6 +5126,7 @@ async test "the catalog dump lands after an injected session assembly" {
     session_id="cetas-w21cat",
     mcp_servers=injected,
     host_kind=HostKind::Lody,
+    env=tk_no_env,
   ) catch {
     error =>
       fail("injected session assembly must succeed: " + error.to_string())
@@ -5137,6 +5159,7 @@ async test "the catalog dump covers the discover fallback" {
     platform~,
     cwd="/w21-b",
     session_id="cetas-w21disc",
+    env=tk_no_env,
   ) catch {
     error => fail("discover fallback must compose: " + error.to_string())
   }
@@ -5236,9 +5259,9 @@ async test "every wire record leads with a numeric epoch-ms ts" {
 test "the wire masks url query and userinfo" {
   assert_eq(
     debug_mask_url(
-      "https://user:secret@mcp.lody.dev/session/mcp?token=topsecret",
+      "https://user:secret@mcp.invalid/session/mcp?token=topsecret",
     ),
-    "https://[masked]@mcp.lody.dev/session/mcp",
+    "https://[masked]@mcp.invalid/session/mcp",
   )
   assert_eq(
     debug_mask_url("http://127.0.0.1:62370/mcp"),
@@ -5276,7 +5299,7 @@ async test "the wire's session/new record carries server transport detail" {
     mcp_servers: [
       Http({
         name: "lody",
-        url: "https://user:secret@mcp.lody.dev/session/mcp?token=topsecret",
+        url: "https://user:secret@mcp.invalid/session/mcp?token=topsecret",
         headers: [
           tk_header("Authorization", "Bearer tok"),
           tk_header("x-lody-task-tools", "1"),
@@ -5319,7 +5342,7 @@ async test "the wire's session/new record carries server transport detail" {
   assert_true(http.get("transport") is Some(Json::String("http")))
   match http.get("url") {
     Some(Json::String(url)) =>
-      assert_eq(url, "https://[masked]@mcp.lody.dev/session/mcp")
+      assert_eq(url, "https://[masked]@mcp.invalid/session/mcp")
     _ => fail("masked url missing")
   }
   match http.get("header_names") {

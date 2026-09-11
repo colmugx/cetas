@@ -1932,7 +1932,9 @@ fn goal_ext_from_env(value : String?) -> @goal.GoalRunner? {
 /// plan review, the fs-delegate shell, MCP discovery/union, the personal
 /// zcode opt-in, and the host profile prompt section. `session_store` is the
 /// session's project store (production resolves it per cwd; the platform's
-/// default store stands in for direct assembly callers).
+/// default store stands in for direct assembly callers). `env~` is the
+/// process-env seam behind the goal condition and zcode detection; the
+/// default reads the real environment, tests inject a closed map.
 async fn build_session_agent(
   platform~ : Platform,
   cwd~ : String,
@@ -1940,6 +1942,7 @@ async fn build_session_agent(
   session_store? : @fs_session.JsonlSessionStore = platform.session_store,
   mcp_servers? : Array[@acp.McpServer] = [],
   host_kind? : HostKind = HostKind::Generic,
+  env? : (String) -> String? = read_env_var,
 ) -> SessionHandle raise @posoco.CompositionError {
   // The router is built first so the bridge can stamp the active slot's
   // context window; the assembly reuses it instead of minting another.
@@ -2026,7 +2029,7 @@ async fn build_session_agent(
   )
   // Personal host holds goal: the condition arrives via CETAS_GOAL; no
   // driver loop this round, so regular turns are unaffected.
-  let goal = goal_ext_from_env(read_env_var("CETAS_GOAL"))
+  let goal = goal_ext_from_env(env("CETAS_GOAL"))
   let exts : Array[&@posoco.Extension] = [
     cetas,
     router as &@posoco.Extension,
@@ -2052,14 +2055,13 @@ async fn build_session_agent(
     exts.push(tool)
   }
   // Personal host opt-in: zcode delegation registers when detected, degrades to absent otherwise.
-  let zcode_ext = @zcode.zcode_ext_if_detected(
-    env=fn(key : String) { read_env_var(key) },
-    exists=async fn(path : String) -> Bool {
-      session_fs.exists(path) catch {
-        _ => false
-      }
-    },
-  ) catch {
+  let zcode_ext = @zcode.zcode_ext_if_detected(env~, exists=async fn(
+    path : String,
+  ) -> Bool {
+    session_fs.exists(path) catch {
+      _ => false
+    }
+  }) catch {
     _ => None
   }
   match zcode_ext {
