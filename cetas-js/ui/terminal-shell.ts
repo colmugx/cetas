@@ -33,6 +33,7 @@ import {
   type ProviderAuthCapability,
   type SessionTitle,
 } from "../src/app/index.ts";
+import type { CatalogRefreshSummary } from "../src/app/types.ts";
 import { newSessionId, sessionFilePath } from "../src/app/session-id.ts";
 import { PiCommands, piCommandArgItems } from "../src/app/pi-commands.ts";
 import { parseSessionReplay, type ReplayItem } from "../src/transcript/replay.ts";
@@ -70,7 +71,12 @@ import {
 } from "./extension-ui.ts";
 import { CommandLock } from "./command-lock.ts";
 import { banner } from "./primitives.ts";
-import { ModelPickerOverlay, parseModelPickerOutcome, type ModelSelection } from "./model-picker.ts";
+import {
+  formatPickCandidateNotices,
+  ModelPickerOverlay,
+  parseModelPickerOutcome,
+  type ModelSelection,
+} from "./model-picker.ts";
 import {
   SkillsOverlay,
   parseSkillActivation,
@@ -433,12 +439,48 @@ export class TerminalShell {
     // pass only sees the hardcoded entries; handleSnapshot refreshes once the
     // bridge catalog (with extension shortcuts) exists.
     this.refreshCommandShortcuts();
+    // The shell constructs before the application, so the background
+    // live-refresh summaries subscribe here instead of the options object.
+    // Optional call: attach also accepts minimal duck-typed app doubles in
+    // tests, which predate the registration seam.
+    app.setOnCatalogRefresh?.((summary) => this.handleCatalogRefresh(summary));
   }
 
-  /** Start application discovery and then enter pi-tui's render loop. */
+  /**
+   * Background live catalog-refresh summary. Policy: silent success (the
+   * refresh already hot-swapped the running agent's router MoonBit-side, so
+   * a success line is noise), loud failure — one ⚠ line per failed provider
+   * (the failure also persists MoonBit-side in catalog_issues and resurfaces
+   * in setup warnings).
+   */
+  private handleCatalogRefresh(summary: CatalogRefreshSummary): void {
+    for (const entry of summary.results) {
+      if (entry.status === "refreshed") continue;
+      this.addTranscriptChild(
+        errorNotice(
+          `⚠ ${entry.provider} catalog refresh failed: ${entry.reason ?? "unknown reason"} — keeping current slots`,
+        ),
+      );
+    }
+  }
+
+  /**
+   * Start application discovery and then enter pi-tui's render loop.
+   *
+   * TUI first: the render loop starts immediately with the command lock held
+   * ("starting cetas" in the status loader, submit disabled through the same
+   * commandBusy gate every command flow uses); app.start() then composes from
+   * local caches, resolves into handleSnapshot, and the lock release clears
+   * the transient indicator. No blank-terminal wait for provider catalogs —
+   * the all-provider refresh runs in the application's background task.
+   */
   async start(): Promise<AppSnapshot | undefined> {
     if (this.started) throw new Error("terminal shell is already started");
     const app = this.requireApp();
+    this.started = true;
+    this.commandLock.acquire("starting cetas");
+    this.tui.start();
+    this.tui.requestRender(true);
     let snapshot: AppSnapshot | undefined;
     try {
       snapshot = await app.start();
@@ -449,6 +491,9 @@ export class TerminalShell {
       this.handleSnapshot(app.snapshot());
       // Keep the shell alive so users can repair settings and retry `/login`.
       console.error("cetas-js setup failed", error);
+    } finally {
+      // Replaces the transient starting indicator and re-arms the editor.
+      this.commandLock.release();
     }
     // Providers whose catalog build failed are skipped, not fatal: tell the
     // user which ones are missing so the settings can be repaired while the
@@ -468,9 +513,6 @@ export class TerminalShell {
         );
       }
     }
-    this.started = true;
-    this.tui.start();
-    this.tui.requestRender(true);
     return snapshot;
   }
 
@@ -1125,6 +1167,10 @@ export class TerminalShell {
         await this.openModelPicker();
         return;
       }
+      if (rawArgs.trim() === "quick-pick") {
+        await this.openQuickModelPicker();
+        return;
+      }
       await this.invokeCommand("/model", rawArgs);
     },
     skills: async (rawArgs) => {
@@ -1262,6 +1308,40 @@ export class TerminalShell {
       );
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice(`/model failed: ${errorMessage(error)}`));
+      this.commandLock.release();
+    }
+  }
+
+  /** /model quick-pick — tabbed picker in quota mode; the catalog carries provider quota readings. */
+  private async openQuickModelPicker(): Promise<void> {
+    if (this.commandBusy) {
+      this.addTranscriptChild(errorNotice("/model cannot run while another command is active"));
+      return;
+    }
+    this.commandLock.acquire("loading model catalog");
+    try {
+      const outcome = parseModelPickerOutcome(
+        await this.requireApp().invokeCommand("model", JSON.stringify({ slot: "quick-pick" })),
+      );
+      if (outcome.type !== "success") {
+        this.renderOutcome(outcome, "/model");
+        this.commandLock.release();
+        return;
+      }
+      if (outcome.entries.length === 0) {
+        this.addTranscriptChild(errorNotice("/model quick-pick: provider returned an empty model catalog"));
+        this.commandLock.release();
+        return;
+      }
+      this.modelPicker.open(
+        outcome.entries,
+        (selection) => void this.applyModelSelection(selection),
+        () => this.commandLock.release(),
+        undefined,
+        "quota",
+      );
+    } catch (error: unknown) {
+      this.addTranscriptChild(errorNotice(`/model quick-pick failed: ${errorMessage(error)}`));
       this.commandLock.release();
     }
   }
@@ -1895,6 +1975,17 @@ export class TerminalShell {
       case "success":
         if (outcome.feedback !== undefined && outcome.feedback.length > 0) {
           this.addTranscriptChild(systemNotice(`${command}: ${outcome.feedback}`));
+        }
+        // `/model <provider> pick` announces its switch in the feedback;
+        // runner-up candidates are explicit notice content, not a dump.
+        if (
+          outcome.structured !== null &&
+          typeof outcome.structured === "object" &&
+          Array.isArray((outcome.structured as Record<string, unknown>).candidates)
+        ) {
+          for (const line of formatPickCandidateNotices(outcome.structured)) {
+            this.addTranscriptChild(systemNotice(line));
+          }
         }
         // /model and /effort return structured data for pickers (slot
         // catalog, effort levels); the status bar already reflects the

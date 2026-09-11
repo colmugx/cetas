@@ -84,6 +84,18 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
   }
 
   /**
+   * Live `/models` catalog refresh (compose-first startup). Unlike
+   * `refreshModelCatalogs` this never evicts a provider and never rejects:
+   * the MoonBit side updates its process/disk caches and hot-swaps the
+   * composed agent's router before resolving the summary JSON
+   * `{"results":[{"provider","status","slots"?,"reason"?}]}`. An empty
+   * selector refreshes all refreshable providers.
+   */
+  refreshModelListsLive(_config: CetasHostConfig, providerIdsJson: string): Promise<string> {
+    return moonbit.cetas_js_runtime_refresh_model_lists_live(this.runtimeValue, providerIdsJson);
+  }
+
+  /**
    * Scan `<home>/.cetas/pi-packages` and load each pi extension entry into
    * this runtime. Per-package failures are collected by the loader; this
    * never throws. The last summary is exposed as `piPackages` for the host

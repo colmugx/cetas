@@ -85,6 +85,24 @@ export interface AppSnapshot {
   piPackages?: PiPackagesSummary;
 }
 
+/** One provider's outcome from the background live catalog refresh. */
+export interface CatalogRefreshEntry {
+  provider: string;
+  status: "refreshed" | "failed";
+  /** Slots installed after a successful refresh; absent on failure. */
+  slots?: number;
+  /**
+   * Failure detail, or a non-fatal warning (e.g. "refreshed, but the live
+   * router swap failed: ..."); absent when there is nothing to explain.
+   */
+  reason?: string;
+}
+
+/** Parsed summary of one background live catalog refresh (`results` per provider). */
+export interface CatalogRefreshSummary {
+  results: readonly CatalogRefreshEntry[];
+}
+
 /** Wire-form inline image attachment (`media_type` + base64 `data`). */
 export interface ImageAttachment {
   media_type: string;
@@ -118,6 +136,16 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
     config: CetasHostConfig,
     providers?: readonly string[],
   ): Promise<ProviderSetupSnapshot>;
+  /**
+   * Background live catalog refresh for the compose-first startup. The
+   * bridge updates its process/disk caches and hot-swaps a composed agent's
+   * router slots, then resolves the summary JSON
+   * `{"results":[{"provider","status","slots"?,"reason"?}]}`. An empty
+   * `providerIdsJson` selects all refreshable providers. Never rejects:
+   * failures ride the summary. Optional — bridges without the live-refresh
+   * export skip the background task entirely.
+   */
+  refreshModelListsLive?(config: CetasHostConfig, providerIdsJson: string): Promise<string>;
   describeSetup(config: CetasHostConfig): Promise<ProviderSetupSnapshot>;
   /**
    * Last pi-package load summary, updated whenever the bridge (re)loads

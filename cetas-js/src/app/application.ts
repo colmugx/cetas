@@ -5,6 +5,7 @@ import {
   type AppState,
   type CetasAgentBridge,
   type CetasHostConfig,
+  type CatalogRefreshSummary,
   type CancellationToken,
   type CommandDescriptor,
   type ImageAttachment,
@@ -40,6 +41,13 @@ export interface CetasApplicationOptions<AgentHandle = unknown> {
   callbacks: AgentCallbacks;
   initialSessionId: string;
   onStateChange?: (snapshot: AppSnapshot) => void;
+  /**
+   * Summary of the once-per-instance background live catalog refresh
+   * (per-provider refreshed/failed entries). Hosts that attach the
+   * application after the renderer can register later via
+   * setOnCatalogRefresh instead.
+   */
+  onCatalogRefresh?: (summary: CatalogRefreshSummary) => void;
 }
 
 class ApplicationCancellation implements CancellationToken {
@@ -65,6 +73,12 @@ interface RateLimitMonitor<AgentHandle> {
   generation: number;
 }
 
+/** The once-per-instance background live catalog refresh task. */
+interface LiveCatalogRefreshTask {
+  controller: AbortController;
+  settled: Promise<void>;
+}
+
 /**
  * Application coordinator for cetas-js.
  *
@@ -83,8 +97,11 @@ export class CetasApplication<AgentHandle = unknown> {
   private lastError: string | undefined;
   /** Only an in-flight setup operation is cached; completed discovery is not. */
   private startPromise: Promise<AppSnapshot> | undefined;
-  /** A startup catalog refresh is attempted at most once per app instance. */
-  private startupRefreshAttempted = false;
+  /** Live catalog-refresh summaries (options-registered or attached later). */
+  private onCatalogRefresh: ((summary: CatalogRefreshSummary) => void) | undefined;
+  /** The background live refresh launches at most once per app instance. */
+  private liveRefreshStarted = false;
+  private liveCatalogRefresh: LiveCatalogRefreshTask | undefined;
   private activeTurn: Promise<string> | undefined;
   /** Abort controller for the in-flight turn; aborting interrupts the model fetch. */
   private activeAbort: AbortController | undefined;
@@ -133,6 +150,17 @@ export class CetasApplication<AgentHandle = unknown> {
       );
     }
     this.currentSessionId = options.initialSessionId;
+    this.onCatalogRefresh = options.onCatalogRefresh;
+  }
+
+  /**
+   * Register the live catalog-refresh summary handler. Hosts whose renderer
+   * is constructed before the application (terminal composition order) attach
+   * it here instead of the options object; a later registration replaces the
+   * options-provided handler.
+   */
+  setOnCatalogRefresh(handler: (summary: CatalogRefreshSummary) => void): void {
+    this.onCatalogRefresh = handler;
   }
 
   snapshot(): AppSnapshot {
@@ -196,16 +224,21 @@ export class CetasApplication<AgentHandle = unknown> {
     // `start` is idempotent once an Agent is ready. Call `refreshSetup` when
     // the caller explicitly wants to re-read settings or provider state.
     if (this.state === "ready") return Promise.resolve(this.snapshot());
-    // Catalog discovery is an explicit lifecycle operation. The bridge keeps
-    // a private per-application repository; startup is the only implicit
-    // all-provider refresh, and even a failed/empty attempt is not retried by
-    // calling start() again.
-    if (this.options.bridge.refreshModelCatalogs !== undefined) {
-      if (this.startupRefreshAttempted) return Promise.resolve(this.snapshot());
-      this.startupRefreshAttempted = true;
-      return this.beginSetup(false, []);
-    }
-    return this.beginSetup(false);
+    // Compose-first startup: discovery reads only what the local catalogs
+    // already hold (process cache, disk-cache seed) with no network await.
+    // The once-per-instance refresh of the configured providers runs as a
+    // cancellable background task once this settles; the MoonBit live-refresh
+    // entry persists the caches and hot-swaps the composed agent's router
+    // before its summary reaches the host. A failed composition does not
+    // suppress the launch — a fresh catalog can repair a needs_setup boot;
+    // a snapshot with zero configured providers has nothing to refresh and
+    // skips the task.
+    const promise = this.beginSetup(false);
+    void promise.then(
+      () => this.startLiveCatalogRefresh(),
+      () => this.startLiveCatalogRefresh(),
+    );
+    return promise;
   }
 
   /**
@@ -369,6 +402,90 @@ export class CetasApplication<AgentHandle = unknown> {
         `cetas-js setup failed: ${this.lastError}`,
         primaryError,
       );
+    }
+  }
+
+  /**
+   * Launch the once-per-instance background live catalog refresh (the
+   * rate-limit monitor idiom: an AbortController marks cancellation, the
+   * settled promise is a shutdown serialization barrier). Startup composed
+   * from local caches only; this task asks the configured providers for
+   * fresh `/models` lists, and the MoonBit entry has already persisted
+   * caches and hot-swapped the composed agent's router by the time the
+   * summary arrives.
+   */
+  private startLiveCatalogRefresh(): void {
+    if (this.liveRefreshStarted) return;
+    if ((this.state as AppState) === "shutting_down") return;
+    const bridge = this.options.bridge;
+    if (bridge.refreshModelListsLive === undefined) return;
+    // Refresh only the providers the settled setup snapshot reports as
+    // configured (its provider list is the logged-in subset); iterating
+    // unconfigured providers would surface "not configured" failures for
+    // providers the user never logged into. Zero configured providers means
+    // nothing to refresh: do not launch.
+    const configuredProviders = Array.from(
+      new Set(this.setup.providers.map((capability) => capability.provider)),
+    );
+    if (configuredProviders.length === 0) return;
+    this.liveRefreshStarted = true;
+    const controller = new AbortController();
+    const settled = Promise.resolve()
+      .then(() =>
+        bridge.refreshModelListsLive!(
+          this.options.config,
+          JSON.stringify(configuredProviders),
+        ),
+      )
+      .then(
+        (raw: string) => {
+          if (!controller.signal.aborted) this.handleLiveCatalogRefreshSummary(raw);
+        },
+        (error: unknown) => {
+          // The MoonBit entry resolves failures into its summary; a rejection
+          // can only be a bridge defect. Surface it without crashing the app.
+          if (controller.signal.aborted) return;
+          this.lastError = `live model catalog refresh failed: ${errorMessage(error)}`;
+          this.publish();
+        },
+      );
+    this.liveCatalogRefresh = { controller, settled };
+  }
+
+  /** Abort the live refresh and wait for it to settle (shutdown barrier). */
+  private stopLiveCatalogRefresh(): Promise<void> {
+    const task = this.liveCatalogRefresh;
+    if (task === undefined) return Promise.resolve();
+    this.liveCatalogRefresh = undefined;
+    task.controller.abort();
+    return task.settled;
+  }
+
+  private handleLiveCatalogRefreshSummary(raw: string): void {
+    let summary: CatalogRefreshSummary;
+    try {
+      summary = parseCatalogRefreshSummary(raw);
+    } catch (error: unknown) {
+      this.lastError = `live model catalog refresh returned an invalid summary: ${errorMessage(error)}`;
+      this.publish();
+      return;
+    }
+    // A fresh catalog can repair a first-boot needs_setup (no local cache).
+    // Recompose only when idle — the same busy guards an explicit
+    // refreshSetup enforces; its rejection path already surfaced the error.
+    if (
+      this.state === "needs_setup" &&
+      summary.results.some((entry) => entry.status === "refreshed") &&
+      this.activeTurn === undefined &&
+      this.activeCommand === undefined &&
+      this.startPromise === undefined
+    ) {
+      void this.refreshSetup().catch(() => undefined);
+    }
+    try {
+      this.onCatalogRefresh?.(summary);
+    } catch (callbackError: unknown) {
+      console.error("catalog refresh handler failed", callbackError);
     }
   }
 
@@ -1027,6 +1144,7 @@ export class CetasApplication<AgentHandle = unknown> {
     this.shutdownPromise = (async () => {
       let pendingError: unknown;
       await this.stopRateLimitMonitor(true);
+      await this.stopLiveCatalogRefresh();
       for (const pending of [pendingSetup, pendingTurn, pendingCommand]) {
         if (pending === undefined) continue;
         try {
@@ -1268,6 +1386,59 @@ function errorMessage(error: unknown): string {
 }
 
 /**
+ * Strict parse of the live-refresh bridge summary. `refreshed` entries must
+ * carry a numeric `slots`; `reason` stays optional on both statuses (the
+ * MoonBit side emits it only when there is something to explain, including
+ * non-fatal swap warnings on refreshed entries).
+ */
+function parseCatalogRefreshSummary(raw: string): CatalogRefreshSummary {
+  const value: unknown = JSON.parse(raw);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("catalog refresh summary must be an object");
+  }
+  const results = (value as Record<string, unknown>).results;
+  if (!Array.isArray(results)) {
+    throw new Error("catalog refresh summary must contain a results array");
+  }
+  return {
+    results: results.map((entry, index) => {
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+        throw new Error(`catalog refresh entry ${index} must be an object`);
+      }
+      const record = entry as Record<string, unknown>;
+      const provider = record.provider;
+      if (typeof provider !== "string") {
+        throw new Error(`catalog refresh entry ${index} must carry a provider id`);
+      }
+      if (record.status !== "refreshed" && record.status !== "failed") {
+        throw new Error(`catalog refresh entry ${index} has an unsupported status`);
+      }
+      const reason = record.reason;
+      if (reason !== undefined && reason !== null && typeof reason !== "string") {
+        throw new Error(`catalog refresh entry ${index} reason must be a string`);
+      }
+      if (record.status === "refreshed") {
+        const slots = record.slots;
+        if (typeof slots !== "number") {
+          throw new Error(`catalog refresh entry ${index} must carry a slot count`);
+        }
+        return {
+          provider,
+          status: record.status,
+          slots,
+          ...(typeof reason === "string" ? { reason } : {}),
+        };
+      }
+      return {
+        provider,
+        status: record.status,
+        ...(typeof reason === "string" ? { reason } : {}),
+      };
+    }),
+  };
+}
+
+/**
  * Optional `session_id` override for `/compact`; absence means the app's
  * session context decides (currentSessionId), never an active run id.
  */
@@ -1403,5 +1574,6 @@ export type {
   AgentCallbacks,
   CetasAgentBridge,
   CetasHostConfig,
+  CatalogRefreshSummary,
   CancellationToken,
 } from "./types.ts";

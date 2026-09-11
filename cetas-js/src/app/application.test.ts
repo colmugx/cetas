@@ -9,6 +9,7 @@ import type {
   CommandDescriptor,
   ProviderSetupSnapshot,
 } from "./index.ts";
+import type { CatalogRefreshSummary } from "./types.ts";
 
 const config: CetasHostConfig = { cwd: "/tmp/cetas-js-test", maxToolRounds: 4, home: "/tmp/cetas-js-home" };
 const callbacks: AgentCallbacks = {
@@ -116,7 +117,7 @@ describe("CetasApplication", () => {
     expect(app.appState).toBe("shutting_down");
   });
 
-  test("refreshes catalogs once at startup, never for /model, and only the logged-in provider", async () => {
+  test("composes startup from local catalogs and refreshes only the logged-in provider", async () => {
     const counters = { created: 0, runs: 0, shutdowns: 0 };
     const refreshes: (readonly string[] | undefined)[] = [];
     const setup: ProviderSetupSnapshot = {
@@ -159,44 +160,456 @@ describe("CetasApplication", () => {
       initialSessionId: "session-1",
     });
 
+    // Compose-first startup: discovery reads the local catalogs; the network
+    // refresh moved to the bridge's live-refresh background task.
     await app.start();
-    expect(refreshes).toEqual([undefined]);
+    expect(refreshes).toEqual([]);
     await app.invokeCommand("model", "{}");
-    expect(refreshes).toHaveLength(1);
+    expect(refreshes).toEqual([]);
     const login = await app.invokeCommand(
       "login",
       JSON.stringify({ provider: "kimi", method: "oauth" }),
     );
     expect(login).toContain("logged in");
-    expect(refreshes).toEqual([undefined, ["kimi"]]);
+    expect(refreshes).toEqual([["kimi"]]);
     await app.shutdown();
   });
 
-  test("does not retry a failed startup catalog refresh through start()", async () => {
+  test("start composes from local catalogs and launches the live refresh exactly once", async () => {
     const counters = { created: 0, runs: 0, shutdowns: 0 };
-    let refreshAttempts = 0;
-    const base = bridgeFor({ providers: [], oauthProviders: [] }, counters);
+    const setup: ProviderSetupSnapshot = {
+      providers: [
+        {
+          id: "deepseek/chat",
+          label: "DeepSeek Chat",
+          provider: "deepseek",
+          model: "deepseek-chat",
+          active: true,
+          efforts: [],
+          oauth: false,
+        },
+      ],
+      oauthProviders: [],
+      activeModelId: "deepseek/chat",
+    };
+    let catalogRefreshes = 0;
+    const liveSelectors: string[] = [];
+    let releaseLive!: (raw: string) => void;
+    const liveReleased = new Promise<string>((resolve) => {
+      releaseLive = resolve;
+    });
+    const summaries: CatalogRefreshSummary[] = [];
+    const base = bridgeFor(setup, counters);
     const app = new CetasApplication({
       bridge: {
         ...base,
         refreshModelCatalogs: async () => {
-          refreshAttempts += 1;
-          throw new Error("catalog endpoint unavailable");
+          catalogRefreshes += 1;
+          return setup;
+        },
+        refreshModelListsLive: async (_config, providerIdsJson) => {
+          liveSelectors.push(providerIdsJson);
+          return liveReleased;
+        },
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+      onCatalogRefresh: (summary) => {
+        summaries.push(summary);
+      },
+    });
+
+    expect((await app.start()).state).toBe("ready");
+    // Let the settle-hook microtasks launch the background task.
+    await Bun.sleep(1);
+    // Compose-first: startup never invoked the network catalog refresh.
+    expect(catalogRefreshes).toBe(0);
+    // The configured provider ids from the settled snapshot are the selector.
+    expect(liveSelectors).toEqual(['["deepseek"]']);
+    // A repeated start() is idempotent and never relaunches the task.
+    expect((await app.start()).state).toBe("ready");
+    await Bun.sleep(1);
+    expect(liveSelectors).toEqual(['["deepseek"]']);
+    // The summary rides the bridge string and reaches the callback parsed.
+    releaseLive(
+      JSON.stringify({
+        results: [{ provider: "deepseek", status: "refreshed", slots: 42 }],
+      }),
+    );
+    await Bun.sleep(1);
+    expect(summaries).toEqual([
+      { results: [{ provider: "deepseek", status: "refreshed", slots: 42 }] },
+    ]);
+    await app.shutdown();
+  });
+
+  test("a zero-configured snapshot never launches the live refresh", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const liveSelectors: string[] = [];
+    const app = new CetasApplication({
+      bridge: {
+        ...bridgeFor({ providers: [], oauthProviders: [] }, counters),
+        refreshModelListsLive: async (_config, providerIdsJson) => {
+          liveSelectors.push(providerIdsJson);
+          return JSON.stringify({ results: [] });
         },
       },
       config,
       callbacks,
       initialSessionId: "session-1",
     });
-    await expect(app.start()).rejects.toThrow("catalog endpoint unavailable");
+
     expect((await app.start()).state).toBe("needs_setup");
-    expect(refreshAttempts).toBe(1);
-    expect(app.snapshot().error).toBe("catalog endpoint unavailable");
+    await Bun.sleep(1);
+    expect(liveSelectors).toEqual([]);
+    // A retried start() on the same empty snapshot stays unlaunched.
+    expect((await app.start()).state).toBe("needs_setup");
+    await Bun.sleep(1);
+    expect(liveSelectors).toEqual([]);
+    await app.shutdown();
   });
 
-  test("invokes the startup catalog refresh with the bridge instance as receiver", async () => {
+  test("a refreshed summary recomposes needs_setup once the catalog is fresh", async () => {
     const counters = { created: 0, runs: 0, shutdowns: 0 };
-    const base = bridgeFor({ providers: [], oauthProviders: [] }, counters);
+    const setup: ProviderSetupSnapshot = {
+      providers: [
+        {
+          id: "deepseek/chat",
+          label: "DeepSeek Chat",
+          provider: "deepseek",
+          model: "deepseek-chat",
+          active: true,
+          efforts: [],
+          oauth: false,
+        },
+      ],
+      oauthProviders: [],
+      activeModelId: "deepseek/chat",
+    };
+    const liveSelectors: string[] = [];
+    let releaseLive!: (raw: string) => void;
+    const liveReleased = new Promise<string>((resolve) => {
+      releaseLive = resolve;
+    });
+    let compositions = 0;
+    const base = bridgeFor(setup, counters);
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        createAgent: async () => {
+          compositions += 1;
+          if (compositions === 1) throw new Error("transient composition failure");
+          return { id: "agent" };
+        },
+        refreshModelListsLive: async (_config, providerIdsJson) => {
+          liveSelectors.push(providerIdsJson);
+          return liveReleased;
+        },
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    // A failed first composition leaves needs_setup while the configured
+    // snapshot survives — the refreshable state the guard still launches for.
+    await expect(app.start()).rejects.toBeInstanceOf(CetasApplicationError);
+    expect(app.appState).toBe("needs_setup");
+    expect(compositions).toBe(1);
+    await Bun.sleep(1);
+    expect(liveSelectors).toEqual(['["deepseek"]']);
+    // The refreshed summary triggers the guarded refreshSetup recomposition.
+    releaseLive(
+      JSON.stringify({
+        results: [{ provider: "deepseek", status: "refreshed", slots: 7 }],
+      }),
+    );
+    await Bun.sleep(1);
+    expect(app.appState).toBe("ready");
+    expect(compositions).toBe(2);
+    await app.shutdown();
+  });
+
+  test("an all-failed summary leaves needs_setup alone but still reports", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const summaries: CatalogRefreshSummary[] = [];
+    const setup: ProviderSetupSnapshot = {
+      providers: [
+        {
+          id: "deepseek/chat",
+          label: "DeepSeek Chat",
+          provider: "deepseek",
+          model: "deepseek-chat",
+          active: true,
+          efforts: [],
+          oauth: false,
+        },
+      ],
+      oauthProviders: [],
+      activeModelId: "deepseek/chat",
+    };
+    const base = bridgeFor(setup, counters);
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        createAgent: async () => {
+          throw new Error("composition unavailable");
+        },
+        refreshModelListsLive: async () =>
+          JSON.stringify({
+            results: [
+              {
+                provider: "deepseek",
+                status: "failed",
+                reason: "catalog endpoint unavailable",
+              },
+            ],
+          }),
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+      onCatalogRefresh: (summary) => {
+        summaries.push(summary);
+      },
+    });
+
+    await expect(app.start()).rejects.toBeInstanceOf(CetasApplicationError);
+    await Bun.sleep(1);
+    // No refreshed entry: needs_setup is left alone, nothing recomposes, and
+    // the configured snapshot survives the all-failed summary.
+    expect(app.appState).toBe("needs_setup");
+    expect(app.snapshot().setup.providers).toHaveLength(1);
+    expect(summaries).toEqual([
+      {
+        results: [
+          {
+            provider: "deepseek",
+            status: "failed",
+            reason: "catalog endpoint unavailable",
+          },
+        ],
+      },
+    ]);
+    await app.shutdown();
+  });
+
+  test("a mid-turn refreshed summary is surfaced but skips recomposition", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    let discoveries = 0;
+    let markTurnStarted!: () => void;
+    let releaseTurn!: () => void;
+    const turnStarted = new Promise<void>((resolve) => {
+      markTurnStarted = resolve;
+    });
+    const turnReleased = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+    const setup: ProviderSetupSnapshot = {
+      providers: [
+        {
+          id: "deepseek/chat",
+          label: "DeepSeek Chat",
+          provider: "deepseek",
+          model: "deepseek-chat",
+          active: true,
+          efforts: [],
+          oauth: false,
+        },
+      ],
+      oauthProviders: [],
+      activeModelId: "deepseek/chat",
+    };
+    const summaries: CatalogRefreshSummary[] = [];
+    const base = bridgeFor(setup, counters);
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        describeSetup: async () => {
+          discoveries += 1;
+          return setup;
+        },
+        runTurn: async () => {
+          markTurnStarted();
+          await turnReleased;
+          return "reply";
+        },
+        refreshModelListsLive: async () =>
+          JSON.stringify({
+            results: [{ provider: "deepseek", status: "refreshed", slots: 8 }],
+          }),
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+      onCatalogRefresh: (summary) => {
+        summaries.push(summary);
+      },
+    });
+
+    await app.start();
+    expect(discoveries).toBe(1);
+    const turn = app.runTurn("hello");
+    await turnStarted;
+    await Bun.sleep(1);
+    // The summary still reaches the host; the busy guards keep the idle-only
+    // recomposition out of the running turn.
+    expect(summaries).toHaveLength(1);
+    expect(discoveries).toBe(1);
+    expect(counters.created).toBe(1);
+    releaseTurn();
+    await expect(turn).resolves.toBe("reply");
+    await app.shutdown();
+  });
+
+  test("shutdown cancels the live refresh and awaits its settle barrier", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    let releaseLive!: (raw: string) => void;
+    const liveReleased = new Promise<string>((resolve) => {
+      releaseLive = resolve;
+    });
+    const summaries: CatalogRefreshSummary[] = [];
+    const app = new CetasApplication({
+      bridge: {
+        ...bridgeFor(
+          {
+            providers: [
+              {
+                id: "deepseek/chat",
+                label: "DeepSeek Chat",
+                provider: "deepseek",
+                model: "deepseek-chat",
+                active: true,
+                efforts: [],
+                oauth: false,
+              },
+            ],
+            oauthProviders: [],
+          },
+          counters,
+        ),
+        refreshModelListsLive: async () => liveReleased,
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+      onCatalogRefresh: (summary) => {
+        summaries.push(summary);
+      },
+    });
+
+    await app.start();
+    await Bun.sleep(1);
+    let shutdownSettled = false;
+    const shutdown = app.shutdown().then(() => {
+      shutdownSettled = true;
+    });
+    await Bun.sleep(1);
+    // The live refresh is a shutdown serialization barrier: still pending.
+    expect(shutdownSettled).toBe(false);
+    // A late summary after cancellation is discarded, never dispatched.
+    releaseLive(
+      JSON.stringify({
+        results: [{ provider: "deepseek", status: "refreshed", slots: 9 }],
+      }),
+    );
+    await shutdown;
+    expect(summaries).toEqual([]);
+    expect(app.appState).toBe("shutting_down");
+  });
+
+  test("a rejecting live refresh surfaces an error and never rejects shutdown", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const app = new CetasApplication({
+      bridge: {
+        ...bridgeFor(
+          {
+            providers: [
+              {
+                id: "deepseek/chat",
+                label: "DeepSeek Chat",
+                provider: "deepseek",
+                model: "deepseek-chat",
+                active: true,
+                efforts: [],
+                oauth: false,
+              },
+            ],
+            oauthProviders: [],
+          },
+          counters,
+        ),
+        refreshModelListsLive: async () => {
+          throw new Error("ffi defect");
+        },
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    await app.start();
+    await Bun.sleep(1);
+    expect(app.snapshot().error).toBe("live model catalog refresh failed: ffi defect");
+    await expect(app.shutdown()).resolves.toBeUndefined();
+  });
+
+  test("a malformed live-refresh summary surfaces an error instead of crashing", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const app = new CetasApplication({
+      bridge: {
+        ...bridgeFor(
+          {
+            providers: [
+              {
+                id: "deepseek/chat",
+                label: "DeepSeek Chat",
+                provider: "deepseek",
+                model: "deepseek-chat",
+                active: true,
+                efforts: [],
+                oauth: false,
+              },
+            ],
+            oauthProviders: [],
+          },
+          counters,
+        ),
+        refreshModelListsLive: async () => "{\"results\":[{\"provider\":\"deepseek\"}]}",
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    await app.start();
+    await Bun.sleep(1);
+    expect(app.snapshot().error).toContain("invalid summary");
+    // The app stays composed and usable after the bridge defect.
+    expect(app.appState).toBe("ready");
+    await app.shutdown();
+  });
+
+  test("invokes the live catalog refresh with the bridge instance as receiver", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const base = bridgeFor(
+      {
+        providers: [
+          {
+            id: "deepseek/chat",
+            label: "DeepSeek Chat",
+            provider: "deepseek",
+            model: "deepseek-chat",
+            active: true,
+            efforts: [],
+            oauth: false,
+          },
+        ],
+        oauthProviders: [],
+      },
+      counters,
+    );
     class ClassBridge implements CetasAgentBridge<{ id: string }> {
       refreshes = 0;
       describeSetup = base.describeSetup;
@@ -208,9 +621,14 @@ describe("CetasApplication", () => {
       listCommands = base.listCommands;
       invokeCommand = base.invokeCommand;
       rewind = base.rewind;
-      async refreshModelCatalogs(): Promise<ProviderSetupSnapshot> {
+      refreshModelListsLive(
+        _config: CetasHostConfig,
+        _providerIdsJson: string,
+      ): Promise<string> {
+        // Receiver-binding regression: the app must call through the bridge
+        // object, never an unbound extracted method reference.
         this.refreshes += 1;
-        return { providers: [], oauthProviders: [] };
+        return Promise.resolve(JSON.stringify({ results: [] }));
       }
     }
     const bridge = new ClassBridge();
@@ -221,7 +639,8 @@ describe("CetasApplication", () => {
       initialSessionId: "session-1",
     });
 
-    expect((await app.start()).state).toBe("needs_setup");
+    expect((await app.start()).state).toBe("ready");
+    await Bun.sleep(1);
     expect(bridge.refreshes).toBe(1);
     await app.shutdown();
   });

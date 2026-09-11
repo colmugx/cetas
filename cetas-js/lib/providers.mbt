@@ -346,12 +346,16 @@ fn active_model_warning(
 /// loudly (the same file is already validated for `providers`). The shared
 /// event bus rides along so the router can publish model/token/cache status
 /// ops alongside the other cetas extensions.
+/// `extra_quota_sources` holds host-injected quota sources consulted before
+/// the devkit registry; codex is push-shaped, so registering it there would
+/// double-publish segments against CodexQuotaStatus.
 async fn build_provider_router(
   runtime : CetasJsRuntime,
   store : @credentials.FileProviderCredentialStore,
   auth : JsAuthInteraction,
   observer : &@posoco.Observer,
   bus? : @devkit.EventBus? = None,
+  extra_quota_sources? : Map[String, &@devkit.QuotaSource] = Map::from_array([]),
 ) -> @llm.RouterModelPort raise @posoco.CompositionError {
   let catalogs = cached_provider_catalogs(runtime)
   if catalogs.is_empty() {
@@ -382,6 +386,7 @@ async fn build_provider_router(
     provider_credential_store=Some(store as &@oauth.ProviderCredentialStore),
     auth_interaction=Some(auth as &@oauth.AuthInteraction),
     auth_prompt=Some(auth as &@oauth.AuthPromptInteraction),
+    extra_quota_sources~,
   )
   match selection {
     Some({ effort: Some(effort), .. }) =>
@@ -502,6 +507,272 @@ extern "js" fn js_random_uuid() -> String =
   #|   } catch {}
   #|   return "";
   #| }
+
+///|
+/// One `results` entry of the live-refresh summary, per the bridge contract:
+/// `{"provider": id, "status": "refreshed"|"failed", "slots"?: N, "reason"?: "..."}`
+/// (`slots` only on refresh, `reason` only when there is something to explain).
+fn live_refresh_entry(
+  provider_id : String,
+  status : String,
+  slots? : Int? = None,
+  reason? : String? = None,
+) -> Json {
+  let fields : Array[(String, Json)] = [
+    ("provider", Json::string(provider_id)),
+    ("status", Json::string(status)),
+  ]
+  match slots {
+    Some(count) => fields.push(("slots", Json::number(count.to_double())))
+    None => ()
+  }
+  match reason {
+    Some(detail) => fields.push(("reason", Json::string(detail)))
+    None => ()
+  }
+  Json::object(Map::from_array(fields))
+}
+
+///|
+fn live_refresh_summary(entries : Array[Json]) -> String {
+  Json::object(Map::from_array([("results", Json::array(entries))])).stringify()
+}
+
+///|
+/// Resolve the live-refresh inputs exactly like the forced path of
+/// `collect_provider_catalogs`: settings load + validation, one credential
+/// read per registered factory, and the settings-aware credential snapshot.
+/// The device id and refreshable factory registry are resolved by the caller,
+/// which needs them first to filter the selector against the refresh seams.
+async fn prepare_live_refresh(
+  runtime : CetasJsRuntime,
+) -> (Array[&@llm.ProviderFactory], @cetas_core.ProviderCredentialSnapshot) raise @posoco.CompositionError {
+  let settings = load_provider_settings(runtime)
+  let factories = @cetas_core.all_provider_factories(
+    @devkit.ExtContext::default(),
+    settings,
+  )
+  @cetas_core.validate_provider_settings(settings, factories)
+  let store = credential_store(runtime.config.home)
+  let credentials = read_credential_snapshot(store, factories)
+  let snapshot = @cetas_core.ProviderCredentialSnapshot::ProviderCredentialSnapshot(
+    settings~,
+    credentials~,
+  )
+  (factories, snapshot)
+}
+
+///|
+/// Resolve the live-refresh selector against the refreshable factory
+/// registry. An empty selector means every refreshable provider (`None`); an
+/// explicit selector keeps only ids that HAVE a refresh seam. Providers
+/// without one — e.g. custom openai-compatible endpoints from user settings,
+/// which are static config refresh does not apply to — are skipped silently:
+/// not refreshed, not warned, and absent from the summary. Only shape
+/// problems (malformed JSON, non-array selector, malformed ids) raise, so
+/// they ride the single `provider:""` entry like other genuine prep
+/// failures. This pre-filter is what keeps the cetas-core resolution error
+/// for unknown refresh ids from ever escaping the live path.
+fn live_refresh_selector(
+  raw : String,
+  refreshables : Array[&@llm.RefreshableProviderFactory],
+) -> Array[String]? raise @posoco.CompositionError {
+  if raw.length() == 0 {
+    return None
+  }
+  let refreshable_ids : Map[String, Unit] = Map::from_array([])
+  for refresh_factory in refreshables {
+    refreshable_ids[refresh_factory.provider_id()] = ()
+  }
+  let json = @json.parse(raw) catch {
+    _ =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id="cetas.providers",
+        detail="model refresh provider selector is not valid JSON",
+      )
+  }
+  let values = match json {
+    Json::Array(values) => values
+    _ =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id="cetas.providers",
+        detail="model refresh provider selector must be an array",
+      )
+  }
+  let ids : Array[String] = []
+  for value in values {
+    let provider_id = match value {
+      Json::String(value) if @cetas_core.valid_provider_id(value) => value
+      _ =>
+        raise @posoco.CompositionError::ManifestSchemaError(
+          manifest_id="cetas.providers",
+          detail="model refresh provider ids must be non-empty strings of letters, digits, '_', '-'",
+        )
+    }
+    if refreshable_ids.contains(provider_id) && !ids.contains(provider_id) {
+      ids.push(provider_id)
+    }
+  }
+  Some(ids)
+}
+
+///|
+/// Background-safe live model-catalog refresh (the cetas-acp
+/// `refresh_model_lists` semantics brought to cetas-js). Per refreshable
+/// provider, serially: refresh; success updates the process cache, persists
+/// the disk cache, and hot-swaps the composed agent's router via
+/// `replace_provider_slots` (the router preserves the active selection); a
+/// failure appends a `catalog_issues` warning and KEEPS the current cache
+/// entry — no eviction, deliberately diverging from the forced login-flow
+/// path. Providers without a refresh seam (e.g. custom openai-compatible
+/// endpoints from user settings) are skipped silently — refresh does not
+/// apply to them. This entry never raises: every failure rides the summary
+/// JSON.
+async fn refresh_model_lists_live(
+  runtime : CetasJsRuntime,
+  provider_ids_json : String,
+) -> String noraise {
+  // The refreshable registry is resolved first so the selector can be
+  // filtered against it BEFORE id resolution: ids without a refresh seam are
+  // dropped silently instead of reaching the cetas-core resolution that
+  // raises for them and collapses the whole refresh.
+  let device_id = if runtime.config.home.length() > 0 {
+    resolve_kimi_device_id(runtime.config.home)
+  } else {
+    ""
+  }
+  let refreshables = @cetas_core.refreshable_factories(
+    @devkit.ExtContext::default(),
+    device_id~,
+  )
+  let requested = live_refresh_selector(provider_ids_json, refreshables) catch {
+    err =>
+      return live_refresh_summary([
+        live_refresh_entry("", "failed", reason=Some(err.to_string())),
+      ])
+  }
+  let prepared = Ok(prepare_live_refresh(runtime)) catch {
+    err => Err(err.to_string())
+  }
+  let (factories, snapshot) = match prepared {
+    Ok(values) => values
+    Err(reason) =>
+      return live_refresh_summary([
+        live_refresh_entry("", "failed", reason=Some(reason)),
+      ])
+  }
+  refresh_model_lists_live_with(
+    runtime, factories, refreshables, snapshot, requested,
+  )
+}
+
+///|
+/// Serial per-provider live refresh over an explicit factory list (the
+/// seam tests inject fixture factories into). An empty selector refreshes
+/// every refreshable provider; providers without a refresh seam (e.g.
+/// custom openai-compatible endpoints from user settings) are skipped
+/// silently — refresh does not apply to them, so they are neither warned
+/// nor included in the summary.
+async fn refresh_model_lists_live_with(
+  runtime : CetasJsRuntime,
+  factories : Array[&@llm.ProviderFactory],
+  refreshables : Array[&@llm.RefreshableProviderFactory],
+  snapshot : @cetas_core.ProviderCredentialSnapshot,
+  requested : Array[String]?,
+) -> String noraise {
+  let refreshable_ids : Map[String, Unit] = Map::from_array([])
+  for refresh_factory in refreshables {
+    refreshable_ids[refresh_factory.provider_id()] = ()
+  }
+  let entries : Array[Json] = []
+  for factory in factories {
+    let provider_id = factory.provider_id()
+    let selected = match requested {
+      None => refreshable_ids.contains(provider_id)
+      Some(ids) => ids.contains(provider_id)
+    }
+    if !selected {
+      continue
+    }
+    let mut target : &@llm.RefreshableProviderFactory? = None
+    for candidate in refreshables {
+      if candidate.provider_id() == provider_id {
+        target = Some(candidate)
+      }
+    }
+    match target {
+      // No refresh seam: skipped silently. Custom openai-compatible
+      // providers are static config — refresh does not apply, so the id is
+      // not warned and stays out of the summary.
+      None => continue
+      Some(refresh_factory) => {
+        let outcome : Result[@llm.ProviderModelCatalog?, Error] = Ok(
+          @cetas_core.refresh_provider_catalog(refresh_factory, snapshot),
+        ) catch {
+          err => Err(err)
+        }
+        match outcome {
+          Err(err) => {
+            // Failure keeps the stale slots standing: record the warning for
+            // describe_setup, never evict, and ride the summary.
+            runtime.catalog_issues.push({
+              provider_id,
+              detail: err.to_string(),
+            })
+            entries.push(
+              live_refresh_entry(
+                provider_id,
+                "failed",
+                reason=Some(err.to_string()),
+              ),
+            )
+          }
+          Ok(None) =>
+            entries.push(
+              live_refresh_entry(
+                provider_id,
+                "failed",
+                reason=Some("not configured"),
+              ),
+            )
+          Ok(Some(catalog)) => {
+            runtime.catalog_cache[provider_id] = catalog
+            persist_model_list_cache(runtime.config.home, provider_id, catalog)
+            let mut swap_reason : String? = None
+            match runtime.live_router {
+              Some(router) => {
+                let swapped : Result[Unit, Error] = try {
+                  router.replace_provider_slots(provider_id, catalog.slots())
+                  Ok(())
+                } catch {
+                  error => Err(error)
+                }
+                match swapped {
+                  Ok(_) => ()
+                  Err(error) =>
+                    swap_reason = Some(
+                      "refreshed, but the live router swap failed: " +
+                      error.to_string(),
+                    )
+                }
+              }
+              None => ()
+            }
+            entries.push(
+              live_refresh_entry(
+                provider_id,
+                "refreshed",
+                slots=Some(catalog.slots().length()),
+                reason=swap_reason,
+              ),
+            )
+          }
+        }
+      }
+    }
+  }
+  live_refresh_summary(entries)
+}
 
 ///|
 /// Resolve the stable Kimi device id for this user. The id lives at

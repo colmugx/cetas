@@ -364,6 +364,27 @@ describe("handleObserverEvent FFI degrade path", () => {
   });
 });
 
+describe("handleCatalogRefresh transcript policy", () => {
+  test("refreshed entries are silent; failures keep one warning line", () => {
+    const { shell } = makeShell();
+    (shell as any).handleCatalogRefresh({
+      results: [
+        { provider: "deepseek", status: "refreshed", slots: 42 },
+        {
+          provider: "openai",
+          status: "failed",
+          reason: "catalog endpoint unavailable",
+        },
+      ],
+    });
+    const transcript = (shell as any).transcript.render(200).join("\n");
+    expect(transcript).not.toContain("model catalog refreshed");
+    expect(transcript).toContain(
+      "⚠ openai catalog refresh failed: catalog endpoint unavailable — keeping current slots",
+    );
+  });
+});
+
 describe("handleUiRequest FFI degrade path", () => {
   test("answers unparseable bytes with a malformed_request ui_response", async () => {
     const { shell } = makeShell();

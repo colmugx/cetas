@@ -23,6 +23,7 @@ import {
   "colmugx/posoco-ext-workspace" @workspace,
   "colmugx/posoco-ext-zcode" @zcode,
   "moonbitlang/async",
+  "moonbitlang/async/aqueue",
   "moonbitlang/async/js_async",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
@@ -30,6 +31,7 @@ import {
 
 import {
   "moonbitlang/async",
+  "moonbitlang/async/aqueue",
 } for "wbtest"
 
 warnings = "-unused_package"
@@ -43,6 +45,7 @@ options(
         "cetas_js_runtime_create_agent",
         "cetas_js_runtime_describe_setup",
         "cetas_js_runtime_refresh_model_catalogs",
+        "cetas_js_runtime_refresh_model_lists_live",
         "cetas_js_runtime_login_provider",
         "cetas_js_run_turn",
         "cetas_js_compact_session",
@@ -53,6 +56,7 @@ options(
         "cetas_js_rewind",
         "cetas_js_active_model_supports_images",
         "cetas_js_shutdown",
+        "cetas_js_herdr_release",
         "cetas_js_set_goal",
         "cetas_js_run_goal",
         "cetas_js_list_commands",

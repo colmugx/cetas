@@ -47,8 +47,17 @@ extern "js" fn js_kill_pid(pid : Int) -> Unit =
 
 ///|
 #cfg(target="js")
+extern "js" fn js_tmpdir() -> String =
+  #| () => require('node:os').tmpdir()
+
+///|
+#cfg(target="js")
 async test "js mcp login flow and startup token injection" {
-  let port_file = "test_fixtures/.http_port_mcp_login"
+  // Fixture artifacts (port file, project dir) live under a fresh tmpdir so
+  // the repo working tree stays clean; only the fixture script itself rides
+  // the repo-relative path.
+  let root = js_tmpdir() + "/cetas-js-mcp-login"
+  let port_file = root + "/.http_port_mcp_login"
   js_write_text_file(port_file, "")
   let pid = js_start_oauth_fixture(port_file).wait() catch { _ => -1 }
   if pid < 0 {
@@ -66,7 +75,7 @@ async test "js mcp login flow and startup token injection" {
     js_kill_pid(pid)
     fail("oauth fixture did not report a port")
   }
-  let dir = "test_fixtures/mcplogindir"
+  let dir = root + "/mcplogindir"
   js_write_text_file(
     dir + "/.mcp.json",
     "{\"mcpServers\":{\"oa\":{\"type\":\"http\",\"url\":\"http://127.0.0.1:" +

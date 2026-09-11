@@ -11,9 +11,13 @@
  */
 
 import { ProcessTerminal, TuiMainScreen } from "@earendil-works/pi-tui";
+import * as moonbit from "mbt:colmugx/cetas-js/lib";
 
 import { buildCetasHostConfig, CetasApplication } from "./src/app/index.ts";
-import { MoonbitCetasAgentBridge, resolvedSessionsDir } from "./src/app/moonbit-bridge.ts";
+import {
+  MoonbitCetasAgentBridge,
+  resolvedSessionsDir,
+} from "./src/app/moonbit-bridge.ts";
 import { newSessionId } from "./src/app/session-id.ts";
 import { TerminalShell, CETAS_TUI_HELP_NOTE } from "./ui/terminal-shell.ts";
 
@@ -54,10 +58,14 @@ async function main(): Promise<void> {
   });
   shell.attachApplication(app);
   process.on("SIGINT", () => shell.requestShutdown(0));
+  process.on("SIGTERM", () => shell.requestShutdown(0));
   await shell.start();
 }
 
 void main().catch((error: unknown) => {
   console.error("cetas-js fatal error", error);
+  // Composition may have registered the herdr presence authority before
+  // failing; no Agent lifecycle exists to release it, so drop it here.
+  moonbit.cetas_js_herdr_release();
   process.exit(1);
 });

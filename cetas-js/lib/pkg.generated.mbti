@@ -16,6 +16,7 @@ import {
   "colmugx/posoco/error",
   "colmugx/posoco/port",
   "colmugx/posoco/types",
+  "moonbitlang/async/aqueue",
   "moonbitlang/async/js_async",
 }
 
@@ -34,6 +35,8 @@ pub fn cetas_js_describe_setup(CetasJsConfig) -> @js_async.Promise[String]
 
 pub fn cetas_js_enqueue_follow_up(CetasJsAgent, String, String) -> String
 
+pub fn cetas_js_herdr_release() -> Unit
+
 pub fn cetas_js_invoke_command(CetasJsAgent, String, String) -> @js_async.Promise[String]
 
 pub fn cetas_js_list_commands(CetasJsAgent) -> String
@@ -48,6 +51,8 @@ pub fn cetas_js_pi_load_package(CetasJsRuntime, String) -> @js_async.Promise[Str
 
 pub fn cetas_js_refresh_model_catalogs(CetasJsConfig, String) -> @js_async.Promise[String]
 
+pub fn cetas_js_refresh_model_lists_live(CetasJsConfig, String) -> @js_async.Promise[String]
+
 pub fn cetas_js_rewind(CetasJsAgent, String, Int) -> @js_async.Promise[String]
 
 pub fn cetas_js_run_goal(CetasJsAgent, String) -> @js_async.Promise[String]
@@ -61,6 +66,8 @@ pub fn cetas_js_runtime_describe_setup(CetasJsRuntime) -> @js_async.Promise[Stri
 pub fn cetas_js_runtime_login_provider(CetasJsRuntime, String, JsCallback, JsUiRequestCallback, JsCancelCheck, String) -> @js_async.Promise[String]
 
 pub fn cetas_js_runtime_refresh_model_catalogs(CetasJsRuntime, String) -> @js_async.Promise[String]
+
+pub fn cetas_js_runtime_refresh_model_lists_live(CetasJsRuntime, String) -> @js_async.Promise[String]
 
 pub fn cetas_js_session_titles(String) -> @js_async.Promise[String]
 
@@ -97,6 +104,7 @@ pub struct CetasJsAgent {
   store : @posoco-ext-fs-session.JsonlSessionStore
   pi : @posoco-ext-pi-adaptor.PiAdaptor
   mut pi_session : String?
+  nmem_group_close : @aqueue.Queue[Unit]
 }
 
 pub(all) struct CetasJsConfig {
@@ -115,6 +123,7 @@ pub(all) struct CetasJsRuntime {
   mut catalog_issues : Array[@colmugx/cetas-core/lib.CatalogBuildIssue]
   mut goal_condition : String?
   mut pi : @posoco-ext-pi-adaptor.PiAdaptor?
+  mut live_router : @posoco-ext-llm.RouterModelPort?
 }
 pub fn CetasJsRuntime::CetasJsRuntime(CetasJsConfig) -> Self
 
