@@ -1,0 +1,4 @@
+---
+const surfaces=[['Terminal','A direct coding-agent experience in the shell.','cetas-js'],['Editor / ACP','Bring Cetas into ACP-compatible editors such as Zed.','cetas-acp'],['Headless','Run one user turn from scripts, automation, or another process.','cetas-headless']];
+---
+<section class="section" id="surfaces"><div class="site-container"><div class="section-heading"><div><div class="section-kicker">One Cetas</div><h2>Many ways in.</h2></div><p>These are not three separate agents. Each surface composes the same Cetas core and the same Posoco agent assembly.</p></div><div class="surface-grid">{surfaces.map(([title,detail,label])=><article class="surface-card"><div class="surface-icon" aria-hidden="true">⌘</div><h3>{title}</h3><p>{detail}</p><code>{label}</code></article>)}</div></div></section>
