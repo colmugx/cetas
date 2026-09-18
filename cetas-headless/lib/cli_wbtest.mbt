@@ -164,3 +164,39 @@ test "cli rejects unknown flags, stray arguments, and missing values" {
   assert_true(parse_headless_cli(["--session"]) is Err(_))
   assert_true(parse_headless_cli(["--permission"]) is Err(_))
 }
+
+///|
+test "cli rejects '--' as the value of every value-taking flag" {
+  assert_true(parse_headless_cli(["--model", "--", "task"]) is Err(_))
+  assert_true(parse_headless_cli(["--effort", "--", "task"]) is Err(_))
+  assert_true(parse_headless_cli(["--session", "--", "task"]) is Err(_))
+  assert_true(parse_headless_cli(["--permission", "--", "task"]) is Err(_))
+}
+
+///|
+test "cli '--'-value rejection names the flag and points at the value order" {
+  match parse_headless_cli(["--session", "--", "task"]) {
+    Err(message) => {
+      assert_true(message.contains("--session requires a value"))
+      assert_true(message.contains("put the value before"))
+    }
+    Ok(_) => fail("--session must not take '--' as its value")
+  }
+}
+
+///|
+test "cli --session '' is equivalent to omitting it: a fresh session id" {
+  let cli = match parse_headless_cli(["--session", "", "--", "fix the bug"]) {
+    Ok(cli) => cli
+    Err(message) => fail("explicit empty --session must parse: \{message}")
+  }
+  assert_eq(cli.session_id, "")
+  assert_eq(cli.task, "fix the bug")
+}
+
+///|
+test "cli --session followed directly by the task text stays rejected" {
+  // Before the '--' guard this failed as a stray argument; it must keep
+  // failing now that '--' is refused as a value.
+  assert_true(parse_headless_cli(["--session", "--", "ship it"]) is Err(_))
+}

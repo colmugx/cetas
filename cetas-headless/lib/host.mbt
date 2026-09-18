@@ -48,7 +48,11 @@ pub async fn CetasHeadlessHost::CetasHeadlessHost(
   session_id? : String = "",
   tail_exts? : Array[&@posoco.Extension] = [],
   fs? : &@workspace.WorkspaceFs? = None,
+  mcp_group? : @async.TaskGroup[Unit]? = None,
   label? : String = "cetas-headless",
+  /// Test-safety knob only (tests pass false so composition never shells
+  /// out to the real herdr CLI); production keeps the default.
+  detect_herdr? : Bool = true,
   warn? : async (String) -> Unit noraise = async fn(text : String) noraise {
     @stdio.stderr.write(text) catch {
       _ => ()
@@ -66,12 +70,15 @@ pub async fn CetasHeadlessHost::CetasHeadlessHost(
     permission_mode=mode,
     label~,
     warn~,
+    mcp_group~,
   )
   let client_exts : Array[&@posoco.Extension] = []
   // Headless reports presence to herdr when running inside a pane.
-  match @herdr.HerdrReporter::detect() {
-    Some(reporter) => client_exts.push(reporter as &@posoco.Extension)
-    None => ()
+  if detect_herdr {
+    match @herdr.HerdrReporter::detect() {
+      Some(reporter) => client_exts.push(reporter as &@posoco.Extension)
+      None => ()
+    }
   }
   let session = @cetas_core.build_cetas_session(
     platform~,

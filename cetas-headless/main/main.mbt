@@ -2,7 +2,8 @@
 /// cetas-headless — run exactly ONE cetas user turn per invocation.
 ///
 /// The task comes from `-- "<task>"` argv, or — when absent — from exactly
-/// one line read on stdin (EOF or an empty task is a usage error). Absent
+/// one line read on stdin (EOF or an empty task is a usage error). `--version`
+/// prints the version and exits. Absent
 /// `--session <id>` mints a fresh session; the id is printed as a
 /// `session: <id>` line on STDERR before the turn (or carried by the
 /// `turn_started` event under `--jsonl`) so drivers can continue the
@@ -22,6 +23,9 @@
 /// valid `provider/model` slot ids) or an `--effort` the active slot
 /// rejects (the message lists that slot's supported efforts): a one-shot
 /// run must never silently fall back to the settings.json selection.
+/// Startup/usage failures (exit 2) also print the
+/// `[cetas-headless] turn failed: ...` line first, so pane-based drivers can
+/// wait on it.
 /// Exit codes: 0 the turn completed; 1 the turn failed; 2 startup/usage.
 
 ///|
@@ -30,11 +34,20 @@
 extern "C" fn exit(code : Int) = "exit"
 
 ///|
+/// Release train version — kept in lockstep with the cetas VERSION file by
+/// `scripts/release.py` (the moon.mod of this package carries the same value).
+const CETAS_HEADLESS_VERSION = "0.4.0"
+
+///|
 const USAGE : String = "usage: cetas-headless [--model <id>] [--effort <level>] [--session <id>] [--yolo | --permission <readonly|workspace_write|interactive>] [--stream] [--verbose] [--show-thinking] [--jsonl] [-- \"<task>\"]\n"
 
 ///|
 async fn main {
   let args = @env.args()
+  if args.contains("--version") {
+    println("cetas-headless \{CETAS_HEADLESS_VERSION}")
+    return
+  }
   let argv : Array[String] = []
   for i = 1; i < args.length(); i = i + 1 {
     argv.push(args[i])
@@ -42,6 +55,7 @@ async fn main {
   let cli = match @lib.parse_headless_cli(argv) {
     Ok(cli) => cli
     Err(message) => {
+      @stdio.stderr.write(@lib.turn_failed_line("startup: " + message) + "\n")
       @stdio.stderr.write("cetas-headless: \{message}\n")
       @stdio.stderr.write(USAGE)
       exit(2)
@@ -103,6 +117,12 @@ async fn main {
     Some(task) => task
     None => {
       @stdio.stderr.write(
+        @lib.turn_failed_line(
+          "startup: no task given — pass -- \"<task>\" or pipe one line on stdin",
+        ) +
+        "\n",
+      )
+      @stdio.stderr.write(
         "cetas-headless: no task given — pass -- \"<task>\" or pipe one line on stdin\n",
       )
       @stdio.stderr.write(USAGE)
@@ -160,50 +180,61 @@ async fn main {
     None => ()
   }
   // Compose, announce the session, run the single turn, shut down, exit by
-  // outcome.
-  let host = @lib.CetasHeadlessHost(
-    home~,
-    cwd~,
-    mode=@lib.resolve_permission_mode(cli),
-    approval~,
-    ui~,
-    model_override=cli.model,
-    effort_override=cli.effort,
-    session_id=cli.session_id,
-    tail_exts~,
-    // Every remaining composition warn reaches stderr — nothing degrades
-    // silently in a one-shot run.
-    warn=write_err,
-  ) catch {
-    @posoco.CompositionError::ManifestSchemaError(manifest_id~, detail~) if manifest_id.has_suffix(
-        ".model_override",
-      ) => {
-      @stdio.stderr.write("cetas-headless: \{detail}\n")
-      exit(2)
-      abort("cetas-headless: unreachable after exit")
+  // outcome. The task group is the composition's lifecycle scope; extensions
+  // that attached to it (nowledge-mem's flusher) stop with the scope.
+  @async.with_task_group(group => {
+    let host = @lib.CetasHeadlessHost(
+      home~,
+      cwd~,
+      mode=@lib.resolve_permission_mode(cli),
+      approval~,
+      ui~,
+      model_override=cli.model,
+      effort_override=cli.effort,
+      session_id=cli.session_id,
+      tail_exts~,
+      // Every remaining composition warn reaches stderr — nothing degrades
+      // silently in a one-shot run.
+      warn=write_err,
+      mcp_group=Some(group),
+    ) catch {
+      @posoco.CompositionError::ManifestSchemaError(manifest_id~, detail~) if manifest_id.has_suffix(
+          ".model_override",
+        ) => {
+        @stdio.stderr.write(@lib.turn_failed_line("startup: " + detail) + "\n")
+        @stdio.stderr.write("cetas-headless: \{detail}\n")
+        exit(2)
+        abort("cetas-headless: unreachable after exit")
+      }
+      error => {
+        @stdio.stderr.write(
+          @lib.turn_failed_line(
+            "startup: agent composition failed: " + error.to_string(),
+          ) +
+          "\n",
+        )
+        @stdio.stderr.write(
+          "cetas-headless: agent composition failed: \{error.to_string()}\n",
+        )
+        exit(2)
+        abort("cetas-headless: unreachable after exit")
+      }
     }
-    error => {
-      @stdio.stderr.write(
-        "cetas-headless: agent composition failed: \{error.to_string()}\n",
-      )
-      exit(2)
-      abort("cetas-headless: unreachable after exit")
+    let failed = @lib.run_one_turn(
+      agent=host.agent,
+      session_id=host.session_id,
+      task~,
+      jsonl=observer,
+      streamer~,
+      verbose~,
+      write_out~,
+      write_err~,
+    )
+    host.agent.shutdown()
+    // Exit codes: 0 the turn completed, 1 the turn failed; startup/usage
+    // failures above keep exit 2.
+    if failed {
+      exit(1)
     }
-  }
-  let failed = @lib.run_one_turn(
-    agent=host.agent,
-    session_id=host.session_id,
-    task~,
-    jsonl=observer,
-    streamer~,
-    verbose~,
-    write_out~,
-    write_err~,
-  )
-  host.agent.shutdown()
-  // Exit codes: 0 the turn completed, 1 the turn failed; startup/usage
-  // failures above keep exit 2.
-  if failed {
-    exit(1)
-  }
+  })
 }

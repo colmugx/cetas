@@ -23,7 +23,9 @@ pub(all) struct HeadlessCli {
   model : String
   /// Run-scoped reasoning effort override; never persisted.
   effort : String
-  /// Existing session id to resume; "" mints a fresh session id.
+  /// Existing session id to resume; "" mints a fresh session id. An explicit
+  /// `--session ""` (empty string) is equivalent to omitting the flag — both
+  /// mint a fresh session id.
   session_id : String
   /// Unattended master switch: Yolo mode AND no terminal UI.
   yolo : Bool
@@ -86,17 +88,32 @@ pub fn parse_headless_cli(argv : Array[String]) -> Result[HeadlessCli, String] {
       if i >= argv.length() {
         return Err("--model requires a value (<provider/model>)")
       }
+      if argv[i] == "--" {
+        return Err(
+          "--model requires a value (<provider/model>); '--' starts the task — put the value before it",
+        )
+      }
       model = argv[i]
     } else if arg == "--effort" {
       i += 1
       if i >= argv.length() {
         return Err("--effort requires a value (<low|medium|high|...>)")
       }
+      if argv[i] == "--" {
+        return Err(
+          "--effort requires a value (<low|medium|high|...>); '--' starts the task — put the value before it",
+        )
+      }
       effort = argv[i]
     } else if arg == "--session" {
       i += 1
       if i >= argv.length() {
         return Err("--session requires a value (<session id>)")
+      }
+      if argv[i] == "--" {
+        return Err(
+          "--session requires a value (<session id>); '--' starts the task — put the value before it",
+        )
       }
       session_id = argv[i]
     } else if arg == "--yolo" {
@@ -114,6 +131,11 @@ pub fn parse_headless_cli(argv : Array[String]) -> Result[HeadlessCli, String] {
       if i >= argv.length() {
         return Err(
           "--permission requires a value: readonly|workspace_write|interactive",
+        )
+      }
+      if argv[i] == "--" {
+        return Err(
+          "--permission requires a value (readonly|workspace_write|interactive); '--' starts the task — put the value before it",
         )
       }
       match parse_permission_mode_str(argv[i]) {

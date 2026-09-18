@@ -67,6 +67,13 @@ pub fn single_line(text : String) -> String {
 }
 
 ///|
+/// The pane-visible failure line: fixed prefix plus a single-lined reason, so
+/// drivers can match one literal and never lose the reason to a line wrap.
+pub fn turn_failed_line(reason : String) -> String {
+  "[cetas-headless] turn failed: " + single_line(reason)
+}
+
+///|
 /// Resolve THE single task: an explicit argv task wins and stdin is never
 /// polled; otherwise exactly one line is read. The task is trimmed; `None`
 /// means no task (EOF, empty line, or blank argv task) and the caller exits
@@ -319,7 +326,7 @@ pub async fn run_one_turn(
             // stderr's terminal-state contract.
             write_terminal(
               err_queue,
-              "[cetas-headless] turn failed: \{single_line(error.to_string())}\n",
+              turn_failed_line(error.to_string()) + "\n",
               write=write_err,
             )
             write_terminal(err_queue, turn_marker(1) + "\n", write=write_err)

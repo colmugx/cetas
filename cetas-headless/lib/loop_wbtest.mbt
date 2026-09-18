@@ -482,3 +482,9 @@ test "the marker and single-line helpers are protocol-stable" {
   assert_eq(single_line("a\nb\r  c\td"), "a b c d")
   assert_eq(single_line("plain"), "plain")
 }
+
+///|
+test "turn_failed_line pins the pane-visible failure line with a collapsed reason" {
+  assert_eq(turn_failed_line("a  b\nc"), "[cetas-headless] turn failed: a b c")
+  assert_eq(turn_failed_line("boom"), "[cetas-headless] turn failed: boom")
+}
