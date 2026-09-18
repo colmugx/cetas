@@ -20,8 +20,8 @@ keywords = [ "cetas", "acp", "agent-client-protocol", "zed", "stdio" ]
 description = "Cetas ACP host — serves a cetas agent over stdio via Agent Client Protocol v1"
 
 import {
-  "colmugx/posoco@0.15.0",
-  "colmugx/acp@0.2.0",
+  "colmugx/posoco@0.17.0",
+  "colmugx/acp@0.2.1",
   "colmugx/posoco-ext-acp@0.3.0",
   "colmugx/posoco-ext-permission@0.2.0",
   "colmugx/cetas-core@0.2.0",

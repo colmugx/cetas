@@ -25,6 +25,8 @@ cd cetas-js
 bun run build
 ```
 
+<!-- 构建期 flavor 选择：`CETAS_FLAVOR`（public|personal）决定偏好相关的扩展（nowledge-mem、rtk、obsidian——cetas-bun 默认 public，moon 开发构建与 cetas-acp 默认 personal），`CETAS_PLATFORM`（windows|unix）决定 shell 工具；两者都烧进被 gitignore 的 `cetas-core/lib/build_config.mbt`，切换后请删除该文件（或 `moon clean`）再重新构建。 -->
+
 Provider 配置放在家目录下的 `.cetas/settings.json`。settings 对象会原样传给所选的 provider 扩展——Cetas 本身不解析 endpoint 或凭据。
 
 ### cetas-acp —— 从编辑器（Zed）驱动 Cetas
@@ -59,9 +61,53 @@ moon build --target native --release
 - `CETAS_HOME` 可覆盖 Cetas 主目录（settings、凭据、sessions）；默认取 `HOME`。
 - `<cwd>/.mcp.json`（覆盖 `~/.cetas/mcp.json`）声明的 MCP server 默认在第一轮才懒连接；设置 `CETAS_MCP_MODE=eager` 可改为启动时全部连接。
 
-### 发版
+### Extension 列表
 
-发版通过在仓库根目录运行 `python3 scripts/release.py` 完成：它根据 git 历史建议版本号，打开编辑器填写发版说明，同步 `VERSION` 与各组件版本文件，更新 `CHANGELOG.md`，并创建 `cetas-vX.Y.Z` 标签。推送该标签会触发 `.github/workflows/release.yml`，为 darwin-arm64 / windows-x64 / linux-x64 构建 cetas-bun（内嵌 Bun 的二进制）与 cetas-acp（原生二进制），并连同 SHA256SUMS 一起附到 GitHub Release。`python3 scripts/release.py check` 是版本一致性门禁。
+| Ext | cetas-bun | cetas-acp | cetas-headless |
+|---|---|---|---|
+| **Tools** | | | |
+| `posoco-ext-read` / `-write` / `-edit` | ✓ | ✓ | ✓ |
+| `posoco-ext-glob` / `-grep` | ✓ | ✓ | ✓ |
+| `posoco-ext-astgrep`（基于 ast-grep 的结构化代码搜索） | ✓ | ✓ | ✓ |
+| `posoco-ext-bash` / `-ps1` | ✓ | ✓ | ✓ |
+| `posoco-ext-webfetch` | ✓ | ✓ | ✓ |
+| `posoco-ext-askquestion` | ✓ | ✓ | ✓ |
+| `posoco-ext-skills` | ✓ | ✓ | ✓ |
+| `posoco-ext-handoff` | ✓ | ✓ | ✓ |
+| `cetas-ext-forme` | ✓ | ✓ | ✓ |
+| `posoco-ext-lazytools` | ✓ | ✓ | ✓ |
+| **Model ports** | | | |
+| `posoco-ext-deepseek` / `-kimi` / `-openai` / `-openai-compatible` / `-opencode-zen` / `-zai` / `-zai-coding-plan` / `-openrouter` | ✓ | ✓ | ✓ |
+| `posoco-kit-chat-completions` / `-responses` / `-compact-evict` / `-compact-summary` | ✓ (transitive) | ✓ (transitive) | ✓ (transitive) |
+| **Infrastructure** | | | |
+| `posoco-ext-llm` | ✓ | ✓ | ✓ |
+| `posoco-ext-oauth` | ✓ | ✓ | ✓ |
+| `posoco-ext-credentials` | ✓ | ✓ | ✓ |
+| `posoco-ext-context` | ✓ | ✓ | ✓ |
+| `posoco-ext-workspace` | ✓ | ✓ | ✓ |
+| `posoco-ext-fs-session` | ✓ | ✓ | ✓ |
+| `posoco-ext-permission` | ✓ | ✓ | ✓ |
+| `posoco-ext-ratelimit` | ✓ | ✓ | ✓ |
+| `posoco-devkit` | ✓ | ✓ | ✓ |
+| **Preference-tied** (baked per outlet) | | | |
+| `posoco-ext-nowledge-mem` | — | ✓ | ✓ |
+| `posoco-ext-rtk` | — | ✓ | ✓ |
+| `posoco-ext-obsidian` | — | — | — |
+| **Outlet-specific** | | | |
+| `posoco-ext-herdr` | ✓ (presence + `herdr_delegate`) | — | ✓ (presence only) |
+| `posoco-ext-mcp` | ✓ | ✓ | — |
+| `posoco-ext-plan` | ✓ | ✓ | — |
+| `posoco-ext-goal` | ✓ | ✓ | — |
+| `posoco-ext-statusbar` / `-stats` | ✓ | — | — |
+| `posoco-ext-pi-adaptor` | ✓ | — | — |
+| `posoco-ext-zcode` | — | ✓ ¹ | — |
+| `posoco-ext-acp` | — | ✓ | — |
+| `posoco-kit-lody` / `-paseo` | — | ✓ | — |
+| `posoco-kit-delegation` | — | ✓ (transitive) | — |
+
+> `posoco-ext-herdr`：cetas-headless 仅 presence 上报、永不持有
+> `herdr_delegate`——headless 是深度 1 叶子（2026-09-10 硬规则），被委派的
+> 子代理无法再委派；pane 委派工具只在 cetas-bun 组合。
 
 ### 共享状态——"同一个 Cetas"今天意味着什么
 

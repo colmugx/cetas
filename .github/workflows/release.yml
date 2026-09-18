@@ -1,5 +1,7 @@
 # Release pipeline for the cetas submodule (repo github.com/colmugx/cetas).
-# Tag builds publish cetas-acp and cetas-bun binaries plus a GitHub release.
+# Tag builds publish cetas-acp, cetas-headless, and cetas-bun binaries plus
+# a GitHub release, and publish cetas-bun to npm (platform payload packages
+# + meta package).
 #
 # Every build job checks out colmugx/posoco and points the embedded
 # external/cetas submodule at the tag being released. This stays correct
@@ -146,6 +148,56 @@ jobs:
             }
           }
 
+      - name: moon update (cetas-headless)
+        working-directory: posoco/external/cetas/cetas-headless
+        run: moon update
+
+      # same workspace _build root as cetas-acp (moon.work), own package dir
+      - name: moon build cetas-headless (native release)
+        working-directory: posoco/external/cetas/cetas-headless
+        run: moon build --target native --release
+
+      - name: collect cetas-headless (unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: posoco/external/cetas/cetas-headless
+        run: |
+          mkdir -p ../stage
+          cp "../_build/native/release/build/colmugx/cetas-headless/main/main.exe" "../stage/cetas-headless"
+
+      - name: collect cetas-headless (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: posoco/external/cetas/cetas-headless
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "..\stage" | Out-Null
+          Copy-Item "..\_build\native\release\build\colmugx\cetas-headless\main\main.exe" -Destination "..\stage\cetas-headless.exe"
+
+      - name: version smoke cetas-headless (unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: posoco/external/cetas/stage
+        run: |
+          out="$(./cetas-headless --version)"
+          echo "$out"
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            expected="cetas-headless ${GITHUB_REF_NAME#cetas-v}"
+            [[ "$out" == "$expected" ]] || { echo "::error::--version mismatch: got '$out', want '$expected'"; exit 1; }
+          fi
+
+      - name: version smoke cetas-headless (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: posoco/external/cetas/stage
+        shell: pwsh
+        run: |
+          $out = (& ".\cetas-headless.exe" --version) -join ' '
+          $out
+          if ($env:GITHUB_EVENT_NAME -eq 'push') {
+            $expected = "cetas-headless " + ($env:GITHUB_REF_NAME -replace '^cetas-v', '')
+            if ($out.Trim() -ne $expected) {
+              Write-Host "::error::--version mismatch: got '$out', want '$expected'"
+              exit 1
+            }
+          }
+
       - name: setup bun
         uses: oven-sh/setup-bun@v2
 
@@ -178,14 +230,16 @@ jobs:
         shell: pwsh
         run: Copy-Item "dist\cetas-bun-${{ matrix.target }}.exe" -Destination "..\stage\cetas-bun.exe"
 
-      # Release body = the CHANGELOG section for this version, up to (not
-      # including) the next `## ` heading. No body on workflow_dispatch.
+      # Release body = the CHANGELOG section for this version. Section end is
+      # the next VERSION heading (`## X.Y.Z (` or `## Unreleased`) — notes
+      # bodies carry their own `## Ver.` headings and must not end the scan.
+      # No body on workflow_dispatch.
       - name: extract release body
         if: matrix.os == 'ubuntu-latest' && github.event_name == 'push'
         working-directory: posoco/external/cetas
         run: |
           ver="${GITHUB_REF_NAME#cetas-v}"
-          awk -v hdr="## ${ver} " 'index($0, hdr) == 1 {on=1; next} /^## / {on=0} on' CHANGELOG.md > stage/release_body.md
+          awk -v hdr="## ${ver} " 'index($0, hdr) == 1 {on=1; next} /^## ([0-9]+\.[0-9]+\.[0-9]+|Unreleased)( |\(|$)/ {on=0} on' CHANGELOG.md > stage/release_body.md
 
       - name: package (unix)
         if: matrix.os != 'windows-latest'
@@ -193,6 +247,7 @@ jobs:
         run: |
           tar -czf "cetas-bun-${{ matrix.target }}.tar.gz" cetas-bun
           tar -czf "cetas-acp-${{ matrix.target }}.tar.gz" cetas-acp
+          tar -czf "cetas-headless-${{ matrix.target }}.tar.gz" cetas-headless
 
       - name: package (Windows)
         if: matrix.os == 'windows-latest'
@@ -201,6 +256,7 @@ jobs:
         run: |
           Compress-Archive -Path "cetas-bun.exe" -DestinationPath "cetas-bun-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-acp.exe" -DestinationPath "cetas-acp-windows-x64.zip" -Force
+          Compress-Archive -Path "cetas-headless.exe" -DestinationPath "cetas-headless-windows-x64.zip" -Force
 
       - name: upload binaries
         uses: actions/upload-artifact@v6
@@ -247,3 +303,47 @@ jobs:
             staging/*.zip
             staging/SHA256SUMS
           body_path: ${{ steps.relbody.outputs.path }}
+
+  # npm channel: the meta package cetas-bun plus one payload package per
+  # matrix target (os/cpu-filtered optionalDependencies, esbuild-style).
+  # Payload packages publish first because the meta package's
+  # optionalDependencies must already exist on the registry.
+  publish-npm:
+    name: publish npm packages
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/cetas-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: checkout cetas (scripts at the tag)
+        uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+
+      - name: download all artifacts (flattened)
+        uses: actions/download-artifact@v7
+        with:
+          path: staging
+          merge-multiple: true
+
+      - name: stage npm packages
+        run: python3 scripts/npm_stage.py --staging staging --out npm_out --version "${GITHUB_REF_NAME#cetas-v}"
+
+      # Needs an NPM_TOKEN secret on the cetas repo: an automation or
+      # granular token with publish rights for cetas-bun and cetas-bun-*.
+      - name: publish platform payload packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for pkg in cetas-bun-darwin-arm64 cetas-bun-linux-x64 cetas-bun-windows-x64; do
+            npm publish --access public "npm_out/$pkg"
+          done
+
+      - name: publish meta package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public npm_out/cetas-bun

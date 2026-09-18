@@ -11,6 +11,7 @@ a protocol-first LLM agent framework for MoonBit.
 Every surface composes the same `cetas-core` assembly and the same Posoco
 `Agent`; none contains agent-loop logic of its own, and none defines its own
 identity. A new surface is a new way in — not a new Cetas.
+Which extensions each outlet ships, and the build knobs: see
 
 ### Prerequisites
 
@@ -24,6 +25,8 @@ identity. A new surface is a new way in — not a new Cetas.
 cd cetas-js
 bun run build
 ```
+
+<!-- Build-time flavor selection: `CETAS_FLAVOR` (public|personal) picks the preference-tied extensions (nowledge-mem, rtk, obsidian — cetas-bun defaults to public, moon dev builds and cetas-acp to personal) and `CETAS_PLATFORM` (windows|unix) the shell tool; both bake into a gitignored `cetas-core/lib/build_config.mbt`, so after switching either, delete that file (or `moon clean`) before rebuilding. -->
 
 Provider configuration lives in `.cetas/settings.json` under your home directory. The settings object is passed opaquely to the selected provider extension — Cetas itself never parses endpoints or credentials.
 
@@ -59,9 +62,58 @@ Notes:
 - `CETAS_HOME` overrides the Cetas home directory (settings, credentials, sessions); `HOME` is the default.
 - MCP servers declared in `<cwd>/.mcp.json` (overriding `~/.cetas/mcp.json`) connect lazily at the first turn by default; set `CETAS_MCP_MODE=eager` to connect them all at startup.
 
-### Releasing
+### Extension holdings
 
-Releases are cut by running `python3 scripts/release.py` from the repo root: it suggests a version from git history, opens your editor for the release notes, syncs `VERSION` and the component version files, updates `CHANGELOG.md`, and creates the annotated `cetas-vX.Y.Z` tag. Pushing that tag triggers `.github/workflows/release.yml`, which builds cetas-bun (bun-embedded binaries) and cetas-acp (native binaries) for darwin-arm64 / windows-x64 / linux-x64 and attaches them, with SHA256SUMS, to the GitHub Release. `python3 scripts/release.py check` is the version-consistency gate.
+Which extensions each shipped cetas outlet installs. Rows are extensions,
+columns are outlets — add a column when a new outlet ships.
+✓ = installed, — = not held.
+
+| Ext | cetas-bun | cetas-acp | cetas-headless |
+|---|---|---|---|
+| **Tools** | | | |
+| `posoco-ext-read` / `-write` / `-edit` | ✓ | ✓ | ✓ |
+| `posoco-ext-glob` / `-grep` | ✓ | ✓ | ✓ |
+| `posoco-ext-astgrep` (structural code search via ast-grep) | ✓ | ✓ | ✓ |
+| `posoco-ext-bash` / `-ps1` | ✓ | ✓ | ✓ |
+| `posoco-ext-webfetch` | ✓ | ✓ | ✓ |
+| `posoco-ext-askquestion` | ✓ | ✓ | ✓ |
+| `posoco-ext-skills` | ✓ | ✓ | ✓ |
+| `posoco-ext-handoff` | ✓ | ✓ | ✓ |
+| `cetas-ext-forme` | ✓ | ✓ | ✓ |
+| `posoco-ext-lazytools` | ✓ | ✓ | ✓ |
+| **Model ports** | | | |
+| `posoco-ext-deepseek` / `-kimi` / `-openai` / `-openai-compatible` / `-opencode-zen` / `-zai` / `-zai-coding-plan` / `-openrouter` | ✓ | ✓ | ✓ |
+| `posoco-kit-chat-completions` / `-responses` / `-compact-evict` / `-compact-summary` | ✓ (transitive) | ✓ (transitive) | ✓ (transitive) |
+| **Infrastructure** | | | |
+| `posoco-ext-llm` | ✓ | ✓ | ✓ |
+| `posoco-ext-oauth` | ✓ | ✓ | ✓ |
+| `posoco-ext-credentials` | ✓ | ✓ | ✓ |
+| `posoco-ext-context` | ✓ | ✓ | ✓ |
+| `posoco-ext-workspace` | ✓ | ✓ | ✓ |
+| `posoco-ext-fs-session` | ✓ | ✓ | ✓ |
+| `posoco-ext-permission` | ✓ | ✓ | ✓ |
+| `posoco-ext-ratelimit` | ✓ | ✓ | ✓ |
+| `posoco-devkit` | ✓ | ✓ | ✓ |
+| **Preference-tied** (baked per outlet) | | | |
+| `posoco-ext-nowledge-mem` | — | ✓ | ✓ |
+| `posoco-ext-rtk` | — | ✓ | ✓ |
+| `posoco-ext-obsidian` | — | — | — |
+| **Outlet-specific** | | | |
+| `posoco-ext-herdr` | ✓ (presence + `herdr_delegate`) | — | ✓ (presence only) |
+| `posoco-ext-mcp` | ✓ | ✓ | — |
+| `posoco-ext-plan` | ✓ | ✓ | — |
+| `posoco-ext-goal` | ✓ | ✓ | — |
+| `posoco-ext-statusbar` / `-stats` | ✓ | — | — |
+| `posoco-ext-pi-adaptor` | ✓ | — | — |
+| `posoco-ext-zcode` | — | ✓ ¹ | — |
+| `posoco-ext-acp` | — | ✓ | — |
+| `posoco-kit-lody` / `-paseo` | — | ✓ | — |
+| `posoco-kit-delegation` | — | ✓ (transitive) | — |
+
+> `posoco-ext-herdr`: cetas-headless reports presence only and never gets
+> `herdr_delegate` — headless is a depth-1 leaf (2026-09-10 hard rule), so a
+> delegated child cannot delegate further; pane delegation composes in
+> cetas-bun only.
 
 ### Shared state — what "the same Cetas" means today
 
