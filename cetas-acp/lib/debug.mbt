@@ -375,17 +375,7 @@ fn debug_set_mode_params(params : @acp.SetSessionModeParams) -> Json {
 }
 
 ///|
-fn debug_list_params(params : @acp.ListSessionsParams) -> Json {
-  let cwd = match params.cwd {
-    Value(want) => Json::string(want)
-    _ => Json::null()
-  }
-  Json::object(Map::from_array([("cwd", cwd)]))
-}
-
-///|
-/// Append one inbound record. `session/list` has no session of its own and
-/// logs under the `host` id.
+/// Append one inbound record.
 async fn CetasAcpHost::debug_wire_in(
   self : CetasAcpHost,
   session_id~ : String,
@@ -416,7 +406,9 @@ async fn CetasAcpHost::debug_wire_in(
 /// Wrap the invocation context so every outbound `session/update` is
 /// appended to the wire file before reaching the transport. The
 /// notification broker is the one seam the host owns over the bridge's
-/// whole send path (pump and flush alike), so ext-acp stays untouched.
+/// whole send path (pump and flush alike), so ext-acp stays untouched; the
+/// `client_info` accessor is forwarded so the tap keeps the initialize
+/// identity readable (bucket resolution reads it after the tap).
 fn CetasAcpHost::debug_tap_context(
   self : CetasAcpHost,
   context : @acp.AgentContext,
@@ -428,40 +420,42 @@ fn CetasAcpHost::debug_tap_context(
   let home = self.home
   let native = self.wire_native_append
   let inner = context.notification_broker
-  @acp.agent_context(request_broker=context.request_broker, notification_broker=async fn(
-    notification,
-  ) {
-    match notification {
-      SessionUpdate(params) => {
-        let payload : Json = @acp.session_update_params_to_json(params) catch {
-          _ =>
-            Json::object(
-              Map::from_array([
-                ("session_id", Json::string(params.session_id)),
-                ("update", Json::string("unserializable")),
-              ]),
-            )
+  @acp.agent_context(
+    request_broker=context.request_broker,
+    client_info=context.client_info,
+    notification_broker=async fn(notification) {
+      match notification {
+        SessionUpdate(params) => {
+          let payload : Json = @acp.session_update_params_to_json(params) catch {
+            _ =>
+              Json::object(
+                Map::from_array([
+                  ("session_id", Json::string(params.session_id)),
+                  ("update", Json::string("unserializable")),
+                ]),
+              )
+          }
+          let record = Json::object(
+            Map::from_array([
+              ("ts", Json::number(@async.now().to_double())),
+              ("dir", Json::string("out")),
+              ("method", Json::string("session/update")),
+              ("update", payload),
+            ]),
+          )
+          debug_append_line(
+            fs,
+            native~,
+            dir=@cetas_core.debug_dir(home),
+            path=@cetas_core.debug_wire_path(home, params.session_id),
+            line=record.stringify(),
+          )
         }
-        let record = Json::object(
-          Map::from_array([
-            ("ts", Json::number(@async.now().to_double())),
-            ("dir", Json::string("out")),
-            ("method", Json::string("session/update")),
-            ("update", payload),
-          ]),
-        )
-        debug_append_line(
-          fs,
-          native~,
-          dir=@cetas_core.debug_dir(home),
-          path=@cetas_core.debug_wire_path(home, params.session_id),
-          line=record.stringify(),
-        )
+        _ => ()
       }
-      _ => ()
-    }
-    inner(notification)
-  })
+      inner(notification)
+    },
+  )
 }
 
 ///|

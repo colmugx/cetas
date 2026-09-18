@@ -5,7 +5,7 @@
 /// an `AcpDelegateFs`: file reads and writes ride the ACP reverse calls
 /// (`fs/read_text_file` / `fs/write_text_file`). Everything else stays
 /// local — ACP v1 exposes only those two file text calls. Host-owned
-/// persistence (settings, credentials, sidecars) never delegates. A failed
+/// persistence (settings, credentials) never delegates. A failed
 /// reverse call warns on stderr and retries locally; `host` is an explicit
 /// opt-in, so availability wins.
 
@@ -195,7 +195,7 @@ impl @workspace.WorkspaceFs for AcpDelegateFs with fn kind(
 
 ///|
 /// Atomic writes stay local: ACP has no atomic write call, and the
-/// consumers (credentials, sidecars) are host-owned anyway.
+/// consumers (credentials, the model cache) are host-owned anyway.
 impl @workspace.WorkspaceFs for AcpDelegateFs with fn write_file_atomic(
   self,
   path,

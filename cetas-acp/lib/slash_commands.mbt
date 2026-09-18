@@ -1,9 +1,9 @@
 ///|
-/// slash_commands.mbt — pre-turn interception of the commands the session
-/// store registers (`/name …`). The prompt's first Text block names the
-/// command and the remaining text is its positional argument; the turn is
-/// answered locally without the model. Text no registered command claims
-/// reaches the model untouched.
+/// slash_commands.mbt — pre-turn interception of the host's `/name`
+/// command. The prompt's first Text block names the command and the
+/// remaining text is its positional argument; the turn is answered locally
+/// without the model. Text no registered command claims reaches the model
+/// untouched.
 
 ///|
 /// Split the prompt's first Text block into (command id, argument text) when
@@ -45,11 +45,13 @@ fn slash_command_of(prompt : Array[@acp.ContentBlock]) -> (String, String)? {
 }
 
 ///|
-/// Run a matched store command instead of a model turn: success pushes the
-/// fresh title, failure surfaces the reason as a `user_message_chunk` (the
-/// one client-visible channel available here — no new protocol is invented,
-/// an undeliverable message is dropped). Returns `None` when no registered
-/// command matches, leaving the prompt for the model.
+/// Run the host's `/name` command instead of a model turn: retitle the
+/// session's persisted record, then push the new title so the client can
+/// save it with its own conversation record. Failure surfaces the reason as
+/// a `user_message_chunk` (the one client-visible channel available here —
+/// no new protocol is invented, an undeliverable message is dropped).
+/// Returns `None` when the line names no registered command, leaving the
+/// prompt for the model.
 async fn dispatch_slash_command(
   session_id~ : String,
   handle : SessionHandle,
@@ -59,31 +61,61 @@ async fn dispatch_slash_command(
     Some(parts) => parts
     None => return None
   }
-  let port : &@posoco.CommandPort = handle.store as &@posoco.CommandPort
-  let mut matched = false
-  for def in port.commands() {
-    if def.id == name {
-      matched = true
-      let outcome : Result[@posoco.CommandOutcome, Error] = Ok(
-        port.invoke(def.id, Json::string(args)),
-      ) catch {
-        error => Err(error)
-      }
-      match outcome {
-        Ok(@posoco.CommandOutcome::Success(..)) =>
+  if name != "name" {
+    return None
+  }
+  match slash_name_argument(args) {
+    Err(reason) => push_slash_feedback(handle, session_id, reason)
+    Ok(title) =>
+      match rename_session(handle.store, session_id, title) {
+        Ok(_) =>
           // The rename is on disk; the client learns the new title by push.
           push_session_title(session_id, handle, only_unnamed=false)
-        Ok(@posoco.CommandOutcome::Failure(reason~)) =>
-          push_slash_feedback(handle, session_id, reason)
-        Ok(@posoco.CommandOutcome::NeedsInput(..)) => ()
-        Err(_) => ()
+        Err(reason) => push_slash_feedback(handle, session_id, reason)
       }
-    }
   }
-  if matched {
-    Some({ stop_reason: EndTurn, meta: Omitted, })
+  Some({ stop_reason: EndTurn, meta: Omitted, })
+}
+
+///|
+/// Rename the session's persisted record; a session with nothing committed
+/// yet has no record for the name to ride on.
+async fn rename_session(
+  store : @fs_session.JsonlSessionStore,
+  session_id : String,
+  title : String,
+) -> Result[Unit, String] noraise {
+  let committed : Result[@posoco.Session, Error] = Ok(store.load(session_id)) catch {
+    error => Err(error)
+  }
+  match committed {
+    Ok(session) =>
+      if session.messages.is_empty() {
+        Err("no session history to rename yet")
+      } else {
+        let renamed : Result[Unit, Error] = Ok(
+          store.set_session_name(session_id, title),
+        ) catch {
+          error => Err(error)
+        }
+        match renamed {
+          Ok(_) => Ok(())
+          Err(error) => Err("rename failed: " + error.to_string())
+        }
+      }
+    Err(error) => Err("rename failed: " + error.to_string())
+  }
+}
+
+///|
+/// The `/name` positional argument: non-empty after trimming. Slash
+/// frontends hand the raw remainder, so the whole argument is the title.
+fn slash_name_argument(args : String) -> Result[String, String] {
+  let trimmed = args.trim(chars=" \t")
+  if trimmed.length() == 0 {
+    Err("usage: /name <non-empty title>")
   } else {
-    None
+    Ok(trimmed.to_owned())
   }
 }
 

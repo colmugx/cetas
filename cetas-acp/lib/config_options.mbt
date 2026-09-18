@@ -300,6 +300,12 @@ pub async fn CetasAcpHost::handle_set_config_option(
   params : @acp.SetSessionConfigOptionParams,
 ) -> @acp.SetSessionConfigOptionResult raise @acp.HandlerError {
   let handle = self.require_session(params.session_id)
+  self.debug_wire_in(
+    session_id=params.session_id,
+    rpc_method="session/set_config_option",
+    params=debug_config_option_params(params),
+  )
+  let context = self.debug_tap_context(context)
   match
     apply_config_option(
       handle.router,

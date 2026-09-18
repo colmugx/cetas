@@ -32,7 +32,28 @@ fn FakeAcpClient::FakeAcpClient(
 }
 
 ///|
-fn fake_acp_context(client : FakeAcpClient) -> @acp.AgentContext {
+/// A clientInfo accessor naming the client the way the acp runtime publishes
+/// the initialize params.
+fn tk_client_info(
+  name : String,
+) -> () -> @acp.ProtocolNullable[@acp.Implementation] {
+  fn() {
+    Value({
+      name,
+      title: Value("Cetas test client"),
+      version: "1.0",
+      meta: Omitted,
+    })
+  }
+}
+
+///|
+fn fake_acp_context(
+  client : FakeAcpClient,
+  client_info? : () -> @acp.ProtocolNullable[@acp.Implementation] = fn() {
+    Omitted
+  },
+) -> @acp.AgentContext {
   @acp.agent_context(
     request_broker=request => {
       match request {
@@ -74,6 +95,7 @@ fn fake_acp_context(client : FakeAcpClient) -> @acp.AgentContext {
         _ => Ok(())
       }
     },
+    client_info~,
   )
 }
 
@@ -86,12 +108,11 @@ fn tk_prompt(text : String) -> Array[@acp.ContentBlock] {
 priv struct FakeFs {
   files : Map[String, String]
   mut fail_writes : Bool
-  mut fail_removes : Bool
 }
 
 ///|
 fn FakeFs::FakeFs() -> FakeFs {
-  { files: Map::from_array([]), fail_writes: false, fail_removes: false, }
+  { files: Map::from_array([]), fail_writes: false, }
 }
 
 ///|
@@ -136,9 +157,6 @@ impl @workspace.WorkspaceFs for FakeFs with fn write_file_atomic(
 
 ///|
 impl @workspace.WorkspaceFs for FakeFs with fn remove(self, path) {
-  if self.fail_removes {
-    raise @workspace.WorkspaceFsError::WorkspaceFsError("remove failed")
-  }
   ignore(self.files.remove(path))
 }
 
@@ -178,17 +196,6 @@ impl @workspace.WorkspaceFs for FakeFs with fn mkdir(_self, _path, recursive~) {
 }
 
 ///|
-/// Sidecar path inside a sessions root. For the non-bucketed fakes the
-/// handle's project dir is the store root itself; the bucketed fixture
-/// passes the real bucket directory.
-fn tk_sidecar_path(project_dir : String, session_id : String) -> String raise {
-  match host_sidecar_path(project_dir, session_id) {
-    Some(path) => path
-    None => fail("test session ids must produce a sidecar path")
-  }
-}
-
-///|
 fn tk_router_slot(
   id : String,
   label : String,
@@ -220,40 +227,80 @@ fn tk_router() -> @llm.RouterModelPort raise @posoco.CompositionError {
 }
 
 ///|
-/// Production session factory in miniature; `store` swaps persistence onto a
-/// real JSONL store. With `home` + `stores` the factory resolves per-cwd
-/// project buckets like the production spawn does.
+/// A unique real directory path per factory call (no mkdir — the store
+/// creates its root lazily on first save); mint_session_id is process-global,
+/// so parallel async tests never share a root.
+fn tk_unique_root(label : String) -> String {
+  let tmp = match @env.get_env_var("TMPDIR") {
+    Some(dir) if dir.length() > 0 => dir
+    _ => "/tmp"
+  }
+  tmp + "/cetas-cb-" + label + "-" + mint_session_id()
+}
+
+///|
+/// Real-filesystem existence probe for bucket-path assertions (the bucket
+/// stores write through the native fs, not the host's FakeFs seam).
+async fn tk_path_exists(path : String) -> Bool {
+  @workspace.NativeWorkspaceFs().exists(path) catch {
+    _ => false
+  }
+}
+
+///|
+/// The fixture's stand-in for the host's sessions dir: handlers hand the
+/// spawn seam a bucket dir computed from their own `home`
+/// (`client_sessions_dir`), and the fixture re-roots it onto its own
+/// sessions root — the bucket is the dir's last segment — so test stores
+/// never touch the real filesystem under the host home.
+fn tk_fixture_store_root(dir : String, sessions_root : String) -> String {
+  let segments : Array[String] = []
+  let mut current : Array[Char] = []
+  for ch in dir {
+    match ch {
+      '/' => {
+        segments.push(String::from_array(current))
+        current = []
+      }
+      _ => current.push(ch)
+    }
+  }
+  segments.push(String::from_array(current))
+  sessions_root + "/" + segments[segments.length() - 1]
+}
+
+///|
+/// Production session factory in miniature: per invocation a JsonlSessionStore
+/// over the store root the handler resolved (re-rooted onto the fixture
+/// sessions root), or the `acp` bucket for direct assembly callers — the real
+/// filesystem is the between-turns memory, exactly like production.
 fn tk_spawn_session(
   model : &@posoco.ModelPort,
   tools : @posoco.RecordingToolProvider,
   process_cwd : String,
-  store? : @fs_session.JsonlSessionStore? = None,
+  sessions_root? : String = "",
   context_window? : Int? = None,
-  home? : String = "",
-  stores? : Map[String, @fs_session.JsonlSessionStore] = Map::from_array([]),
-) -> async (String, @acp.NewSessionParams) -> Result[SessionHandle, String] {
-  fn(
+) -> async (String, @acp.NewSessionParams, String?) -> Result[
+  SessionHandle,
+  String,
+] {
+  async fn(
     _session_id : String,
     params : @acp.NewSessionParams,
+    store_root : String?,
   ) -> Result[SessionHandle, String] {
     let cwd = if params.cwd.length() > 0 { params.cwd } else { process_cwd }
-    let bucketed = home.length() > 0
-    let handle_store = if bucketed {
-      cached_project_store(stores, home~, cwd~)
-    } else {
-      match store {
-        Some(real) => real
-        None => @fs_session.JsonlSessionStore("/cetas-home/.cetas/sessions")
-      }
+    let root = match store_root {
+      Some(dir) => tk_fixture_store_root(dir, sessions_root)
+      None => sessions_root + "/acp"
     }
-    let sessions : Array[&@posoco.SessionStore] = if bucketed {
-      [handle_store as &@posoco.SessionStore]
-    } else {
-      match store {
-        Some(real) => [real as &@posoco.SessionStore]
-        None => [@posoco.RecordingSessionStore::RecordingSessionStore()]
-      }
+    // Eager bucket root: the store's lazy mkdir races when two same-bucket
+    // sessions commit their first save in parallel (mkdir treats EEXIST as
+    // an error even with recursive=true).
+    @fs.mkdir(root, recursive=true) catch {
+      _ => ()
     }
+    let store = @fs_session.JsonlSessionStore(root)
     try {
       let bridge = @ext_acp.AcpBridge(context_window~)
       let policy = @permission.PermissionPolicy(
@@ -264,7 +311,7 @@ fn tk_spawn_session(
         exts=[
           @posoco.tk_ext(id="model", model=Some(model)),
           @posoco.tk_ext(id="tools", tools=[tools]),
-          @posoco.tk_ext(id="io", sessions~),
+          @posoco.tk_ext(id="io", sessions=[store as &@posoco.SessionStore]),
           bridge,
           policy,
         ],
@@ -274,9 +321,9 @@ fn tk_spawn_session(
         bridge,
         router: tk_router(),
         agent,
+        mcp_bridge: None,
         cwd,
-        store: handle_store,
-        project_dir: handle_store.root_dir,
+        store,
         plan: @plan.PlanMode(),
         permission: policy,
         fs_delegate: None,
@@ -299,7 +346,9 @@ fn tk_no_env(_key : String) -> String? {
 }
 
 ///|
-/// Host over a shared scripted model (steps consumed in call order); `store` wires a real JSONL root.
+/// Host over a shared scripted model (steps consumed in call order); every
+/// session commits into its client bucket under one fixture-unique TMPDIR root
+/// (or the caller's shared root, for cross-host restart tests).
 fn tk_host(
   steps : Array[@posoco.ScriptedModelStep],
   tools? : @posoco.RecordingToolProvider = @posoco.RecordingToolProvider(
@@ -309,34 +358,29 @@ fn tk_host(
   fs? : FakeFs = FakeFs(),
   refreshables? : Array[&@llm.RefreshableProviderFactory] = [],
   process_cwd? : String = "/",
-  store? : @fs_session.JsonlSessionStore,
+  sessions_root? : String = "",
   wire_log? : Bool = false,
   context_window? : Int? = None,
 ) -> (CetasAcpHost, @posoco.ScriptedModel) {
   let model = @posoco.ScriptedModel(steps)
-  let spawn = match store {
-    Some(real) =>
-      tk_spawn_session(
-        model,
-        tools,
-        process_cwd,
-        store=Some(real),
-        context_window~,
-      )
-    None => tk_spawn_session(model, tools, process_cwd, context_window~)
+  let root = if sessions_root.length() > 0 {
+    sessions_root
+  } else {
+    tk_unique_root("host")
   }
-  let host_store = match store {
-    Some(real) => real
-    None => @fs_session.JsonlSessionStore("/cetas-home/.cetas/sessions")
-  }
+  let spawn = tk_spawn_session(
+    model,
+    tools,
+    process_cwd,
+    sessions_root=root,
+    context_window~,
+  )
   (
     CetasAcpHost::of(
       spawn_session=spawn,
       home="/cetas-home",
       fs~,
       refreshables~,
-      session_store=host_store,
-      process_cwd~,
       wire_log~,
     ),
     model,
@@ -350,9 +394,30 @@ fn tk_host_model(model : &@posoco.ModelPort) -> CetasAcpHost {
       model,
       @posoco.RecordingToolProvider([], Map::from_array([])),
       "/",
+      sessions_root=tk_unique_root("model"),
     ),
     home="/cetas-home",
     fs=FakeFs(),
+  )
+}
+
+///|
+/// Host over the real filesystem with the production storage layout: buckets
+/// under `<home>/.cetas/sessions/<client>`, so resume's bucket scan
+/// (`find_session_bucket`) reads the same directories it reads in production.
+fn tk_host_real_fs(
+  steps : Array[@posoco.ScriptedModelStep],
+  home : String,
+) -> CetasAcpHost {
+  CetasAcpHost::of(
+    spawn_session=tk_spawn_session(
+      @posoco.ScriptedModel(steps),
+      @posoco.RecordingToolProvider([], Map::from_array([])),
+      "/",
+      sessions_root=@cetas_core.sessions_dir(home),
+    ),
+    home~,
+    fs=@workspace.NativeWorkspaceFs(),
   )
 }
 
@@ -361,12 +426,17 @@ fn tk_host_model(model : &@posoco.ModelPort) -> CetasAcpHost {
 fn tk_spawn_session_plan(
   model : &@posoco.ModelPort,
   process_cwd : String,
-) -> async (String, @acp.NewSessionParams) -> Result[SessionHandle, String] {
+) -> async (String, @acp.NewSessionParams, String?) -> Result[
+  SessionHandle,
+  String,
+] {
   fn(
     _session_id : String,
     params : @acp.NewSessionParams,
+    _store_root : String?,
   ) -> Result[SessionHandle, String] {
     let cwd = if params.cwd.length() > 0 { params.cwd } else { process_cwd }
+    let store = @fs_session.JsonlSessionStore(tk_unique_root("plan"))
     try {
       let bridge = @ext_acp.AcpBridge()
       let event_bus = @devkit.EventBus()
@@ -403,9 +473,9 @@ fn tk_spawn_session_plan(
         bridge,
         router: tk_router(),
         agent,
+        mcp_bridge: None,
         cwd,
-        store: @fs_session.JsonlSessionStore("/cetas-home/.cetas/sessions"),
-        project_dir: "/cetas-home/.cetas/sessions",
+        store,
         plan: plan_mode,
         permission: policy,
         fs_delegate: None,
@@ -526,21 +596,6 @@ fn tk_new_session_params(
 }
 
 ///|
-fn tk_load_params(
-  session_id : String,
-  cwd? : String = "/",
-  mcp_servers? : Array[@acp.McpServer] = [],
-) -> @acp.LoadSessionParams {
-  {
-    mcp_servers,
-    cwd,
-    additional_directories: Omitted,
-    session_id,
-    meta: Omitted,
-  }
-}
-
-///|
 fn tk_resume_params(
   session_id : String,
   cwd? : String = "/",
@@ -552,17 +607,6 @@ fn tk_resume_params(
     mcp_servers: Omitted,
     meta: Omitted,
   }
-}
-
-///|
-/// Unique per label + millisecond, so parallel tests never share a root.
-fn tk_temp_root(label : String) -> String {
-  let base = match @env.get_env_var("TMPDIR") {
-    Some(dir) => if dir.length() > 0 { dir } else { "/tmp" }
-    None => "/tmp"
-  }
-  let joined = if base.has_suffix("/") { base } else { base + "/" }
-  joined + "cetas-w4-" + label + "-" + @async.now().to_string()
 }
 
 ///|
@@ -630,7 +674,7 @@ fn tk_durable_id_shape(id : String) -> Bool {
 }
 
 ///|
-async test "session ids are clock-minted, validator-clean, and unique within and across hosts" {
+async test "session ids are clock-minted, well-shaped, and unique within and across hosts" {
   let (host_a, _) = tk_host([])
   let (host_b, _) = tk_host([])
   let ids : Array[String] = []
@@ -645,8 +689,6 @@ async test "session ids are clock-minted, validator-clean, and unique within and
   }
   for i = 0; i < ids.length(); i = i + 1 {
     assert_true(tk_durable_id_shape(ids[i]))
-    // The id doubles as a JSONL file stem, so it must pass the store's filename check.
-    assert_true(@fs_session.validate_session_id(ids[i]) is Ok(_))
     for j = i + 1; j < ids.length(); j = j + 1 {
       assert_false(ids[i] == ids[j])
     }
@@ -876,6 +918,154 @@ async test "model failure surfaces as an application error" {
     Err(Application(message~)) => assert_true(message.contains("cetas-acp:"))
     Err(_) => fail("expected application error")
   }
+}
+
+///|
+const TK_WORKING_INDICATOR_ID = "acp-working-indicator"
+
+///|
+/// Count the placeholder thought chunks and locate the first streamed
+/// message chunk; shared by the placeholder-ordering tests.
+fn tk_sent_placeholder_stats(client : FakeAcpClient) -> (Int, Int, Int) {
+  let mut placeholder_count = 0
+  let mut placeholder_index = -1
+  let mut first_chunk_index = -1
+  for i in 0..<client.sent.length() {
+    match client.sent[i].update {
+      AgentThoughtChunk(chunk) =>
+        match chunk.message_id {
+          Value(id) =>
+            if id == TK_WORKING_INDICATOR_ID {
+              placeholder_count += 1
+              placeholder_index = i
+            }
+          _ => ()
+        }
+      AgentMessageChunk(_) => if first_chunk_index < 0 { first_chunk_index = i }
+      _ => ()
+    }
+  }
+  (placeholder_count, placeholder_index, first_chunk_index)
+}
+
+///|
+async test "prompt pushes the working-indicator thought chunk before any stream chunk" {
+  let (host, _) = tk_host([
+    @posoco.Respond(@posoco.tk_stop_response("hi there")),
+  ])
+  let client = FakeAcpClient::FakeAcpClient()
+  let session_id = tk_open_session(host, client)
+  let result = host.handle_prompt(fake_acp_context(client), {
+    session_id,
+    prompt: tk_prompt("hello"),
+    meta: Omitted,
+  })
+  assert_true(result.stop_reason is EndTurn)
+  // The very first update on the wire is the pre-turn placeholder.
+  match client.sent[0].update {
+    AgentThoughtChunk(chunk) => {
+      assert_eq(client.sent[0].session_id, session_id)
+      match chunk.content {
+        Text({ text, .. }) => assert_eq(text, "…")
+        _ => fail("placeholder content must be text")
+      }
+      match chunk.message_id {
+        Value(id) => assert_eq(id, TK_WORKING_INDICATOR_ID)
+        _ => fail("placeholder message_id must be set")
+      }
+    }
+    _ => fail("first update must be the working-indicator thought chunk")
+  }
+  // Exactly one placeholder, and every streamed message chunk follows it.
+  let (placeholder_count, placeholder_index, first_chunk_index) = tk_sent_placeholder_stats(
+    client,
+  )
+  assert_eq(placeholder_count, 1)
+  assert_true(first_chunk_index > placeholder_index)
+}
+
+///|
+async test "slash command prompt sends no working-indicator placeholder" {
+  let (host, _) = tk_host([])
+  let client = FakeAcpClient::FakeAcpClient()
+  let session_id = tk_open_session(host, client)
+  let result = host.handle_prompt(fake_acp_context(client), {
+    session_id,
+    prompt: tk_prompt("/name no session"),
+    meta: Omitted,
+  })
+  assert_true(result.stop_reason is EndTurn)
+  // The slash-command early return never enters the task group, so the
+  // placeholder is never pushed.
+  let (placeholder_count, _, _) = tk_sent_placeholder_stats(client)
+  assert_eq(placeholder_count, 0)
+}
+
+///|
+async test "failing turn still sends exactly one working-indicator placeholder" {
+  let (host, _) = tk_host([])
+  let client = FakeAcpClient::FakeAcpClient()
+  let session_id = tk_open_session(host, client)
+  let outcome : Result[@acp.PromptResult, @acp.HandlerError] = Ok(
+    host.handle_prompt(fake_acp_context(client), {
+      session_id,
+      prompt: tk_prompt("hello"),
+      meta: Omitted,
+    }),
+  ) catch {
+    error => Err(error)
+  }
+  match outcome {
+    Ok(_) => fail("exhausted scripted model must fail the prompt")
+    Err(Application(message~)) => assert_true(message.contains("cetas-acp:"))
+    Err(_) => fail("expected application error")
+  }
+  let (placeholder_count, _, _) = tk_sent_placeholder_stats(client)
+  assert_eq(placeholder_count, 1)
+}
+
+///|
+async test "real reasoning chunks keep their own message ids beside the placeholder" {
+  let chunks : Array[@posoco.StreamChunk] = [
+    ReasoningDelta(token="thinking…"),
+  ]
+  let (host, _) = tk_host([
+    @posoco.Stream(chunks~, response=@posoco.tk_stop_response("answer")),
+  ])
+  let client = FakeAcpClient::FakeAcpClient()
+  let session_id = tk_open_session(host, client)
+  let result = host.handle_prompt(fake_acp_context(client), {
+    session_id,
+    prompt: tk_prompt("hello"),
+    meta: Omitted,
+  })
+  assert_true(result.stop_reason is EndTurn)
+  // The placeholder keeps its literal id; the round's streamed thought chunk
+  // carries the minted per-round id — never the placeholder's.
+  let mut saw_real_reasoning = false
+  for frame in client.sent {
+    match frame.update {
+      AgentThoughtChunk(chunk) =>
+        match chunk.message_id {
+          Value(id) =>
+            if id == TK_WORKING_INDICATOR_ID {
+              match chunk.content {
+                Text({ text, .. }) => assert_eq(text, "…")
+                _ => fail("placeholder content must be text")
+              }
+            } else {
+              match chunk.content {
+                Text({ text, .. }) => assert_eq(text, "thinking…")
+                _ => ()
+              }
+              saw_real_reasoning = true
+            }
+          _ => ()
+        }
+      _ => ()
+    }
+  }
+  assert_true(saw_real_reasoning)
 }
 
 // ------------------------------------------------------------- plan review
@@ -2776,6 +2966,71 @@ async test "union keeps an injected server and a distinct local server" {
 }
 
 ///|
+async test "pure-Lazy sessions probe at composition on the process group" {
+  let cwd = tk_mcp_project_dir(
+    label="probe-compose",
+    entries="\"local-fs\":{\"command\":\"/nonexistent-cetas-mcp-binary\"}",
+  )
+  let fs = FakeFs()
+  fs.files["/cetas-home/.cetas/settings.json"] = "{\"providers\":{\"opencode\":{\"api_key\":\"sk-zen-test\"}}}"
+  @async.with_task_group(group => {
+    let platform = build_platform(
+      home="/cetas-home",
+      cwd="/",
+      fs,
+      mcp_group=Some(group),
+      mcp_mode=@mcp.LoadMode::Lazy,
+    ) catch {
+      error => fail("platform assembly must succeed: " + error.to_string())
+    }
+    let handle = build_session_agent(platform~, cwd~, env=tk_no_env) catch {
+      error => fail("session assembly must succeed: " + error.to_string())
+    }
+    // Probed state through the handle's test seam: composition claimed the
+    // pending roster and neutralized the first-turn on_start fallback.
+    guard handle.mcp_bridge is Some(bridge) else {
+      fail("the production assembly must carry its mcp bridge")
+    }
+    assert_true(bridge.pending.is_empty())
+    assert_true(bridge.activated)
+    handle.agent.shutdown() catch {
+      error => fail("session shutdown must succeed: " + error.to_string())
+    }
+  })
+  tk_drop_mcp_project_dir(cwd)
+}
+
+///|
+async test "a groupless pure-Lazy session keeps the first-turn on_start fallback" {
+  let cwd = tk_mcp_project_dir(
+    label="probe-fallback",
+    entries="\"local-fs\":{\"command\":\"/nonexistent-cetas-mcp-binary\"}",
+  )
+  let fs = FakeFs()
+  fs.files["/cetas-home/.cetas/settings.json"] = "{\"providers\":{\"opencode\":{\"api_key\":\"sk-zen-test\"}}}"
+  let platform = build_platform(
+    home="/cetas-home",
+    cwd="/",
+    fs,
+    mcp_group=None,
+    mcp_mode=@mcp.LoadMode::Lazy,
+  ) catch {
+    error => fail("platform assembly must succeed: " + error.to_string())
+  }
+  let handle = build_session_agent(platform~, cwd~, env=tk_no_env) catch {
+    error => fail("session assembly must succeed: " + error.to_string())
+  }
+  // No group, no probes: the discovered server stays pending for the first
+  // turn's on_start activation.
+  guard handle.mcp_bridge is Some(bridge) else {
+    fail("the production assembly must carry its mcp bridge")
+  }
+  assert_eq(tk_pending_names(bridge), ["local-fs"])
+  assert_false(bridge.activated)
+  tk_drop_mcp_project_dir(cwd)
+}
+
+///|
 async test "an injected URL shadows the local server on the same endpoint" {
   let cwd = tk_mcp_project_dir(
     label="union-url",
@@ -2884,17 +3139,14 @@ async test "session cwd comes from params and falls back to the process cwd" {
   assert_eq(host.sessions[fallback.session_id].cwd, "/proc-cwd")
 }
 
-// ------------------------------------------------------ load / resume / list
+// ---------------------------------------------------- resume + client buckets
 
 ///|
-async test "load replays persisted history as user and agent chunks" {
-  let store = @fs_session.JsonlSessionStore(tk_temp_root("load"))
-  let fs = FakeFs()
-  let (host, _) = tk_host(
-    [@posoco.Respond(@posoco.tk_stop_response("w4 answer"))],
-    fs~,
-    store~,
-  )
+async test "turns commit into the client bucket on disk" {
+  let (host, _) = tk_host([
+    @posoco.Respond(@posoco.tk_stop_response("w4 answer")),
+    @posoco.Respond(@posoco.tk_stop_response("w4 answer two")),
+  ])
   let client = FakeAcpClient::FakeAcpClient()
   let session_id = tk_open_session(host, client)
   let turn = host.handle_prompt(fake_acp_context(client), {
@@ -2903,33 +3155,29 @@ async test "load replays persisted history as user and agent chunks" {
     meta: Omitted,
   })
   assert_true(turn.stop_reason is EndTurn)
-  let reconnected = FakeAcpClient::FakeAcpClient()
-  let result = host.handle_load_session(
-    fake_acp_context(reconnected),
-    tk_load_params(session_id),
+  // The transcript file sits in this session's bucket directory on the real
+  // filesystem — the disk-for-memory persistence contract.
+  assert_true(
+    tk_path_exists(
+      @fs_session.jsonl_session_path(
+        host.sessions[session_id].store.root_dir,
+        session_id,
+      ),
+    ),
   )
-  assert_true(result.config_options is Value(_))
-  let mut saw_user = false
-  let mut saw_agent = false
-  for frame in reconnected.sent {
-    match frame.update {
-      UserMessageChunk(chunk) =>
-        match chunk.content {
-          Text({ text, .. }) => if text == "hello w4" { saw_user = true }
-          _ => ()
-        }
-      AgentMessageChunk(chunk) =>
-        match chunk.content {
-          Text({ text, .. }) => if text == "w4 answer" { saw_agent = true }
-          _ => ()
-        }
-      _ => ()
-    }
-  }
-  assert_true(saw_user)
-  assert_true(saw_agent)
-  assert_true(host.sessions.contains(session_id))
-  assert_eq(host.sessions[session_id].cwd, "/")
+  let texts = tk_session_texts(tk_load_history(host, session_id))
+  assert_true(texts.contains("hello w4"))
+  assert_true(texts.contains("w4 answer"))
+  // A second turn in the same process still builds on the committed
+  // conversation.
+  let second = host.handle_prompt(fake_acp_context(client), {
+    session_id,
+    prompt: tk_prompt("again"),
+    meta: Omitted,
+  })
+  assert_true(second.stop_reason is EndTurn)
+  let after = tk_session_texts(tk_load_history(host, session_id))
+  assert_true(after.contains("again"))
 }
 
 ///|
@@ -2968,259 +3216,14 @@ async test "resume rebuilds the session without replaying history" {
 }
 
 ///|
-async test "sidecar round-trips cwd model and effort through load" {
-  let fs = FakeFs()
-  let (host, _) = tk_host([], fs~)
-  let client = FakeAcpClient::FakeAcpClient()
-  let session_id = host.handle_new_session(
-      fake_acp_context(client),
-      tk_new_session_params(cwd="/w4-round"),
-    ).session_id
-  ignore(
-    host.handle_set_config_option_sidecar(fake_acp_context(client), {
-      session_id,
-      config_id: "effort",
-      value: @acp.SessionConfigValue::ValueId("high"),
-      meta: Omitted,
-    }),
-  )
-  let sidecar_file = tk_sidecar_path("/cetas-home/.cetas/sessions", session_id)
-  guard fs.files.contains(sidecar_file) else {
-    fail("session/new must write the sidecar")
-  }
-  let saved = @json.parse(fs.files[sidecar_file]) catch {
-    _ => fail("sidecar must parse")
-  }
-  guard saved is Json::Object(fields) else { fail("sidecar must be an object") }
-  assert_true(fields.get("cwd") is Some(Json::String("/w4-round")))
-  assert_true(fields.get("model") is Some(Json::String("test/alpha")))
-  assert_true(fields.get("effort") is Some(Json::String("high")))
-  assert_true(fields.get("mcp_servers") is Some(Json::Array([])))
-  let loaded = host.handle_load_session(
-    fake_acp_context(FakeAcpClient::FakeAcpClient()),
-    tk_load_params(session_id, cwd=""),
-  )
-  guard loaded.config_options is Value(options) else {
-    fail("load must advertise config options")
-  }
-  match tk_find_option(options, "effort") {
-    Some(select) => assert_eq(select.current_value, "high")
-    None => fail("effort arm missing after restore")
-  }
-  assert_eq(host.sessions[session_id].cwd, "/w4-round")
-  assert_eq(host.sessions[session_id].router.active_slot_id(), "test/alpha")
-  assert_eq(host.sessions[session_id].router.active_effort(), Some("high"))
-}
-
-///|
-/// Native host whose spawn resolves per-cwd project stores like production:
-/// one shared cache, so histories and sidecars land in their cwd's bucket
-/// under `<home>/.cetas/sessions` on real disk.
-async fn tk_host_bucketed(
-  steps : Array[@posoco.ScriptedModelStep],
-  home : String,
-) -> (CetasAcpHost, @posoco.ScriptedModel) {
-  let model = @posoco.ScriptedModel(steps)
-  let stores : Map[String, @fs_session.JsonlSessionStore] = Map::from_array([])
-  let spawn = tk_spawn_session(
-    model,
-    @posoco.RecordingToolProvider([], Map::from_array([])),
-    "/",
-    home~,
-    stores~,
-  )
-  let fs = @workspace.NativeWorkspaceFs()
-  fs.mkdir(home + "/.cetas/sessions", recursive=true) catch {
-    _ => ()
-  }
-  let host = CetasAcpHost::of(
-    spawn_session=spawn,
-    home~,
-    fs~,
-    session_store=@fs_session.JsonlSessionStore(home + "/.cetas/sessions"),
-    process_cwd="/",
-  )
-  (host, model)
-}
-
-///|
-async test "list answers persisted sessions and filters by cwd" {
-  let home = tk_temp_root("list") + "/home"
-  let (host, _) = tk_host_bucketed(
-    [
-      @posoco.Respond(@posoco.tk_stop_response("a")),
-      @posoco.Respond(@posoco.tk_stop_response("b")),
-    ],
-    home,
-  )
-  let a = host.handle_new_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_new_session_params(cwd="/w4-list-a"),
-    ).session_id
-  let b = host.handle_new_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_new_session_params(cwd="/w4-list-b"),
-    ).session_id
-  for id in [a, b] {
-    let turn = host.handle_prompt(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      { session_id: id, prompt: tk_prompt("persist me"), meta: Omitted, },
-    )
-    assert_true(turn.stop_reason is EndTurn)
-  }
-  let all = host.handle_list_sessions(
-    fake_acp_context(FakeAcpClient::FakeAcpClient()),
-    { cwd: Omitted, cursor: Omitted, meta: Omitted, },
-  )
-  let mut saw_a = false
-  let mut saw_b = false
-  for info in all.sessions {
-    if info.session_id == a {
-      saw_a = true
-      assert_eq(info.cwd, "/w4-list-a")
-    }
-    if info.session_id == b {
-      saw_b = true
-      assert_eq(info.cwd, "/w4-list-b")
-    }
-  }
-  assert_true(saw_a)
-  assert_true(saw_b)
-  assert_true(all.next_cursor is Omitted)
-  let filtered = host.handle_list_sessions(
-    fake_acp_context(FakeAcpClient::FakeAcpClient()),
-    { cwd: Value("/w4-list-a"), cursor: Omitted, meta: Omitted, },
-  )
-  assert_eq(filtered.sessions.length(), 1)
-  assert_eq(filtered.sessions[0].session_id, a)
-  assert_eq(filtered.sessions[0].cwd, "/w4-list-a")
-  // Titles come from the session summary (first user text), not the raw id.
-  match filtered.sessions[0].title {
-    Value(title) => assert_eq(title, "persist me")
-    _ => fail("cwd-scoped list must carry a title")
-  }
-}
-
-// ------------------------------------------------- W2: project buckets + /name
-
-///|
-async test "sessions bucket per cwd and never leak across buckets" {
-  let home = tk_temp_root("w2-buckets") + "/home"
-  let (host, _) = tk_host_bucketed(
-    [
-      @posoco.Respond(@posoco.tk_stop_response("a one")),
-      @posoco.Respond(@posoco.tk_stop_response("a two")),
-      @posoco.Respond(@posoco.tk_stop_response("b one")),
-    ],
-    home,
-  )
-  let a1 = host.handle_new_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_new_session_params(cwd="/w2-a"),
-    ).session_id
-  let a2 = host.handle_new_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_new_session_params(cwd="/w2-a"),
-    ).session_id
-  let b1 = host.handle_new_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_new_session_params(cwd="/w2-b"),
-    ).session_id
-  for id in [a1, a2, b1] {
-    let turn = host.handle_prompt(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      { session_id: id, prompt: tk_prompt("persist me"), meta: Omitted, },
-    )
-    assert_true(turn.stop_reason is EndTurn)
-  }
-  // The store a session composes over is the cwd's bucket directory.
-  let bucket_a = host.store_for_cwd("/w2-a")
-  assert_eq(bucket_a.root_dir, @fs_session.project_sessions_dir(home, "/w2-a"))
-  assert_true(
-    bucket_a.root_dir.has_suffix(@fs_session.project_dir_name("/w2-a")),
-  )
-  let list_a = host.handle_list_sessions(
-    fake_acp_context(FakeAcpClient::FakeAcpClient()),
-    { cwd: Value("/w2-a"), cursor: Omitted, meta: Omitted, },
-  )
-  assert_eq(list_a.sessions.length(), 2)
-  let ids_a : Array[String] = []
-  for info in list_a.sessions {
-    assert_eq(info.cwd, "/w2-a")
-    match info.title {
-      Value(title) => assert_eq(title, "persist me")
-      _ => fail("bucketed list must carry titles")
-    }
-    assert_true(info.updated_at is Value(_))
-    ids_a.push(info.session_id)
-  }
-  assert_true(ids_a.contains(a1))
-  assert_true(ids_a.contains(a2))
-  // The buckets isolate: /w2-b never sees /w2-a's sessions.
-  let list_b = host.handle_list_sessions(
-    fake_acp_context(FakeAcpClient::FakeAcpClient()),
-    { cwd: Value("/w2-b"), cursor: Omitted, meta: Omitted, },
-  )
-  assert_eq(list_b.sessions.length(), 1)
-  assert_eq(list_b.sessions[0].session_id, b1)
-  assert_eq(list_b.sessions[0].cwd, "/w2-b")
-  // Without a cwd, every bucket on disk answers (sidecar-carrying sessions).
-  let all = host.handle_list_sessions(
-    fake_acp_context(FakeAcpClient::FakeAcpClient()),
-    { cwd: Omitted, cursor: Omitted, meta: Omitted, },
-  )
-  assert_eq(all.sessions.length(), 3)
-}
-
-///|
-async test "session sidecars live inside the project bucket" {
-  let home = tk_temp_root("w2-sidecar") + "/home"
-  let (host, _) = tk_host_bucketed(
-    [@posoco.Respond(@posoco.tk_stop_response("persisted"))],
-    home,
-  )
-  let session_id = host.handle_new_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_new_session_params(cwd="/w2-sidecar-proj"),
-    ).session_id
-  let project_dir = host.sessions[session_id].project_dir
-  assert_eq(
-    project_dir,
-    @fs_session.project_sessions_dir(home, "/w2-sidecar-proj"),
-  )
-  assert_true(
-    project_dir.has_suffix(@fs_session.project_dir_name("/w2-sidecar-proj")),
-  )
-  let sidecar = tk_sidecar_path(project_dir, session_id)
-  assert_true(tk_file_exists(host, sidecar))
-  let turn = host.handle_prompt(
-    fake_acp_context(FakeAcpClient::FakeAcpClient()),
-    { session_id, prompt: tk_prompt("persist me"), meta: Omitted, },
-  )
-  assert_true(turn.stop_reason is EndTurn)
-  // History lands in the same bucket as the sidecar.
-  assert_true(
-    tk_file_exists(
-      host,
-      @fs_session.jsonl_session_path(project_dir, session_id),
-    ),
-  )
-}
-
-///|
-async test "slash /name renames on disk without a model round" {
-  let home = tk_temp_root("w2-name") + "/home"
+async test "slash /name renames the persisted record without a model round" {
   // Exactly one model step: the first turn consumes it, so a leaked /name
   // would fail the turn instead of ending it.
-  let (host, _) = tk_host_bucketed(
-    [@posoco.Respond(@posoco.tk_stop_response("only turn"))],
-    home,
-  )
+  let (host, _) = tk_host([
+    @posoco.Respond(@posoco.tk_stop_response("only turn")),
+  ])
   let client = FakeAcpClient::FakeAcpClient()
-  let session_id = host.handle_new_session(
-      fake_acp_context(client),
-      tk_new_session_params(cwd="/w2-name-proj"),
-    ).session_id
+  let session_id = tk_open_session(host, client)
   let first = host.handle_prompt(fake_acp_context(client), {
     session_id,
     prompt: tk_prompt("hello there"),
@@ -3247,11 +3250,13 @@ async test "slash /name renames on disk without a model round" {
     meta: Omitted,
   })
   assert_true(renamed.stop_reason is EndTurn)
-  // The metadata name landed on disk in the project bucket.
-  let store = host.sessions[session_id].store
-  let summary = store.summary(session_id)
+  // The metadata name landed in the session's bucket on disk.
+  let summary = host.sessions[session_id].store.summary(session_id) catch {
+    error =>
+      fail("summary must read the persisted record: " + error.to_string())
+  }
   assert_eq(summary.name, Some("新名字"))
-  // The rename push carries the new title.
+  // The rename push carries the new title so the client can save it.
   let mut saw_rename = false
   for frame in renamer.sent {
     match frame.update {
@@ -3267,7 +3272,7 @@ async test "slash /name renames on disk without a model round" {
 }
 
 ///|
-async test "slash /name without a persisted session reports the failure back" {
+async test "slash /name without committed history reports the failure back" {
   let (host, _) = tk_host([])
   let client = FakeAcpClient::FakeAcpClient()
   let session_id = tk_open_session(host, client)
@@ -3284,7 +3289,7 @@ async test "slash /name without a persisted session reports the failure back" {
       UserMessageChunk(chunk) =>
         match chunk.content {
           Text({ text, .. }) =>
-            if text.contains("no active session") {
+            if text.contains("no session history") {
               saw_feedback = true
             }
           _ => ()
@@ -3326,42 +3331,16 @@ async test "an unmatched slash line still reaches the model" {
 }
 
 ///|
-async test "load and resume push the session title" {
-  let home = tk_temp_root("w2-load-push") + "/home"
-  let (host, _) = tk_host_bucketed(
-    [@posoco.Respond(@posoco.tk_stop_response("answer"))],
-    home,
-  )
+async test "resume pushes the title from the persisted record" {
+  let (host, _) = tk_host([@posoco.Respond(@posoco.tk_stop_response("answer"))])
   let client = FakeAcpClient::FakeAcpClient()
-  let session_id = host.handle_new_session(
-      fake_acp_context(client),
-      tk_new_session_params(cwd="/w2-load"),
-    ).session_id
+  let session_id = tk_open_session(host, client)
   let turn = host.handle_prompt(fake_acp_context(client), {
     session_id,
     prompt: tk_prompt("load me"),
     meta: Omitted,
   })
   assert_true(turn.stop_reason is EndTurn)
-  let loader = FakeAcpClient::FakeAcpClient()
-  ignore(
-    host.handle_load_session(
-      fake_acp_context(loader),
-      tk_load_params(session_id, cwd="/w2-load"),
-    ),
-  )
-  let mut saw_load_title = false
-  for frame in loader.sent {
-    match frame.update {
-      SessionInfoUpdate(info) =>
-        match info.title {
-          Value(title) => if title == "load me" { saw_load_title = true }
-          _ => ()
-        }
-      _ => ()
-    }
-  }
-  assert_true(saw_load_title)
   let resumer = FakeAcpClient::FakeAcpClient()
   ignore(
     host.handle_resume_session(
@@ -3369,6 +3348,8 @@ async test "load and resume push the session title" {
       tk_resume_params(session_id, cwd="/w2-load"),
     ),
   )
+  // The rebuilt session's store reads the same bucket file, so the title
+  // push comes from the persisted first user text.
   let mut saw_resume_title = false
   for frame in resumer.sent {
     match frame.update {
@@ -3381,90 +3362,300 @@ async test "load and resume push the session title" {
     }
   }
   assert_true(saw_resume_title)
+  // An id with no transcript in any bucket carries no title to push — the
+  // client holds its own copy and needs no suggestion from the host.
+  let stranger = FakeAcpClient::FakeAcpClient()
+  ignore(
+    host.handle_resume_session(
+      fake_acp_context(stranger),
+      tk_resume_params("cetas-client-owned"),
+    ),
+  )
+  assert_eq(stranger.sent.length(), 0)
 }
 
 ///|
-async test "load and resume reject an unknown session id" {
-  let (host, _) = tk_host([])
-  let load : Result[@acp.LoadSessionResult, @acp.HandlerError] = Ok(
-    host.handle_load_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_load_params("cetas-404"),
-    ),
-  ) catch {
-    error => Err(error)
-  }
-  match load {
-    Err(InvalidParams(message~)) =>
-      assert_true(message.contains("unknown session"))
-    _ => fail("expected an invalid-params error")
-  }
-  let resume_outcome : Result[@acp.ResumeSessionResult, @acp.HandlerError] = Ok(
+async test "resume accepts a client-known id and rejects an empty id" {
+  let (host, _) = tk_host([
+    @posoco.Respond(@posoco.tk_stop_response("reconnected")),
+  ])
+  // With client-owned records the agent cannot second-guess existence: a
+  // non-empty id is accepted as the client's assertion and becomes live.
+  let result = host.handle_resume_session(
+    fake_acp_context(FakeAcpClient::FakeAcpClient()),
+    tk_resume_params("cetas-404", cwd="/w4-client"),
+  )
+  assert_true(result.config_options is Value(_))
+  assert_true(host.sessions.contains("cetas-404"))
+  assert_eq(host.sessions["cetas-404"].cwd, "/w4-client")
+  let turn = host.handle_prompt(
+    fake_acp_context(FakeAcpClient::FakeAcpClient()),
+    { session_id: "cetas-404", prompt: tk_prompt("hello"), meta: Omitted, },
+  )
+  assert_true(turn.stop_reason is EndTurn)
+  let empty : Result[@acp.ResumeSessionResult, @acp.HandlerError] = Ok(
     host.handle_resume_session(
       fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_resume_params("cetas-404"),
+      tk_resume_params(""),
     ),
   ) catch {
     error => Err(error)
   }
-  match resume_outcome {
+  match empty {
     Err(InvalidParams(message~)) =>
-      assert_true(message.contains("unknown session"))
+      assert_true(message.contains("must not be empty"))
     _ => fail("expected an invalid-params error")
   }
-  assert_false(host.sessions.contains("cetas-404"))
 }
 
 ///|
-async test "set_config_option updates the sidecar model field" {
-  let fs = FakeFs()
-  let (host, _) = tk_host([], fs~)
-  let client = FakeAcpClient::FakeAcpClient()
-  let session_id = tk_open_session(host, client)
-  ignore(
-    host.handle_set_config_option_sidecar(fake_acp_context(client), {
-      session_id,
-      config_id: "model",
-      value: @acp.SessionConfigValue::ValueId("test/beta"),
-      meta: Omitted,
-    }),
+fn tk_meta_client(name : String) -> @acp.ProtocolNullable[Json] {
+  Value(Json::object(Map::from_array([("client", Json::string(name))])))
+}
+
+///|
+test "resolve_client_bucket prefers the _meta.client slug" {
+  // sanitize_label only strips control chars; the slug is the lowercased
+  // label with its inner spacing kept.
+  let meta = tk_meta_client("Lody Labs")
+  assert_eq(resolve_client_bucket(None, meta, []), "lody labs")
+  // An explicit client name wins over the injected-host heuristic.
+  assert_eq(
+    resolve_client_bucket(None, meta, [tk_profile_server("paseo")]),
+    "lody labs",
   )
-  let sidecar_file = tk_sidecar_path("/cetas-home/.cetas/sessions", session_id)
-  guard fs.files.contains(sidecar_file) else {
-    fail("the model switch must write the sidecar")
-  }
-  let saved = @json.parse(fs.files[sidecar_file]) catch {
-    _ => fail("sidecar must parse")
-  }
-  guard saved is Json::Object(fields) else { fail("sidecar must be an object") }
-  assert_true(fields.get("model") is Some(Json::String("test/beta")))
-  // beta advertises no efforts, so the effort slot resets to null.
-  assert_true(fields.get("effort") is Some(Json::Null))
-  assert_true(fields.get("cwd") is Some(Json::String("/")))
-  ignore(
-    host.handle_load_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_load_params(session_id, cwd=""),
+}
+
+///|
+test "resolve_client_bucket prefers the initialize clientInfo name" {
+  let meta = tk_meta_client("meta client")
+  // The clientInfo name wins over both other signals and is slugified.
+  assert_eq(resolve_client_bucket(Some("Zed Editor"), meta, []), "zed editor")
+  assert_eq(
+    resolve_client_bucket(Some("Zed"), Omitted, [tk_profile_server("lody")]),
+    "zed",
+  )
+  // An empty or missing name falls through to the next signal.
+  assert_eq(resolve_client_bucket(Some(""), meta, []), "meta client")
+  assert_eq(resolve_client_bucket(None, meta, []), "meta client")
+}
+
+///|
+test "client_name_of reads the clientInfo name and tolerates its absence" {
+  let named = fake_acp_context(
+    FakeAcpClient::FakeAcpClient(),
+    client_info=tk_client_info("zed"),
+  )
+  assert_eq(client_name_of(named), Some("zed"))
+  // No initialize clientInfo (the accessor default) reads as None.
+  let unnamed = fake_acp_context(FakeAcpClient::FakeAcpClient())
+  assert_eq(client_name_of(unnamed), None)
+}
+
+///|
+test "resolve_client_bucket falls back to the injected host server name" {
+  assert_eq(
+    resolve_client_bucket(None, Omitted, [tk_profile_server("lody")]),
+    "lody",
+  )
+  assert_eq(
+    resolve_client_bucket(None, Omitted, [tk_profile_server("paseo")]),
+    "paseo",
+  )
+}
+
+///|
+test "resolve_client_bucket falls back to acp without a usable signal" {
+  assert_eq(resolve_client_bucket(None, Omitted, []), "acp")
+  // _meta present but without a string client field.
+  let no_client : @acp.ProtocolNullable[Json] = Value(
+    Json::object(Map::from_array([])),
+  )
+  assert_eq(resolve_client_bucket(None, no_client, []), "acp")
+  let non_string : @acp.ProtocolNullable[Json] = Value(
+    Json::object(Map::from_array([("client", Json::boolean(true))])),
+  )
+  assert_eq(resolve_client_bucket(None, non_string, []), "acp")
+}
+
+///|
+async test "a lody session's history lands in the lody bucket" {
+  let root = tk_unique_root("lody-bucket")
+  let (host, _) = tk_host(
+    [@posoco.Respond(@posoco.tk_stop_response("lody answer"))],
+    sessions_root=root,
+  )
+  let client = FakeAcpClient::FakeAcpClient()
+  let opened = host.handle_new_session(
+    fake_acp_context(client),
+    tk_new_session_params(mcp_servers=[tk_profile_server("lody")]),
+  )
+  let session_id = opened.session_id
+  let turn = host.handle_prompt(fake_acp_context(client), {
+    session_id,
+    prompt: tk_prompt("hello lody"),
+    meta: Omitted,
+  })
+  assert_true(turn.stop_reason is EndTurn)
+  assert_true(
+    tk_path_exists(@fs_session.jsonl_session_path(root + "/lody", session_id)),
+  )
+  assert_false(
+    tk_path_exists(@fs_session.jsonl_session_path(root + "/acp", session_id)),
+  )
+  let texts = tk_session_texts(tk_load_history(host, session_id))
+  assert_true(texts.contains("hello lody"))
+  assert_true(texts.contains("lody answer"))
+}
+
+///|
+async test "a clientInfo-identified session lands in its own bucket" {
+  let root = tk_unique_root("clientinfo-bucket")
+  let (host, _) = tk_host(
+    [@posoco.Respond(@posoco.tk_stop_response("zed answer"))],
+    sessions_root=root,
+  )
+  // Zed-class clients identify through initialize clientInfo alone — no
+  // `_meta`, no injected host server — and still get their own bucket.
+  let zed = fake_acp_context(
+    FakeAcpClient::FakeAcpClient(),
+    client_info=tk_client_info("Zed"),
+  )
+  let opened = host.handle_new_session(zed, tk_new_session_params())
+  let session_id = opened.session_id
+  let turn = host.handle_prompt(zed, {
+    session_id,
+    prompt: tk_prompt("hello zed"),
+    meta: Omitted,
+  })
+  assert_true(turn.stop_reason is EndTurn)
+  assert_true(
+    tk_path_exists(@fs_session.jsonl_session_path(root + "/zed", session_id)),
+  )
+  assert_false(
+    tk_path_exists(@fs_session.jsonl_session_path(root + "/acp", session_id)),
+  )
+}
+
+///|
+test "debug_tap_context forwards the clientInfo accessor" {
+  let (host, _) = tk_host([], wire_log=true)
+  let tapped = host.debug_tap_context(
+    fake_acp_context(
+      FakeAcpClient::FakeAcpClient(),
+      client_info=tk_client_info("zed"),
     ),
   )
-  assert_eq(host.sessions[session_id].router.active_slot_id(), "test/beta")
+  // The rebuilt context must keep the initialize identity readable —
+  // bucket resolution reads it after the tap.
+  assert_eq(client_name_of(tapped), Some("zed"))
 }
 
-// --------------------------------------------------- W7: session/fork
+///|
+async test "resume over a fresh host continues the persisted transcript" {
+  let root = tk_unique_root("restart")
+  let (host_a, _) = tk_host(
+    [
+      @posoco.Respond(@posoco.tk_stop_response("disk one")),
+      @posoco.Respond(@posoco.tk_stop_response("spare a")),
+      @posoco.Respond(@posoco.tk_stop_response("spare b")),
+      @posoco.Respond(@posoco.tk_stop_response("spare c")),
+    ],
+    sessions_root=root,
+  )
+  let client = FakeAcpClient::FakeAcpClient()
+  let session_id = tk_open_session(host_a, client)
+  let turn = host_a.handle_prompt(fake_acp_context(client), {
+    session_id,
+    prompt: tk_prompt("disk one"),
+    meta: Omitted,
+  })
+  assert_true(turn.stop_reason is EndTurn)
+  // A second host process over the same sessions root: resume rebuilds over
+  // the bucket the transcript lives in, and the next turn continues it.
+  let (host_b, _) = tk_host(
+    [
+      @posoco.Respond(@posoco.tk_stop_response("disk two")),
+      @posoco.Respond(@posoco.tk_stop_response("spare d")),
+    ],
+    sessions_root=root,
+  )
+  let resumed = host_b.handle_resume_session(
+    fake_acp_context(FakeAcpClient::FakeAcpClient()),
+    tk_resume_params(session_id),
+  )
+  assert_true(resumed.config_options is Value(_))
+  assert_true(host_b.sessions.contains(session_id))
+  let after_resume = host_b.handle_prompt(fake_acp_context(client), {
+    session_id,
+    prompt: tk_prompt("disk two"),
+    meta: Omitted,
+  })
+  assert_true(after_resume.stop_reason is EndTurn)
+  let texts = tk_session_texts(tk_load_history(host_b, session_id))
+  assert_true(texts.contains("disk one"))
+  assert_true(texts.contains("disk two"))
+}
 
 ///|
-fn tk_fork_params(
-  session_id : String,
-  cwd? : String = "/",
-  mcp_servers? : Array[@acp.McpServer] = [],
-) -> @acp.ForkSessionParams {
-  {
-    cwd,
+async test "resume finds a transcript through the bucket scan across clients" {
+  let home = tk_unique_root("scan")
+  let host_a = tk_host_real_fs(
+    [@posoco.Respond(@posoco.tk_stop_response("lody side answer"))],
+    home,
+  )
+  let client = FakeAcpClient::FakeAcpClient()
+  let opened = host_a.handle_new_session(
+    fake_acp_context(client),
+    tk_new_session_params(mcp_servers=[tk_profile_server("lody")]),
+  )
+  let session_id = opened.session_id
+  let turn = host_a.handle_prompt(fake_acp_context(client), {
     session_id,
-    additional_directories: Omitted,
-    mcp_servers: Value(mcp_servers),
+    prompt: tk_prompt("scan me"),
     meta: Omitted,
-  }
+  })
+  assert_true(turn.stop_reason is EndTurn)
+  let lody_dir = host_a.sessions[session_id].store.root_dir
+  assert_eq(lody_dir, @cetas_core.sessions_dir(home) + "/lody")
+  assert_true(
+    tk_path_exists(@fs_session.jsonl_session_path(lody_dir, session_id)),
+  )
+  // Host B identifies as no known client, so its resolved bucket is `acp`;
+  // the transcript can only be found by scanning the sibling buckets.
+  let host_b = tk_host_real_fs(
+    [
+      @posoco.Respond(@posoco.tk_stop_response("after scan")),
+      @posoco.Respond(@posoco.tk_stop_response("spare")),
+    ],
+    home,
+  )
+  let resumed = host_b.handle_resume_session(
+    fake_acp_context(FakeAcpClient::FakeAcpClient()),
+    tk_resume_params(session_id),
+  )
+  assert_true(resumed.config_options is Value(_))
+  // The scan's finding rides through restore_session as the store root.
+  assert_eq(host_b.sessions[session_id].store.root_dir, lody_dir)
+  let after = host_b.handle_prompt(fake_acp_context(client), {
+    session_id,
+    prompt: tk_prompt("found you"),
+    meta: Omitted,
+  })
+  assert_true(after.stop_reason is EndTurn)
+  let texts = tk_session_texts(tk_load_history(host_b, session_id))
+  assert_true(texts.contains("scan me"))
+  assert_true(texts.contains("lody side answer"))
+  assert_true(texts.contains("found you"))
+  // An id no bucket carries still resumes to an empty session (0 frames).
+  let stranger = FakeAcpClient::FakeAcpClient()
+  ignore(
+    host_b.handle_resume_session(
+      fake_acp_context(stranger),
+      tk_resume_params("cetas-stranger-scan"),
+    ),
+  )
+  assert_eq(stranger.sent.length(), 0)
 }
 
 ///|
@@ -3497,8 +3688,9 @@ async fn tk_load_history(
   host : CetasAcpHost,
   session_id : String,
 ) -> @posoco.Session {
+  let store = host.sessions[session_id].store
   let loaded : Result[@posoco.Session, Error] = Ok(
-    host.session_store.load(session_id),
+    @posoco.SessionStore::load(store, session_id),
   ) catch {
     error => Err(error)
   }
@@ -3510,521 +3702,19 @@ async fn tk_load_history(
 }
 
 ///|
-async test "fork branches a live parent into an independent promptable child" {
-  let store = @fs_session.JsonlSessionStore(tk_temp_root("fork-live"))
-  let fs = FakeFs()
-  let (host, _) = tk_host(
-    [
-      @posoco.Respond(@posoco.tk_stop_response("turn one")),
-      @posoco.Respond(@posoco.tk_stop_response("turn two")),
-      @posoco.Respond(@posoco.tk_stop_response("turn three")),
-    ],
-    fs~,
-    store~,
-  )
-  let client = FakeAcpClient::FakeAcpClient()
-  let parent = tk_open_session(host, client)
-  let turn = host.handle_prompt(fake_acp_context(client), {
-    session_id: parent,
-    prompt: tk_prompt("hello parent"),
-    meta: Omitted,
-  })
-  assert_true(turn.stop_reason is EndTurn)
-  let result = host.handle_fork_session(
-    fake_acp_context(FakeAcpClient::FakeAcpClient()),
-    tk_fork_params(parent),
-  )
-  let child = result.session_id
-  assert_true(child != parent)
-  assert_true(tk_durable_id_shape(child))
-  guard result.modes is Value(child_modes) else {
-    fail("fork must advertise the child's modes")
-  }
-  assert_eq(child_modes.current_mode_id, "default")
-  guard result.config_options is Value(options) else {
-    fail("fork must advertise the child's config options")
-  }
-  match tk_find_option(options, "model") {
-    Some(select) => assert_eq(select.current_value, "test/alpha")
-    None => fail("model arm missing on the forked session")
-  }
-  let texts = tk_session_texts(tk_load_history(host, child))
-  assert_true(texts.contains("hello parent"))
-  assert_true(texts.contains("turn one"))
-  let child_turn = host.handle_prompt(
-    fake_acp_context(FakeAcpClient::FakeAcpClient()),
-    { session_id: child, prompt: tk_prompt("hello child"), meta: Omitted, },
-  )
-  assert_true(child_turn.stop_reason is EndTurn)
-  assert_true(host.sessions.contains(parent))
-  let parent_turn = host.handle_prompt(fake_acp_context(client), {
-    session_id: parent,
-    prompt: tk_prompt("hello again"),
-    meta: Omitted,
-  })
-  assert_true(parent_turn.stop_reason is EndTurn)
-}
-
-///|
-async test "fork branches a closed parent from its persisted state" {
-  let store = @fs_session.JsonlSessionStore(tk_temp_root("fork-closed"))
-  let fs = FakeFs()
-  let (host, _) = tk_host(
-    [
-      @posoco.Respond(@posoco.tk_stop_response("closed answer")),
-      @posoco.Respond(@posoco.tk_stop_response("child answer")),
-    ],
-    fs~,
-    store~,
-  )
-  let client = FakeAcpClient::FakeAcpClient()
-  let parent = tk_open_session(host, client)
-  let turn = host.handle_prompt(fake_acp_context(client), {
-    session_id: parent,
-    prompt: tk_prompt("persist me"),
-    meta: Omitted,
-  })
-  assert_true(turn.stop_reason is EndTurn)
-  ignore(
-    host.handle_close(fake_acp_context(client), {
-      session_id: parent,
-      meta: Omitted,
-    }),
-  )
-  assert_false(host.sessions.contains(parent))
-  let result = host.handle_fork_session(
-    fake_acp_context(FakeAcpClient::FakeAcpClient()),
-    tk_fork_params(parent),
-  )
-  let child = result.session_id
-  assert_true(child != parent)
-  let texts = tk_session_texts(tk_load_history(host, child))
-  assert_true(texts.contains("persist me"))
-  assert_true(texts.contains("closed answer"))
-  let child_turn = host.handle_prompt(
-    fake_acp_context(FakeAcpClient::FakeAcpClient()),
-    { session_id: child, prompt: tk_prompt("go on"), meta: Omitted, },
-  )
-  assert_true(child_turn.stop_reason is EndTurn)
-  assert_false(host.sessions.contains(parent))
-}
-
-///|
-async test "fork cwd override anchors the child at the fork cwd" {
-  let fs = FakeFs()
-  let (host, _) = tk_host([], fs~)
-  let parent = host.handle_new_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_new_session_params(cwd="/worktree-main"),
-    ).session_id
-  let child = host.handle_fork_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_fork_params(parent, cwd="/forked"),
-    ).session_id
-  assert_eq(host.sessions[child].cwd, "/forked")
-  assert_eq(host.sessions[parent].cwd, "/worktree-main")
-  let parent_saved = @json.parse(
-    fs.files[tk_sidecar_path("/cetas-home/.cetas/sessions", parent)],
-  ) catch {
-    _ => fail("parent sidecar must parse")
-  }
-  guard parent_saved is Json::Object(parent_fields) else {
-    fail("parent sidecar must be an object")
-  }
-  assert_true(parent_fields.get("cwd") is Some(Json::String("/worktree-main")))
-  let child_saved = @json.parse(
-    fs.files[tk_sidecar_path("/cetas-home/.cetas/sessions", child)],
-  ) catch {
-    _ => fail("child sidecar must parse")
-  }
-  guard child_saved is Json::Object(child_fields) else {
-    fail("child sidecar must be an object")
-  }
-  assert_true(child_fields.get("cwd") is Some(Json::String("/forked")))
-}
-
-///|
-async test "fork inherits the parent sidecar roster and selection" {
-  let fs = FakeFs()
-  let (host, _) = tk_host([], fs~)
-  let server : @acp.McpServer = Stdio({
-    name: "notes",
-    command: "/usr/local/bin/npx",
-    args: ["-y", "notes"],
-    env: [],
-    meta: Omitted,
-  })
-  let client = FakeAcpClient::FakeAcpClient()
-  let parent = host.handle_new_session(
-      fake_acp_context(client),
-      tk_new_session_params(cwd="/w7-inherit", mcp_servers=[server]),
-    ).session_id
-  ignore(
-    host.handle_set_config_option_sidecar(fake_acp_context(client), {
-      session_id: parent,
-      config_id: "effort",
-      value: @acp.SessionConfigValue::ValueId("high"),
-      meta: Omitted,
-    }),
-  )
-  let result = host.handle_fork_session(
-    fake_acp_context(FakeAcpClient::FakeAcpClient()),
-    {
-      cwd: "",
-      session_id: parent,
-      additional_directories: Omitted,
-      mcp_servers: Omitted,
-      meta: Omitted,
-    },
-  )
-  let child = result.session_id
-  let child_saved = @json.parse(
-    fs.files[tk_sidecar_path("/cetas-home/.cetas/sessions", child)],
-  ) catch {
-    _ => fail("child sidecar must parse")
-  }
-  guard child_saved is Json::Object(fields) else {
-    fail("child sidecar must be an object")
-  }
-  assert_true(fields.get("effort") is Some(Json::String("high")))
-  assert_true(fields.get("model") is Some(Json::String("test/alpha")))
-  assert_true(fields.get("cwd") is Some(Json::String("/w7-inherit")))
-  assert_true(
-    fields.get("mcp_servers") is Some(Json::Array([Json::String("notes")])),
-  )
-  assert_eq(host.sessions[child].router.active_effort(), Some("high"))
-  assert_eq(host.sessions[child].router.active_slot_id(), "test/alpha")
-  guard result.config_options is Value(options) else {
-    fail("fork must advertise the child's config options")
-  }
-  match tk_find_option(options, "effort") {
-    Some(select) => assert_eq(select.current_value, "high")
-    None => fail("effort arm missing on the forked session")
-  }
-  assert_eq(host.sessions[parent].router.active_effort(), Some("high"))
-  let parent_saved = @json.parse(
-    fs.files[tk_sidecar_path("/cetas-home/.cetas/sessions", parent)],
-  ) catch {
-    _ => fail("parent sidecar must parse")
-  }
-  guard parent_saved is Json::Object(parent_fields) else {
-    fail("parent sidecar must be an object")
-  }
-  assert_true(
-    parent_fields.get("mcp_servers")
-    is Some(Json::Array([Json::String("notes")])),
-  )
-}
-
-///|
-async test "fork rejects an unknown or invalid session id" {
-  let (host, _) = tk_host([])
-  let unknown : Result[@acp.ForkSessionResult, @acp.HandlerError] = Ok(
-    host.handle_fork_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_fork_params("cetas-404"),
-    ),
-  ) catch {
-    error => Err(error)
-  }
-  match unknown {
-    Err(InvalidParams(message~)) =>
-      assert_true(message.contains("unknown session"))
-    _ => fail("expected an invalid-params error")
-  }
-  let malformed : Result[@acp.ForkSessionResult, @acp.HandlerError] = Ok(
-    host.handle_fork_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_fork_params("../escape"),
-    ),
-  ) catch {
-    error => Err(error)
-  }
-  match malformed {
-    Err(InvalidParams(message~)) =>
-      assert_true(message.contains("invalid session id"))
-    _ => fail("expected an invalid-params error")
-  }
-  assert_eq(host.sessions.length(), 0)
-}
-
-///|
-async test "fork leaves the parent sidecar and history byte-identical" {
-  let store = @fs_session.JsonlSessionStore(tk_temp_root("fork-frozen"))
-  let fs = FakeFs()
-  let (host, _) = tk_host(
-    [@posoco.Respond(@posoco.tk_stop_response("parent answer"))],
-    fs~,
-    store~,
-  )
-  let client = FakeAcpClient::FakeAcpClient()
-  let parent = tk_open_session(host, client)
-  let turn = host.handle_prompt(fake_acp_context(client), {
-    session_id: parent,
-    prompt: tk_prompt("frozen"),
-    meta: Omitted,
-  })
-  assert_true(turn.stop_reason is EndTurn)
-  let sidecar_before = fs.files[tk_sidecar_path(store.root_dir, parent)]
-  let history_before = tk_load_history(host, parent)
-  ignore(
-    host.handle_fork_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_fork_params(parent, cwd="/forked"),
-    ),
-  )
-  // History compared via canonical JSONL (the real store file sits outside the fake fs).
-  assert_eq(fs.files[tk_sidecar_path(store.root_dir, parent)], sidecar_before)
-  let history_after = tk_load_history(host, parent)
-  assert_eq(
-    @fs_session.session_to_jsonl(history_after),
-    @fs_session.session_to_jsonl(history_before),
-  )
-  assert_true(host.sessions.contains(parent))
-}
-
-// --------------------------------------------------- W8: session/delete
-
-///|
-fn tk_delete_params(session_id : String) -> @acp.DeleteSessionParams {
-  { session_id, meta: Omitted, }
-}
-
-///|
-/// Delete-test host over real disk: one fresh temp home holds sidecar and JSONL history.
-async fn tk_host_native(
-  steps : Array[@posoco.ScriptedModelStep],
-  home : String,
-) -> CetasAcpHost {
-  let store = @fs_session.JsonlSessionStore(home + "/.cetas/sessions")
-  let fs = @workspace.NativeWorkspaceFs()
-  fs.mkdir(home + "/.cetas/sessions", recursive=true) catch {
-    _ => ()
-  }
-  CetasAcpHost::of(
-    spawn_session=tk_spawn_session(
-      @posoco.ScriptedModel(steps),
-      @posoco.RecordingToolProvider([], Map::from_array([])),
-      "/",
-      store=Some(store),
-    ),
-    home~,
-    fs~,
-    session_store=store,
-  )
-}
-
-///|
-async fn tk_file_exists(host : CetasAcpHost, path : String) -> Bool noraise {
-  host.fs.exists(path) catch {
-    _ => false
-  }
-}
-
-///|
-test "agent_spec advertises delete and the http MCP capability" {
+test "agent_spec advertises resume and the http MCP capability" {
   let (host, _) = tk_host([])
   guard host.agent_spec() is Ok(spec) else { fail("agent_spec must compose") }
-  assert_true(spec.sessions.delete_handler is Some(_))
+  // The client owns chat-record persistence, so only resume stays; the
+  // agent-side persistence surface (load/fork/list/delete) is not advertised.
+  assert_true(spec.sessions.resume_handler is Some(_))
+  assert_true(spec.sessions.load_handler is None)
+  assert_true(spec.sessions.fork_handler is None)
+  assert_true(spec.sessions.list_handler is None)
+  assert_true(spec.sessions.delete_handler is None)
   // ext-mcp has no SSE client; the gate must reject Sse injections before any handler.
   assert_true(spec.support.mcp_http)
   assert_false(spec.support.mcp_sse)
-}
-
-///|
-async test "delete retires a live session and removes both persisted files" {
-  let home = tk_temp_root("delete-live") + "/home"
-  let host = tk_host_native(
-    [@posoco.Respond(@posoco.tk_stop_response("hi"))],
-    home,
-  )
-  let client = FakeAcpClient::FakeAcpClient()
-  let session_id = tk_open_session(host, client)
-  let turn = host.handle_prompt(fake_acp_context(client), {
-    session_id,
-    prompt: tk_prompt("persist me"),
-    meta: Omitted,
-  })
-  assert_true(turn.stop_reason is EndTurn)
-  let sidecar_file = tk_sidecar_path(host.session_store.root_dir, session_id)
-  let history_file = @fs_session.jsonl_session_path(
-    host.session_store.root_dir,
-    session_id,
-  )
-  assert_true(tk_file_exists(host, sidecar_file))
-  assert_true(tk_file_exists(host, history_file))
-  let result = host.handle_delete_session(
-    fake_acp_context(FakeAcpClient::FakeAcpClient()),
-    tk_delete_params(session_id),
-  )
-  assert_true(result.meta is Omitted)
-  assert_false(tk_file_exists(host, sidecar_file))
-  assert_false(tk_file_exists(host, history_file))
-  let rejected : Result[@acp.PromptResult, @acp.HandlerError] = Ok(
-    host.handle_prompt(fake_acp_context(client), {
-      session_id,
-      prompt: tk_prompt("again"),
-      meta: Omitted,
-    }),
-  ) catch {
-    error => Err(error)
-  }
-  match rejected {
-    Ok(_) => fail("a deleted session must reject prompts")
-    Err(InvalidParams(message~)) =>
-      assert_true(message.contains("unknown session"))
-    Err(_) => fail("expected an invalid-params error")
-  }
-  let listed = host.handle_list_sessions(
-    fake_acp_context(FakeAcpClient::FakeAcpClient()),
-    { cwd: Omitted, cursor: Omitted, meta: Omitted, },
-  )
-  for info in listed.sessions {
-    assert_false(info.session_id == session_id)
-  }
-}
-
-///|
-async test "delete removes a closed session's persisted history and sidecar" {
-  let home = tk_temp_root("delete-closed") + "/home"
-  let host = tk_host_native(
-    [@posoco.Respond(@posoco.tk_stop_response("hi"))],
-    home,
-  )
-  let client = FakeAcpClient::FakeAcpClient()
-  let session_id = tk_open_session(host, client)
-  let turn = host.handle_prompt(fake_acp_context(client), {
-    session_id,
-    prompt: tk_prompt("persist me"),
-    meta: Omitted,
-  })
-  assert_true(turn.stop_reason is EndTurn)
-  ignore(
-    host.handle_close(fake_acp_context(client), { session_id, meta: Omitted, }),
-  )
-  assert_false(host.sessions.contains(session_id))
-  let history_file = @fs_session.jsonl_session_path(
-    host.session_store.root_dir,
-    session_id,
-  )
-  assert_true(tk_file_exists(host, history_file))
-  ignore(
-    host.handle_delete_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_delete_params(session_id),
-    ),
-  )
-  assert_false(tk_file_exists(host, history_file))
-  assert_false(
-    tk_file_exists(
-      host,
-      tk_sidecar_path(host.session_store.root_dir, session_id),
-    ),
-  )
-  let load : Result[@acp.LoadSessionResult, @acp.HandlerError] = Ok(
-    host.handle_load_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_load_params(session_id),
-    ),
-  ) catch {
-    error => Err(error)
-  }
-  match load {
-    Err(InvalidParams(message~)) =>
-      assert_true(message.contains("unknown session"))
-    _ => fail("a deleted id must not load")
-  }
-}
-
-///|
-async test "delete rejects unknown and malformed session ids" {
-  let (host, _) = tk_host([])
-  let unknown : Result[@acp.DeleteSessionResult, @acp.HandlerError] = Ok(
-    host.handle_delete_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_delete_params("cetas-404"),
-    ),
-  ) catch {
-    error => Err(error)
-  }
-  match unknown {
-    // Not close's silent no-op: delete is destructive, mistyped ids must be reported.
-    Err(InvalidParams(message~)) =>
-      assert_true(message.contains("unknown session"))
-    _ => fail("expected an invalid-params error")
-  }
-  let malformed : Result[@acp.DeleteSessionResult, @acp.HandlerError] = Ok(
-    host.handle_delete_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_delete_params("../escape"),
-    ),
-  ) catch {
-    error => Err(error)
-  }
-  match malformed {
-    Err(InvalidParams(message~)) =>
-      assert_true(message.contains("invalid session id"))
-    _ => fail("expected an invalid-params error")
-  }
-}
-
-///|
-async test "delete leaves the other session untouched" {
-  let (host, _) = tk_host([
-    @posoco.Respond(@posoco.tk_stop_response("b answers")),
-  ])
-  let client_a = FakeAcpClient::FakeAcpClient()
-  let client_b = FakeAcpClient::FakeAcpClient()
-  let a = tk_open_session(host, client_a)
-  let b = tk_open_session(host, client_b)
-  ignore(
-    host.handle_delete_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_delete_params(a),
-    ),
-  )
-  assert_false(host.sessions.contains(a))
-  assert_false(
-    tk_file_exists(host, tk_sidecar_path("/cetas-home/.cetas/sessions", a)),
-  )
-  assert_true(
-    tk_file_exists(host, tk_sidecar_path("/cetas-home/.cetas/sessions", b)),
-  )
-  let b_turn = host.handle_prompt(fake_acp_context(client_b), {
-    session_id: b,
-    prompt: tk_prompt("hello b"),
-    meta: Omitted,
-  })
-  assert_true(b_turn.stop_reason is EndTurn)
-}
-
-///|
-async test "delete failure surfaces as an application error naming the file" {
-  let fs = FakeFs()
-  let (host, _) = tk_host([], fs~)
-  let session_id = tk_open_session(host, FakeAcpClient::FakeAcpClient())
-  let sidecar_file = tk_sidecar_path("/cetas-home/.cetas/sessions", session_id)
-  guard fs.files.contains(sidecar_file) else {
-    fail("session/new must write the sidecar")
-  }
-  fs.fail_removes = true
-  let outcome : Result[@acp.DeleteSessionResult, @acp.HandlerError] = Ok(
-    host.handle_delete_session(
-      fake_acp_context(FakeAcpClient::FakeAcpClient()),
-      tk_delete_params(session_id),
-    ),
-  ) catch {
-    error => Err(error)
-  }
-  match outcome {
-    Err(Application(message~)) => {
-      assert_true(message.contains("sidecar"))
-      assert_true(message.contains(sidecar_file))
-    }
-    _ => fail("a failed file removal must be reported, never silent")
-  }
-  assert_false(host.sessions.contains(session_id))
-  assert_true(fs.files.contains(sidecar_file))
 }
 
 // ---------------------------------------------- W5: persistence write mutex
@@ -4075,56 +3765,6 @@ async test "selection persistence waits on the process persist mutex" {
       saved is Json::Object(fields) &&
       fields.get("model") is Some(Json::String("test/beta")) &&
       fields.get("providers") is Some(Json::Object({ .. })),
-    )
-  })
-}
-
-///|
-async test "sidecar update waits on the process persist mutex" {
-  let fs = FakeFs()
-  let (host, _) = tk_host([], fs~)
-  let client = FakeAcpClient::FakeAcpClient()
-  let session_id = tk_open_session(host, client)
-  let sidecar_file = tk_sidecar_path("/cetas-home/.cetas/sessions", session_id)
-  guard fs.files.contains(sidecar_file) else {
-    fail("session/new must write the sidecar")
-  }
-  @async.with_task_group(group => {
-    acp_persist_mutex.acquire() catch {
-      _ => fail("the test task must acquire the persist mutex")
-    }
-    let task = group.spawn(
-      () => {
-        host.update_session_sidecar(session_id, host.sessions[session_id], [
-          "ghost",
-        ])
-      },
-      allow_failure=true,
-    )
-    @async.pause()
-    @async.pause()
-    let parked = @json.parse(fs.files[sidecar_file]) catch {
-      _ => fail("sidecar must parse")
-    }
-    guard parked is Json::Object(before) else {
-      fail("sidecar must be an object")
-    }
-    assert_true(before.get("mcp_servers") is Some(Json::Array([])))
-    acp_persist_mutex.release()
-    try {
-      let _ = task.wait()
-    } catch {
-      error =>
-        fail("the parked sidecar update must settle: " + error.to_string())
-    }
-    let merged = @json.parse(fs.files[sidecar_file]) catch {
-      _ => fail("sidecar must parse")
-    }
-    guard merged is Json::Object(after) else {
-      fail("sidecar must be an object")
-    }
-    assert_true(
-      after.get("mcp_servers") is Some(Json::Array([Json::String("ghost")])),
     )
   })
 }
@@ -4298,12 +3938,17 @@ async test "rate-limit monitor stops after lifecycle shutdown" {
 fn tk_spawn_session_plan_noreview(
   model : &@posoco.ModelPort,
   process_cwd : String,
-) -> async (String, @acp.NewSessionParams) -> Result[SessionHandle, String] {
+) -> async (String, @acp.NewSessionParams, String?) -> Result[
+  SessionHandle,
+  String,
+] {
   fn(
     _session_id : String,
     params : @acp.NewSessionParams,
+    _store_root : String?,
   ) -> Result[SessionHandle, String] {
     let cwd = if params.cwd.length() > 0 { params.cwd } else { process_cwd }
+    let store = @fs_session.JsonlSessionStore(tk_unique_root("plan-noreview"))
     try {
       let bridge = @ext_acp.AcpBridge()
       let event_bus = @devkit.EventBus()
@@ -4337,9 +3982,9 @@ fn tk_spawn_session_plan_noreview(
         bridge,
         router: tk_router(),
         agent,
+        mcp_bridge: None,
         cwd,
-        store: @fs_session.JsonlSessionStore("/cetas-home/.cetas/sessions"),
-        project_dir: "/cetas-home/.cetas/sessions",
+        store,
         plan: plan_mode,
         permission: policy,
         fs_delegate: None,
@@ -4384,13 +4029,7 @@ fn tk_assert_modes(
 
 ///|
 async test "session results advertise the default and plan modes" {
-  let store = @fs_session.JsonlSessionStore(tk_temp_root("w9-modes"))
-  let fs = FakeFs()
-  let (host, _) = tk_host(
-    [@posoco.Respond(@posoco.tk_stop_response("history"))],
-    fs~,
-    store~,
-  )
+  let (host, _) = tk_host([@posoco.Respond(@posoco.tk_stop_response("history"))])
   let client = FakeAcpClient::FakeAcpClient()
   let session_id = tk_open_session(host, client)
   let new_result = host.handle_new_session(
@@ -4407,15 +4046,7 @@ async test "session results advertise the default and plan modes" {
     meta: Omitted,
   })
   assert_true(turn.stop_reason is EndTurn)
-  // Mode is runtime state, deliberately absent from the sidecar.
-  let loaded = host.handle_load_session(
-    fake_acp_context(FakeAcpClient::FakeAcpClient()),
-    tk_load_params(session_id),
-  )
-  guard loaded.modes is Value(load_modes) else {
-    fail("load must advertise modes")
-  }
-  tk_assert_modes(load_modes, "default")
+  // Mode is runtime state and never restored.
   let resumed = host.handle_resume_session(
     fake_acp_context(FakeAcpClient::FakeAcpClient()),
     tk_resume_params(session_id),
@@ -4424,14 +4055,6 @@ async test "session results advertise the default and plan modes" {
     fail("resume must advertise modes")
   }
   tk_assert_modes(resume_modes, "default")
-  let forked = host.handle_fork_session(
-    fake_acp_context(FakeAcpClient::FakeAcpClient()),
-    tk_fork_params(session_id),
-  )
-  guard forked.modes is Value(fork_modes) else {
-    fail("fork must advertise modes")
-  }
-  tk_assert_modes(fork_modes, "default")
 }
 
 ///|
@@ -5564,7 +5187,7 @@ fn parse_debug_flag(raw : String?) -> Bool {
 /// Whitebox/embedding constructor around a substituted session factory; tests
 /// substitute fake refreshable factories to exercise `refresh_model_lists`.
 fn CetasAcpHost::of(
-  spawn_session~ : async (String, @acp.NewSessionParams) -> Result[
+  spawn_session~ : async (String, @acp.NewSessionParams, String?) -> Result[
     SessionHandle,
     String,
   ],
@@ -5573,11 +5196,6 @@ fn CetasAcpHost::of(
   agent_version? : String = "0.1.0",
   refreshables? : Array[&@llm.RefreshableProviderFactory] = [],
   refresh_snapshot? : @cetas_core.ProviderCredentialSnapshot = @cetas_core.ProviderCredentialSnapshot::ProviderCredentialSnapshot(),
-  session_store? : @fs_session.JsonlSessionStore = @fs_session.JsonlSessionStore(
-    home + "/.cetas/sessions",
-  ),
-  stores? : Map[String, @fs_session.JsonlSessionStore] = Map::from_array([]),
-  process_cwd? : String = "/",
   wire_log? : Bool = false,
   native_append? : Bool = false,
 ) -> CetasAcpHost {
@@ -5587,9 +5205,6 @@ fn CetasAcpHost::of(
     home,
     fs,
     sessions: Map::from_array([]),
-    session_store,
-    stores,
-    process_cwd,
     catalogs: [],
     refreshables,
     refresh_snapshot,
