@@ -39,8 +39,10 @@ const APPROVAL_OPTION_DENY = "Deny"
 /// presents ext-permission's full decision space (`AllowOnce`,
 /// `AllowSession`, `Deny`) and the host maps the picked index onto the
 /// matching `ApprovalDecision` — no option is collapsed away. Deny is
-/// terminal for the turn (the reason flows into the turn error); a denied
-/// tool never becomes a silent skip.
+/// non-terminal steering: the pump folds the rejection into a
+/// `NotExecuted(RejectedByHook)` tool result and the turn continues, so the
+/// model sees the deny reason and can choose a different action rather than
+/// the turn ending in an error.
 pub(all) struct BlockingApprovalSource {
   ui : &@posoco.UiPort
 }

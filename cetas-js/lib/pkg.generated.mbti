@@ -104,7 +104,7 @@ pub struct CetasJsAgent {
   store : @posoco-ext-fs-session.JsonlSessionStore
   pi : @posoco-ext-pi-adaptor.PiAdaptor
   mut pi_session : String?
-  nmem_group_close : @aqueue.Queue[Unit]
+  serve_close : @aqueue.Queue[Unit]
 }
 
 pub(all) struct CetasJsConfig {

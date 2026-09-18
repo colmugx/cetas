@@ -623,3 +623,101 @@ describe("/compact command rendering", () => {
     );
   });
 });
+
+describe("submit-path pending spinner", () => {
+  /** Stub app whose runTurn parks until the test settles it. */
+  function makeTurnStub(): {
+    shell: TerminalShell;
+    resolveTurn: (value: string) => void;
+    rejectTurn: (error: unknown) => void;
+  } {
+    const { shell } = makeShell();
+    let resolveTurn: (value: string) => void = () => {};
+    let rejectTurn: (error: unknown) => void = () => {};
+    const turn = new Promise<string>((resolve, reject) => {
+      resolveTurn = resolve;
+      rejectTurn = reject;
+    });
+    (shell as any).attachApplication({
+      listCommands: () => [],
+      runTurn: () => turn,
+    });
+    return { shell, resolveTurn, rejectTurn };
+  }
+
+  /** Let submit's awaits land in runTurnAndRender's synchronous prefix. */
+  async function flushMicrotasks(ticks = 5): Promise<void> {
+    for (let i = 0; i < ticks; i += 1) await Promise.resolve();
+  }
+
+  function statusOf(shell: TerminalShell): { count: number; rendered: string } {
+    const wrapper = (shell as any).statusWrapper;
+    return {
+      count: (wrapper.children as unknown[]).length,
+      rendered: wrapper.render(80).join("\n"),
+    };
+  }
+
+  test("the working spinner is active the instant the user submits, before any event", async () => {
+    const { shell, resolveTurn } = makeTurnStub();
+    const done = shell.submit("hello");
+    try {
+      await flushMicrotasks();
+      expect((shell as any).inTurn).toBe(true);
+      expect(statusOf(shell).count).toBe(1);
+      expect(statusOf(shell).rendered).toContain("starting");
+    } finally {
+      resolveTurn("done");
+      await done;
+    }
+    expect((shell as any).inTurn).toBe(false);
+    expect((shell as any).statusLoader.intervalId).toBeNull();
+  });
+
+  test("turn_started swaps the pending message for the router's thinking state without duplicating the status node", async () => {
+    const { shell, resolveTurn } = makeTurnStub();
+    const done = shell.submit("hello");
+    try {
+      await flushMicrotasks();
+      expect(statusOf(shell).rendered).toContain("starting");
+      (shell as any).handleObserverEvent('{"type":"turn_started"}');
+      const status = statusOf(shell);
+      expect(status.count).toBe(1);
+      expect(status.rendered).toContain("thinking");
+      expect(status.rendered).not.toContain("starting");
+    } finally {
+      (shell as any).handleObserverEvent('{"type":"turn_completed"}');
+      resolveTurn("done");
+      await done;
+    }
+    expect(statusOf(shell).count).toBe(0);
+    expect((shell as any).statusLoader.intervalId).toBeNull();
+  });
+
+  test("a rejected turn stops the spinner in finally and leaves no stuck status", async () => {
+    const { shell, rejectTurn } = makeTurnStub();
+    const done = shell.submit("hello");
+    try {
+      await flushMicrotasks();
+      expect(statusOf(shell).count).toBe(1);
+      rejectTurn(new Error("bridge exploded"));
+      // The bridge reports the failure on the wire before its promise rejects;
+      // the router's idle transition is what clears the status region.
+      (shell as any).handleObserverEvent(
+        JSON.stringify({
+          type: "turn_failed",
+          error_message: "bridge exploded",
+          error_kind: "Model",
+        }),
+      );
+    } finally {
+      await done;
+    }
+    expect((shell as any).inTurn).toBe(false);
+    expect(statusOf(shell).count).toBe(0);
+    expect((shell as any).statusLoader.intervalId).toBeNull();
+    expect((shell as any).transcript.render(200).join("\n")).toContain(
+      "bridge exploded",
+    );
+  });
+});

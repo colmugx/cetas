@@ -174,13 +174,13 @@ async test "cetas_js_session_titles lists a missing directory as empty" {
 }
 
 ///|
-/// The agent-lifetime nmem group wiring, exercised at the seam the bridge
-/// owns: composition publishes while the background task is still a group
-/// child, the owner stays parked (group open) past composition, and the
-/// shutdown order — stop the flusher, then release the close queue — retires
-/// the whole session scope. This is what keeps the nmem attach-gate satisfied
-/// in cetas-bun: boot config resolution, inbound injection, and drains all
-/// key off `attached`, which only a group-backed `attach` sets.
+/// The serving-scope wiring, exercised at the seam the bridge owns:
+/// composition publishes while a background task is still a group child, the
+/// owner stays parked (group open) past composition, and the shutdown order —
+/// stop the flusher, then release the close signal — retires the whole
+/// session scope. The parked serve body stands in for the held
+/// `Agent::run_scoped`; the cross-coroutine task admission it enables is
+/// covered by its own test below.
 async test "agent group session parks past composition and retires on close" {
   let ready : @aqueue.Queue[Result[Int, Error]] = Queue(kind=Unbounded)
   let close : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
@@ -190,17 +190,28 @@ async test "agent group session parks past composition and retires on close" {
   @async.with_timeout(10_000, async fn() {
     @async.with_task_group(async fn(outer) {
       outer.spawn_bg(async fn() {
-        run_agent_group_session(ready~, close~, compose=fn(group) {
-          // Stand-in for NowledgeMem::attach: a waited background loop that
-          // only an engine stop can end.
-          group.spawn_bg(async fn() {
-            flusher_started.val = true
-            while !flusher_stopped.val {
-              @async.sleep(5)
-            }
-          })
-          42
-        })
+        run_agent_group_session(
+          ready~,
+          close~,
+          compose=fn(group) {
+            // Stand-in for the attach-time background loop that only an
+            // engine stop can end.
+            group.spawn_bg(async fn() {
+              flusher_started.val = true
+              while !flusher_stopped.val {
+                @async.sleep(5)
+              }
+            })
+            42
+          },
+          serve=fn(_handle) {
+            // The serving scope publishes once active, then parks until the
+            // JS host retires the session.
+            ready.put(Ok(42))
+            ignore(close.get())
+            Ok(())
+          },
+        )
         session_retired.val = true
       })
       match ready.get() {
@@ -216,6 +227,183 @@ async test "agent group session parks past composition and retires on close" {
     })
     assert_true(flusher_started.val)
     assert_true(session_retired.val)
+  })
+}
+
+///|
+/// Test fake mirroring the community-extension TaskCapture pattern: the
+/// manifest declares Capability::Tasks, on_compose captures the Tasks
+/// capability, and a tool's execute submits a Background TaskSpec when the
+/// model calls it during a turn.
+priv struct ScopeSubmitProbe {
+  mut tasks : @posoco.Tasks?
+  mut submit_ok : Bool
+  mut submit_unavailable : Bool
+  mut handle : @posoco.TaskHandle?
+}
+
+///|
+fn ScopeSubmitProbe::new() -> ScopeSubmitProbe {
+  { tasks: None, submit_ok: false, submit_unavailable: false, handle: None, }
+}
+
+///|
+impl @posoco.Lifecycle for ScopeSubmitProbe with fn on_compose(
+  self : ScopeSubmitProbe,
+  view : @posoco.CompositionView,
+) {
+  self.tasks = view.tasks()
+}
+
+///|
+impl @posoco.Lifecycle for ScopeSubmitProbe with fn on_shutdown(
+  _self : ScopeSubmitProbe,
+) {
+  ()
+}
+
+///|
+impl @posoco.ToolProvider for ScopeSubmitProbe with fn list_tools(
+  _self : ScopeSubmitProbe,
+) -> Array[@posoco.ToolDef] {
+  [@posoco.tk_tool_def("probe_bg_spawn", "submit a background task")]
+}
+
+///|
+impl @posoco.ToolProvider for ScopeSubmitProbe with fn execute(
+  self : ScopeSubmitProbe,
+  _name : String,
+  _call : @posoco.ToolCall,
+) -> @posoco.ToolOutcome raise @posoco.RuntimeError {
+  let tasks = match self.tasks {
+    Some(value) => value
+    None =>
+      raise @posoco.RuntimeError::InvocationFailed(
+        "tasks capability was not composed",
+      )
+  }
+  match
+    tasks.submit({
+      session_id: "session_1",
+      mode: @posoco.TaskMode::Background,
+      label: "bg-probe",
+      timeout_ms: None,
+      run: fn() {
+        @posoco.Message::AssistantMessage(
+          content=[@posoco.Content::Text("worker-done")],
+          tool_calls=[],
+          reasoning=None,
+          finish_reason=@posoco.FinishReason::Stop,
+        )
+      },
+    }) {
+    Ok(handle) => {
+      self.submit_ok = true
+      self.handle = Some(handle)
+    }
+    Err(@posoco.TaskSubmitError::Unavailable) => self.submit_unavailable = true
+    Err(_) => ()
+  }
+  @posoco.tk_ok_result("spawned")
+}
+
+///|
+/// Load-bearing verification for the serving-scope wiring: one coroutine
+/// holds `run_scoped` open (its body parked on the close queue) while a
+/// sibling coroutine drives a turn whose tool submits a Background task.
+/// The submit must be admitted (NOT `Unavailable`), the task must complete,
+/// its outcome must be delivered into the NEXT turn of the same session,
+/// and closing the queue must retire the scope cleanly.
+async test "held run_scoped admits sibling background task submits" {
+  let probe = ScopeSubmitProbe::new()
+  let model = @posoco.ScriptedModel([
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_tool_call_response("probe_bg_spawn", "call_1", Json::null()),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("first turn done"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("second turn done"),
+    ),
+  ])
+  let store = @posoco.RecordingSessionStore::RecordingSessionStore()
+  let agent = @posoco.Agent(
+    exts=[
+      @posoco.tk_ext(id="model", model=Some(model)),
+      @posoco.tk_ext(id="io", sessions=[store]),
+      @posoco.tk_ext(
+        id="tasks",
+        tools=[probe as &@posoco.ToolProvider],
+        lifecycle=[probe as &@posoco.Lifecycle],
+        requires=[@posoco.Capability::Tasks],
+      ),
+    ],
+    config=@posoco.tk_config(),
+  )
+  let ready : @aqueue.Queue[Result[Unit, Error]] = Queue(kind=Unbounded)
+  let serve_close : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
+  let scope_retired = Ref::{ val: false, }
+  @async.with_timeout(10_000, async fn() {
+    @async.with_task_group(async fn(outer) {
+      // Scope owner coroutine: the exact run_agent_group_session owner shape.
+      outer.spawn_bg(async fn() {
+        let outcome : Result[Unit, Error] = Ok(
+          agent.run_scoped(async fn(_agent) {
+            ready.put(Ok(()))
+            ignore(serve_close.get())
+          }),
+        ) catch {
+          error => Err(error)
+        }
+        match outcome {
+          Ok(_) => ()
+          Err(err) => fail("scope exited with error: \{err}")
+        }
+        scope_retired.val = true
+      })
+      match ready.get() {
+        Ok(_) => ()
+        Err(err) => fail("scope startup failed: \{err}")
+      }
+      // Sibling coroutine drives the turn; the tool's execute submits the
+      // Background task onto the owner's scope group from OUTSIDE its body.
+      ignore(agent.run_turn(@posoco.tk_user_msg("hello"), "session_1"))
+      assert_true(probe.submit_ok)
+      assert_false(probe.submit_unavailable)
+      let handle = match probe.handle {
+        Some(value) => value
+        None => fail("background handle was not published")
+      }
+      let outcome = handle.wait()
+      guard outcome.status is @posoco.TaskStatus::Completed(_) else {
+        fail("background task did not complete")
+      }
+      // Delivery rides the NEXT ordinary run_turn for the same session.
+      ignore(agent.run_turn(@posoco.tk_user_msg("again"), "session_1"))
+      let marker = "[posoco-task-outcome id=\{handle.receipt().id}]"
+      guard store.store.contains("session_1") else {
+        fail("session was never saved")
+      }
+      let delivered = store.store["session_1"].messages
+        .iter()
+        .any(fn(message) {
+          match message {
+            @posoco.Message::UserMessage(content~) =>
+              content
+              .iter()
+              .any(fn(block) {
+                block is @posoco.Content::Text(text) &&
+                text.contains(marker) &&
+                text.contains("worker-done")
+              })
+            _ => false
+          }
+        })
+      assert_true(delivered)
+      serve_close.put(())
+    })
+    assert_true(scope_retired.val)
   })
 }
 

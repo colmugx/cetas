@@ -527,8 +527,9 @@ class ProviderTabStrip implements Component {
  * Typing any printable character opens a fuzzy search across every tab;
  * escape first clears the query, then cancels the picker.
  * Quota mode replaces the tabs with Limit/Balance/Other quick-pick groups
- * ranked by provider quota, preselecting each group's first selectable
- * row; 5h-exhausted rows stay at the bottom of the Limit tab, disabled.
+ * ranked by provider quota, preselecting each group's active entry when it
+ * is selectable (else its first selectable row); 5h-exhausted rows stay at
+ * the bottom of the Limit tab, disabled.
  */
 class TabbedPickerPanel implements Component {
   focused = false;
@@ -575,6 +576,7 @@ class TabbedPickerPanel implements Component {
       const groups = quickPickGroups(entries);
       this.tabs = groups.map((group) => group.label);
       const ordered: ModelRow[] = [];
+      let activeGroup: string | undefined;
       for (const group of groups) {
         const rows = group.entries.map((entry) => ({
           entry,
@@ -584,18 +586,25 @@ class TabbedPickerPanel implements Component {
         this.rowsByTab.set(group.label, rows);
         ordered.push(...rows);
         // The desc quota rank already sinks exhausted rows to the group's
-        // bottom; the cursor starts on the first selectable row (0 when the
+        // bottom; the cursor prefers the group's active entry when it is
+        // selectable and falls back to the first selectable row (0 when the
         // tab is entirely disabled). The `*` active marker stays as-is.
+        const activeIdx = rows.findIndex((row) => row.entry.active && !row.disabled);
         const firstSelectable = rows.findIndex((row) => !row.disabled);
-        const selected = firstSelectable < 0 ? 0 : firstSelectable;
+        const selected =
+          activeIdx >= 0 ? activeIdx : firstSelectable < 0 ? 0 : firstSelectable;
+        if (activeIdx >= 0 && activeGroup === undefined) activeGroup = group.label;
         this.selectedByTab.set(group.label, selected);
         this.listsByTab.set(group.label, this.makeList(group.label, rows, selected));
       }
-      // The default tab must offer a usable choice; Other rows are never
+      // The default tab follows the selectable active entry when one exists;
+      // otherwise it must offer a usable choice — Other rows are never
       // disabled, so a selectable tab always exists (0 as defense).
       this.activeTab = Math.max(
         0,
-        this.tabs.findIndex((tab) => (this.rowsByTab.get(tab) ?? []).some((row) => !row.disabled)),
+        activeGroup === undefined
+          ? this.tabs.findIndex((tab) => (this.rowsByTab.get(tab) ?? []).some((row) => !row.disabled))
+          : this.tabs.indexOf(activeGroup),
       );
       // Disabled rows are inert: keep them out of fuzzy search entirely.
       this.searchBase = ordered.filter((row) => !row.disabled);

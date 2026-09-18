@@ -16,7 +16,7 @@ extern "js" fn js_start_oauth_fixture(
   #| async (port_file) => {
   #|   const { spawn } = await import('node:child_process')
   #|   return await new Promise((resolve, reject) => {
-  #|     const child = spawn(process.execPath, ['../../extension/posoco-ext-mcp/test_fixtures/http_oauth_server.mjs', port_file], { stdio: 'ignore' })
+  #|     const child = spawn(process.execPath, ['../extension/posoco-ext-mcp/test_fixtures/http_oauth_server.mjs', port_file], { stdio: 'ignore' })
   #|     child.once('spawn', () => resolve(child.pid))
   #|     child.once('error', (e) => reject(e))
   #|   })

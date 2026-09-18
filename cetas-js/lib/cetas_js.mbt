@@ -1058,10 +1058,10 @@ pub struct CetasJsAgent {
   /// Last session id that received a pi session_start, so the event fires
   /// once per session rather than once per turn.
   mut pi_session : String?
-  /// Close signal for the agent-lifetime nmem task group. `cetas_js_shutdown`
-  /// releases the group owner (see `run_agent_group_session`) through it
-  /// after `agent.shutdown()` has stopped nmem's flusher via on_shutdown.
-  nmem_group_close : @aqueue.Queue[Unit]
+  /// Close signal for the serving scope. `cetas_js_shutdown` releases the
+  /// parked scope body (see `run_agent_group_session`) through it after
+  /// `agent.shutdown()` has completed; scope exit ends the Agent lifetime.
+  serve_close : @aqueue.Queue[Unit]
 }
 
 ///|
@@ -1119,29 +1119,36 @@ async fn warn_legacy_project_cetas(
 }
 
 ///|
-/// Own the agent-lifetime task group for one composed runtime. `TaskGroup`
-/// has no public constructor — the only group is the one `with_task_group`
-/// creates — and that scope ends when its body returns, taking attached
-/// background tasks (nmem's flusher, spawned by `NowledgeMem::attach`) with
-/// it. So the scope is held open on purpose: `compose` runs inside the group,
-/// the finished handle is published on `ready`, and the owner parks on
-/// `close` until the JS host retires the session. `cetas_js_shutdown` keeps
-/// the acp retirement order — `agent.shutdown()` first (nmem `on_shutdown`
-/// stops the flusher via engine.stop), then the close queue — so the group
-/// exits once its tasks terminate, cancelling nothing live.
+/// Own the serving scope for one composed runtime. `TaskGroup` has no public
+/// constructor — the only group is the one `with_task_group` creates — and
+/// that scope ends when its body returns, taking attached background tasks
+/// with it. So the scope is held open on purpose: `compose` runs inside the
+/// group, and `serve` holds ONE `Agent::run_scoped` for the handle's serving
+/// lifetime, publishing the finished handle on `ready` only once the scope is
+/// active (so background task admission works from turn one) and parking its
+/// body on `close` until the JS host retires the session.
+/// `cetas_js_shutdown` keeps the acp retirement order — `agent.shutdown()`
+/// first, then the close signal — so the parked body returns, scope exit
+/// re-enters the idempotent Agent shutdown, and the group exits with its
+/// tasks.
 ///
-/// Composition failure is forwarded on `ready` (the create promise rejects
-/// exactly as before). A failure after publication only ends this owner:
-/// flusher drains are silent by design, and an unobserved JS promise must
-/// never reject.
+/// `serve` reports Err only for failures before publication (`ready` not yet
+/// consumed): those are forwarded on `ready` and the create promise rejects
+/// exactly as for composition failure. Failures after publication are
+/// handled inside `serve` itself — the create promise is already resolved
+/// and an unobserved JS promise must never reject.
 async fn[X] run_agent_group_session(
   ready~ : @aqueue.Queue[Result[X, Error]],
   close~ : @aqueue.Queue[Unit],
   compose~ : async (@async.TaskGroup[Unit]) -> X,
+  serve~ : async (X) -> Result[Unit, Error],
 ) -> Unit {
   @async.with_task_group(async fn(group) {
-    ready.put(Ok(compose(group)))
-    close.get()
+    let handle = compose(group)
+    match serve(handle) {
+      Ok(_) => ()
+      Err(error) => raise error
+    }
   }) catch {
     err => ready.put(Err(err))
   }
@@ -1462,379 +1469,430 @@ pub fn cetas_js_runtime_create_agent(
       kind=Unbounded,
     )
     let close : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
-    // The owner coroutine holds the agent-lifetime nmem task group open (see
-    // run_agent_group_session); its promise is intentionally unobserved —
-    // failures reach the JS host through `ready` as the create rejection.
+    // The owner coroutine holds ONE run_scoped open for the handle's serving
+    // lifetime (see run_agent_group_session); its promise is intentionally
+    // unobserved — failures reach the JS host through `ready` as the create
+    // rejection.
     ignore(
       @js_async.Promise::from_async() <| () => {
-        run_agent_group_session(ready~, close~, compose=async fn(group) {
-          let cred_store = credential_store(runtime.config.home)
-          let auth_interaction = JsAuthInteraction(
-            observer_callback, request_callback, cancel_check,
-          )
-          let observer = JsCallbackObserver(observer_callback)
-          // Cross-extension event bus, constructed before any reporting or
-          // subscribing extension so no report is dropped (fire-and-forget).
-          // Extensions below share this one instance: the llm router and the
-          // stats observer publish model/token/speed facts, the session store and
-          // rate-limit guard publish session/resume ops, the status-bar bridge
-          // subscribes to status ops, the permission policy subscribes to
-          // tool-exemption reports, plan mode publishes them.
-          let event_bus = @devkit.EventBus()
-          // Codex quota reaches the router by host injection, not registry
-          // registration (push-shaped publisher; see build_provider_router).
-          // One binding holds the tracker so the & borrow stays alive for the call.
-          let codex_quota_source = @openai.codex_shared_quota_tracker()
-          let codex_quota_borrowed : &@devkit.QuotaSource = codex_quota_source
-          let model = build_provider_router(
-            runtime,
-            cred_store,
-            auth_interaction,
-            observer,
-            bus=Some(event_bus),
-            extra_quota_sources=Map::from_array([
-              ("openai", codex_quota_borrowed),
-            ]),
-          )
-          let store = @fs_session.JsonlSessionStore(
-            runtime.config.sessions_dir,
-            bus=Some(event_bus),
-          )
-          let ui = JsUiPort(render_callback, request_callback)
-          // Load AGENTS.md / CLAUDE.md context files from home + cwd ancestor
-          // chain through the shared workspace fs boundary. Failures are swallowed
-          // (empty bundle); context is best-effort.
-          let context_fs = @workspace.JsWorkspaceFs()
-          // Warn once if a legacy project-local `.cetas` (pre-HOME-relocation,
-          // potentially holding live credentials) is still present. Best-effort and
-          // non-fatal; never copies or deletes anything.
-          warn_legacy_project_cetas(
-            context_fs,
-            runtime.config.home,
-            runtime.config.cwd,
-            observer,
-          )
-          let loader = @context.ContextLoader(
-            context_fs,
-            home=runtime.config.home,
-          )
-          let bundle = loader.load(runtime.config.cwd) catch {
-            _ => @context.ContextBundle::empty()
-          }
-          let context_contributor = @context.ContextPromptContributor(
-            bundle~,
-            ns="cetas",
-          )
-          // Cetas product extension: identity + system-prompt assembly.
-          let cetas = @cetas_core.Cetas(
-            context_contributor=Some(
-              context_contributor as &@posoco.SystemPromptContributor,
-            ),
-          )
-          // Permission policy: gates write/shell/unknown tools through a UI confirm.
-          // ReadOnly rejects every non-read tool without a prompt; the other modes
-          // bridge through BlockingApprovalSource → JsUiPort::request (.wait()).
-          // Subscribed to the bus BEFORE plan mode constructs so the enter/exit
-          // tools are exempt from approval asks — their decision is the plan
-          // approval flow (plan.approve / plan.reject), not a tool-permission
-          // prompt.
-          let mode = parse_permission_mode(runtime.config.permission_mode)
-          let policy = match mode {
-            @permission.ReadOnly =>
-              @permission.PermissionPolicy(mode, bus=Some(event_bus))
-            _ => {
-              let source = BlockingApprovalSource(ui as &@posoco.UiPort)
-              @permission.PermissionPolicy(
-                mode,
-                approval=Some(source as &@permission.ApprovalSource),
-                bus=Some(event_bus),
-              )
+        run_agent_group_session(
+          ready~,
+          close~,
+          compose=async fn(group) {
+            let cred_store = credential_store(runtime.config.home)
+            let auth_interaction = JsAuthInteraction(
+              observer_callback, request_callback, cancel_check,
+            )
+            let observer = JsCallbackObserver(observer_callback)
+            // Cross-extension event bus, constructed before any reporting or
+            // subscribing extension so no report is dropped (fire-and-forget).
+            // Extensions below share this one instance: the llm router and the
+            // stats observer publish model/token/speed facts, the session store and
+            // rate-limit guard publish session/resume ops, the status-bar bridge
+            // subscribes to status ops, the permission policy subscribes to
+            // tool-exemption reports, plan mode publishes them.
+            let event_bus = @devkit.EventBus()
+            // Codex quota reaches the router by host injection, not registry
+            // registration (push-shaped publisher; see build_provider_router).
+            // One binding holds the tracker so the & borrow stays alive for the call.
+            let codex_quota_source = @openai.codex_shared_quota_tracker()
+            let codex_quota_borrowed : &@devkit.QuotaSource = codex_quota_source
+            let model = build_provider_router(
+              runtime,
+              cred_store,
+              auth_interaction,
+              observer,
+              bus=Some(event_bus),
+              extra_quota_sources=Map::from_array([
+                ("openai", codex_quota_borrowed),
+              ]),
+            )
+            let store = @fs_session.JsonlSessionStore(
+              runtime.config.sessions_dir,
+              bus=Some(event_bus),
+            )
+            let ui = JsUiPort(render_callback, request_callback)
+            // Load AGENTS.md / CLAUDE.md context files from home + cwd ancestor
+            // chain through the shared workspace fs boundary. Failures are swallowed
+            // (empty bundle); context is best-effort.
+            let context_fs = @workspace.JsWorkspaceFs()
+            // Warn once if a legacy project-local `.cetas` (pre-HOME-relocation,
+            // potentially holding live credentials) is still present. Best-effort and
+            // non-fatal; never copies or deletes anything.
+            warn_legacy_project_cetas(
+              context_fs,
+              runtime.config.home,
+              runtime.config.cwd,
+              observer,
+            )
+            let loader = @context.ContextLoader(
+              context_fs,
+              home=runtime.config.home,
+            )
+            let bundle = loader.load(runtime.config.cwd) catch {
+              _ => @context.ContextBundle::empty()
             }
-          }
-          // Plan mode: read-only investigation gated by Hook, toggled via
-          // /plan or shift+tab (declared on the command's shortcut), model entry
-          // via enter_plan_mode, exit only via plan.approve. Its enter/exit tools
-          // are reported on the bus and skip the permission gate above.
-          let plan_mode = @plan.PlanMode(
-            config=@plan.PlanModeConfig::{
-              ..@plan.PlanModeConfig::default()
-              // ask_question rides the read class (permission classifies it read);
-              // shell tools gate per invocation via the default shell_tools.
-              ,
-              allowed_tools: ["read", "glob", "grep", "ask_question"],
-              allow_model_entry: true,
-            },
-            review=Some(
-              PlanApprovalSource(ui as &@posoco.UiPort)
-              as &@plan.PlanReviewSource,
-            ),
-            bus=Some(event_bus),
-            // Plan-file persistence: planning narrative + named final plans go
-            // to .cetas/plan/ through the workspace boundary.
-            fs=Some(context_fs as &@workspace.WorkspaceFs),
-          )
-          // Status bar bridge: renders peer-published status segments over the
-          // shared JsUiPort (slot Status); the host mounts that key in whichever
-          // region its layout provides. Publishers push facts on the shared
-          // event bus below — the bridge never polls the router.
-          let statusbar = @statusbar.StatusBar(bus=Some(event_bus))
-          // Speed metrics (ttft/tps/avg) derived from core turn events; publishes
-          // through the same status ops the bridge above renders.
-          let stats = @stats.Stats(bus=Some(event_bus))
-          // Codex 5h/weekly usage segments; the process-shared tracker inside the
-          // provider extension is fed by chat response headers and the usage
-          // endpoint probe, this publisher renders it onto the bar.
-          let codex_quota = @openai.CodexQuotaStatus(bus=Some(event_bus))
-          let exts : Array[&@posoco.Extension] = [
-            cetas,
-            model as &@posoco.Extension,
-            store as &@posoco.Extension,
-            observer as &@posoco.Extension,
-            ui as &@posoco.Extension,
-            plan_mode,
-            statusbar,
-            stats,
-            codex_quota,
-            policy,
-          ]
-          // Rate-limit guard: records quota verdicts (ModelError::RateLimited) per
-          // session through its Observer/PipelineHook views. The TypeScript
-          // application owns its cancellable monitor lifetime.
-          let ratelimit = @ratelimit.RateLimitGuard(bus=Some(event_bus), trace=fn(
-            message : String,
-          ) {
-            observer.on_event(
-              @posoco.TurnEvent::Custom(
-                source="posoco_ext_ratelimit",
-                label="recovery_trace",
-                data=Json::object(
-                  Map::from_array([("message", Json::string(message))]),
-                ),
+            let context_contributor = @context.ContextPromptContributor(
+              bundle~,
+              ns="cetas",
+            )
+            // Cetas product extension: identity + system-prompt assembly.
+            let cetas = @cetas_core.Cetas(
+              context_contributor=Some(
+                context_contributor as &@posoco.SystemPromptContributor,
               ),
             )
-          })
-          exts.push(ratelimit as &@posoco.Extension)
-          // Goal runner rides composition: its `goal_update_plan` tool must join
-          // the routing table below, and the condition cannot change afterwards.
-          // Regular turns are unaffected; the loop is driven explicitly by
-          // `cetas_js_run_goal`.
-          let goal : @goal.GoalRunner? = match runtime.goal_condition {
-            Some(condition) if condition.trim().length() > 0 =>
-              Some(@goal.goal_extension(goal_condition=condition))
-            _ => None
-          }
-          match goal {
-            Some(runner) => exts.push(runner as &@posoco.Extension)
-            None => ()
-          }
-          // Default features (coding tools + agent skills + ask_question, with
-          // episodic tools like webfetch/nmem/obsidian deferred behind the
-          // lazytools gateway) take the host context: fs injection plus cwd/home.
-          // Skills policy (activation budget) is single-sourced inside cetas-core;
-          // ask_question asks through the same JsUiPort the approval source uses,
-          // so the TS host renders it with the standard extension-UI overlays.
-          for
-            tool in @cetas_core.build_default_features(
-              ctx={
-                fs: context_fs,
-                cwd: runtime.config.cwd,
-                home: runtime.config.home,
-              },
-              ui=Some(ui as &@posoco.UiPort),
-              // The agent-lifetime group starts nmem's background flusher and arms
-              // its attach gate: without it the ext stays fully inert (no boot
-              // config resolution, no inbound injection, no drains).
-              nmem_group=Some(group),
-              host_help_note=if runtime.config.host_help_note == "" {
-                None
-              } else {
-                Some(runtime.config.host_help_note)
-              },
-            ) {
-            exts.push(tool)
-          }
-          // cetas-bun is the only outlet that reports presence to herdr; both
-          // presence reporting and herdr-pane delegation are env-gated — absent env → absent exts.
-          match @herdr.HerdrReporter::detect() {
-            Some(reporter) => exts.push(reporter as &@posoco.Extension)
-            None => ()
-          }
-          match @herdr.HerdrDelegate::detect(cwd=runtime.config.cwd) {
-            Some(delegate) => exts.push(delegate as &@posoco.Extension)
-            None => ()
-          }
-          // Personal host opt-in: zcode delegation registers when detected, degrades to absent otherwise.
-          if @cetas_core.compiled_zcode_enabled() {
-            let zcode_ext = @zcode.zcode_ext_if_detected(
-              env=fn(key : String) { @env.get_env_var(key) },
-              exists=async fn(path : String) -> Bool {
-                context_fs.exists(path) catch {
-                  _ => false
-                }
-              },
-            ) catch {
-              _ => None
-            }
-            match zcode_ext {
-              Some(ext) => exts.push(ext as &@posoco.Extension)
-              None => ()
-            }
-          }
-          // MCP servers from mcp.json (`<cwd>/.mcp.json` overriding
-          // `<home>/.cetas/mcp.json`), self-governed by the ext-mcp bridge in Lazy
-          // mode: servers connect in the first turn's on_start and the tool catalog
-          // is admitted through the runtime seam. The static routing table and
-          // catalog base are captured BEFORE the bridge joins exts (the catalog
-          // source already appends the bridge's live tools). On js the mcp stdio
-          // transport ignores the task group — child lifetime is owned by the
-          // JS-side close choreography — so a composition-scoped group is safe even
-          // though activation happens later, at the first turn.
-          let mcp_bridge = match
-            @mcp.MCPToolBridge::discover(
-              cwd=runtime.config.cwd,
-              user_mcp_json=runtime.config.home + "/.cetas/mcp.json",
-              mode=@mcp.LoadMode::Lazy,
-            ) {
-            Ok(bridge) => bridge
-            Err(message) =>
-              raise @posoco.CompositionError::ManifestSchemaError(
-                manifest_id="cetas-js.mcp",
-                detail=message,
-              )
-          }
-          @async.with_task_group(group => mcp_bridge.attach(group))
-          // Stored MCP OAuth credentials: refresh expired ones, then inject the
-          // access tokens before lazy activation connects. Best-effort per server
-          // (see mcp_inject_stored_tokens) — one unreadable record or a dead
-          // authorization server degrades to the 401 shown by `/mcp`, never a
-          // failed composition.
-          mcp_inject_stored_tokens(
-            mcp_bridge,
-            mcp_credential_store(context_fs, runtime.config.home),
-            @oauth.DefaultOAuthHttpTransport::DefaultOAuthHttpTransport(),
-            // @async.now() is epoch milliseconds; OAuth wants epoch seconds.
-            (@async.now() / 1000L).to_int(),
-          )
-          let routing : Map[String, &@posoco.ToolProvider] = Map::from_array([])
-          let base_defs : Array[@posoco.ToolDef] = []
-          for ext in exts {
-            for provider in ext.manifest().tools {
-              for def in provider.list_tools() {
-                routing[def.name.to_string()] = provider
-                base_defs.push(def)
+            // Permission policy: gates write/shell/unknown tools through a UI confirm.
+            // ReadOnly rejects every non-read tool without a prompt; the other modes
+            // bridge through BlockingApprovalSource → JsUiPort::request (.wait()).
+            // Subscribed to the bus BEFORE plan mode constructs so the enter/exit
+            // tools are exempt from approval asks — their decision is the plan
+            // approval flow (plan.approve / plan.reject), not a tool-permission
+            // prompt.
+            let mode = parse_permission_mode(runtime.config.permission_mode)
+            let policy = match mode {
+              @permission.ReadOnly =>
+                @permission.PermissionPolicy(mode, bus=Some(event_bus))
+              _ => {
+                let source = BlockingApprovalSource(ui as &@posoco.UiPort)
+                @permission.PermissionPolicy(
+                  mode,
+                  approval=Some(source as &@permission.ApprovalSource),
+                  bus=Some(event_bus),
+                )
               }
             }
-          }
-          exts.push(mcp_bridge as &@posoco.Extension)
-          // The pi adaptor joins the composition as a real extension so its
-          // manifest observer rides along and its tools join the title catalog.
-          // Pushed after the routing snapshot: the layered catalog source already
-          // serves live pi tools, so manifest-derived routing must not double-add.
-          let pi = ensure_pi_adaptor(runtime)
-          // Base wins: pi tools named like a base tool are hidden before composition
-          // so the core's manifest-aggregate ToolCollision check keeps the base
-          // tool. Live-MCP names cannot collide at composition (lazy connect); those
-          // are shadowed at catalog level by CetasLayeredCatalogSource below.
-          let protected_names : Array[Json] = []
-          for def in base_defs {
-            protected_names.push(Json::string(def.name.to_string()))
-          }
-          @pi.pi_adaptor_set_hidden_tools_json(
-            pi,
-            Json::array(protected_names).stringify(),
-          )
-          exts.push(pi as &@posoco.Extension)
-          let tool_catalog = build_tool_catalog(exts)
-          // The JS FFI seam carries a plain Int (no optional arguments); the
-          // bridge convention is `<= 0` = unbounded.
-          let max_tool_rounds : Int? = if runtime.config.max_tool_rounds <= 0 {
-            None
-          } else {
-            Some(runtime.config.max_tool_rounds)
-          }
-          // Lazy MCP activation changes the tool set mid-life, so the catalog is
-          // owned by the runtime-seam source; MCP tool execution routes through
-          // the decorator, everything else through the default port runtime. Pi
-          // wraps MCP as the outermost runtime and shares the layered catalog so
-          // base, live MCP, and live pi tools all reach the model.
-          let base_runtime = @runtime.PortRuntime(
-            model=model as &@posoco.ModelPort,
-            tools=routing,
-          )
-          let mcp_runtime = @mcp.McpRuntime(
-            bridge=mcp_bridge,
-            fallback=base_runtime as &@runtime.Runtime,
-          )
-          let pi_runtime = @pi.PiRuntime(
-            adaptor=pi,
-            fallback=mcp_runtime as &@runtime.Runtime,
-          )
-          let catalog_source = CetasLayeredCatalogSource::{
-            base_tools: base_defs,
-            mcp: @mcp.McpCatalogSource(bridge=mcp_bridge),
-            pi: @pi.PiCatalogSource(adaptor=pi),
-          }
-          let agent = @posoco.Agent::with_runtime(
-            exts~,
-            config=@cetas_core.default_agent_config(
-              max_tool_rounds~,
-              system_prompt=Some(
-                @cetas_core.cetas_system_prompt(cwd=runtime.config.cwd),
+            // Plan mode: read-only investigation gated by Hook, toggled via
+            // /plan or shift+tab (declared on the command's shortcut), model entry
+            // via enter_plan_mode, exit only via plan.approve. Its enter/exit tools
+            // are reported on the bus and skip the permission gate above.
+            let plan_mode = @plan.PlanMode(
+              config=@plan.PlanModeConfig::{
+                ..@plan.PlanModeConfig::default()
+                // ask_question rides the read class (permission classifies it read);
+                // shell tools gate per invocation via the default shell_tools.
+                ,
+                allowed_tools: ["read", "glob", "grep", "ask_question"],
+                allow_model_entry: true,
+              },
+              review=Some(
+                PlanApprovalSource(ui as &@posoco.UiPort)
+                as &@plan.PlanReviewSource,
               ),
-            ),
-            runtime=pi_runtime as &@runtime.Runtime,
-            catalog_source=catalog_source as &@runtime.CatalogSource,
-          )
-          pi_runtime.attach_control(agent.control())
-          // pi custom session entries: every appendEntry projects as an observer
-          // Custom event (source "pi", label = customType) at emission time.
-          // Persistence rides Session.metadata["pi.custom_entries"] at turn end
-          // (cetas_js_run_turn); restore re-seeds via pi_adaptor_seed_entry.
-          @pi.pi_adaptor_set_custom_entry_callback(pi, fn(
-            custom_type,
-            data_json,
-          ) {
-            let event : @posoco.TurnEvent = Custom(
-              source="pi",
-              label=custom_type,
-              data=@json.parse(data_json) catch { _ => Json::null() },
+              bus=Some(event_bus),
+              // Plan-file persistence: planning narrative + named final plans go
+              // to .cetas/plan/ through the workspace boundary.
+              fs=Some(context_fs as &@workspace.WorkspaceFs),
             )
-            observer.on_event(event)
-          })
-          // Pi ui bridge: ctx.ui rides the same TS callback pair JsUiPort uses, so
-          // ui_request/ui_response/ui_render wire shapes match byte for byte and the
-          // TS ask/render layer needs no new code. The adaptor consults the
-          // callbacks only after this attach — earlier package-load or event-time
-          // ui calls degrade to the adaptor's no-op defaults (confirm=false,
-          // select/input=undefined, renders dropped) instead of crashing.
-          @pi.pi_adaptor_set_ui_callbacks(
-            pi,
-            js_ui_request_fn_of(request_callback),
-            js_ui_render_fn_of(render_callback),
-          )
-          // The guard re-runs turns itself, so it needs the composed agent.
-          ratelimit.bind(agent)
-          // Publish the live router on the runtime so the background catalog
-          // refresh can hot-swap provider slots in place (see
-          // refresh_model_lists_live); the handle keeps the same instance.
-          runtime.live_router = Some(model)
-          {
-            agent,
-            router: model,
-            plan: plan_mode,
-            home: runtime.config.home,
-            observer,
-            ratelimit,
-            goal,
-            tool_catalog,
-            mcp: mcp_bridge,
-            mcp_fs: context_fs,
-            store,
-            pi,
-            pi_session: None,
-            nmem_group_close: close,
-          }
-        })
+            // Status bar bridge: renders peer-published status segments over the
+            // shared JsUiPort (slot Status); the host mounts that key in whichever
+            // region its layout provides. Publishers push facts on the shared
+            // event bus below — the bridge never polls the router.
+            let statusbar = @statusbar.StatusBar(bus=Some(event_bus))
+            // Speed metrics (ttft/tps/avg) derived from core turn events; publishes
+            // through the same status ops the bridge above renders.
+            let stats = @stats.Stats(bus=Some(event_bus))
+            // Codex 5h/weekly usage segments; the process-shared tracker inside the
+            // provider extension is fed by chat response headers and the usage
+            // endpoint probe, this publisher renders it onto the bar.
+            let codex_quota = @openai.CodexQuotaStatus(bus=Some(event_bus))
+            let exts : Array[&@posoco.Extension] = [
+              cetas,
+              model as &@posoco.Extension,
+              store as &@posoco.Extension,
+              observer as &@posoco.Extension,
+              ui as &@posoco.Extension,
+              plan_mode,
+              statusbar,
+              stats,
+              codex_quota,
+              policy,
+            ]
+            // Rate-limit guard: records quota verdicts (ModelError::RateLimited) per
+            // session through its Observer/PipelineHook views. The TypeScript
+            // application owns its cancellable monitor lifetime.
+            let ratelimit = @ratelimit.RateLimitGuard(bus=Some(event_bus), trace=fn(
+              message : String,
+            ) {
+              observer.on_event(
+                @posoco.TurnEvent::Custom(
+                  source="posoco_ext_ratelimit",
+                  label="recovery_trace",
+                  data=Json::object(
+                    Map::from_array([("message", Json::string(message))]),
+                  ),
+                ),
+              )
+            })
+            exts.push(ratelimit as &@posoco.Extension)
+            // Goal runner rides composition: its `goal_update_plan` tool must join
+            // the routing table below, and the condition cannot change afterwards.
+            // Regular turns are unaffected; the loop is driven explicitly by
+            // `cetas_js_run_goal`.
+            let goal : @goal.GoalRunner? = match runtime.goal_condition {
+              Some(condition) if condition.trim().length() > 0 =>
+                Some(@goal.goal_extension(goal_condition=condition))
+              _ => None
+            }
+            match goal {
+              Some(runner) => exts.push(runner as &@posoco.Extension)
+              None => ()
+            }
+            // Default features (coding tools + agent skills + ask_question, with
+            // episodic tools like webfetch/nmem/obsidian deferred behind the
+            // lazytools gateway) take the host context: fs injection plus cwd/home.
+            // Skills policy (activation budget) is single-sourced inside cetas-core;
+            // ask_question asks through the same JsUiPort the approval source uses,
+            // so the TS host renders it with the standard extension-UI overlays.
+            for
+              tool in @cetas_core.build_default_features(
+                ctx={
+                  fs: context_fs,
+                  cwd: runtime.config.cwd,
+                  home: runtime.config.home,
+                },
+                ui=Some(ui as &@posoco.UiPort),
+                // The agent-lifetime group starts nmem's background flusher and arms
+                // its attach gate: without it the ext stays fully inert (no boot
+                // config resolution, no inbound injection, no drains).
+                nmem_group=Some(group),
+                host_help_note=if runtime.config.host_help_note == "" {
+                  None
+                } else {
+                  Some(runtime.config.host_help_note)
+                },
+              ) {
+              exts.push(tool)
+            }
+            // cetas-bun is the only outlet that reports presence to herdr; both
+            // presence reporting and herdr-pane delegation are env-gated — absent env → absent exts.
+            match @herdr.HerdrReporter::detect() {
+              Some(reporter) => exts.push(reporter as &@posoco.Extension)
+              None => ()
+            }
+            match @herdr.HerdrDelegate::detect(cwd=runtime.config.cwd) {
+              Some(delegate) => exts.push(delegate as &@posoco.Extension)
+              None => ()
+            }
+            // Personal host opt-in: zcode delegation registers when detected, degrades to absent otherwise.
+            if @cetas_core.compiled_zcode_enabled() {
+              let zcode_ext = @zcode.zcode_ext_if_detected(
+                env=fn(key : String) { @env.get_env_var(key) },
+                exists=async fn(path : String) -> Bool {
+                  context_fs.exists(path) catch {
+                    _ => false
+                  }
+                },
+              ) catch {
+                _ => None
+              }
+              match zcode_ext {
+                Some(ext) => exts.push(ext as &@posoco.Extension)
+                None => ()
+              }
+            }
+            // MCP servers from mcp.json (`<cwd>/.mcp.json` overriding
+            // `<home>/.cetas/mcp.json`), connected by composition-time
+            // background probes (`start_probes`): the bridge rides the
+            // agent-lifetime group so probe connections and stdio child
+            // processes survive past composition. The on_start activation
+            // (fired when the serving scope opens, no longer on the first
+            // turn) remains only as the fallback for bridges that never
+            // started probes. The static routing table and catalog base are
+            // captured BEFORE the bridge joins exts (the catalog source
+            // already appends the bridge's live tools).
+            let mcp_bridge = match
+              @mcp.MCPToolBridge::discover(
+                cwd=runtime.config.cwd,
+                user_mcp_json=runtime.config.home + "/.cetas/mcp.json",
+                mode=@mcp.LoadMode::Lazy,
+              ) {
+              Ok(bridge) => bridge
+              Err(message) =>
+                raise @posoco.CompositionError::ManifestSchemaError(
+                  manifest_id="cetas-js.mcp",
+                  detail=message,
+                )
+            }
+            mcp_bridge.attach(group)
+            // Stored MCP OAuth credentials: refresh expired ones, then inject the
+            // access tokens before the probes connect. Best-effort per server
+            // (see mcp_inject_stored_tokens) — one unreadable record or a dead
+            // authorization server degrades to the 401 shown by `/mcp`, never a
+            // failed composition.
+            mcp_inject_stored_tokens(
+              mcp_bridge,
+              mcp_credential_store(context_fs, runtime.config.home),
+              @oauth.DefaultOAuthHttpTransport::DefaultOAuthHttpTransport(),
+              // @async.now() is epoch milliseconds; OAuth wants epoch seconds.
+              (@async.now() / 1000L).to_int(),
+            )
+            mcp_bridge.start_probes()
+            let routing : Map[String, &@posoco.ToolProvider] = Map::from_array([])
+            let base_defs : Array[@posoco.ToolDef] = []
+            for ext in exts {
+              for provider in ext.manifest().tools {
+                for def in provider.list_tools() {
+                  routing[def.name.to_string()] = provider
+                  base_defs.push(def)
+                }
+              }
+            }
+            exts.push(mcp_bridge as &@posoco.Extension)
+            // The pi adaptor joins the composition as a real extension so its
+            // manifest observer rides along and its tools join the title catalog.
+            // Pushed after the routing snapshot: the layered catalog source already
+            // serves live pi tools, so manifest-derived routing must not double-add.
+            let pi = ensure_pi_adaptor(runtime)
+            // Base wins: pi tools named like a base tool are hidden before composition
+            // so the core's manifest-aggregate ToolCollision check keeps the base
+            // tool. Live-MCP names cannot collide at composition (lazy connect); those
+            // are shadowed at catalog level by CetasLayeredCatalogSource below.
+            let protected_names : Array[Json] = []
+            for def in base_defs {
+              protected_names.push(Json::string(def.name.to_string()))
+            }
+            @pi.pi_adaptor_set_hidden_tools_json(
+              pi,
+              Json::array(protected_names).stringify(),
+            )
+            exts.push(pi as &@posoco.Extension)
+            let tool_catalog = build_tool_catalog(exts)
+            // The JS FFI seam carries a plain Int (no optional arguments); the
+            // bridge convention is `<= 0` = unbounded.
+            let max_tool_rounds : Int? = if runtime.config.max_tool_rounds <= 0 {
+              None
+            } else {
+              Some(runtime.config.max_tool_rounds)
+            }
+            // Lazy MCP activation changes the tool set mid-life, so the catalog is
+            // owned by the runtime-seam source; MCP tool execution routes through
+            // the decorator, everything else through the default port runtime. Pi
+            // wraps MCP as the outermost runtime and shares the layered catalog so
+            // base, live MCP, and live pi tools all reach the model.
+            let base_runtime = @runtime.PortRuntime(
+              model=model as &@posoco.ModelPort,
+              tools=routing,
+            )
+            let mcp_runtime = @mcp.McpRuntime(
+              bridge=mcp_bridge,
+              fallback=base_runtime as &@runtime.Runtime,
+            )
+            let pi_runtime = @pi.PiRuntime(
+              adaptor=pi,
+              fallback=mcp_runtime as &@runtime.Runtime,
+            )
+            let catalog_source = CetasLayeredCatalogSource::{
+              base_tools: base_defs,
+              mcp: @mcp.McpCatalogSource(bridge=mcp_bridge),
+              pi: @pi.PiCatalogSource(adaptor=pi),
+            }
+            let agent = @posoco.Agent::with_runtime(
+              exts~,
+              config=@cetas_core.default_agent_config(
+                max_tool_rounds~,
+                system_prompt=Some(
+                  @cetas_core.cetas_system_prompt(cwd=runtime.config.cwd),
+                ),
+              ),
+              runtime=pi_runtime as &@runtime.Runtime,
+              catalog_source=catalog_source as &@runtime.CatalogSource,
+            )
+            pi_runtime.attach_control(agent.control())
+            // pi custom session entries: every appendEntry projects as an observer
+            // Custom event (source "pi", label = customType) at emission time.
+            // Persistence rides Session.metadata["pi.custom_entries"] at turn end
+            // (cetas_js_run_turn); restore re-seeds via pi_adaptor_seed_entry.
+            @pi.pi_adaptor_set_custom_entry_callback(pi, fn(
+              custom_type,
+              data_json,
+            ) {
+              let event : @posoco.TurnEvent = Custom(
+                source="pi",
+                label=custom_type,
+                data=@json.parse(data_json) catch { _ => Json::null() },
+              )
+              observer.on_event(event)
+            })
+            // Pi ui bridge: ctx.ui rides the same TS callback pair JsUiPort uses, so
+            // ui_request/ui_response/ui_render wire shapes match byte for byte and the
+            // TS ask/render layer needs no new code. The adaptor consults the
+            // callbacks only after this attach — earlier package-load or event-time
+            // ui calls degrade to the adaptor's no-op defaults (confirm=false,
+            // select/input=undefined, renders dropped) instead of crashing.
+            @pi.pi_adaptor_set_ui_callbacks(
+              pi,
+              js_ui_request_fn_of(request_callback),
+              js_ui_render_fn_of(render_callback),
+            )
+            // The guard re-runs turns itself, so it needs the composed agent.
+            ratelimit.bind(agent)
+            // Publish the live router on the runtime so the background catalog
+            // refresh can hot-swap provider slots in place (see
+            // refresh_model_lists_live); the handle keeps the same instance.
+            runtime.live_router = Some(model)
+            {
+              agent,
+              router: model,
+              plan: plan_mode,
+              home: runtime.config.home,
+              observer,
+              ratelimit,
+              goal,
+              tool_catalog,
+              mcp: mcp_bridge,
+              mcp_fs: context_fs,
+              store,
+              pi,
+              pi_session: None,
+              serve_close: close,
+            }
+          },
+          serve=async fn(handle) {
+            // Hold ONE run_scoped for the handle's serving lifetime; publish
+            // only once the scope is active so background task admission works
+            // from turn one. The scope body parks on the close queue until
+            // cetas_js_shutdown retires the session.
+            let published = Ref::{ val: false, }
+            let outcome : Result[Unit, Error] = Ok(
+              handle.agent.run_scoped(async fn(_agent) {
+                published.val = true
+                ready.put(Ok(handle))
+                ignore(close.get())
+              }),
+            ) catch {
+              error => Err(error)
+            }
+            match outcome {
+              Ok(_) => Ok(())
+              Err(error) =>
+                match published.val {
+                  // Startup failure: the create promise is still waiting on
+                  // `ready` — reject it through the same seam as composition
+                  // failure.
+                  false => Err(error)
+                  // After publication the create promise is already resolved
+                  // and this owner promise is unobserved: it must never
+                  // reject. Surface the failure through the observer channel
+                  // and retire best-effort so the group still ends.
+                  true => {
+                    let event : @posoco.TurnEvent = Custom(
+                      source="cetas-js.bridge",
+                      label="serve_scope_failed",
+                      data=Json::object(
+                        Map::from_array([
+                          ("message", Json::string(error.to_string())),
+                        ]),
+                      ),
+                    )
+                    handle.observer.on_event(event)
+                    cetas_js_herdr_release()
+                    Ok(())
+                  }
+                }
+            }
+          },
+        )
       },
     )
     match ready.get() {
@@ -2134,10 +2192,11 @@ pub fn cetas_js_cancel_pending_ratelimit(handle : CetasJsAgent) -> Unit {
 pub fn cetas_js_shutdown(handle : CetasJsAgent) -> @js_async.Promise[Unit] {
   @js_async.Promise::from_async() <| () => {
     // acp retirement order: agent shutdown first — nmem's on_shutdown stops
-    // the flusher (engine.stop) and does the final drain — then the
-    // agent-lifetime task group is released and exits with its tasks.
+    // the flusher (engine.stop) and does the final drain — then the close
+    // signal wakes the parked serving scope, whose exit re-enters the
+    // idempotent Agent shutdown and ends the lifetime group with its tasks.
     handle.agent.shutdown()
-    handle.nmem_group_close.put(())
+    handle.serve_close.put(())
   }
 }
 

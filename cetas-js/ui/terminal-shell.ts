@@ -590,6 +590,10 @@ export class TerminalShell {
     images: readonly ImageAttachment[] = [],
   ): Promise<void> {
     this.inTurn = true;
+    // Pending indicator: visible the instant the user submits, before the
+    // first MoonBit event arrives; turn_started swaps in "thinking" through
+    // the same idempotent status surface.
+    this.setTurnStatus("working", "starting");
     const terminationBefore = this.terminationNotices;
     this.addTranscriptChild(echo);
     try {

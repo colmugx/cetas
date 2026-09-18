@@ -892,7 +892,7 @@ describe("model picker quota mode", () => {
   const activeTabOf = (panel: Component): string =>
     (panel as unknown as { activeProvider: string }).activeProvider;
 
-  test("limits tab leads and Enter immediately picks its best row", () => {
+  test("limits tab leads and Enter immediately picks the active entry", () => {
     const tui = new FakeTui();
     const picker = new ModelPickerOverlay(tui as never);
     let selected: unknown;
@@ -913,8 +913,149 @@ describe("model picker quota mode", () => {
     expect(rendered).toContain("Limit");
     expect(rendered).toContain("Balance");
     expect(rendered).toContain("Other");
-    // No arrows: Enter confirms row 0 — the provider with the most 5h
-    // remaining, even though bravo has the fuller weekly window.
+    // No arrows: Enter confirms the selectable active entry (bravo-a), even
+    // though alpha ranks higher on 5h remaining — quota mode prefers the
+    // active selection over the first selectable row.
+    panel.handleInput!("\r");
+    expect(selected).toEqual({ slot: "bravo-a" });
+    expect(picker.isActive).toBe(false);
+  });
+
+  test("quota mode preselects the selectable active entry and defaults to its group", () => {
+    const entries: ModelCatalogEntry[] = [
+      {
+        id: "alpha-a",
+        label: "Alpha",
+        provider: "alpha",
+        active: false,
+        efforts: [],
+        quotaReadings: [{ window: "5h", usedPercent: 10, fetchedAtMs: 0 }], // 90 left: ranks first
+      },
+      {
+        id: "charlie-a",
+        label: "Charlie",
+        provider: "charlie",
+        active: false,
+        efforts: [],
+        quotaReadings: [
+          { window: "balance", amount: { value: "12.5", currency: "USD" }, fetchedAtMs: 0 },
+        ],
+      },
+      {
+        id: "charlie-b",
+        label: "Charlie B",
+        provider: "charlie",
+        active: true,
+        efforts: [],
+        quotaReadings: [
+          { window: "balance", amount: { value: "12.5", currency: "USD" }, fetchedAtMs: 0 },
+        ],
+      },
+    ];
+    const tui = new FakeTui();
+    const picker = new ModelPickerOverlay(tui as never);
+    let selected: unknown;
+    picker.open(
+      entries,
+      (value) => {
+        selected = value;
+      },
+      () => {
+        throw new Error("picker unexpectedly cancelled");
+      },
+      epoch,
+      "quota",
+    );
+    const panel = tui.shown!;
+    // The default tab follows the selectable active entry, not the
+    // top-ranked Limit group.
+    expect(activeTabOf(panel)).toBe("Balance");
+    // Enter immediately confirms the active entry even though an inactive
+    // balance row comes first in the group.
+    panel.handleInput!("\r");
+    expect(selected).toEqual({ slot: "charlie-b" });
+    expect(picker.isActive).toBe(false);
+  });
+
+  test("an exhausted active entry falls back to the first selectable row", () => {
+    const entries: ModelCatalogEntry[] = [
+      {
+        id: "alive-a",
+        label: "Alive",
+        provider: "alive",
+        active: false,
+        efforts: [],
+        quotaReadings: [{ window: "5h", usedPercent: 50, fetchedAtMs: 0 }], // 50 left
+      },
+      {
+        id: "gone-a",
+        label: "Gone",
+        provider: "gone",
+        active: true,
+        efforts: [],
+        quotaReadings: [{ window: "5h", usedPercent: 100, fetchedAtMs: 0 }], // 0 left
+      },
+    ];
+    const tui = new FakeTui();
+    const picker = new ModelPickerOverlay(tui as never);
+    let selected: unknown;
+    picker.open(
+      entries,
+      (value) => {
+        selected = value;
+      },
+      () => {
+        throw new Error("picker unexpectedly cancelled");
+      },
+      epoch,
+      "quota",
+    );
+    const panel = tui.shown!;
+    // The exhausted active entry cannot take the cursor; Limit rows rank
+    // [Alive, Gone], so the first selectable row does.
+    expect(activeTabOf(panel)).toBe("Limit");
+    panel.handleInput!("\r");
+    expect(selected).toEqual({ slot: "alive-a" });
+    expect(picker.isActive).toBe(false);
+  });
+
+  test("a group with no active entry keeps the first-selectable cursor", () => {
+    const entries: ModelCatalogEntry[] = [
+      {
+        id: "alpha-a",
+        label: "Alpha",
+        provider: "alpha",
+        active: false,
+        efforts: [],
+        quotaReadings: [{ window: "5h", usedPercent: 10, fetchedAtMs: 0 }], // 90 left
+      },
+      {
+        id: "alpha-b",
+        label: "Alpha B",
+        provider: "alpha",
+        active: false,
+        efforts: [],
+        quotaReadings: [{ window: "5h", usedPercent: 10, fetchedAtMs: 0 }],
+      },
+    ];
+    const tui = new FakeTui();
+    const picker = new ModelPickerOverlay(tui as never);
+    let selected: unknown;
+    picker.open(
+      entries,
+      (value) => {
+        selected = value;
+      },
+      () => {
+        throw new Error("picker unexpectedly cancelled");
+      },
+      epoch,
+      "quota",
+    );
+    const panel = tui.shown!;
+    expect(activeTabOf(panel)).toBe("Limit");
+    // No active entry anywhere: Enter confirms the top-ranked (first
+    // selectable) row as before.
     panel.handleInput!("\r");
     expect(selected).toEqual({ slot: "alpha-a" });
     expect(picker.isActive).toBe(false);
