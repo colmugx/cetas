@@ -49,7 +49,7 @@ pub impl @posoco.Extension for Forme with fn extension_id(_self) -> String {
 ///|
 pub impl @posoco.Extension for Forme with fn manifest(self : Forme) -> @posoco.ExtensionManifest {
   {
-    ..@posoco.ExtensionManifest::empty(id="forme"),
+    ..@posoco.ExtensionManifest::default(id="forme"),
     commands: [self],
     prompt_contributors: [self],
   }

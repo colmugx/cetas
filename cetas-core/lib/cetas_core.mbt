@@ -69,7 +69,7 @@ pub impl @posoco.Extension for Cetas with fn extension_id(_self) -> String {
 
 ///|
 pub impl @posoco.Extension for Cetas with fn manifest(self) -> @posoco.ExtensionManifest {
-  let m = @posoco.ExtensionManifest::empty(id="cetas")
+  let m = @posoco.ExtensionManifest::default(id="cetas")
   { ..m, prompt_contributors: self.prompt_contributors, commands: [], }
 }
 
@@ -179,9 +179,8 @@ fn shell_platform_is_windows() -> Bool {
 ///|
 /// Default feature set: read/write/edit/glob/grep/astgrep/bash plus agent
 /// skills and (with `ui~`) the interactive ask_question tool. The flavor-gated
-/// extensions (Nowledge Mem, RTK, Obsidian) register only in personal
-/// builds: the flavor table baked at compile time is the only gate, no
-/// runtime knob exists.
+/// extensions (Nowledge Mem, Obsidian, RTK) register only where the flavor
+/// table baked at compile time enables them — no runtime knob exists.
 ///
 /// The seven file/search/shell tools are context-free constructors; skills
 /// needs the host process context (fs/cwd/home) for discovery, so the
@@ -192,10 +191,11 @@ fn shell_platform_is_windows() -> Bool {
 /// (`None` keeps the CETAS_OBSIDIAN contract); the unix shell is bash and
 /// Windows keeps ps1.
 ///
-/// Attention budget: the file tools, astgrep, the two skill tools, and
-/// ask_question are the only tools in the model catalog; every episodic tool
-/// (shell, webfetch, nmem, obsidian) defers behind the lazytools gateway,
-/// whose tool_list / tool_execute are the sole route to it.
+/// Attention budget: the file tools, astgrep, bash, the two skill tools,
+/// and ask_question are the only tools in the model catalog; every other
+/// episodic tool (webfetch, nmem, obsidian, Windows ps1) defers behind the
+/// lazytools gateway, whose tool_list / tool_execute are the sole route to
+/// it.
 ///
 /// All seven direct tools share one `WorkspaceAnchor` built from `ctx.cwd`:
 /// relative paths in tool calls resolve against the launch directory instead
@@ -224,36 +224,30 @@ pub async fn build_default_features(
     @grep.GrepTools(anchor=Some(anchor)),
     @astgrep.AstGrepTools(anchor=Some(anchor)) as &@posoco.Extension,
   ]
-  // Episodic tools defer behind the lazytools gateway — including bash:
-  // the gateway is the only shell surface the model sees, and both the
-  // permission policy (read-only shell pre-approval, per-segment approval
-  // scopes) and the rtk router classify gateway calls by the inner tool
-  // name via the shared unwrap convention, so deferred bash keeps its
-  // gating semantics. Each extension's non-tool ports (hooks, commands,
-  // memory, prompt) register through its toolless view.
+  // Episodic tools defer behind the lazytools gateway. Each extension's
+  // non-tool ports (hooks, commands, memory, prompt) register through its
+  // toolless view.
   // webfetch is a read-only tool (URL fetch, no workspace writes) and
   // keeps its permission read class behind the gateway.
   let episodic : Array[&@posoco.Extension] = [
     @webfetch.WebFetchTools() as &@posoco.Extension,
   ]
-  // Shell tool choice per platform — deferred behind the gateway like the
-  // other episodic tools. The manuals merge into the one skills extension
-  // below so both share the activate_skill tool; a second Skills instance
-  // would collide on tool names at composition. Unix keeps bash; Windows
-  // keeps ps1.
+  // Shell tool choice per platform. Unix's bash is a direct catalog tool —
+  // a coding turn shells out constantly, so the gateway hop only added
+  // latency; permission and rtk classify by the tool name (the shared
+  // unwrap convention passes direct calls through unchanged), so bash
+  // keeps its gating semantics without the gateway. Windows keeps ps1
+  // deferred like the other episodic tools. The manuals merge into the one
+  // skills extension below so both share the activate_skill tool; a second
+  // Skills instance would collide on tool names at composition.
   if shell_platform_is_windows() {
     episodic.push(
       @ps1.PowerShellTools(anchor=Some(anchor)) as &@posoco.Extension,
     )
   } else {
-    episodic.push(@bash.ShellTools(anchor=Some(anchor)) as &@posoco.Extension)
+    exts.push(@bash.ShellTools(anchor=Some(anchor)) as &@posoco.Extension)
   }
-  // RTK shell routing is preference-tied (a local rtk install): the flavor
-  // table bakes the default at compile time — public builds never register
-  // the hook, so shell tools call the platform shell directly.
-  if compiled_rtk_enabled() {
-    exts.push(@rtk.RTKHook("rtk") as &@posoco.Extension)
-  }
+
   let builtin_manuals = @forme.builtin_manual_skills()
   let discovered : @skills.SkillCatalog = match
     @skills.Skills::discover(

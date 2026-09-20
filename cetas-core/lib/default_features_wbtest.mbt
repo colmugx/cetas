@@ -131,12 +131,12 @@ async test "default features include discovered skills through injected ctx" {
     ctx={ fs, cwd: "/repo", home: "/home/u", },
     obsidian_vault=Some("test-vault"),
   )
-  // The ten feature extensions (read/write/edit/glob/grep/astgrep direct,
-  // the RTK hook, skills with the built-in manuals merged in, forme,
-  // handoff), the four toolless gateway views (bash, webfetch, nmem,
-  // obsidian), and the gateway itself — the default compiled flavor is
-  // personal, so all three flavor-gated extensions register.
-  assert_eq(exts.length(), 15)
+  // The ten feature extensions (read/write/edit/glob/grep/astgrep/bash
+  // direct, skills with the built-in manuals merged in, forme, handoff),
+  // the three toolless gateway views (webfetch, nmem, obsidian), and the
+  // gateway itself — the default compiled flavor is personal, so nmem and
+  // obsidian register (rtk is lean-only now).
+  assert_eq(exts.length(), 14)
   let ids : Array[String] = []
   for ext in exts {
     ids.push(ext.extension_id())
@@ -167,7 +167,7 @@ async test "nowledge-mem registers in the personal flavor" {
   let ctx : HostContext = { fs, cwd: "/nowhere", home: "/home/u", }
   // Personal builds bake nmem in: the default set plus Nowledge Mem.
   let exts = build_default_features(ctx~, obsidian_vault=Some("test-vault"))
-  assert_eq(exts.length(), 15)
+  assert_eq(exts.length(), 14)
   let mut found = false
   let mut gateway_tools = 0
   for ext in exts {
@@ -208,7 +208,7 @@ async test "default features register skills even with no discovered skills: the
   // An empty environment still registers the skills extension: the built-in
   // manuals (cetas-about/usage/config) are merged into the catalog, so both
   // skill tools stay live and the `skills` command always has content.
-  assert_eq(exts.length(), 15)
+  assert_eq(exts.length(), 14)
   let mut found = false
   for ext in exts {
     if ext.extension_id() == "posoco_ext_skills" {
@@ -287,10 +287,10 @@ async test "ask_question registers only when the host supplies a UI port" {
   }
   let ctx : HostContext = { fs, cwd: "/nowhere", home: "/home/u", }
   // Without a UI port: the ten feature extensions (read/write/edit/glob/
-  // grep/astgrep direct; RTK hook, skills, forme, handoff), the four gateway
+  // grep/astgrep/bash direct; skills, forme, handoff), the three gateway
   // views, and the gateway ext — no ask_question.
   let bare = build_default_features(ctx~, obsidian_vault=Some("test-vault"))
-  assert_eq(bare.length(), 15)
+  assert_eq(bare.length(), 14)
   let bare_ids : Array[String] = []
   for ext in bare {
     bare_ids.push(ext.extension_id())
@@ -303,7 +303,7 @@ async test "ask_question registers only when the host supplies a UI port" {
     ui=Some(HeadlessUi::{ } as &@posoco.UiPort),
     obsidian_vault=Some("test-vault"),
   )
-  assert_eq(with_ui.length(), 16)
+  assert_eq(with_ui.length(), 15)
   let mut found = false
   for ext in with_ui {
     if ext.extension_id() == "posoco_ext_askquestion" {
@@ -322,7 +322,7 @@ async test "ask_question registers only when the host supplies a UI port" {
 }
 
 ///|
-async test "direct tool surface stays under ten; episodic tools defer" {
+async test "bash is a direct catalog tool; episodic tools defer" {
   let fs = SkillsCtxFs::{
     files: Map::from_array([]),
     dirs: Map::from_array([]),
@@ -346,15 +346,15 @@ async test "direct tool surface stays under ten; episodic tools defer" {
       }
     }
   }
-  // Direct surface: read/write/edit/glob/grep/astgrep + the two skill tools
-  // + ask_question — nine. Shell rides behind the gateway too: permission
-  // and rtk classify gateway calls by the inner tool name, so gating
-  // semantics survive.
+  // Direct surface: read/write/edit/glob/grep/astgrep/bash + the two skill
+  // tools + ask_question — ten. Permission and rtk classify direct shell
+  // calls by the tool name (unwrap passes them through unchanged), so bash
+  // keeps its gating semantics without the gateway.
   assert_eq(gateway_meta, 2)
-  assert_eq(direct.length(), 9)
+  assert_eq(direct.length(), 10)
+  assert_true(direct.contains("bash"))
   // Episodic tools never appear directly: they are reachable only through
   // tool_execute (and discoverable via tool_list).
-  assert_false(direct.contains("bash"))
   assert_false(direct.contains("webfetch"))
   assert_false(direct.contains("memory_search"))
   assert_false(direct.contains("obsidian_search"))

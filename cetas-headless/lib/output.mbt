@@ -147,18 +147,5 @@ pub impl @posoco.Extension for StreamPrinter with fn extension_id(_self) -> Stri
 
 ///|
 pub impl @posoco.Extension for StreamPrinter with fn manifest(self) -> @posoco.ExtensionManifest {
-  {
-    id: "cetas_headless_stream",
-    models: [],
-    tools: [],
-    sessions: [],
-    observers: [self],
-    hooks: [],
-    memory: [],
-    lifecycle: [],
-    commands: [],
-    ui: [],
-    prompt_contributors: [],
-    requires: [],
-  }
+  @posoco.ExtensionManifest(id="cetas_headless_stream", observers=[self])
 }

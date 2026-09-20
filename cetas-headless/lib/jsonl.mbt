@@ -345,18 +345,5 @@ pub impl @posoco.Extension for JsonlObserver with fn extension_id(self) -> Strin
 
 ///|
 pub impl @posoco.Extension for JsonlObserver with fn manifest(self) -> @posoco.ExtensionManifest {
-  {
-    id: self.id,
-    models: [],
-    tools: [],
-    sessions: [],
-    observers: [self],
-    hooks: [],
-    memory: [],
-    lifecycle: [],
-    commands: [],
-    ui: [],
-    prompt_contributors: [],
-    requires: [],
-  }
+  @posoco.ExtensionManifest(id=self.id, observers=[self])
 }

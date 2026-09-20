@@ -25,7 +25,6 @@ import {
   "colmugx/posoco-ext-skills" @skills,
   "colmugx/posoco-ext-nowledge-mem" @nmem,
   "colmugx/posoco-ext-askquestion" @askquestion,
-  "colmugx/posoco-ext-rtk" @rtk,
   "colmugx/posoco-ext-handoff" @handoff,
   "colmugx/posoco-ext-obsidian" @obsidian,
   "colmugx/posoco-ext-lazytools" @lazytools,

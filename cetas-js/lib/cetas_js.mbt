@@ -446,7 +446,7 @@ pub impl @posoco.Extension for JsCallbackObserver with fn extension_id(
 pub impl @posoco.Extension for JsCallbackObserver with fn manifest(
   self : JsCallbackObserver,
 ) -> @posoco.ExtensionManifest {
-  let m = @posoco.ExtensionManifest::empty(id="cetas_js_observer")
+  let m = @posoco.ExtensionManifest::default(id="cetas_js_observer")
   { ..m, observers: [self], }
 }
 
@@ -911,7 +911,7 @@ pub impl @posoco.Extension for JsUiPort with fn extension_id(_self : JsUiPort) -
 
 ///|
 pub impl @posoco.Extension for JsUiPort with fn manifest(self : JsUiPort) -> @posoco.ExtensionManifest {
-  let m = @posoco.ExtensionManifest::empty(id="cetas_js_ui")
+  let m = @posoco.ExtensionManifest::default(id="cetas_js_ui")
   { ..m, ui: [self], }
 }
 
