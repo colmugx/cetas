@@ -1333,7 +1333,7 @@ async test "cancel interrupts the session's in-flight turn" {
       let _ = sleeper.wait()
       false
     } catch {
-      error => @async.is_cancellation_error(error)
+      error => error is @async.TaskCancelled
     }
     assert_true(cancelled)
   })
@@ -1345,7 +1345,7 @@ async test "cancel interrupts the session's in-flight turn" {
 /// Chat parks until close cancels it; `interrupted` records the cut-short park.
 priv struct SlowModel {
   response : String
-  mut interrupted : Bool
+  interrupted : Bool
 }
 
 ///|
@@ -1357,14 +1357,7 @@ impl @posoco.ModelPort for SlowModel with fn chat(
   _options : @posoco.ChatOptions,
   _stream : @posoco.StreamMode,
 ) -> @posoco.ModelCallResult raise @posoco.ModelError {
-  @async.sleep(120_000) catch {
-    error => {
-      self.interrupted = @async.is_cancellation_error(error)
-      raise @posoco.ModelError::Transport(
-        "slow model interrupted: " + error.to_string(),
-      )
-    }
-  }
+  @async.sleep(120_000)
   @posoco.tk_stop_response(self.response)
 }
 
@@ -2349,7 +2342,7 @@ async test "cancel one session leaves the other's turn running" {
       let _ = task_a.wait()
       false
     } catch {
-      error => @async.is_cancellation_error(error)
+      error => error is @async.TaskCancelled
     }
     assert_true(cancelled_a)
     host.handle_cancel(fake_acp_context(client_b), {
@@ -2360,7 +2353,7 @@ async test "cancel one session leaves the other's turn running" {
       let _ = task_b.wait()
       false
     } catch {
-      error => @async.is_cancellation_error(error)
+      error => error is @async.TaskCancelled
     }
     assert_true(cancelled_b)
   })

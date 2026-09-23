@@ -41,5 +41,5 @@ import {
   "colmugx/posoco-ext-ratelimit@0.3.0",
   "colmugx/posoco-kit-lody@0.1.0",
   "colmugx/posoco-kit-paseo@0.1.0",
-  "moonbitlang/async@0.21.2",
+  "moonbitlang/async@0.22.2",
 }

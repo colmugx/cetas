@@ -465,18 +465,9 @@ pub async fn CetasAcpHost::handle_prompt(
     rpc_method="session/prompt",
     params=debug_prompt_params(params),
   )
-  // acquire is cancellation safe: a prompt cancelled while queued settles
-  // here — no turn runs, the bridge is never attached, nothing to unwind.
-  handle.turn_lock.acquire() catch {
-    error =>
-      if @async.is_cancellation_error(error) {
-        raise @acp.HandlerError::Cancelled
-      } else {
-        raise @acp.HandlerError::Application(
-          message="cetas-acp: turn lock acquire failed (session=\{params.session_id})",
-        )
-      }
-  }
+  // A prompt cancelled while queued never runs a turn here — the bridge is
+  // never attached, nothing to unwind.
+  handle.turn_lock.acquire()
   // Held until the whole turn lifecycle settles — the next prompt starts quiesced.
   defer handle.turn_lock.release()
   // The wait can outlive this handle: close/load/resume may retire exactly
@@ -550,32 +541,25 @@ pub async fn CetasAcpHost::handle_prompt(
       handle.bridge.close()
       match failure {
         None => Ok({ stop_reason: handle.bridge.stop_reason(), meta: Omitted, })
-        Some(error) =>
-          if @async.is_cancellation_error(error) {
-            Ok({ stop_reason: Cancelled, meta: Omitted, })
-          } else {
-            // The raised error's text carries the cause; the bridge's
-            // TurnFailed text is category-only and never reaches the client.
-            let detail = acp_failure_detail(error)
-            acp_warn(
-              "cetas-acp: session/prompt failed (session=\{params.session_id}): \{detail}\n",
-            )
-            Err(@acp.HandlerError::Application(message="cetas-acp: \{detail}"))
-          }
+        Some(error) => {
+          // The raised error's text carries the cause; the bridge's
+          // TurnFailed text is category-only and never reaches the client.
+          let detail = acp_failure_detail(error)
+          acp_warn(
+            "cetas-acp: session/prompt failed (session=\{params.session_id}): \{detail}\n",
+          )
+          Err(@acp.HandlerError::Application(message="cetas-acp: \{detail}"))
+        }
       }
     },
   ) catch {
     // Only an unexpected pump defect reaches this arm (allow_failure above).
-    error =>
-      if @async.is_cancellation_error(error) {
-        Err(@acp.HandlerError::Cancelled)
-      } else {
-        Err(
-          @acp.HandlerError::Application(
-            message="cetas-acp: internal task-group failure",
-          ),
-        )
-      }
+    _ =>
+      Err(
+        @acp.HandlerError::Application(
+          message="cetas-acp: internal task-group failure",
+        ),
+      )
   }
   // The wire's last fact for the request lands after the bridge has closed,
   // so the settlement record never delays the response it describes.
@@ -959,18 +943,13 @@ pub async fn CetasAcpHost::refresh_model_lists(
     }
     match outcome {
       Err(error) =>
-        if @async.is_cancellation_error(error) {
-          // Shutdown cancelled the refresh task; stop silently.
-          return
-        } else {
-          acp_warn(
-            "cetas-acp: model list refresh failed for provider " +
-            provider_id +
-            ": " +
-            error.to_string() +
-            "\n",
-          )
-        }
+        acp_warn(
+          "cetas-acp: model list refresh failed for provider " +
+          provider_id +
+          ": " +
+          error.to_string() +
+          "\n",
+        )
       Ok(None) => ()
       Ok(Some(catalog)) => {
         @cetas_core.write_model_list_cache(

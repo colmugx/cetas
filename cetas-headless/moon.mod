@@ -30,5 +30,5 @@ import {
   "colmugx/posoco-ext-llm@0.2.0",
   "colmugx/posoco-ext-permission@0.2.0",
   "colmugx/posoco-ext-workspace@0.1.0",
-  "moonbitlang/async@0.21.2",
+  "moonbitlang/async@0.22.2",
 }
