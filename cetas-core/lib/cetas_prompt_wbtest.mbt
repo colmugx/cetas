@@ -51,6 +51,20 @@ test "cetas base prompt locks the set phrase to Chinese replies" {
 }
 
 ///|
+/// Working-partner covenant: temporary experimental artifacts must be cleaned
+/// up, and materially ambiguous requests must go through ask_question. The
+/// prompt carries both positive and negative recipes for the ambiguity case.
+test "cetas base prompt declares working-partner covenant" {
+  let prompt = cetas_base_system_prompt(project_name="demo")
+  assert_true(prompt.contains("Working-partner covenant"))
+  assert_true(prompt.contains("delete them immediately after validation"))
+  assert_true(prompt.contains("use `ask_question` before changing behavior"))
+  assert_true(prompt.contains("Good recipe"))
+  assert_true(prompt.contains("Bad recipe"))
+  assert_true(prompt.contains("there should be only one primary action"))
+}
+
+///|
 /// Honesty: three hard constraints (verify before claiming done; surface
 /// failures exactly; admit uncertainty).
 test "cetas base prompt demands honesty" {
