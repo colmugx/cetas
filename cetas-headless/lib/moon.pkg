@@ -11,12 +11,12 @@ import {
   "moonbitlang/async/aqueue",
   "moonbitlang/async/fs",
   "moonbitlang/async/stdio",
-  "moonbitlang/core/json",
 }
 
 import {
   "moonbitlang/async",
   "moonbitlang/core/env",
+  "moonbitlang/core/json",
 } for "wbtest"
 
 supported_targets = "+native"

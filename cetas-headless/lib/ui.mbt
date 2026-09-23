@@ -27,6 +27,9 @@ pub impl @posoco.UiPort for TerminalUiPort with fn ui_descriptor(
 }
 
 ///|
+pub extend TerminalUiPort with @posoco.UiPort::{ui_descriptor, request, render}
+
+///|
 pub impl @posoco.UiPort for TerminalUiPort with fn render(
   self : TerminalUiPort,
   intent : @posoco.UiRender,

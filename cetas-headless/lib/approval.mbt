@@ -83,3 +83,8 @@ pub impl @permission.ApprovalSource for TerminalApprovalSource with fn ask(
     abort("cetas-headless: approval loop exited unexpectedly")
   }
 }
+
+///|
+pub extend TerminalApprovalSource with @colmugx/posoco-ext-permission.ApprovalSource::{
+  ask,
+}

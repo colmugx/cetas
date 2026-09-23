@@ -2396,12 +2396,7 @@ impl @posoco.ModelPort for GatedModel with fn chat(
     self.parked.push(i)
   }
   while !self.gates[i] {
-    @async.sleep(1) catch {
-      error =>
-        raise @posoco.ModelError::Transport(
-          "gated model interrupted: " + error.to_string(),
-        )
-    }
+    @async.sleep(1)
   }
   self.log.push("exit \{i}")
   @posoco.tk_stop_response(self.responses[i])
@@ -3733,9 +3728,7 @@ async test "selection persistence waits on the process persist mutex" {
   let client = FakeAcpClient::FakeAcpClient()
   let session_id = tk_open_session(host, client)
   @async.with_task_group(group => {
-    acp_persist_mutex.acquire() catch {
-      _ => fail("the test task must acquire the persist mutex")
-    }
+    acp_persist_mutex.acquire()
     let task = group.spawn(
       () => {
         host.handle_set_config_option(fake_acp_context(client), {

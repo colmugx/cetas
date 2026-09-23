@@ -337,11 +337,17 @@ pub impl @posoco.Observer for JsonlObserver with fn on_event_at(
 }
 
 ///|
+pub extend JsonlObserver with @posoco.Observer::{on_event}
+
+///|
 /// Self-report the observer as an extension so it can ride `tail_exts` into
 /// the composition (ACP bridge registration precedent).
 pub impl @posoco.Extension for JsonlObserver with fn extension_id(self) -> String {
   self.id
 }
+
+///|
+pub extend JsonlObserver with @posoco.Extension::{manifest, extension_id}
 
 ///|
 pub impl @posoco.Extension for JsonlObserver with fn manifest(self) -> @posoco.ExtensionManifest {

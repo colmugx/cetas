@@ -139,11 +139,17 @@ pub impl @posoco.Observer for StreamPrinter with fn on_event_at(
 }
 
 ///|
+pub extend StreamPrinter with @posoco.Observer::{on_event}
+
+///|
 /// Self-report the observer as an extension so it can ride `tail_exts` into
 /// the composition (JsonlObserver registration precedent).
 pub impl @posoco.Extension for StreamPrinter with fn extension_id(_self) -> String {
   "cetas_headless_stream"
 }
+
+///|
+pub extend StreamPrinter with @posoco.Extension::{manifest, extension_id}
 
 ///|
 pub impl @posoco.Extension for StreamPrinter with fn manifest(self) -> @posoco.ExtensionManifest {

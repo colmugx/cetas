@@ -24,7 +24,6 @@ import {
   "moonbitlang/async/fs",
   "moonbitlang/async/stdio",
   "moonbitlang/core/env",
-  "moonbitlang/core/json",
 }
 
 import {
@@ -32,6 +31,7 @@ import {
   "colmugx/posoco-ext-mcp" @mcp,
   "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-ratelimit" @ratelimit,
+  "moonbitlang/core/json",
 } for "wbtest"
 
 supported_targets = "+native"

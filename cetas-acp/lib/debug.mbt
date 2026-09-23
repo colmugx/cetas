@@ -73,9 +73,7 @@ async fn debug_write_file(
   path~ : String,
   content~ : String,
 ) -> Unit noraise {
-  debug_io_mutex.acquire() catch {
-    _ => return
-  }
+  debug_io_mutex.acquire()
   defer debug_io_mutex.release()
   fs.mkdir(dir, recursive=true) catch {
     _ => ()
@@ -133,9 +131,7 @@ async fn debug_append_line(
   path~ : String,
   line~ : String,
 ) -> Unit noraise {
-  debug_io_mutex.acquire() catch {
-    _ => return
-  }
+  debug_io_mutex.acquire()
   defer debug_io_mutex.release()
   if native && debug_native_append_line(dir~, path~, line~) {
     return

@@ -127,6 +127,9 @@ pub(all) struct CompactRunOutcome {
 } derive(Eq)
 
 ///|
+pub extend CompactRunOutcome with Eq::{not_equal, equal}
+
+///|
 /// Server-side compaction for a session through the Agent's manual compact
 /// entry: same submit/cancel/commit path as turns, no fabricated user turn.
 pub async fn run_compact(

@@ -386,18 +386,7 @@ pub async fn update_session_sidecar(
     }
   }
   match persist_lock {
-    Some(lock) =>
-      lock.acquire() catch {
-        _ => {
-          warn(
-            label +
-            ": session sidecar write skipped (session=" +
-            session_id +
-            ")\n",
-          )
-          return
-        }
-      }
+    Some(lock) => lock.acquire()
     None => ()
   }
   // The body below has no early return, so the lock releases once at the end.

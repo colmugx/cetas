@@ -22,11 +22,7 @@ let acp_persist_mutex : @async.Mutex = @async.Mutex::Mutex()
 ///|
 /// Best-effort stderr diagnostic: warnings never fail a selection switch.
 async fn acp_warn(message : String) -> Unit noraise {
-  acp_stderr_mutex.acquire() catch {
-    // Cancelled while queued: skip the diagnostic rather than write
-    // unserialized or release a lock we never acquired.
-    _ => return
-  }
+  acp_stderr_mutex.acquire()
   defer acp_stderr_mutex.release()
   @stdio.stderr.write(message) catch {
     _ => ()
@@ -264,14 +260,7 @@ async fn persist_active_model_selection(
   home : String,
   router : @llm.RouterModelPort,
 ) -> Unit noraise {
-  acp_persist_mutex.acquire() catch {
-    _ => {
-      acp_warn(
-        "cetas-acp: model selection persistence skipped (mutex cancelled)\n",
-      )
-      return
-    }
-  }
+  acp_persist_mutex.acquire()
   defer acp_persist_mutex.release()
   @cetas_core.write_active_model_selection(
     fs,

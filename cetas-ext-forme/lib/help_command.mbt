@@ -24,6 +24,9 @@ pub impl @posoco.CommandPort for Forme with fn commands(_self : Forme) -> Array[
 }
 
 ///|
+pub extend Forme with @posoco.CommandPort::{invoke, commands}
+
+///|
 pub impl @posoco.CommandPort for Forme with fn invoke(
   self : Forme,
   id : String,

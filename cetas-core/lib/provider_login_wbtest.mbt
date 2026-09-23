@@ -166,6 +166,13 @@ pub impl @llm.ProviderFactory for WbBrokenFactory with fn provider_id(
 }
 
 ///|
+pub extend WbBrokenFactory with @colmugx/posoco-ext-llm.ProviderFactory::{
+  credential_id,
+  provider_id,
+  build,
+}
+
+///|
 pub impl @llm.ProviderFactory for WbBrokenFactory with fn credential_id(
   _self : WbBrokenFactory,
 ) -> String {
