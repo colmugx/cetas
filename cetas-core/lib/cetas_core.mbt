@@ -209,7 +209,6 @@ fn shell_platform_is_windows() -> Bool {
 /// extension packages.
 pub async fn build_default_features(
   ctx~ : HostContext,
-  ui? : &@posoco.UiPort? = None,
   nmem_group? : @async.TaskGroup[Unit]? = None,
   host_help_note? : String? = None,
   obsidian_vault? : String? = None,
@@ -271,11 +270,10 @@ pub async fn build_default_features(
     Err(_) => ()
   }
   exts.push(@forme.Forme::Forme(host_note=host_help_note) as &@posoco.Extension)
-  match ui {
-    Some(port) =>
-      exts.push(@askquestion.AskQuestionTools(port) as &@posoco.Extension)
-    None => ()
-  }
+  // ask_question self-wires from the CompositionView (requires Capability::Ui);
+  // registering it unconditionally keeps the tool visible even in UI-less
+  // compositions, where each ask reports "Interactive UI is unavailable".
+  exts.push(@askquestion.AskQuestionTools() as &@posoco.Extension)
   if compiled_nmem_enabled() {
     let nmem = @nmem.NowledgeMem(
       source_app="cetas",

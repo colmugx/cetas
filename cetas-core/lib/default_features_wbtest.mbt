@@ -256,56 +256,24 @@ async test "forme registers with /help and its prompt note; host note flows thro
   assert_true(found)
 }
 
-// ------------------------------------------------------------ ask_question (ui~)
+// ------------------------------------------------------------ ask_question
 
 ///|
-/// Minimal UiPort fake: no rendering, no interactive answers. Only the
-/// presence/absence of the port decides feature registration; interactive
-/// behavior is askquestion's own test surface.
-priv struct HeadlessUi {}
-
-///|
-impl @posoco.UiPort for HeadlessUi with fn ui_descriptor(_self) -> @posoco.UiDescriptor {
-  @posoco.UiDescriptor::empty()
-}
-
-///|
-impl @posoco.UiPort for HeadlessUi with fn render(_self, _intent) -> Unit {
-  ()
-}
-
-///|
-impl @posoco.UiPort for HeadlessUi with fn request(_self, _req) -> @posoco.UiResponse {
-  raise @posoco.UiError::Unsupported(detail="headless test ui")
-}
-
-///|
-async test "ask_question registers only when the host supplies a UI port" {
+async test "ask_question always joins the default set" {
   let fs = SkillsCtxFs::{
     files: Map::from_array([]),
     dirs: Map::from_array([]),
   }
   let ctx : HostContext = { fs, cwd: "/nowhere", home: "/home/u", }
-  // Without a UI port: the ten feature extensions (read/write/edit/glob/
-  // grep/astgrep/bash direct; skills, forme, handoff), the three gateway
-  // views, and the gateway ext — no ask_question.
+  // The default set (read/write/edit/glob/grep/astgrep/bash direct; skills,
+  // forme, handoff), the three gateway views, the gateway ext, and
+  // ask_question — which no longer depends on a host UI port: it resolves
+  // the composed port from its CompositionView and reports "Interactive UI
+  // is unavailable" per ask when none exists.
   let bare = build_default_features(ctx~, obsidian_vault=Some("test-vault"))
-  assert_eq(bare.length(), 14)
-  let bare_ids : Array[String] = []
-  for ext in bare {
-    bare_ids.push(ext.extension_id())
-  }
-  assert_false(bare_ids.contains("posoco_ext_askquestion"))
-  // With a UI port: ask_question joins the default set and contributes
-  // exactly the ask_question ToolProvider plus prompt guidance.
-  let with_ui = build_default_features(
-    ctx~,
-    ui=Some(HeadlessUi::{ } as &@posoco.UiPort),
-    obsidian_vault=Some("test-vault"),
-  )
-  assert_eq(with_ui.length(), 15)
+  assert_eq(bare.length(), 15)
   let mut found = false
-  for ext in with_ui {
+  for ext in bare {
     if ext.extension_id() == "posoco_ext_askquestion" {
       found = true
       let manifest = ext.manifest()
@@ -316,6 +284,7 @@ async test "ask_question registers only when the host supplies a UI port" {
         "ask_question",
       )
       assert_eq(manifest.prompt_contributors.length(), 1)
+      assert_eq(manifest.requires, [@posoco.Capability::Ui])
     }
   }
   assert_true(found)
@@ -329,7 +298,6 @@ async test "bash is a direct catalog tool; episodic tools defer" {
   }
   let exts = build_default_features(
     ctx={ fs, cwd: "/nowhere", home: "/home/u", },
-    ui=Some(HeadlessUi::{ } as &@posoco.UiPort),
     obsidian_vault=Some("test-vault"),
   )
   let direct : Array[String] = []

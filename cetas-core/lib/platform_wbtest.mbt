@@ -14,7 +14,7 @@ fn tk_durable_id_shape(id : String) -> Bool {
   if !id.has_prefix("cetas-") {
     return false
   }
-  let tail = id.sub(start=6).to_owned()
+  let tail = id.exact_view(start=6).to_owned()
   if tail.length() == 0 {
     return false
   }
@@ -328,20 +328,7 @@ impl @posoco.Extension for BusExtProbe with fn extension_id(_self) -> String {
 
 ///|
 impl @posoco.Extension for BusExtProbe with fn manifest(self : BusExtProbe) -> @posoco.ExtensionManifest {
-  {
-    id: "bus_probe",
-    models: [],
-    tools: [self],
-    sessions: [],
-    observers: [],
-    hooks: [],
-    memory: [],
-    lifecycle: [],
-    commands: [],
-    ui: [],
-    prompt_contributors: [],
-    requires: [],
-  }
+  @posoco.ExtensionManifest(id="bus_probe", tools=[self])
 }
 
 ///|

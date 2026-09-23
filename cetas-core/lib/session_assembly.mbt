@@ -44,8 +44,10 @@ pub fn build_cetas_router(
 /// injects a router built earlier via `build_cetas_router`; without one the
 /// router is built here. The persisted effort warning carries the host's
 /// diagnostic `label~`. Injection seams keep protocol concerns host-side:
-/// `approval~`/`ui~` carry the client bridge behind the permission policy
-/// and ask_question, `client_exts~`/`policy_exts~` weave host extensions at
+/// `approval~` carries the client bridge behind the permission policy and
+/// `ui~` contributes the client bridge to the composition (as a
+/// manifest-only `UiPortExtension`) for `Capability::Ui` consumers such as
+/// ask_question, `client_exts~`/`policy_exts~` weave host extensions at
 /// their product positions, `prompt_suffix~` appends a host profile section
 /// to the cetas system prompt, and `session_fs~` substitutes a delegating
 /// workspace shell. `bus_exts~` builds extensions that publish to the bus at
@@ -112,6 +114,9 @@ pub async fn build_cetas_session(
     platform.permission_mode,
     approval~,
     bus=Some(event_bus),
+    // The launch directory anchors WorkspaceWrite's in-workspace write
+    // pre-approval; same root the file tools resolve against.
+    workspace=Some(@devkit.WorkspaceAnchor(cwd)),
   )
   let exts : Array[&@posoco.Extension] = [
     cetas,
@@ -120,6 +125,17 @@ pub async fn build_cetas_session(
   ]
   for ext in client_exts {
     exts.push(ext)
+  }
+  // The host-constructed UI joins the composition as a manifest-only
+  // extension, so the aggregated UiPort (and its core request-event wrapper)
+  // sees it and `Capability::Ui` consumers capture the composed port.
+  match ui {
+    Some(port) =>
+      exts.push(
+        UiPortExtension::UiPortExtension(id=label + "_ui", ui=port)
+        as &@posoco.Extension,
+      )
+    None => ()
   }
   exts.push(permission_policy)
   for ext in policy_exts {
@@ -146,7 +162,6 @@ pub async fn build_cetas_session(
   for
     tool in build_default_features(
       ctx={ fs: session_fs, cwd, home: platform.home, },
-      ui~,
       nmem_group=platform.mcp_group,
       obsidian_vault~,
     ) {

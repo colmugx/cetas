@@ -9,20 +9,13 @@ fn run_prompt_test_agent(
 ) -> @posoco.Agent raise {
   @posoco.Agent(
     exts=[
-      @posoco.ManifestOnly::ManifestOnly({
-        id: "model",
-        models: [model as &@posoco.ModelPort],
-        tools: [],
-        sessions: [store as &@posoco.SessionStore],
-        observers: [],
-        hooks: [],
-        memory: [],
-        lifecycle: [],
-        commands: [],
-        ui: [],
-        prompt_contributors: [],
-        requires: [],
-      }),
+      @posoco.ManifestOnly::ManifestOnly(
+        @posoco.ExtensionManifest(
+          id="model",
+          models=[model as &@posoco.ModelPort],
+          sessions=[store as &@posoco.SessionStore],
+        ),
+      ),
     ],
     config=@posoco.agent_config(max_tool_rounds=Some(2)),
   )
