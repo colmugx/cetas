@@ -27,28 +27,28 @@ pub fn parse_peer_envelope(line : String) -> PeerEnvelope? {
   if !line.has_prefix(open) {
     return None
   }
-  let body = line.sub(start=open.length())
+  let body = line.exact_view(start=open.length())
   let sep = " session="
   let sep_at = match body.find(sep) {
     None => return None
     Some(at) => at
   }
-  let from = body.sub(end=sep_at).to_owned()
+  let from = body.exact_view(end=sep_at).to_owned()
   if from == "" {
     return None
   }
-  let tail = body.sub(start=sep_at + sep.length())
+  let tail = body.exact_view(start=sep_at + sep.length())
   let close = "] "
   let close_at = match tail.find(close) {
     None => return None
     Some(at) => at
   }
-  let session = tail.sub(end=close_at).to_owned()
+  let session = tail.exact_view(end=close_at).to_owned()
   if session == "" {
     return None
   }
   let task = tail
-    .sub(start=close_at + close.length())
+    .exact_view(start=close_at + close.length())
     .to_owned()
     .trim()
     .to_owned()

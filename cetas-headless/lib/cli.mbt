@@ -2,7 +2,7 @@
 /// cli.mbt — the decided command surface (cetas-headless-design §二):
 ///
 ///   cetas-headless [--model <id>] [--effort <level>] [--session <id>]
-///                  [--yolo | --permission <readonly|workspace_write|interactive>]
+///                  [--yolo | --permission <readonly|workspace_write|interactive|auto>]
 ///                  [--stream] [--verbose] [--show-thinking] [--jsonl]
 ///                  [-- "<task>"]
 ///
@@ -53,12 +53,15 @@ pub(all) struct HeadlessCli {
 
 ///|
 /// Parse a `--permission` value. Yolo is intentionally unreachable here —
-/// unattended runs are expressed with `--yolo` only.
+/// unattended runs are expressed with `--yolo` only. `auto` needs a
+/// composed DecisionPort; without one the composition fails instead of
+/// silently running a dead posture.
 pub fn parse_permission_mode_str(raw : String) -> @permission.PermissionMode? {
   match raw {
     "readonly" => Some(@permission.ReadOnly)
     "workspace_write" => Some(@permission.WorkspaceWrite)
     "interactive" => Some(@permission.Interactive)
+    "auto" => Some(@permission.Auto)
     _ => None
   }
 }
@@ -130,19 +133,19 @@ pub fn parse_headless_cli(argv : Array[String]) -> Result[HeadlessCli, String] {
       i += 1
       if i >= argv.length() {
         return Err(
-          "--permission requires a value: readonly|workspace_write|interactive",
+          "--permission requires a value: readonly|workspace_write|interactive|auto",
         )
       }
       if argv[i] == "--" {
         return Err(
-          "--permission requires a value (readonly|workspace_write|interactive); '--' starts the task — put the value before it",
+          "--permission requires a value (readonly|workspace_write|interactive|auto); '--' starts the task — put the value before it",
         )
       }
       match parse_permission_mode_str(argv[i]) {
         Some(mode) => permission_mode = Some(mode)
         None =>
           return Err(
-            "unknown permission mode '\{argv[i]}': expected readonly|workspace_write|interactive",
+            "unknown permission mode '\{argv[i]}': expected readonly|workspace_write|interactive|auto",
           )
       }
     } else if arg.has_prefix("--") {

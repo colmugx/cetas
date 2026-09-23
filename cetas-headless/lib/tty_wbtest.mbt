@@ -53,7 +53,7 @@ async test "spike: open_tty_channel degrades to None without a controlling termi
 /// and run under a pty with a line fed to it, e.g.
 ///
 ///   (sleep 6; printf 'hello tty\n'; sleep 25) | script -q /tmp/ts.txt \
-///     env CETAS_HEADLESS_TTY_PROBE=1 rtk moon test lib --target native
+///     env CETAS_HEADLESS_TTY_PROBE=1 moon test lib --target native
 ///
 /// Proves open → write → read end-to-end over /dev/tty; any other
 /// environment exits through the clean-degradation branches.
