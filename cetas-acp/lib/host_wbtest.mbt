@@ -659,7 +659,7 @@ fn tk_durable_id_shape(id : String) -> Bool {
   if !id.has_prefix("cetas-") {
     return false
   }
-  let tail = id.sub(start=6).to_owned()
+  let tail = id.exact_view(start=6).to_owned()
   if tail.length() == 0 {
     return false
   }
@@ -1072,7 +1072,8 @@ async test "real reasoning chunks keep their own message ids beside the placehol
 
 ///|
 async test "plan review asks with named options and approve exits plan mode" {
-  // 120 chars: the title must truncate while raw_input carries the full plan.
+  // 120 chars: the title carries the plan name while raw_input carries the
+  // full plan for clients that render it.
   let long_plan = Array::make(12, "abcdefghij").join("")
   let (host, _) = tk_host_plan(tk_plan_turn(long_plan))
   let client = FakeAcpClient::FakeAcpClient(
@@ -1105,8 +1106,7 @@ async test "plan review asks with named options and approve exits plan mode" {
     Value(title) => title
     _ => fail("tool call title missing")
   }
-  assert_eq(title.length(), 80)
-  assert_true(title.has_suffix("..."))
+  assert_eq(title, "Plan awaiting approval: my plan")
   match ask.tool_call.raw_input {
     Value(Json::Object(fields)) =>
       match fields.get("plan") {
@@ -1242,6 +1242,7 @@ async test "auto-edit option accepts the plan" {
   let review = AcpPlanReview::{ bridge, }
   match
     @plan.PlanReviewSource::review(review, @plan.PlanReviewRequest::{
+      name: "test plan",
       plan: "1. do it",
     }) {
     Accept => assert_eq(client.asked.length(), 1)
@@ -1259,6 +1260,7 @@ async test "unknown plan option keeps planning with an explanation" {
   let review = AcpPlanReview::{ bridge, }
   match
     @plan.PlanReviewSource::review(review, @plan.PlanReviewRequest::{
+      name: "test plan",
       plan: "1. do it",
     }) {
     Revise(feedback~) => assert_true(feedback.contains("unrecognized"))
@@ -1283,6 +1285,7 @@ async test "plan review transport failure keeps planning" {
   let review = AcpPlanReview::{ bridge, }
   match
     @plan.PlanReviewSource::review(review, @plan.PlanReviewRequest::{
+      name: "test plan",
       plan: "1. do it",
     }) {
     Revise(feedback~) =>
@@ -1297,6 +1300,7 @@ async test "plan review without an attached bridge falls back to planning" {
   let review = AcpPlanReview::{ bridge: @ext_acp.AcpBridge(), }
   match
     @plan.PlanReviewSource::review(review, @plan.PlanReviewRequest::{
+      name: "test plan",
       plan: "1. do it",
     }) {
     Revise(feedback~) => assert_eq(feedback, "plan review unavailable")

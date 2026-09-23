@@ -183,24 +183,19 @@ const PLAN_OPTION_KEEP_PLANNING = "plan-keep-planning"
 const PLAN_OPTION_AUTO_EDIT = "plan-auto-edit"
 
 ///|
-/// One pending tool-call update titled with an 80-char plan preview,
+/// One pending tool-call update titled `Plan awaiting approval: <name>`,
 /// carrying the full plan as `raw_input`, plus the three named options.
 fn acp_plan_request(
   session_id : String,
   request : @plan.PlanReviewRequest,
 ) -> @acp.RequestPermissionRequest {
-  let preview = if request.plan.length() <= 80 {
-    request.plan
-  } else {
-    request.plan.sub(end=77).to_owned() + "..."
-  }
   {
     session_id,
     tool_call: {
       tool_call_id: "plan-review",
       kind: Value(@ext_acp.acp_tool_kind("exit_plan_mode")),
       status: Value(Pending),
-      title: Value(preview),
+      title: Value("Plan awaiting approval: " + request.name),
       content: Omitted,
       locations: Omitted,
       raw_input: Value(Json::object({ "plan": Json::string(request.plan) })),
@@ -1451,7 +1446,6 @@ async fn build_session_agent(
   for
     tool in @cetas_core.build_default_features(
       ctx={ fs: session_fs, cwd, home: platform.home, },
-      ui=Some(bridge as &@posoco.UiPort),
       nmem_group=platform.mcp_group,
     ) {
     exts.push(tool)

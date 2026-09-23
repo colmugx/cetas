@@ -47,6 +47,7 @@ fn permission_mode_value(mode : @permission.PermissionMode) -> String {
     ReadOnly => "readonly"
     WorkspaceWrite => "workspace_write"
     Interactive => "interactive"
+    Auto => "auto"
     Yolo => "yolo"
   }
 }
@@ -57,6 +58,7 @@ fn parse_permission_mode_name(raw : String) -> @permission.PermissionMode? {
     "readonly" => Some(ReadOnly)
     "workspace_write" => Some(WorkspaceWrite)
     "interactive" => Some(Interactive)
+    "auto" => Some(Auto)
     "yolo" => Some(Yolo)
     _ => None
   }

@@ -164,7 +164,7 @@ fn debug_truncate(text : String) -> String {
   if text.length() <= DEBUG_PROMPT_LIMIT {
     text
   } else {
-    text.sub(end=DEBUG_PROMPT_LIMIT).to_owned() + "...(truncated)"
+    text.exact_view(end=DEBUG_PROMPT_LIMIT).to_owned() + "...(truncated)"
   }
 }
 
