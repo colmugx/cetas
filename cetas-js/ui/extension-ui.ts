@@ -8,7 +8,6 @@ import {
   Text,
   type Component,
   type TUI,
-  truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
 
@@ -503,16 +502,26 @@ export function createUiRenderCallback(
 /** Options shown at once before the ask panel starts scrolling. */
 const MAX_VISIBLE_OPTIONS = 8;
 
+/** Markdown body lines shown before the ask panel collapses behind ctrl+o. */
+const ASK_PREVIEW_LINES = 15;
+
 /**
  * One inline ask panel: the request's title lines, then either an option
- * row (confirm/select) or a text input. Buttons lay out horizontally along
- * the bottom and fall back to a stacked list when the row cannot fit the
- * terminal width. The focused button renders as a background block, not an
- * arrow prefix.
+ * row (confirm/select) or a text input. The first title line renders bold
+ * and word-wrapped; the remaining lines render as muted text — or, for
+ * select requests, as markdown that collapses to a preview once it
+ * overflows {@link ASK_PREVIEW_LINES} lines (ctrl+o toggles the full body).
+ * Buttons lay out horizontally along the bottom and fall back to a stacked
+ * list when the row cannot fit the terminal width. The focused button
+ * renders as a background block, not an arrow prefix.
  */
 class AskPanel implements Component {
   focused = false;
-  private readonly titleLines: string[];
+  /** First title line — the question. Rendered bold, word-wrapped. */
+  private readonly titleHead?: string;
+  /** Remaining title lines — detail. Muted text, or markdown for selects. */
+  private readonly titleRest: string;
+  private readonly restMarkdown?: Markdown;
   private readonly placeholderLine?: string;
   private readonly options: ReadonlyArray<{
     label: string;
@@ -523,21 +532,32 @@ class AskPanel implements Component {
   private settled = false;
   /** Width of the most recent render; decides the layout, hence the arrow axis. */
   private lastWidth = 0;
+  /** True while the markdown body overflowed the collapsed preview. */
+  private collapsible = false;
+  private expanded = false;
 
   constructor(
     request: UiRequest,
     private readonly onSettle: (response: UiResponse) => void,
   ) {
+    const splitTitle = (title: string): [string, string] => {
+      const newline = title.indexOf("\n");
+      if (newline === -1) return [title, ""];
+      return [title.slice(0, newline), title.slice(newline + 1)];
+    };
     switch (request.type) {
-      case "confirm":
-        this.titleLines = request.prompt.split("\n");
+      case "confirm": {
+        const [head, rest] = splitTitle(request.prompt);
+        this.titleHead = head;
+        this.titleRest = rest;
         this.options = [
           { label: "Yes", response: { type: "yes" } },
           { label: "No", response: { type: "no" } },
         ];
         this.selectedIndex = request.default_yes ? 0 : 1;
         break;
-      case "select":
+      }
+      case "select": {
         if (
           request.default_index !== undefined &&
           (request.default_index < 0 ||
@@ -547,21 +567,29 @@ class AskPanel implements Component {
             `UiRequest.select.default_index out of bounds: ${request.default_index}`,
           );
         }
-        this.titleLines = request.title.split("\n");
+        const [head, rest] = splitTitle(request.title);
+        this.titleHead = head;
+        this.titleRest = rest;
+        this.restMarkdown =
+          rest.length > 0 ? new Markdown(rest, 0, 0, markdownTheme) : undefined;
         this.options = request.options.map((option, index) => ({
           label: option,
           response: { type: "selected", index },
         }));
         this.selectedIndex = request.default_index ?? 0;
         break;
-      case "input":
-        this.titleLines = request.prompt.split("\n");
+      }
+      case "input": {
+        const [head, rest] = splitTitle(request.prompt);
+        this.titleHead = head;
+        this.titleRest = rest;
         this.placeholderLine = request.placeholder;
         this.options = [];
         this.input = new Input();
         this.input.onSubmit = (value) => this.settle({ type: "text", text: value });
         this.input.onEscape = () => this.settle({ type: "cancelled" });
         break;
+      }
     }
   }
 
@@ -575,21 +603,26 @@ class AskPanel implements Component {
 
   render(width: number): string[] {
     this.lastWidth = width;
-    // First title line is the question; the remaining lines are the detail
-    // (e.g. the permission ask's arguments preview).
-    const [firstTitle, ...restTitles] = this.titleLines;
     const lines: string[] = [];
-    if (firstTitle !== undefined && firstTitle.length > 0) {
-      lines.push(theme.bold(truncateToWidth(firstTitle, width)));
+    // The head question is bold and word-wrapped; detail lines wrap instead
+    // of truncating — an ask must never silently hide its own content.
+    if (this.titleHead !== undefined && this.titleHead.length > 0) {
+      lines.push(...new Text(theme.bold(this.titleHead), 0, 0).render(width));
     }
-    for (const line of restTitles) lines.push(theme.muted(truncateToWidth(line, width)));
+    if (this.titleRest.length > 0) {
+      if (this.restMarkdown !== undefined) {
+        lines.push(...this.renderMarkdownBody(width));
+      } else {
+        lines.push(...new Text(theme.muted(this.titleRest), 0, 0).render(width));
+      }
+    }
     if (this.input !== undefined) {
       // The TUI focuses this panel, not the Input; forward the flag so the
       // caret renders.
       const input = this.input as Input & { focused?: boolean };
       if (typeof input.focused === "boolean") input.focused = this.focused;
       if (this.placeholderLine !== undefined) {
-        lines.push(theme.muted(truncateToWidth(this.placeholderLine, width)));
+        lines.push(theme.muted(this.placeholderLine));
       }
       lines.push(...this.input.render(width));
       lines.push(theme.muted(" ⏎ submit · esc cancel"));
@@ -616,16 +649,26 @@ class AskPanel implements Component {
         lines.push(theme.muted(` (${this.selectedIndex + 1}/${this.options.length})`));
       }
     }
-    // The footer names the axis that actually drives the current layout.
+    // The footer names the axis that actually drives the current layout,
+    // plus the expand toggle when the markdown body is collapsed.
+    const expandHint = this.collapsible && !this.expanded
+      ? " · ctrl+o expand"
+      : this.collapsible
+        ? " · ctrl+o collapse"
+        : "";
     lines.push(theme.muted(
       buttonRow !== undefined
-        ? " ←→ choose · ⏎ confirm · esc cancel"
-        : " ↑↓ choose · ⏎ confirm · esc cancel",
+        ? ` ←→ choose · ⏎ confirm · esc cancel${expandHint}`
+        : ` ↑↓ choose · ⏎ confirm · esc cancel${expandHint}`,
     ));
     return lines;
   }
 
   handleInput(data: string): void {
+    if (this.collapsible && matchesKey(data, "ctrl+o")) {
+      this.expanded = !this.expanded;
+      return;
+    }
     if (this.input !== undefined) {
       this.input.handleInput?.(data);
       return;
@@ -657,6 +700,31 @@ class AskPanel implements Component {
 
   invalidate(): void {
     this.input?.invalidate();
+  }
+
+  /**
+   * Render the markdown detail body; collapse overflowing bodies to a
+   * preview so the option buttons stay on screen. Slicing the rendered
+   * lines keeps everything above the cut scrollable via the terminal
+   * scrollback.
+   */
+  private renderMarkdownBody(width: number): string[] {
+    const rendered = this.restMarkdown!.render(width);
+    if (rendered.length <= ASK_PREVIEW_LINES) {
+      this.collapsible = false;
+      return rendered;
+    }
+    this.collapsible = true;
+    if (this.expanded) {
+      return rendered;
+    }
+    const preview = rendered.slice(0, ASK_PREVIEW_LINES);
+    preview.push(
+      theme.muted(
+        `… (+${rendered.length - ASK_PREVIEW_LINES} lines, ctrl+o to expand)`,
+      ),
+    );
+    return preview;
   }
 
   // One row carrying every button, or undefined when the row cannot fit

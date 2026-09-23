@@ -463,6 +463,20 @@ test "turn_event_to_json skips StreamChunksDropped (null sentinel)" {
 }
 
 ///|
+test "turn_event_to_json skips UserRequest presence events (null sentinel)" {
+  let events : Array[@posoco.TurnEvent] = [
+    UserRequestStarted(kind="confirm", prompt="allow write?"),
+    UserRequestFinished(kind="confirm", outcome="answered"),
+  ]
+  for event in events {
+    match turn_event_to_json(event) {
+      Json::Null => ()
+      _ => fail("expected Json null skip sentinel")
+    }
+  }
+}
+
+///|
 /// Isolated home for the live-refresh tests: a fresh /tmp directory per call
 /// so `settings.json` is absent (unconfigured) and `model_lists.json` writes
 /// never touch the developer's real `~/.cetas`. Nothing process-global is

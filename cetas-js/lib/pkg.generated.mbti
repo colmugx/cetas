@@ -85,9 +85,9 @@ pub fn cetas_js_tool_catalog(CetasJsAgent) -> String
 
 // Types and methods
 pub(all) struct BlockingApprovalSource {
-  ui : &@port.UiPort
+  mut ui : &@port.UiPort?
 }
-pub fn BlockingApprovalSource::BlockingApprovalSource(&@port.UiPort) -> Self
+pub fn BlockingApprovalSource::BlockingApprovalSource() -> Self
 pub impl @posoco-ext-permission.ApprovalSource for BlockingApprovalSource
 
 pub struct CetasJsAgent {
@@ -169,10 +169,19 @@ pub type JsUiRenderCallback
 pub type JsUiRequestCallback
 
 pub(all) struct PlanApprovalSource {
-  ui : &@port.UiPort
+  mut ui : &@port.UiPort?
 }
-pub fn PlanApprovalSource::PlanApprovalSource(&@port.UiPort) -> Self
+pub fn PlanApprovalSource::PlanApprovalSource() -> Self
 pub impl @posoco-ext-plan.PlanReviewSource for PlanApprovalSource
+
+pub(all) struct UiBridge {
+  blocking : BlockingApprovalSource?
+  plan : PlanApprovalSource?
+}
+pub fn UiBridge::extension_id(Self) -> String
+pub fn UiBridge::manifest(Self) -> @port.ExtensionManifest
+pub impl @port.Extension for UiBridge
+pub impl @port.Lifecycle for UiBridge
 
 // Type aliases
 

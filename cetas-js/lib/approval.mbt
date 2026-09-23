@@ -1,12 +1,15 @@
 ///|
 /// Parse the `permission_mode` config string. Unrecognized values fall back
 /// to `WorkspaceWrite` so a typo never accidentally widens to `Interactive`
-/// or `Yolo`, or locks down to `ReadOnly`.
+/// or `Yolo`, or locks down to `ReadOnly`. `Auto` needs a composed
+/// DecisionPort — without one the policy fails composition loudly instead
+/// of silently degrading.
 fn parse_permission_mode(raw : String) -> @permission.PermissionMode {
   match raw {
     "readonly" => @permission.ReadOnly
     "workspace_write" => @permission.WorkspaceWrite
     "interactive" => @permission.Interactive
+    "auto" => @permission.Auto
     "yolo" => @permission.Yolo
     _ => @permission.WorkspaceWrite
   }
@@ -44,14 +47,14 @@ const APPROVAL_OPTION_DENY = "Deny"
 /// model sees the deny reason and can choose a different action rather than
 /// the turn ending in an error.
 pub(all) struct BlockingApprovalSource {
-  ui : &@posoco.UiPort
+  /// The composed UiPort, wired by the ui bridge extension at composition
+  /// time. Empty only if composition never ran; the ask fails closed.
+  mut ui : &@posoco.UiPort?
 }
 
 ///|
-pub fn BlockingApprovalSource::BlockingApprovalSource(
-  ui : &@posoco.UiPort,
-) -> BlockingApprovalSource {
-  { ui, }
+pub fn BlockingApprovalSource::BlockingApprovalSource() -> BlockingApprovalSource {
+  { ui: None, }
 }
 
 ///|
@@ -65,6 +68,13 @@ pub impl @permission.ApprovalSource for BlockingApprovalSource with fn ask(
     request.category +
     ")?\n" +
     request.arguments_preview
+  let ui = match self.ui {
+    Some(ui) => ui
+    None =>
+      return @permission.ApprovalDecision::Deny(
+        reason="denied: approval UI not composed yet",
+      )
+  }
   let req : @posoco.UiRequest = @posoco.UiRequest::Select(
     prompt~,
     options=[
@@ -74,7 +84,7 @@ pub impl @permission.ApprovalSource for BlockingApprovalSource with fn ask(
     ],
     default=Some(0),
   )
-  let resp = self.ui.request(req) catch {
+  let resp = ui.request(req) catch {
     err =>
       return @permission.ApprovalDecision::Deny(
         reason="approval UI failed: " + err.to_string(),
@@ -104,18 +114,21 @@ pub impl @permission.ApprovalSource for BlockingApprovalSource with fn ask(
 ///|
 /// Plan review for the js host: renders the submitted plan and asks for a
 /// verdict through the same UiPort modal surface the permission approvals
-/// and ask_question use. Approve accepts and starts implementation; Revise
-/// asks for the (required) reason with a follow-up input; Dismiss — or
-/// cancelling either modal — cancels the plan and stops the turn.
+/// and ask_question use. The prompt carries the plan name and the FULL plan
+/// text — truncation is a host-UI concern (the js UI collapses long bodies
+/// behind ctrl+o), never a protocol one. Approve accepts and starts
+/// implementation; Revise asks for the (required) reason with a follow-up
+/// input; Dismiss — or cancelling either modal — cancels the plan and stops
+/// the turn.
 pub(all) struct PlanApprovalSource {
-  ui : &@posoco.UiPort
+  /// The composed UiPort, wired by the ui bridge extension at composition
+  /// time. Empty only if composition never ran (asks fail closed).
+  mut ui : &@posoco.UiPort?
 }
 
 ///|
-pub fn PlanApprovalSource::PlanApprovalSource(
-  ui : &@posoco.UiPort,
-) -> PlanApprovalSource {
-  { ui, }
+pub fn PlanApprovalSource::PlanApprovalSource() -> PlanApprovalSource {
+  { ui: None, }
 }
 
 ///|
@@ -132,20 +145,21 @@ pub impl @plan.PlanReviewSource for PlanApprovalSource with fn review(
   self,
   request : @plan.PlanReviewRequest,
 ) -> @plan.PlanReviewDecision {
-  let plan_preview = if request.plan.length() <= 2000 {
-    request.plan
-  } else {
-    request.plan.sub(end=1997).to_owned() + "..."
-  }
-  let prompt = "Plan submitted for approval:\n\n" +
-    plan_preview +
+  let prompt = "Plan awaiting approval: " +
+    request.name +
+    "\n\n" +
+    request.plan +
     "\n\nAccept, revise with feedback, or dismiss?"
   let req : @posoco.UiRequest = @posoco.UiRequest::Select(
     prompt~,
     options=[PLAN_OPTION_APPROVE, PLAN_OPTION_REVISE, PLAN_OPTION_DISMISS],
     default=Some(0),
   )
-  let resp = self.ui.request(req) catch {
+  let ui = match self.ui {
+    Some(ui) => ui
+    None => return @plan.PlanReviewDecision::Dismiss
+  }
+  let resp = ui.request(req) catch {
     _ => return @plan.PlanReviewDecision::Dismiss
   }
   match resp {
@@ -157,7 +171,7 @@ pub impl @plan.PlanReviewSource for PlanApprovalSource with fn review(
         prompt="Why is the plan sent back? (required feedback for the model)",
         default=Some(""),
       )
-      let reason_resp = self.ui.request(reason_req) catch {
+      let reason_resp = ui.request(reason_req) catch {
         _ => return @plan.PlanReviewDecision::Dismiss
       }
       match reason_resp {

@@ -14,6 +14,7 @@
 import { registerToolRenderer } from "./registry.ts";
 import { askQuestionRenderer } from "./askquestion.ts";
 import { bashRenderer } from "./bash.ts";
+import { exitPlanRenderer } from "./exitplan.ts";
 import { writeRenderer } from "./write.ts";
 
 let registered = false;
@@ -24,6 +25,7 @@ export function registerBuiltinToolRenderers(): void {
   registered = true;
   registerToolRenderer("ask_question", askQuestionRenderer);
   registerToolRenderer("bash", bashRenderer);
+  registerToolRenderer("exit_plan_mode", exitPlanRenderer);
   registerToolRenderer("write", writeRenderer);
 }
 

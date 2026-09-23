@@ -170,6 +170,9 @@ fn usage_to_json(usage : @posoco.Usage?) -> Json {
 ///                             authoritative args)
 ///   StreamChunksDropped(_) → skipped (Json null sentinel — backpressure
 ///                             bookkeeping, nothing renderable)
+///   UserRequestStarted/Finished → skipped (Json null sentinel — presence
+///                             signals; the TS host renders the modal via the
+///                             UI bridge and consumes no wire tag)
 ///   Custom                 → custom { source, label, data }
 fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
   let json : Json = match event {
@@ -403,6 +406,12 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
           ("detail", Json::string(detail)),
         ]),
       )
+    // "Agent is waiting for the user" presence signals (permission confirm,
+    // plan review, ask_question). The TS host renders those modals through
+    // the UI bridge and consumes no wire tag for them; forwarding would trip
+    // its unknown-type skip notice.
+    @posoco.TurnEvent::UserRequestStarted(..) => Json::null()
+    @posoco.TurnEvent::UserRequestFinished(..) => Json::null()
   }
   json
 }
@@ -946,8 +955,9 @@ pub(all) struct CetasJsConfig {
 ///|
 /// Plain positional constructor — no labeled, no optional, no defaults.
 /// `permission_mode` is `"readonly" | "workspace_write" | "interactive" |
-/// "yolo"`; an unrecognized value falls back to `"workspace_write"` at policy
-/// assembly. An empty `sessions_dir` falls back to the per-project bucket
+/// "auto" | "yolo"`; an unrecognized value falls back to `"workspace_write"`
+/// at policy assembly. `"auto"` requires a composed DecisionPort — the
+/// composition fails otherwise. An empty `sessions_dir` falls back to the per-project bucket
 /// `project_sessions_dir(home, cwd)` so each project's transcripts stay in
 /// their own directory. An empty `host_help_note` contributes no note.
 pub fn CetasJsConfig::CetasJsConfig(
@@ -1544,28 +1554,32 @@ pub fn cetas_js_runtime_create_agent(
             )
             // Permission policy: gates write/shell/unknown tools through a UI confirm.
             // ReadOnly rejects every non-read tool without a prompt; the other modes
-            // bridge through BlockingApprovalSource → JsUiPort::request (.wait()).
+            // bridge through BlockingApprovalSource → composed UiPort::request
+            // (.wait()). The source's UI cell is filled by the UiBridge at
+            // composition, so asks ride the aggregated port (request events).
             // Subscribed to the bus BEFORE plan mode constructs so the enter/exit
             // tools are exempt from approval asks — their decision is the plan
             // approval flow (plan.approve / plan.reject), not a tool-permission
             // prompt.
             let mode = parse_permission_mode(runtime.config.permission_mode)
-            let policy = match mode {
-              @permission.ReadOnly =>
-                @permission.PermissionPolicy(mode, bus=Some(event_bus))
-              _ => {
-                let source = BlockingApprovalSource(ui as &@posoco.UiPort)
+            let approval_source : BlockingApprovalSource? = match mode {
+              @permission.ReadOnly => None
+              _ => Some(BlockingApprovalSource())
+            }
+            let policy = match approval_source {
+              Some(source) =>
                 @permission.PermissionPolicy(
                   mode,
                   approval=Some(source as &@permission.ApprovalSource),
                   bus=Some(event_bus),
                 )
-              }
+              None => @permission.PermissionPolicy(mode, bus=Some(event_bus))
             }
             // Plan mode: read-only investigation gated by Hook, toggled via
             // /plan or shift+tab (declared on the command's shortcut), model entry
             // via enter_plan_mode, exit only via plan.approve. Its enter/exit tools
             // are reported on the bus and skip the permission gate above.
+            let plan_review = PlanApprovalSource()
             let plan_mode = @plan.PlanMode(
               config=@plan.PlanModeConfig::{
                 ..@plan.PlanModeConfig::default()
@@ -1575,10 +1589,7 @@ pub fn cetas_js_runtime_create_agent(
                 allowed_tools: ["read", "glob", "grep", "ask_question"],
                 allow_model_entry: true,
               },
-              review=Some(
-                PlanApprovalSource(ui as &@posoco.UiPort)
-                as &@plan.PlanReviewSource,
-              ),
+              review=Some(plan_review as &@plan.PlanReviewSource),
               bus=Some(event_bus),
               // Plan-file persistence: planning narrative + named final plans go
               // to .cetas/plan/ through the workspace boundary.
@@ -1608,6 +1619,12 @@ pub fn cetas_js_runtime_create_agent(
               codex_quota,
               policy,
             ]
+            // Fill the approval/plan sources from the composed view: their
+            // asks then ride the aggregated UiPort (request-event seam).
+            exts.push(
+              UiBridge::{ blocking: approval_source, plan: Some(plan_review), }
+              as &@posoco.Extension,
+            )
             // Rate-limit guard: records quota verdicts (ModelError::RateLimited) per
             // session through its Observer/PipelineHook views. The TypeScript
             // application owns its cancellable monitor lifetime.
@@ -1651,7 +1668,6 @@ pub fn cetas_js_runtime_create_agent(
                   cwd: runtime.config.cwd,
                   home: runtime.config.home,
                 },
-                ui=Some(ui as &@posoco.UiPort),
                 // The agent-lifetime group starts nmem's background flusher and arms
                 // its attach gate: without it the ext stays fully inert (no boot
                 // config resolution, no inbound injection, no drains).

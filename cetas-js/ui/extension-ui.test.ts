@@ -740,7 +740,7 @@ describe("UiRequestBar", () => {
     await expect(pending).resolves.toEqual({ type: "cancelled" });
   });
 
-  test("truncates title and detail lines to the render width", async () => {
+  test("word-wraps title and detail lines to the render width", async () => {
     const { mount, bar } = makeBar();
     const argsPreview =
       '{"path":"小红书/01-国产新语言MoonBit有多猛.md","content":"# 01 · 国产新语言 MoonBit 有多猛？它已经能跑';
@@ -754,8 +754,56 @@ describe("UiRequestBar", () => {
     for (const line of lines) {
       expect(visibleWidth(line)).toBeLessThanOrEqual(95);
     }
-    const detail = lines.find((line) => line.includes("小红书"));
-    expect(detail).toBeDefined();
+    // Wrapping keeps the whole preview visible — across lines, nothing cut.
+    // (A wrap may split mid-phrase, so assert the fragments.)
+    const joined = lines.join("\n");
+    expect(joined).toContain("小红书");
+    expect(joined).toContain("已经能跑");
+
+    bar.cancel();
+    await expect(pending).resolves.toEqual({ type: "cancelled" });
+  });
+
+  test("collapses an overflowing markdown body and expands it with ctrl+o", async () => {
+    const { tui, mount, bar } = makeBar();
+    const body = Array.from({ length: 40 }, (_, i) => `- Step ${i + 1}: do thing ${i + 1}`).join("\n");
+    const pending = bar.request({
+      type: "select",
+      title: `Plan awaiting approval: big plan\n${body}`,
+      options: ["Approve", "Revise", "Dismiss"],
+    });
+
+    const collapsed = mount.render(80);
+    const visible = collapsed.filter((line) => line.includes("do thing")).length;
+    expect(visible).toBeLessThanOrEqual(15);
+    expect(collapsed.join("\n")).toContain("ctrl+o expand");
+    // The buttons stay reachable under the collapsed body.
+    expect(collapsed.join("\n")).toContain("Approve");
+
+    // ctrl+o expands the full body; a second ctrl+o collapses again.
+    tui.focused!.handleInput!("\x0f");
+    const expanded = mount.render(80);
+    expect(expanded.filter((line) => line.includes("do thing")).length).toBe(40);
+    expect(expanded.join("\n")).toContain("ctrl+o collapse");
+
+    tui.focused!.handleInput!("\x0f");
+    expect(mount.render(80).join("\n")).toContain("ctrl+o expand");
+
+    bar.cancel();
+    await expect(pending).resolves.toEqual({ type: "cancelled" });
+  });
+
+  test("renders a short markdown body without the expand hint", async () => {
+    const { mount, bar } = makeBar();
+    const pending = bar.request({
+      type: "select",
+      title: "Plan awaiting approval: small plan\n1. only step",
+      options: ["Approve", "Revise", "Dismiss"],
+    });
+
+    const rendered = mount.render(80).join("\n");
+    expect(rendered).toContain("1. only step");
+    expect(rendered).not.toContain("ctrl+o");
 
     bar.cancel();
     await expect(pending).resolves.toEqual({ type: "cancelled" });
