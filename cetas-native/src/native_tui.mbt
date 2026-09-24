@@ -12,9 +12,11 @@ fn main {
   let word_count = scene.words.length().reinterpret_as_uint()
   let text_len = scene.text.length().reinterpret_as_uint()
 
-  let batch_decode_ok = @native.headless_batch_probe(
+  let scene_decode_ok = @native.headless_scene_probe(
     scene.words,
     word_count,
+    scene.styles,
+    scene.styles.length().reinterpret_as_uint(),
     scene.text,
     text_len,
   ) == 1
@@ -48,7 +50,7 @@ fn main {
 
   let ok = @native.abi_version() == 2 &&
     @native.headless_probe() == 1 &&
-    batch_decode_ok &&
+    scene_decode_ok &&
     batch_tty_ok &&
     viewport_ok &&
     poll_ok &&
