@@ -1,3 +1,7 @@
+import {
+  "colmugx/cetas-native/src/native" @native,
+}
+
 options(
   "is-main": false,
 )
