@@ -431,7 +431,7 @@ mod tests {
     #[test]
     fn renders_rgb_bold_style() {
         let words = [1u32, 0, 0, 10, 1, 0, 5, 1];
-        let styles = [0x030a_c864u32, 0, 1, 0];
+        let styles = [0x300a_c864u32, 0, 1, 0];
         let (commands, styles) = decode_scene(&words, &styles, b"cetas").unwrap();
         let mut buffer = Buffer::empty(Rect::new(0, 0, 10, 1));
         render_to_buffer(&mut buffer, &commands, &styles).unwrap();
