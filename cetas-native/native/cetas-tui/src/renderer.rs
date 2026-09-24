@@ -6,7 +6,7 @@ use crate::{
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::widgets::{Clear, Paragraph, Widget};
+use ratatui::widgets::{Block, Clear, Paragraph, Widget};
 use std::slice;
 
 const COMMAND_WORDS: usize = 8;
@@ -21,6 +21,11 @@ enum DrawCommand<'a> {
     },
     Clear { area: Rect },
     Cursor { x: u16, y: u16 },
+    Border {
+        area: Rect,
+        title: &'a str,
+        style_ref: u32,
+    },
 }
 
 fn bytes<'a>(ptr: *const u8, len: u32) -> Option<&'a [u8]> {
@@ -174,6 +179,22 @@ fn decode_commands<'a>(
                 };
                 out.push(DrawCommand::Cursor { x, y });
             }
+            4 => {
+                let Some(end) = text_offset.checked_add(text_len) else {
+                    return Err(CTUI_STATUS_MALFORMED_COMMAND);
+                };
+                let Some(raw_title) = text_bytes.get(text_offset..end) else {
+                    return Err(CTUI_STATUS_MALFORMED_COMMAND);
+                };
+                let Ok(title) = std::str::from_utf8(raw_title) else {
+                    return Err(CTUI_STATUS_MALFORMED_COMMAND);
+                };
+                out.push(DrawCommand::Border {
+                    area,
+                    title,
+                    style_ref: flags,
+                });
+            }
             _ => return Err(CTUI_STATUS_MALFORMED_COMMAND),
         }
     }
@@ -211,6 +232,17 @@ fn render_to_buffer(
                 Clear.render(*area, buffer);
             }
             DrawCommand::Cursor { .. } => {}
+            DrawCommand::Border {
+                area,
+                title,
+                style_ref,
+            } => {
+                let style = command_style(*style_ref, styles)?;
+                Block::bordered()
+                    .title(*title)
+                    .border_style(style)
+                    .render(*area, buffer);
+            }
         }
     }
     Ok(())
@@ -225,8 +257,12 @@ fn decode_scene<'a>(
     let styles = decode_styles(style_words)?;
 
     for command in &commands {
-        if let DrawCommand::Text { style_ref, .. } = command {
-            let _ = command_style(*style_ref, &styles)?;
+        match command {
+            DrawCommand::Text { style_ref, .. }
+            | DrawCommand::Border { style_ref, .. } => {
+                let _ = command_style(*style_ref, &styles)?;
+            }
+            _ => {}
         }
     }
 
@@ -397,6 +433,18 @@ pub extern "C" fn ctui_render_scene(
                 DrawCommand::Cursor { x, y } => {
                     frame.set_cursor_position(Position::new(*x, *y));
                 }
+                DrawCommand::Border {
+                    area,
+                    title,
+                    style_ref,
+                } => {
+                    let style = command_style(*style_ref, &styles)
+                        .expect("scene styles validated before draw");
+                    frame.render_widget(
+                        Block::bordered().title(*title).border_style(style),
+                        *area,
+                    );
+                }
             }
         }
     }) {
@@ -439,6 +487,19 @@ mod tests {
         let cell = &buffer[(0, 0)];
         assert_eq!(cell.fg, Color::Rgb(10, 200, 100));
         assert!(cell.modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn renders_styled_border() {
+        let words = [4u32, 0, 0, 10, 3, 0, 5, 1];
+        let styles = [0x300a_c864u32, 0, 1, 0];
+        let (commands, styles) = decode_scene(&words, &styles, b"cetas").unwrap();
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 10, 3));
+        render_to_buffer(&mut buffer, &commands, &styles).unwrap();
+
+        assert_eq!(buffer[(0, 0)].symbol(), "┌");
+        assert_eq!(buffer[(1, 0)].symbol(), "c");
+        assert_eq!(buffer[(0, 0)].fg, Color::Rgb(10, 200, 100));
     }
 
     #[test]
