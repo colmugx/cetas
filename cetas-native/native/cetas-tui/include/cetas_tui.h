@@ -45,6 +45,7 @@ uint32_t ctui_abi_version(void);
 uint32_t ctui_headless_probe(void);
 uint32_t ctui_inline_probe(uint32_t rows);
 uint32_t ctui_event_size(void);
+uint32_t ctui_tty_probe(void);
 
 CetasTui *ctui_open_inline(uint16_t rows);
 void ctui_close(CetasTui *tui);
