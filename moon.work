@@ -3,6 +3,7 @@ members = [
   "./cetas-core",
   "./cetas-headless",
   "./cetas-js",
+  "./cetas-native",
   "./cetas-ext-forme",
   "./extension/posoco-devkit",
   "./extension/posoco-ext-acp",
