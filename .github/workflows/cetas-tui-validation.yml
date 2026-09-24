@@ -51,4 +51,4 @@ jobs:
 
       - name: Build and run FFI + PTY inline smoke test
         working-directory: cetas-native
-        run: script -qefc "moon run src --target native --release" /dev/null
+        run: python3 scripts/pty_smoke.py
