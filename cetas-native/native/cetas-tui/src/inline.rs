@@ -24,12 +24,12 @@ pub extern "C" fn ctui_inline_probe(rows: u32) -> u32 {
 pub extern "C" fn ctui_insert_before_text(
     tui: *mut CetasTui,
     text: *const u8,
-    text_len: usize,
+    text_len: u32,
 ) -> i32 {
     if tui.is_null() {
         return 0;
     }
-    let Some(text) = utf8(text, text_len) else {
+    let Some(text) = utf8(text, text_len as usize) else {
         return 0;
     };
     let tui = unsafe { &mut *tui };
