@@ -49,6 +49,6 @@ jobs:
         working-directory: cetas-native
         run: moon check -p cetas-native/src --target native --deny-warn
 
-      - name: Build and run FFI smoke test
+      - name: Build and run FFI + PTY inline smoke test
         working-directory: cetas-native
-        run: moon run src --target native --release
+        run: script -qefc "moon run src --target native --release" /dev/null
