@@ -71,7 +71,7 @@ uint32_t ctui_inline_probe(uint32_t rows);
 uint32_t ctui_event_size(void);
 uint32_t ctui_tty_probe(void);
 
-CetasTui *ctui_open_inline(uint16_t rows);
+CetasTui *ctui_open_inline(uint32_t rows);
 void ctui_close(CetasTui *tui);
 
 int32_t ctui_render_text(
