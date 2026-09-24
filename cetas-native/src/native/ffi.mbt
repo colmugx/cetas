@@ -21,6 +21,17 @@ pub extern "C" fn headless_batch_probe(
 ) -> UInt = "ctui_headless_batch_probe"
 
 ///|
+#borrow(command_words, style_words, text)
+pub extern "C" fn headless_scene_probe(
+  command_words : FixedArray[UInt],
+  command_word_count : UInt,
+  style_words : FixedArray[UInt],
+  style_word_count : UInt,
+  text : Bytes,
+  text_len : UInt,
+) -> UInt = "ctui_headless_scene_probe"
+
+///|
 pub extern "C" fn inline_probe(rows : UInt) -> UInt = "ctui_inline_probe"
 
 ///|
@@ -47,6 +58,18 @@ pub extern "C" fn render_batch(
   text : Bytes,
   text_len : UInt,
 ) -> Int = "ctui_render_batch"
+
+///|
+#borrow(command_words, style_words, text)
+pub extern "C" fn render_scene(
+  tui : RawTui,
+  command_words : FixedArray[UInt],
+  command_word_count : UInt,
+  style_words : FixedArray[UInt],
+  style_word_count : UInt,
+  text : Bytes,
+  text_len : UInt,
+) -> Int = "ctui_render_scene"
 
 ///|
 #borrow(text)
