@@ -1,5 +1,6 @@
 import {
   "colmugx/cetas-native/src/app" @app,
+  "colmugx/cetas-native/src/native" @native,
   "colmugx/cetas-native/src/ui" @ui,
 }
 
