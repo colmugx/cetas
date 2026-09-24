@@ -9,6 +9,7 @@ extern "C" {
 
 #define CETAS_TUI_ABI_VERSION 2u
 #define CETAS_TUI_COMMAND_WORDS 8u
+#define CETAS_TUI_EVENT_WORDS 14u
 
 typedef struct CetasTui CetasTui;
 
@@ -95,6 +96,12 @@ int32_t ctui_poll(
     CetasTui *tui,
     uint64_t timeout_ms,
     CetasTuiEvent *out_event);
+
+int32_t ctui_poll_words(
+    CetasTui *tui,
+    uint64_t timeout_ms,
+    uint32_t *out_words,
+    uint32_t capacity);
 
 uint32_t ctui_event_text_len(const CetasTui *tui);
 
