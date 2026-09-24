@@ -41,9 +41,9 @@ jobs:
         working-directory: cetas-native
         run: moon update
 
-      - name: Rust check
+      - name: Rust tests
         working-directory: cetas-native/native/cetas-tui
-        run: cargo check --release
+        run: cargo test --release
 
       - name: MoonBit native check
         working-directory: cetas-native
