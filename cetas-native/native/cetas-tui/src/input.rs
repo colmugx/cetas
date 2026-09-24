@@ -1,28 +1,38 @@
+use crate::terminal::CetasTui;
+use crate::{
+    CTUI_STATUS_BUFFER_TOO_SMALL, CTUI_STATUS_INVALID_ARGUMENT, CTUI_STATUS_OK,
+    CTUI_STATUS_TERMINAL_ERROR, CTUI_STATUS_TIMEOUT,
+};
 use ratatui::crossterm::event::{
     self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
 };
 use std::mem::size_of;
+use std::ptr;
 use std::time::Duration;
 
 #[repr(C)]
 pub struct CetasTuiEvent {
+    abi_version: u32,
+    struct_size: u32,
     kind: u32,
     key_code: u32,
     codepoint: u32,
     modifiers: u32,
     key_action: u32,
-    width: u16,
-    height: u16,
-    mouse_x: u16,
-    mouse_y: u16,
+    width: u32,
+    height: u32,
+    mouse_x: u32,
+    mouse_y: u32,
     mouse_kind: u32,
     mouse_button: u32,
-    text_len: usize,
+    text_len: u32,
 }
 
 impl Default for CetasTuiEvent {
     fn default() -> Self {
         Self {
+            abi_version: 2,
+            struct_size: size_of::<Self>() as u32,
             kind: 0,
             key_code: 0,
             codepoint: 0,
@@ -98,26 +108,32 @@ pub extern "C" fn ctui_event_size() -> u32 {
 }
 
 #[no_mangle]
-pub extern "C" fn ctui_poll(timeout_ms: u64, out_event: *mut CetasTuiEvent) -> i32 {
-    if out_event.is_null() {
-        return 0;
+pub extern "C" fn ctui_poll(
+    tui: *mut CetasTui,
+    timeout_ms: u64,
+    out_event: *mut CetasTuiEvent,
+) -> i32 {
+    if tui.is_null() || out_event.is_null() {
+        return CTUI_STATUS_INVALID_ARGUMENT;
     }
 
+    let tui = unsafe { &mut *tui };
+    tui.last_event_text.clear();
     let mut out = CetasTuiEvent::default();
 
     let ready = match event::poll(Duration::from_millis(timeout_ms)) {
         Ok(value) => value,
-        Err(_) => return 0,
+        Err(_) => return CTUI_STATUS_TERMINAL_ERROR,
     };
 
     if !ready {
         unsafe { *out_event = out; }
-        return 0;
+        return CTUI_STATUS_TIMEOUT;
     }
 
     let event = match event::read() {
         Ok(value) => value,
-        Err(_) => return 0,
+        Err(_) => return CTUI_STATUS_TERMINAL_ERROR,
     };
 
     match event {
@@ -129,13 +145,13 @@ pub extern "C" fn ctui_poll(timeout_ms: u64, out_event: *mut CetasTuiEvent) -> i
         }
         Event::Resize(width, height) => {
             out.kind = 2;
-            out.width = width;
-            out.height = height;
+            out.width = u32::from(width);
+            out.height = u32::from(height);
         }
         Event::Mouse(mouse) => {
             out.kind = 3;
-            out.mouse_x = mouse.column;
-            out.mouse_y = mouse.row;
+            out.mouse_x = u32::from(mouse.column);
+            out.mouse_y = u32::from(mouse.row);
             out.modifiers = modifiers(mouse.modifiers);
 
             match mouse.kind {
@@ -160,12 +176,49 @@ pub extern "C" fn ctui_poll(timeout_ms: u64, out_event: *mut CetasTuiEvent) -> i
         }
         Event::Paste(text) => {
             out.kind = 4;
-            out.text_len = text.len();
+            tui.last_event_text.extend_from_slice(text.as_bytes());
+            out.text_len = tui.last_event_text.len().min(u32::MAX as usize) as u32;
         }
         Event::FocusGained => out.kind = 5,
         Event::FocusLost => out.kind = 6,
     }
 
     unsafe { *out_event = out; }
-    1
+    CTUI_STATUS_OK
+}
+
+#[no_mangle]
+pub extern "C" fn ctui_event_text_len(tui: *const CetasTui) -> u32 {
+    if tui.is_null() {
+        return 0;
+    }
+    let tui = unsafe { &*tui };
+    tui.last_event_text.len().min(u32::MAX as usize) as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ctui_event_text_copy(
+    tui: *const CetasTui,
+    out: *mut u8,
+    capacity: u32,
+) -> i32 {
+    if tui.is_null() {
+        return CTUI_STATUS_INVALID_ARGUMENT;
+    }
+    let tui = unsafe { &*tui };
+    let len = tui.last_event_text.len();
+
+    if len > capacity as usize {
+        return CTUI_STATUS_BUFFER_TOO_SMALL;
+    }
+    if len != 0 && out.is_null() {
+        return CTUI_STATUS_INVALID_ARGUMENT;
+    }
+    if len != 0 {
+        unsafe {
+            ptr::copy_nonoverlapping(tui.last_event_text.as_ptr(), out, len);
+        }
+    }
+
+    CTUI_STATUS_OK
 }
