@@ -1,5 +1,6 @@
 use ratatui::widgets::{Paragraph, Widget};
 use ratatui::{DefaultTerminal, TerminalOptions, Viewport};
+use crate::{CTUI_STATUS_BUFFER_TOO_SMALL, CTUI_STATUS_INVALID_ARGUMENT, CTUI_STATUS_OK, CTUI_STATUS_TERMINAL_ERROR};
 use std::ptr;
 
 pub struct CetasTui {
@@ -66,4 +67,31 @@ pub extern "C" fn ctui_tty_probe() -> u32 {
     let restore_ok = ratatui::try_restore().is_ok();
 
     u32::from(draw_ok && insert_ok && restore_ok)
+}
+
+
+#[no_mangle]
+pub extern "C" fn ctui_viewport_size(
+    tui: *mut CetasTui,
+    out_words: *mut u32,
+    capacity: u32,
+) -> i32 {
+    if tui.is_null() || out_words.is_null() {
+        return CTUI_STATUS_INVALID_ARGUMENT;
+    }
+    if capacity < 2 {
+        return CTUI_STATUS_BUFFER_TOO_SMALL;
+    }
+
+    let tui = unsafe { &mut *tui };
+    if tui.terminal.autoresize().is_err() {
+        return CTUI_STATUS_TERMINAL_ERROR;
+    }
+    let area = tui.terminal.get_frame().area();
+
+    unsafe {
+        *out_words.add(0) = u32::from(area.width);
+        *out_words.add(1) = u32::from(area.height);
+    }
+    CTUI_STATUS_OK
 }
