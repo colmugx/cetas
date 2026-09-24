@@ -9,6 +9,7 @@ extern "C" {
 
 #define CETAS_TUI_ABI_VERSION 2u
 #define CETAS_TUI_COMMAND_WORDS 8u
+#define CETAS_TUI_STYLE_WORDS 4u
 #define CETAS_TUI_EVENT_WORDS 14u
 #define CETAS_TUI_VIEWPORT_WORDS 2u
 
@@ -69,6 +70,14 @@ uint32_t ctui_headless_batch_probe(
     uint32_t word_count,
     const uint8_t *text,
     uint32_t text_len);
+
+uint32_t ctui_headless_scene_probe(
+    const uint32_t *command_words,
+    uint32_t command_word_count,
+    const uint32_t *style_words,
+    uint32_t style_word_count,
+    const uint8_t *text,
+    uint32_t text_len);
 uint32_t ctui_inline_probe(uint32_t rows);
 uint32_t ctui_event_size(void);
 uint32_t ctui_tty_probe(void);
@@ -91,6 +100,15 @@ int32_t ctui_render_batch(
     CetasTui *tui,
     const uint32_t *words,
     uint32_t word_count,
+    const uint8_t *text,
+    uint32_t text_len);
+
+int32_t ctui_render_scene(
+    CetasTui *tui,
+    const uint32_t *command_words,
+    uint32_t command_word_count,
+    const uint32_t *style_words,
+    uint32_t style_word_count,
     const uint8_t *text,
     uint32_t text_len);
 
