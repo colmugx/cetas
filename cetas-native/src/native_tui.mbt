@@ -25,15 +25,19 @@ extern "C" fn ctui_event_size() -> UInt = "ctui_event_size"
 extern "C" fn ctui_tty_probe() -> UInt = "ctui_tty_probe"
 
 ///|
-extern "C" fn ctui_open_inline(rows : UInt) -> Pointer[Unit] = "ctui_open_inline"
+#external
+type RawTui
 
 ///|
-extern "C" fn ctui_close(tui : Pointer[Unit]) = "ctui_close"
+extern "C" fn ctui_open_inline(rows : UInt) -> RawTui = "ctui_open_inline"
+
+///|
+extern "C" fn ctui_close(tui : RawTui) = "ctui_close"
 
 ///|
 #borrow(words, text)
 extern "C" fn ctui_render_batch(
-  tui : Pointer[Unit],
+  tui : RawTui,
   words : FixedArray[UInt],
   word_count : UInt,
   text : Bytes,
