@@ -1,3 +1,4 @@
+use ratatui::widgets::{Paragraph, Widget};
 use ratatui::{DefaultTerminal, TerminalOptions, Viewport};
 use std::ptr;
 
@@ -28,4 +29,36 @@ pub extern "C" fn ctui_close(tui: *mut CetasTui) {
     }
 
     let _ = ratatui::try_restore();
+}
+
+#[no_mangle]
+pub extern "C" fn ctui_tty_probe() -> u32 {
+    let options = TerminalOptions {
+        viewport: Viewport::Inline(3),
+    };
+
+    let Ok(mut terminal) = ratatui::try_init_with_options(options) else {
+        return 0;
+    };
+
+    let draw_ok = terminal
+        .draw(|frame| {
+            frame.render_widget(Paragraph::new("cetas-live"), frame.area());
+        })
+        .is_ok();
+
+    let insert_ok = if draw_ok {
+        terminal
+            .insert_before(1, |buffer| {
+                Paragraph::new("cetas-history").render(buffer.area, buffer);
+            })
+            .is_ok()
+    } else {
+        false
+    };
+
+    drop(terminal);
+    let restore_ok = ratatui::try_restore().is_ok();
+
+    u32::from(draw_ok && insert_ok && restore_ok)
 }
