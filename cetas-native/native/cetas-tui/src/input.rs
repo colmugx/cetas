@@ -28,6 +28,29 @@ pub struct CetasTuiEvent {
     text_len: u32,
 }
 
+const EVENT_WORDS: usize = 14;
+
+impl CetasTuiEvent {
+    fn as_words(&self) -> [u32; EVENT_WORDS] {
+        [
+            self.abi_version,
+            self.struct_size,
+            self.kind,
+            self.key_code,
+            self.codepoint,
+            self.modifiers,
+            self.key_action,
+            self.width,
+            self.height,
+            self.mouse_x,
+            self.mouse_y,
+            self.mouse_kind,
+            self.mouse_button,
+            self.text_len,
+        ]
+    }
+}
+
 impl Default for CetasTuiEvent {
     fn default() -> Self {
         Self {
@@ -221,4 +244,52 @@ pub extern "C" fn ctui_event_text_copy(
     }
 
     CTUI_STATUS_OK
+}
+
+
+#[no_mangle]
+pub extern "C" fn ctui_poll_words(
+    tui: *mut CetasTui,
+    timeout_ms: u64,
+    out_words: *mut u32,
+    capacity: u32,
+) -> i32 {
+    if tui.is_null() || out_words.is_null() {
+        return CTUI_STATUS_INVALID_ARGUMENT;
+    }
+    if capacity < EVENT_WORDS as u32 {
+        return CTUI_STATUS_BUFFER_TOO_SMALL;
+    }
+
+    let mut event = CetasTuiEvent::default();
+    let status = ctui_poll(tui, timeout_ms, &mut event);
+
+    if status != CTUI_STATUS_OK && status != CTUI_STATUS_TIMEOUT {
+        return status;
+    }
+
+    let words = event.as_words();
+    unsafe {
+        ptr::copy_nonoverlapping(words.as_ptr(), out_words, EVENT_WORDS);
+    }
+    status
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_words_have_stable_order() {
+        let event = CetasTuiEvent {
+            kind: 4,
+            text_len: 9,
+            ..Default::default()
+        };
+        let words = event.as_words();
+        assert_eq!(words.len(), EVENT_WORDS);
+        assert_eq!(words[0], 2);
+        assert_eq!(words[2], 4);
+        assert_eq!(words[13], 9);
+    }
 }
