@@ -1,0 +1,54 @@
+name: cetas-tui validation
+
+on:
+  push:
+    branches:
+      - cetas-tui
+    paths:
+      - "cetas-native/**"
+      - "moon.work"
+      - ".github/workflows/cetas-tui-validation.yml"
+  pull_request:
+    paths:
+      - "cetas-native/**"
+      - "moon.work"
+      - ".github/workflows/cetas-tui-validation.yml"
+
+jobs:
+  linux-staticlib-moonbit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout cetas
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Tool versions
+        run: |
+          moon version --all
+          rustc --version
+          cargo --version
+          node --version
+
+      - name: Resolve MoonBit dependencies
+        working-directory: cetas-native
+        run: moon update
+
+      - name: Rust check
+        working-directory: cetas-native/native/cetas-tui
+        run: cargo check --release
+
+      - name: MoonBit native check
+        working-directory: cetas-native
+        run: moon check --target native --deny-warn
+
+      - name: Build and run FFI smoke test
+        working-directory: cetas-native
+        run: moon run --target native --release
