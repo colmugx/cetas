@@ -1,7 +1,49 @@
 /// Stable MoonBit view of one normalized terminal event.
 ///
-/// The native ABI transports events as 14 UInt words. This type is purely
-/// MoonBit-side; its memory layout is never exposed over C FFI.
+/// The native ABI transports events as 14 UInt words. These enums and structs
+/// are purely MoonBit-side; their memory layout is never exposed over C FFI.
+
+///|
+pub(all) enum TerminalEventKind {
+  EventNone
+  EventKey
+  EventResize
+  EventMouse
+  EventPaste
+  EventFocusIn
+  EventFocusOut
+  EventUnknown(UInt)
+}
+
+///|
+pub(all) enum KeyAction {
+  KeyPress
+  KeyRepeat
+  KeyRelease
+  KeyActionUnknown(UInt)
+}
+
+///|
+pub(all) enum KeyCode {
+  KeyChar(UInt)
+  KeyEnter
+  KeyEscape
+  KeyBackspace
+  KeyTab
+  KeyBackTab
+  KeyLeft
+  KeyRight
+  KeyUp
+  KeyDown
+  KeyHome
+  KeyEnd
+  KeyPageUp
+  KeyPageDown
+  KeyDelete
+  KeyInsert
+  KeyFunction(UInt)
+  KeyUnknown(UInt)
+}
 
 ///|
 pub(all) struct TerminalEvent {
@@ -19,6 +61,102 @@ pub(all) struct TerminalEvent {
   mouse_kind : UInt
   mouse_button : UInt
   text_len : UInt
+}
+
+///|
+pub fn modifier_shift() -> UInt {
+  1U << 0
+}
+
+///|
+pub fn modifier_control() -> UInt {
+  1U << 1
+}
+
+///|
+pub fn modifier_alt() -> UInt {
+  1U << 2
+}
+
+///|
+pub fn modifier_super() -> UInt {
+  1U << 3
+}
+
+///|
+pub fn modifier_hyper() -> UInt {
+  1U << 4
+}
+
+///|
+pub fn modifier_meta() -> UInt {
+  1U << 5
+}
+
+///|
+pub fn TerminalEvent::has_modifier(
+  self : TerminalEvent,
+  modifier : UInt,
+) -> Bool {
+  (self.modifiers & modifier) != 0U
+}
+
+///|
+pub fn TerminalEvent::kind_value(
+  self : TerminalEvent,
+) -> TerminalEventKind {
+  match self.kind {
+    0U => EventNone
+    1U => EventKey
+    2U => EventResize
+    3U => EventMouse
+    4U => EventPaste
+    5U => EventFocusIn
+    6U => EventFocusOut
+    other => EventUnknown(other)
+  }
+}
+
+///|
+pub fn TerminalEvent::key_action_value(
+  self : TerminalEvent,
+) -> KeyAction {
+  match self.key_action {
+    1U => KeyPress
+    2U => KeyRepeat
+    3U => KeyRelease
+    other => KeyActionUnknown(other)
+  }
+}
+
+///|
+pub fn TerminalEvent::key_code_value(
+  self : TerminalEvent,
+) -> KeyCode {
+  match self.key_code {
+    1U => KeyChar(self.codepoint)
+    2U => KeyEnter
+    3U => KeyEscape
+    4U => KeyBackspace
+    5U => KeyTab
+    6U => KeyBackTab
+    7U => KeyLeft
+    8U => KeyRight
+    9U => KeyUp
+    10U => KeyDown
+    11U => KeyHome
+    12U => KeyEnd
+    13U => KeyPageUp
+    14U => KeyPageDown
+    15U => KeyDelete
+    16U => KeyInsert
+    code =>
+      if code >= 100U && code <= 355U {
+        KeyFunction(code - 100U)
+      } else {
+        KeyUnknown(code)
+      }
+  }
 }
 
 ///|
@@ -44,4 +182,24 @@ pub fn decode_terminal_event(
     mouse_button: words[12],
     text_len: words[13],
   })
+}
+
+///|
+pub fn event_validation_marker() -> Int {
+  let words : FixedArray[UInt] = [
+    2U, 56U, 1U, 1U, 113U, 2U, 1U,
+    0U, 0U, 0U, 0U, 0U, 0U, 0U,
+  ]
+  match decode_terminal_event(words) {
+    Some(event) =>
+      if event.kind_value() == EventKey &&
+        event.key_code_value() == KeyChar(113U) &&
+        event.key_action_value() == KeyPress &&
+        event.has_modifier(modifier_control()) {
+        1
+      } else {
+        0
+      }
+    None => 0
+  }
 }
