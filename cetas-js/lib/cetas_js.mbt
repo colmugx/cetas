@@ -1155,10 +1155,12 @@ async fn warn_legacy_project_cetas(
 /// and an unobserved JS promise must never reject.
 async fn[X] run_agent_group_session(
   ready~ : @aqueue.Queue[Result[X, Error]],
-  _close~ : @aqueue.Queue[Unit],
+  close~ : @aqueue.Queue[Unit],
   compose~ : async (@async.TaskGroup[Unit]) -> X,
   serve~ : async (X) -> Result[Unit, Error],
 ) -> Unit {
+  // TODO: unused
+  close |> ignore
   @async.with_task_group(async fn(group) {
     let handle = compose(group)
     match serve(handle) {
