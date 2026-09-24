@@ -37,10 +37,12 @@ pub fn Terminal::close(self : Terminal) -> Unit {
 pub fn Terminal::render(self : Terminal, scene : Scene) -> Int {
   match self.raw {
     Some(raw) =>
-      @native.render_batch(
+      @native.render_scene(
         raw,
         scene.words,
         scene.words.length().reinterpret_as_uint(),
+        scene.styles,
+        scene.styles.length().reinterpret_as_uint(),
         scene.text,
         scene.text.length().reinterpret_as_uint(),
       )
