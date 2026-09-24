@@ -25,6 +25,11 @@ pub extern "C" fn ctui_open_inline(rows: u32) -> *mut CetasTui {
 }
 
 #[no_mangle]
+pub extern "C" fn ctui_is_null(tui: *const CetasTui) -> u32 {
+    u32::from(tui.is_null())
+}
+
+#[no_mangle]
 pub extern "C" fn ctui_close(tui: *mut CetasTui) {
     if tui.is_null() {
         return;
