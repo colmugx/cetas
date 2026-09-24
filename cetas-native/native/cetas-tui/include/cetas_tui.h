@@ -10,6 +10,7 @@ extern "C" {
 #define CETAS_TUI_ABI_VERSION 2u
 #define CETAS_TUI_COMMAND_WORDS 8u
 #define CETAS_TUI_EVENT_WORDS 14u
+#define CETAS_TUI_VIEWPORT_WORDS 2u
 
 typedef struct CetasTui CetasTui;
 
@@ -74,6 +75,11 @@ uint32_t ctui_tty_probe(void);
 
 CetasTui *ctui_open_inline(uint32_t rows);
 void ctui_close(CetasTui *tui);
+
+int32_t ctui_viewport_size(
+    CetasTui *tui,
+    uint32_t *out_words,
+    uint32_t capacity);
 
 int32_t ctui_render_text(
     CetasTui *tui,
