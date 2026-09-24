@@ -33,6 +33,9 @@ pub extern "C" fn tty_probe() -> UInt = "ctui_tty_probe"
 pub extern "C" fn open_inline(rows : UInt) -> RawTui = "ctui_open_inline"
 
 ///|
+pub extern "C" fn is_null(tui : RawTui) -> UInt = "ctui_is_null"
+
+///|
 pub extern "C" fn close(tui : RawTui) = "ctui_close"
 
 ///|
