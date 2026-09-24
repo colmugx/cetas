@@ -8,9 +8,10 @@ pub struct CetasTui {
 }
 
 #[no_mangle]
-pub extern "C" fn ctui_open_inline(rows: u16) -> *mut CetasTui {
+pub extern "C" fn ctui_open_inline(rows: u32) -> *mut CetasTui {
+    let rows = rows.clamp(1, u16::MAX as u32) as u16;
     let options = TerminalOptions {
-        viewport: Viewport::Inline(rows.max(1)),
+        viewport: Viewport::Inline(rows),
     };
 
     match ratatui::try_init_with_options(options) {
