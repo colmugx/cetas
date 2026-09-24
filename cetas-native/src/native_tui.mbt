@@ -1,6 +1,6 @@
 /// Native TUI validation host.
 ///
-/// Raw C ABI declarations live in @native. This executable verifies that the
+/// Raw C ABI declarations live in @native. This executable verifies the
 /// MoonBit-facing substrate links and behaves correctly under a real PTY.
 
 ///|
@@ -19,29 +19,32 @@ fn main {
     text_len,
   ) == 1
 
-  let tui = @native.open_inline(3U)
-  let batch_tty_ok = @native.render_batch(
-    tui,
-    scene.words,
-    word_count,
-    scene.text,
-    text_len,
-  ) == 0
+  let terminal = match @ui.Terminal::open_inline(3U) {
+    Some(value) => value
+    None => {
+      println("cetas-tui validation: FAILED")
+      exit(1)
+      return
+    }
+  }
 
-  let viewport_words : FixedArray[UInt] = FixedArray::make(2, 0U)
-  let viewport_ok = @native.viewport_size(tui, viewport_words, 2U) == 0 &&
+  let batch_tty_ok = terminal.render(scene) == 0
+
+  let (viewport_status, viewport_words) = terminal.viewport_size()
+  let viewport_ok = viewport_status == 0 &&
     viewport_words[0] == 80U &&
     viewport_words[1] == 3U
 
-  let event_words : FixedArray[UInt] = FixedArray::make(14, 0U)
-  let poll_status = @native.poll_words(tui, 0UL, event_words, 14U)
+  let (poll_status, event_words) = terminal.poll_raw(0UL)
   let event_decode_ok = match @ui.decode_terminal_event(event_words) {
     Some(event) => event.abi_version == 2
     None => false
   }
   let poll_ok = (poll_status == 0 || poll_status == 1) && event_decode_ok
 
-  @native.close(tui)
+  terminal.close()
+  let close_ok = !terminal.is_open()
+  terminal.close()
 
   let ok = @native.abi_version() == 2 &&
     @native.headless_probe() == 1 &&
@@ -49,6 +52,7 @@ fn main {
     batch_tty_ok &&
     viewport_ok &&
     poll_ok &&
+    close_ok &&
     @native.inline_probe(8) == 1 &&
     @native.event_size() > 0 &&
     @native.tty_probe() == 1 &&
