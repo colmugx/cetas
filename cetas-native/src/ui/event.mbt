@@ -13,7 +13,7 @@ pub(all) enum TerminalEventKind {
   EventFocusIn
   EventFocusOut
   EventUnknown(UInt)
-}
+} derive(Eq)
 
 ///|
 pub(all) enum KeyAction {
@@ -21,7 +21,7 @@ pub(all) enum KeyAction {
   KeyRepeat
   KeyRelease
   KeyActionUnknown(UInt)
-}
+} derive(Eq)
 
 ///|
 pub(all) enum KeyCode {
@@ -43,7 +43,7 @@ pub(all) enum KeyCode {
   KeyInsert
   KeyFunction(UInt)
   KeyUnknown(UInt)
-}
+} derive(Eq)
 
 ///|
 pub(all) struct TerminalEvent {
