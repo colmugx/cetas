@@ -105,6 +105,12 @@ export class CetasApplication<AgentHandle = unknown> {
   private activeTurn: Promise<string> | undefined;
   /** Abort controller for the in-flight turn; aborting interrupts the model fetch. */
   private activeAbort: AbortController | undefined;
+  /**
+   * Esc watchdog: fires the turn's AbortController only if the graceful
+   * mailbox abort has not settled the turn within the grace window. The
+   * turn's settle path clears it.
+   */
+  private abortWatchdog: ReturnType<typeof setTimeout> | undefined;
   private activeCommand: Promise<string> | undefined;
   /** Set while a /compact switch waits for the interrupted operation's finalize. */
   private waitingForCleanup = false;
@@ -663,6 +669,7 @@ export class CetasApplication<AgentHandle = unknown> {
         // transition back to ready.
         this.activeTurn = undefined;
         if (this.activeAbort === abort) this.activeAbort = undefined;
+        this.clearAbortWatchdog();
         if ((this.state as AppState) === "running") this.transition("ready");
       }
     })();
@@ -1006,10 +1013,12 @@ export class CetasApplication<AgentHandle = unknown> {
 
   /**
    * Request an abort of the active turn (ESC interrupt). The mailbox abort
-   * gives the loop its clean Cancelled path; the AbortController additionally
-   * cancels the turn coroutine so an in-flight model request stops streaming
-   * immediately. The turn promise settles with the partial transcript or, if
-   * cancellation lands past the final safe point, rejects with an AbortError.
+   * runs first so the loop takes its clean Cancelled path — which persists
+   * the committed transcript prefix and lets the runtime kill in-flight
+   * shell children through `cancel_effects`. The AbortController follows
+   * only as a delayed watchdog (turn still unsettled after the grace
+   * window, e.g. an effect parked in a non-cancellable FFI wait), because
+   * a hard coroutine cancel discards that graceful finalize.
    * Returns false when no turn is active or the bridge has no abort seam.
    */
   interruptActiveTurn(): boolean {
@@ -1028,9 +1037,25 @@ export class CetasApplication<AgentHandle = unknown> {
       return false;
     }
     this.options.bridge.abortTurn?.(this.agent);
-    this.activeAbort?.abort();
+    const abort = this.activeAbort;
+    if (abort !== undefined && !abort.signal.aborted) {
+      if (this.abortWatchdog !== undefined) clearTimeout(this.abortWatchdog);
+      this.abortWatchdog = setTimeout(() => {
+        this.abortWatchdog = undefined;
+        abort.abort();
+      }, 1500);
+      this.abortWatchdog.unref?.();
+    }
     if (this.recoveryTurnActive) this.invalidateRateLimitContext();
     return true;
+  }
+
+  /** Clear a pending Esc watchdog once the turn it guarded has settled. */
+  private clearAbortWatchdog(): void {
+    if (this.abortWatchdog !== undefined) {
+      clearTimeout(this.abortWatchdog);
+      this.abortWatchdog = undefined;
+    }
   }
 
   private async invokeCommandInternal(id: string, argsJson: string): Promise<string> {

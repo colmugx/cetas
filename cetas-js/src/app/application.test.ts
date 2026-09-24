@@ -1150,6 +1150,11 @@ describe("CetasApplication", () => {
     expect(seenSignal).toBeDefined();
     expect(seenSignal!.aborted).toBe(false);
     expect(app.interruptActiveTurn()).toBe(true);
+    // Graceful-first: the mailbox abort is the primary interrupt and the
+    // hard signal only follows after the watchdog window when the turn has
+    // not settled.
+    expect(seenSignal!.aborted).toBe(false);
+    await Bun.sleep(1700);
     expect(seenSignal!.aborted).toBe(true);
     releaseTurn();
     await expect(turn).resolves.toBe("partial reply");

@@ -1790,9 +1790,21 @@ pub fn cetas_js_runtime_create_agent(
               model=model as &@posoco.ModelPort,
               tools=routing,
             )
+            // Shell effects run through the cancellable decorator so an
+            // aborted turn kills the spawned `sh -c` child instead of
+            // orphaning it (ESC mid-`bash`); everything non-shell is
+            // unchanged. The anchor mirrors build_default_features' anchor
+            // (WorkspaceAnchor(config.cwd)) so cwd pinning matches the
+            // plain ShellTools provider exactly.
+            let shell_runtime = @bash.CancellableShellRuntime(
+              fallback=base_runtime as &@runtime.Runtime,
+              anchor=Some(
+                @devkit.WorkspaceAnchor::WorkspaceAnchor(runtime.config.cwd),
+              ),
+            )
             let mcp_runtime = @mcp.McpRuntime(
               bridge=mcp_bridge,
-              fallback=base_runtime as &@runtime.Runtime,
+              fallback=shell_runtime as &@runtime.Runtime,
             )
             let pi_runtime = @pi.PiRuntime(
               adaptor=pi,

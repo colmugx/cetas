@@ -51,7 +51,6 @@ flag() {
 
 nmem=$(flag "$(value_of nmem)" nmem)
 obsidian=$(flag "$(value_of obsidian)" obsidian)
-rtk=$(flag "$(value_of rtk)" rtk)
 zcode=$(flag "$(value_of zcode)" zcode)
 
 mkdir -p lib
@@ -63,9 +62,6 @@ fn compiled_nmem_enabled() -> Bool { $nmem }
 
 ///|
 fn compiled_obsidian_enabled() -> Bool { $obsidian }
-
-///|
-fn compiled_rtk_enabled() -> Bool { $rtk }
 
 ///|
 pub fn compiled_zcode_enabled() -> Bool { $zcode }

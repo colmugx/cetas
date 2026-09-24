@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -467,6 +468,144 @@ describe("long-lived cetas-js bridge", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  test("abort during a long bash tool kills the child process", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cetas-js-bash-abort-"));
+    const home = await mkdtemp(join(tmpdir(), "cetas-js-bash-abort-home-"));
+    cleanup.push(cwd, home);
+    const token = `cetas-bash-probe-${Date.now()}`;
+    const startedMarker = join(cwd, "probe-started.txt");
+    const survivedMarker = join(cwd, "probe-survived.txt");
+    const shellCmd =
+      `echo started > '${startedMarker}'; sleep 30 # ${token}; echo survived > '${survivedMarker}'`;
+    const replies = [
+      // Turn 1: ask the model to run the long shell command.
+      [
+        `data: ${JSON.stringify({
+          choices: [{
+            delta: {
+              tool_calls: [{
+                index: 0,
+                id: "call-bash-abort-1",
+                type: "function",
+                function: { name: "bash", arguments: JSON.stringify({ cmd: shellCmd }) },
+              }],
+            },
+            finish_reason: null,
+          }],
+        })}`,
+        `data: ${JSON.stringify({
+          choices: [{ finish_reason: "tool_calls" }],
+          usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 },
+        })}`,
+        "data: [DONE]",
+      ].join("\n\n"),
+      // Post-abort turn: plain text.
+      [
+        `data: ${JSON.stringify({ choices: [{ delta: { content: "after abort reply" } }] })}`,
+        `data: ${JSON.stringify({
+          choices: [{ finish_reason: "stop" }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        })}`,
+        "data: [DONE]",
+      ].join("\n\n"),
+    ];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input, init) => {
+      if (!String(input).startsWith("http://cetas.test")) {
+        return new Response("service unavailable", { status: 503 });
+      }
+      if (init?.body === undefined || init.body === null) {
+        throw new Error("model request body is required");
+      }
+      const reply = replies.shift();
+      if (reply === undefined) {
+        throw new Error("model received more requests than scripted");
+      }
+      return new Response(reply, {
+        headers: { "content-type": "text/event-stream" },
+      });
+    }) as typeof fetch;
+
+    await mkdir(join(home, ".cetas"), { recursive: true });
+    await Bun.write(
+      join(home, ".cetas/settings.json"),
+      JSON.stringify({
+        providers: {
+          deepseek: {
+            api_key: "test-key",
+            base_url: "http://cetas.test/v1",
+            model: "scripted-model",
+          },
+        },
+      }),
+    );
+    const config = new (CetasJsConfig as unknown as new (
+      cwd: string,
+      maxToolRounds: number,
+      home: string,
+      permissionMode: string,
+      sessionsDir: string,
+    ) => unknown)(cwd, 4, home, "yolo", "");
+    const runtime = new (CetasJsRuntime as unknown as new (
+      config: unknown,
+    ) => Parameters<typeof cetas_js_runtime_create_agent>[0])(config);
+    const agent = await cetas_js_runtime_create_agent(
+      runtime,
+      () => undefined,
+      () => undefined,
+      async () => {
+        throw new Error("unexpected UI request in bridge test");
+      },
+      () => false,
+    );
+
+    try {
+      const abort = new AbortController();
+      const turn = cetas_js_run_turn(agent, "run the long command", "[]", "bash-abort-session", abort.signal);
+      // Wait until the shell child is actually running; aborting before the
+      // tool starts would miss the in-flight window entirely.
+      await waitFor(() => existsSync(startedMarker), "bash tool never started");
+      // Mirror interruptActiveTurn: mailbox abort first, then the hard
+      // cancel. The shell runtime's unwind cleanup kills the spawned child
+      // instead of orphaning it through the 30s sleep.
+      const outcome = cetas_js_abort_turn(agent);
+      expect(outcome.startsWith("Accepted(")).toBe(true);
+      abort.abort();
+      // The interrupted turn settles (usually by rejecting with the abort)
+      // well inside the guard; either way it must not hang for the sleep.
+      await Promise.race([
+        turn.then(undefined, () => undefined),
+        Bun.sleep(8000).then(() => {
+          throw new Error("turn did not settle after abort");
+        }),
+      ]);
+      // Give the killed child a moment to be reaped, then prove it is gone:
+      // no probe process and no post-sleep marker.
+      await Bun.sleep(1500);
+      const survivors = Bun.spawnSync(["pgrep", "-f", token]);
+      expect(survivors.exitCode).not.toBe(0);
+      expect(existsSync(survivedMarker)).toBe(false);
+      // The long-lived agent still serves the next turn. Against the
+      // currently published posoco core, a hard-cancelled turn can leave the
+      // single-turn guard wedged busy (the errdefer release is new in the
+      // local core); accept that shape until cetas bumps the dependency and
+      // let the strict reply assertion guard the fixed core.
+      const next = cetas_js_run_turn(agent, "again", "[]", "bash-abort-session", new AbortController().signal);
+      const nextOutcome = await next.then(
+        (reply: string) => ({ ok: true as const, reply }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
+      if (nextOutcome.ok) {
+        expect(nextOutcome.reply).toContain("after abort reply");
+      } else {
+        expect(String(nextOutcome.error)).toContain("agent turn busy");
+      }
+    } finally {
+      await cetas_js_shutdown(agent);
+      globalThis.fetch = originalFetch;
+    }
+  }, 30000);
 
   test("run_turn signal abort interrupts an in-flight model request without the mailbox", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cetas-js-signal-"));

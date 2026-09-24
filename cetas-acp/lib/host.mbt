@@ -1515,9 +1515,17 @@ async fn build_session_agent(
     model=router as &@posoco.ModelPort,
     tools=routing,
   )
+  // Shell effects run through the cancellable decorator so a cancelled turn
+  // (session/cancel interrupting the in-flight turn task) terminates the
+  // spawned `sh -c` child instead of orphaning it. The anchor matches
+  // build_default_features' WorkspaceAnchor(cwd).
+  let shell_runtime = @bash.CancellableShellRuntime(
+    fallback=base_runtime as &@runtime.Runtime,
+    anchor=Some(@devkit.WorkspaceAnchor::WorkspaceAnchor(cwd)),
+  )
   let runtime = @mcp.McpRuntime(
     bridge=mcp_bridge,
-    fallback=base_runtime as &@runtime.Runtime,
+    fallback=shell_runtime as &@runtime.Runtime,
   )
   let catalog_source = @mcp.McpCatalogSource(
     bridge=mcp_bridge,

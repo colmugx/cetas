@@ -5,6 +5,7 @@ import {
   "colmugx/cetas-core/lib" @cetas_core,
   "colmugx/mcp/transport",
   "colmugx/posoco-devkit" @devkit,
+  "colmugx/posoco-ext-bash" @bash,
   "colmugx/posoco-ext-context" @context,
   "colmugx/posoco-ext-credentials" @credentials,
   "colmugx/posoco-ext-fs-session" @fs_session,
