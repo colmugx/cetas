@@ -4,6 +4,7 @@ use std::ptr;
 
 pub struct CetasTui {
     pub(crate) terminal: DefaultTerminal,
+    pub(crate) last_event_text: Vec<u8>,
 }
 
 #[no_mangle]
@@ -13,7 +14,10 @@ pub extern "C" fn ctui_open_inline(rows: u16) -> *mut CetasTui {
     };
 
     match ratatui::try_init_with_options(options) {
-        Ok(terminal) => Box::into_raw(Box::new(CetasTui { terminal })),
+        Ok(terminal) => Box::into_raw(Box::new(CetasTui {
+            terminal,
+            last_event_text: Vec::new(),
+        })),
         Err(_) => ptr::null_mut(),
     }
 }
