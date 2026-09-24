@@ -68,7 +68,7 @@ pub fn Rect::centered_percent(
 pub fn layout_validation_marker() -> Int {
   let outer = Rect::new(0U, 0U, 80U, 24U)
   let centered = outer.centered_percent(76U, 70U).inset(1U)
-  if centered.x == 10U &&
+  if centered.x == 11U &&
     centered.y == 5U &&
     centered.width == 58U &&
     centered.height == 14U {
