@@ -88,6 +88,7 @@ pub(all) struct BlockingApprovalSource {
   mut ui : &@port.UiPort?
 }
 pub fn BlockingApprovalSource::BlockingApprovalSource() -> Self
+pub async fn BlockingApprovalSource::ask(Self, @posoco-ext-permission.ApprovalRequest) -> @posoco-ext-permission.ApprovalDecision
 pub impl @posoco-ext-permission.ApprovalSource for BlockingApprovalSource
 
 pub struct CetasJsAgent {
@@ -128,6 +129,9 @@ pub(all) struct CetasJsRuntime {
 pub fn CetasJsRuntime::CetasJsRuntime(CetasJsConfig) -> Self
 
 type JsAuthInteraction
+pub fn JsAuthInteraction::is_cancelled(Self) -> Bool
+pub fn JsAuthInteraction::notify(Self, @posoco-ext-oauth.AuthMessage) -> Unit
+pub async fn JsAuthInteraction::prompt(Self, @posoco-ext-oauth.AuthPromptRequest) -> String raise @posoco-ext-oauth.OAuthError
 pub impl @posoco-ext-oauth.AuthInteraction for JsAuthInteraction
 pub impl @posoco-ext-oauth.AuthPromptInteraction for JsAuthInteraction
 
@@ -140,6 +144,8 @@ pub(all) struct JsCallbackObserver {
 pub fn JsCallbackObserver::JsCallbackObserver(JsCallback) -> Self
 pub fn JsCallbackObserver::extension_id(Self) -> String
 pub fn JsCallbackObserver::manifest(Self) -> @port.ExtensionManifest
+pub fn JsCallbackObserver::on_event(Self, @types.TurnEvent) -> Unit
+pub fn JsCallbackObserver::on_event_at(Self, @types.EventScope?, @types.TurnEvent) -> Unit
 pub impl @port.Extension for JsCallbackObserver
 pub impl @port.Observer for JsCallbackObserver
 
@@ -159,6 +165,9 @@ pub(all) struct JsUiPort {
 pub fn JsUiPort::JsUiPort(JsUiRenderCallback, JsUiRequestCallback) -> Self
 pub fn JsUiPort::extension_id(Self) -> String
 pub fn JsUiPort::manifest(Self) -> @port.ExtensionManifest
+pub fn JsUiPort::render(Self, @port.UiRender) -> Unit
+pub async fn JsUiPort::request(Self, @port.UiRequest) -> @port.UiResponse raise @error.UiError
+pub fn JsUiPort::ui_descriptor(Self) -> @port.UiDescriptor
 pub impl @port.Extension for JsUiPort
 pub impl @port.UiPort for JsUiPort
 
@@ -172,6 +181,7 @@ pub(all) struct PlanApprovalSource {
   mut ui : &@port.UiPort?
 }
 pub fn PlanApprovalSource::PlanApprovalSource() -> Self
+pub async fn PlanApprovalSource::review(Self, @posoco-ext-plan.PlanReviewRequest) -> @posoco-ext-plan.PlanReviewDecision
 pub impl @posoco-ext-plan.PlanReviewSource for PlanApprovalSource
 
 pub(all) struct UiBridge {
@@ -180,6 +190,9 @@ pub(all) struct UiBridge {
 }
 pub fn UiBridge::extension_id(Self) -> String
 pub fn UiBridge::manifest(Self) -> @port.ExtensionManifest
+pub fn UiBridge::on_compose(Self, @port.CompositionView) -> Unit raise @error.CompositionError
+pub async fn UiBridge::on_shutdown(Self) -> Unit
+pub async fn UiBridge::on_start(Self) -> Unit
 pub impl @port.Extension for UiBridge
 pub impl @port.Lifecycle for UiBridge
 

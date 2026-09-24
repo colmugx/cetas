@@ -56,3 +56,6 @@ pub impl @posoco.Lifecycle for UiBridge with fn on_shutdown(_self : UiBridge) ->
 
 ///|
 pub extend UiBridge with @posoco.Extension::{extension_id, manifest}
+
+///|
+pub extend UiBridge with @posoco.Lifecycle::{on_compose, on_shutdown, on_start}

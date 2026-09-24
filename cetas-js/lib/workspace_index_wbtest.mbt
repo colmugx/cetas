@@ -186,3 +186,18 @@ async test "workspace_file_index caps collected entries" {
   inspect(index[0], content="a.mbt")
   inspect(index[1], content="b.mbt")
 }
+
+///|
+pub extend FakeIndexFs with @workspace.WorkspaceFs::{
+  exists,
+  kind,
+  mkdir,
+  read_file,
+  readdir,
+  realpath,
+  remove,
+  rename,
+  walk,
+  write_file,
+  write_file_atomic,
+}

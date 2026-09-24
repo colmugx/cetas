@@ -204,7 +204,7 @@ async test "agent group session parks past composition and retires on close" {
             })
             42
           },
-          serve=fn(_handle) {
+          serve=async fn(_handle) {
             // The serving scope publishes once active, then parks until the
             // JS host retires the session.
             ready.put(Ok(42))

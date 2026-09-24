@@ -463,6 +463,9 @@ pub impl @posoco.Extension for JsCallbackObserver with fn manifest(
 pub extend JsCallbackObserver with @posoco.Extension::{extension_id, manifest}
 
 ///|
+pub extend JsCallbackObserver with @posoco.Observer::{on_event, on_event_at}
+
+///|
 /// AuthInteraction adapter for MCP server login: device codes, login URLs,
 /// and progress surface as observer Custom events (source "cetas-js.mcp") so
 /// the TS host renders them through the normal event channel. v1 has no
@@ -928,6 +931,9 @@ pub impl @posoco.Extension for JsUiPort with fn manifest(self : JsUiPort) -> @po
 pub extend JsUiPort with @posoco.Extension::{extension_id, manifest}
 
 ///|
+pub extend JsUiPort with @port.UiPort::{ui_descriptor, request, render}
+
+///|
 /// Bridge configuration. Provider settings, endpoints, model ids, and
 /// credentials come from the generic settings/credential stores and are
 /// interpreted by registered provider extensions; they are not host-owned
@@ -1149,7 +1155,7 @@ async fn warn_legacy_project_cetas(
 /// and an unobserved JS promise must never reject.
 async fn[X] run_agent_group_session(
   ready~ : @aqueue.Queue[Result[X, Error]],
-  close~ : @aqueue.Queue[Unit],
+  _close~ : @aqueue.Queue[Unit],
   compose~ : async (@async.TaskGroup[Unit]) -> X,
   serve~ : async (X) -> Result[Unit, Error],
 ) -> Unit {

@@ -187,3 +187,9 @@ pub impl @plan.PlanReviewSource for PlanApprovalSource with fn review(
     _ => @plan.PlanReviewDecision::Dismiss
   }
 }
+
+///|
+pub extend BlockingApprovalSource with @permission.ApprovalSource::{ask}
+
+///|
+pub extend PlanApprovalSource with @plan.PlanReviewSource::{review}

@@ -824,3 +824,9 @@ async fn mint_and_persist_kimi_device_id(
   }
   device_id
 }
+
+///|
+pub extend JsAuthInteraction with @oauth.AuthInteraction::{notify, is_cancelled}
+
+///|
+pub extend JsAuthInteraction with @oauth.AuthPromptInteraction::{prompt}
