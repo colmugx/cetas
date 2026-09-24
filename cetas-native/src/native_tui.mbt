@@ -46,6 +46,14 @@ extern "C" fn ctui_render_batch(
 
 ///|
 #borrow(out_words)
+extern "C" fn ctui_viewport_size(
+  tui : RawTui,
+  out_words : FixedArray[UInt],
+  capacity : UInt,
+) -> Int = "ctui_viewport_size"
+
+///|
+#borrow(out_words)
 extern "C" fn ctui_poll_words(
   tui : RawTui,
   timeout_ms : UInt64,
@@ -78,6 +86,11 @@ fn main {
     text_len,
   ) == 0
 
+  let viewport_words : FixedArray[UInt] = FixedArray::make(2, 0U)
+  let viewport_ok = ctui_viewport_size(tui, viewport_words, 2U) == 0 &&
+    viewport_words[0] == 80U &&
+    viewport_words[1] == 3U
+
   let event_words : FixedArray[UInt] = FixedArray::make(14, 0U)
   let poll_status = ctui_poll_words(tui, 0UL, event_words, 14U)
   let event_decode_ok = match @ui.decode_terminal_event(event_words) {
@@ -91,6 +104,7 @@ fn main {
     ctui_headless_probe() == 1 &&
     batch_decode_ok &&
     batch_tty_ok &&
+    viewport_ok &&
     poll_ok &&
     ctui_inline_probe(8) == 1 &&
     ctui_event_size() > 0 &&
