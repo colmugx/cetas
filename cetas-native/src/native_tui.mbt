@@ -13,6 +13,9 @@ extern "C" fn ctui_inline_probe(rows : UInt) -> UInt = "ctui_inline_probe"
 extern "C" fn ctui_event_size() -> UInt = "ctui_event_size"
 
 ///|
+extern "C" fn ctui_tty_probe() -> UInt = "ctui_tty_probe"
+
+///|
 extern "C" fn exit(code : Int) = "exit"
 
 ///|
@@ -21,6 +24,7 @@ fn main {
     ctui_headless_probe() == 1 &&
     ctui_inline_probe(8) == 1 &&
     ctui_event_size() > 0 &&
+    ctui_tty_probe() == 1 &&
     @app.validation_marker() == 1 &&
     @ui.validation_marker() == 1
 
