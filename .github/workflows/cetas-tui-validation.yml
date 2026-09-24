@@ -51,4 +51,4 @@ jobs:
 
       - name: Build and run FFI smoke test
         working-directory: cetas-native
-        run: moon run --target native --release
+        run: moon run cetas-native/src --target native --release
