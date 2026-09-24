@@ -265,5 +265,10 @@ pub fn Scene::validation() -> Scene {
 
 ///|
 pub fn validation_marker() -> Int {
-  1
+  if layout_validation_marker() == 1 &&
+    select_list_validation_marker() == 1 {
+    1
+  } else {
+    0
+  }
 }
