@@ -43,7 +43,8 @@ enum CetasTuiKeyAction {
 enum CetasTuiCommandKind {
   CETAS_TUI_COMMAND_TEXT = 1,
   CETAS_TUI_COMMAND_CLEAR = 2,
-  CETAS_TUI_COMMAND_CURSOR = 3
+  CETAS_TUI_COMMAND_CURSOR = 3,
+  CETAS_TUI_COMMAND_BORDER = 4
 };
 
 typedef struct CetasTuiEvent {
