@@ -74,3 +74,32 @@ pub fn Terminal::poll_raw(
   }
   (status, out)
 }
+
+
+///|
+pub fn Terminal::poll(
+  self : Terminal,
+  timeout_ms : UInt64,
+) -> (Int, TerminalEvent?) {
+  let (status, words) = self.poll_raw(timeout_ms)
+  (status, decode_terminal_event(words))
+}
+
+///|
+pub fn Terminal::event_text(self : Terminal) -> Bytes? {
+  match self.raw {
+    Some(raw) => {
+      let len = @native.event_text_len(raw)
+      let out : FixedArray[Byte] = FixedArray::make(
+        len.reinterpret_as_int(),
+        b'\x00',
+      )
+      if @native.event_text_copy(raw, out, len) == 0 {
+        Some(Bytes::from_array(out))
+      } else {
+        None
+      }
+    }
+    None => None
+  }
+}
