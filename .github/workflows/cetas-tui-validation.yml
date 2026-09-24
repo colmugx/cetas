@@ -47,7 +47,7 @@ jobs:
 
       - name: MoonBit native check
         working-directory: cetas-native
-        run: moon check --target native --deny-warn
+        run: moon check -p colmugx/cetas-native/src --target native --deny-warn
 
       - name: Build and run FFI smoke test
         working-directory: cetas-native
