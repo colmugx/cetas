@@ -205,6 +205,30 @@ pub fn SceneBuilder::cursor(
 }
 
 ///|
+pub fn SceneBuilder::border(
+  self : SceneBuilder,
+  x : UInt,
+  y : UInt,
+  width : UInt,
+  height : UInt,
+  title : Bytes,
+  style : TextStyle,
+) -> Unit {
+  let offset = self.append_text(title)
+  let style_ref = self.push_style(style)
+  self.push_command(
+    4U,
+    x,
+    y,
+    width,
+    height,
+    offset,
+    title.length().reinterpret_as_uint(),
+    style_ref,
+  )
+}
+
+///|
 pub fn SceneBuilder::finish(self : SceneBuilder) -> Scene {
   {
     words: FixedArray::makei(self.words.length(), i => self.words[i]),
@@ -226,6 +250,14 @@ pub fn Scene::validation() -> Scene {
       fg=ColorRgb(10U, 200U, 100U),
       modifiers=modifier_bold(),
     ),
+  )
+  builder.border(
+    0U,
+    1U,
+    16U,
+    3U,
+    b" Cetas ",
+    TextStyle::new(fg=ColorIndexed(6U)),
   )
   builder.cursor(5U, 0U)
   builder.finish()
