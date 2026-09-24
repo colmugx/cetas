@@ -1,0 +1,11 @@
+import {
+  "colmugx/cetas-native/src/app" @app,
+  "colmugx/cetas-native/src/ui" @ui,
+}
+
+options(
+  "is-main": true,
+  targets: {
+    "native_tui.mbt": [ "native" ],
+  },
+)
