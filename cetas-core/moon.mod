@@ -51,5 +51,5 @@ import {
   "colmugx/posoco-ext-fs-session@0.3.0",
   "colmugx/posoco-ext-permission@0.2.0",
   "colmugx/posoco-ext-ratelimit@0.2.0",
-  "moonbitlang/async@0.22.2",
+  "moonbitlang/async@0.22.3",
 }

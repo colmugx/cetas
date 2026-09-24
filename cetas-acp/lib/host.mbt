@@ -8,7 +8,11 @@
 
 ///|
 /// One live ACP session's private machinery; its bridge is bound to it for
-/// life (the ext-acp contract).
+/// life (the ext-acp contract). `mcp_bridge` and `cwd` are test seams:
+/// assembly consumes their values (agent exts/runtime anchor), wbtests read
+/// them back — production code itself never does, hence the suppressed
+/// unused_field warning.
+#warnings("-unused_field")
 priv struct SessionHandle {
   bridge : @ext_acp.AcpBridge
   router : @llm.RouterModelPort

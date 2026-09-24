@@ -1333,7 +1333,7 @@ async test "cancel interrupts the session's in-flight turn" {
       let _ = sleeper.wait()
       false
     } catch {
-      error => error is @async.TaskCancelled
+      error => error is @async.WaitedTaskAlreadyCancelled
     }
     assert_true(cancelled)
   })
@@ -2342,7 +2342,7 @@ async test "cancel one session leaves the other's turn running" {
       let _ = task_a.wait()
       false
     } catch {
-      error => error is @async.TaskCancelled
+      error => error is @async.WaitedTaskAlreadyCancelled
     }
     assert_true(cancelled_a)
     host.handle_cancel(fake_acp_context(client_b), {
@@ -2353,7 +2353,7 @@ async test "cancel one session leaves the other's turn running" {
       let _ = task_b.wait()
       false
     } catch {
-      error => error is @async.TaskCancelled
+      error => error is @async.WaitedTaskAlreadyCancelled
     }
     assert_true(cancelled_b)
   })
