@@ -16,6 +16,9 @@ pub struct EditorModel {
   mut cursor_line : Int
   mut cursor_column : Int
   mut submit_disabled : Bool
+  history : Array[String]
+  mut history_index : Int?
+  mut history_draft : String
 }
 
 ///|
@@ -25,6 +28,9 @@ pub fn EditorModel::new() -> EditorModel {
     cursor_line: 0,
     cursor_column: 0,
     submit_disabled: false,
+    history: [],
+    history_index: None,
+    history_draft: "",
   }
 }
 
@@ -67,15 +73,86 @@ pub fn EditorModel::can_submit(self : EditorModel) -> Bool {
 }
 
 ///|
-pub fn EditorModel::clear(self : EditorModel) -> Unit {
-  self.lines.clear()
-  self.lines.push("")
-  self.cursor_line = 0
-  self.cursor_column = 0
+fn EditorModel::leave_history_browse(self : EditorModel) -> Unit {
+  self.history_index = None
+  self.history_draft = ""
 }
 
 ///|
-pub fn EditorModel::set_text(
+/// Record one accepted prompt without coupling history to submission policy.
+///
+/// Empty prompts are ignored. Consecutive duplicates are collapsed so key
+/// repeat or retry paths cannot flood the history with identical entries.
+pub fn EditorModel::record_history(
+  self : EditorModel,
+  text : String,
+) -> Unit {
+  if text.is_empty() {
+    return
+  }
+  if self.history.length() > 0 &&
+    self.history[self.history.length() - 1] == text {
+    self.leave_history_browse()
+    return
+  }
+  self.history.push(text)
+  self.leave_history_browse()
+}
+
+///|
+pub fn EditorModel::history_length(self : EditorModel) -> Int {
+  self.history.length()
+}
+
+///|
+/// Browse toward older entries. The first transition snapshots the current
+/// draft so moving forward past the newest entry can restore it exactly.
+pub fn EditorModel::history_previous(self : EditorModel) -> Bool {
+  if self.history.is_empty() {
+    return false
+  }
+
+  let index = match self.history_index {
+    None => {
+      self.history_draft = self.text()
+      self.history.length() - 1
+    }
+    Some(value) =>
+      if value > 0 {
+        value - 1
+      } else {
+        return false
+      }
+  }
+
+  self.history_index = Some(index)
+  self.set_text_from_history(self.history[index])
+  true
+}
+
+///|
+/// Browse toward newer entries. Moving beyond the newest recorded prompt
+/// restores the draft that was present before history browsing began.
+pub fn EditorModel::history_next(self : EditorModel) -> Bool {
+  guard self.history_index is Some(index) else {
+    return false
+  }
+
+  if index + 1 < self.history.length() {
+    let next = index + 1
+    self.history_index = Some(next)
+    self.set_text_from_history(self.history[next])
+  } else {
+    let draft = self.history_draft
+    self.history_index = None
+    self.history_draft = ""
+    self.set_text_from_history(draft)
+  }
+  true
+}
+
+///|
+fn EditorModel::set_text_from_history(
   self : EditorModel,
   text : String,
 ) -> Unit {
@@ -88,6 +165,24 @@ pub fn EditorModel::set_text(
   }
   self.cursor_line = self.lines.length() - 1
   self.cursor_column = self.lines[self.cursor_line].length()
+}
+
+///|
+pub fn EditorModel::clear(self : EditorModel) -> Unit {
+  self.leave_history_browse()
+  self.lines.clear()
+  self.lines.push("")
+  self.cursor_line = 0
+  self.cursor_column = 0
+}
+
+///|
+pub fn EditorModel::set_text(
+  self : EditorModel,
+  text : String,
+) -> Unit {
+  self.leave_history_browse()
+  self.set_text_from_history(text)
 }
 
 ///|
@@ -172,6 +267,7 @@ pub fn EditorModel::insert_text(
   self : EditorModel,
   text : String,
 ) -> Unit {
+  self.leave_history_browse()
   if text.is_empty() {
     return
   }
@@ -210,6 +306,7 @@ pub fn EditorModel::insert_newline(self : EditorModel) -> Unit {
 
 ///|
 pub fn EditorModel::backspace(self : EditorModel) -> Unit {
+  self.leave_history_browse()
   if self.cursor_column > 0 {
     let line = self.current_line()
     let start = previous_column(line, self.cursor_column)
@@ -232,6 +329,7 @@ pub fn EditorModel::backspace(self : EditorModel) -> Unit {
 
 ///|
 pub fn EditorModel::delete_forward(self : EditorModel) -> Unit {
+  self.leave_history_browse()
   let line = self.current_line()
   if self.cursor_column < line.length() {
     let end = next_column(line, self.cursor_column)
@@ -255,6 +353,7 @@ pub fn EditorModel::replace_current_line_range(
   end : Int,
   replacement : String,
 ) -> Bool {
+  self.leave_history_browse()
   let line = self.current_line()
   if start < 0 || end < start || end > line.length() || replacement.contains("\n") {
     return false
@@ -401,6 +500,31 @@ pub fn editor_validation_marker() -> Int {
   if !editor.replace_current_line_range(1, 2, "Z") ||
     editor.text() != "aZ" ||
     editor.cursor().column != 2 {
+    return 0
+  }
+
+  editor.record_history("first")
+  editor.record_history("second")
+  editor.record_history("second")
+  editor.set_text("draft")
+  if editor.history_length() != 2 ||
+    !editor.history_previous() ||
+    editor.text() != "second" ||
+    !editor.history_previous() ||
+    editor.text() != "first" ||
+    editor.history_previous() {
+    return 0
+  }
+  if !editor.history_next() ||
+    editor.text() != "second" ||
+    !editor.history_next() ||
+    editor.text() != "draft" ||
+    editor.history_next() {
+    return 0
+  }
+  editor.history_previous() |> ignore
+  editor.insert_text("!")
+  if editor.text() != "second!" || editor.history_next() {
     return 0
   }
 
