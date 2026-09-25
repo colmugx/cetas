@@ -21,6 +21,7 @@ pub struct NativeShell {
   mut pending_tool_rows : Map[Int, Int]
   mut tool_rows : Map[String, Int]
   queued_prompt_rows : Array[Int]
+  mut interrupt_requested : Bool
   mut status : ShellStatus
 }
 
@@ -32,6 +33,7 @@ pub fn NativeShell::new() -> NativeShell {
     pending_tool_rows: Map::from_array([]),
     tool_rows: Map::from_array([]),
     queued_prompt_rows: [],
+    interrupt_requested: false,
     status: ShellIdle,
   }
 }
@@ -48,6 +50,7 @@ pub fn NativeShell::transcript(self : NativeShell) -> @ui.TranscriptModel {
 
 ///|
 pub fn NativeShell::begin_turn(self : NativeShell) -> Unit {
+  self.interrupt_requested = false
   self.tools.end_turn()
   self.pending_tool_rows = Map::from_array([])
   self.tool_rows = Map::from_array([])
@@ -89,6 +92,36 @@ fn NativeShell::promote_all_queued_prompts(self : NativeShell) -> Unit {
   while !self.queued_prompt_rows.is_empty() {
     self.promote_queued_prompt()
   }
+}
+
+///|
+/// Mark that the user requested cancellation of the active operation.
+///
+/// The side effect that actually aborts the Agent belongs to the host. This
+/// flag only disambiguates the later safe-category TurnFailed event so the UI
+/// can render interruption once instead of showing it as an error.
+pub fn NativeShell::request_interrupt(self : NativeShell) -> Unit {
+  self.interrupt_requested = true
+}
+
+///|
+pub fn NativeShell::interrupt_requested(self : NativeShell) -> Bool {
+  self.interrupt_requested
+}
+
+///|
+fn NativeShell::finish_interrupted_turn(self : NativeShell) -> Unit {
+  self.freeze_pending_tools()
+  self.tools.end_turn()
+  self.transcript.end_turn()
+  self.tool_rows = Map::from_array([])
+  self.promote_all_queued_prompts()
+  ignore(self.transcript.append_finalized(
+    @ui.TranscriptSystem,
+    "⏹ interrupted",
+  ))
+  self.interrupt_requested = false
+  self.status = ShellIdle
 }
 
 ///|
@@ -230,6 +263,7 @@ fn NativeShell::freeze_pending_tools(self : NativeShell) -> Unit {
 
 ///|
 pub fn NativeShell::end_turn(self : NativeShell) -> Unit {
+  self.interrupt_requested = false
   self.freeze_pending_tools()
   self.tools.end_turn()
   self.transcript.end_turn()
@@ -242,6 +276,11 @@ pub fn NativeShell::fail_turn(
   self : NativeShell,
   message : String,
 ) -> Unit {
+  if self.interrupt_requested {
+    self.finish_interrupted_turn()
+    return
+  }
+  self.interrupt_requested = false
   self.freeze_pending_tools()
   self.tools.end_turn()
   self.transcript.end_turn()
@@ -336,6 +375,24 @@ pub fn validation_marker() -> Int {
   if queue_shell.queued_prompt_count() != 0 ||
     queue_shell.transcript().row(1).kind != @ui.TranscriptUser ||
     !queue_shell.transcript().row(1).finalized {
+    return 0
+  }
+
+  let interrupted = NativeShell::new()
+  interrupted.begin_turn()
+  ignore(interrupted.queue_follow_up("will not drain"))
+  interrupted.request_interrupt()
+  if !interrupted.interrupt_requested() {
+    return 0
+  }
+  interrupted.fail_turn("cancelled")
+  if interrupted.status() != ShellIdle ||
+    interrupted.interrupt_requested() ||
+    interrupted.queued_prompt_count() != 0 ||
+    interrupted.transcript().row_count() != 2 ||
+    interrupted.transcript().row(0).kind != @ui.TranscriptUser ||
+    interrupted.transcript().row(1).kind != @ui.TranscriptSystem ||
+    interrupted.transcript().row(1).text != "⏹ interrupted" {
     return 0
   }
 
