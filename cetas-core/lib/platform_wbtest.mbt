@@ -259,6 +259,7 @@ async test "the session store buckets per cwd and its /name command reaches the 
     }
   }
   assert_true(name_registered)
+  assert_false(session.routing.contains("agent"))
 }
 
 ///|
