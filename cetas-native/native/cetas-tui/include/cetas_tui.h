@@ -86,6 +86,8 @@ uint32_t ctui_tty_probe(void);
 CetasTui *ctui_open_inline(uint32_t rows);
 uint32_t ctui_is_null(const CetasTui *tui);
 void ctui_close(CetasTui *tui);
+int32_t ctui_suspend(CetasTui *tui);
+int32_t ctui_resume(CetasTui *tui);
 
 int32_t ctui_viewport_size(
     CetasTui *tui,
