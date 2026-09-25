@@ -50,6 +50,12 @@ pub extern "C" fn is_null(tui : RawTui) -> UInt = "ctui_is_null"
 pub extern "C" fn close(tui : RawTui) = "ctui_close"
 
 ///|
+pub extern "C" fn suspend(tui : RawTui) -> Int = "ctui_suspend"
+
+///|
+pub extern "C" fn resume(tui : RawTui) -> Int = "ctui_resume"
+
+///|
 #borrow(words, text)
 pub extern "C" fn render_batch(
   tui : RawTui,
