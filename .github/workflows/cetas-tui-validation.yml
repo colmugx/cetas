@@ -1,7 +1,7 @@
 name: cetas-tui validation
 
 concurrency:
-  group: cetas-tui-validation-${{ github.event.pull_request.number || github.ref }}
+  group: cetas-tui-validation-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 on:
