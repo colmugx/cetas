@@ -269,7 +269,8 @@ pub fn validation_marker() -> Int {
     select_list_validation_marker() == 1 &&
     event_validation_marker() == 1 &&
     editor_validation_marker() == 1 &&
-    overlay_validation_marker() == 1 {
+    overlay_validation_marker() == 1 &&
+    transcript_validation_marker() == 1 {
     1
   } else {
     0
