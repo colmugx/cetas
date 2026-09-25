@@ -1,5 +1,6 @@
 import {
   "colmugx/cetas-native/src/ui" @ui,
+  "colmugx/posoco" @posoco,
   "moonbitlang/core/json" @json,
 }
 
