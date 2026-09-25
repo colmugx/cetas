@@ -51,8 +51,5 @@ import {
   "colmugx/posoco-ext-fs-session@0.3.0",
   "colmugx/posoco-ext-permission@0.2.0",
   "colmugx/posoco-ext-ratelimit@0.2.0",
-  "colmugx/posoco-ext-subagent@0.1.3",
-  "colmugx/posoco-ext-kind@0.1.0",
-  "colmugx/posoco-kit-subagent@0.1.1",
   "moonbitlang/async@0.22.3",
 }
