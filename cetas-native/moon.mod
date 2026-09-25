@@ -22,4 +22,5 @@ options(
 
 import {
   "colmugx/posoco@0.18.5",
+  "moonbitlang/async@0.22.3",
 }
