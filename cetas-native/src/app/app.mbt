@@ -271,5 +271,5 @@ pub fn validation_marker() -> Int {
     return 0
   }
 
-  1
+  event_wire_validation_marker()
 }
