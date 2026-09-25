@@ -1447,6 +1447,21 @@ async fn build_session_agent(
     Some(ext) => exts.push(ext as &@posoco.Extension)
     None => ()
   }
+
+  // Subagents deliberately inherit only the reconstructable Cetas core tool
+  // face. MCP and other decorator-owned dynamic tools stay parent-only; this
+  // keeps child permission/freshness/runtime state isolated.
+  let subagents = @cetas_core.build_cetas_subagents(
+    parent_router=router,
+    approval=Some(bridge as &@permission.ApprovalSource),
+    ui=Some(bridge as &@posoco.UiPort),
+    context_fs=platform.fs,
+    feature_fs=session_fs,
+    cwd~,
+    home=platform.home,
+  )
+  exts.push(subagents)
+
   // The routing table and catalog base are captured BEFORE the MCP bridge
   // joins: the bridge's decorator source appends its own live tools, so
   // including them here would duplicate every name.

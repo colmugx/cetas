@@ -24,7 +24,7 @@ preferred_target = "native"
 supported_targets = "native"
 
 import {
-  "colmugx/posoco@0.18.5",
+  "colmugx/posoco@0.18.6",
   "colmugx/acp@0.2.1",
   "colmugx/posoco-ext-acp@0.3.0",
   "colmugx/posoco-ext-permission@0.2.0",
