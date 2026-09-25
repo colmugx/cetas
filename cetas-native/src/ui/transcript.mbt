@@ -99,18 +99,6 @@ fn TranscriptModel::find_row_index(
 }
 
 ///|
-fn TranscriptModel::set_row_text(
-  self : TranscriptModel,
-  id : Int,
-  text : String,
-) -> Unit {
-  match self.find_row_index(id) {
-    Some(index) => self.rows[index].text = text
-    None => ()
-  }
-}
-
-///|
 fn TranscriptModel::append_row_text(
   self : TranscriptModel,
   id : Int,
@@ -249,7 +237,7 @@ pub fn TranscriptModel::message_end(
   if !reasoning.trim().is_empty() {
     ignore(self.append_row(
       TranscriptThinking,
-      reasoning.trim(),
+      reasoning.trim().to_owned(),
       finalized=true,
     ))
   }
