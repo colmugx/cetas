@@ -88,12 +88,12 @@ def main() -> int:
                     os.write(fd, BRACKETED_PASTE)
                     os.write(fd, KEY_Q)
                     # Crossterm's Unix resize source is SIGWINCH. Keep the
-                    # dimensions unchanged so the inline viewport assertion
-                    # remains deterministic while still exercising Resize.
+                    # width changes from 80 to 81 so Crossterm receives a real Resize
+                    # event; the MoonBit smoke asserts the resized viewport.
                     fcntl.ioctl(
                         fd,
                         termios.TIOCSWINSZ,
-                        struct.pack("HHHH", 24, 80, 0, 0),
+                        struct.pack("HHHH", 24, 81, 0, 0),
                     )
                     os.kill(pid, signal.SIGWINCH)
 
