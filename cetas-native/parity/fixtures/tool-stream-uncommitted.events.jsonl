@@ -1,0 +1,3 @@
+{"type":"turn_started"}
+{"type":"tool_args_delta","index":1,"name":"grep","delta":"{\"q\":\"foo"}
+{"type":"turn_completed"}
