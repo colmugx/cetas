@@ -259,6 +259,49 @@ pub fn TranscriptModel::end_turn(self : TranscriptModel) -> Unit {
 }
 
 ///|
+/// Append a mutable semantic row and return its stable transcript id.
+pub fn TranscriptModel::append_live(
+  self : TranscriptModel,
+  kind : TranscriptRowKind,
+  text : String,
+) -> Int {
+  self.append_row(kind, text, finalized=false)
+}
+
+///|
+pub fn TranscriptModel::update_row(
+  self : TranscriptModel,
+  id : Int,
+  text : String,
+) -> Bool {
+  match self.find_row_index(id) {
+    Some(index) => {
+      if self.rows[index].finalized {
+        false
+      } else {
+        self.rows[index].text = text
+        true
+      }
+    }
+    None => false
+  }
+}
+
+///|
+pub fn TranscriptModel::finalize(
+  self : TranscriptModel,
+  id : Int,
+) -> Bool {
+  match self.find_row_index(id) {
+    Some(index) => {
+      self.rows[index].finalized = true
+      true
+    }
+    None => false
+  }
+}
+
+///|
 /// Append an already-finalized semantic row such as a user echo or notice.
 pub fn TranscriptModel::append_finalized(
   self : TranscriptModel,
@@ -401,6 +444,15 @@ pub fn transcript_validation_marker() -> Int {
   if next_y != 3U ||
     live_scene.words.length() != 8 ||
     live_scene.text != @utf8.encode("💭 streaming") {
+    return 0
+  }
+
+  let tool_rows = TranscriptModel::new()
+  let tool_id = tool_rows.append_live(TranscriptTool, "running write")
+  if !tool_rows.update_row(tool_id, "running write {\"path\":\"a\"}") ||
+    !tool_rows.finalize(tool_id) ||
+    tool_rows.update_row(tool_id, "must not mutate") ||
+    tool_rows.row(0).text != "running write {\"path\":\"a\"}" {
     return 0
   }
 
