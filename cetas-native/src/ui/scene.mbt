@@ -270,6 +270,7 @@ pub fn validation_marker() -> Int {
     event_validation_marker() == 1 &&
     editor_validation_marker() == 1 &&
     overlay_validation_marker() == 1 &&
+    rewind_validation_marker() == 1 &&
     transcript_validation_marker() == 1 &&
     tool_streaming_validation_marker() == 1 {
     1
