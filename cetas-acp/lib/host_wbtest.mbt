@@ -1345,7 +1345,7 @@ async test "cancel interrupts the session's in-flight turn" {
 /// Chat parks until close cancels it; `interrupted` records the cut-short park.
 priv struct SlowModel {
   response : String
-  interrupted : Bool
+  mut interrupted : Bool
 }
 
 ///|
@@ -1357,7 +1357,13 @@ impl @posoco.ModelPort for SlowModel with fn chat(
   _options : @posoco.ChatOptions,
   _stream : @posoco.StreamMode,
 ) -> @posoco.ModelCallResult raise @posoco.ModelError {
-  @async.sleep(120_000)
+  // async 0.22 cancellation is not an error, so record the cut-short park
+  // through handle_cancellation: None means the sleep was cancelled.
+  let park : async () -> Unit = () => @async.sleep(120_000)
+  let parked = @async.handle_cancellation(park) catch {
+    error => raise @posoco.ModelError::Transport(error.to_string())
+  }
+  self.interrupted = parked is None
   @posoco.tk_stop_response(self.response)
 }
 
