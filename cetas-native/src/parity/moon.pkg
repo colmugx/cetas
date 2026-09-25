@@ -2,7 +2,6 @@ import {
   "colmugx/cetas-native/src/app" @app,
   "moonbitlang/async",
   "moonbitlang/async/stdio",
-  "moonbitlang/core/json" @json,
 }
 
 pkgtype(kind: "executable")
