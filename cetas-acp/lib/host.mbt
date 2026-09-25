@@ -41,6 +41,67 @@ priv struct SessionHandle {
   turn_lock : @async.Mutex
   /// Mode id last reported, so mode pushes only fire on an actual move.
   mut last_mode_id : String
+  /// Close signal for the session-lifetime Agent::run_scoped owner. Production
+  /// sessions have one because the ACP process group outlives every session;
+  /// groupless direct test assemblies keep None.
+  scope_close : @aqueue.Queue[Unit]?
+}
+
+///|
+/// Activate one Agent task scope for the whole ACP session lifetime.
+///
+/// The process TaskGroup owns the scope owner; publication waits until
+/// run_scoped has activated Capability::Tasks, so the first prompt can submit
+/// managed work. The owner never raises into the process group after
+/// publication: late shutdown failures are diagnostics, while explicit
+/// session retirement reports its own Agent::shutdown failure.
+async fn start_session_agent_scope(
+  agent : @posoco.Agent,
+  group : @async.TaskGroup[Unit],
+) -> @aqueue.Queue[Unit] raise {
+  let ready : @aqueue.Queue[Result[Unit, Error]] = @aqueue.Queue(
+    kind=Unbounded,
+  )
+  let close : @aqueue.Queue[Unit] = @aqueue.Queue(kind=Unbounded)
+  group.spawn_bg(async fn() {
+    let published = Ref(false)
+    let outcome : Result[Unit, Error] = Ok(
+      agent.run_scoped(async fn(_agent) {
+        published.val = true
+        ignore(ready.try_put(Ok(())))
+        ignore(close.get())
+      }),
+    ) catch {
+      error => Err(error)
+    }
+    match outcome {
+      Ok(_) => ()
+      Err(error) =>
+        if published.val {
+          acp_warn(
+            "cetas-acp: session task scope failed after activation: " +
+            error.to_string() +
+            "\n",
+          )
+        } else {
+          ignore(ready.try_put(Err(error)))
+        }
+    }
+  })
+  match ready.get() {
+    Ok(_) => close
+    Err(error) => raise error
+  }
+}
+
+///|
+fn SessionHandle::release_agent_scope(self : SessionHandle) -> Unit {
+  match self.scope_close {
+    Some(close) => {
+      let _ = close.try_put(()) catch { _ => false }
+    }
+    None => ()
+  }
 }
 
 // ------------------------------------------------------- session id minting
@@ -779,6 +840,9 @@ async fn CetasAcpHost::retire_live_session(
         "\n",
       )
   }
+  // Mirror cetas-js retirement ordering: shutdown first, then let the parked
+  // run_scoped body return. Its second shutdown pass is idempotent.
+  handle.release_agent_scope()
   // Cut the outbound context: a refresh that snapshotted before the removal
   // cannot push into a retired session; the fs delegate degrades to local.
   clear_handle_context(handle)
@@ -1549,6 +1613,28 @@ async fn build_session_agent(
     Some(group) => ratelimit.spawn_monitor(group)
     None => ()
   }
+  // Production ACP keeps one run_scoped open from session assembly until
+  // retirement. Besides aligning lifecycle ownership with cetas-js, this is
+  // the admission scope required by Capability::Tasks consumers such as
+  // subagents and other background delegation extensions.
+  let scope_close : @aqueue.Queue[Unit]? = match platform.mcp_group {
+    Some(group) => {
+      let activated : Result[@aqueue.Queue[Unit], Error] = Ok(
+        start_session_agent_scope(agent, group),
+      ) catch {
+        error => Err(error)
+      }
+      match activated {
+        Ok(close) => Some(close)
+        Err(error) =>
+          raise @posoco.CompositionError::ManifestSchemaError(
+            manifest_id="cetas-acp.agent_scope",
+            detail="failed to activate session task scope: " + error.to_string(),
+          )
+      }
+    }
+    None => None
+  }
   // After activation, dump the full session catalog (bridge cache + base_defs).
   if platform.debug.catalog && session_id.length() > 0 {
     debug_dump_catalog(
@@ -1575,5 +1661,6 @@ async fn build_session_agent(
     in_flight: None,
     turn_lock: @async.Mutex::Mutex(),
     last_mode_id: ACP_MODE_DEFAULT_ID,
+    scope_close,
   }
 }
