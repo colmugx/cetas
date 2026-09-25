@@ -1,4 +1,7 @@
 use crate::terminal::CetasTui;
+use crate::{
+    CTUI_STATUS_INVALID_ARGUMENT, CTUI_STATUS_OK, CTUI_STATUS_TERMINAL_ERROR,
+};
 use ratatui::widgets::{Paragraph, Widget};
 use ratatui::Viewport;
 use std::slice;
@@ -7,7 +10,11 @@ fn utf8<'a>(ptr: *const u8, len: usize) -> Option<&'a str> {
     if ptr.is_null() && len != 0 {
         return None;
     }
-    let bytes = if len == 0 { &[] } else { unsafe { slice::from_raw_parts(ptr, len) } };
+    let bytes = if len == 0 {
+        &[]
+    } else {
+        unsafe { slice::from_raw_parts(ptr, len) }
+    };
     std::str::from_utf8(bytes).ok()
 }
 
@@ -27,16 +34,21 @@ pub extern "C" fn ctui_insert_before_text(
     text_len: u32,
 ) -> i32 {
     if tui.is_null() {
-        return 0;
+        return CTUI_STATUS_INVALID_ARGUMENT;
     }
     let Some(text) = utf8(text, text_len as usize) else {
-        return 0;
+        return CTUI_STATUS_INVALID_ARGUMENT;
     };
+
     let tui = unsafe { &mut *tui };
+    if tui.suspended {
+        return CTUI_STATUS_TERMINAL_ERROR;
+    }
+
     match tui.terminal.insert_before(1, |buffer| {
         Paragraph::new(text).render(buffer.area, buffer);
     }) {
-        Ok(_) => 1,
-        Err(_) => 0,
+        Ok(_) => CTUI_STATUS_OK,
+        Err(_) => CTUI_STATUS_TERMINAL_ERROR,
     }
 }
