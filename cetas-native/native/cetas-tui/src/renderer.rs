@@ -483,6 +483,20 @@ mod tests {
     }
 
     #[test]
+    fn renders_wide_unicode_cells() {
+        let text = "界x".as_bytes();
+        let words = [1u32, 0, 0, 10, 1, 0, text.len() as u32, 0];
+        let (commands, styles) = decode_scene(&words, &[], text).unwrap();
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 10, 1));
+        render_to_buffer(&mut buffer, &commands, &styles).unwrap();
+
+        assert_eq!(buffer[(0, 0)].symbol(), "界");
+        assert_eq!(buffer[(0, 0)].cell_width(), 2);
+        assert_eq!(buffer[(1, 0)].symbol(), " ");
+        assert_eq!(buffer[(2, 0)].symbol(), "x");
+    }
+
+    #[test]
     fn renders_rgb_bold_style() {
         let words = [1u32, 0, 0, 10, 1, 0, 5, 1];
         let styles = [0x300a_c864u32, 0, 1, 0];
