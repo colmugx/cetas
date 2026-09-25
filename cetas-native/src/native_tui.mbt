@@ -71,6 +71,17 @@ fn main {
     println("cetas-tui validation: ok")
   } else {
     println("cetas-tui validation: FAILED")
+    println("scene_decode_ok=\{scene_decode_ok}")
+    println("batch_tty_ok=\{batch_tty_ok}")
+    println("suspend_ok=\{suspend_ok}")
+    println("resume_ok=\{resume_ok}")
+    println("redraw_after_resume_ok=\{redraw_after_resume_ok}")
+    println("viewport_status=\{viewport_status}")
+    println("viewport=\{viewport_words[0]}x\{viewport_words[1]}")
+    println("poll_status=\{poll_status}")
+    println("event_decode_ok=\{event_decode_ok}")
+    println("close_ok=\{close_ok}")
+    println("ui_validation=\{@ui.validation_marker()}")
     exit(1)
   }
 }
