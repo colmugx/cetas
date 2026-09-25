@@ -1,3 +1,7 @@
+import {
+  "colmugx/cetas-native/src/ui" @ui,
+}
+
 options(
   "is-main": false,
 )
