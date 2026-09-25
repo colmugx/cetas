@@ -1,5 +1,6 @@
 import {
   "colmugx/cetas-native/src/native" @native,
+  "moonbitlang/core/encoding/utf8" @utf8,
 }
 
 options(
