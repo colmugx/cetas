@@ -1,24 +1,34 @@
 use ratatui::widgets::{Paragraph, Widget};
 use ratatui::{DefaultTerminal, TerminalOptions, Viewport};
-use crate::{CTUI_STATUS_BUFFER_TOO_SMALL, CTUI_STATUS_INVALID_ARGUMENT, CTUI_STATUS_OK, CTUI_STATUS_TERMINAL_ERROR};
+use crate::{
+    CTUI_STATUS_BUFFER_TOO_SMALL, CTUI_STATUS_INVALID_ARGUMENT, CTUI_STATUS_OK,
+    CTUI_STATUS_TERMINAL_ERROR,
+};
 use std::ptr;
 
 pub struct CetasTui {
     pub(crate) terminal: DefaultTerminal,
     pub(crate) last_event_text: Vec<u8>,
+    rows: u16,
+    suspended: bool,
+}
+
+fn init_inline(rows: u16) -> std::io::Result<DefaultTerminal> {
+    ratatui::try_init_with_options(TerminalOptions {
+        viewport: Viewport::Inline(rows),
+    })
 }
 
 #[no_mangle]
 pub extern "C" fn ctui_open_inline(rows: u32) -> *mut CetasTui {
     let rows = rows.clamp(1, u16::MAX as u32) as u16;
-    let options = TerminalOptions {
-        viewport: Viewport::Inline(rows),
-    };
 
-    match ratatui::try_init_with_options(options) {
+    match init_inline(rows) {
         Ok(terminal) => Box::into_raw(Box::new(CetasTui {
             terminal,
             last_event_text: Vec::new(),
+            rows,
+            suspended: false,
         })),
         Err(_) => ptr::null_mut(),
     }
@@ -35,20 +45,59 @@ pub extern "C" fn ctui_close(tui: *mut CetasTui) {
         return;
     }
 
-    unsafe {
-        drop(Box::from_raw(tui));
+    let tui = unsafe { Box::from_raw(tui) };
+    let should_restore = !tui.suspended;
+    drop(tui);
+
+    if should_restore {
+        let _ = ratatui::try_restore();
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ctui_suspend(tui: *mut CetasTui) -> i32 {
+    if tui.is_null() {
+        return CTUI_STATUS_INVALID_ARGUMENT;
     }
 
-    let _ = ratatui::try_restore();
+    let tui = unsafe { &mut *tui };
+    if tui.suspended {
+        return CTUI_STATUS_OK;
+    }
+
+    match ratatui::try_restore() {
+        Ok(()) => {
+            tui.suspended = true;
+            CTUI_STATUS_OK
+        }
+        Err(_) => CTUI_STATUS_TERMINAL_ERROR,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ctui_resume(tui: *mut CetasTui) -> i32 {
+    if tui.is_null() {
+        return CTUI_STATUS_INVALID_ARGUMENT;
+    }
+
+    let tui = unsafe { &mut *tui };
+    if !tui.suspended {
+        return CTUI_STATUS_OK;
+    }
+
+    match init_inline(tui.rows) {
+        Ok(terminal) => {
+            tui.terminal = terminal;
+            tui.suspended = false;
+            CTUI_STATUS_OK
+        }
+        Err(_) => CTUI_STATUS_TERMINAL_ERROR,
+    }
 }
 
 #[no_mangle]
 pub extern "C" fn ctui_tty_probe() -> u32 {
-    let options = TerminalOptions {
-        viewport: Viewport::Inline(3),
-    };
-
-    let Ok(mut terminal) = ratatui::try_init_with_options(options) else {
+    let Ok(mut terminal) = init_inline(3) else {
         return 0;
     };
 
@@ -74,7 +123,6 @@ pub extern "C" fn ctui_tty_probe() -> u32 {
     u32::from(draw_ok && insert_ok && restore_ok)
 }
 
-
 #[no_mangle]
 pub extern "C" fn ctui_viewport_size(
     tui: *mut CetasTui,
@@ -89,6 +137,9 @@ pub extern "C" fn ctui_viewport_size(
     }
 
     let tui = unsafe { &mut *tui };
+    if tui.suspended {
+        return CTUI_STATUS_TERMINAL_ERROR;
+    }
     if tui.terminal.autoresize().is_err() {
         return CTUI_STATUS_TERMINAL_ERROR;
     }
