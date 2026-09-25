@@ -16,12 +16,18 @@ pub(all) enum TerminalEventKind {
 } derive(Eq)
 
 ///|
+pub extend TerminalEventKind with Eq::{equal, not_equal}
+
+///|
 pub(all) enum KeyAction {
   KeyPress
   KeyRepeat
   KeyRelease
   KeyActionUnknown(UInt)
 } derive(Eq)
+
+///|
+pub extend KeyAction with Eq::{equal, not_equal}
 
 ///|
 pub(all) enum KeyCode {
@@ -44,6 +50,9 @@ pub(all) enum KeyCode {
   KeyFunction(UInt)
   KeyUnknown(UInt)
 } derive(Eq)
+
+///|
+pub extend KeyCode with Eq::{equal, not_equal}
 
 ///|
 pub(all) struct TerminalEvent {
