@@ -292,6 +292,63 @@ pub fn TranscriptModel::take_scrollback_ready(
 }
 
 ///|
+/// Deterministic plain-text lowering for immutable terminal scrollback.
+///
+/// Rich Markdown/tool renderers can replace this representation later without
+/// changing transcript identity or scrollback ownership.
+pub fn TranscriptRowSnapshot::scrollback_text(
+  self : TranscriptRowSnapshot,
+) -> String {
+  match self.kind {
+    TranscriptUser => "> " + self.text
+    TranscriptQueuedUser => "> " + self.text + " · queued"
+    TranscriptThinking => "💭 thought\n" + self.text
+    TranscriptAssistant => self.text
+    TranscriptTool => "● " + self.text
+    TranscriptSystem => "· " + self.text
+    TranscriptError => "● error: " + self.text
+  }
+}
+
+///|
+/// Lower only mutable/live transcript rows into the inline scene.
+///
+/// Finalized rows are intentionally omitted: after finalization they belong to
+/// the scrollback handoff path and must never be painted in both regions.
+pub fn TranscriptModel::append_live_scene(
+  self : TranscriptModel,
+  builder : SceneBuilder,
+  x : UInt,
+  y : UInt,
+  width : UInt,
+) -> UInt {
+  let mut row_y = y
+  for row in self.rows {
+    if !row.finalized {
+      let prefix = match row.kind {
+        TranscriptThinking => "💭 "
+        TranscriptAssistant => ""
+        TranscriptTool => "● "
+        TranscriptUser => "> "
+        TranscriptQueuedUser => "> "
+        TranscriptSystem => "· "
+        TranscriptError => "● "
+      }
+      let bytes = @utf8.encode(prefix + row.text)
+      builder.text(
+        x,
+        row_y,
+        width,
+        1U,
+        bytes,
+      )
+      row_y += 1U
+    }
+  }
+  row_y
+}
+
+///|
 pub fn transcript_validation_marker() -> Int {
   // reasoning -> text stays in one step and both rows finalize on close.
   let transcript = TranscriptModel::new()
@@ -330,7 +387,20 @@ pub fn transcript_validation_marker() -> Int {
   // Scrollback handoff is one-shot.
   let first_commit = transcript.take_scrollback_ready()
   if first_commit.length() != 5 ||
+    first_commit[0].scrollback_text() != "💭 thought\nthink" ||
     !transcript.take_scrollback_ready().is_empty() {
+    return 0
+  }
+
+  let live = TranscriptModel::new()
+  live.begin_turn()
+  live.append_reasoning("streaming")
+  let builder = SceneBuilder::new()
+  let next_y = live.append_live_scene(builder, 0U, 2U, 40U)
+  let live_scene = builder.finish()
+  if next_y != 3U ||
+    live_scene.words.length() != 8 ||
+    live_scene.text != b"💭 streaming" {
     return 0
   }
 
