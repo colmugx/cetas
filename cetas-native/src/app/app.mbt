@@ -125,6 +125,18 @@ fn NativeShell::finish_interrupted_turn(self : NativeShell) -> Unit {
 }
 
 ///|
+/// Append the user echo for a fresh host-started turn.
+///
+/// Queued follow-ups use `queue_follow_up` instead; their existing bubble is
+/// promoted on the next TurnStarted so the transcript never duplicates them.
+pub fn NativeShell::append_user(
+  self : NativeShell,
+  prompt : String,
+) -> Int {
+  self.transcript.append_finalized(@ui.TranscriptUser, prompt)
+}
+
+///|
 pub fn NativeShell::append_reasoning(
   self : NativeShell,
   token : String,
