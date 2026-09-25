@@ -36,7 +36,7 @@ extern "C" fn exit(code : Int) = "exit"
 ///|
 /// Release train version — kept in lockstep with the cetas VERSION file by
 /// `scripts/release.py` (the moon.mod of this package carries the same value).
-const CETAS_HEADLESS_VERSION = "0.4.0"
+const CETAS_HEADLESS_VERSION = "0.5.0"
 
 ///|
 const USAGE : String = "usage: cetas-headless [--model <id>] [--effort <level>] [--session <id>] [--yolo | --permission <readonly|workspace_write|interactive>] [--stream] [--verbose] [--show-thinking] [--jsonl] [-- \"<task>\"]\n"
