@@ -20,6 +20,7 @@ pub struct NativeShell {
   tools : @ui.ToolStreamingModel
   mut pending_tool_rows : Map[Int, Int]
   mut tool_rows : Map[String, Int]
+  queued_prompt_rows : Array[Int]
   mut status : ShellStatus
 }
 
@@ -30,6 +31,7 @@ pub fn NativeShell::new() -> NativeShell {
     tools: @ui.ToolStreamingModel::new(),
     pending_tool_rows: Map::from_array([]),
     tool_rows: Map::from_array([]),
+    queued_prompt_rows: [],
     status: ShellIdle,
   }
 }
@@ -49,8 +51,44 @@ pub fn NativeShell::begin_turn(self : NativeShell) -> Unit {
   self.tools.end_turn()
   self.pending_tool_rows = Map::from_array([])
   self.tool_rows = Map::from_array([])
+  self.promote_queued_prompt()
   self.transcript.begin_turn()
   self.status = ShellWorking("thinking")
+}
+
+///|
+/// Record an already-accepted follow-up from the application's bounded queue.
+///
+/// Queue capacity/stale-race policy belongs to the application boundary. This
+/// reducer owns only the visible semantic bubble after queueFollowUp accepts it.
+pub fn NativeShell::queue_follow_up(
+  self : NativeShell,
+  prompt : String,
+) -> Int {
+  let row_id = self.transcript.append_queued_user(prompt)
+  self.queued_prompt_rows.push(row_id)
+  row_id
+}
+
+///|
+pub fn NativeShell::queued_prompt_count(self : NativeShell) -> Int {
+  self.queued_prompt_rows.length()
+}
+
+///|
+fn NativeShell::promote_queued_prompt(self : NativeShell) -> Unit {
+  if self.queued_prompt_rows.is_empty() {
+    return
+  }
+  let row_id = self.queued_prompt_rows.remove(0)
+  ignore(self.transcript.promote_queued_user(row_id))
+}
+
+///|
+fn NativeShell::promote_all_queued_prompts(self : NativeShell) -> Unit {
+  while !self.queued_prompt_rows.is_empty() {
+    self.promote_queued_prompt()
+  }
 }
 
 ///|
@@ -208,6 +246,7 @@ pub fn NativeShell::fail_turn(
   self.tools.end_turn()
   self.transcript.end_turn()
   self.tool_rows = Map::from_array([])
+  self.promote_all_queued_prompts()
   ignore(self.transcript.append_finalized(@ui.TranscriptError, message))
   self.status = ShellFailed(message)
 }
@@ -268,6 +307,35 @@ pub fn validation_marker() -> Int {
   shell.end_turn()
   if shell.transcript().row_count() != 4 ||
     !shell.transcript().row(3).finalized {
+    return 0
+  }
+
+  // Accepted follow-ups stay live/queued until subsequent TurnStarted events
+  // promote them oldest-first. A failed outer operation promotes leftovers so
+  // no bubble can remain permanently marked queued.
+  let queue_shell = NativeShell::new()
+  queue_shell.begin_turn()
+  let first_queued = queue_shell.queue_follow_up("first follow-up")
+  let second_queued = queue_shell.queue_follow_up("second follow-up")
+  if queue_shell.queued_prompt_count() != 2 ||
+    queue_shell.transcript().row(0).kind != @ui.TranscriptQueuedUser ||
+    queue_shell.transcript().take_scrollback_ready().length() != 0 {
+    return 0
+  }
+  queue_shell.end_turn()
+  queue_shell.begin_turn()
+  if queue_shell.queued_prompt_count() != 1 ||
+    queue_shell.transcript().row(0).id != first_queued ||
+    queue_shell.transcript().row(0).kind != @ui.TranscriptUser ||
+    !queue_shell.transcript().row(0).finalized ||
+    queue_shell.transcript().row(1).id != second_queued ||
+    queue_shell.transcript().row(1).kind != @ui.TranscriptQueuedUser {
+    return 0
+  }
+  queue_shell.fail_turn("stop")
+  if queue_shell.queued_prompt_count() != 0 ||
+    queue_shell.transcript().row(1).kind != @ui.TranscriptUser ||
+    !queue_shell.transcript().row(1).finalized {
     return 0
   }
 
