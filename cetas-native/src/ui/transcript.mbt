@@ -21,7 +21,7 @@ pub extend TranscriptRowKind with Eq::{equal, not_equal}
 ///|
 pub(all) struct TranscriptRow {
   id : Int
-  kind : TranscriptRowKind
+  mut kind : TranscriptRowKind
   mut text : String
   mut finalized : Bool
   mut scrollback_committed : Bool
@@ -259,6 +259,42 @@ pub fn TranscriptModel::end_turn(self : TranscriptModel) -> Unit {
 }
 
 ///|
+/// Append a follow-up bubble that remains mutable/live until the Agent drains
+/// it and the next TurnStarted promotes it.
+pub fn TranscriptModel::append_queued_user(
+  self : TranscriptModel,
+  prompt : String,
+) -> Int {
+  self.append_row(TranscriptQueuedUser, prompt, finalized=false)
+}
+
+///|
+/// Restyle one queued follow-up as the user echo for its drained turn.
+///
+/// Promotion is the immutability boundary: once promoted the row is finalized
+/// and becomes eligible for the one-shot scrollback handoff.
+pub fn TranscriptModel::promote_queued_user(
+  self : TranscriptModel,
+  id : Int,
+) -> Bool {
+  match self.find_row_index(id) {
+    Some(index) => {
+      let row = self.rows[index]
+      if row.finalized ||
+        row.scrollback_committed ||
+        row.kind != TranscriptQueuedUser {
+        false
+      } else {
+        self.rows[index].kind = TranscriptUser
+        self.rows[index].finalized = true
+        true
+      }
+    }
+    None => false
+  }
+}
+
+///|
 /// Append a mutable semantic row and return its stable transcript id.
 pub fn TranscriptModel::append_live(
   self : TranscriptModel,
@@ -368,16 +404,16 @@ pub fn TranscriptModel::append_live_scene(
   let mut row_y = y
   for row in self.rows {
     if !row.finalized {
-      let prefix = match row.kind {
-        TranscriptThinking => "💭 "
-        TranscriptAssistant => ""
-        TranscriptTool => "● "
-        TranscriptUser => "> "
-        TranscriptQueuedUser => "> "
-        TranscriptSystem => "· "
-        TranscriptError => "● "
+      let rendered = match row.kind {
+        TranscriptThinking => "💭 " + row.text
+        TranscriptAssistant => row.text
+        TranscriptTool => "● " + row.text
+        TranscriptUser => "> " + row.text
+        TranscriptQueuedUser => "> " + row.text + " · queued"
+        TranscriptSystem => "· " + row.text
+        TranscriptError => "● " + row.text
       }
-      let bytes = @utf8.encode(prefix + row.text)
+      let bytes = @utf8.encode(rendered)
       builder.text(
         x,
         row_y,
@@ -453,6 +489,26 @@ pub fn transcript_validation_marker() -> Int {
     !tool_rows.finalize(tool_id) ||
     tool_rows.update_row(tool_id, "must not mutate") ||
     tool_rows.row(0).text != "running write {\"path\":\"a\"}" {
+    return 0
+  }
+
+  let queued = TranscriptModel::new()
+  let queued_id = queued.append_queued_user("follow up")
+  if queued.take_scrollback_ready().length() != 0 {
+    return 0
+  }
+  let queued_builder = SceneBuilder::new()
+  ignore(queued.append_live_scene(queued_builder, 0U, 0U, 40U))
+  if queued_builder.finish().text != @utf8.encode("> follow up · queued") ||
+    !queued.promote_queued_user(queued_id) ||
+    queued.row(0).kind != TranscriptUser ||
+    !queued.row(0).finalized ||
+    queued.promote_queued_user(queued_id) {
+    return 0
+  }
+  let promoted = queued.take_scrollback_ready()
+  if promoted.length() != 1 ||
+    promoted[0].scrollback_text() != "> follow up" {
     return 0
   }
 
