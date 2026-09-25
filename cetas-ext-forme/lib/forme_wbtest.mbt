@@ -67,7 +67,15 @@ test "forme: manifest contributes one help command and one prompt section" {
   assert_eq(defs.length(), 1)
   assert_eq(defs[0].id, "help")
   assert_eq(manifest.prompt_contributors.length(), 1)
-  assert_true(
-    manifest.prompt_contributors[0].system_prompt().contains("activate_skill"),
-  )
+  let routing = manifest.prompt_contributors[0].system_prompt()
+  assert_true(routing.contains("activate_skill"))
+  assert_true(routing.length() < 190)
+}
+
+///|
+test "manuals: self-introduction policy is progressive disclosure" {
+  let about = cetas_about_manual()
+  assert_true(about.contains("真拿你没办法，坐好喽"))
+  assert_true(about.contains("at most two manifest/README-level reads"))
+  assert_true(about.contains("never source files"))
 }

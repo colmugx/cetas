@@ -12,36 +12,10 @@ pub(all) struct Cetas {
 }
 
 ///|
-/// Wraps a context contributor so its text is labeled as the
-/// `project_context` section when appended by the Agent's system-prompt hook.
-priv struct ProjectContextContributor {
-  inner : &@posoco.SystemPromptContributor
-}
-
-///|
-fn ProjectContextContributor::ProjectContextContributor(
-  inner : &@posoco.SystemPromptContributor,
-) -> ProjectContextContributor {
-  { inner, }
-}
-
-///|
-impl @posoco.SystemPromptContributor for ProjectContextContributor with fn system_prompt(
-  self : ProjectContextContributor,
-) -> String {
-  let text = self.inner.system_prompt()
-  if text == "" {
-    ""
-  } else {
-    "project_context:\n" + text
-  }
-}
-
-///|
 /// Build a Cetas extension.
 ///
-/// - `context_contributor` (e.g. AGENTS.md loader) is registered as a
-///   prompt contributor when present.
+/// - `context_contributor` (e.g. AGENTS.md loader) is registered directly
+///   when present; its own <cetas-context> envelope already identifies it.
 /// - `tool_contributors` (e.g. tool usage guidance) are appended in the
 ///   order they are supplied.
 pub fn Cetas::Cetas(
@@ -50,10 +24,7 @@ pub fn Cetas::Cetas(
 ) -> Cetas {
   let prompt_contributors : Array[&@posoco.SystemPromptContributor] = []
   match context_contributor {
-    Some(c) =>
-      prompt_contributors.push(
-        ProjectContextContributor(c) as &@posoco.SystemPromptContributor,
-      )
+    Some(c) => prompt_contributors.push(c)
     None => ()
   }
   for c in tool_contributors {
