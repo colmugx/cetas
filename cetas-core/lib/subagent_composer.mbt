@@ -144,9 +144,7 @@ impl @posoco.Extension for CetasChildIo with fn extension_id(
 }
 
 ///|
-impl @posoco.Extension for CetasChildIo with fn manifest(
-  self : CetasChildIo,
-) -> @posoco.ExtensionManifest {
+impl @posoco.Extension for CetasChildIo with fn manifest(self : CetasChildIo) -> @posoco.ExtensionManifest {
   @posoco.ExtensionManifest(
     id="cetas_child_io",
     sessions=[self.store as &@posoco.SessionStore],
@@ -219,8 +217,7 @@ fn CetasChildComposer::tool_extensions(
         )
       "edit" =>
         exts.push(
-          @edit.EditTools(freshness~, anchor=Some(anchor))
-          as &@posoco.Extension,
+          @edit.EditTools(freshness~, anchor=Some(anchor)) as &@posoco.Extension,
         )
       "glob" =>
         exts.push(@glob.GlobTools(anchor=Some(anchor)) as &@posoco.Extension)
@@ -236,9 +233,7 @@ fn CetasChildComposer::tool_extensions(
             "child tool 'bash' is unavailable in the Windows Cetas build",
           )
         } else {
-          exts.push(
-            @bash.ShellTools(anchor=Some(anchor)) as &@posoco.Extension,
-          )
+          exts.push(@bash.ShellTools(anchor=Some(anchor)) as &@posoco.Extension)
         }
       "ps1" =>
         if shell_platform_is_windows() {
@@ -250,8 +245,7 @@ fn CetasChildComposer::tool_extensions(
             "child tool 'ps1' is unavailable in the Unix Cetas build",
           )
         }
-      "webfetch" =>
-        exts.push(@webfetch.WebFetchTools() as &@posoco.Extension)
+      "webfetch" => exts.push(@webfetch.WebFetchTools() as &@posoco.Extension)
       "ask_question" =>
         exts.push(@askquestion.AskQuestionTools() as &@posoco.Extension)
       other =>
