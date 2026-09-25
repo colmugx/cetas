@@ -42,9 +42,9 @@ pub fn Terminal::suspend(self : Terminal) -> Int {
 }
 
 ///|
-pub fn Terminal::resume(self : Terminal) -> Int {
+pub fn Terminal::resume_terminal(self : Terminal) -> Int {
   match self.raw {
-    Some(raw) => @native.resume(raw)
+    Some(raw) => @native.resume_terminal(raw)
     None => 2
   }
 }
