@@ -360,6 +360,9 @@ pub extern "C" fn ctui_render_text(
     };
 
     let tui = unsafe { &mut *tui };
+    if tui.suspended {
+        return CTUI_STATUS_TERMINAL_ERROR;
+    }
     match tui.terminal.draw(|frame| {
         frame.render_widget(Paragraph::new(text), frame.area());
     }) {
@@ -415,6 +418,9 @@ pub extern "C" fn ctui_render_scene(
     };
 
     let tui = unsafe { &mut *tui };
+    if tui.suspended {
+        return CTUI_STATUS_TERMINAL_ERROR;
+    }
     match tui.terminal.draw(|frame| {
         for command in &commands {
             match command {
