@@ -58,6 +58,7 @@ async test "host composes over the core seam with the persisted selection and a 
   // nmem rides the compiled personal flavor; nothing warns — the
   // composition stays silent.
   assert_eq(warnings, [])
+  assert_false(host.routing.contains("agent"))
 }
 
 ///|
