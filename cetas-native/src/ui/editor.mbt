@@ -267,6 +267,113 @@ pub fn EditorModel::replace_current_line_range(
 }
 
 ///|
+pub(all) struct AutocompleteSourceSpec {
+  trigger : String
+  span_spaces : Bool
+}
+
+///|
+pub(all) struct AutocompleteMatch {
+  source_index : Int
+  trigger_index : Int
+  query : String
+  replacement_prefix : String
+}
+
+///|
+fn autocomplete_token_boundary(text : String, index : Int) -> Bool {
+  if index == 0 {
+    return true
+  }
+  match text.code_unit_at(index - 1).to_char() {
+    Some(ch) => ch.is_whitespace()
+    None => false
+  }
+}
+
+///|
+fn active_autocomplete_match(
+  text_before_cursor : String,
+  source_index : Int,
+  source : AutocompleteSourceSpec,
+) -> AutocompleteMatch? {
+  guard text_before_cursor.rev_find(source.trigger) is Some(trigger_index) else {
+    return None
+  }
+  if !autocomplete_token_boundary(text_before_cursor, trigger_index) {
+    return None
+  }
+
+  let replacement_prefix = text_before_cursor[trigger_index:].to_owned()
+  let query_view = replacement_prefix[source.trigger.length():]
+  if !source.span_spaces && query_view.any(ch => ch.is_whitespace()) {
+    return None
+  }
+
+  Some({
+    source_index,
+    trigger_index,
+    query: query_view.to_owned(),
+    replacement_prefix,
+  })
+}
+
+///|
+/// Return every source participating in the winning completion request.
+///
+/// This mirrors cetas-js UiRegistry:
+/// - source trigger must start at a token boundary;
+/// - non-span sources stop matching once their query contains whitespace;
+/// - longest replacement prefix wins;
+/// - equal-length prefixes prefer the trigger closest to the cursor;
+/// - sources producing exactly the same winning replacement prefix co-exist.
+pub fn active_autocomplete_matches(
+  text_before_cursor : String,
+  sources : Array[AutocompleteSourceSpec],
+) -> Array[AutocompleteMatch] {
+  let matches : Array[AutocompleteMatch] = []
+  for source_index, source in sources {
+    match active_autocomplete_match(text_before_cursor, source_index, source) {
+      Some(value) => matches.push(value)
+      None => ()
+    }
+  }
+
+  if matches.is_empty() {
+    return []
+  }
+
+  let mut winner = matches[0]
+  for candidate in matches {
+    if candidate.replacement_prefix.length() > winner.replacement_prefix.length() ||
+      (candidate.replacement_prefix.length() == winner.replacement_prefix.length() &&
+        candidate.trigger_index > winner.trigger_index) {
+      winner = candidate
+    }
+  }
+
+  matches.filter(
+    candidate => candidate.replacement_prefix == winner.replacement_prefix,
+  )
+}
+
+///|
+pub fn EditorModel::apply_completion(
+  self : EditorModel,
+  prefix : String,
+  replacement : String,
+) -> Bool {
+  let line = self.current_line()
+  let start = self.cursor_column - prefix.length()
+  if start < 0 ||
+    line[start:self.cursor_column].to_owned() != prefix ||
+    replacement.contains("\n") {
+    return false
+  }
+  self.replace_current_line_range(start, self.cursor_column, replacement)
+}
+
+///|
 pub fn editor_validation_marker() -> Int {
   let editor = EditorModel::new()
   editor.insert_text("hello")
@@ -293,6 +400,39 @@ pub fn editor_validation_marker() -> Int {
   if !editor.replace_current_line_range(1, 2, "Z") ||
     editor.text() != "aZ" ||
     editor.cursor().column != 2 {
+    return 0
+  }
+
+  let sources : Array[AutocompleteSourceSpec] = [
+    { trigger: "/", span_spaces: false },
+    { trigger: "@", span_spaces: false },
+    { trigger: "/model ", span_spaces: true },
+    { trigger: "/model ", span_spaces: true },
+  ]
+
+  let model_matches = active_autocomplete_matches("/model gpt", sources)
+  if model_matches.length() != 2 ||
+    model_matches[0].query != "gpt" ||
+    model_matches[0].replacement_prefix != "/model gpt" {
+    return 0
+  }
+
+  if !active_autocomplete_matches("abc@src", sources).is_empty() {
+    return 0
+  }
+
+  let file_matches = active_autocomplete_matches("open @src/ui", sources)
+  if file_matches.length() != 1 ||
+    file_matches[0].query != "src/ui" ||
+    file_matches[0].trigger_index != 5 {
+    return 0
+  }
+
+  editor.set_text("/mo")
+  let completion = active_autocomplete_matches(editor.text_before_cursor(), sources)
+  if completion.length() != 1 ||
+    !editor.apply_completion(completion[0].replacement_prefix, "/model ") ||
+    editor.text() != "/model " {
     return 0
   }
 
