@@ -67,5 +67,5 @@ fn compiled_obsidian_enabled() -> Bool { $obsidian }
 pub fn compiled_zcode_enabled() -> Bool { $zcode }
 
 ///|
-pub fn compiled_target_os() -> String { "$platform" }
+fn compiled_target_os() -> String { "$platform" }
 EOF
