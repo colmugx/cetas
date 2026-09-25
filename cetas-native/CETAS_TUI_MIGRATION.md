@@ -14,8 +14,12 @@ The native route is validated on Linux and migration is underway:
   resize through the MoonBit executable.
 - Ratatui buffer tests lock wide-cell behavior for CJK text.
 - The MoonBit app now has semantic transcript/tool reducers plus a
-  `NativeShell` reducer; the existing observer JSON wire can be parsed and
-  dispatched without TypeScript.
+  `NativeShell` reducer; the existing observer JSON wire remains available
+  for parity fixtures, while production `NativeHost` composition injects a
+  typed Posoco observer directly into the real Agent.
+- The dedicated validation workflow executes native app wbtests, including a
+  real scripted Posoco turn that reaches `NativeShell`, persists a session,
+  and exercises the shared rewind capability.
 
 M1 is complete. M0 remains open because the full cetas-js parity fixture set is
 not yet frozen, and the later product-flow phases are still in progress.
@@ -177,8 +181,12 @@ At this stage `cetas-js` remains the reference implementation and is not
 deleted.
 
 **Current progress:** `NativeShell` now composes transcript and tool-streaming
-reducers and handles turn, stream, tool-start/result, failure, and scrollback
-lifecycle. Observer JSON dispatch feeds that reducer directly.
+reducers and handles turn, stream, tool-start/result, failure, scrollback,
+queued follow-ups, requested interruption, and global key gestures. The
+production `NativeHost` composes the same `CetasPlatform` / `CetasSession`
+seam as other hosts and injects `NativeShellObserver` directly into Posoco;
+the observer JSON parser remains only as a migration/parity seam. A scripted
+native-host wbtest drives a real Posoco turn through that typed path.
 
 **Gate:** the same scripted interaction sequence produces equivalent app
 commands and shell state transitions on JS and native hosts.
@@ -188,6 +196,15 @@ commands and shell state transitions on JS and native hosts.
 Port model/provider/session/skill/rewind/OAuth/auth flows. Keep I/O and business
 operations behind the existing Cetas application boundary; UI modules own only
 presentation state.
+
+**Current progress:** idle double-ESC uses the same strict 500ms gesture as
+`cetas-js`; a pure MoonBit rewind picker covers empty/open/navigation/pick/
+cancel semantics. Persisted rewind is now a target-agnostic
+`cetas-core.rewind_session` capability reused by both `cetas-js` and
+`cetas-native`. Rewind-point enumeration is intentionally not derived from
+parsed `Session.messages`: the current JS contract uses physical JSONL line
+indexes, so native parity requires a raw/index-preserving storage API or an
+equivalent storage-boundary implementation.
 
 **Gate:** every current overlay test has a native equivalent and focus always
 returns to the editor after dismissal.
@@ -204,6 +221,12 @@ fixtures.
 ### M7 — host parity and cutover
 
 Build `cetas-native` against `cetas-core` and run end-to-end sessions.
+
+**Current progress:** `NativeHost` now builds a production
+`CetasPlatform`/`CetasSession`, owns a real Posoco Agent/session store, and
+exposes fresh turns, accepted follow-ups, active-run abort, rewind, and
+shutdown. Native app wbtests lock the Agent -> typed observer -> shell ->
+persisted-session path before terminal-loop integration.
 
 Required parity before making native the primary TUI:
 
