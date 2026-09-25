@@ -38,7 +38,7 @@ fn assistant_message_payload(
 }
 
 ///|
-fn tool_result_text(result : @posoco.ToolResult) -> String {
+fn tool_result_text(result : @posoco.ToolOutcome) -> String {
   match result {
     Success(content~, ..) => content
     ToolReportedError(content~, ..) => content
