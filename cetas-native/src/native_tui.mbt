@@ -39,7 +39,7 @@ fn main {
   ))
   let ready = transcript.take_scrollback_ready()
   let scrollback_insert_ok = ready.length() == 1 &&
-    terminal.insert_before(ready[0].text) == 0 &&
+    terminal.insert_before(ready[0].scrollback_text()) == 0 &&
     transcript.take_scrollback_ready().is_empty()
 
   let suspend_ok = terminal.suspend() == 0
