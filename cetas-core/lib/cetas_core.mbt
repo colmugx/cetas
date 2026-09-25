@@ -137,7 +137,7 @@ pub(all) struct HostContext {
 /// hosts do not restate it. The activation budget is raised above the
 /// portable default so large real-world skills (50k+ chars of instructions)
 /// stay loadable.
-pub fn cetas_skills_config() -> @skills.SkillsConfig {
+fn cetas_skills_config() -> @skills.SkillsConfig {
   { ..@skills.SkillsConfig::default(), max_instruction_chars: 65536, }
 }
 
@@ -148,6 +148,152 @@ pub fn cetas_skills_config() -> @skills.SkillsConfig {
 /// registers the bash ext.
 fn shell_platform_is_windows() -> Bool {
   compiled_target_os() == "windows"
+}
+
+///|
+/// Canonical Cetas tool-name normalization. The generic kind catalog names
+/// the shell "bash"; Windows Cetas exposes the same capability as "ps1".
+/// Keeping this policy in core means hosts never maintain their own tool map.
+pub fn canonical_cetas_tool_name(name : String) -> String {
+  if shell_platform_is_windows() && name == "bash" {
+    "ps1"
+  } else {
+    name
+  }
+}
+
+///|
+/// Canonical constructor for reconstructable Cetas tools. This is the single
+/// place that knows which concrete extension owns a Cetas tool name and how
+/// fresh per-agent state (freshness ledger/workspace anchor) is created.
+///
+/// Hosts and child-agent composers request names; they do not import the
+/// concrete read/write/edit/search/shell/webfetch/askquestion packages.
+pub fn build_cetas_tools(
+  ctx~ : HostContext,
+  names : Array[String],
+) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
+  let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
+  let freshness = @devkit.FreshnessGuard::FreshnessGuard()
+  let exts : Array[&@posoco.Extension] = []
+  let seen : Set[String] = Set([])
+  for requested in names {
+    let name = canonical_cetas_tool_name(requested)
+    if seen.contains(name) {
+      continue
+    }
+    seen.add(name)
+    match name {
+      "read" =>
+        exts.push(
+          @read.ReadTools(freshness~, anchor=Some(anchor))
+          as &@posoco.Extension,
+        )
+      "write" =>
+        exts.push(
+          @write.WriteTools(freshness~, anchor=Some(anchor))
+          as &@posoco.Extension,
+        )
+      "edit" =>
+        exts.push(
+          @edit.EditTools(freshness~, anchor=Some(anchor))
+          as &@posoco.Extension,
+        )
+      "glob" =>
+        exts.push(@glob.GlobTools(anchor=Some(anchor)) as &@posoco.Extension)
+      "grep" =>
+        exts.push(@grep.GrepTools(anchor=Some(anchor)) as &@posoco.Extension)
+      "astgrep" =>
+        exts.push(
+          @astgrep.AstGrepTools(anchor=Some(anchor)) as &@posoco.Extension,
+        )
+      "bash" =>
+        exts.push(@bash.ShellTools(anchor=Some(anchor)) as &@posoco.Extension)
+      "ps1" =>
+        if shell_platform_is_windows() {
+          exts.push(
+            @ps1.PowerShellTools(anchor=Some(anchor)) as &@posoco.Extension,
+          )
+        } else {
+          raise @posoco.CompositionError::ManifestSchemaError(
+            manifest_id="cetas.tools",
+            detail="tool 'ps1' is unavailable in the Unix Cetas build",
+          )
+        }
+      "webfetch" =>
+        exts.push(@webfetch.WebFetchTools() as &@posoco.Extension)
+      "ask_question" =>
+        for ext in build_cetas_tools(ctx~, ["ask_question"]) {
+    exts.push(ext)
+  }
+      _ =>
+        raise @posoco.CompositionError::ManifestSchemaError(
+          manifest_id="cetas.tools",
+          detail="tool '" + requested + "' is not in the canonical Cetas tool registry",
+        )
+    }
+  }
+  exts
+}
+
+///|
+/// Canonical skills construction over the same Cetas policy used by parent
+/// agents. `requested=None` exposes the full discovered+builtin catalog;
+/// `Some(names)` restricts activation to those skills. The returned value is
+/// only an Extension so callers do not need a direct dependency on ext-skills.
+pub async fn build_cetas_skills(
+  ctx~ : HostContext,
+  requested? : Array[String]? = None,
+) -> &@posoco.Extension? raise @posoco.CompositionError {
+  let discovered : @skills.SkillCatalog = match
+    @skills.Skills::discover(
+      ctx.fs,
+      cwd=ctx.cwd,
+      home=ctx.home,
+      config=cetas_skills_config(),
+    ) {
+    Some(skills) => skills.catalog()
+    None => @skills.SkillCatalog::empty()
+  }
+  let full = @skills.merge_builtin_skills(
+    discovered,
+    @forme.builtin_manual_skills(),
+  )
+  let catalog = match requested {
+    None => full
+    Some(names) if names.is_empty() => full
+    Some(names) => {
+      let selected : Array[@skills.SkillDescriptor] = []
+      for name in names {
+        match full.find(name) {
+          Some(skill) => selected.push(skill)
+          None =>
+            raise @posoco.CompositionError::ManifestSchemaError(
+              manifest_id="cetas.skills",
+              detail="unknown skill '" +
+              name +
+              "' (available: " +
+              full.names().join(", ") +
+              ")",
+            )
+        }
+      }
+      @skills.SkillCatalog::{ skills: selected, diagnostics: [], }
+    }
+  }
+  match
+    @skills.Skills::from_catalog(
+      ctx.fs,
+      catalog~,
+      config=cetas_skills_config(),
+    ) {
+    Ok(skills) => Some(skills as &@posoco.Extension)
+    Err(reason) =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id="cetas.skills",
+        detail="skills composition failed: " + reason,
+      )
+  }
 }
 
 ///|
@@ -187,24 +333,16 @@ pub async fn build_default_features(
   host_help_note? : String? = None,
   obsidian_vault? : String? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
-  let freshness = @devkit.FreshnessGuard::FreshnessGuard()
-  let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
-  let exts : Array[&@posoco.Extension] = [
-    @read.ReadTools(freshness~, anchor=Some(anchor)),
-    @write.WriteTools(freshness~, anchor=Some(anchor)),
-    @edit.EditTools(freshness~, anchor=Some(anchor)),
-    @glob.GlobTools(anchor=Some(anchor)),
-    @grep.GrepTools(anchor=Some(anchor)),
-    @astgrep.AstGrepTools(anchor=Some(anchor)) as &@posoco.Extension,
-  ]
+  let exts = build_cetas_tools(
+    ctx~,
+    ["read", "write", "edit", "glob", "grep", "astgrep"],
+  )
   // Episodic tools defer behind the lazytools gateway. Each extension's
   // non-tool ports (hooks, commands, memory, prompt) register through its
   // toolless view.
   // webfetch is a read-only tool (URL fetch, no workspace writes) and
   // keeps its permission read class behind the gateway.
-  let episodic : Array[&@posoco.Extension] = [
-    @webfetch.WebFetchTools() as &@posoco.Extension,
-  ]
+  let episodic = build_cetas_tools(ctx~, ["webfetch"])
   // Shell tool choice per platform. Unix's bash is a direct catalog tool —
   // a coding turn shells out constantly, so the gateway hop only added
   // latency; permission and rtk classify by the tool name (the shared
@@ -213,35 +351,25 @@ pub async fn build_default_features(
   // deferred like the other episodic tools. The manuals merge into the one
   // skills extension below so both share the activate_skill tool; a second
   // Skills instance would collide on tool names at composition.
+  let shell = build_cetas_tools(ctx~, ["bash"])
   if shell_platform_is_windows() {
-    episodic.push(
-      @ps1.PowerShellTools(anchor=Some(anchor)) as &@posoco.Extension,
-    )
+    for ext in shell {
+      episodic.push(ext)
+    }
   } else {
-    exts.push(@bash.ShellTools(anchor=Some(anchor)) as &@posoco.Extension)
+    for ext in shell {
+      exts.push(ext)
+    }
   }
 
-  let builtin_manuals = @forme.builtin_manual_skills()
-  let discovered : @skills.SkillCatalog = match
-    @skills.Skills::discover(
-      ctx.fs,
-      cwd=ctx.cwd,
-      home=ctx.home,
-      config=cetas_skills_config(),
-    ) {
-    Some(skills) => skills.catalog()
-    None => @skills.SkillCatalog::empty()
-  }
   // With built-ins merged in, the skills extension registers even on machines
   // with no discovered skills: the product manual is always present.
-  match
-    @skills.Skills::from_catalog(
-      ctx.fs,
-      catalog=@skills.merge_builtin_skills(discovered, builtin_manuals),
-      config=cetas_skills_config(),
-    ) {
-    Ok(skills) => exts.push(skills as &@posoco.Extension)
-    Err(_) => ()
+  let skills = build_cetas_skills(ctx~) catch {
+    _ => None
+  }
+  match skills {
+    Some(skills) => exts.push(skills)
+    None => ()
   }
   exts.push(@forme.Forme::Forme(host_note=host_help_note) as &@posoco.Extension)
   // ask_question self-wires from the CompositionView (requires Capability::Ui);
