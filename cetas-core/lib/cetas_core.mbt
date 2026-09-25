@@ -186,7 +186,7 @@ pub fn build_cetas_tools(
     match name {
       "read" =>
         exts.push(
-          @read.ReadTools(freshness~, anchor=Some(anchor))
+          @read.ReadTools(freshness~, anchor=Some(anchor), fs=Some(ctx.fs))
           as &@posoco.Extension,
         )
       "write" =>
