@@ -167,6 +167,22 @@ pub async fn build_cetas_session(
     ) {
     exts.push(tool)
   }
+
+  // Subagents get their own router, permission state, and core tool instances.
+  // The composer reconstructs the requested child face rather than borrowing
+  // these parent providers, so freshness/permission state cannot leak across
+  // the parent-child boundary.
+  let subagents = build_cetas_subagents(
+    parent_router=router,
+    approval~,
+    ui~,
+    context_fs=platform.fs,
+    feature_fs=session_fs,
+    cwd~,
+    home=platform.home,
+  )
+  exts.push(subagents)
+
   // The routing table and catalog base are captured BEFORE any host tail
   // extension joins: a decorator source (ACP: the MCP bridge) appends its
   // own live tools, so including them here would duplicate every name.

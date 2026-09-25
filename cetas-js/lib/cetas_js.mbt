@@ -1688,6 +1688,26 @@ pub fn cetas_js_runtime_create_agent(
               ) {
               exts.push(tool)
             }
+
+            // Subagents inherit only the reconstructable Cetas core face.
+            // Dynamic MCP/Pi/herdr/zcode providers remain parent-only so a
+            // child never borrows mutable decorator/runtime state.
+            let child_approval : &@permission.ApprovalSource? = match
+              approval_source {
+              Some(source) => Some(source as &@permission.ApprovalSource)
+              None => None
+            }
+            let subagents = @cetas_core.build_cetas_subagents(
+              parent_router=model,
+              approval=child_approval,
+              ui=Some(ui as &@posoco.UiPort),
+              context_fs=context_fs,
+              feature_fs=context_fs,
+              cwd=runtime.config.cwd,
+              home=runtime.config.home,
+            )
+            exts.push(subagents)
+
             // cetas-bun is the only outlet that reports presence to herdr; both
             // presence reporting and herdr-pane delegation are env-gated — absent env → absent exts.
             match @herdr.HerdrReporter::detect() {
