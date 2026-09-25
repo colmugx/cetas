@@ -53,7 +53,7 @@ pub extern "C" fn close(tui : RawTui) = "ctui_close"
 pub extern "C" fn suspend(tui : RawTui) -> Int = "ctui_suspend"
 
 ///|
-pub extern "C" fn resume(tui : RawTui) -> Int = "ctui_resume"
+pub extern "C" fn resume_terminal(tui : RawTui) -> Int = "ctui_resume"
 
 ///|
 #borrow(words, text)
