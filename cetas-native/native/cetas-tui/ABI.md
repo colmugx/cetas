@@ -54,7 +54,7 @@ suspended context does not re-enter raw mode.
 MoonBit consumes events through `ctui_poll_words`, not by depending on the
 native C struct layout.
 
-Each event is exactly 14 little conceptual `uint32_t` words:
+Each event is exactly 14 `uint32_t` words in the host C ABI memory model:
 
 | Index | Field |
 | ---: | --- |
