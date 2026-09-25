@@ -345,5 +345,8 @@ pub fn validation_marker() -> Int {
   if typed_observer_validation_marker() != 1 {
     return 0
   }
+  if input_validation_marker() != 1 {
+    return 0
+  }
   snapshot_validation_marker()
 }
