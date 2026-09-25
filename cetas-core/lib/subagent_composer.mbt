@@ -379,7 +379,7 @@ impl @subagent.ChildComposer for CetasChildComposer with fn compose(
     router as &@posoco.Extension,
     permission as &@posoco.Extension,
     CetasChildIo::{ store: self.child_store, observers: spec.observers, }
-      as &@posoco.Extension,
+    as &@posoco.Extension,
   ]
 
   if spec.context_files {
