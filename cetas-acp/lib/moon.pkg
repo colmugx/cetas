@@ -22,6 +22,7 @@ import {
   "colmugx/posoco-kit-paseo" @paseo_kit,
   "colmugx/posoco/runtime",
   "moonbitlang/async",
+  "moonbitlang/async/aqueue",
   "moonbitlang/async/fs",
   "moonbitlang/async/stdio",
   "moonbitlang/core/env",
