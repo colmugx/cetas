@@ -25,17 +25,17 @@ pub fn builtin_manual_skills() -> Array[@skills.SkillDescriptor] {
   [
     @skills.SkillDescriptor::builtin(
       name="cetas-about",
-      description="What cetas is, what it can and cannot do, and which hosts exist. Use when the user asks what cetas/this agent is or what it can do for them.",
+      description="Cetas identity, capabilities, limits, and hosts; use for who/what/can-you-do questions.",
       body=cetas_about_manual(),
     ),
     @skills.SkillDescriptor::builtin(
       name="cetas-usage",
-      description="How to use cetas: turns, slash commands, @path mentions, permission modes, session resume. Use when the user asks how to do something with cetas or hits a usage problem.",
+      description="How to use Cetas: turns, commands, @path, permissions, and sessions.",
       body=cetas_usage_manual(),
     ),
     @skills.SkillDescriptor::builtin(
       name="cetas-config",
-      description="Where cetas keeps state (~/.cetas, settings.json, sessions) and how to change providers, models, and profiles. Use when the user asks about configuration or storage.",
+      description="Cetas storage and configuration: home, providers, models, profiles, and sessions.",
       body=cetas_config_manual(),
     ),
   ]

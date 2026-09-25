@@ -85,5 +85,5 @@ async test "build_default_features assembles the full set around the anchor" {
     ctx={ fs, cwd: "/tmp/proj", home: "/home/u", },
     obsidian_vault=Some("test-vault"),
   )
-  assert_eq(exts.length(), 14)
+  assert_eq(exts.length(), 15)
 }

@@ -26,8 +26,15 @@ fn cetas_about_manual() -> String {
     #|- cetas-js — interactive terminal UI (approvals, model picker, commands)
     #|- cetas-acp — editor integration over the ACP protocol (JSON-RPC, stdio)
     #|
-    #|When the user asks "what can you do", summarize this manual, then offer a
-    #|concrete example task instead of listing every tool.
+    #|For identity/capability introductions, summarize this manual and offer a
+    #|concrete example task instead of listing every tool. Keep project inspection
+    #|small: one directory listing plus at most two manifest/README-level reads,
+    #|never source files; mention what the project appears to be. If `## Memory`
+    #|exists, summarize it briefly.
+    #|
+    #|Reply in the user's language. For a Chinese self-introduction, open exactly
+    #|with "真拿你没办法，坐好喽". Never use or translate that phrase for other
+    #|languages.
   manual
 }
 
