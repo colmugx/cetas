@@ -16,18 +16,22 @@
 ///|
 /// A host-supplied credential snapshot keyed by provider id. The host reads
 /// its credential store once and hands the whole map to catalog composition,
-/// so this module performs no IO.
+/// so this module performs no IO. `credential_store` carries the store the
+/// credentials were read from so a refresh seam can persist renewed records;
+/// `None` keeps renewal memory-only.
 pub(all) struct ProviderCredentialSnapshot {
   settings : Map[String, Json]
   credentials : Map[String, @oauth.ProviderCredential]
+  credential_store : &@oauth.ProviderCredentialStore?
 }
 
 ///|
 pub fn ProviderCredentialSnapshot::ProviderCredentialSnapshot(
   settings? : Map[String, Json] = Map::from_array([]),
   credentials? : Map[String, @oauth.ProviderCredential] = Map::from_array([]),
+  credential_store? : &@oauth.ProviderCredentialStore? = None,
 ) -> ProviderCredentialSnapshot {
-  { settings, credentials, }
+  { settings, credentials, credential_store, }
 }
 
 ///|
@@ -54,6 +58,7 @@ pub fn source_for_factory(
     settings=provider_settings,
     provider_credential~,
     cached_models~,
+    credential_store=snapshot.credential_store,
   )
 }
 
@@ -123,6 +128,7 @@ pub async fn refresh_provider_catalog(
   let source = @llm.ProviderConfigSource::ProviderConfigSource(
     settings=provider_settings,
     provider_credential~,
+    credential_store=snapshot.credential_store,
   )
   match factory.refresh(source) {
     @llm.ProviderBuildResult::Ready(catalog) => Some(catalog)

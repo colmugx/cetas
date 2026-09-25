@@ -194,6 +194,7 @@ async fn collect_provider_catalogs(
   let snapshot = @cetas_core.ProviderCredentialSnapshot::ProviderCredentialSnapshot(
     settings~,
     credentials~,
+    credential_store=Some(store),
   )
   let device_id = if runtime.config.home.length() > 0 {
     resolve_kimi_device_id(runtime.config.home)
@@ -558,6 +559,7 @@ async fn prepare_live_refresh(
   let snapshot = @cetas_core.ProviderCredentialSnapshot::ProviderCredentialSnapshot(
     settings~,
     credentials~,
+    credential_store=Some(store),
   )
   (factories, snapshot)
 }

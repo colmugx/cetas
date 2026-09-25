@@ -231,6 +231,7 @@ pub async fn read_credential_snapshot(
   ProviderCredentialSnapshot::ProviderCredentialSnapshot(
     settings~,
     credentials~,
+    credential_store=Some(store),
   )
 }
 

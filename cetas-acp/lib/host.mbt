@@ -1287,6 +1287,7 @@ async fn read_credential_snapshot(
   @cetas_core.ProviderCredentialSnapshot::ProviderCredentialSnapshot(
     settings~,
     credentials~,
+    credential_store=Some(store),
   )
 }
 
