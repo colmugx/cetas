@@ -33,7 +33,10 @@ fn main {
   let batch_tty_ok = terminal.render(scene) == 0
 
   let transcript = @ui.TranscriptModel::new()
-  ignore(transcript.append_finalized(@ui.TranscriptAssistant, "cetas-scrollback"))
+  ignore(transcript.append_finalized(
+    @ui.TranscriptAssistant,
+    "cetas-scrollback\n第二行",
+  ))
   let ready = transcript.take_scrollback_ready()
   let scrollback_insert_ok = ready.length() == 1 &&
     terminal.insert_before(ready[0].text) == 0 &&
