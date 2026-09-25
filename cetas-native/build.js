@@ -61,5 +61,9 @@ console.log(JSON.stringify({
       package: 'colmugx/cetas-native/src',
       link_flags: [shellQuote(staticLibrary), match[1].trim()].join(' '),
     },
+    {
+      package: 'colmugx/cetas-native/src/parity',
+      link_flags: [shellQuote(staticLibrary), match[1].trim()].join(' '),
+    },
   ],
 }));
