@@ -14,6 +14,12 @@ description = "Native Cetas TUI validation host backed by Ratatui"
 
 preferred_target = "native"
 
+supported_targets = "native"
+
 options(
   "--moonbit-unstable-prebuild": "build.js",
 )
+
+import {
+  "colmugx/posoco@0.18.5",
+}
