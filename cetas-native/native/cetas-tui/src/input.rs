@@ -141,6 +141,9 @@ pub extern "C" fn ctui_poll(
     }
 
     let tui = unsafe { &mut *tui };
+    if tui.suspended {
+        return CTUI_STATUS_TERMINAL_ERROR;
+    }
     tui.last_event_text.clear();
     let mut out = CetasTuiEvent::default();
 
