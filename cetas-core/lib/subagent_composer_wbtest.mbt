@@ -16,9 +16,7 @@ fn subagent_test_slot(
 }
 
 ///|
-fn subagent_test_composer(
-  router : @llm.RouterModelPort,
-) -> CetasChildComposer {
+fn subagent_test_composer(router : @llm.RouterModelPort) -> CetasChildComposer {
   let fs = @workspace.NativeWorkspaceFs()
   CetasChildComposer(
     parent_router=router,
@@ -90,10 +88,7 @@ async test "subagent child model selection does not mutate parent router" {
   )
   let composer = subagent_test_composer(router)
   ignore(
-    @subagent.ChildComposer::compose(
-      composer,
-      subagent_test_spec("test/b", []),
-    ),
+    @subagent.ChildComposer::compose(composer, subagent_test_spec("test/b", [])),
   )
   assert_eq(router.active_slot_id(), "test/a")
   assert_true(router.active_effort() is None)
