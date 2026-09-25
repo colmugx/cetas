@@ -1,0 +1,42 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "colmugx/cetas-acp/lib"
+
+import {
+  "colmugx/acp/agent",
+  "colmugx/acp/protocol",
+  "colmugx/acp/protocol/session",
+  "colmugx/posoco-ext-llm",
+  "colmugx/posoco-ext-mcp",
+  "colmugx/posoco-ext-workspace",
+  "colmugx/posoco/kernel",
+  "moonbitlang/async",
+}
+
+// Values
+pub fn acp_prompt_to_message(Array[@protocol.ContentBlock]) -> @kernel.Message
+
+// Errors
+
+// Types and methods
+pub struct CetasAcpHost {
+  version : String
+  home : String
+  fs : &@posoco-ext-workspace.WorkspaceFs
+  refreshables : Array[&@posoco-ext-llm.RefreshableProviderFactory]
+  refresh_snapshot : @colmugx/cetas-core/lib.ProviderCredentialSnapshot
+  // private fields
+}
+pub async fn CetasAcpHost::CetasAcpHost(home~ : String, cwd~ : String, agent_version? : String, mcp_group? : @async.TaskGroup[Unit], mcp_mode? : @posoco-ext-mcp.LoadMode) -> Self raise @colmugx/posoco/error.CompositionError
+pub fn CetasAcpHost::agent_spec(Self) -> Result[@agent.AgentSpec, @colmugx/acp/error.AgentCompositionError]
+pub async fn CetasAcpHost::handle_cancel(Self, @agent.AgentContext, @session.CancelParams) -> Unit
+pub async fn CetasAcpHost::handle_close(Self, @agent.AgentContext, @session.CloseSessionParams) -> @session.CloseSessionResult
+pub async fn CetasAcpHost::handle_new_session(Self, @agent.AgentContext, @session.NewSessionParams) -> @session.NewSessionResult raise @colmugx/acp/error.HandlerError
+pub async fn CetasAcpHost::handle_prompt(Self, @agent.AgentContext, @session.PromptParams) -> @session.PromptResult raise @colmugx/acp/error.HandlerError
+pub async fn CetasAcpHost::handle_resume_session(Self, @agent.AgentContext, @session.ResumeSessionParams) -> @session.ResumeSessionResult raise @colmugx/acp/error.HandlerError
+pub async fn CetasAcpHost::handle_set_config_option(Self, @agent.AgentContext, @session.SetSessionConfigOptionParams) -> @session.SetSessionConfigOptionResult raise @colmugx/acp/error.HandlerError
+pub async fn CetasAcpHost::handle_set_mode(Self, @agent.AgentContext, @session.SetSessionModeParams) -> @session.SetSessionModeResult raise @colmugx/acp/error.HandlerError
+pub async fn CetasAcpHost::refresh_model_lists(Self) -> Unit noraise
+
+// Type aliases
+
+// Traits

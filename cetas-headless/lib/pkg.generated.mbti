@@ -1,0 +1,145 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "colmugx/cetas-headless/lib"
+
+import {
+  "colmugx/posoco",
+  "colmugx/posoco-ext-llm",
+  "colmugx/posoco-ext-permission",
+  "colmugx/posoco-ext-workspace",
+  "colmugx/posoco/error",
+  "colmugx/posoco/port",
+  "colmugx/posoco/types",
+  "moonbitlang/async",
+}
+
+// Values
+pub fn approval_decision(String) -> @posoco-ext-permission.ApprovalDecision?
+
+pub fn approval_prompt(@posoco-ext-permission.ApprovalRequest) -> String
+
+pub async fn open_tty_channel() -> TtyChannel? noraise
+
+pub fn parse_headless_cli(Array[String]) -> Result[HeadlessCli, String]
+
+pub fn parse_peer_envelope(String) -> PeerEnvelope?
+
+pub fn parse_permission_mode_str(String) -> @posoco-ext-permission.PermissionMode?
+
+pub fn resolve_permission_mode(HeadlessCli) -> @posoco-ext-permission.PermissionMode
+
+pub async fn resolve_task(String?, read_line~ : async () -> String? noraise) -> String? noraise
+
+pub async fn run_one_turn(agent~ : @posoco.Agent, session_id~ : String, task~ : String, jsonl~ : JsonlObserver?, streamer? : StreamPrinter?, verbose? : JsonlObserver?, write_out~ : async (String) -> Unit noraise, write_err? : async (String) -> Unit noraise) -> Bool noraise
+
+pub fn single_line(String) -> String
+
+pub fn text_block(String) -> String
+
+pub fn turn_failed_line(String) -> String
+
+pub fn turn_marker(Int) -> String
+
+pub fn wants_terminal_ui(HeadlessCli) -> Bool
+
+// Errors
+
+// Types and methods
+pub struct CetasHeadlessHost {
+  home : String
+  cwd : String
+  agent : @posoco.Agent
+  router : @posoco-ext-llm.RouterModelPort
+  session_id : String
+  routing : Map[String, &@port.ToolProvider]
+}
+pub async fn CetasHeadlessHost::CetasHeadlessHost(home~ : String, cwd~ : String, mode~ : @posoco-ext-permission.PermissionMode, approval~ : &@posoco-ext-permission.ApprovalSource?, ui~ : &@port.UiPort?, model_override? : String, effort_override? : String, session_id? : String, tail_exts? : Array[&@port.Extension], fs? : &@posoco-ext-workspace.WorkspaceFs?, mcp_group? : @async.TaskGroup[Unit]?, label? : String, detect_herdr? : Bool, warn? : async (String) -> Unit noraise) -> Self raise @error.CompositionError
+
+pub(all) struct HeadlessCli {
+  model : String
+  effort : String
+  session_id : String
+  yolo : Bool
+  jsonl : Bool
+  verbose : Bool
+  stream : Bool
+  show_thinking : Bool
+  permission_mode : @posoco-ext-permission.PermissionMode?
+  task : String
+}
+
+pub struct JsonlObserver {
+  mut turn : Int
+  mut session_id : String
+  mut turns_completed : Int
+  mut input_tokens : Int
+  mut output_tokens : Int
+  mut lines : Array[String]
+  stream : Bool
+  id : String
+  mut sink : ((String) -> Unit)?
+}
+pub fn JsonlObserver::JsonlObserver(stream? : Bool, id? : String) -> Self
+pub fn JsonlObserver::begin_turn(Self, turn_no~ : Int, session_id~ : String) -> Unit
+pub fn JsonlObserver::emit_turn_completed(Self, summary~ : String, marker~ : String) -> Unit
+pub fn JsonlObserver::emit_turn_failed(Self, error~ : String, marker~ : String) -> Unit
+pub fn JsonlObserver::extension_id(Self) -> String
+pub fn JsonlObserver::manifest(Self) -> @port.ExtensionManifest
+pub fn JsonlObserver::on_event(Self, @types.TurnEvent) -> Unit
+pub fn JsonlObserver::on_event_at(Self, @types.EventScope?, @types.TurnEvent) -> Unit
+pub fn JsonlObserver::set_live_sink(Self, (String) -> Unit) -> Unit
+pub fn JsonlObserver::take_lines(Self) -> Array[String]
+pub impl @port.Extension for JsonlObserver
+pub impl @port.Observer for JsonlObserver
+
+pub(all) struct PeerEnvelope {
+  from : String
+  session : String
+  task : String
+}
+
+pub struct StreamPrinter {
+  stream : Bool
+  show_thinking : Bool
+  mut text_sink : ((String) -> Unit)?
+  mut thinking_sink : ((String) -> Unit)?
+  mut streamed_text : Bool
+  mut final_reasoning : String
+}
+pub fn StreamPrinter::StreamPrinter(stream~ : Bool, show_thinking~ : Bool) -> Self
+pub fn StreamPrinter::extension_id(Self) -> String
+pub fn StreamPrinter::final_reasoning(Self) -> String
+pub fn StreamPrinter::manifest(Self) -> @port.ExtensionManifest
+pub fn StreamPrinter::on_event(Self, @types.TurnEvent) -> Unit
+pub fn StreamPrinter::on_event_at(Self, @types.EventScope?, @types.TurnEvent) -> Unit
+pub fn StreamPrinter::set_text_sink(Self, (String) -> Unit) -> Unit
+pub fn StreamPrinter::set_thinking_sink(Self, (String) -> Unit) -> Unit
+pub fn StreamPrinter::streamed_text(Self) -> Bool
+pub impl @port.Extension for StreamPrinter
+pub impl @port.Observer for StreamPrinter
+
+pub struct TerminalApprovalSource {
+  tty : TtyChannel?
+  notice : async (String) -> Unit noraise
+}
+pub fn TerminalApprovalSource::TerminalApprovalSource(tty~ : TtyChannel?, notice? : async (String) -> Unit noraise) -> Self
+pub async fn TerminalApprovalSource::ask(Self, @posoco-ext-permission.ApprovalRequest) -> @posoco-ext-permission.ApprovalDecision
+pub impl @posoco-ext-permission.ApprovalSource for TerminalApprovalSource
+
+pub struct TerminalUiPort {
+  tty : TtyChannel?
+}
+pub fn TerminalUiPort::TerminalUiPort(tty~ : TtyChannel?) -> Self
+pub fn TerminalUiPort::render(Self, @port.UiRender) -> Unit
+pub async fn TerminalUiPort::request(Self, @port.UiRequest) -> @port.UiResponse raise @error.UiError
+pub fn TerminalUiPort::ui_descriptor(Self) -> @port.UiDescriptor
+pub impl @port.UiPort for TerminalUiPort
+
+pub(all) struct TtyChannel {
+  read_line : async () -> String? noraise
+  write : async (String) -> Unit noraise
+  close : () -> Unit
+}
+
+// Type aliases
+
+// Traits

@@ -72,7 +72,6 @@ test "forme: manifest contributes one help command and one prompt section" {
   assert_true(routing.length() < 190)
 }
 
-
 ///|
 test "manuals: self-introduction policy is progressive disclosure" {
   let about = cetas_about_manual()

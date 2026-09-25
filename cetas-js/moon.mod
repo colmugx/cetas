@@ -22,6 +22,8 @@ description = "Cetas JS host — bun runtime + pi-tui UI, reuses cetas-core for 
 
 preferred_target = "js"
 
+supported_targets = "js"
+
 import {
   "colmugx/posoco@0.18.5",
   "colmugx/cetas-core@0.2.0",
