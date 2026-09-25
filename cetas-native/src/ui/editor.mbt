@@ -383,6 +383,7 @@ pub fn editor_validation_marker() -> Int {
     return 0
   }
 
+  editor.move_end()
   editor.insert_text("\nworld")
   editor.move_home()
   editor.delete_forward()
