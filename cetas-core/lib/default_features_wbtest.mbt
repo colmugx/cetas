@@ -136,7 +136,7 @@ async test "default features include discovered skills through injected ctx" {
   // the three toolless gateway views (webfetch, nmem, obsidian), and the
   // gateway itself — the default compiled flavor is personal, so nmem and
   // obsidian register (rtk is lean-only now).
-  assert_eq(exts.length(), 14)
+  assert_eq(exts.length(), 15)
   let ids : Array[String] = []
   for ext in exts {
     ids.push(ext.extension_id())
@@ -145,14 +145,14 @@ async test "default features include discovered skills through injected ctx" {
   assert_true(ids.contains("forme"))
   assert_true(ids.contains("posoco_ext_webfetch"))
   assert_true(ids.contains("posoco_ext_lazytools"))
-  // The skills extension contributes its ToolProvider (activating both
-  // activate_skill and read_skill_resource) and the host-facing `skills`
+  // The skills extension contributes its ToolProvider (activate_skill,
+  // read_skill_resource, and skill_search) and the host-facing `skills`
   // command on a populated catalog.
   for ext in exts {
     if ext.extension_id() == "posoco_ext_skills" {
       let manifest = ext.manifest()
       assert_eq(manifest.tools.length(), 1)
-      assert_eq(manifest.tools[0].list_tools().length(), 2)
+      assert_eq(manifest.tools[0].list_tools().length(), 3)
       assert_eq(manifest.commands.length(), 1)
     }
   }
@@ -167,7 +167,7 @@ async test "nowledge-mem registers in the personal flavor" {
   let ctx : HostContext = { fs, cwd: "/nowhere", home: "/home/u", }
   // Personal builds bake nmem in: the default set plus Nowledge Mem.
   let exts = build_default_features(ctx~, obsidian_vault=Some("test-vault"))
-  assert_eq(exts.length(), 14)
+  assert_eq(exts.length(), 15)
   let mut found = false
   let mut gateway_tools = 0
   for ext in exts {
@@ -208,7 +208,7 @@ async test "default features register skills even with no discovered skills: the
   // An empty environment still registers the skills extension: the built-in
   // manuals (cetas-about/usage/config) are merged into the catalog, so both
   // skill tools stay live and the `skills` command always has content.
-  assert_eq(exts.length(), 14)
+  assert_eq(exts.length(), 15)
   let mut found = false
   for ext in exts {
     if ext.extension_id() == "posoco_ext_skills" {
@@ -221,6 +221,7 @@ async test "default features register skills even with no discovered skills: the
       }
       assert_true(tool_names.contains("activate_skill"))
       assert_true(tool_names.contains("read_skill_resource"))
+      assert_true(tool_names.contains("skill_search"))
       assert_eq(manifest.commands.length(), 1)
     }
   }
@@ -283,7 +284,7 @@ async test "ask_question always joins the default set" {
         manifest.tools[0].list_tools()[0].name.to_string(),
         "ask_question",
       )
-      assert_eq(manifest.prompt_contributors.length(), 1)
+      assert_eq(manifest.prompt_contributors.length(), 0)
       assert_eq(manifest.requires, [@posoco.Capability::Ui])
     }
   }
@@ -314,12 +315,12 @@ async test "bash is a direct catalog tool; episodic tools defer" {
       }
     }
   }
-  // Direct surface: read/write/edit/glob/grep/astgrep/bash + the two skill
-  // tools + ask_question — ten. Permission and rtk classify direct shell
+  // Direct surface: read/write/edit/glob/grep/astgrep/bash + the three skill
+  // tools + ask_question — eleven. Permission and rtk classify direct shell
   // calls by the tool name (unwrap passes them through unchanged), so bash
   // keeps its gating semantics without the gateway.
   assert_eq(gateway_meta, 2)
-  assert_eq(direct.length(), 10)
+  assert_eq(direct.length(), 11)
   assert_true(direct.contains("bash"))
   // Episodic tools never appear directly: they are reachable only through
   // tool_execute (and discoverable via tool_list).

@@ -153,11 +153,9 @@ async test "unknown --effort fails composition listing the slot's supported effo
           "--effort 'bogus' rejected by model slot 'opencode/claude-sonnet-5'",
         ),
       )
-      // The rejecting slot's advertised vocabulary (its curated preset:
-      // low/medium/high/xhigh/max) must be listed in full.
-      assert_true(
-        detail.contains("supported efforts: low, medium, high, xhigh, max"),
-      )
+      // The rejecting slot must list the exact vocabulary advertised by the
+      // fixture's model_lists.json for claude-sonnet-5.
+      assert_true(detail.contains("supported efforts: low, high"))
     }
     _ => fail("an unsupported --effort must fail composition")
   }

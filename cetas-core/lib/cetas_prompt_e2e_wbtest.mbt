@@ -1,9 +1,8 @@
-// E2E: the context contributor gets section id "project_context" (not Agent's
-// generic "section_0"); its <cetas-context> envelope must reach the model's
-// SystemMessage. cetas-core owns the section labeling for context vs tool guidance.
+// E2E: the context contributor's self-describing <cetas-context> envelope
+// reaches the model's SystemMessage without an extra model-visible label.
 
 ///|
-async test "e2e: Cetas labels context contributor as project_context" {
+async test "e2e: Cetas keeps project context envelope self-describing" {
   // A ContextBundle with one ancestor doc. We construct it inline (cetas-core
   // does not depend on posoco-ext-context; it only consumes the
   // SystemPromptContributor trait, which ContextPromptContributor implements).
@@ -70,8 +69,8 @@ async test "e2e: Cetas labels context contributor as project_context" {
           assert_true(t.contains("<cetas-context "))
           assert_true(t.contains("source=\"/repo/AGENTS.md\""))
           assert_true(t.contains("Build with: moon test"))
-          // Cetas labels the context contributor as the project_context section.
-          assert_true(t.contains("project_context:\n"))
+          // No redundant model-visible wrapper is needed around the envelope.
+          assert_false(t.contains("project_context:\n"))
         }
         _ => fail("system message should have text content")
       }
@@ -176,8 +175,8 @@ async test "e2e: base + cetas contributor + ext contributor share one SystemMess
           // Base prompt is the first section (the assembled prompt may lead
           // with whitespace from the multi-line template).
           assert_true(t.trim_start().has_prefix("You are Cetas"))
-          // project_context section precedes the ext contributor section.
-          assert_true(t.contains("project_context:\n"))
+          // The context envelope and later extension contribution both survive.
+          assert_false(t.contains("project_context:\n"))
           assert_true(t.contains("\n\next:\nEXT_SECTION"))
           // Both contributions are actually present.
           assert_true(t.contains("Build with: moon test"))
