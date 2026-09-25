@@ -32,7 +32,7 @@ fn main {
 
   let batch_tty_ok = terminal.render(scene) == 0
   let suspend_ok = terminal.suspend() == 0
-  let resume_ok = terminal.resume() == 0
+  let resume_ok = terminal.resume_terminal() == 0
   let redraw_after_resume_ok = terminal.render(@ui.Scene::validation()) == 0
 
   let (viewport_status, viewport_words) = terminal.viewport_size()
