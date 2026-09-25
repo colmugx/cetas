@@ -4762,6 +4762,7 @@ async test "the catalog dump lands after an injected session assembly" {
   let tools = tk_assert_catalog_tools(text)
   for tool in tools {
     guard tool is Json::Object(entry) else { fail("unreachable") }
+    assert_false(entry.get("name") is Some(Json::String("agent")))
     match entry.get("source") {
       Some(Json::String("local")) => ()
       _ => fail("a connection-failed injection must label every tool local")
