@@ -169,6 +169,47 @@ pub fn TerminalEvent::key_code_value(
 }
 
 ///|
+/// Global shortcut listeners must ignore Kitty key-release events. Press and
+/// repeat remain actionable, matching cetas-js after its isKeyRelease guard.
+pub fn TerminalEvent::is_actionable_key(self : TerminalEvent) -> Bool {
+  if self.kind_value() != EventKey {
+    return false
+  }
+  match self.key_action_value() {
+    KeyPress | KeyRepeat => true
+    KeyRelease | KeyActionUnknown(_) => false
+  }
+}
+
+///|
+pub fn TerminalEvent::is_key_release(self : TerminalEvent) -> Bool {
+  self.kind_value() == EventKey && self.key_action_value() == KeyRelease
+}
+
+///|
+/// Match one normalized key chord after Crossterm has decoded terminal escape
+/// sequences. Modifier matching is exact; callers opt into each accepted chord
+/// explicitly instead of accidentally firing ctrl/alt variants.
+pub fn TerminalEvent::matches_key(
+  self : TerminalEvent,
+  code : KeyCode,
+  modifiers : UInt,
+) -> Bool {
+  self.is_actionable_key() &&
+    self.key_code_value() == code &&
+    self.modifiers == modifiers
+}
+
+///|
+pub fn TerminalEvent::matches_char(
+  self : TerminalEvent,
+  codepoint : UInt,
+  modifiers : UInt,
+) -> Bool {
+  self.matches_key(KeyChar(codepoint), modifiers)
+}
+
+///|
 pub fn decode_terminal_event(
   words : FixedArray[UInt],
 ) -> TerminalEvent? {
@@ -199,16 +240,42 @@ pub fn event_validation_marker() -> Int {
     2U, 56U, 1U, 1U, 113U, 2U, 1U,
     0U, 0U, 0U, 0U, 0U, 0U, 0U,
   ]
-  match decode_terminal_event(words) {
-    Some(event) =>
-      if event.kind_value() == EventKey &&
-        event.key_code_value() == KeyChar(113U) &&
-        event.key_action_value() == KeyPress &&
-        event.has_modifier(modifier_control()) {
-        1
-      } else {
-        0
-      }
-    None => 0
+  guard decode_terminal_event(words) is Some(event) else {
+    return 0
   }
+  if event.kind_value() != EventKey ||
+    event.key_code_value() != KeyChar(113U) ||
+    event.key_action_value() != KeyPress ||
+    !event.has_modifier(modifier_control()) ||
+    !event.is_actionable_key() ||
+    !event.matches_char(113U, modifier_control()) ||
+    event.matches_char(113U, 0U) {
+    return 0
+  }
+
+  let release_words : FixedArray[UInt] = [
+    2U, 56U, 1U, 1U, 113U, 2U, 3U,
+    0U, 0U, 0U, 0U, 0U, 0U, 0U,
+  ]
+  guard decode_terminal_event(release_words) is Some(release) else {
+    return 0
+  }
+  if !release.is_key_release() ||
+    release.is_actionable_key() ||
+    release.matches_char(113U, modifier_control()) {
+    return 0
+  }
+
+  let back_tab_words : FixedArray[UInt] = [
+    2U, 56U, 1U, 6U, 0U, 1U, 1U,
+    0U, 0U, 0U, 0U, 0U, 0U, 0U,
+  ]
+  guard decode_terminal_event(back_tab_words) is Some(back_tab) else {
+    return 0
+  }
+  if !back_tab.matches_key(KeyBackTab, modifier_shift()) {
+    return 0
+  }
+
+  1
 }
