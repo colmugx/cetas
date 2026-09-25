@@ -9,11 +9,6 @@
 /// runtime state.
 
 ///|
-fn subagent_platform_is_windows() -> Bool {
-  @cetas_core.compiled_target_os() == "windows"
-}
-
-///|
 async fn load_cetas_subagent_catalog(
   home~ : String,
   cwd~ : String,
@@ -23,25 +18,15 @@ async fn load_cetas_subagent_catalog(
   let loaded = @kind.KindCatalog::load(home~, cwd~) catch {
     _ => @kind.KindCatalog::builtin()
   }
-  if !subagent_platform_is_windows() {
-    return loaded
-  }
-
-  // The generic kind package names the Unix shell "bash". Cetas' Windows
-  // product surface exposes the equivalent shell capability as "ps1", so
-  // normalize the host-specific tool spelling at the composition boundary.
   let entries : Array[@kind.KindSpec] = []
   for name in loaded.names() {
     match loaded.get(name) {
       Some(spec) => {
         let tools : Array[String] = []
         for tool in spec.tools {
-          if tool == "bash" {
-            if !tools.contains("ps1") {
-              tools.push("ps1")
-            }
-          } else if !tools.contains(tool) {
-            tools.push(tool)
+          let canonical = @cetas_core.canonical_cetas_tool_name(tool)
+          if !tools.contains(canonical) {
+            tools.push(canonical)
           }
         }
         entries.push({ ..spec, tools, })
@@ -196,122 +181,29 @@ fn CetasChildComposer::tool_extensions(
   self : CetasChildComposer,
   names : Array[String],
 ) -> Array[&@posoco.Extension] raise @subagent.ComposerError {
-  let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(self.cwd)
-  let freshness = @devkit.FreshnessGuard::FreshnessGuard()
-  let exts : Array[&@posoco.Extension] = []
-  let seen : Set[String] = Set([])
-  for name in names {
-    if seen.contains(name) {
-      continue
-    }
-    seen.add(name)
-    match name {
-      "read" =>
-        exts.push(
-          @read.ReadTools(
-            freshness~,
-            anchor=Some(anchor),
-            fs=Some(self.feature_fs),
-          )
-          as &@posoco.Extension,
-        )
-      "write" =>
-        exts.push(
-          @write.WriteTools(freshness~, anchor=Some(anchor))
-          as &@posoco.Extension,
-        )
-      "edit" =>
-        exts.push(
-          @edit.EditTools(freshness~, anchor=Some(anchor)) as &@posoco.Extension,
-        )
-      "glob" =>
-        exts.push(@glob.GlobTools(anchor=Some(anchor)) as &@posoco.Extension)
-      "grep" =>
-        exts.push(@grep.GrepTools(anchor=Some(anchor)) as &@posoco.Extension)
-      "astgrep" =>
-        exts.push(
-          @astgrep.AstGrepTools(anchor=Some(anchor)) as &@posoco.Extension,
-        )
-      "bash" =>
-        if subagent_platform_is_windows() {
-          raise @subagent.ComposerError::Failed(
-            "child tool 'bash' is unavailable in the Windows Cetas build",
-          )
-        } else {
-          exts.push(@bash.ShellTools(anchor=Some(anchor)) as &@posoco.Extension)
-        }
-      "ps1" =>
-        if subagent_platform_is_windows() {
-          exts.push(
-            @ps1.PowerShellTools(anchor=Some(anchor)) as &@posoco.Extension,
-          )
-        } else {
-          raise @subagent.ComposerError::Failed(
-            "child tool 'ps1' is unavailable in the Unix Cetas build",
-          )
-        }
-      "webfetch" => exts.push(@webfetch.WebFetchTools() as &@posoco.Extension)
-      "ask_question" =>
-        exts.push(@askquestion.AskQuestionTools() as &@posoco.Extension)
-      other =>
-        raise @subagent.ComposerError::Failed(
-          "child tool '" +
-          other +
-          "' is not a reconstructable Cetas core tool; dynamic/decorator tools are not inherited by subagents",
-        )
-    }
+  @cetas_core.build_cetas_tools(
+    ctx={ fs: self.feature_fs, cwd: self.cwd, home: self.home, },
+    names~,
+  ) catch {
+    error =>
+      raise @subagent.ComposerError::Failed(
+        "child tool composition failed: " + error.to_string(),
+      )
   }
-  exts
 }
 
 ///|
 async fn CetasChildComposer::skills_extension(
   self : CetasChildComposer,
   requested : Array[String],
-) -> @skills.Skills? raise @subagent.ComposerError {
-  let discovered : @skills.SkillCatalog = match
-    @skills.Skills::discover(
-      self.feature_fs,
-      cwd=self.cwd,
-      home=self.home,
-      config=@cetas_core.cetas_skills_config(),
-    ) {
-    Some(skills) => skills.catalog()
-    None => @skills.SkillCatalog::empty()
-  }
-  let full = @skills.merge_builtin_skills(
-    discovered,
-    @forme.builtin_manual_skills(),
-  )
-  let catalog = if requested.is_empty() {
-    full
-  } else {
-    let selected : Array[@skills.SkillDescriptor] = []
-    for name in requested {
-      match full.find(name) {
-        Some(skill) => selected.push(skill)
-        None =>
-          raise @subagent.ComposerError::Failed(
-            "unknown child skill '" +
-            name +
-            "' (available: " +
-            full.names().join(", ") +
-            ")",
-          )
-      }
-    }
-    @skills.SkillCatalog::{ skills: selected, diagnostics: [], }
-  }
-  match
-    @skills.Skills::from_catalog(
-      self.feature_fs,
-      catalog~,
-      config=@cetas_core.cetas_skills_config(),
-    ) {
-    Ok(skills) => Some(skills)
-    Err(reason) =>
+) -> &@posoco.Extension? raise @subagent.ComposerError {
+  @cetas_core.build_cetas_skills(
+    ctx={ fs: self.feature_fs, cwd: self.cwd, home: self.home, },
+    requested=Some(requested),
+  ) catch {
+    error =>
       raise @subagent.ComposerError::Failed(
-        "child skills composition failed: " + reason,
+        "child skills composition failed: " + error.to_string(),
       )
   }
 }
@@ -406,7 +298,7 @@ impl @subagent.ChildComposer for CetasChildComposer with fn compose(
   match spec.skills {
     Some(requested) =>
       match self.skills_extension(requested) {
-        Some(skills) => exts.push(skills as &@posoco.Extension)
+        Some(skills) => exts.push(skills)
         None => ()
       }
     None => ()
