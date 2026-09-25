@@ -1697,7 +1697,7 @@ pub fn cetas_js_runtime_create_agent(
               Some(source) => Some(source as &@permission.ApprovalSource)
               None => None
             }
-            let subagents = @cetas_core.build_cetas_subagents(
+            let subagents = build_cetas_subagents(
               parent_router=model,
               approval=child_approval,
               ui=Some(ui as &@posoco.UiPort),
