@@ -462,6 +462,7 @@ pub extern "C" fn ctui_render_scene(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::buffer::CellWidth;
 
     #[test]
     fn rejects_partial_command() {
