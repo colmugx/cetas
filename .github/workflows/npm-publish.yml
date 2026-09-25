@@ -1,0 +1,74 @@
+# Manual npm publishing for the cetas submodule (repo github.com/colmugx/cetas).
+#
+# Dispatch this workflow with the release tag selected as the ref ("Use
+# workflow from" dropdown) — no inputs. It downloads that tag's release
+# assets, stages the cetas + cetas-<target> packages, and publishes them.
+# Payload packages publish before the meta package so the meta package's
+# optionalDependencies exist on the registry.
+#
+# Re-running a failed publish is safe: packages already on the registry for
+# the version are skipped, so no code commit is needed to retry.
+#
+# Bootstrap caveat: workflow_dispatch only lists refs that contain this
+# workflow file, so it works for tags created after this file landed on the
+# default branch — not for older tags.
+#
+# Needs an NPM_TOKEN secret on the cetas repo: an automation or granular
+# token with publish rights for cetas and cetas-<target>.
+name: cetas npm publish
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish-npm:
+    name: publish npm packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: require a cetas-v tag ref
+        run: |
+          if [[ "${GITHUB_REF}" != refs/tags/cetas-v* ]]; then
+            echo "::error::run this workflow from a cetas-v* tag ref (got: ${GITHUB_REF})"
+            exit 1
+          fi
+
+      - name: checkout cetas (scripts at the tag)
+        uses: actions/checkout@v4
+
+      - name: release check (version sync gate)
+        run: python3 scripts/release.py check
+
+      - name: download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern 'cetas-bun-*.tar.gz' \
+            --pattern 'cetas-bun-*.zip' \
+            --dir staging
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+
+      - name: stage npm packages
+        run: python3 scripts/npm_stage.py --staging staging --out npm_out --version "${GITHUB_REF_NAME#cetas-v}"
+
+      - name: publish (payloads first, skip already-published)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for pkg in cetas-darwin-arm64 cetas-linux-x64 cetas-windows-x64 cetas; do
+            if npm view "${pkg}@${GITHUB_REF_NAME#cetas-v}" version >/dev/null 2>&1; then
+              echo "skip ${pkg}@${GITHUB_REF_NAME#cetas-v} (already published)"
+            else
+              npm publish --access public "npm_out/${pkg}"
+            fi
+          done

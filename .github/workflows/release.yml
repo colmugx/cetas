@@ -1,7 +1,7 @@
 # Release pipeline for the cetas submodule (repo github.com/colmugx/cetas).
 # Tag builds publish cetas-acp, cetas-headless, and cetas-bun binaries plus
-# a GitHub release, and publish cetas-bun to npm (platform payload packages
-# + meta package).
+# a GitHub release. npm publishing (cetas + cetas-<target> payload packages)
+# is manual: dispatch .github/workflows/npm-publish.yml on the release tag.
 #
 # Every build job checks out colmugx/posoco and points the embedded
 # external/cetas submodule at the tag being released. This stays correct
@@ -304,46 +304,3 @@ jobs:
             staging/SHA256SUMS
           body_path: ${{ steps.relbody.outputs.path }}
 
-  # npm channel: the meta package cetas-bun plus one payload package per
-  # matrix target (os/cpu-filtered optionalDependencies, esbuild-style).
-  # Payload packages publish first because the meta package's
-  # optionalDependencies must already exist on the registry.
-  publish-npm:
-    name: publish npm packages
-    needs: [build]
-    if: startsWith(github.ref, 'refs/tags/cetas-v')
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: checkout cetas (scripts at the tag)
-        uses: actions/checkout@v4
-
-      - name: setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          registry-url: https://registry.npmjs.org
-
-      - name: download all artifacts (flattened)
-        uses: actions/download-artifact@v7
-        with:
-          path: staging
-          merge-multiple: true
-
-      - name: stage npm packages
-        run: python3 scripts/npm_stage.py --staging staging --out npm_out --version "${GITHUB_REF_NAME#cetas-v}"
-
-      # Needs an NPM_TOKEN secret on the cetas repo: an automation or
-      # granular token with publish rights for cetas-bun and cetas-bun-*.
-      - name: publish platform payload packages
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          for pkg in cetas-bun-darwin-arm64 cetas-bun-linux-x64 cetas-bun-windows-x64; do
-            npm publish --access public "npm_out/$pkg"
-          done
-
-      - name: publish meta package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public npm_out/cetas-bun
