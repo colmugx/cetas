@@ -183,7 +183,7 @@ fn CetasChildComposer::tool_extensions(
 ) -> Array[&@posoco.Extension] raise @subagent.ComposerError {
   @cetas_core.build_cetas_tools(
     ctx={ fs: self.feature_fs, cwd: self.cwd, home: self.home, },
-    names~,
+    names,
   ) catch {
     error =>
       raise @subagent.ComposerError::Failed(
