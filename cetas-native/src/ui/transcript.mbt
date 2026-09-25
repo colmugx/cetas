@@ -400,7 +400,7 @@ pub fn transcript_validation_marker() -> Int {
   let live_scene = builder.finish()
   if next_y != 3U ||
     live_scene.words.length() != 8 ||
-    live_scene.text != b"💭 streaming" {
+    live_scene.text != @utf8.encode("💭 streaming") {
     return 0
   }
 
