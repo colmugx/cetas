@@ -66,6 +66,24 @@ pub fn Terminal::render(self : Terminal, scene : Scene) -> Int {
   }
 }
 
+
+///|
+pub fn Terminal::insert_before(
+  self : Terminal,
+  text : String,
+) -> Int {
+  let bytes = @utf8.encode(text)
+  match self.raw {
+    Some(raw) =>
+      @native.insert_before_text(
+        raw,
+        bytes,
+        bytes.length().reinterpret_as_uint(),
+      )
+    None => 2
+  }
+}
+
 ///|
 pub fn Terminal::viewport_size(
   self : Terminal,
