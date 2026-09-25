@@ -2434,7 +2434,11 @@ pub fn cetas_js_rewind(
 ) -> @js_async.Promise[String] {
   @js_async.Promise::from_async() <| () => {
     let outcome : Result[Unit, Error] = Ok(
-      (handle.store as &@posoco.SessionStore).truncate(session_id, from_index),
+      @cetas_core.rewind_session(
+        handle.store as &@posoco.SessionStore,
+        session_id,
+        from_index,
+      ),
     ) catch {
       err => Err(err)
     }
