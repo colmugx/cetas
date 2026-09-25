@@ -46,10 +46,11 @@ fn main {
   let resume_ok = terminal.resume_terminal() == 0
   let redraw_after_resume_ok = terminal.render(@ui.Scene::validation()) == 0
 
-  let (viewport_status, viewport_words) = terminal.viewport_size()
-  let viewport_ok = viewport_status == 0 &&
-    viewport_words[0] == 80U &&
-    viewport_words[1] == 3U
+  let (initial_viewport_status, initial_viewport_words) =
+    terminal.viewport_size()
+  let initial_viewport_ok = initial_viewport_status == 0 &&
+    initial_viewport_words[0] == 80U &&
+    initial_viewport_words[1] == 3U
 
   let mut saw_focus = false
   let mut saw_paste = false
@@ -87,6 +88,12 @@ fn main {
     }
   }
 
+  let (resized_viewport_status, resized_viewport_words) =
+    terminal.viewport_size()
+  let resized_viewport_ok = resized_viewport_status == 0 &&
+    resized_viewport_words[0] == 81U &&
+    resized_viewport_words[1] == 3U
+
   let input_runtime_ok = input_status_ok &&
     saw_focus &&
     saw_paste &&
@@ -105,7 +112,8 @@ fn main {
     suspend_ok &&
     resume_ok &&
     redraw_after_resume_ok &&
-    viewport_ok &&
+    initial_viewport_ok &&
+    resized_viewport_ok &&
     input_runtime_ok &&
     close_ok &&
     @native.inline_probe(8) == 1 &&
@@ -124,8 +132,14 @@ fn main {
     println("suspend_ok=\{suspend_ok}")
     println("resume_ok=\{resume_ok}")
     println("redraw_after_resume_ok=\{redraw_after_resume_ok}")
-    println("viewport_status=\{viewport_status}")
-    println("viewport=\{viewport_words[0]}x\{viewport_words[1]}")
+    println("initial_viewport_status=\{initial_viewport_status}")
+    println(
+      "initial_viewport=\{initial_viewport_words[0]}x\{initial_viewport_words[1]}",
+    )
+    println("resized_viewport_status=\{resized_viewport_status}")
+    println(
+      "resized_viewport=\{resized_viewport_words[0]}x\{resized_viewport_words[1]}",
+    )
     println("input_status_ok=\{input_status_ok}")
     println("saw_focus=\{saw_focus}")
     println("saw_paste=\{saw_paste}")
