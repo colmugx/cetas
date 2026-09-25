@@ -47,7 +47,7 @@ pub fn NativeShell::snapshot_json(self : NativeShell) -> Json {
         ("text", Json::string(row.text)),
         (
           "finalized",
-          if row.finalized { Json::True } else { Json::False },
+          Json::boolean(row.finalized),
         ),
       ])),
     )
@@ -76,7 +76,7 @@ pub fn snapshot_validation_marker() -> Int {
   }
   guard row.get("kind") == Some(Json::string("assistant")) &&
     row.get("text") == Some(Json::string("hello")) &&
-    row.get("finalized") == Some(Json::True) else {
+    row.get("finalized") == Some(Json::boolean(true)) else {
     return 0
   }
   guard fields.get("status") is Some(Json::Object(status)) else {
