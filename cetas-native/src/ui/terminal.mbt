@@ -34,6 +34,22 @@ pub fn Terminal::close(self : Terminal) -> Unit {
 }
 
 ///|
+pub fn Terminal::suspend(self : Terminal) -> Int {
+  match self.raw {
+    Some(raw) => @native.suspend(raw)
+    None => 2
+  }
+}
+
+///|
+pub fn Terminal::resume(self : Terminal) -> Int {
+  match self.raw {
+    Some(raw) => @native.resume(raw)
+    None => 2
+  }
+}
+
+///|
 pub fn Terminal::render(self : Terminal, scene : Scene) -> Int {
   match self.raw {
     Some(raw) =>
