@@ -1,22 +1,43 @@
-use ratatui::widgets::{Paragraph, Widget};
-use ratatui::{DefaultTerminal, TerminalOptions, Viewport};
 use crate::{
     CTUI_STATUS_BUFFER_TOO_SMALL, CTUI_STATUS_INVALID_ARGUMENT, CTUI_STATUS_OK,
     CTUI_STATUS_TERMINAL_ERROR,
 };
+use ratatui::crossterm::event::{
+    DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
+};
+use ratatui::crossterm::execute;
+use ratatui::widgets::{Paragraph, Widget};
+use ratatui::{DefaultTerminal, TerminalOptions, Viewport};
+use std::io::{self, stdout};
 use std::ptr;
 
 pub struct CetasTui {
     pub(crate) terminal: DefaultTerminal,
     pub(crate) last_event_text: Vec<u8>,
+    pub(crate) suspended: bool,
     rows: u16,
-    suspended: bool,
 }
 
-fn init_inline(rows: u16) -> std::io::Result<DefaultTerminal> {
-    ratatui::try_init_with_options(TerminalOptions {
+fn enable_event_modes() -> io::Result<()> {
+    execute!(stdout(), EnableBracketedPaste, EnableFocusChange)?;
+    Ok(())
+}
+
+fn disable_event_modes() {
+    let _ = execute!(stdout(), DisableFocusChange, DisableBracketedPaste);
+}
+
+fn init_inline(rows: u16) -> io::Result<DefaultTerminal> {
+    let terminal = ratatui::try_init_with_options(TerminalOptions {
         viewport: Viewport::Inline(rows),
-    })
+    })?;
+
+    if let Err(error) = enable_event_modes() {
+        let _ = ratatui::try_restore();
+        return Err(error);
+    }
+
+    Ok(terminal)
 }
 
 #[no_mangle]
@@ -27,8 +48,8 @@ pub extern "C" fn ctui_open_inline(rows: u32) -> *mut CetasTui {
         Ok(terminal) => Box::into_raw(Box::new(CetasTui {
             terminal,
             last_event_text: Vec::new(),
-            rows,
             suspended: false,
+            rows,
         })),
         Err(_) => ptr::null_mut(),
     }
@@ -50,6 +71,7 @@ pub extern "C" fn ctui_close(tui: *mut CetasTui) {
     drop(tui);
 
     if should_restore {
+        disable_event_modes();
         let _ = ratatui::try_restore();
     }
 }
@@ -65,12 +87,16 @@ pub extern "C" fn ctui_suspend(tui: *mut CetasTui) -> i32 {
         return CTUI_STATUS_OK;
     }
 
+    disable_event_modes();
     match ratatui::try_restore() {
         Ok(()) => {
             tui.suspended = true;
             CTUI_STATUS_OK
         }
-        Err(_) => CTUI_STATUS_TERMINAL_ERROR,
+        Err(_) => {
+            let _ = enable_event_modes();
+            CTUI_STATUS_TERMINAL_ERROR
+        }
     }
 }
 
@@ -117,6 +143,7 @@ pub extern "C" fn ctui_tty_probe() -> u32 {
         false
     };
 
+    disable_event_modes();
     drop(terminal);
     let restore_ok = ratatui::try_restore().is_ok();
 
