@@ -37,7 +37,7 @@ fn main {
 
   let (viewport_status, viewport_words) = terminal.viewport_size()
   let viewport_ok = viewport_status == 0 &&
-    viewport_words[0] == 80U &&
+    viewport_words[0] == 81U &&
     viewport_words[1] == 3U
 
   let mut saw_focus = false
@@ -64,7 +64,7 @@ fn main {
                 _ => ()
               }
             @ui.EventResize =>
-              if value.width == 80U && value.height == 24U {
+              if value.width == 81U && value.height == 24U {
                 saw_resize = true
               }
             _ => ()
