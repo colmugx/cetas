@@ -1,3 +1,5 @@
 options(
   "is-main": false,
 )
+
+supported_targets = "+native"
