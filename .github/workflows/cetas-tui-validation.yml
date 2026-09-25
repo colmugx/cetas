@@ -47,6 +47,10 @@ jobs:
         working-directory: cetas-native
         run: moon check -p cetas-native/src --target native --deny-warn
 
+      - name: MoonBit native app tests
+        working-directory: cetas-native
+        run: moon test -p cetas-native/src/app --target native
+
       - name: Shared semantic parity fixtures
         working-directory: cetas-native
         run: python3 scripts/parity_smoke.py
