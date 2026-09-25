@@ -10,3 +10,5 @@ options(
     "native_tui.mbt": [ "native" ],
   },
 )
+
+supported_targets = "+native"
