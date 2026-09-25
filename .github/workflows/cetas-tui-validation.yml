@@ -47,6 +47,10 @@ jobs:
         working-directory: cetas-native
         run: moon check -p cetas-native/src --target native --deny-warn
 
+      - name: Shared semantic parity fixtures
+        working-directory: cetas-native
+        run: python3 scripts/parity_smoke.py
+
       - name: Build and run FFI + PTY inline smoke test
         working-directory: cetas-native
         run: python3 scripts/pty_smoke.py
