@@ -2,18 +2,23 @@
 
 ## Status
 
-The native route is validated on Linux before migration begins:
+The native route is validated on Linux and migration is underway:
 
 - Ratatui 0.30.2 builds as a Rust `staticlib`.
-- Moon's native prebuild hook can build the static library and inject its link
+- Moon's native prebuild hook builds the static library and injects its link
   flags into `colmugx/cetas-native/src`.
 - MoonBit `extern "C"` calls link and execute against that Rust library.
-- A PTY protocol harness exercises a real Ratatui inline viewport, frame draw,
-  `Terminal::insert_before`, and terminal restoration through the MoonBit
-  executable.
+- A protocol-aware PTY harness exercises the real inline viewport, batched
+  scene draw, two-line CJK scrollback insertion, suspend/resume, terminal
+  restoration, FocusIn, bracketed paste payload copy, key input, and SIGWINCH
+  resize through the MoonBit executable.
+- Ratatui buffer tests lock wide-cell behavior for CJK text.
+- The MoonBit app now has semantic transcript/tool reducers plus a
+  `NativeShell` reducer; the existing observer JSON wire can be parsed and
+  dispatched without TypeScript.
 
-This establishes the terminal architecture. It does **not** yet mean feature
-parity with `cetas-js`.
+M1 is complete. M0 remains open because the full cetas-js parity fixture set is
+not yet frozen, and the later product-flow phases are still in progress.
 
 ## Target architecture
 
@@ -106,8 +111,10 @@ than exposing Ratatui widgets one by one.
 Implement the native event loop around `ctui_poll` and normalized
 Key/Mouse/Resize/Paste/Focus events.
 
-**Gate:** a native demo supports resize, redraw, Unicode text, cursor placement,
-focus events, paste, and clean suspend/restore.
+**Gate: COMPLETE (Linux validation).** The PTY smoke covers resize, redraw,
+Unicode/CJK output, cursor placement, focus, bracketed paste, key input,
+scrollback insertion, and clean suspend/resume/restore. Rust tests cover scene
+validation and wide-cell rendering.
 
 ### M2 — editor, layout and selection
 
@@ -144,6 +151,12 @@ Use the validated inline model:
 
 Only finalized immutable rows are inserted into scrollback.
 
+**Current progress:** assistant reasoning/text step boundaries, message_end
+deduplication, stable streamed-tool identity/adoption, live-vs-final transcript
+ownership, deterministic plain scrollback lowering, and one-shot
+`insert_before` handoff are implemented. The native app also parses the
+existing observer JSON wire.
+
 **Gate:** recorded Cetas event streams produce semantically equivalent output
 to `cetas-js`; no duplicate rows during finalization/replay.
 
@@ -162,6 +175,10 @@ Split and port `TerminalShell` behavior into a MoonBit shell reducer. Preserve:
 
 At this stage `cetas-js` remains the reference implementation and is not
 deleted.
+
+**Current progress:** `NativeShell` now composes transcript and tool-streaming
+reducers and handles turn, stream, tool-start/result, failure, and scrollback
+lifecycle. Observer JSON dispatch feeds that reducer directly.
 
 **Gate:** the same scripted interaction sequence produces equivalent app
 commands and shell state transitions on JS and native hosts.
