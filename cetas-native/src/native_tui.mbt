@@ -40,12 +40,47 @@ fn main {
     viewport_words[0] == 80U &&
     viewport_words[1] == 3U
 
-  let (poll_status, event_words) = terminal.poll_raw(0UL)
-  let event_decode_ok = match @ui.decode_terminal_event(event_words) {
-    Some(event) => event.abi_version == 2
-    None => false
+  let mut saw_focus = false
+  let mut saw_paste = false
+  let mut saw_key = false
+  let mut saw_resize = false
+  let mut input_status_ok = true
+
+  for _ in 0..<8 {
+    let (status, event) = terminal.poll(250UL)
+    if status == 0 {
+      match event {
+        Some(value) =>
+          match value.kind_value() {
+            @ui.EventFocusIn => saw_focus = true
+            @ui.EventPaste =>
+              saw_paste = match terminal.event_text() {
+                Some(payload) => payload == b"cetas-paste"
+                None => false
+              }
+            @ui.EventKey =>
+              match value.key_code_value() {
+                @ui.KeyChar(code) if code == 113U => saw_key = true
+                _ => ()
+              }
+            @ui.EventResize =>
+              if value.width == 80U && value.height == 24U {
+                saw_resize = true
+              }
+            _ => ()
+          }
+        None => input_status_ok = false
+      }
+    } else if status != 1 {
+      input_status_ok = false
+    }
   }
-  let poll_ok = (poll_status == 0 || poll_status == 1) && event_decode_ok
+
+  let input_runtime_ok = input_status_ok &&
+    saw_focus &&
+    saw_paste &&
+    saw_key &&
+    saw_resize
 
   terminal.close()
   let close_ok = !terminal.is_open()
@@ -59,7 +94,7 @@ fn main {
     resume_ok &&
     redraw_after_resume_ok &&
     viewport_ok &&
-    poll_ok &&
+    input_runtime_ok &&
     close_ok &&
     @native.inline_probe(8) == 1 &&
     @native.event_size() > 0 &&
@@ -78,8 +113,11 @@ fn main {
     println("redraw_after_resume_ok=\{redraw_after_resume_ok}")
     println("viewport_status=\{viewport_status}")
     println("viewport=\{viewport_words[0]}x\{viewport_words[1]}")
-    println("poll_status=\{poll_status}")
-    println("event_decode_ok=\{event_decode_ok}")
+    println("input_status_ok=\{input_status_ok}")
+    println("saw_focus=\{saw_focus}")
+    println("saw_paste=\{saw_paste}")
+    println("saw_key=\{saw_key}")
+    println("saw_resize=\{saw_resize}")
     println("close_ok=\{close_ok}")
     println("ui_validation=\{@ui.validation_marker()}")
     exit(1)
