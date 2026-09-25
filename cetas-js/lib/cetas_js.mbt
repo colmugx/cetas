@@ -1701,7 +1701,7 @@ pub fn cetas_js_runtime_create_agent(
               parent_router=model,
               approval=child_approval,
               ui=Some(ui as &@posoco.UiPort),
-              context_fs=context_fs,
+              context_fs~,
               feature_fs=context_fs,
               cwd=runtime.config.cwd,
               home=runtime.config.home,
