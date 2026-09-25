@@ -7,6 +7,7 @@
 
 ///|
 pub(all) struct PendingToolCallSnapshot {
+  slot : Int
   id : String?
   index : Int
   name : String?
@@ -15,6 +16,7 @@ pub(all) struct PendingToolCallSnapshot {
 
 ///|
 struct PendingToolCall {
+  slot : Int
   mut id : String?
   index : Int
   mut name : String?
@@ -24,16 +26,32 @@ struct PendingToolCall {
 ///|
 pub struct ToolStreamingModel {
   pending : Array[PendingToolCall]
+  mut next_slot : Int
 }
 
 ///|
 pub fn ToolStreamingModel::new() -> ToolStreamingModel {
-  { pending: [] }
+  { pending: [], next_slot: 1 }
 }
 
 ///|
 pub fn ToolStreamingModel::pending_count(self : ToolStreamingModel) -> Int {
   self.pending.length()
+}
+
+///|
+fn ToolStreamingModel::snapshot_at(
+  self : ToolStreamingModel,
+  index : Int,
+) -> PendingToolCallSnapshot {
+  let entry = self.pending[index]
+  {
+    slot: entry.slot,
+    id: entry.id,
+    index: entry.index,
+    name: entry.name,
+    raw_args: entry.raw_args,
+  }
 }
 
 ///|
@@ -61,19 +79,25 @@ fn ToolStreamingModel::find_pending_index(
 }
 
 ///|
-/// Feed one lossy argument fragment. A later id-bearing fragment claims the
-/// unique pending entry at the same provider index.
+/// Feed one lossy argument fragment and return its stable pending slot.
+///
+/// A later id-bearing fragment claims the unique pending entry at the same
+/// provider index. The stable slot lets the application retain one transcript
+/// row even while the wire key evolves from index-only to id-bearing.
 pub fn ToolStreamingModel::on_args_delta(
   self : ToolStreamingModel,
   index : Int,
   id : String?,
   name : String?,
   delta : String?,
-) -> Unit {
+) -> PendingToolCallSnapshot {
   let pending_index = match self.find_pending_index(index, id) {
     Some(value) => value
     None => {
+      let slot = self.next_slot
+      self.next_slot += 1
       self.pending.push({
+        slot,
         id,
         index,
         name,
@@ -105,6 +129,8 @@ pub fn ToolStreamingModel::on_args_delta(
       }
     None => ()
   }
+
+  self.snapshot_at(pending_index)
 }
 
 ///|
@@ -137,6 +163,7 @@ pub fn ToolStreamingModel::on_call_started(
     Some(index) => {
       let entry = self.pending.remove(index)
       Some({
+        slot: entry.slot,
         id: Some(tool_call_id),
         index: entry.index,
         name: Some(tool_name),
@@ -154,13 +181,7 @@ pub fn ToolStreamingModel::snapshot(
   if index < 0 || index >= self.pending.length() {
     return None
   }
-  let entry = self.pending[index]
-  Some({
-    id: entry.id,
-    index: entry.index,
-    name: entry.name,
-    raw_args: entry.raw_args,
-  })
+  Some(self.snapshot_at(index))
 }
 
 ///|
@@ -173,9 +194,19 @@ pub fn tool_streaming_validation_marker() -> Int {
   let stream = ToolStreamingModel::new()
 
   // First fragment may be index-only.
-  stream.on_args_delta(0, None, Some("write"), Some("{\"path\":"))
-  stream.on_args_delta(0, Some("call-1"), None, Some("\"a\""))
-  if stream.pending_count() != 1 {
+  let first = stream.on_args_delta(
+    0,
+    None,
+    Some("write"),
+    Some("{\"path\":"),
+  )
+  let claimed = stream.on_args_delta(
+    0,
+    Some("call-1"),
+    None,
+    Some("\"a\""),
+  )
+  if stream.pending_count() != 1 || first.slot != claimed.slot {
     return 0
   }
 
@@ -199,6 +230,7 @@ pub fn tool_streaming_validation_marker() -> Int {
     None => return 0
   }
   if stream.pending_count() != 0 ||
+    adopted.slot != first.slot ||
     adopted.id != Some("call-1") ||
     adopted.name != Some("write") ||
     adopted.raw_args != "{\"path\":\"a\",\"content\":\"full\"}" {
@@ -206,8 +238,8 @@ pub fn tool_streaming_validation_marker() -> Int {
   }
 
   // Unknown id does not adopt when multiple calls are pending.
-  stream.on_args_delta(0, None, Some("read"), Some("{}"))
-  stream.on_args_delta(1, None, Some("grep"), Some("{}"))
+  ignore(stream.on_args_delta(0, None, Some("read"), Some("{}")))
+  ignore(stream.on_args_delta(1, None, Some("grep"), Some("{}")))
   if stream.on_call_started("unknown", "shell", "{}") is Some(_) {
     return 0
   }
