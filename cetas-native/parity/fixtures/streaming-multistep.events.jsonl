@@ -1,0 +1,10 @@
+{"type":"turn_started"}
+{"type":"stream_chunk","kind":"reasoning","raw":"think-A"}
+{"type":"stream_chunk","kind":"text","raw":"answer-A"}
+{"type":"stream_chunk","kind":"reasoning","raw":"think-B"}
+{"type":"stream_chunk","kind":"text","raw":"answer-B"}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"answer-A"}],"reasoning":"think-A"}}
+{"type":"tool_call_started","tool_call_id":"tc1","tool_name":"read","args":{}}
+{"type":"tool_call_completed","tool_call_id":"tc1","result":"ok","is_error":false}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"answer-B"}],"reasoning":"think-B"}}
+{"type":"turn_completed"}
