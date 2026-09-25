@@ -49,6 +49,8 @@ def main() -> int:
     status = None
     focus_enable_count = 0
     input_injected = False
+    resize_due = None
+    resize_sent = False
 
     while status is None:
         if time.monotonic() >= deadline:
@@ -87,20 +89,29 @@ def main() -> int:
                     os.write(fd, FOCUS_IN)
                     os.write(fd, BRACKETED_PASTE)
                     os.write(fd, KEY_Q)
-                    # Crossterm's Unix resize source is SIGWINCH. Keep the
-                    # width changes from 80 to 81 so Crossterm receives a real Resize
-                    # event; the MoonBit smoke asserts the resized viewport.
-                    fcntl.ioctl(
-                        fd,
-                        termios.TIOCSWINSZ,
-                        struct.pack("HHHH", 24, 81, 0, 0),
-                    )
-                    os.kill(pid, signal.SIGWINCH)
+                    # Let the child enter Crossterm's poll loop before sending
+                    # SIGWINCH; otherwise the signal can arrive before the
+                    # event source has registered its resize listener.
+                    resize_due = time.monotonic() + 0.25
 
                 keep = max(len(QUERY_CURSOR_POSITION), len(ENABLE_FOCUS)) - 1
                 scan_tail = scan[-keep:]
             else:
                 scan_tail = b""
+
+        if (
+            input_injected
+            and not resize_sent
+            and resize_due is not None
+            and time.monotonic() >= resize_due
+        ):
+            resize_sent = True
+            fcntl.ioctl(
+                fd,
+                termios.TIOCSWINSZ,
+                struct.pack("HHHH", 24, 81, 0, 0),
+            )
+            os.kill(pid, signal.SIGWINCH)
 
         waited_pid, raw_status = os.waitpid(pid, os.WNOHANG)
         if waited_pid == pid:
@@ -109,6 +120,9 @@ def main() -> int:
     if not input_injected:
         print("PTY smoke never observed resumed focus reporting", file=sys.stderr)
         return 125
+    if not resize_sent:
+        print("PTY smoke never injected delayed resize", file=sys.stderr)
+        return 126
 
     if os.WIFEXITED(status):
         return os.WEXITSTATUS(status)
