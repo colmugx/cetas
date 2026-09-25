@@ -1,0 +1,13 @@
+{
+  "status": {
+    "kind": "idle"
+  },
+  "rows": [
+    {
+      "id": 1,
+      "kind": "tool",
+      "text": "● grep {\"q\":\"foo",
+      "finalized": true
+    }
+  ]
+}
