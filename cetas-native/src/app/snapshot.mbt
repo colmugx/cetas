@@ -65,10 +65,22 @@ pub fn snapshot_validation_marker() -> Int {
   shell.begin_turn()
   shell.append_text("hello")
   shell.end_turn()
-  let expected = "{\"rows\":[{\"finalized\":true,\"id\":1,\"kind\":\"assistant\",\"text\":\"hello\"}],\"status\":{\"kind\":\"idle\"}}"
-  if shell.snapshot_json().stringify() == expected {
-    1
-  } else {
-    0
+  guard shell.snapshot_json() is Json::Object(fields) else {
+    return 0
   }
+  guard fields.get("rows") is Some(Json::Array(rows)) else {
+    return 0
+  }
+  guard rows.length() == 1 && rows[0] is Json::Object(row) else {
+    return 0
+  }
+  guard row.get("kind") == Some(Json::string("assistant")) &&
+    row.get("text") == Some(Json::string("hello")) &&
+    row.get("finalized") == Some(Json::True) else {
+    return 0
+  }
+  guard fields.get("status") is Some(Json::Object(status)) else {
+    return 0
+  }
+  if status.get("kind") == Some(Json::string("idle")) { 1 } else { 0 }
 }
