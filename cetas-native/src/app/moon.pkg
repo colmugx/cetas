@@ -1,6 +1,11 @@
 import {
   "colmugx/cetas-native/src/ui" @ui,
+  "colmugx/cetas-core/lib" @cetas_core,
   "colmugx/posoco" @posoco,
+  "colmugx/posoco/runtime" @runtime,
+  "colmugx/posoco-ext-permission" @permission,
+  "colmugx/posoco-ext-workspace" @workspace,
+  "moonbitlang/async",
   "moonbitlang/core/json" @json,
 }
 
