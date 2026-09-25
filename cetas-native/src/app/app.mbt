@@ -271,5 +271,8 @@ pub fn validation_marker() -> Int {
     return 0
   }
 
-  event_wire_validation_marker()
+  if event_wire_validation_marker() != 1 {
+    return 0
+  }
+  typed_observer_validation_marker()
 }
