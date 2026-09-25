@@ -31,6 +31,9 @@ fn main {
   }
 
   let batch_tty_ok = terminal.render(scene) == 0
+  let suspend_ok = terminal.suspend() == 0
+  let resume_ok = terminal.resume() == 0
+  let redraw_after_resume_ok = terminal.render(@ui.Scene::validation()) == 0
 
   let (viewport_status, viewport_words) = terminal.viewport_size()
   let viewport_ok = viewport_status == 0 &&
@@ -52,6 +55,9 @@ fn main {
     @native.headless_probe() == 1 &&
     scene_decode_ok &&
     batch_tty_ok &&
+    suspend_ok &&
+    resume_ok &&
+    redraw_after_resume_ok &&
     viewport_ok &&
     poll_ok &&
     close_ok &&
