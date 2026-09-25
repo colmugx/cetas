@@ -31,6 +31,14 @@ fn main {
   }
 
   let batch_tty_ok = terminal.render(scene) == 0
+
+  let transcript = @ui.TranscriptModel::new()
+  ignore(transcript.append_finalized(@ui.TranscriptAssistant, "cetas-scrollback"))
+  let ready = transcript.take_scrollback_ready()
+  let scrollback_insert_ok = ready.length() == 1 &&
+    terminal.insert_before(ready[0].text) == 0 &&
+    transcript.take_scrollback_ready().is_empty()
+
   let suspend_ok = terminal.suspend() == 0
   let resume_ok = terminal.resume_terminal() == 0
   let redraw_after_resume_ok = terminal.render(@ui.Scene::validation()) == 0
@@ -90,6 +98,7 @@ fn main {
     @native.headless_probe() == 1 &&
     scene_decode_ok &&
     batch_tty_ok &&
+    scrollback_insert_ok &&
     suspend_ok &&
     resume_ok &&
     redraw_after_resume_ok &&
@@ -108,6 +117,7 @@ fn main {
     println("cetas-tui validation: FAILED")
     println("scene_decode_ok=\{scene_decode_ok}")
     println("batch_tty_ok=\{batch_tty_ok}")
+    println("scrollback_insert_ok=\{scrollback_insert_ok}")
     println("suspend_ok=\{suspend_ok}")
     println("resume_ok=\{resume_ok}")
     println("redraw_after_resume_ok=\{redraw_after_resume_ok}")
