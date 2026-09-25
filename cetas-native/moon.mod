@@ -22,5 +22,9 @@ options(
 
 import {
   "colmugx/posoco@0.18.5",
+  "colmugx/cetas-core@0.2.0",
+  "colmugx/posoco-ext-permission@0.2.0",
+  "colmugx/posoco-ext-workspace@0.1.0",
+  "colmugx/posoco-ext-fs-session@0.3.0",
   "moonbitlang/async@0.22.3",
 }
