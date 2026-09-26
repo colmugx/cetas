@@ -62,13 +62,17 @@ Notes:
 - `CETAS_HOME` overrides the Cetas home directory (settings, credentials, sessions); `HOME` is the default.
 - MCP servers declared in `<cwd>/.mcp.json` (overriding `~/.cetas/mcp.json`) connect lazily at the first turn by default; set `CETAS_MCP_MODE=eager` to connect them all at startup.
 
-### Extension holdings
+### Native extension holdings
 
-Which extensions each shipped cetas outlet installs. Rows are extensions,
-columns are outlets — add a column when a new outlet ships.
-✓ = installed, — = not held.
+These are **build/composition-time Posoco extensions**, not runtime-installable
+plugins. Rows are native extensions, columns are outlets — add a column when a
+new outlet ships. ✓ = installed, — = not held.
 
-| Ext | cetas-bun | cetas-acp | cetas-headless |
+Cetas reserves **plugin** for a runtime-installable package layer:
+**extensions build Cetas; plugins extend Cetas**. See
+[the plugin architecture note](docs/plugin-architecture.md) for the boundary.
+
+| Native extension | cetas-bun | cetas-acp | cetas-headless |
 |---|---|---|---|
 | **Tools** | | | |
 | `posoco-ext-read` / `-write` / `-edit` | ✓ | ✓ | ✓ |
