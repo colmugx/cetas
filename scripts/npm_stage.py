@@ -52,8 +52,8 @@ TARGETS = {
 PLATFORM_README = """# cetas-{target}
 
 Platform binary ({os}/{cpu}) for [cetas]({repo}) — this package is an
-install target of cetas's optionalDependencies. Install the
-`cetas` meta package instead.
+install target of @posoco/cetas's optionalDependencies. Install the
+`@posoco/cetas` meta package instead.
 """
 
 META_README = f"""# cetas
@@ -63,7 +63,7 @@ terminal UI, distributed as a prebuilt native binary ({REPO_HOME}).
 
 ## Install
 
-    npm install -g cetas
+    npm install -g @posoco/cetas
 
 Supported platforms: darwin-arm64, linux-x64, windows-x64. Each installs via
 an optional dependency carrying its binary; on other platforms only this
@@ -145,7 +145,7 @@ def stage_platform(out, staging, target, meta, version):
         {
             "name": f"cetas-{target}",
             "version": version,
-            "description": f"cetas binary for {meta['os']}/{meta['cpu']}; install the cetas meta package instead",
+            "description": f"cetas binary for {meta['os']}/{meta['cpu']}; install the @posoco/cetas meta package instead",
             "license": "Apache-2.0",
             "repository": {"type": "git", "url": REPO_URL},
             "os": [meta["os"]],
@@ -202,7 +202,7 @@ def main():
         size = (pkg_dir / meta["binary"]).stat().st_size / 1024 / 1024
         print(f"✓ cetas-{target}  {size:.1f} MB")
     stage_meta(args.out, args.version)
-    print("✓ cetas (meta)")
+    print("✓ @posoco/cetas (meta)")
 
 
 if __name__ == "__main__":
