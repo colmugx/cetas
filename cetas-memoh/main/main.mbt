@@ -4,7 +4,7 @@
 /// stdout is ACP JSON-RPC only. Durable provider state lives under
 /// CETAS_MEMOH_HOME (default $HOME/.cetas-memoh; Memoh generic ACP currently
 /// supplies HOME=/data). Conversation continuity is owned by Memoh.
-const CETAS_MEMOH_VERSION = "0.1.0"
+const CETAS_MEMOH_VERSION = "0.5.1"
 
 ///|
 async fn main {
