@@ -38,6 +38,7 @@ pub async fn NativeHost::compose(
   mode~ : @permission.PermissionMode,
   approval? : &@permission.ApprovalSource? = None,
   ui? : &@posoco.UiPort? = None,
+  tail_exts? : Array[&@posoco.Extension] = [],
   session_id? : String = "",
   fs? : &@workspace.WorkspaceFs? = None,
   mcp_group? : @async.TaskGroup[Unit]? = None,
@@ -68,9 +69,15 @@ pub async fn NativeHost::compose(
     label="cetas-native",
     warn~,
   )
+  let host_exts : Array[&@posoco.Extension] = [
+    observer as &@posoco.Extension,
+  ]
+  for extension in tail_exts {
+    host_exts.push(extension)
+  }
   let agent = @cetas_core.compose_cetas_agent(
     session~,
-    tail_exts=[observer as &@posoco.Extension],
+    tail_exts=host_exts,
   )
   let sid = if session_id.is_empty() {
     @cetas_core.mint_session_id()
@@ -84,6 +91,39 @@ pub async fn NativeHost::compose(
     session.session_store as &@posoco.SessionStore,
     sid,
   )
+}
+
+///|
+/// Compose the production interactive native host.
+///
+/// The returned NativeUiPort is the terminal loop's pull/respond seam. The
+/// approval source is intentionally filled by NativeUiBridge during Agent
+/// composition so permission asks ride Posoco's composed UiPort wrapper.
+pub async fn NativeHost::compose_interactive(
+  home~ : String,
+  cwd~ : String,
+  mode~ : @permission.PermissionMode,
+  session_id? : String = "",
+  fs? : &@workspace.WorkspaceFs? = None,
+  mcp_group? : @async.TaskGroup[Unit]? = None,
+  warn? : async (String) -> Unit noraise = fn(_ : String) { () },
+) -> (NativeHost, NativeUiPort) raise @posoco.CompositionError {
+  let ui = NativeUiPort::new()
+  let approval = NativeApprovalSource::new()
+  let bridge = NativeUiBridge::new(approval)
+  let host = NativeHost::compose(
+    home~,
+    cwd~,
+    mode~,
+    approval=Some(approval as &@permission.ApprovalSource),
+    ui=Some(ui as &@posoco.UiPort),
+    tail_exts=[bridge as &@posoco.Extension],
+    session_id~,
+    fs~,
+    mcp_group~,
+    warn~,
+  )
+  (host, ui)
 }
 
 ///|
