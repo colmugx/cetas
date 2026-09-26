@@ -1346,6 +1346,7 @@ async test "cancel interrupts the session's in-flight turn" {
 priv struct SlowModel {
   response : String
   mut interrupted : Bool
+  mut parking : Bool
 }
 
 ///|
@@ -1357,6 +1358,9 @@ impl @posoco.ModelPort for SlowModel with fn chat(
   _options : @posoco.ChatOptions,
   _stream : @posoco.StreamMode,
 ) -> @posoco.ModelCallResult raise @posoco.ModelError {
+  // Flag before the park: from here the next suspension is the sleep itself,
+  // so a close that waits for this flag always cuts the sleep short.
+  self.parking = true
   // async 0.22 cancellation is not an error, so record the cut-short park
   // through handle_cancellation: None means the sleep was cancelled.
   let park : async () -> Unit = () => @async.sleep(120_000)
@@ -1433,7 +1437,11 @@ async test "close on an unknown session is a silent no-op" {
 
 ///|
 async test "close cancels and drains an in-flight turn, then retires the session" {
-  let model = SlowModel::{ response: "too late", interrupted: false, }
+  let model = SlowModel::{
+    response: "too late",
+    interrupted: false,
+    parking: false,
+  }
   let model_port : &@posoco.ModelPort = model
   let host = tk_host_model(model_port)
   let client = FakeAcpClient::FakeAcpClient()
@@ -1450,10 +1458,12 @@ async test "close cancels and drains an in-flight turn, then retires the session
       },
       allow_failure=true,
     )
-    let mut in_flight = false
-    while !in_flight {
+    // Closing on registration alone can land before the turn reaches the
+    // model — nothing to interrupt yet. Wait until the chat is parked.
+    let mut parked = false
+    while !parked {
       @async.pause()
-      in_flight = host.sessions[session_id].in_flight is Some(_)
+      parked = model.parking && host.sessions[session_id].in_flight is Some(_)
     }
     ignore(
       host.handle_close(fake_acp_context(FakeAcpClient::FakeAcpClient()), {

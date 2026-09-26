@@ -609,12 +609,12 @@ async fn push_mode_update(
 }
 
 ///|
-/// Push the session's current title (user-chosen name first, else the first
-/// user text) through the session's bridge. `only_unnamed` narrows the push
-/// to sessions without a metadata name — named sessions already advertised
-/// their title at rename time. Best-effort: a session with nothing committed
-/// (or a closed bridge) skips the push — the raw id is not a title worth
-/// pushing, and the client holds its own record anyway.
+/// Push the session's current title (user-chosen name first, else the
+/// automatic session title) through the session's bridge. `only_unnamed`
+/// narrows the push to sessions without a metadata name — named sessions
+/// already advertised their title at rename time. Best-effort: a session
+/// with nothing committed (or a closed bridge) skips the push — the raw id
+/// is not a title worth pushing, and the client holds its own record anyway.
 async fn push_session_title(
   session_id : String,
   handle : SessionHandle,
@@ -626,10 +626,10 @@ async fn push_session_title(
     error => Err(error)
   }
   match summary {
-    Ok({ name, first_user_text, .. } as s) => {
+    Ok({ name, title, .. } as s) => {
       let named = name is Some(n) && n.length() > 0
-      let has_text = first_user_text.length() > 0
-      if (named || has_text) && !(only_unnamed && named) {
+      let has_title = title is Some(t) && t.length() > 0
+      if (named || has_title) && !(only_unnamed && named) {
         handle.bridge.push_session_info_update(
           session_id~,
           title=@fs_session.display_title(s),
