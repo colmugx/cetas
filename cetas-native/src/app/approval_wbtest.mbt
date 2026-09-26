@@ -5,6 +5,7 @@ fn native_approval_request() -> @permission.ApprovalRequest {
     call_id: "call-1",
     category: "write",
     arguments_preview: "{\"path\":\"a\"}",
+    arguments: Json::null(),
   }
 }
 
