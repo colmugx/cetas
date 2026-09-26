@@ -2,6 +2,26 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.5.1 (2026-09-26)
+
+## Bun Ver.（cetas-bun）
+
+### Feats
+- Subagents are now owned by the Bun runtime.
+
+### Fixes
+- Child agent tool construction no longer leaks the wrong filesystem.
+- Memory extension MCP calls now report detailed, phase-aware failure reasons.
+
+## ACP Ver.（cetas-acp）
+
+### Feats
+- Dynamic context window updates.
+
+### Fixes
+- The subagent tool is no longer part of the ACP tool catalog.
+- Memory extension MCP calls now report detailed, phase-aware failure reasons.
+
 ## 0.5.0 (2026-09-25)
 
 ## Bun Ver.（cetas-js/cetas-bun）
