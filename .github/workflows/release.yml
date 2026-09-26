@@ -1,5 +1,5 @@
 # Release pipeline for the cetas submodule (repo github.com/colmugx/cetas).
-# Tag builds publish cetas-acp, cetas-headless, and cetas-bun binaries plus
+# Tag builds publish cetas-acp, cetas-headless, cetas-memoh, and cetas-bun binaries plus
 # a GitHub release. npm publishing (cetas + cetas-<target> payload packages)
 # is manual: dispatch .github/workflows/npm-publish.yml on the release tag.
 #
@@ -198,6 +198,55 @@ jobs:
             }
           }
 
+      - name: moon update (cetas-memoh)
+        working-directory: posoco/external/cetas/cetas-memoh
+        run: moon update
+
+      - name: moon build cetas-memoh (native release)
+        working-directory: posoco/external/cetas/cetas-memoh
+        run: moon build --target native --release
+
+      - name: collect cetas-memoh (unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: posoco/external/cetas/cetas-memoh
+        run: |
+          mkdir -p ../stage
+          cp "../_build/native/release/build/colmugx/cetas-memoh/main/main.exe" "../stage/cetas-memoh"
+
+      - name: collect cetas-memoh (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: posoco/external/cetas/cetas-memoh
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "..\stage" | Out-Null
+          Copy-Item "..\_build\native\release\build\colmugx\cetas-memoh\main\main.exe" -Destination "..\stage\cetas-memoh.exe"
+
+      - name: version smoke cetas-memoh (unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: posoco/external/cetas/stage
+        run: |
+          out="$(./cetas-memoh --version)"
+          echo "$out"
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            expected="cetas-memoh ${GITHUB_REF_NAME#cetas-v}"
+            [[ "$out" == "$expected" ]] || { echo "::error::--version mismatch: got '$out', want '$expected'"; exit 1; }
+          fi
+
+      - name: version smoke cetas-memoh (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: posoco/external/cetas/stage
+        shell: pwsh
+        run: |
+          $out = (& ".\cetas-memoh.exe" --version) -join ' '
+          $out
+          if ($env:GITHUB_EVENT_NAME -eq 'push') {
+            $expected = "cetas-memoh " + ($env:GITHUB_REF_NAME -replace '^cetas-v', '')
+            if ($out.Trim() -ne $expected) {
+              Write-Host "::error::--version mismatch: got '$out', want '$expected'"
+              exit 1
+            }
+          }
+
       - name: setup bun
         uses: oven-sh/setup-bun@v2
 
@@ -248,6 +297,7 @@ jobs:
           tar -czf "cetas-bun-${{ matrix.target }}.tar.gz" cetas-bun
           tar -czf "cetas-acp-${{ matrix.target }}.tar.gz" cetas-acp
           tar -czf "cetas-headless-${{ matrix.target }}.tar.gz" cetas-headless
+          tar -czf "cetas-memoh-${{ matrix.target }}.tar.gz" cetas-memoh
 
       - name: package (Windows)
         if: matrix.os == 'windows-latest'
@@ -257,6 +307,7 @@ jobs:
           Compress-Archive -Path "cetas-bun.exe" -DestinationPath "cetas-bun-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-acp.exe" -DestinationPath "cetas-acp-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-headless.exe" -DestinationPath "cetas-headless-windows-x64.zip" -Force
+          Compress-Archive -Path "cetas-memoh.exe" -DestinationPath "cetas-memoh-windows-x64.zip" -Force
 
       - name: upload binaries
         uses: actions/upload-artifact@v6
