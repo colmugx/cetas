@@ -44,6 +44,18 @@ pub fn SelectListModel::selected_item(
 }
 
 ///|
+pub fn SelectListModel::select(
+  self : SelectListModel,
+  index : Int,
+) -> Bool {
+  if index < 0 || index >= self.items.length() {
+    return false
+  }
+  self.selected = index
+  true
+}
+
+///|
 pub fn SelectListModel::next(self : SelectListModel) -> Unit {
   let count = self.items.length()
   if count == 0 {
@@ -92,8 +104,11 @@ pub fn select_list_validation_marker() -> Int {
     { value: "b", label: "B", description: "" },
     { value: "c", label: "C", description: "" },
   ])
+  if !list.select(1) || list.selected_index() != 1 || list.select(99) {
+    return 0
+  }
   list.previous()
-  if list.selected_index() != 2 {
+  if list.selected_index() != 0 {
     return 0
   }
   list.next()
