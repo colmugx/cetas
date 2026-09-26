@@ -68,7 +68,7 @@ Which extensions each shipped cetas outlet installs. Rows are extensions,
 columns are outlets — add a column when a new outlet ships.
 ✓ = installed, — = not held.
 
-| Ext | cetas-bun | cetas-acp | cetas-headless |
+| Native extension | cetas-bun | cetas-acp | cetas-headless |
 |---|---|---|---|
 | **Tools** | | | |
 | `posoco-ext-read` / `-write` / `-edit` | ✓ | ✓ | ✓ |
