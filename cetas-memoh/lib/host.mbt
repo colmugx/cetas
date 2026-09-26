@@ -322,6 +322,13 @@ pub async fn MemohHost::handle_set_config_option(
   let session = self.require_session(params.session_id)
   session.turn_lock.acquire()
   defer session.turn_lock.release()
+  match self.sessions.get(params.session_id) {
+    Some(live) if physical_equal(live, session) => ()
+    _ =>
+      raise @acp.HandlerError::InvalidParams(
+        message="cetas-memoh: session closed while config update was queued",
+      )
+  }
   match
     apply_memoh_config_option(
       session.router,
