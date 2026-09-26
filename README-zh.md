@@ -61,9 +61,14 @@ moon build --target native --release
 - `CETAS_HOME` 可覆盖 Cetas 主目录（settings、凭据、sessions）；默认取 `HOME`。
 - `<cwd>/.mcp.json`（覆盖 `~/.cetas/mcp.json`）声明的 MCP server 默认在第一轮才懒连接；设置 `CETAS_MCP_MODE=eager` 可改为启动时全部连接。
 
-### Extension 列表
+### Native Extension 列表
 
-| Ext | cetas-bun | cetas-acp | cetas-headless |
+这里列出的是**构建 / 组合期的 Posoco native extension**，不是运行时可安装的
+plugin。Cetas 将 **plugin** 一词保留给运行时安装包：**Extension 用来构建
+Cetas，Plugin 用来扩展已经构建好的 Cetas**。边界设计见
+[Plugin 架构说明](docs/plugin-architecture.md)。
+
+| Native extension | cetas-bun | cetas-acp | cetas-headless |
 |---|---|---|---|
 | **Tools** | | | |
 | `posoco-ext-read` / `-write` / `-edit` | ✓ | ✓ | ✓ |
