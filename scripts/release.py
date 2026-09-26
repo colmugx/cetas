@@ -17,7 +17,7 @@ newest cetas-v* tag -> suggest semver (feat/breaking -> minor, else patch;
 0.x forever) -> AI notes draft via cetas-headless over the same commits plus
 the extension gitlink-range commits (fallback: grouped draft) -> $EDITOR or
 --notes-file -> preview ->
-apply (VERSION, 6 sync targets, CHANGELOG.md insert, commit, annotated tag)
+apply (VERSION, 8 sync targets, CHANGELOG.md insert, commit, annotated tag)
 -> optional push prompt + submodule-pointer reminder.
 """
 import argparse
@@ -35,9 +35,11 @@ SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
 MOON_READ = re.compile(r'(?m)^version\s*=\s*"([^"]+)"')
 ACP_READ = re.compile(r'const\s+CETAS_ACP_VERSION\s*=\s*"([^"]+)"')
 HEADLESS_READ = re.compile(r'const\s+CETAS_HEADLESS_VERSION\s*=\s*"([^"]+)"')
+MEMOH_READ = re.compile(r'const\s+CETAS_MEMOH_VERSION\s*=\s*"([^"]+)"')
 MOON_SUB = re.compile(r'(?m)^(version\s*=\s*)"[^"]+"')
 ACP_SUB = re.compile(r'(?m)^(const\s+CETAS_ACP_VERSION\s*=\s*)"[^"]+"')
 HEADLESS_SUB = re.compile(r'(?m)^(const\s+CETAS_HEADLESS_VERSION\s*=\s*)"[^"]+"')
+MEMOH_SUB = re.compile(r'(?m)^(const\s+CETAS_MEMOH_VERSION\s*=\s*)"[^"]+"')
 META = re.compile(r"(?m)^([0-9a-f]{40})\x1f")
 TYPE = re.compile(r"^([a-z]+)(?:\([^)]*\))?!?:")
 FEAT = re.compile(r"^feat(\(|!|:)")
@@ -48,7 +50,7 @@ HEADLESS_BIN = Path("_build/native/release/build/colmugx/cetas-headless/main/mai
 HEADLESS_TIMEOUT = 600  # seconds, one LLM turn
 EXT_LOG_LIMIT = 30
 COMPONENTS = frozenset(
-    ("cetas-js", "cetas-acp", "cetas-core", "cetas-headless", "cetas-ext-forme", "extension")
+    ("cetas-js", "cetas-acp", "cetas-core", "cetas-headless", "cetas-memoh", "cetas-ext-forme", "extension")
 )
 GROUP_OF = {"feat": "Added", "fix": "Fixed", "refactor": "Changed", "perf": "Changed"}
 SYNC = [
@@ -58,6 +60,8 @@ SYNC = [
     ("cetas-acp/main/main.mbt", ACP_READ, ACP_SUB),
     ("cetas-headless/moon.mod", MOON_READ, MOON_SUB),
     ("cetas-headless/main/main.mbt", HEADLESS_READ, HEADLESS_SUB),
+    ("cetas-memoh/moon.mod", MOON_READ, MOON_SUB),
+    ("cetas-memoh/main/main.mbt", MEMOH_READ, MEMOH_SUB),
 ]
 NOTES_HEADER = (
     "<!-- 此文件内容将作为发布说明（写入 CHANGELOG.md 小节）。"
@@ -240,8 +244,9 @@ def ai_prompt(commits, ext_lines):
         "所以需要分析 extension 在这段提交历史中为 cetas 供应的功能，并作为功能点列出。禁止为 "
         "extension 单独设节。",
         "要求：1. 只输出 markdown 正文，不要代码围栏和任何解释。 2. 确认功能真实落实到某个端，才可列出。 3. 必须读提交，至少读个大概。禁止只看标题就总结。",
-        "固定三个小节，标题原样：## Bun Ver.（cetas-js/cetas-bun）、"
-        "## ACP Ver.（cetas-acp）、## Headless Ver.（cetas-headless）；"
+        "固定四个小节，标题原样：## Bun Ver.（cetas-js/cetas-bun）、"
+        "## ACP Ver.（cetas-acp）、## Headless Ver.（cetas-headless）、"
+        "## Memoh Ver.（cetas-memoh）；"
         "无内容的小节保留空标题。",
         "小节内按需使用 ### Feats / ### Fixes 子节，条目为 \"- \" 列表，"
         "英文、面向用户、不含 hash；chore/internal/refactor/文档等非用户可见变更省略。",
