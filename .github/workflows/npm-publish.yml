@@ -2,7 +2,7 @@
 #
 # Dispatch this workflow with the release tag selected as the ref ("Use
 # workflow from" dropdown) — no inputs. It downloads that tag's release
-# assets, stages the cetas + cetas-<target> packages, and publishes them.
+# assets, stages the @posoco/cetas + cetas-<target> packages, and publishes them.
 # Payload packages publish before the meta package so the meta package's
 # optionalDependencies exist on the registry.
 #
@@ -14,7 +14,7 @@
 # default branch — not for older tags.
 #
 # Needs an NPM_TOKEN secret on the cetas repo: an automation or granular
-# token with publish rights for cetas and cetas-<target>.
+# token with publish rights for @posoco/cetas and cetas-<target>.
 name: cetas npm publish
 
 on:
@@ -65,10 +65,18 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          for pkg in cetas-darwin-arm64 cetas-linux-x64 cetas-windows-x64 cetas; do
-            if npm view "${pkg}@${GITHUB_REF_NAME#cetas-v}" version >/dev/null 2>&1; then
-              echo "skip ${pkg}@${GITHUB_REF_NAME#cetas-v} (already published)"
+          version="${GITHUB_REF_NAME#cetas-v}"
+
+          for pkg in cetas-darwin-arm64 cetas-linux-x64 cetas-windows-x64; do
+            if npm view "${pkg}@${version}" version >/dev/null 2>&1; then
+              echo "skip ${pkg}@${version} (already published)"
             else
               npm publish --access public "./npm_out/${pkg}"
             fi
           done
+
+          if npm view "@posoco/cetas@${version}" version >/dev/null 2>&1; then
+            echo "skip @posoco/cetas@${version} (already published)"
+          else
+            npm publish --access public "./npm_out/cetas"
+          fi
