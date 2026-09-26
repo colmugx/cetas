@@ -1,5 +1,5 @@
 {
-  "name": "cetas",
+  "name": "@posoco/cetas",
   "version": "0.5.1",
   "private": true,
   "type": "module",
