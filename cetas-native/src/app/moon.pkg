@@ -6,6 +6,7 @@ import {
   "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-workspace" @workspace,
   "moonbitlang/async",
+  "moonbitlang/async/aqueue",
   "moonbitlang/core/json" @json,
 }
 
