@@ -9,6 +9,9 @@ on:
   pull_request:
     paths:
       - "cetas-native/**"
+      - "cetas-core/**"
+      - "cetas-js/**"
+      - "extension/**"
       - "moon.work"
       - ".github/workflows/cetas-tui-validation.yml"
 
