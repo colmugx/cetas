@@ -196,8 +196,7 @@ pub fn build_cetas_tools(
         )
       "edit" =>
         exts.push(
-          @edit.EditTools(freshness~, anchor=Some(anchor))
-          as &@posoco.Extension,
+          @edit.EditTools(freshness~, anchor=Some(anchor)) as &@posoco.Extension,
         )
       "glob" =>
         exts.push(@glob.GlobTools(anchor=Some(anchor)) as &@posoco.Extension)
@@ -220,16 +219,17 @@ pub fn build_cetas_tools(
             detail="tool 'ps1' is unavailable in the Unix Cetas build",
           )
         }
-      "webfetch" =>
-        exts.push(@webfetch.WebFetchTools() as &@posoco.Extension)
+      "webfetch" => exts.push(@webfetch.WebFetchTools() as &@posoco.Extension)
       "ask_question" =>
         for ext in build_cetas_tools(ctx~, ["ask_question"]) {
-    exts.push(ext)
-  }
+          exts.push(ext)
+        }
       _ =>
         raise @posoco.CompositionError::ManifestSchemaError(
           manifest_id="cetas.tools",
-          detail="tool '" + requested + "' is not in the canonical Cetas tool registry",
+          detail="tool '" +
+            requested +
+            "' is not in the canonical Cetas tool registry",
         )
     }
   }
@@ -271,10 +271,10 @@ pub async fn build_cetas_skills(
             raise @posoco.CompositionError::ManifestSchemaError(
               manifest_id="cetas.skills",
               detail="unknown skill '" +
-              name +
-              "' (available: " +
-              full.names().join(", ") +
-              ")",
+                name +
+                "' (available: " +
+                full.names().join(", ") +
+                ")",
             )
         }
       }
@@ -282,11 +282,7 @@ pub async fn build_cetas_skills(
     }
   }
   match
-    @skills.Skills::from_catalog(
-      ctx.fs,
-      catalog~,
-      config=cetas_skills_config(),
-    ) {
+    @skills.Skills::from_catalog(ctx.fs, catalog~, config=cetas_skills_config()) {
     Ok(skills) => Some(skills as &@posoco.Extension)
     Err(reason) =>
       raise @posoco.CompositionError::ManifestSchemaError(
@@ -333,10 +329,9 @@ pub async fn build_default_features(
   host_help_note? : String? = None,
   obsidian_vault? : String? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
-  let exts = build_cetas_tools(
-    ctx~,
-    ["read", "write", "edit", "glob", "grep", "astgrep"],
-  )
+  let exts = build_cetas_tools(ctx~, [
+    "read", "write", "edit", "glob", "grep", "astgrep",
+  ])
   // Episodic tools defer behind the lazytools gateway. Each extension's
   // non-tool ports (hooks, commands, memory, prompt) register through its
   // toolless view.
@@ -364,9 +359,7 @@ pub async fn build_default_features(
 
   // With built-ins merged in, the skills extension registers even on machines
   // with no discovered skills: the product manual is always present.
-  let skills = build_cetas_skills(ctx~) catch {
-    _ => None
-  }
+  let skills = build_cetas_skills(ctx~) catch { _ => None }
   match skills {
     Some(skills) => exts.push(skills)
     None => ()

@@ -117,7 +117,6 @@ async test "subagent composer rejects recursive agent tool even in malformed spe
   }
 }
 
-
 ///|
 async test "cetas-js owns the agent tool at the host boundary" {
   let model = @posoco.ScriptedModel([])

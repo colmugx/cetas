@@ -1449,7 +1449,6 @@ async fn build_session_agent(
     None => ()
   }
 
-
   // The routing table and catalog base are captured BEFORE the MCP bridge
   // joins: the bridge's decorator source appends its own live tools, so
   // including them here would duplicate every name.
