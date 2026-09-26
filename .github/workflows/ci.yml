@@ -59,6 +59,21 @@ jobs:
         working-directory: posoco/external/cetas/cetas-acp
         run: moon check --target native --deny-warn --output-json
 
+      - name: build cetas-memoh (native release)
+        working-directory: posoco/external/cetas/cetas-memoh
+        run: moon build --target native --release
+
+      - name: smoke cetas-memoh --version
+        working-directory: posoco/external/cetas
+        shell: bash
+        run: |
+          out="$(_build/native/release/build/colmugx/cetas-memoh/main/main.exe --version)"
+          expected="cetas-memoh $(cat VERSION)"
+          [[ "$out" == "$expected" ]] || {
+            echo "::error::--version mismatch: got '$out', want '$expected'"
+            exit 1
+          }
+
       - name: moon test (native)
         id: test
         working-directory: posoco/external/cetas/cetas-acp
@@ -82,7 +97,7 @@ jobs:
         working-directory: posoco/external/cetas/cetas-acp
         run: |
           moon info
-          git diff --exit-code -- . ../cetas-js ../cetas-core ../cetas-headless ../cetas-ext-forme
+          git diff --exit-code -- . ../cetas-js ../cetas-core ../cetas-headless ../cetas-memoh ../cetas-ext-forme
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
