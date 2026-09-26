@@ -69,6 +69,6 @@ jobs:
             if npm view "${pkg}@${GITHUB_REF_NAME#cetas-v}" version >/dev/null 2>&1; then
               echo "skip ${pkg}@${GITHUB_REF_NAME#cetas-v} (already published)"
             else
-              npm publish --access public "npm_out/${pkg}"
+              npm publish --access public "./npm_out/${pkg}"
             fi
           done
