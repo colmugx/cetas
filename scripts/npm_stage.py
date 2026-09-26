@@ -167,7 +167,7 @@ def stage_meta(out, version):
     write_json(
         pkg_dir / "package.json",
         {
-            "name": "cetas",
+            "name": "@posoco/cetas",
             "version": version,
             "description": DESCRIPTION,
             "license": "Apache-2.0",
