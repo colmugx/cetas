@@ -1,7 +1,6 @@
 ///|
 /// Product-local provider composition. This file deliberately does not import
 /// cetas-core: cetas-memoh owns its provider registry and durable layout.
-
 pub(all) struct ProviderIssue {
   provider_id : String
   detail : String
@@ -142,9 +141,9 @@ pub async fn build_provider_platform(
 
   for factory in factories {
     let provider_id = factory.provider_id()
-    let credential_result : Result[@oauth.ProviderCredential?, Error] = try {
-      Ok(store.read(provider_id))
-    } catch {
+    let credential_result : Result[@oauth.ProviderCredential?, Error] = Ok(
+      store.read(provider_id),
+    ) catch {
       error => Err(error)
     }
     let credential = match credential_result {
@@ -160,16 +159,15 @@ pub async fn build_provider_platform(
       provider_credential=credential,
       credential_store=Some(store),
     )
-    let built : Result[@llm.ProviderBuildResult, Error] = try {
-      Ok(factory.build(source))
-    } catch {
+    let built : Result[@llm.ProviderBuildResult, Error] = Ok(
+      factory.build(source),
+    ) catch {
       error => Err(error)
     }
     match built {
       Ok(@llm.ProviderBuildResult::Ready(catalog)) => catalogs.push(catalog)
       Ok(@llm.ProviderBuildResult::Unconfigured) => ()
-      Err(error) =>
-        issues.push({ provider_id, detail: error.to_string(), })
+      Err(error) => issues.push({ provider_id, detail: error.to_string(), })
     }
   }
 

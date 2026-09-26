@@ -109,9 +109,11 @@ fn MemohHost::require_session(
 /// Convert typed host-contract failures to concise, non-secret diagnostics.
 fn memoh_error_detail(error : @memoh.MemohError) -> String {
   match error {
-    @memoh.MemohError::InvalidClient(reason~) => "invalid Memoh client: " + reason
+    @memoh.MemohError::InvalidClient(reason~) =>
+      "invalid Memoh client: " + reason
     @memoh.MemohError::MissingContext => "missing Memoh current-turn context"
-    @memoh.MemohError::InvalidContext(reason~) => "invalid Memoh context: " + reason
+    @memoh.MemohError::InvalidContext(reason~) =>
+      "invalid Memoh context: " + reason
     @memoh.MemohError::UnsupportedPromptBlock(kind~) =>
       "unsupported Memoh prompt block: " + kind
     @memoh.MemohError::MissingToolGateway => "missing Memoh Tools gateway"
@@ -136,7 +138,8 @@ async fn MemohHost::build_session(
   let memoh = @memoh.Memoh()
   let bridge = @ext_acp.AcpBridge(context_window=router_context_window(router))
   let gateway = @memoh.memoh_tools_mcp_config(Value(params.mcp_servers)) catch {
-    error => return Err("Memoh Tools contract failed: " + memoh_error_detail(error))
+    error =>
+      return Err("Memoh Tools contract failed: " + memoh_error_detail(error))
   }
   let mcp_bridge = @mcp.MCPToolBridge()
   let connect_result = mcp_bridge.connect(gateway, self.mcp_group) catch {
@@ -214,12 +217,7 @@ pub async fn MemohHost::handle_new_session(
   }
   session.bridge.attach(context~, session_id~)
   self.sessions[session_id] = session
-  {
-    session_id,
-    modes: Omitted,
-    config_options: Omitted,
-    meta: Omitted,
-  }
+  { session_id, modes: Omitted, config_options: Omitted, meta: Omitted, }
 }
 
 ///|
@@ -261,8 +259,7 @@ pub async fn MemohHost::handle_prompt(
   let message = session.memoh.prepare_turn(decoded)
   defer session.memoh.clear_turn_context()
 
-  let outcome : Result[@acp.PromptResult, @acp.HandlerError] =
-    @async.with_task_group(group => {
+  let outcome : Result[@acp.PromptResult, @acp.HandlerError] = @async.with_task_group(group => {
       session.bridge.spawn_pump(group)
       let task = group.spawn(
         () => session.agent.run_turn(message, params.session_id),
@@ -279,10 +276,8 @@ pub async fn MemohHost::handle_prompt(
       ignore(session.bridge.flush())
       session.bridge.close()
       match failure {
-        None => Ok({
-          stop_reason: session.bridge.stop_reason(),
-          meta: Omitted,
-        })
+        None =>
+          Ok({ stop_reason: session.bridge.stop_reason(), meta: Omitted, })
         Some(error) => {
           let detail = prompt_failure_detail(error)
           memoh_warn(
@@ -292,21 +287,18 @@ pub async fn MemohHost::handle_prompt(
             detail +
             "\n",
           )
-          Err(
-            @acp.HandlerError::Application(
-              message="cetas-memoh: " + detail,
-            ),
-          )
+          Err(@acp.HandlerError::Application(message="cetas-memoh: " + detail))
         }
       }
-    }) catch {
-      _ =>
-        Err(
-          @acp.HandlerError::Application(
-            message="cetas-memoh: internal task-group failure",
-          ),
-        )
-    }
+    },
+  ) catch {
+    _ =>
+      Err(
+        @acp.HandlerError::Application(
+          message="cetas-memoh: internal task-group failure",
+        ),
+      )
+  }
   match outcome {
     Ok(result) => result
     Err(error) => raise error
