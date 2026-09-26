@@ -56,10 +56,10 @@ fn memoh_system_prompt() -> String {
 ///|
 pub struct MemohHost {
   version : String
-  cwd : String
-  catalogs : Array[@llm.ProviderModelCatalog]
-  credential_store : @credentials.FileProviderCredentialStore
-  mcp_group : @async.TaskGroup[Unit]
+  priv spawn_session : async (@acp.NewSessionParams) -> Result[
+    MemohSession,
+    String,
+  ]
   priv sessions : Map[String, MemohSession]
 }
 
@@ -81,12 +81,17 @@ pub async fn MemohHost::MemohHost(
       "\n",
     )
   }
+  let _ = cwd
+  let catalogs = platform.catalogs
+  let credential_store = platform.credential_store
+  let spawn_session = async fn(
+    params : @acp.NewSessionParams,
+  ) -> Result[MemohSession, String] {
+    build_memoh_session(catalogs, credential_store, mcp_group, params)
+  }
   {
     version,
-    cwd,
-    catalogs: platform.catalogs,
-    credential_store: platform.credential_store,
-    mcp_group,
+    spawn_session,
     sessions: Map::from_array([]),
   }
 }
@@ -125,13 +130,15 @@ fn memoh_error_detail(error : @memoh.MemohError) -> String {
 }
 
 ///|
-async fn MemohHost::build_session(
-  self : MemohHost,
+async fn build_memoh_session(
+  catalogs : Array[@llm.ProviderModelCatalog],
+  credential_store : @credentials.FileProviderCredentialStore,
+  mcp_group : @async.TaskGroup[Unit],
   params : @acp.NewSessionParams,
 ) -> Result[MemohSession, String] noraise {
   let router = @llm.RouterModelPort::from_catalogs(
-    self.catalogs,
-    provider_credential_store=Some(self.credential_store),
+    catalogs,
+    provider_credential_store=Some(credential_store),
   ) catch {
     error => return Err("model router composition failed: " + error.to_string())
   }
@@ -142,7 +149,7 @@ async fn MemohHost::build_session(
       return Err("Memoh Tools contract failed: " + memoh_error_detail(error))
   }
   let mcp_bridge = @mcp.MCPToolBridge()
-  let connect_result = mcp_bridge.connect(gateway, self.mcp_group) catch {
+  let connect_result = mcp_bridge.connect(gateway, mcp_group) catch {
     error =>
       return Err(
         "Memoh Tools connection failed before handshake completed: " +
@@ -213,7 +220,7 @@ pub async fn MemohHost::handle_new_session(
       )
   }
   let session_id = mint_memoh_session_id()
-  let session = match self.build_session(params) {
+  let session = match (self.spawn_session)(params) {
     Ok(session) => session
     Err(message) =>
       raise @acp.HandlerError::Application(message="cetas-memoh: " + message)
