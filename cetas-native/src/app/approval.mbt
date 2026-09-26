@@ -95,17 +95,7 @@ pub impl @posoco.Extension for NativeUiBridge with fn manifest(
 ) -> @posoco.ExtensionManifest {
   @posoco.ExtensionManifest(
     id="cetas_native_ui_bridge",
-    models=[],
-    decisions=[],
-    tools=[],
-    sessions=[],
-    observers=[],
-    hooks=[],
-    memory=[],
     lifecycle=[self],
-    commands=[],
-    ui=[],
-    prompt_contributors=[],
     requires=[@posoco.Capability::Ui],
   )
 }
