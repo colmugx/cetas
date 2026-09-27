@@ -3,6 +3,10 @@
 # a GitHub release. npm publishing (@posoco/cetas + @posoco/cetas-<target> payload packages)
 # is manual: dispatch .github/workflows/npm-publish.yml on the release tag.
 #
+# A single Ubuntu preflight runs version sync, staging tests, moon check/test,
+# and TypeScript typecheck before any platform build starts. Only after it
+# passes does the three-platform build matrix fan out.
+#
 # Every build job checks out colmugx/posoco and points the embedded
 # external/cetas submodule at the tag being released. This stays correct
 # whatever the committed state of cetas' moon.work turns out to be: with no
@@ -27,8 +31,86 @@ env:
   POSOCO_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.posoco_ref || 'main' }}
 
 jobs:
+  preflight:
+    name: release checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: checkout posoco workspace
+        uses: actions/checkout@v4
+        with:
+          repository: colmugx/posoco
+          ref: ${{ env.POSOCO_REF }}
+          path: posoco
+          submodules: recursive
+
+      - name: switch embedded cetas to the release tag
+        if: github.event_name == 'push'
+        working-directory: posoco/external/cetas
+        shell: bash
+        run: |
+          git fetch --depth=1 origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          git checkout "${GITHUB_REF_NAME}"
+
+      - name: init nested submodules
+        working-directory: posoco/external/cetas
+        shell: bash
+        run: git submodule update --init --recursive
+
+      - name: install moon
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: moon version
+        run: moon version --all
+
+      - name: release check (version sync gate)
+        working-directory: posoco/external/cetas
+        run: python3 scripts/release.py check
+
+      - name: npm staging tests
+        working-directory: posoco/external/cetas
+        run: python3 -m unittest scripts/test_npm_stage.py
+
+      - name: moon update (cetas-acp)
+        working-directory: posoco/external/cetas/cetas-acp
+        run: moon update
+
+      - name: moon check (native, deny warnings)
+        working-directory: posoco/external/cetas/cetas-acp
+        run: moon check --target native --deny-warn --output-json
+
+      - name: moon test (native)
+        id: test
+        working-directory: posoco/external/cetas/cetas-acp
+        run: moon test --target native --output-json
+
+      # Keep release gating aligned with CI's one-shot retry for the known
+      # async-ordering flaky test.
+      - name: moon test (native, flake rerun)
+        if: failure() && steps.test.outcome == 'failure'
+        working-directory: posoco/external/cetas/cetas-acp
+        run: moon test --target native --output-json
+
+      - name: setup bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: bun install
+        working-directory: posoco/external/cetas/cetas-js
+        run: bun install
+
+      - name: moon update (cetas-js)
+        working-directory: posoco/external/cetas/cetas-js
+        run: moon update
+
+      - name: typecheck
+        working-directory: posoco/external/cetas/cetas-js
+        run: bunx tsc --noEmit
+
   build:
     name: build (${{ matrix.target }})
+    needs: [preflight]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -88,13 +170,6 @@ jobs:
 
       - name: moon version
         run: moon version --all
-
-      # release.py needs python3, absent from windows runners; the gate is
-      # platform-independent so the ubuntu entry covers all targets.
-      - name: release check (version sync gate)
-        if: matrix.os == 'ubuntu-latest'
-        working-directory: posoco/external/cetas
-        run: python3 scripts/release.py check
 
       - name: moon update (cetas-acp)
         working-directory: posoco/external/cetas/cetas-acp
@@ -212,12 +287,6 @@ jobs:
       - name: build cetas-bun (native target)
         working-directory: posoco/external/cetas/cetas-js
         run: bun build.ts ${{ matrix.target }}
-
-      # tsc is platform-independent; the ubuntu entry runs it for all targets.
-      - name: typecheck
-        if: matrix.os == 'ubuntu-latest'
-        working-directory: posoco/external/cetas/cetas-js
-        run: bunx tsc --noEmit
 
       - name: collect cetas-bun (unix)
         if: matrix.os != 'windows-latest'
