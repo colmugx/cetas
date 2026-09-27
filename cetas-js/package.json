@@ -13,6 +13,7 @@
     "build:linux": "bun build.ts linux-x64",
     "build:linux-musl": "bun build.ts linux-x64-musl",
     "build:linux-arm64": "bun build.ts linux-arm64",
+    "typegen": "bun typegen.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test --preload ./moonbit-preload.ts"
   },
