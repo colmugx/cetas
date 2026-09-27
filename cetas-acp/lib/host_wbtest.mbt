@@ -4093,7 +4093,7 @@ async test "set_mode plan enters planning, pushes the mode, and gates writes" {
   }
   assert_true(
     host.sessions[session_id].plan.before_tool(read)
-    is @posoco.ToolDecision::Reject(_),
+    is @posoco.ToolDecision::Approve(_),
   )
   let exit_call : @posoco.ToolCall = @posoco.ToolCall::{
     call_id: @posoco.CallId::unchecked("w9-exit"),
