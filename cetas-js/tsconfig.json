@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "types": ["bun"]
   },
-  "include": ["host.ts", "ui/**/*.ts", "src/**/*.ts", "gen/mbt.d.ts", "build.ts"]
+  "include": ["host.ts", "ui/**/*.ts", "src/**/*.ts", "gen/mbt.d.ts", "build.ts", "typegen.ts"]
 }
