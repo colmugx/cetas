@@ -548,7 +548,6 @@ export class CetasApplication<AgentHandle = unknown> {
       );
     }
     if (
-      this.state === "running" ||
       this.operations.busy ||
       this.operations.compactPending ||
       this.activeCommand !== undefined ||
@@ -614,7 +613,6 @@ export class CetasApplication<AgentHandle = unknown> {
       );
     }
     if (
-      this.state === "running" ||
       this.operations.busy ||
       this.operations.compactPending ||
       this.activeCommand !== undefined ||
@@ -679,8 +677,7 @@ export class CetasApplication<AgentHandle = unknown> {
     }
     if (
       this.operations.busy ||
-      this.operations.compactPending ||
-      this.state === "running"
+      this.operations.compactPending
     ) {
       throw new CetasApplicationError(
         "already_running",
@@ -1100,7 +1097,7 @@ export class CetasApplication<AgentHandle = unknown> {
         "cannot invoke a command after shutdown has begun",
       );
     }
-    if (this.state === "running" || this.operations.busy || this.operations.compactPending) {
+    if (this.operations.busy || this.operations.compactPending) {
       // Allowlisted commands only touch host-side policy state (e.g.
       // PermissionPolicy's mutable mode, re-read before every tool call), so
       // they are safe to invoke mid-turn. `/compact` is likewise admitted:
@@ -1174,8 +1171,10 @@ export class CetasApplication<AgentHandle = unknown> {
       return false;
     }
 
-    this.operations.markCancelling(active);
-    this.options.bridge.abortTurn?.(this.agent);
+    // Cancellation is a state transition, not an edge-triggered side effect:
+    // repeated ESC/shutdown requests consume the same operation without
+    // re-sending mailbox aborts or postponing the hard-abort watchdog.
+    if (!this.operations.requestCancellation(active)) return true;
 
     if (active.kind === "compact") {
       abort?.abort();
@@ -1183,6 +1182,7 @@ export class CetasApplication<AgentHandle = unknown> {
       return true;
     }
 
+    this.options.bridge.abortTurn?.(this.agent);
     if (abort !== undefined && !abort.signal.aborted) {
       if (this.abortWatchdog !== undefined) clearTimeout(this.abortWatchdog);
       this.abortWatchdog = setTimeout(() => {
