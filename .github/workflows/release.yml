@@ -96,17 +96,16 @@ jobs:
       - name: setup bun
         uses: oven-sh/setup-bun@v2
 
-      - name: bun install
-        working-directory: posoco/external/cetas/cetas-js
-        run: bun install
-
       - name: moon update (cetas-js)
         working-directory: posoco/external/cetas/cetas-js
         run: moon update
 
       - name: typecheck
         working-directory: posoco/external/cetas/cetas-js
-        run: bunx tsc --noEmit
+        run: |
+          bun install
+          bun build.ts --dts-only
+          bunx tsc --noEmit
 
   build:
     name: build (${{ matrix.target }})
