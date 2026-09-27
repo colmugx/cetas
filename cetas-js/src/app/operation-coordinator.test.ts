@@ -77,4 +77,19 @@ describe("OperationCoordinator", () => {
     expect(coordinator.begin("turn")).toBeUndefined();
     expect(coordinator.snapshot().shuttingDown).toBe(true);
   });
+  test("cancellation is a single state transition", () => {
+    const coordinator = new OperationCoordinator();
+    const turn = coordinator.begin("turn", { interruptible: true });
+    expect(turn).toBeDefined();
+    if (turn === undefined) throw new Error("expected turn lease");
+
+    expect(coordinator.requestCancellation(turn)).toBe(true);
+    expect(coordinator.snapshot().phase).toBe("cancelling");
+    expect(coordinator.requestCancellation(turn)).toBe(false);
+
+    coordinator.markFinalizing(turn);
+    expect(coordinator.requestCancellation(turn)).toBe(false);
+    coordinator.finish(turn);
+  });
+
 });
