@@ -26,8 +26,8 @@ REPO_URL = "git+https://github.com/colmugx/cetas.git"
 REPO_HOME = "https://github.com/colmugx/cetas"
 
 # Keep in sync with the build matrix in .github/workflows/release.yml.
-# Archive and binary names are release/product names (cetas-bun); only the
-# npm package names carry the cetas- prefix.
+# Archive and binary names are release/product names (cetas-bun). npm payload
+# package names live under the @posoco scope to avoid claiming global names.
 TARGETS = {
     "darwin-arm64": {
         "os": "darwin",
@@ -49,7 +49,12 @@ TARGETS = {
     },
 }
 
-PLATFORM_README = """# cetas-{target}
+
+def platform_package_name(target):
+    return f"@posoco/cetas-{target}"
+
+
+PLATFORM_README = """# @posoco/cetas-{target}
 
 Platform binary ({os}/{cpu}) for [cetas]({repo}) — this package is an
 install target of @posoco/cetas's optionalDependencies. Install the
@@ -73,7 +78,7 @@ under Node.js (esbuild-style); the agent binary it execs is self-contained.
 
 SHIM = """#!/usr/bin/env node
 // cetas launcher: exec the cetas-bun binary for this platform from the
-// matching cetas-<os>-<arch> payload package. Runs under Node.js.
+// matching @posoco/cetas-<os>-<arch> payload package. Runs under Node.js.
 const { spawnSync } = require("node:child_process");
 
 const OS = { darwin: "darwin", linux: "linux", win32: "windows" }[process.platform];
@@ -88,7 +93,7 @@ if (!supported.includes(target)) {
   process.exit(1);
 }
 
-const pkg = `cetas-${target}`;
+const pkg = `@posoco/cetas-${target}`;
 let bin;
 try {
   bin = require.resolve(`${pkg}/cetas-bun${process.platform === "win32" ? ".exe" : ""}`);
@@ -143,11 +148,12 @@ def stage_platform(out, staging, target, meta, version):
     write_json(
         pkg_dir / "package.json",
         {
-            "name": f"cetas-{target}",
+            "name": platform_package_name(target),
             "version": version,
             "description": f"cetas binary for {meta['os']}/{meta['cpu']}; install the @posoco/cetas meta package instead",
             "license": "Apache-2.0",
             "repository": {"type": "git", "url": REPO_URL},
+            "publishConfig": {"access": "public"},
             "os": [meta["os"]],
             "cpu": [meta["cpu"]],
         },
@@ -172,9 +178,10 @@ def stage_meta(out, version):
             "description": DESCRIPTION,
             "license": "Apache-2.0",
             "repository": {"type": "git", "url": REPO_URL},
+            "publishConfig": {"access": "public"},
             "bin": {"cetas": "bin/cetas.js"},
             "files": ["bin"],
-            "optionalDependencies": {f"cetas-{t}": version for t in TARGETS},
+            "optionalDependencies": {platform_package_name(t): version for t in TARGETS},
         },
     )
     (pkg_dir / "README.md").write_text(META_README)
@@ -200,7 +207,7 @@ def main():
     for target, meta in TARGETS.items():
         pkg_dir = stage_platform(args.out, args.staging, target, meta, args.version)
         size = (pkg_dir / meta["binary"]).stat().st_size / 1024 / 1024
-        print(f"✓ cetas-{target}  {size:.1f} MB")
+        print(f"✓ {platform_package_name(target)}  {size:.1f} MB")
     stage_meta(args.out, args.version)
     print("✓ @posoco/cetas (meta)")
 
