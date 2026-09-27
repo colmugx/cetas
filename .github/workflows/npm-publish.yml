@@ -2,7 +2,7 @@
 #
 # Dispatch this workflow with the release tag selected as the ref ("Use
 # workflow from" dropdown) — no inputs. It downloads that tag's release
-# assets, stages the @posoco/cetas + cetas-<target> packages, and publishes them.
+# assets, stages the @posoco/cetas + @posoco/cetas-<target> packages, and publishes them.
 # Payload packages publish before the meta package so the meta package's
 # optionalDependencies exist on the registry.
 #
@@ -14,7 +14,7 @@
 # default branch — not for older tags.
 #
 # Needs an NPM_TOKEN secret on the cetas repo: an automation or granular
-# token with publish rights for @posoco/cetas and cetas-<target>.
+# token with publish rights for @posoco/cetas and @posoco/cetas-<target>.
 name: cetas npm publish
 
 on:
@@ -67,11 +67,21 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#cetas-v}"
 
-          for pkg in cetas-darwin-arm64 cetas-linux-x64 cetas-windows-x64; do
+          # Registry package names come from the staged manifests so this
+          # workflow cannot drift from scripts/npm_stage.py.
+          shopt -s nullglob
+          payload_dirs=(npm_out/cetas-*)
+          if (( ${#payload_dirs[@]} == 0 )); then
+            echo "::error::no staged npm payload packages found"
+            exit 1
+          fi
+
+          for pkg_dir in "${payload_dirs[@]}"; do
+            pkg="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' "${pkg_dir}/package.json")"
             if npm view "${pkg}@${version}" version >/dev/null 2>&1; then
               echo "skip ${pkg}@${version} (already published)"
             else
-              npm publish --access public "./npm_out/${pkg}"
+              npm publish --access public "./${pkg_dir}"
             fi
           done
 
