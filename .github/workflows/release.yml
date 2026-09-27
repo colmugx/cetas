@@ -104,9 +104,13 @@ jobs:
         working-directory: posoco/external/cetas/cetas-js
         run: moon update
 
+      - name: typegen
+        working-directory: posoco/external/cetas/cetas-js
+        run: bun run typegen
+
       - name: typecheck
         working-directory: posoco/external/cetas/cetas-js
-        run: bunx tsc --noEmit
+        run: bun run typecheck
 
   build:
     name: build (${{ matrix.target }})
