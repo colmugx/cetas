@@ -1815,4 +1815,63 @@ describe("CetasApplication", () => {
     expect(app.appState).toBe("shutting_down");
   });
 
+  test("repeated interrupts do not resend abort or postpone cancellation", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    let markStarted!: () => void;
+    let releaseRun!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    let aborts = 0;
+    const base = bridgeFor(
+      {
+        providers: [
+          {
+            id: "deepseek/chat",
+            label: "DeepSeek Chat",
+            provider: "deepseek",
+            model: "deepseek-chat",
+            active: true,
+            efforts: [],
+            oauth: false,
+          },
+        ],
+        oauthProviders: [],
+      },
+      counters,
+    );
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        runTurn: async () => {
+          markStarted();
+          await released;
+          return "partial";
+        },
+        abortTurn: () => {
+          aborts += 1;
+          return "Accepted(operation=turn)";
+        },
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    await app.start();
+    const turn = app.runTurn("hello");
+    await started;
+    expect(app.interruptActiveTurn()).toBe(true);
+    expect(app.interruptActiveTurn()).toBe(true);
+    expect(aborts).toBe(1);
+    expect(app.operationSnapshot.phase).toBe("cancelling");
+
+    releaseRun();
+    await expect(turn).resolves.toBe("partial");
+    expect(app.operationSnapshot.phase).toBe("idle");
+  });
+
 });
