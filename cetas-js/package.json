@@ -1,6 +1,6 @@
 {
   "name": "@posoco/cetas",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "private": true,
   "type": "module",
   "description": "Bun-runtime host for cetas — provider-neutral posoco agent with pi-tui",

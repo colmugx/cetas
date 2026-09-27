@@ -2,6 +2,14 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.5.3 (2026-09-27)
+
+## Bun Ver.（cetas-js/cetas-bun）
+
+## ACP Ver.（cetas-acp）
+
+## Headless Ver.（cetas-headless）
+
 ## 0.5.2 (2026-09-27)
 
 ## Bun Ver.（cetas-js/cetas-bun）

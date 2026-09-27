@@ -11,7 +11,7 @@
 /// (personal host) for each session; regular turns are unaffected.
 
 ///|
-const CETAS_ACP_VERSION = "0.5.2"
+const CETAS_ACP_VERSION = "0.5.3"
 
 ///|
 async fn main {
