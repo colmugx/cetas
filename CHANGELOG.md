@@ -2,6 +2,27 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.5.2 (2026-09-27)
+
+## Bun Ver.（cetas-js/cetas-bun）
+
+### Feats
+- Plan reviews no longer expire.
+- plan results now keep the full plan readable after your decision — expand with ctrl+o to re-read the accepted, revised, or dismissed plan.
+- Sessions get stable, metadata-backed automatic titles.
+
+### Fixes
+- Plans are saved to disk the moment they are submitted, so a dismissed, failed, or unanswered review still leaves the plan text on file instead of losing it.
+
+## ACP Ver.（cetas-acp）
+
+### Feats
+- Session titles advertised to ACP clients are now metadata-backed and stable — user-chosen names take priority, older sessions fall back to a legacy first-message title.
+- Plan mode is now a proper write gate: its enter/exit tools bypass the permission prompt, while all other tools keep flowing through the permission policy.
+
+### Fixes
+- Plans are saved to disk the moment they are submitted, so a dismissed, failed, or unanswered review still leaves the plan text on file instead of losing it.
+
 ## 0.5.1 (2026-09-26)
 
 ## Bun Ver.（cetas-bun）

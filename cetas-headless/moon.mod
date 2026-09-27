@@ -10,7 +10,7 @@
 
 name = "colmugx/cetas-headless"
 
-version = "0.5.1"
+version = "0.5.2"
 
 readme = "README.mbt.md"
 
