@@ -51,6 +51,10 @@ jobs:
         working-directory: posoco/external/cetas
         run: python3 scripts/release.py check
 
+      - name: npm staging tests
+        working-directory: posoco/external/cetas
+        run: python3 -m unittest scripts/test_npm_stage.py
+
       - name: moon update
         working-directory: posoco/external/cetas/cetas-acp
         run: moon update
