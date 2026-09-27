@@ -130,10 +130,17 @@ export class OperationCoordinator {
     return { id: active.id, kind, settled };
   }
 
-  markCancelling(lease: OperationLease): void {
-    if (this.owns(lease) && this.active !== undefined) {
-      this.active.phase = "cancelling";
-    }
+  /**
+   * Transition the owning operation into cancellation exactly once.
+   * Returns true only for the first running -> cancelling transition so
+   * callers can keep mailbox abort and hard-abort watchdog side effects
+   * idempotent under repeated ESC / shutdown requests.
+   */
+  requestCancellation(lease: OperationLease): boolean {
+    if (!this.owns(lease) || this.active === undefined) return false;
+    if (this.active.phase !== "running") return false;
+    this.active.phase = "cancelling";
+    return true;
   }
 
   markFinalizing(lease: OperationLease): void {
