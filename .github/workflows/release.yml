@@ -1,6 +1,6 @@
 # Release pipeline for the cetas submodule (repo github.com/colmugx/cetas).
 # Tag builds publish cetas-acp, cetas-headless, and cetas-bun binaries plus
-# a GitHub release. npm publishing (cetas + cetas-<target> payload packages)
+# a GitHub release. npm publishing (@posoco/cetas + @posoco/cetas-<target> payload packages)
 # is manual: dispatch .github/workflows/npm-publish.yml on the release tag.
 #
 # Every build job checks out colmugx/posoco and points the embedded
