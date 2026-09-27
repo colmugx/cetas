@@ -192,6 +192,9 @@ pub fn MemohHost::agent_spec(
       prompt=(context, params) => self.handle_prompt(context, params),
       cancel=(context, params) => self.handle_cancel(context, params),
       close=(context, params) => self.handle_close(context, params),
+      set_config_option=(context, params) => {
+        self.handle_set_config_option(context, params)
+      },
     ),
     support=@memoh.memoh_agent_support(),
   )
@@ -217,7 +220,12 @@ pub async fn MemohHost::handle_new_session(
   }
   session.bridge.attach(context~, session_id~)
   self.sessions[session_id] = session
-  { session_id, modes: Omitted, config_options: Omitted, meta: Omitted, }
+  {
+    session_id,
+    modes: Omitted,
+    config_options: Value(memoh_config_options(session.router)),
+    meta: Omitted,
+  }
 }
 
 ///|
@@ -302,6 +310,54 @@ pub async fn MemohHost::handle_prompt(
   match outcome {
     Ok(result) => result
     Err(error) => raise error
+  }
+}
+
+///|
+pub async fn MemohHost::handle_set_config_option(
+  self : MemohHost,
+  context : @acp.AgentContext,
+  params : @acp.SetSessionConfigOptionParams,
+) -> @acp.SetSessionConfigOptionResult raise @acp.HandlerError {
+  let session = self.require_session(params.session_id)
+  session.turn_lock.acquire()
+  defer session.turn_lock.release()
+  match self.sessions.get(params.session_id) {
+    Some(live) if physical_equal(live, session) => ()
+    _ =>
+      raise @acp.HandlerError::InvalidParams(
+        message="cetas-memoh: session closed while config update was queued",
+      )
+  }
+  match
+    apply_memoh_config_option(
+      session.router,
+      session.bridge,
+      params.config_id,
+      params.value,
+    ) {
+    Ok(config_options) => {
+      context.session_update({
+        session_id: params.session_id,
+        update: @acp.SessionUpdate::ConfigOptionUpdate({
+          config_options,
+          meta: Omitted,
+        }),
+        meta: Omitted,
+      }) catch {
+        _ =>
+          memoh_warn(
+            "cetas-memoh: config_option_update push failed (session=" +
+            params.session_id +
+            ")\n",
+          )
+      }
+      { config_options, meta: Omitted, }
+    }
+    Err(message) =>
+      raise @acp.HandlerError::Application(
+        message="cetas-memoh: " + message,
+      )
   }
 }
 
