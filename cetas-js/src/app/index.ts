@@ -5,6 +5,9 @@ export type {
   AgentCallbacks,
   AppSnapshot,
   AppState,
+  OperationKind,
+  OperationPhase,
+  OperationSnapshot,
   CancellationToken,
   CetasAgentBridge,
   CetasHostConfig,
@@ -14,5 +17,6 @@ export type {
   ProviderModelCapability,
   ProviderSetupSnapshot,
   SessionTitle,
+  UserInputSubmission,
 } from "./types.ts";
 export { CetasApplicationError } from "./types.ts";

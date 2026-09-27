@@ -1688,4 +1688,131 @@ describe("CetasApplication", () => {
     await app.rewind("session-1", 0);
     expect(rewound).toHaveLength(2);
   });
+
+  test("submitUserInput waits through a stale lower-layer lease before starting the fresh turn", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    let releaseFirst!: () => void;
+    let markFirstStarted!: () => void;
+    const firstReleased = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    const prompts: string[] = [];
+    const base = bridgeFor(
+      {
+        providers: [
+          {
+            id: "deepseek/chat",
+            label: "DeepSeek Chat",
+            provider: "deepseek",
+            model: "deepseek-chat",
+            active: true,
+            efforts: [],
+            oauth: false,
+          },
+        ],
+        oauthProviders: [],
+      },
+      counters,
+    );
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        runTurn: async (_agent, prompt) => {
+          prompts.push(prompt);
+          if (prompt === "first") {
+            markFirstStarted();
+            await firstReleased;
+          }
+          return `reply:${prompt}`;
+        },
+        enqueueFollowUp: () => "RejectedStale(reason=run_closed)",
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    await app.start();
+    const first = app.runTurn("first");
+    await firstStarted;
+
+    let submissionSettled = false;
+    const submissionPromise = app.submitUserInput("second").then((value) => {
+      submissionSettled = true;
+      return value;
+    });
+    await Bun.sleep(1);
+    expect(submissionSettled).toBe(false);
+    expect(prompts).toEqual(["first"]);
+
+    releaseFirst();
+    await expect(first).resolves.toBe("reply:first");
+    const submission = await submissionPromise;
+    expect(submission.kind).toBe("started");
+    if (submission.kind !== "started") throw new Error("expected fresh turn");
+    await expect(submission.completion).resolves.toBe("reply:second");
+    expect(prompts).toEqual(["first", "second"]);
+    expect(app.appState).toBe("ready");
+  });
+
+  test("shutdown cancels the active Agent operation before draining and then closes the Agent", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    let markStarted!: () => void;
+    let releaseRun!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    let aborts = 0;
+    const base = bridgeFor(
+      {
+        providers: [
+          {
+            id: "deepseek/chat",
+            label: "DeepSeek Chat",
+            provider: "deepseek",
+            model: "deepseek-chat",
+            active: true,
+            efforts: [],
+            oauth: false,
+          },
+        ],
+        oauthProviders: [],
+      },
+      counters,
+    );
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        runTurn: async () => {
+          markStarted();
+          await released;
+          return "partial";
+        },
+        abortTurn: () => {
+          aborts += 1;
+          releaseRun();
+          return "Accepted(operation=turn)";
+        },
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    await app.start();
+    const turn = app.runTurn("hello");
+    await started;
+    await app.shutdown();
+    await expect(turn).resolves.toBe("partial");
+    expect(aborts).toBe(1);
+    expect(counters.shutdowns).toBe(1);
+    expect(app.appState).toBe("shutting_down");
+  });
+
 });

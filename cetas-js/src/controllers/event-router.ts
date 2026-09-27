@@ -71,7 +71,6 @@ export class EventRouter {
    */
   private toolStream: ToolStreamingController | null = null;
   private toolRows = new Map<string, ToolRow>();
-  private inTurn = false;
 
   constructor(private readonly cb: EventRouterCallbacks) {}
 
@@ -257,7 +256,7 @@ export class EventRouter {
     // another tool call (overwrites this) or the follow-up model stream. A
     // late completion after endTurn must not resurrect the working status —
     // nothing would reset it.
-    if (this.inTurn) {
+    if (this.stream !== null) {
       this.cb.setStatus("working", "waiting for model");
     }
   }
@@ -265,7 +264,6 @@ export class EventRouter {
   // -- turn lifecycle ------------------------------------------------------
 
   private beginTurn(): void {
-    this.inTurn = true;
     // Fresh controller per turn. The factory mounts new components into the
     // transcript on demand; a new turn's steps therefore allocate fresh
     // AssistantMessage/ThinkingComponent instances instead of mutating the
@@ -315,8 +313,6 @@ export class EventRouter {
   }
 
   private endTurn(): void {
-    this.inTurn = false;
-
     // Close any open step (flush + finalize), then drop the per-turn
     // controller. Its mounted components stay in the transcript (frozen); the
     // references are released so the next turn's controller starts clean.
