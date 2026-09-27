@@ -39,7 +39,7 @@ import {
   "colmugx/posoco-ext-llm@0.2.0",
   "colmugx/posoco-ext-mcp@0.4.0",
   "colmugx/posoco-ext-oauth@0.1.0",
-  "colmugx/posoco-ext-plan@0.3.0",
+  "colmugx/posoco-ext-plan@0.4.0",
   "colmugx/posoco-ext-webfetch@0.1.0",
   "colmugx/posoco-ext-workspace@0.1.0",
   "colmugx/posoco-ext-zcode@0.1.0",

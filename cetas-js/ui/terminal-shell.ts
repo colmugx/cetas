@@ -68,6 +68,7 @@ import {
   UiRequestBar,
   createUiRenderCallback,
   createUiRequestCallback,
+  isPlanReviewRequest,
 } from "./extension-ui.ts";
 import { CommandLock } from "./command-lock.ts";
 import { banner } from "./primitives.ts";
@@ -934,7 +935,12 @@ export class TerminalShell {
         // fall through to the guarded generic ui request path.
       }
     }
-    return createUiRequestCallback(this.uiRequestBar, 300_000)(eventJson);
+    // Plan-review asks wait for the user indefinitely — reading a plan is
+    // reading a document, not a tool call; Esc remains the explicit cancel.
+    // Every other ask keeps the blanket deadlock guard.
+    return createUiRequestCallback(this.uiRequestBar, (request) =>
+      isPlanReviewRequest(request) ? null : 300_000,
+    )(eventJson);
   }
 
   private registerAutocomplete(): void {

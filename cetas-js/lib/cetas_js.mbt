@@ -1583,18 +1583,17 @@ pub fn cetas_js_runtime_create_agent(
                 )
               None => @permission.PermissionPolicy(mode, bus=Some(event_bus))
             }
-            // Plan mode: read-only investigation gated by Hook, toggled via
-            // /plan or shift+tab (declared on the command's shortcut), model entry
-            // via enter_plan_mode, exit only via plan.approve. Its enter/exit tools
-            // are reported on the bus and skip the permission gate above.
+            // Plan mode: a write gate — only non-read-only shell commands
+            // and non-Markdown writes are blocked while planning; every
+            // other tool passes to the permission gate above. Toggled via
+            // /plan or shift+tab (declared on the command's shortcut), model
+            // entry via enter_plan_mode, exit only via plan.approve. Its
+            // enter/exit tools are reported on the bus and skip the
+            // permission gate above.
             let plan_review = PlanApprovalSource()
             let plan_mode = @plan.PlanMode(
               config=@plan.PlanModeConfig::{
-                ..@plan.PlanModeConfig::default()
-                // ask_question rides the read class (permission classifies it read);
-                // shell tools gate per invocation via the default shell_tools.
-                ,
-                allowed_tools: ["read", "glob", "grep", "ask_question"],
+                ..@plan.PlanModeConfig::default(),
                 allow_model_entry: true,
               },
               review=Some(plan_review as &@plan.PlanReviewSource),

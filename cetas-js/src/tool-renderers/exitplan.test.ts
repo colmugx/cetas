@@ -3,7 +3,9 @@
  *
  *   - call view: `● plan <name>` + the FULL plan as markdown (no preview
  *     cap — the user must read what they approve);
- *   - result view: outcome line + saved plan-file path, body not repeated.
+ *   - result view: outcome line + saved plan-file path; the verdict swaps
+ *     out the call view, so collapsed shows a ctrl+o hint and expanded
+ *     re-renders the full plan body.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -65,7 +67,7 @@ describe("exit_plan_mode renderer", () => {
     expect(out).not.toContain("(unnamed)");
   });
 
-  test("result view shows the outcome and saved path, not the plan body", () => {
+  test("collapsed result view shows the outcome, saved path, and expand hint", () => {
     const payload: ToolRenderResultPayload = {
       content:
         "Plan submitted for user approval — do not make any changes until the user decides:\n\n" +
@@ -83,7 +85,30 @@ describe("exit_plan_mode renderer", () => {
     expect(out).toContain("● plan auth refactor");
     expect(out).toContain("Plan submitted for user approval");
     expect(out).toContain(".cetas/plan/auth-refactor_s1.md");
+    expect(out).toContain("ctrl+o plan");
     expect(out).not.toContain("2. migrate stores");
+  });
+
+  test("expanded result view re-renders the full plan body after the verdict", () => {
+    const payload: ToolRenderResultPayload = {
+      content:
+        "Plan dismissed by the user — the turn is cancelled. Make no further tool calls; end your reply now.\n\n" +
+        "Saved to .cetas/plan/auth-refactor_s1.md.",
+      isError: true,
+    };
+    const out = renderToString(
+      exitPlanRenderer.renderResult!(
+        payload,
+        { expanded: true, isPartial: false },
+        makeCtx(PLAN_ARGS),
+      ),
+    );
+    expect(out).toContain("● plan auth refactor");
+    expect(out).toContain("Plan dismissed by the user");
+    expect(out).toContain(".cetas/plan/auth-refactor_s1.md");
+    // The body survives the verdict swap.
+    expect(out).toContain("2. migrate stores");
+    expect(out).not.toContain("ctrl+o plan");
   });
 
   test("error results carry the red bullet and first line", () => {

@@ -839,16 +839,45 @@ export class UiRequestBar {
 }
 
 /**
+ * Per-request timeout budget in milliseconds. Return `null` (or an invalid
+ * value) for no deadline — the guard exists to reap dead asks, so a buggy
+ * policy must never kill one.
+ */
+export type UiRequestTimeoutPolicy = (request: UiRequest) => number | null;
+
+/**
+ * Title prefix cetas-js's MoonBit plan review puts on its select asks
+ * (`lib/approval.mbt` builds `"Plan awaiting approval: <name>…"`). The two
+ * sides agree on this constant; tests pin it on both sides of the FFI.
+ */
+export const PLAN_REVIEW_TITLE_PREFIX = "Plan awaiting approval:";
+
+/** True for the plan-review select ask, the one ask that waits indefinitely. */
+export function isPlanReviewRequest(request: UiRequest): boolean {
+  return (
+    request.type === "select" &&
+    request.title.startsWith(PLAN_REVIEW_TITLE_PREFIX)
+  );
+}
+
+/**
  * Build the exact Promise callback consumed by JsUiPort. The callback must
  * never reject across the FFI: malformed request bytes (bad json, wrong
  * type tag, unparsable request payload, unpresentable ask) degrade to a
  * correlated ui_response error instead of an opaque bridge failure.
+ *
+ * `timeout` is either a blanket deadline in milliseconds for every ask, or
+ * a per-request policy; a `null` budget means the ask waits for the user
+ * indefinitely (the plan review reads like a document, not a tool call).
  */
 export function createUiRequestCallback(
   bar: UiRequestBar,
-  timeoutMs: number,
+  timeout: number | UiRequestTimeoutPolicy,
 ): (eventJson: string) => Promise<string> {
-  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+  if (
+    typeof timeout === "number" &&
+    (!Number.isInteger(timeout) || timeout <= 0)
+  ) {
     throw new Error("UI request timeout must be a positive integer");
   }
   return async (eventJson) => {
@@ -865,15 +894,30 @@ export function createUiRequestCallback(
       }
       requestId = parsedRequestId;
       const request = parseUiRequest(event.request);
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      const timed = new Promise<"timeout">((resolve) => {
-        timeout = setTimeout(() => {
-          resolve("timeout");
-          bar.cancel();
-        }, timeoutMs);
-      });
+      const budget = typeof timeout === "function" ? timeout(request) : timeout;
+      const effective =
+        budget !== null &&
+        budget !== undefined &&
+        Number.isInteger(budget) &&
+        budget > 0
+          ? budget
+          : null;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const racers: Array<Promise<UiResponse | "timeout">> = [
+        bar.request(request),
+      ];
+      if (effective !== null) {
+        racers.push(
+          new Promise<"timeout">((resolve) => {
+            timer = setTimeout(() => {
+              resolve("timeout");
+              bar.cancel();
+            }, effective);
+          }),
+        );
+      }
       try {
-        const outcome = await Promise.race([bar.request(request), timed]);
+        const outcome = await Promise.race(racers);
         if (outcome === "timeout") {
           return JSON.stringify({
             type: "ui_response",
@@ -887,7 +931,7 @@ export function createUiRequestCallback(
           response: outcome,
         });
       } finally {
-        if (timeout !== undefined) clearTimeout(timeout);
+        if (timer !== undefined) clearTimeout(timer);
       }
     } catch (error: unknown) {
       console.warn(

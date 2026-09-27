@@ -3,11 +3,13 @@ import chalk from "chalk";
 import { Container, visibleWidth, type Component } from "@earendil-works/pi-tui";
 
 import {
+  PLAN_REVIEW_TITLE_PREFIX,
   UiRenderHost,
   UiRequestBar,
   createUiRenderCallback,
   createUiRequestCallback,
   formatStatusValue,
+  isPlanReviewRequest,
 } from "./extension-ui.ts";
 import { roleStyle, theme } from "./theme.ts";
 
@@ -973,5 +975,95 @@ describe("UiRequestBar", () => {
       }),
     );
     expect(mount.children).toHaveLength(0);
+  });
+
+  test("a null policy budget lets the plan review wait past any deadline", async () => {
+    const { tui, bar } = makeBar();
+    const callback = createUiRequestCallback(bar, (request) =>
+      isPlanReviewRequest(request) ? null : 1,
+    );
+    const responsePromise = callback(
+      JSON.stringify({
+        type: "ui_request",
+        request_id: "request-plan",
+        request: {
+          type: "select",
+          title: PLAN_REVIEW_TITLE_PREFIX + " auth refactor\n\n1. step",
+          options: ["Approve", "Revise", "Dismiss"],
+          default_index: 0,
+        },
+      }),
+    );
+    // Far past the 1ms budget the non-plan asks get: no timeout fires.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(bar.isActive()).toBe(true);
+    tui.focused!.handleInput!("\r");
+    await expect(responsePromise).resolves.toBe(
+      JSON.stringify({
+        type: "ui_response",
+        request_id: "request-plan",
+        response: { type: "selected", index: 0 },
+      }),
+    );
+  });
+
+  test("the same policy still times out non-plan asks", async () => {
+    const { bar } = makeBar();
+    const callback = createUiRequestCallback(bar, (request) =>
+      isPlanReviewRequest(request) ? null : 1,
+    );
+    await expect(
+      callback(
+        JSON.stringify({
+          type: "ui_request",
+          request_id: "request-perm",
+          request: { type: "input", prompt: "Allow tool?" },
+        }),
+      ),
+    ).resolves.toBe(
+      JSON.stringify({
+        type: "ui_response",
+        request_id: "request-perm",
+        error: { code: "timeout" },
+      }),
+    );
+  });
+
+  test("an invalid policy budget degrades to no deadline instead of killing the ask", async () => {
+    const { tui, bar } = makeBar();
+    const callback = createUiRequestCallback(bar, () => -5);
+    const responsePromise = callback(
+      JSON.stringify({
+        type: "ui_request",
+        request_id: "request-bad-budget",
+        request: { type: "input", prompt: "Wait" },
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(bar.isActive()).toBe(true);
+    tui.focused!.handleInput!("typed\r");
+    await expect(responsePromise).resolves.toBe(
+      JSON.stringify({
+        type: "ui_response",
+        request_id: "request-bad-budget",
+        response: { type: "text", text: "typed" },
+      }),
+    );
+  });
+
+  test("isPlanReviewRequest matches only the plan-review select title", () => {
+    expect(
+      isPlanReviewRequest({
+        type: "select",
+        title: PLAN_REVIEW_TITLE_PREFIX + " x\n\nbody",
+        options: ["a"],
+      }),
+    ).toBe(true);
+    expect(
+      isPlanReviewRequest({ type: "select", title: "Allow tool 'bash'?", options: ["a"] }),
+    ).toBe(false);
+    expect(
+      isPlanReviewRequest({ type: "input", prompt: PLAN_REVIEW_TITLE_PREFIX + " x" }),
+    ).toBe(false);
   });
 });

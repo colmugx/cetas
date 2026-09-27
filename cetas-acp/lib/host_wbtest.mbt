@@ -447,10 +447,7 @@ fn tk_spawn_session_plan(
       )
       let plan_mode = @plan.PlanMode(
         config={
-          ..@plan.PlanModeConfig::default()
-          // ask_question rides the permission read class.
-          ,
-          allowed_tools: ["read", "glob", "grep", "ask_question"],
+          ..@plan.PlanModeConfig::default(),
           allow_model_entry: true,
         },
         review=Some(AcpPlanReview::{ bridge, } as &@plan.PlanReviewSource),
@@ -3966,7 +3963,6 @@ fn tk_spawn_session_plan_noreview(
       let plan_mode = @plan.PlanMode(
         config={
           ..@plan.PlanModeConfig::default(),
-          allowed_tools: ["read", "glob", "grep", "ask_question"],
           allow_model_entry: true,
         },
         bus=Some(event_bus),

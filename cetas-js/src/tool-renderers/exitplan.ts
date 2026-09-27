@@ -6,8 +6,12 @@
  *               about to approve, so no preview cap here (overflow scrolls
  *               into the terminal scrollback).
  * Result view:  `● plan <name>` with the outcome's first line and the saved
- *               plan-file path; the body already lives in the call view
- *               above, so it is never dumped twice.
+ *               plan-file path. The verdict REPLACES the call view (ToolRow
+ *               swaps call → result on settle), so the body would otherwise
+ *               vanish the moment the user decides — the plan text is
+ *               re-rendered here behind ctrl+o (expanded), with a muted
+ *               hint while collapsed. A dismissed or errored verdict keeps
+ *               the plan readable the same way.
  */
 
 import { Container, Markdown, Text } from "@earendil-works/pi-tui";
@@ -44,7 +48,7 @@ export const exitPlanRenderer: ToolRenderer = {
     block.addChild(new Markdown(plan, 1, 0, markdownTheme));
     return block;
   },
-  renderResult(result, _options, ctx) {
+  renderResult(result, options, ctx) {
     const head = headLine(ctx, statusBullet(result.isError ? "error" : "success"));
     const firstLine = (result.content.split("\n")[0] ?? "").trim();
     const saved = SAVED_PATH.exec(result.content.trim())?.[1];
@@ -55,11 +59,23 @@ export const exitPlanRenderer: ToolRenderer = {
     if (saved !== undefined) {
       details.push(theme.muted(saved));
     }
-    if (details.length === 0) {
-      return new Text(head, 1, 0);
+    const plan = argString(ctx.args, "plan");
+    if (plan.length === 0) {
+      if (details.length === 0) {
+        return new Text(head, 1, 0);
+      }
+      return new Text(`${head}\n      ${details.join("\n      ")}`, 1, 0);
     }
-    // Expanded (ctrl+o) intentionally changes nothing here: the full plan
-    // already renders in the call view; expanding would only duplicate it.
+    if (options.expanded) {
+      const block = new Container();
+      block.addChild(new Text(head, 1, 0));
+      if (details.length > 0) {
+        block.addChild(new Text(`      ${details.join("\n      ")}`, 1, 0));
+      }
+      block.addChild(new Markdown(plan, 1, 0, markdownTheme));
+      return block;
+    }
+    details.push(theme.muted("ctrl+o plan"));
     return new Text(`${head}\n      ${details.join("\n      ")}`, 1, 0);
   },
 };

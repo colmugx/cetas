@@ -1395,13 +1395,11 @@ async fn build_session_agent(
   // Plan mode's enter/exit tools bypass the permission ask — their decision
   // is the plan review, not a tool-permission prompt. It must be built
   // after the policy above: its constructor publishes the tool exemptions
-  // on the shared bus and only a subscribed gate receives them.
+  // on the shared bus and only a subscribed gate receives them. Plan mode
+  // itself is a write gate; every other tool passes to the policy above.
   let plan_mode = @plan.PlanMode(
     config={
-      ..@plan.PlanModeConfig::default()
-      // ask_question rides the permission read class.
-      ,
-      allowed_tools: ["read", "glob", "grep", "ask_question"],
+      ..@plan.PlanModeConfig::default(),
       allow_model_entry: true,
     },
     review=Some(AcpPlanReview::{ bridge, } as &@plan.PlanReviewSource),

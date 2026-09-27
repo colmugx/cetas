@@ -44,7 +44,7 @@ import {
   "colmugx/posoco-ext-openai@0.1.0",
   "colmugx/posoco-ext-permission@0.2.0",
   "colmugx/posoco-ext-pi-adaptor@0.1.0",
-  "colmugx/posoco-ext-plan@0.3.0",
+  "colmugx/posoco-ext-plan@0.4.0",
   "colmugx/posoco-ext-ratelimit@0.3.0",
   "colmugx/posoco-ext-read@0.2.0",
   "colmugx/posoco-ext-skills@0.2.0",
