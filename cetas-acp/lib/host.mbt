@@ -1398,10 +1398,7 @@ async fn build_session_agent(
   // on the shared bus and only a subscribed gate receives them. Plan mode
   // itself is a write gate; every other tool passes to the policy above.
   let plan_mode = @plan.PlanMode(
-    config={
-      ..@plan.PlanModeConfig::default(),
-      allow_model_entry: true,
-    },
+    config={ ..@plan.PlanModeConfig::default(), allow_model_entry: true, },
     review=Some(AcpPlanReview::{ bridge, } as &@plan.PlanReviewSource),
     bus=Some(event_bus),
     fs=Some(platform.fs),

@@ -446,10 +446,7 @@ fn tk_spawn_session_plan(
         bus=Some(event_bus),
       )
       let plan_mode = @plan.PlanMode(
-        config={
-          ..@plan.PlanModeConfig::default(),
-          allow_model_entry: true,
-        },
+        config={ ..@plan.PlanModeConfig::default(), allow_model_entry: true, },
         review=Some(AcpPlanReview::{ bridge, } as &@plan.PlanReviewSource),
         bus=Some(event_bus),
       )
@@ -3961,10 +3958,7 @@ fn tk_spawn_session_plan_noreview(
         bus=Some(event_bus),
       )
       let plan_mode = @plan.PlanMode(
-        config={
-          ..@plan.PlanModeConfig::default(),
-          allow_model_entry: true,
-        },
+        config={ ..@plan.PlanModeConfig::default(), allow_model_entry: true, },
         bus=Some(event_bus),
       )
       let agent = @posoco.Agent(
