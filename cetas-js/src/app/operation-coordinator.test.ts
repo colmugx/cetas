@@ -17,7 +17,7 @@ describe("OperationCoordinator", () => {
     });
     expect(coordinator.begin("recovery")).toBeUndefined();
 
-    coordinator.markCancelling(turn);
+    expect(coordinator.requestCancellation(turn)).toBe(true);
     expect(coordinator.snapshot().phase).toBe("cancelling");
     coordinator.markFinalizing(turn);
     expect(coordinator.snapshot().phase).toBe("finalizing");
@@ -91,5 +91,4 @@ describe("OperationCoordinator", () => {
     expect(coordinator.requestCancellation(turn)).toBe(false);
     coordinator.finish(turn);
   });
-
 });
