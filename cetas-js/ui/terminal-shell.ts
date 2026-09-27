@@ -28,10 +28,12 @@ import {
   CetasApplication,
   type AgentCallbacks,
   type AppSnapshot,
+  type AppState,
   type CetasHostConfig,
   type CommandDescriptor,
   type ProviderAuthCapability,
   type SessionTitle,
+  type UserInputSubmission,
 } from "../src/app/index.ts";
 import type { CatalogRefreshSummary } from "../src/app/types.ts";
 import { newSessionId, sessionFilePath } from "../src/app/session-id.ts";
@@ -250,17 +252,9 @@ export class TerminalShell {
   private fileIndexItems?: readonly string[];
   private fileIndexLoadedAt = 0;
 
-  private inTurn = false;
   private commandBusy = false;
   /** Timestamp of the last idle ESC — arms the double-press rewind window. */
   private lastEscapeAt?: number;
-  /**
-   * Set when the shell (or a /compact switch) requests an interrupt and
-   * cleared when the operation settles: turn_failed carries only a safe
-   * category, so this flag — not the wire text — identifies a requested
-   * interrupt and picks the single termination display.
-   */
-  private interruptRequested = false;
   /** Termination notices already rendered; guards against double display. */
   private terminationNotices = 0;
   /**
@@ -281,14 +275,14 @@ export class TerminalShell {
   private toolOutputExpanded = false;
   /** Follow-up bubbles awaiting their TurnStarted; promoted oldest-first. */
   private readonly queuedPrompts: QueuedUserMessage[] = [];
-  /** True only while a monitor-triggered recovery owns the Agent loop. */
-  private rateLimitRecoveryInTurn = false;
   private commandShortcuts: ReadonlyArray<{ keyId: KeyId; command: string }> = [];
   private providerPickerHandle?: OverlayHandle;
   private started = false;
   private setupNoticeShown = false;
   private setupErrorShown?: string;
   private shutdownPromise?: Promise<void>;
+  /** Last application state rendered; edge detection only, never authority. */
+  private renderedAppState?: AppState;
   /**
    * Bridge events the lenient parser skipped since the last turn_started.
    * Grows in-memory across skips within one turn window.
@@ -543,11 +537,13 @@ export class TerminalShell {
 
     const app = this.requireApp();
     const { images, paths } = await this.resolveImageMentions(app, trimmed);
-    if (this.inTurn) {
-      this.queueDuringTurn(app, trimmed, images);
-      return;
-    }
-    await this.runTurnAndRender(app, trimmed, new UserMessage(trimmed, paths), images);
+    await this.submitApplicationInput(
+      app,
+      trimmed,
+      trimmed,
+      new UserMessage(trimmed, paths),
+      images,
+    );
   }
 
   /**
@@ -580,30 +576,49 @@ export class TerminalShell {
   }
 
   /**
-   * Drive one turn to completion. Typing stays live while it runs: Enter
-   * queues a follow-up on the active run (`queueDuringTurn`), ESC interrupts.
-   * An AbortError rejection means the user interrupted, not a failure.
+   * Submit through the application's atomic admission boundary. Renderer
+   * state never decides whether this is a fresh turn or a follow-up.
    */
-  private async runTurnAndRender(
+  private async submitApplicationInput(
     app: CetasApplication,
     prompt: string,
+    displayPrompt: string,
     echo: Component,
     images: readonly ImageAttachment[] = [],
   ): Promise<void> {
-    this.inTurn = true;
-    // Pending indicator: visible the instant the user submits, before the
-    // first MoonBit event arrives; turn_started swaps in "thinking" through
-    // the same idempotent status surface.
-    this.setTurnStatus("working", "starting");
     const terminationBefore = this.terminationNotices;
+    let submission: UserInputSubmission;
+    try {
+      submission = await app.submitUserInput(
+        prompt,
+        this.sessionId,
+        images.length > 0 ? images : undefined,
+      );
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.addTranscriptChild(errorNotice(message));
+      this.tui.requestRender();
+      return;
+    }
+
+    if (submission.kind === "full") {
+      this.addTranscriptChild(
+        errorNotice("follow-up queue is full (64); wait for the turn to finish"),
+      );
+      return;
+    }
+    if (submission.kind === "queued") {
+      const bubble = new QueuedUserMessage(displayPrompt);
+      this.queuedPrompts.push(bubble);
+      this.addTranscriptChild(bubble);
+      return;
+    }
+
     this.addTranscriptChild(echo);
     try {
-      await app.runTurn(prompt, this.sessionId, images.length > 0 ? images : undefined);
+      await submission.completion;
     } catch (error: unknown) {
       if (isAbortError(error)) {
-        // The wire turn_failed already displayed this interrupt when it
-        // reached the run; render here only when the abort landed before the
-        // run registered and emitted nothing.
         if (this.terminationNotices === terminationBefore) {
           this.terminationNotices += 1;
           this.addTranscriptChild(systemNotice("⏹ interrupted"));
@@ -614,53 +629,12 @@ export class TerminalShell {
       }
       this.tui.requestRender();
     } finally {
-      this.inTurn = false;
-      this.interruptRequested = false;
-      // A failed turn never reaches its next TurnStarted, so queued bubbles
-      // would stay pending forever — promote whatever is left.
+      // A failed parent operation cannot drain Agent-side follow-ups. Keep the
+      // transcript coherent by promoting any orphaned pending bubbles.
       while (this.queuedPrompts.length > 0) {
         this.queuedPrompts.shift()?.promote();
       }
-      this.statusLoader.stop();
       this.tui.requestRender();
-    }
-  }
-
-  /**
-   * Enter during a running turn: queue the text as a follow-up on the active
-   * run. The Agent drains queued messages one per turn boundary inside the
-   * pending runTurn await; each drained turn's TurnStarted promotes one
-   * bubble. `"stale"` (or the equivalent race) falls back to a fresh turn.
-   */
-  private queueDuringTurn(
-    app: CetasApplication,
-    prompt: string,
-    images: readonly ImageAttachment[] = [],
-  ): void {
-    const bubble = new QueuedUserMessage(prompt);
-    try {
-      const outcome = app.queueFollowUp(
-        prompt,
-        images.length > 0 ? images : undefined,
-      );
-      if (outcome === "full") {
-        this.addTranscriptChild(
-          errorNotice("follow-up queue is full (64); wait for the turn to finish"),
-        );
-        return;
-      }
-      if (outcome === "stale") {
-        void this.runTurnAndRender(app, prompt, new UserMessage(prompt), images);
-        return;
-      }
-      this.queuedPrompts.push(bubble);
-      this.addTranscriptChild(bubble);
-    } catch (error: unknown) {
-      if (app.appState !== "running") {
-        void this.runTurnAndRender(app, prompt, new UserMessage(prompt), images);
-        return;
-      }
-      this.addTranscriptChild(errorNotice(errorMessage(error)));
     }
   }
 
@@ -696,6 +670,21 @@ export class TerminalShell {
   }
 
   handleSnapshot(snapshot: AppSnapshot): void {
+    const previousState = this.renderedAppState;
+    this.renderedAppState = snapshot.state;
+    if (
+      snapshot.state === "running" &&
+      previousState !== "running" &&
+      !this.commandBusy
+    ) {
+      this.setTurnStatus("working", "starting");
+    } else if (
+      snapshot.state !== "running" &&
+      previousState === "running" &&
+      !this.commandBusy
+    ) {
+      this.setTurnStatus("idle");
+    }
     this.setupStatus.clear();
     if (snapshot.state === "needs_setup") {
       this.setupStatus.addChild(
@@ -727,6 +716,11 @@ export class TerminalShell {
         keyId: descriptor.shortcut as KeyId,
         command: `/${descriptor.id}`,
       }));
+  }
+
+  private get operationBusy(): boolean {
+    const operation = this.app?.operationSnapshot;
+    return operation?.busy === true || operation?.compactPending === true;
   }
 
   private requireApp(): CetasApplication {
@@ -782,7 +776,7 @@ export class TerminalShell {
   }
 
   private clearCommandStatus(): void {
-    if (this.inTurn) return;
+    if (this.operationBusy) return;
     this.statusWrapper.clear();
     this.statusLoader.stop();
     this.tui.requestRender();
@@ -797,36 +791,23 @@ export class TerminalShell {
     }
     const event = outcome.event;
     if (event.type === "turn_started") {
-      if (this.app?.rateLimitRecoveryActive === true) {
-        this.rateLimitRecoveryInTurn = true;
-        this.inTurn = true;
-      }
       this.skippedBridgeEvents = 0;
       this.skippedEventsNoticed = false;
-      this.interruptRequested = false;
       this.promoteQueuedPrompt();
     }
     if (event.type === "custom" && this.commandBusy) {
       this.oauthOverlay.notify(event);
     }
     let routed = event;
-    if (event.type === "turn_failed" && this.interruptRequested) {
-      this.interruptRequested = false;
+    if (
+      event.type === "turn_failed" &&
+      this.app?.operationSnapshot.phase === "cancelling"
+    ) {
       this.terminationNotices += 1;
       this.addTranscriptChild(systemNotice("⏹ interrupted"));
-      // Same router lifecycle as turn_completed, minus its error notice.
       routed = { type: "turn_completed" };
     }
     this.router.handleEvent(routed);
-    if (
-      this.rateLimitRecoveryInTurn &&
-      (event.type === "turn_completed" || event.type === "turn_failed")
-    ) {
-      this.rateLimitRecoveryInTurn = false;
-      this.inTurn = false;
-      this.statusLoader.stop();
-      this.tui.requestRender();
-    }
   }
 
   /**
@@ -1079,16 +1060,14 @@ export class TerminalShell {
     // finalize wait. When both settle, ESC falls through to the idle gesture.
     if (
       matchesKey(data, "escape") &&
-      (this.inTurn || this.app?.compactPending === true)
+      this.app?.interruptActiveTurn() === true
     ) {
-      this.interruptRequested = true;
-      this.app?.interruptActiveTurn();
       return { consume: true };
     }
     // Idle double-ESC (Gemini semantics): the first press clears a non-empty
     // editor, the second within the window opens the rewind picker. This sits
     // below every overlay check, so an overlay can never race it here.
-    if (!this.inTurn && !this.commandBusy && matchesKey(data, "escape")) {
+    if (!this.operationBusy && !this.commandBusy && matchesKey(data, "escape")) {
       const now = Date.now();
       if (this.editor.getText().length > 0) {
         this.editor.setText("");
@@ -1117,7 +1096,7 @@ export class TerminalShell {
     // command operations still swallow keys (their overlays own the flow).
     if (this.commandBusy) return { consume: true };
     // Extension-declared command shortcuts (e.g. shift+tab → /plan).
-    if (!this.inTurn) {
+    if (!this.operationBusy) {
       for (const binding of this.commandShortcuts) {
         if (matchesKey(data, binding.keyId)) {
           void this.invokeCommand(binding.command, "");
@@ -1196,7 +1175,7 @@ export class TerminalShell {
 
   /** /pi — pi package surface management (install/remove/list) via PiCommands. */
   private async runPiCommand(rawArgs: string): Promise<void> {
-    if (this.inTurn || this.commandBusy) {
+    if (this.operationBusy || this.commandBusy) {
       this.addTranscriptChild(errorNotice("/pi cannot run while an operation is active"));
       return;
     }
@@ -1213,7 +1192,7 @@ export class TerminalShell {
   }
 
   private async startNewSession(): Promise<void> {
-    if (this.inTurn || this.commandBusy) {
+    if (this.operationBusy || this.commandBusy) {
       this.addTranscriptChild(errorNotice("/new cannot run while an operation is active"));
       return;
     }
@@ -1240,8 +1219,7 @@ export class TerminalShell {
       this.addTranscriptChild(errorNotice("/compact cannot run while another command is active"));
       return;
     }
-    if (this.inTurn) {
-      this.interruptRequested = true;
+    if (this.operationBusy) {
       this.addTranscriptChild(
         systemNotice("⏸ /compact — waiting for the running operation to finish cleanup"),
       );
@@ -1388,7 +1366,7 @@ export class TerminalShell {
     }
     const name = match[1] as string;
     const tail = (match[2] ?? "").trim();
-    if (this.inTurn) {
+    if (this.operationBusy) {
       this.addTranscriptChild(errorNotice(`$${name} waits until the running turn ends`));
       return;
     }
@@ -1417,7 +1395,12 @@ export class TerminalShell {
     const prompt =
       `<activated-skill name="${escapeXml(name)}">\n${instructions}\n</activated-skill>\n\n` +
       (tail.length > 0 ? tail : "Follow the activated skill's instructions.");
-    await this.runTurnAndRender(this.requireApp(), prompt, new UserMessage(input));
+    await this.submitApplicationInput(
+      this.requireApp(),
+      prompt,
+      input,
+      new UserMessage(input),
+    );
   }
 
   /** Display-only skills browser: catalog metadata + discovery scope. */
@@ -1453,7 +1436,7 @@ export class TerminalShell {
    * model on the next turn.
    */
   private async openSessionsPicker(): Promise<void> {
-    if (this.inTurn || this.commandBusy) {
+    if (this.operationBusy || this.commandBusy) {
       this.addTranscriptChild(errorNotice("/sessions cannot run while an operation is active"));
       return;
     }
@@ -1485,7 +1468,7 @@ export class TerminalShell {
    * and other command flows out of the window.
    */
   private openRewindPicker(): void {
-    if (this.inTurn || this.commandBusy) {
+    if (this.operationBusy || this.commandBusy) {
       this.addTranscriptChild(errorNotice("/rewind cannot run while an operation is active"));
       return;
     }

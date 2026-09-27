@@ -10,6 +10,25 @@ import type { PiPackagesSummary } from "./pi-packages.ts";
 
 export type AppState = "needs_setup" | "ready" | "running" | "shutting_down";
 
+export type OperationKind = "turn" | "recovery" | "compact";
+export type OperationPhase = "idle" | "running" | "cancelling" | "finalizing";
+
+export interface OperationSnapshot {
+  readonly busy: boolean;
+  readonly phase: OperationPhase;
+  readonly id?: number;
+  readonly kind?: OperationKind;
+  readonly interruptible: boolean;
+  readonly followUpsQueued: number;
+  readonly compactPending: boolean;
+  readonly shuttingDown: boolean;
+}
+
+export type UserInputSubmission =
+  | { readonly kind: "queued" }
+  | { readonly kind: "full" }
+  | { readonly kind: "started"; readonly completion: Promise<string> };
+
 export interface CetasHostConfig {
   /** Working directory used by the session extension. */
   cwd: string;

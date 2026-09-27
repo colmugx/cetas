@@ -535,9 +535,21 @@ describe("operation lifecycle wire events", () => {
     }
   });
 
-  test("a requested interrupt turns turn_failed into a single ⏹ interrupted notice", () => {
+  test("a cancelling application operation turns turn_failed into a single ⏹ interrupted notice", () => {
     const { shell } = makeShell();
-    (shell as any).interruptRequested = true;
+    (shell as any).attachApplication({
+      listCommands: () => [],
+      operationSnapshot: {
+        busy: true,
+        phase: "cancelling",
+        id: 1,
+        kind: "turn",
+        interruptible: true,
+        followUpsQueued: 0,
+        compactPending: false,
+        shuttingDown: false,
+      },
+    });
     (shell as any).handleObserverEvent(
       JSON.stringify({ type: "turn_failed", error_message: "turn failed: AgentError::Model", error_kind: "Model" }),
     );
@@ -545,7 +557,6 @@ describe("operation lifecycle wire events", () => {
     expect(transcript).toContain("⏹ interrupted");
     expect(transcript.match(/⏹/g)).toHaveLength(1);
     expect(transcript).not.toContain("turn failed: AgentError::Model");
-    expect((shell as any).interruptRequested).toBe(false);
   });
 
   test("an unrequested turn_failed still renders the router's error notice", () => {
@@ -562,11 +573,21 @@ describe("operation lifecycle wire events", () => {
 describe("/compact command rendering", () => {
   function makeCompactShell(
     invoke: (id: string, args: string) => Promise<string>,
+    busy = false,
   ): TerminalShell {
     const { shell } = makeShell();
     (shell as any).attachApplication({
       listCommands: () => [],
       invokeCommand: invoke,
+      operationSnapshot: {
+        busy,
+        phase: busy ? "running" : "idle",
+        ...(busy ? { id: 1, kind: "turn" } : {}),
+        interruptible: busy,
+        followUpsQueued: 0,
+        compactPending: false,
+        shuttingDown: false,
+      },
     });
     return shell;
   }
@@ -612,11 +633,12 @@ describe("/compact command rendering", () => {
     expect(transcriptOf(shell)).toContain("/compact failed: provider rejected the compact window");
   });
 
-  test("mid-turn compact shows the finalize wait before switching", async () => {
-    const shell = makeCompactShell(async () =>
-      JSON.stringify({ type: "success", structured: { ok: true, mode: "Replace", messages_after: 1 } }),
+  test("mid-turn compact shows the finalize wait from application operation state", async () => {
+    const shell = makeCompactShell(
+      async () =>
+        JSON.stringify({ type: "success", structured: { ok: true, mode: "Replace", messages_after: 1 } }),
+      true,
     );
-    (shell as any).inTurn = true;
     await (shell as any).runCompactCommand("");
     expect(transcriptOf(shell)).toContain(
       "⏸ /compact — waiting for the running operation to finish cleanup",
@@ -625,7 +647,13 @@ describe("/compact command rendering", () => {
 });
 
 describe("submit-path pending spinner", () => {
-  /** Stub app whose runTurn parks until the test settles it. */
+  const snapshot = (state: "ready" | "running") => ({
+    state,
+    setup: { providers: [], oauthProviders: [] },
+    sessionId: "session-1",
+  });
+
+  /** Stub application whose started submission parks until the test settles it. */
   function makeTurnStub(): {
     shell: TerminalShell;
     resolveTurn: (value: string) => void;
@@ -634,18 +662,64 @@ describe("submit-path pending spinner", () => {
     const { shell } = makeShell();
     let resolveTurn: (value: string) => void = () => {};
     let rejectTurn: (error: unknown) => void = () => {};
+    let operation = {
+      busy: false,
+      phase: "idle",
+      interruptible: false,
+      followUpsQueued: 0,
+      compactPending: false,
+      shuttingDown: false,
+    } as any;
     const turn = new Promise<string>((resolve, reject) => {
       resolveTurn = resolve;
       rejectTurn = reject;
     });
+    const settleReady = () => {
+      operation = {
+        busy: false,
+        phase: "idle",
+        interruptible: false,
+        followUpsQueued: 0,
+        compactPending: false,
+        shuttingDown: false,
+      };
+      (shell as any).handleSnapshot(snapshot("ready"));
+    };
+    const completion = turn.then(
+      (value) => {
+        settleReady();
+        return value;
+      },
+      (error) => {
+        settleReady();
+        throw error;
+      },
+    );
     (shell as any).attachApplication({
       listCommands: () => [],
-      runTurn: () => turn,
+      get operationSnapshot() {
+        return operation;
+      },
+      submitUserInput: async () => {
+        operation = {
+          busy: true,
+          phase: "running",
+          id: 1,
+          kind: "turn",
+          interruptible: true,
+          followUpsQueued: 0,
+          compactPending: false,
+          shuttingDown: false,
+        };
+        (shell as any).handleSnapshot(snapshot("running"));
+        return { kind: "started", completion };
+      },
     });
+    (shell as any).handleSnapshot(snapshot("ready"));
     return { shell, resolveTurn, rejectTurn };
   }
 
-  /** Let submit's awaits land in runTurnAndRender's synchronous prefix. */
+  /** Let submit's awaits reach the application submission boundary. */
   async function flushMicrotasks(ticks = 5): Promise<void> {
     for (let i = 0; i < ticks; i += 1) await Promise.resolve();
   }
@@ -658,23 +732,24 @@ describe("submit-path pending spinner", () => {
     };
   }
 
-  test("the working spinner is active the instant the user submits, before any event", async () => {
+  test("the working spinner follows application running state before any wire event", async () => {
     const { shell, resolveTurn } = makeTurnStub();
     const done = shell.submit("hello");
     try {
       await flushMicrotasks();
-      expect((shell as any).inTurn).toBe(true);
+      expect((shell as any).operationBusy).toBe(true);
       expect(statusOf(shell).count).toBe(1);
       expect(statusOf(shell).rendered).toContain("starting");
     } finally {
       resolveTurn("done");
       await done;
     }
-    expect((shell as any).inTurn).toBe(false);
+    expect((shell as any).operationBusy).toBe(false);
+    expect(statusOf(shell).count).toBe(0);
     expect((shell as any).statusLoader.intervalId).toBeNull();
   });
 
-  test("turn_started swaps the pending message for the router's thinking state without duplicating the status node", async () => {
+  test("turn_started swaps the application pending state for thinking without duplicating the status node", async () => {
     const { shell, resolveTurn } = makeTurnStub();
     const done = shell.submit("hello");
     try {
@@ -694,30 +769,71 @@ describe("submit-path pending spinner", () => {
     expect((shell as any).statusLoader.intervalId).toBeNull();
   });
 
-  test("a rejected turn stops the spinner in finally and leaves no stuck status", async () => {
+  test("a bridge rejection clears starting from the application ready transition without a wire failure dependency", async () => {
     const { shell, rejectTurn } = makeTurnStub();
     const done = shell.submit("hello");
-    try {
-      await flushMicrotasks();
-      expect(statusOf(shell).count).toBe(1);
-      rejectTurn(new Error("bridge exploded"));
-      // The bridge reports the failure on the wire before its promise rejects;
-      // the router's idle transition is what clears the status region.
-      (shell as any).handleObserverEvent(
-        JSON.stringify({
-          type: "turn_failed",
-          error_message: "bridge exploded",
-          error_kind: "Model",
-        }),
-      );
-    } finally {
-      await done;
-    }
-    expect((shell as any).inTurn).toBe(false);
+    await flushMicrotasks();
+    expect(statusOf(shell).count).toBe(1);
+    rejectTurn(new Error("bridge exploded"));
+    await done;
+    expect((shell as any).operationBusy).toBe(false);
     expect(statusOf(shell).count).toBe(0);
     expect((shell as any).statusLoader.intervalId).toBeNull();
     expect((shell as any).transcript.render(200).join("\n")).toContain(
       "bridge exploded",
     );
+  });
+
+  test("a host preflight rejection never creates a synthetic starting state", async () => {
+    const { shell } = makeShell();
+    const loaderBefore = (shell as any).statusLoader.intervalId;
+    (shell as any).attachApplication({
+      listCommands: () => [],
+      operationSnapshot: {
+        busy: true,
+        phase: "running",
+        id: 7,
+        kind: "turn",
+        interruptible: true,
+        followUpsQueued: 0,
+        compactPending: false,
+        shuttingDown: false,
+      },
+      submitUserInput: async () => {
+        throw new Error("a turn is already running");
+      },
+    });
+    await shell.submit("hello");
+    expect(statusOf(shell).count).toBe(0);
+    // The rejection must not create a new loader lifecycle. Loader's own
+    // construction policy is an implementation detail of pi-tui.
+    expect((shell as any).statusLoader.intervalId).toBe(loaderBefore);
+    expect((shell as any).transcript.render(200).join("\n")).toContain(
+      "a turn is already running",
+    );
+  });
+
+  test("ESC delegates to application cancellation even when no shell-local turn flag exists", () => {
+    const { shell } = makeShell();
+    let interrupts = 0;
+    (shell as any).attachApplication({
+      listCommands: () => [],
+      operationSnapshot: {
+        busy: true,
+        phase: "running",
+        id: 9,
+        kind: "turn",
+        interruptible: true,
+        followUpsQueued: 0,
+        compactPending: false,
+        shuttingDown: false,
+      },
+      interruptActiveTurn: () => {
+        interrupts += 1;
+        return true;
+      },
+    });
+    expect((shell as any).handleInput("\u001b")).toEqual({ consume: true });
+    expect(interrupts).toBe(1);
   });
 });
