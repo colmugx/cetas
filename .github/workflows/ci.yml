@@ -91,9 +91,14 @@ jobs:
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
 
+      - name: cetas-js install
+        working-directory: posoco/external/cetas/cetas-js
+        run: bun install
+
+      - name: cetas-js typegen
+        working-directory: posoco/external/cetas/cetas-js
+        run: bun run typegen
+
       - name: cetas-js typecheck
         working-directory: posoco/external/cetas/cetas-js
-        run: |
-          bun install
-          bun build.ts --dts-only
-          bunx tsc --noEmit
+        run: bun run typecheck
