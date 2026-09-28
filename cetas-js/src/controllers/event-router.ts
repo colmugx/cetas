@@ -99,14 +99,20 @@ export class EventRouter {
       case "tool_args_delta":
         this.toolStream?.onArgsDelta(ev.index, ev.id, ev.name, ev.delta);
         break;
-      case "tool_call_completed":
+      case "tool_call_completed": {
+        // TUI surfaces media as text chips; real pixel rendering belongs to
+        // the future desktop host.
+        const chips = (ev.images ?? [])
+          .map((img) => `\n🖼 ${img.media_type} ~${Math.ceil((img.data.length * 3) / 4 / 1024)} KB`)
+          .join("");
         this.handleToolCallCompleted(
           ev.tool_call_id,
-          ev.result,
+          ev.result + chips,
           ev.is_error,
           ev.structured,
         );
         break;
+      }
       case "tool_call_deferred":
         this.cb.addTranscriptChild(
           systemNotice(`⏸ deferred: ${ev.tool_name} (${ev.reason})`),

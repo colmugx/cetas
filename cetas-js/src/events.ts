@@ -52,6 +52,12 @@ export interface BridgeUsage {
   reasoning_tokens?: number;
 }
 
+/** One media attachment on a tool result (images today). */
+export interface ToolResultImage {
+  media_type: string;
+  data: string;
+}
+
 export type CetasEvent =
   | { type: "turn_started" }
   | { type: "turn_completed" }
@@ -74,6 +80,8 @@ export type CetasEvent =
       is_error: boolean;
       /** Machine-readable ToolOutcome.structured (reserved `summary` field). */
       structured?: Record<string, unknown>;
+      /** Media attachments (ToolOutcome attachments, images today). */
+      images?: ToolResultImage[];
     }
   | {
       type: "tool_call_deferred";
@@ -316,6 +324,15 @@ export function parseCetasEvent(raw: unknown): CetasEvent | null {
           ev.structured,
           "tool_call_completed.structured",
         );
+      }
+      if (ev.images !== undefined) {
+        if (!Array.isArray(ev.images)) {
+          throw new BridgeProtocolError("tool_call_completed.images must be an array");
+        }
+        completed.images = ev.images.map((img) => ({
+          media_type: requireString(img.media_type, "tool_call_completed.images.media_type"),
+          data: requireString(img.data, "tool_call_completed.images.data"),
+        }));
       }
       return completed;
     }

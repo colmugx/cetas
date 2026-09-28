@@ -125,12 +125,8 @@ fn memoh_error_detail(error : @memoh.MemohError) -> String {
 }
 
 ///|
-async fn close_failed_mcp_bridge(
-  bridge : @mcp.MCPToolBridge,
-) -> Unit noraise {
-  let _ = @async.protect_from_cancel(() => bridge.close()) catch {
-    _ => ()
-  }
+async fn close_failed_mcp_bridge(bridge : @mcp.MCPToolBridge) -> Unit noraise {
+  let _ = @async.protect_from_cancel(() => bridge.close()) catch { _ => () }
 }
 
 ///|
@@ -321,9 +317,7 @@ pub async fn MemohHost::handle_prompt(
               "\n",
             )
             Err(
-              @acp.HandlerError::Application(
-                message="cetas-memoh: " + detail,
-              ),
+              @acp.HandlerError::Application(message="cetas-memoh: " + detail),
             )
           }
       }

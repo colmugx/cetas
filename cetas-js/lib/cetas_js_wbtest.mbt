@@ -477,6 +477,101 @@ test "turn_event_to_json skips UserRequest presence events (null sentinel)" {
 }
 
 ///|
+fn tk_js_call(name~ : String, call_id~ : String) -> @posoco.ToolCall {
+  {
+    call_id: @posoco.CallId::unchecked(call_id),
+    name: @posoco.ToolName::unchecked(name),
+    arguments: Json::null(),
+  }
+}
+
+///|
+test "turn_event_to_json projects the terminal tool-call nodes onto tool_call_completed" {
+  let succeeded : @posoco.TurnEvent = ToolCallSucceeded(
+    call=tk_js_call(name="read", call_id="c-1"),
+    content="file body",
+    structured=Some({ "summary": "read ok" }),
+    attachments=[@posoco.Content::Image(media_type="image/png", data="aW8=")],
+  )
+  let runtime_failed : @posoco.TurnEvent = ToolCallFailed(
+    call=tk_js_call(name="bash", call_id="c-2"),
+    failure=Runtime(category="adapter", message="io broke"),
+  )
+  let reported_failed : @posoco.TurnEvent = ToolCallFailed(
+    call=tk_js_call(name="bash", call_id="c-3"),
+    failure=ReportedError(content="exit 1", structured=None),
+  )
+  let rejected : @posoco.TurnEvent = ToolCallRejected(
+    call=tk_js_call(name="ghost", call_id="c-4"),
+    reason=UnknownTool,
+  )
+  let abandoned : @posoco.TurnEvent = ToolCallAbandoned(
+    call=tk_js_call(name="write", call_id="c-5"),
+    reason="run ended mid-wave",
+  )
+  let decoded : Array[Map[String, Json]] = [
+    succeeded, runtime_failed, reported_failed, rejected, abandoned,
+  ].map(event => {
+    match @json.parse(turn_event_to_json(event).stringify()) {
+      Json::Object(fields) => fields
+      _ => fail("event must be an object")
+    }
+  })
+  let succeeded_fields = decoded[0]
+  assert_eq(succeeded_fields["type"], Json::string("tool_call_completed"))
+  assert_eq(succeeded_fields["tool_call_id"], Json::string("c-1"))
+  assert_eq(succeeded_fields["result"], Json::string("file body"))
+  assert_eq(succeeded_fields["is_error"], Json::boolean(false))
+  assert_eq(
+    succeeded_fields["structured"],
+    Json::object(Map::from_array([("summary", Json::string("read ok"))])),
+  )
+  assert_eq(
+    succeeded_fields["images"],
+    Json::array([
+      Json::object(
+        Map::from_array([
+          ("media_type", Json::string("image/png")),
+          ("data", Json::string("aW8=")),
+        ]),
+      ),
+    ]),
+  )
+  let runtime_fields = decoded[1]
+  assert_eq(runtime_fields["tool_call_id"], Json::string("c-2"))
+  assert_eq(runtime_fields["result"], Json::string("io broke"))
+  assert_eq(runtime_fields["is_error"], Json::boolean(true))
+  assert_true(runtime_fields.get("structured") is None)
+  let reported_fields = decoded[2]
+  assert_eq(reported_fields["tool_call_id"], Json::string("c-3"))
+  assert_eq(reported_fields["result"], Json::string("exit 1"))
+  assert_eq(reported_fields["is_error"], Json::boolean(true))
+  let rejected_fields = decoded[3]
+  assert_eq(rejected_fields["tool_call_id"], Json::string("c-4"))
+  assert_eq(rejected_fields["result"], Json::string("not executed"))
+  assert_eq(rejected_fields["is_error"], Json::boolean(true))
+  let abandoned_fields = decoded[4]
+  assert_eq(abandoned_fields["tool_call_id"], Json::string("c-5"))
+  assert_eq(abandoned_fields["result"], Json::string("abandoned"))
+  assert_eq(abandoned_fields["is_error"], Json::boolean(true))
+}
+
+///|
+test "turn_event_to_json skips ToolCallApproved and ToolCallStarted (null sentinel)" {
+  let call = tk_js_call(name="bash", call_id="c-9")
+  let events : Array[@posoco.TurnEvent] = [
+    ToolCallApproved(call~, consent_scope=Some("workspace")),
+    ToolCallStarted(call~),
+  ]
+  for event in events {
+    match turn_event_to_json(event) {
+      Json::Null => ()
+      _ => fail("expected Json null skip sentinel")
+    }
+  }
+}
+
+///|
 /// Isolated home for the live-refresh tests: a fresh /tmp directory per call
 /// so `settings.json` is absent (unconfigured) and `model_lists.json` writes
 /// never touch the developer's real `~/.cetas`. Nothing process-global is

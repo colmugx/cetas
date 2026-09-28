@@ -21,12 +21,14 @@
 /// authoritative — deltas may be dropped under load (StreamChunksDropped),
 /// committed events never are.
 ///
-/// Event projection: ToolCallPending / ToolCallResult / committed reasoning
-/// from ModelResponseReceived; usage accumulates from ModelResponseReceived
-/// exactly like ext-subagent's BridgeObserver. `content` fields are preview
-/// clips (`preview_cap` chars) — the full transcript (reasoning, arguments,
-/// complete tool results) is persisted in the fs-session JSONL store; stdout
-/// is a notification channel, not the record.
+/// Event projection: ToolCallPending / the terminal tool-call nodes
+/// (ToolCallSucceeded, ToolCallFailed, ToolCallRejected, ToolCallAbandoned —
+/// all folding onto the `tool_result` line, `outcome` naming the node) /
+/// committed reasoning from ModelResponseReceived; usage accumulates from
+/// ModelResponseReceived exactly like ext-subagent's BridgeObserver. `content`
+/// fields are preview clips (`preview_cap` chars) — the full transcript
+/// (reasoning, arguments, complete tool results) is persisted in the
+/// fs-session JSONL store; stdout is a notification channel, not the record.
 ///
 /// Every line is delivered the moment it is built: `set_live_sink` (wired by
 /// the loop's pump) receives it synchronously; without a sink lines buffer
@@ -67,26 +69,35 @@ fn clip_preview(text : String) -> (String, Bool) {
 }
 
 ///|
-/// The `outcome` wire tag for one ToolOutcome variant.
-fn outcome_tag(outcome : @posoco.ToolOutcome) -> String {
-  match outcome {
-    Success(..) => "success"
-    ToolReportedError(..) => "tool_error"
-    RuntimeFailure(..) => "runtime_failure"
-    NotExecuted(..) => "not_executed"
-  }
-}
-
-///|
-/// The human-meaningful payload of one ToolOutcome: the result content, or
-/// the failure message, or the not-executed reason.
-fn outcome_text(outcome : @posoco.ToolOutcome) -> String {
-  match outcome {
-    Success(content~, ..) => content
-    ToolReportedError(content~, ..) => content
-    RuntimeFailure(error_category~, message~) => "\{error_category}: \{message}"
-    NotExecuted(reason~, ..) => reason.to_string()
-  }
+/// One `tool_result` line for a terminal tool-call node. The four terminal
+/// events (Succeeded / Failed / Rejected / Abandoned) fold onto the same
+/// wire shape: `outcome` names the node family, `is_error` separates
+/// success from failure, `text` is the preview payload.
+fn JsonlObserver::push_tool_result(
+  self : JsonlObserver,
+  call : @posoco.ToolCall,
+  is_error~ : Bool,
+  outcome~ : String,
+  text~ : String,
+) -> Unit {
+  let (content, truncated) = clip_preview(text)
+  self.push_line(
+    "{\"type\":\"tool_result\",\"turn\":" +
+    self.turn.to_string() +
+    ",\"name\":" +
+    json_scalar(call.name.to_string()) +
+    ",\"call_id\":" +
+    json_scalar(call.call_id.to_string()) +
+    ",\"is_error\":" +
+    is_error.to_string() +
+    ",\"outcome\":" +
+    json_scalar(outcome) +
+    ",\"content\":" +
+    json_scalar(content) +
+    ",\"truncated\":" +
+    truncated.to_string() +
+    "}",
+  )
 }
 
 ///|
@@ -254,26 +265,44 @@ pub impl @posoco.Observer for JsonlObserver with fn on_event_at(
         call.arguments.stringify() +
         "}",
       )
-    @posoco.TurnEvent::ToolCallResult(call~, result~, is_error~) => {
-      let (content, truncated) = clip_preview(outcome_text(result))
-      self.push_line(
-        "{\"type\":\"tool_result\",\"turn\":" +
-        self.turn.to_string() +
-        ",\"name\":" +
-        json_scalar(call.name.to_string()) +
-        ",\"call_id\":" +
-        json_scalar(call.call_id.to_string()) +
-        ",\"is_error\":" +
-        is_error.to_string() +
-        ",\"outcome\":" +
-        json_scalar(outcome_tag(result)) +
-        ",\"content\":" +
-        json_scalar(content) +
-        ",\"truncated\":" +
-        truncated.to_string() +
-        "}",
+    @posoco.TurnEvent::ToolCallSucceeded(call~, content~, ..) =>
+      self.push_tool_result(
+        call,
+        is_error=false,
+        outcome="success",
+        text=content,
       )
-    }
+    @posoco.TurnEvent::ToolCallFailed(call~, failure~) =>
+      match failure {
+        ReportedError(content~, ..) =>
+          self.push_tool_result(
+            call,
+            is_error=true,
+            outcome="tool_error",
+            text=content,
+          )
+        Runtime(category~, message~) =>
+          self.push_tool_result(
+            call,
+            is_error=true,
+            outcome="runtime_failure",
+            text="\{category}: \{message}",
+          )
+      }
+    @posoco.TurnEvent::ToolCallRejected(call~, reason~) =>
+      self.push_tool_result(
+        call,
+        is_error=true,
+        outcome="not_executed",
+        text=reason.to_string(),
+      )
+    @posoco.TurnEvent::ToolCallAbandoned(call~, reason~) =>
+      self.push_tool_result(
+        call,
+        is_error=true,
+        outcome="abandoned",
+        text=reason,
+      )
     @posoco.TurnEvent::ModelResponseReceived(message~, usage~) => {
       match message {
         AssistantMessage(reasoning~, ..) =>

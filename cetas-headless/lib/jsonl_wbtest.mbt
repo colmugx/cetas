@@ -1,7 +1,8 @@
 ///|
 /// jsonl_wbtest.mbt — the JsonlObserver projection driven directly with
-/// synthesized kernel events: tool_result lines (both error polarities plus
-/// the outcome/content/truncated extension), tool_call lines, committed
+/// synthesized kernel events: tool_result lines (the terminal tool-call
+/// nodes — Succeeded / Failed / Rejected / Abandoned — plus the
+/// outcome/content/truncated extension), tool_call lines, committed
 /// reasoning, delta telemetry under --stream, preview clipping, the live
 /// sink, per-turn usage windows, and the drained-buffer contract.
 
@@ -44,18 +45,18 @@ test "jsonl observer projects tool results with error polarity and folds usage" 
   observer.on_event_at(None, @posoco.TurnEvent::TurnStarted)
   observer.on_event_at(
     None,
-    @posoco.TurnEvent::ToolCallResult(
+    @posoco.TurnEvent::ToolCallFailed(
       call=tk_observer_call(name="bash", call_id="c-9"),
-      result=@posoco.tk_error_result("boom"),
-      is_error=true,
+      failure=ReportedError(content="boom", structured=None),
     ),
   )
   observer.on_event_at(
     None,
-    @posoco.TurnEvent::ToolCallResult(
+    @posoco.TurnEvent::ToolCallSucceeded(
       call=tk_observer_call(name="read", call_id="c-10"),
-      result=@posoco.tk_ok_result("file body"),
-      is_error=false,
+      content="file body",
+      structured=None,
+      attachments=[],
     ),
   )
   observer.on_event_at(
@@ -102,31 +103,34 @@ test "jsonl observer projects the process: tool_call with arguments and committe
 }
 
 ///|
-test "jsonl observer maps every non-success outcome to a wire tag with its payload" {
+test "jsonl observer maps every terminal failure node to a wire tag with its payload" {
   let observer = JsonlObserver::JsonlObserver()
   observer.begin_turn(turn_no=2, session_id="s-out")
   observer.on_event_at(
     None,
-    @posoco.TurnEvent::ToolCallResult(
+    @posoco.TurnEvent::ToolCallFailed(
       call=tk_observer_call(name="bash", call_id="c-r"),
-      result=RuntimeFailure(error_category="adapter", message="io broke"),
-      is_error=true,
+      failure=Runtime(category="adapter", message="io broke"),
     ),
   )
   observer.on_event_at(
     None,
-    @posoco.TurnEvent::ToolCallResult(
+    @posoco.TurnEvent::ToolCallRejected(
       call=tk_observer_call(name="ghost", call_id="c-n"),
-      result=NotExecuted(
-        reason=UnknownTool,
-        original_call_id=@posoco.CallId::unchecked("c-n"),
-      ),
-      is_error=true,
+      reason=UnknownTool,
+    ),
+  )
+  observer.on_event_at(
+    None,
+    @posoco.TurnEvent::ToolCallAbandoned(
+      call=tk_observer_call(name="write", call_id="c-a"),
+      reason="run ended mid-wave",
     ),
   )
   assert_eq(observer.take_lines(), [
     "{\"type\":\"tool_result\",\"turn\":2,\"name\":\"bash\",\"call_id\":\"c-r\",\"is_error\":true,\"outcome\":\"runtime_failure\",\"content\":\"adapter: io broke\",\"truncated\":false}",
     "{\"type\":\"tool_result\",\"turn\":2,\"name\":\"ghost\",\"call_id\":\"c-n\",\"is_error\":true,\"outcome\":\"not_executed\",\"content\":\"UnknownTool\",\"truncated\":false}",
+    "{\"type\":\"tool_result\",\"turn\":2,\"name\":\"write\",\"call_id\":\"c-a\",\"is_error\":true,\"outcome\":\"abandoned\",\"content\":\"run ended mid-wave\",\"truncated\":false}",
   ])
 }
 
@@ -141,10 +145,11 @@ test "jsonl observer clips content and reasoning previews at the cap" {
   let big = builder.to_string()
   observer.on_event_at(
     None,
-    @posoco.TurnEvent::ToolCallResult(
+    @posoco.TurnEvent::ToolCallSucceeded(
       call=tk_observer_call(name="read", call_id="c-big"),
-      result=@posoco.tk_ok_result(big),
-      is_error=false,
+      content=big,
+      structured=None,
+      attachments=[],
     ),
   )
   observer.on_event_at(

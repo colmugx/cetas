@@ -153,10 +153,19 @@ fn usage_to_json(usage : @posoco.Usage?) -> Json {
 ///   TurnCompleted          → turn_completed
 ///   TurnFailed(msg)        → turn_failed { error_message }
 ///   ToolCallPending        → tool_call_started { tool_call_id, tool_name, args }
-///   ToolCallResult         → tool_call_completed { tool_call_id, result, is_error,
-///                            structured? } (structured only when the outcome
-///                            carries one — reserved `summary` field convention)
-///   ToolCallDeferred       → tool_call_deferred { tool_call_id, tool_name, reason }
+///   ToolCallSucceeded      → tool_call_completed { tool_call_id, result,
+///                            is_error:false, structured? } (structured only
+///                            when the call carries one — reserved `summary`
+///                            field convention)
+///   ToolCallFailed         → tool_call_completed { tool_call_id, result,
+///                            is_error:true [, structured?] }
+///   ToolCallRejected       → tool_call_completed { tool_call_id,
+///                            result:"not executed", is_error:true }
+///   ToolCallAbandoned      → tool_call_completed { tool_call_id,
+///                            result:"abandoned", is_error:true }
+///   ToolCallApproved / ToolCallStarted → skipped (Json null sentinel —
+///                            committed-stream audit nodes; the UI already
+///                            rendered tool_call_started from ToolCallPending)
 ///   ModelResponseReceived  → message_end { message, usage } +
 ///                            model_invoked { model:"", usage } (so the UI can
 ///                            surface token counts even when the model name is
@@ -197,18 +206,56 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
           ("args", call.arguments),
         ]),
       )
-    @posoco.TurnEvent::ToolCallResult(call~, result~, is_error~) => {
-      let (result_text, structured) = match result {
-        Success(content~, structured~) => (content, structured)
-        ToolReportedError(content~, structured~) => (content, structured)
-        RuntimeFailure(message~, ..) => (message, None)
-        NotExecuted(..) => ("not executed", None)
+    @posoco.TurnEvent::ToolCallSucceeded(
+      call~,
+      content~,
+      structured~,
+      attachments~
+    ) => {
+      let fields : Array[(String, Json)] = [
+        ("type", Json::string("tool_call_completed")),
+        ("tool_call_id", Json::string(call.call_id.to_string())),
+        ("result", Json::string(content)),
+        ("is_error", Json::boolean(false)),
+      ]
+      match structured {
+        Some(s) => fields.push(("structured", s))
+        None => ()
+      }
+      // Media blocks ride as wire images (base64 + mime); the UI renders
+      // chips, the transcript text stays payload-free.
+      if !attachments.is_empty() {
+        let images : Array[Json] = []
+        for block in attachments {
+          match block {
+            @posoco.Content::Image(media_type~, data~) =>
+              images.push(
+                Json::object(
+                  Map::from_array([
+                    ("media_type", Json::string(media_type)),
+                    ("data", Json::string(data)),
+                  ]),
+                ),
+              )
+            @posoco.Content::Text(_) => ()
+          }
+        }
+        if !images.is_empty() {
+          fields.push(("images", Json::array(images)))
+        }
+      }
+      Json::object(Map::from_array(fields))
+    }
+    @posoco.TurnEvent::ToolCallFailed(call~, failure~) => {
+      let (result_text, structured) = match failure {
+        ReportedError(content~, structured~) => (content, structured)
+        Runtime(message~, ..) => (message, None)
       }
       let fields : Array[(String, Json)] = [
         ("type", Json::string("tool_call_completed")),
         ("tool_call_id", Json::string(call.call_id.to_string())),
         ("result", Json::string(result_text)),
-        ("is_error", Json::boolean(is_error)),
+        ("is_error", Json::boolean(true)),
       ]
       match structured {
         Some(s) => fields.push(("structured", s))
@@ -216,6 +263,24 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
       }
       Json::object(Map::from_array(fields))
     }
+    @posoco.TurnEvent::ToolCallRejected(call~, ..) =>
+      Json::object(
+        Map::from_array([
+          ("type", Json::string("tool_call_completed")),
+          ("tool_call_id", Json::string(call.call_id.to_string())),
+          ("result", Json::string("not executed")),
+          ("is_error", Json::boolean(true)),
+        ]),
+      )
+    @posoco.TurnEvent::ToolCallAbandoned(call~, ..) =>
+      Json::object(
+        Map::from_array([
+          ("type", Json::string("tool_call_completed")),
+          ("tool_call_id", Json::string(call.call_id.to_string())),
+          ("result", Json::string("abandoned")),
+          ("is_error", Json::boolean(true)),
+        ]),
+      )
     // ModelResponseReceived is the closest posoco gives us to a "message_end"
     // event: it fires once per non-streaming assistant message with the full
     // Message struct. We emit both `message_end` (for transcript append) and
@@ -243,15 +308,15 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
         model_invoked,
       ])
     }
-    @posoco.TurnEvent::ToolCallDeferred(call~, reason~) =>
-      Json::object(
-        Map::from_array([
-          ("type", Json::string("tool_call_deferred")),
-          ("tool_call_id", Json::string(call.call_id.to_string())),
-          ("tool_name", Json::string(call.name.to_string())),
-          ("reason", Json::string(reason)),
-        ]),
-      )
+    @posoco.TurnEvent::ToolCallApproved(..) =>
+      // Committed-stream audit node (hook chain finalized, consent scope
+      // recorded). The UI already rendered tool_call_started from
+      // ToolCallPending; nothing new to project.
+      Json::null()
+    @posoco.TurnEvent::ToolCallStarted(..) =>
+      // The wave launch of an already-announced call; skipping avoids a
+      // duplicate tool_call_started line.
+      Json::null()
     @posoco.TurnEvent::SessionRedirect(from~, to~, ..) =>
       Json::object(
         Map::from_array([
