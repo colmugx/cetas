@@ -837,3 +837,75 @@ describe("submit-path pending spinner", () => {
     expect(interrupts).toBe(1);
   });
 });
+
+describe("command status restore on finish (issue #2)", () => {
+  const statusText = (shell: TerminalShell): string =>
+    (shell as unknown as { statusLoader: { render(width: number): string[] } }).statusLoader
+      .render(80)
+      .join("\n");
+
+  test("a finished command restores the turn status while the operation is busy", () => {
+    const { shell } = makeShell();
+    (shell as any).attachApplication({
+      listCommands: () => [],
+      operationSnapshot: {
+        busy: true,
+        phase: "running",
+        id: 1,
+        kind: "turn",
+        interruptible: true,
+        followUpsQueued: 0,
+        compactPending: false,
+        shuttingDown: false,
+      },
+    });
+    (shell as any).setTurnStatus("working", "thinking");
+    (shell as any).setCommandStatus("running /permission");
+    (shell as any).clearCommandStatus();
+    const rendered = statusText(shell);
+    expect(rendered).toContain("thinking");
+    expect(rendered).not.toContain("running /permission");
+  });
+
+  test("a finished command clears the status once the app is settled", () => {
+    const { shell } = makeShell();
+    (shell as any).attachApplication({
+      listCommands: () => [],
+      operationSnapshot: {
+        busy: false,
+        phase: "idle",
+        interruptible: false,
+        followUpsQueued: 0,
+        compactPending: false,
+        shuttingDown: false,
+      },
+    });
+    (shell as any).setTurnStatus("working", "thinking");
+    (shell as any).setCommandStatus("running /permission");
+    (shell as any).clearCommandStatus();
+    expect(
+      (shell as unknown as { statusWrapper: { children: unknown[] } }).statusWrapper.children,
+    ).toHaveLength(0);
+  });
+
+  test("a busy operation without a recorded turn status falls back to working", () => {
+    const { shell } = makeShell();
+    (shell as any).attachApplication({
+      listCommands: () => [],
+      operationSnapshot: {
+        busy: true,
+        phase: "running",
+        id: 1,
+        kind: "turn",
+        interruptible: true,
+        followUpsQueued: 0,
+        compactPending: false,
+        shuttingDown: false,
+      },
+    });
+    (shell as any).setCommandStatus("running /permission");
+    (shell as any).clearCommandStatus();
+    expect(statusText(shell)).toContain("working");
+    expect(statusText(shell)).not.toContain("running /permission");
+  });
+});

@@ -135,10 +135,7 @@ async test "a shell ask without a parseable scope falls back to the generic labe
   let ui = fake_ui(reply=@port.UiResponse::Selected(1))
   let source = BlockingApprovalSource()
   source.ui = Some(ui as &@posoco.UiPort)
-  let request = {
-    ..approval_request(),
-    scopes: [],
-  }
+  let request = { ..approval_request(), scopes: [], }
   match source.ask(request) {
     @permission.ApprovalDecision::AllowSession => ()
     _ => fail("option 1 must approve the call for the session")
