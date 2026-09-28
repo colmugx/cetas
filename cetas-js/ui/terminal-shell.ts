@@ -253,6 +253,12 @@ export class TerminalShell {
   private fileIndexLoadedAt = 0;
 
   private commandBusy = false;
+  /**
+   * Latest turn status message (set by setTurnStatus). When a mid-turn
+   * command finishes, clearCommandStatus restores it so the command's label
+   * never outlives the command.
+   */
+  private turnStatusMessage?: string;
   /** Timestamp of the last idle ESC — arms the double-press rewind window. */
   private lastEscapeAt?: number;
   /** Termination notices already rendered; guards against double display. */
@@ -754,11 +760,13 @@ export class TerminalShell {
     message?: string,
   ): void {
     if (kind === "idle") {
+      this.turnStatusMessage = undefined;
       if (!this.commandBusy) {
         this.statusWrapper.clear();
         this.statusLoader.stop();
       }
     } else {
+      this.turnStatusMessage = message ?? "working";
       this.statusLoader.setMessage(message ?? "working");
       this.statusLoader.start();
       this.statusWrapper.clear();
@@ -776,7 +784,19 @@ export class TerminalShell {
   }
 
   private clearCommandStatus(): void {
-    if (this.operationBusy) return;
+    // The command is over; its label must not outlive it. While an operation
+    // is still running, the shared spinner returns to the turn's status
+    // (issue #2: a stuck "running /permission" over a live turn read as a
+    // hung command); only a settled app clears the line entirely.
+    if (this.operationBusy) {
+      const restore = this.turnStatusMessage ?? "working";
+      this.statusLoader.setMessage(restore);
+      this.statusLoader.start();
+      this.statusWrapper.clear();
+      this.statusWrapper.addChild(this.statusLoader);
+      this.tui.requestRender();
+      return;
+    }
     this.statusWrapper.clear();
     this.statusLoader.stop();
     this.tui.requestRender();

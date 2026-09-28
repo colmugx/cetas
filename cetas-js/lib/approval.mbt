@@ -84,10 +84,7 @@ fn approval_options(
     let tool_label = "Allow all '" +
       request.tool_name +
       "' commands for this session"
-    (
-      [APPROVAL_OPTION_ONCE, session_label, tool_label, APPROVAL_OPTION_DENY],
-      2,
-    )
+    ([APPROVAL_OPTION_ONCE, session_label, tool_label, APPROVAL_OPTION_DENY], 2)
   } else {
     ([APPROVAL_OPTION_ONCE, session_label, APPROVAL_OPTION_DENY], -1)
   }
