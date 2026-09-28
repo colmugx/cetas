@@ -22,8 +22,20 @@
 
 ```bash
 cd cetas-js
+
+# 自包含可执行文件。它会嵌入 Bun runtime，因此即使业务代码很小，
+# 裸二进制也会天然有几十 MB 的体积基线。
 bun run build
+
+# 更小的 minify 单文件 bundle；不嵌入 Bun，运行机器需要已安装 Bun：
+bun run build:bundle
+bun dist/cetas-bun-bundle.js
 ```
+
+两种 release 构建都会启用 production package conditions、固定
+`process.env.NODE_ENV="production"`，并使用 Bun 的 minify / dead-code
+elimination。standalone 的主要体积仍来自内嵌 Bun runtime；如果更在意下载/
+安装体积而不是“无需 Bun 即可运行”，优先使用 `build:bundle`。
 
 <!-- 构建期 flavor 选择：`CETAS_FLAVOR`（public|personal）决定偏好相关的扩展（nowledge-mem、rtk、obsidian——cetas-bun 默认 public，moon 开发构建与 cetas-acp 默认 personal），`CETAS_PLATFORM`（windows|unix）决定 shell 工具；两者都烧进被 gitignore 的 `cetas-core/lib/build_config.mbt`，切换后请删除该文件（或 `moon clean`）再重新构建。 -->
 
