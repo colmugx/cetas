@@ -41,6 +41,17 @@ Entries in this file are written by `scripts/release.py` at release time, as `##
 - Delegated work via herdr honors a `parent_yolo` setting, so sub-tasks inherit your autonomy preference.
 - The default permission mode is now `yolo`.
 
+
+## Memoh Ver.（cetas-memoh）
+
+### Feats
+- ACP session controls now expose model and reasoning-effort selection, with runtime context-window accounting refreshed when the active model changes.
+- `cetas-memoh` is now part of the Cetas release train, with versioned Linux, macOS, and Windows binaries included in release artifacts.
+
+### Fixes
+- User cancellations now settle as ACP `cancelled` instead of being reported as application failures.
+- Failed session construction now closes the Memoh Tools MCP bridge before returning, avoiding leaked connections during startup failures.
+
 ## 0.5.3 (2026-09-27)
 
 ## Bun Ver.（cetas-js/cetas-bun）
