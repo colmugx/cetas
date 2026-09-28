@@ -8,6 +8,7 @@
     "start": "bun host.ts",
     "smoke": "bun smoke.ts",
     "build": "bun build.ts",
+    "build:bundle": "bun build.ts --bundle-only",
     "build:macos": "bun build.ts darwin-arm64",
     "build:win": "bun build.ts windows-x64",
     "build:linux": "bun build.ts linux-x64",
