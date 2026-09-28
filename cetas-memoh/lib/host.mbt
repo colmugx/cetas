@@ -125,6 +125,15 @@ fn memoh_error_detail(error : @memoh.MemohError) -> String {
 }
 
 ///|
+async fn close_failed_mcp_bridge(
+  bridge : @mcp.MCPToolBridge,
+) -> Unit noraise {
+  let _ = @async.protect_from_cancel(() => bridge.close()) catch {
+    _ => ()
+  }
+}
+
+///|
 async fn MemohHost::build_session(
   self : MemohHost,
   params : @acp.NewSessionParams,
@@ -143,15 +152,20 @@ async fn MemohHost::build_session(
   }
   let mcp_bridge = @mcp.MCPToolBridge()
   let connect_result = mcp_bridge.connect(gateway, self.mcp_group) catch {
-    error =>
+    error => {
+      close_failed_mcp_bridge(mcp_bridge)
       return Err(
         "Memoh Tools connection failed before handshake completed: " +
         error.to_string(),
       )
+    }
   }
   match connect_result {
     Ok(_) => ()
-    Err(message) => return Err("Memoh Tools connection failed: " + message)
+    Err(message) => {
+      close_failed_mcp_bridge(mcp_bridge)
+      return Err("Memoh Tools connection failed: " + message)
+    }
   }
   let exts : Array[&@posoco.Extension] = [
     router as &@posoco.Extension,
@@ -164,7 +178,10 @@ async fn MemohHost::build_session(
     system_prompt=Some(memoh_system_prompt()),
   )
   let agent = @posoco.Agent(exts~, config~) catch {
-    error => return Err("agent composition failed: " + error.to_string())
+    error => {
+      close_failed_mcp_bridge(mcp_bridge)
+      return Err("agent composition failed: " + error.to_string())
+    }
   }
   Ok({
     bridge,
@@ -229,6 +246,11 @@ pub async fn MemohHost::handle_new_session(
 }
 
 ///|
+fn prompt_failure_is_cancelled(error : Error) -> Bool {
+  error is @async.WaitedTaskAlreadyCancelled
+}
+
+///|
 fn prompt_failure_detail(error : Error) -> String {
   let raw = error.to_string()
   if raw.length() <= 384 {
@@ -286,17 +308,24 @@ pub async fn MemohHost::handle_prompt(
       match failure {
         None =>
           Ok({ stop_reason: session.bridge.stop_reason(), meta: Omitted, })
-        Some(error) => {
-          let detail = prompt_failure_detail(error)
-          memoh_warn(
-            "cetas-memoh: prompt failed (session=" +
-            params.session_id +
-            "): " +
-            detail +
-            "\n",
-          )
-          Err(@acp.HandlerError::Application(message="cetas-memoh: " + detail))
-        }
+        Some(error) =>
+          if prompt_failure_is_cancelled(error) {
+            Ok({ stop_reason: @acp.StopReason::Cancelled, meta: Omitted, })
+          } else {
+            let detail = prompt_failure_detail(error)
+            memoh_warn(
+              "cetas-memoh: prompt failed (session=" +
+              params.session_id +
+              "): " +
+              detail +
+              "\n",
+            )
+            Err(
+              @acp.HandlerError::Application(
+                message="cetas-memoh: " + detail,
+              ),
+            )
+          }
       }
     },
   ) catch {
