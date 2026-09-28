@@ -23,8 +23,22 @@ Which extensions each outlet ships, and the build knobs: see
 
 ```bash
 cd cetas-js
+
+# Self-contained executables. These embed the Bun runtime, so even a tiny
+# application has a tens-of-megabytes baseline before compression.
 bun run build
+
+# Much smaller minified single-file bundle. It does not embed Bun and must be
+# launched with an installed Bun runtime:
+bun run build:bundle
+bun dist/cetas-bun-bundle.js
 ```
+
+Both release builds use production package conditions, define
+`process.env.NODE_ENV="production"`, and enable Bun minification/dead-code
+elimination. The standalone executable size is still dominated by the embedded
+Bun runtime; use `build:bundle` when download/install size matters more than a
+runtime-free executable.
 
 <!-- Build-time flavor selection: `CETAS_FLAVOR` (public|personal) picks the preference-tied extensions (nowledge-mem, rtk, obsidian — cetas-bun defaults to public, moon dev builds and cetas-acp to personal) and `CETAS_PLATFORM` (windows|unix) the shell tool; both bake into a gitignored `cetas-core/lib/build_config.mbt`, so after switching either, delete that file (or `moon clean`) before rebuilding. -->
 
