@@ -327,7 +327,7 @@ export function parseCetasEvent(raw: unknown): CetasEvent | null {
       }
       if (ev.images !== undefined) {
         if (!Array.isArray(ev.images)) {
-          throw new BridgeProtocolError("tool_call_completed.images must be an array");
+          throw new Error("tool_call_completed.images must be an array");
         }
         completed.images = ev.images.map((img) => ({
           media_type: requireString(img.media_type, "tool_call_completed.images.media_type"),
