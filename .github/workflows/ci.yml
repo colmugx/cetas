@@ -98,6 +98,10 @@ jobs:
           bun build.ts --dts-only
           bunx tsc --noEmit
 
+      - name: cetas-js slim bundle build
+        working-directory: posoco/external/cetas/cetas-js
+        run: bun run build:bundle
+
       - name: cetas-js lifecycle tests
         working-directory: posoco/external/cetas/cetas-js
         run: |
