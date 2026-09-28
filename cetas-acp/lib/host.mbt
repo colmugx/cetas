@@ -1292,17 +1292,6 @@ async fn read_credential_snapshot(
 }
 
 ///|
-/// The CETAS_GOAL seam: a non-empty condition arms the goal runner; unset
-/// or blank degrades to no goal ext.
-fn goal_ext_from_env(value : String?) -> @goal.GoalRunner? {
-  match value {
-    Some(condition) if condition.trim().length() > 0 =>
-      Some(@goal.goal_extension(goal_condition=condition))
-    _ => None
-  }
-}
-
-///|
 /// Assemble one session's machinery over the shared platform: the product
 /// pieces compose here in product order exactly as every cetas host composes
 /// them, and this adapter wires only the ACP protocol surface around them —
@@ -1311,9 +1300,8 @@ fn goal_ext_from_env(value : String?) -> @goal.GoalRunner? {
 /// zcode opt-in, and the host profile prompt section. `session_store~` is
 /// the client-bucket JSONL store the session commits into; the per-call
 /// default stands in with the `acp` bucket for direct assembly callers.
-/// `env~` is the process-env seam behind the goal condition and zcode
-/// detection; the default reads the real environment, tests inject a closed
-/// map.
+/// `env~` is the process-env seam behind the zcode detection; the default
+/// reads the real environment, tests inject a closed map.
 async fn build_session_agent(
   platform~ : Platform,
   cwd~ : String,
@@ -1403,9 +1391,6 @@ async fn build_session_agent(
     bus=Some(event_bus),
     fs=Some(platform.fs),
   )
-  // Personal host holds goal: the condition arrives via CETAS_GOAL; no
-  // driver loop this round, so regular turns are unaffected.
-  let goal = goal_ext_from_env(env("CETAS_GOAL"))
   let exts : Array[&@posoco.Extension] = [
     cetas,
     router as &@posoco.Extension,
@@ -1414,10 +1399,6 @@ async fn build_session_agent(
     permission_policy,
     plan_mode,
   ]
-  match goal {
-    Some(runner) => exts.push(runner as &@posoco.Extension)
-    None => ()
-  }
   // Records quota verdicts per session and re-runs the interrupted session
   // at the provider-stated reset time; one guard per session agent.
   let ratelimit = @ratelimit.RateLimitGuard()

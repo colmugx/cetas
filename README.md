@@ -102,7 +102,7 @@ columns are outlets — add a column when a new outlet ships.
 | `posoco-ext-herdr` | ✓ (presence + `herdr_delegate`) | — | ✓ (presence only) |
 | `posoco-ext-mcp` | ✓ | ✓ | — |
 | `posoco-ext-plan` | ✓ | ✓ | — |
-| `posoco-ext-goal` | ✓ | ✓ | — |
+| `posoco-ext-goal` | — | — | — |
 | `posoco-ext-statusbar` / `-stats` | ✓ | — | — |
 | `posoco-ext-pi-adaptor` | ✓ | — | — |
 | `posoco-ext-zcode` | — | ✓ ¹ | — |

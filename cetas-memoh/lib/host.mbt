@@ -355,9 +355,7 @@ pub async fn MemohHost::handle_set_config_option(
       { config_options, meta: Omitted, }
     }
     Err(message) =>
-      raise @acp.HandlerError::Application(
-        message="cetas-memoh: " + message,
-      )
+      raise @acp.HandlerError::Application(message="cetas-memoh: " + message)
   }
 }
 

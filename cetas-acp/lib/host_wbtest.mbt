@@ -339,8 +339,8 @@ fn tk_spawn_session(
 }
 
 ///|
-/// Closed env for test compositions: no CETAS_GOAL, no zcode detection,
-/// regardless of the host process's real environment.
+/// Closed env for test compositions: no zcode detection, regardless of the
+/// host process's real environment.
 fn tk_no_env(_key : String) -> String? {
   None
 }
@@ -1876,23 +1876,6 @@ async test "startup permission posture defaults to workspace_write and validates
   assert_eq(permission_mode_value(Yolo), "yolo")
   assert_true(read_env_var("PATH") is Some(_))
   assert_true(read_env_var("CETAS_PERMISSION_MODE_PROBE_UNSET") is None)
-}
-
-///|
-/// CETAS_GOAL arms the personal goal runner; the raw-value seam substitutes
-/// for the untestable process env (see the convention above).
-async test "goal_ext_from_env arms goal_update_plan on a non-empty condition and degrades on blank or unset" {
-  match goal_ext_from_env(Some("make the build green")) {
-    Some(runner) => {
-      assert_eq(runner.extension_id(), "posoco_ext_goal")
-      let defs = @posoco.ToolProvider::list_tools(runner)
-      assert_eq(defs.length(), 1)
-      assert_eq(defs[0].name.to_string(), "goal_update_plan")
-    }
-    None => fail("a non-empty CETAS_GOAL must arm the goal runner")
-  }
-  assert_true(goal_ext_from_env(None) is None)
-  assert_true(goal_ext_from_env(Some("   ")) is None)
 }
 
 ///|

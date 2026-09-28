@@ -1001,11 +1001,6 @@ pub(all) struct CetasJsRuntime {
   /// instead of aborting composition: one misconfigured provider must not
   /// take down the whole host.
   mut catalog_issues : Array[@cetas_core.CatalogBuildIssue]
-  /// Goal condition for the next composed agent, set via `cetas_js_set_goal`
-  /// before `cetas_js_runtime_create_agent`. The runner must join the Agent's
-  /// extensions at composition time, so the condition cannot ride a later
-  /// turn call. Empty clears it.
-  mut goal_condition : String?
   /// Process-singleton pi adaptor, created lazily on the first composition
   /// (or the first `cetas_js_pi_load_package`) and reused for the runtime's
   /// lifetime.
@@ -1025,7 +1020,6 @@ pub fn CetasJsRuntime::CetasJsRuntime(config : CetasJsConfig) -> CetasJsRuntime 
     config,
     catalog_cache: Map::from_array([]),
     catalog_issues: [],
-    goal_condition: None,
     pi: None,
     live_router: None,
   }
@@ -1054,9 +1048,6 @@ pub struct CetasJsAgent {
   observer : JsCallbackObserver
   /// Rate-limit guard retained for the host-owned cancellable monitor.
   ratelimit : @ratelimit.RateLimitGuard
-  /// Goal runner when the runtime carried a goal condition at composition;
-  /// `cetas_js_run_goal` drives it, regular turns ignore it.
-  goal : @goal.GoalRunner?
   /// Tool name → owning extension id, snapshotted once at composition so the
   /// host can render `ext:tool_name` titles without per-event attribution.
   tool_catalog : Map[String, String]
@@ -1649,19 +1640,6 @@ pub fn cetas_js_runtime_create_agent(
               )
             })
             exts.push(ratelimit as &@posoco.Extension)
-            // Goal runner rides composition: its `goal_update_plan` tool must join
-            // the routing table below, and the condition cannot change afterwards.
-            // Regular turns are unaffected; the loop is driven explicitly by
-            // `cetas_js_run_goal`.
-            let goal : @goal.GoalRunner? = match runtime.goal_condition {
-              Some(condition) if condition.trim().length() > 0 =>
-                Some(@goal.goal_extension(goal_condition=condition))
-              _ => None
-            }
-            match goal {
-              Some(runner) => exts.push(runner as &@posoco.Extension)
-              None => ()
-            }
             // Default features (coding tools + agent skills + ask_question, with
             // episodic tools like webfetch/nmem/obsidian deferred behind the
             // lazytools gateway) take the host context: fs injection plus cwd/home.
@@ -1893,7 +1871,6 @@ pub fn cetas_js_runtime_create_agent(
               home: runtime.config.home,
               observer,
               ratelimit,
-              goal,
               tool_catalog,
               mcp: mcp_bridge,
               mcp_fs: context_fs,
@@ -2263,83 +2240,6 @@ pub fn cetas_js_herdr_release() -> Unit {
   match @herdr.HerdrReporter::from_env() {
     Some(reporter) => reporter.release()
     None => ()
-  }
-}
-
-///|
-/// Set the goal condition the NEXT composed agent runs under. Must be
-/// called on the runtime before `cetas_js_runtime_create_agent`: the goal
-/// runner's `goal_update_plan` tool has to join the Agent's extension list
-/// at composition, and an empty/blank condition clears the goal.
-pub fn cetas_js_set_goal(runtime : CetasJsRuntime, condition : String) -> Unit {
-  if condition.trim().length() == 0 {
-    runtime.goal_condition = None
-  } else {
-    runtime.goal_condition = Some(condition)
-  }
-}
-
-///|
-/// Drive the composed goal runner to completion on the given session:
-/// repeated autonomous turns (charter, per-turn progress recitation,
-/// verifier round) until the completion claim survives, the model declares
-/// itself blocked, the budget is exhausted, or the run stalls. Each inner
-/// turn streams through the normal observer channel, so the TS host renders
-/// it like any other turn. Resolves with a JSON summary
-/// (`{"ok":true,"status":...,"turns_completed":...,"total_tokens":...,
-/// "plan":"...","stall_reason":...}`); `{"ok":false,"error":...}` when the
-/// agent was composed without a goal condition.
-pub fn cetas_js_run_goal(
-  handle : CetasJsAgent,
-  session_id : String,
-) -> @js_async.Promise[String] {
-  @js_async.Promise::from_async() <| () => {
-    let runner = match handle.goal {
-      Some(runner) => runner
-      None =>
-        return Json::object(
-          Map::from_array([
-            ("ok", Json::boolean(false)),
-            (
-              "error",
-              Json::string(
-                "no goal condition configured: call cetas_js_set_goal before creating the agent",
-              ),
-            ),
-          ]),
-        ).stringify()
-    }
-    let outcome : Result[@goal.GoalResult, Error] = Ok(
-      runner.execute(handle.agent, session_id),
-    ) catch {
-      error => Err(error)
-    }
-    match outcome {
-      Err(error) =>
-        Json::object(
-          Map::from_array([
-            ("ok", Json::boolean(false)),
-            ("error", Json::string(error.to_string())),
-          ]),
-        ).stringify()
-      Ok(result) => {
-        let fields : Array[(String, Json)] = [
-          ("ok", Json::boolean(true)),
-          ("status", Json::string(result.final_status.to_string())),
-          ("turns_completed", Json::number(result.turns_completed.to_double())),
-          (
-            "total_tokens",
-            Json::number(result.total_usage.total_tokens.to_double()),
-          ),
-          ("plan", Json::string(result.final_plan.progress_line())),
-        ]
-        match result.stall_reason {
-          Some(reason) => fields.push(("stall_reason", Json::string(reason)))
-          None => ()
-        }
-        Json::object(Map::from_array(fields)).stringify()
-      }
-    }
   }
 }
 

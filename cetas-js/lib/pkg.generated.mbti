@@ -4,7 +4,6 @@ package "colmugx/cetas-js/lib"
 import {
   "colmugx/posoco",
   "colmugx/posoco-ext-fs-session",
-  "colmugx/posoco-ext-goal",
   "colmugx/posoco-ext-llm",
   "colmugx/posoco-ext-mcp",
   "colmugx/posoco-ext-oauth",
@@ -55,8 +54,6 @@ pub fn cetas_js_refresh_model_lists_live(CetasJsConfig, String) -> @js_async.Pro
 
 pub fn cetas_js_rewind(CetasJsAgent, String, Int) -> @js_async.Promise[String]
 
-pub fn cetas_js_run_goal(CetasJsAgent, String) -> @js_async.Promise[String]
-
 pub fn cetas_js_run_turn(CetasJsAgent, String, String, String, @js_async.AbortSignal) -> @js_async.Promise[String]
 
 pub fn cetas_js_runtime_create_agent(CetasJsRuntime, JsCallback, JsUiRenderCallback, JsUiRequestCallback, JsCancelCheck) -> @js_async.Promise[CetasJsAgent]
@@ -72,8 +69,6 @@ pub fn cetas_js_runtime_refresh_model_lists_live(CetasJsRuntime, String) -> @js_
 pub fn cetas_js_session_titles(String) -> @js_async.Promise[String]
 
 pub fn cetas_js_sessions_dir(String, String) -> String
-
-pub fn cetas_js_set_goal(CetasJsRuntime, String) -> Unit
 
 pub fn cetas_js_shutdown(CetasJsAgent) -> @js_async.Promise[Unit]
 
@@ -98,7 +93,6 @@ pub struct CetasJsAgent {
   home : String
   observer : JsCallbackObserver
   ratelimit : @posoco-ext-ratelimit.RateLimitGuard
-  goal : @posoco-ext-goal.GoalRunner?
   tool_catalog : Map[String, String]
   mcp : @posoco-ext-mcp.MCPToolBridge
   mcp_fs : &@posoco-ext-workspace.WorkspaceFs
@@ -122,7 +116,6 @@ pub(all) struct CetasJsRuntime {
   config : CetasJsConfig
   catalog_cache : Map[String, @posoco-ext-llm.ProviderModelCatalog]
   mut catalog_issues : Array[@colmugx/cetas-core/lib.CatalogBuildIssue]
-  mut goal_condition : String?
   mut pi : @posoco-ext-pi-adaptor.PiAdaptor?
   mut live_router : @posoco-ext-llm.RouterModelPort?
 }

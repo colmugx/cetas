@@ -7,8 +7,7 @@
 /// `USERPROFILE` on Windows, `HOME` elsewhere). A model provider
 /// must be configured — startup fails loudly otherwise.
 /// `CETAS_MCP_MODE=eager` connects mcp.json servers at startup instead of
-/// lazily at the first turn. `CETAS_GOAL=<condition>` arms the goal runner
-/// (personal host) for each session; regular turns are unaffected.
+/// lazily at the first turn.
 
 ///|
 const CETAS_ACP_VERSION = "0.5.3"
