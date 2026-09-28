@@ -1,6 +1,6 @@
 name = "colmugx/cetas-memoh"
 
-version = "0.5.3"
+version = "0.6.0"
 
 readme = "README.mbt.md"
 
