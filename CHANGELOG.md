@@ -2,6 +2,45 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.6.0 (2026-09-29)
+
+## Bun Ver.（cetas-js/cetas-bun）
+
+### Feats
+- Rich media attachments are now first-class.
+- Compaction and token estimation understand attachments, so context budgeting stays accurate in media-heavy sessions.
+- Subagents report detailed background-task exit states, making parallel delegated work easier to trust and debug.
+- Provider login is hardened with Node.js crypto-backed UUID generation.
+- The lazytools gateway now tracks usage across every terminal tool event for more accurate stats.
+- The default permission mode is now `yolo` — fewer approval interruptions out of the box.
+
+### Fixes
+- Responses-API providers encode assistant content as `output_text` for maximum compatibility.
+- Turn status is correctly restored after running a mid-turn command, and approvals are now scope-honest.
+- Image array validation failures no longer surface as spurious protocol errors in the event bridge.
+- Permission grants are labeled by scope with an explicit tool-level grant option.
+
+## ACP Ver.（cetas-acp）
+
+### Feats
+- Tool outcomes can now carry attachments through the ACP bridge, so editors like Zed receive full-fidelity results.
+- Permission requests carry scopes, giving clients finer-grained approval decisions.
+- Transient model failures are automatically classified and retried.
+- Compaction and token estimation handle messages with attachments.
+- The default permission mode is now `yolo`.
+
+### Fixes
+- Permission session grants are labeled by scope, with an explicit tool-level grant for precise control.
+
+## Headless Ver.（cetas-headless）
+
+### Feats
+- One-shot session transcripts (JSONL) support media attachments end-to-end.
+- Transient model failures are automatically classified and retried, keeping scripted runs resilient.
+- Compaction and token estimation account for messages with attachments.
+- Delegated work via herdr honors a `parent_yolo` setting, so sub-tasks inherit your autonomy preference.
+- The default permission mode is now `yolo`.
+
 ## 0.5.3 (2026-09-27)
 
 ## Bun Ver.（cetas-js/cetas-bun）
