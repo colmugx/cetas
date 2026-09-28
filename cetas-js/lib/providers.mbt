@@ -500,12 +500,13 @@ async fn login_provider(
 /// Mint a v4 UUID via the host runtime's crypto module (Node / Bun both ship
 /// `crypto.randomUUID`). Returns "" only if crypto is somehow unavailable, in
 /// which case the caller falls back to the in-process UUID in posoco-ext-kimi.
-extern "js" fn js_random_uuid() -> String =
-  #| () => {
-  #|   try {
-  #|     const crypto = require("node:crypto");
-  #|     if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
-  #|   } catch {}
+#module("node:crypto")
+extern "js" fn node_random_uuid() -> String = "randomUUID"
+
+///|
+extern "js" fn js_random_uuid(random_uuid : () -> String) -> String =
+  #| (randomUUID) => {
+  #|   try { return randomUUID() || ""; } catch {}
   #|   return "";
   #| }
 
@@ -812,7 +813,7 @@ async fn mint_and_persist_kimi_device_id(
   dir : String,
   path : String,
 ) -> String noraise {
-  let host_uuid = js_random_uuid()
+  let host_uuid = js_random_uuid(node_random_uuid)
   // When host crypto is unavailable, defer to posoco-ext-kimi's process-local
   // UUID by returning "" (the extension mints one internally on empty input).
   let device_id = if host_uuid.length() > 0 { host_uuid } else { "" }

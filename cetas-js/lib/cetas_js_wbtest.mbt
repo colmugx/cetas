@@ -577,7 +577,7 @@ test "turn_event_to_json skips ToolCallApproved and ToolCallStarted (null sentin
 /// never touch the developer's real `~/.cetas`. Nothing process-global is
 /// touched: fixtures are local structs, and the runtime/config are per-test.
 async fn live_refresh_test_home(tag : String) -> String {
-  let unique = js_random_uuid()
+  let unique = js_random_uuid(node_random_uuid)
   let home = if unique.length() > 0 {
     "/tmp/cetas-js-live-refresh-" + tag + "-" + unique
   } else {

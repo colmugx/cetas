@@ -9,12 +9,51 @@
 // refreshes and re-injects before the reconnecting call.
 
 ///|
+// node:fs / node:os / node:child_process members bound with `#module` and
+// injected into the inline-JS wrappers as values (pattern follows
+// posoco-ext-workspace fs_port.js.mbt / moonbitlang/x/fs/fs_js.mbt).
+#cfg(target="js")
+#external
+priv type NodeChildProcess
+
+///|
+#cfg(target="js")
+#module("node:child_process")
+extern "js" fn node_spawn(
+  file : String,
+  args : FixedArray[String],
+) -> NodeChildProcess = "spawn"
+
+///|
+#cfg(target="js")
+#module("node:fs")
+extern "js" fn node_read_text_sync(path : String, encoding : String) -> String = "readFileSync"
+
+///|
+/// writeFileSync/mkdirSync are injected as values; mkdirSync's 2nd argument
+/// is a JS options object, so the declared 2nd parameter is only a
+/// value-passing shape and the wrapper builds `{ recursive: true }`.
+#cfg(target="js")
+#module("node:fs")
+extern "js" fn node_write_text_sync(path : String, data : String) -> Unit = "writeFileSync"
+
+///|
+#cfg(target="js")
+#module("node:fs")
+extern "js" fn node_mkdir_sync(path : String, recursive : Bool) -> Unit = "mkdirSync"
+
+///|
+#cfg(target="js")
+#module("node:os")
+extern "js" fn node_tmpdir() -> String = "tmpdir"
+
+///|
 #cfg(target="js")
 extern "js" fn js_start_oauth_fixture(
+  spawn : (String, FixedArray[String]) -> NodeChildProcess,
   port_file : String,
 ) -> @js_async.Promise[Int] =
-  #| async (port_file) => {
-  #|   const { spawn } = await import('node:child_process')
+  #| async (spawn, port_file) => {
   #|   return await new Promise((resolve, reject) => {
   #|     const child = spawn(process.execPath, ['../extension/posoco-ext-mcp/test_fixtures/http_oauth_server.mjs', port_file], { stdio: 'ignore' })
   #|     child.once('spawn', () => resolve(child.pid))
@@ -24,18 +63,25 @@ extern "js" fn js_start_oauth_fixture(
 
 ///|
 #cfg(target="js")
-extern "js" fn js_read_text_file(path : String) -> String =
-  #| (p) => {
-  #|   try { return require('node:fs').readFileSync(p, 'utf-8') } catch { return '' }
+extern "js" fn js_read_text_file(
+  read_text : (String, String) -> String,
+  path : String,
+) -> String =
+  #| (readFile, p) => {
+  #|   try { return readFile(p, 'utf-8') } catch { return '' }
   #| }
 
 ///|
 #cfg(target="js")
-extern "js" fn js_write_text_file(path : String, content : String) -> Unit =
-  #| (p, c) => {
-  #|   const fs = require('node:fs')
-  #|   fs.mkdirSync(p.substring(0, p.lastIndexOf('/')), { recursive: true })
-  #|   fs.writeFileSync(p, c)
+extern "js" fn js_write_text_file(
+  mkdir : (String, Bool) -> Unit,
+  write_file : (String, String) -> Unit,
+  path : String,
+  content : String,
+) -> Unit =
+  #| (mkdir, writeFile, p, c) => {
+  #|   mkdir(p.substring(0, p.lastIndexOf('/')), { recursive: true })
+  #|   writeFile(p, c)
   #| }
 
 ///|
@@ -46,9 +92,9 @@ extern "js" fn js_kill_pid(pid : Int) -> Unit =
   #| }
 
 ///|
-#cfg(target="js")
-extern "js" fn js_tmpdir() -> String =
-  #| () => require('node:os').tmpdir()
+fn js_tmpdir() -> String {
+  node_tmpdir()
+}
 
 ///|
 #cfg(target="js")
@@ -58,14 +104,16 @@ async test "js mcp login flow and startup token injection" {
   // the repo-relative path.
   let root = js_tmpdir() + "/cetas-js-mcp-login"
   let port_file = root + "/.http_port_mcp_login"
-  js_write_text_file(port_file, "")
-  let pid = js_start_oauth_fixture(port_file).wait() catch { _ => -1 }
+  js_write_text_file(node_mkdir_sync, node_write_text_sync, port_file, "")
+  let pid = js_start_oauth_fixture(node_spawn, port_file).wait() catch {
+    _ => -1
+  }
   if pid < 0 {
     fail("failed to spawn oauth fixture (relative fixture path unreachable?)")
   }
   let mut port = ""
   for _ in 0..<100 {
-    port = js_read_text_file(port_file)
+    port = js_read_text_file(node_read_text_sync, port_file)
     if port != "" {
       break
     }
@@ -77,6 +125,8 @@ async test "js mcp login flow and startup token injection" {
   }
   let dir = root + "/mcplogindir"
   js_write_text_file(
+    node_mkdir_sync,
+    node_write_text_sync,
     dir + "/.mcp.json",
     "{\"mcpServers\":{\"oa\":{\"type\":\"http\",\"url\":\"http://127.0.0.1:" +
     port +
