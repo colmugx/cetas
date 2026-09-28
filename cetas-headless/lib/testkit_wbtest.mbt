@@ -139,6 +139,11 @@ fn tk_approval_request(
     category,
     arguments_preview: "{\"path\": \"notes.txt\"}",
     arguments: Json::null(),
+    scopes: if category == "write" || category == "unknown" {
+      [tool_name]
+    } else {
+      []
+    },
   }
 }
 

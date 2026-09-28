@@ -1676,6 +1676,7 @@ pub fn cetas_js_runtime_create_agent(
             }
             let subagents = build_cetas_subagents(
               parent_router=model,
+              parent_mode=fn() { policy.mode() },
               approval=child_approval,
               ui=Some(ui as &@posoco.UiPort),
               context_fs~,
@@ -1691,7 +1692,11 @@ pub fn cetas_js_runtime_create_agent(
               Some(reporter) => exts.push(reporter as &@posoco.Extension)
               None => ()
             }
-            match @herdr.HerdrDelegate::detect(cwd=runtime.config.cwd) {
+            match
+              @herdr.HerdrDelegate::detect(
+                cwd=runtime.config.cwd,
+                parent_yolo=Some(fn() { policy.mode() is @permission.Yolo }),
+              ) {
               Some(delegate) => exts.push(delegate as &@posoco.Extension)
               None => ()
             }

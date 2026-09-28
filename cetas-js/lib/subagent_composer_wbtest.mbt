@@ -20,6 +20,7 @@ fn subagent_test_composer(router : @llm.RouterModelPort) -> CetasChildComposer {
   let fs = @workspace.JsWorkspaceFs()
   CetasChildComposer(
     parent_router=router,
+    parent_mode=fn() { @permission.ReadOnly },
     context_fs=fs,
     feature_fs=fs,
     cwd=".",
@@ -112,7 +113,7 @@ async test "subagent composer rejects recursive agent tool even in malformed spe
   }
   match result {
     Err(@subagent.ComposerError::Failed(reason)) =>
-      assert_true(reason.contains("not a reconstructable Cetas core tool"))
+      assert_true(reason.contains("not in the canonical Cetas tool registry"))
     _ => fail("recursive agent tool must be rejected by the host composer")
   }
 }
@@ -127,6 +128,7 @@ async test "cetas-js owns the agent tool at the host boundary" {
   let fs = @workspace.JsWorkspaceFs()
   let ext = build_cetas_subagents(
     parent_router=router,
+    parent_mode=fn() { @permission.ReadOnly },
     context_fs=fs,
     feature_fs=fs,
     cwd=".",
@@ -139,4 +141,76 @@ async test "cetas-js owns the agent tool at the host boundary" {
     }
   }
   assert_true(names.contains("agent"))
+}
+
+///|
+test "effective_child_mode: yolo widens open postures, readonly kinds stay" {
+  assert_eq(
+    effective_child_mode(@permission.Yolo, @permission.WorkspaceWrite),
+    @permission.Yolo,
+  )
+  assert_eq(
+    effective_child_mode(@permission.Yolo, @permission.Interactive),
+    @permission.Yolo,
+  )
+  assert_eq(
+    effective_child_mode(@permission.Yolo, @permission.Yolo),
+    @permission.Yolo,
+  )
+  assert_eq(
+    effective_child_mode(@permission.Yolo, @permission.ReadOnly),
+    @permission.ReadOnly,
+  )
+  assert_eq(
+    effective_child_mode(@permission.WorkspaceWrite, @permission.Yolo),
+    @permission.Yolo,
+  )
+  assert_eq(
+    effective_child_mode(@permission.ReadOnly, @permission.WorkspaceWrite),
+    @permission.WorkspaceWrite,
+  )
+  assert_eq(
+    effective_child_mode(@permission.Interactive, @permission.ReadOnly),
+    @permission.ReadOnly,
+  )
+}
+
+///|
+test "resolve_child_mode applies the live parent posture" {
+  let model = @posoco.ScriptedModel([])
+  let router = @llm.RouterModelPort(
+    slots=[subagent_test_slot("test/a", model as &@posoco.ModelPort)],
+    default_slot_id="test/a",
+  ) catch {
+    _ => abort("test router composition failed")
+  }
+  let fs = @workspace.JsWorkspaceFs()
+  let yolo_parent = CetasChildComposer(
+    parent_router=router,
+    parent_mode=fn() { @permission.Yolo },
+    context_fs=fs,
+    feature_fs=fs,
+    cwd=".",
+    home=".",
+  )
+  assert_eq(
+    yolo_parent.resolve_child_mode(@permission.WorkspaceWrite),
+    @permission.Yolo,
+  )
+  assert_eq(
+    yolo_parent.resolve_child_mode(@permission.ReadOnly),
+    @permission.ReadOnly,
+  )
+  let write_parent = CetasChildComposer(
+    parent_router=router,
+    parent_mode=fn() { @permission.WorkspaceWrite },
+    context_fs=fs,
+    feature_fs=fs,
+    cwd=".",
+    home=".",
+  )
+  assert_eq(
+    write_parent.resolve_child_mode(@permission.WorkspaceWrite),
+    @permission.WorkspaceWrite,
+  )
 }

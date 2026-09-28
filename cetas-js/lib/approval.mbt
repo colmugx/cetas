@@ -1,7 +1,8 @@
 ///|
-/// Parse the `permission_mode` config string. Unrecognized values fall back
-/// to `WorkspaceWrite` so a typo never accidentally widens to `Interactive`
-/// or `Yolo`, or locks down to `ReadOnly`. `Auto` needs a composed
+/// Parse the `permission_mode` config string. The UNSET default is `Yolo`
+/// (the host bridge fills it in); an unrecognized value still falls back to
+/// `WorkspaceWrite` so a typo never accidentally widens to `Interactive` or
+/// `Yolo`, or locks down to `ReadOnly`. `Auto` needs a composed
 /// DecisionPort — without one the policy fails composition loudly instead
 /// of silently degrading.
 fn parse_permission_mode(raw : String) -> @permission.PermissionMode {
@@ -16,10 +17,10 @@ fn parse_permission_mode(raw : String) -> @permission.PermissionMode {
 }
 
 ///|
-/// Option labels presented for every approval ask. Index-coupled with the
-/// decision mapping in `BlockingApprovalSource::ask`: 0 = approve this call
-/// only, 1 = approve and remember for this agent lifetime (per the policy's
-/// session-scope cache), 2 = deny.
+/// Fixed labels for the ends of every approval ask's option list. The
+/// session label is category-driven (see `approval_options`) so it names
+/// exactly what the grant would remember. Index-coupled with the decision
+/// mapping in `BlockingApprovalSource::ask`.
 const APPROVAL_OPTION_ONCE = "Allow once"
 
 ///|
@@ -38,14 +39,24 @@ const APPROVAL_OPTION_DENY = "Deny"
 /// coroutine until the JS Promise resolves. The same sync-fn-satisfies-
 /// async-slot pattern is used by `JsUiPort::request` itself.
 ///
-/// The ask is data-driven over the port's decision vocabulary: the UI
-/// presents ext-permission's full decision space (`AllowOnce`,
-/// `AllowSession`, `Deny`) and the host maps the picked index onto the
-/// matching `ApprovalDecision` — no option is collapsed away. Deny is
-/// non-terminal steering: the pump folds the rejection into a
-/// `NotExecuted(RejectedByHook)` tool result and the turn continues, so the
-/// model sees the deny reason and can choose a different action rather than
-/// the turn ending in an error.
+/// The ask is data-driven over the port's decision vocabulary, and the
+/// option layout is category-driven so every session option names exactly
+/// what it would remember (issue #1: "Allow for this session" used to read
+/// as a tool-level grant while the policy cached only the command scope):
+///
+/// - shell asks present four options: once; the concrete scope(s) granted
+///   (e.g. `Allow 'bash:ls' for this session`; the generic label when the
+///   command has no parseable scope); an explicit whole-tool grant
+///   (`Allow all 'bash' commands for this session`); deny.
+/// - write/unknown asks present three: once; the tool itself (their cache
+///   key already is the bare tool name); deny.
+/// - semantic-risk and escalated asks present three and never offer a
+///   standing grant — those paths deliberately avoid session memory.
+///
+/// Deny is non-terminal steering: the pump folds the rejection into a
+/// `NotExecuted(RejectedByHook)` tool result and the turn continues, so
+/// the model sees the deny reason and can choose a different action rather
+/// than the turn ending in an error.
 pub(all) struct BlockingApprovalSource {
   /// The composed UiPort, wired by the ui bridge extension at composition
   /// time. Empty only if composition never ran; the ask fails closed.
@@ -55,6 +66,31 @@ pub(all) struct BlockingApprovalSource {
 ///|
 pub fn BlockingApprovalSource::BlockingApprovalSource() -> BlockingApprovalSource {
   { ui: None, }
+}
+
+///|
+/// Build the option list and the index of the whole-tool grant option.
+/// Shell asks get four options with the tool grant at index 2; every other
+/// category gets three and reports -1 (no tool grant offered).
+fn approval_options(
+  request : @permission.ApprovalRequest,
+) -> (Array[String], Int) {
+  let session_label = if request.scopes.length() > 0 {
+    "Allow '" + request.scopes.join(", ") + "' for this session"
+  } else {
+    APPROVAL_OPTION_SESSION
+  }
+  if request.category == "shell" {
+    let tool_label = "Allow all '" +
+      request.tool_name +
+      "' commands for this session"
+    (
+      [APPROVAL_OPTION_ONCE, session_label, tool_label, APPROVAL_OPTION_DENY],
+      2,
+    )
+  } else {
+    ([APPROVAL_OPTION_ONCE, session_label, APPROVAL_OPTION_DENY], -1)
+  }
 }
 
 ///|
@@ -75,13 +111,10 @@ pub impl @permission.ApprovalSource for BlockingApprovalSource with fn ask(
         reason="denied: approval UI not composed yet",
       )
   }
+  let (options, tool_grant_index) = approval_options(request)
   let req : @posoco.UiRequest = @posoco.UiRequest::Select(
     prompt~,
-    options=[
-      APPROVAL_OPTION_ONCE,
-      APPROVAL_OPTION_SESSION,
-      APPROVAL_OPTION_DENY,
-    ],
+    options~,
     default=Some(0),
   )
   let resp = ui.request(req) catch {
@@ -91,11 +124,22 @@ pub impl @permission.ApprovalSource for BlockingApprovalSource with fn ask(
       )
   }
   match resp {
-    @posoco.UiResponse::Selected(0) => @permission.ApprovalDecision::AllowOnce
-    @posoco.UiResponse::Selected(1) =>
-      @permission.ApprovalDecision::AllowSession
-    @posoco.UiResponse::Selected(2) =>
-      @permission.ApprovalDecision::Deny(reason="user declined")
+    @posoco.UiResponse::Selected(index) =>
+      if index == 0 {
+        @permission.ApprovalDecision::AllowOnce
+      } else if index == 1 {
+        @permission.ApprovalDecision::AllowSession
+      } else if index == tool_grant_index {
+        @permission.ApprovalDecision::AllowToolSession
+      } else if index == options.length() - 1 {
+        @permission.ApprovalDecision::Deny(reason="user declined")
+      } else {
+        // Out-of-range indices are a protocol defect; a defective ask
+        // fails closed.
+        @permission.ApprovalDecision::Deny(
+          reason="unexpected ui response to select",
+        )
+      }
     @posoco.UiResponse::Cancelled =>
       @permission.ApprovalDecision::Deny(reason="user cancelled")
     // Select yields Selected/Cancelled only; anything else is a protocol

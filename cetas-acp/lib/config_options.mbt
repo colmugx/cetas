@@ -61,14 +61,15 @@ fn parse_permission_mode_name(raw : String) -> @permission.PermissionMode? {
 }
 
 ///|
-/// Unset means the workspace_write default; an unrecognized value falls
-/// back to workspace_write with one warning (a typo never widens to
-/// interactive/yolo).
+/// Unset means the yolo default; an unrecognized value falls back to
+/// workspace_write with one warning (a typo never widens to
+/// interactive/yolo — it lands on the conservative posture, not the
+/// default).
 async fn resolve_startup_permission_mode(
   env_value : String?,
 ) -> @permission.PermissionMode noraise {
   match env_value {
-    None => WorkspaceWrite
+    None => Yolo
     Some(raw) =>
       match parse_permission_mode_name(raw) {
         Some(mode) => mode

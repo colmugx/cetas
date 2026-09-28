@@ -280,6 +280,7 @@ fn tk_spawn_session(
   process_cwd : String,
   sessions_root? : String = "",
   context_window? : Int? = None,
+  permission_mode? : @permission.PermissionMode = @permission.WorkspaceWrite,
 ) -> async (String, @acp.NewSessionParams, String?) -> Result[
   SessionHandle,
   String,
@@ -304,7 +305,10 @@ fn tk_spawn_session(
     try {
       let bridge = @ext_acp.AcpBridge(context_window~)
       let policy = @permission.PermissionPolicy(
-        @permission.WorkspaceWrite,
+        // The harness pins the resolved startup posture; tests that care
+        // pass it explicitly (the real resolution is yolo for an unset
+        // CETAS_PERMISSION_MODE — covered by the resolve/assembly tests).
+        permission_mode,
         approval=Some(bridge as &@permission.ApprovalSource),
       )
       let agent = @posoco.Agent(
@@ -361,6 +365,7 @@ fn tk_host(
   sessions_root? : String = "",
   wire_log? : Bool = false,
   context_window? : Int? = None,
+  permission_mode? : @permission.PermissionMode = @permission.WorkspaceWrite,
 ) -> (CetasAcpHost, @posoco.ScriptedModel) {
   let model = @posoco.ScriptedModel(steps)
   let root = if sessions_root.length() > 0 {
@@ -374,6 +379,7 @@ fn tk_host(
     process_cwd,
     sessions_root=root,
     context_window~,
+    permission_mode~,
   )
   (
     CetasAcpHost::of(
@@ -1832,7 +1838,7 @@ async test "set_config_option switches, persists, and pushes an update" {
 
 ///|
 async test "new session advertises the permission option at the default posture" {
-  let (host, _) = tk_host([])
+  let (host, _) = tk_host([], permission_mode=@permission.Yolo)
   let result = host.handle_new_session(
     fake_acp_context(FakeAcpClient::FakeAcpClient()),
     tk_new_session_params(),
@@ -1842,7 +1848,7 @@ async test "new session advertises the permission option at the default posture"
   }
   match tk_find_option(options, "permission") {
     Some(select) => {
-      assert_eq(select.current_value, "workspace_write")
+      assert_eq(select.current_value, "yolo")
       let listed = tk_ungrouped(select.options)
       assert_eq(listed.length(), 4)
       assert_true(listed[0] is { value: "readonly", .. })
@@ -1856,8 +1862,8 @@ async test "new session advertises the permission option at the default posture"
 
 ///|
 /// No test mutates process env (parallel async tests); resolution runs via the raw-value/FFI seams.
-async test "startup permission posture defaults to workspace_write and validates overrides" {
-  assert_true(resolve_startup_permission_mode(None) is WorkspaceWrite)
+async test "startup permission posture defaults to yolo and validates overrides" {
+  assert_true(resolve_startup_permission_mode(None) is Yolo)
   assert_true(resolve_startup_permission_mode(Some("readonly")) is ReadOnly)
   assert_true(
     resolve_startup_permission_mode(Some("workspace_write")) is WorkspaceWrite,
@@ -2076,7 +2082,7 @@ async test "the model cache seeds the native assembly's router slots" {
   assert_eq(handle.router.list_slot_ids(), [
     "opencode/claude-sonnet-5", "opencode/gpt-5.1-codex",
   ])
-  assert_true(handle.permission.mode is WorkspaceWrite)
+  assert_true(handle.permission.mode is Yolo)
 }
 
 ///|

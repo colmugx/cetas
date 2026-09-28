@@ -143,8 +143,28 @@ impl @posoco.Extension for CetasChildIo with fn manifest(self : CetasChildIo) ->
 }
 
 ///|
+/// Yolo widens every child posture the kind left open; a ReadOnly kind is an
+/// explicit capability restriction and stays ReadOnly.
+fn effective_child_mode(
+  parent : @permission.PermissionMode,
+  kind : @permission.PermissionMode,
+) -> @permission.PermissionMode {
+  match parent {
+    @permission.Yolo =>
+      match kind {
+        @permission.ReadOnly => @permission.ReadOnly
+        _ => @permission.Yolo
+      }
+    _ => kind
+  }
+}
+
+///|
 priv struct CetasChildComposer {
   parent_router : @llm.RouterModelPort
+  /// Live parent posture, read at each spawn so `/permission` switches
+  /// propagate to children composed afterwards.
+  parent_mode : () -> @permission.PermissionMode
   child_store : CetasChildSessionStore
   approval : &@permission.ApprovalSource?
   ui : &@posoco.UiPort?
@@ -157,6 +177,7 @@ priv struct CetasChildComposer {
 ///|
 fn CetasChildComposer::CetasChildComposer(
   parent_router~ : @llm.RouterModelPort,
+  parent_mode~ : () -> @permission.PermissionMode,
   approval? : &@permission.ApprovalSource? = None,
   ui? : &@posoco.UiPort? = None,
   context_fs~ : &@workspace.WorkspaceFs,
@@ -166,6 +187,7 @@ fn CetasChildComposer::CetasChildComposer(
 ) -> CetasChildComposer {
   {
     parent_router,
+    parent_mode,
     child_store: CetasChildSessionStore::CetasChildSessionStore(),
     approval,
     ui,
@@ -174,6 +196,16 @@ fn CetasChildComposer::CetasChildComposer(
     cwd,
     home,
   }
+}
+
+///|
+/// The posture a child composed right now receives: the live parent posture
+/// widened through `effective_child_mode`.
+fn CetasChildComposer::resolve_child_mode(
+  self : CetasChildComposer,
+  kind_mode : @permission.PermissionMode,
+) -> @permission.PermissionMode {
+  effective_child_mode((self.parent_mode)(), kind_mode)
 }
 
 ///|
@@ -211,6 +243,7 @@ async fn CetasChildComposer::skills_extension(
 ///|
 async fn build_cetas_subagents(
   parent_router~ : @llm.RouterModelPort,
+  parent_mode~ : () -> @permission.PermissionMode,
   approval? : &@permission.ApprovalSource? = None,
   ui? : &@posoco.UiPort? = None,
   context_fs~ : &@workspace.WorkspaceFs,
@@ -220,6 +253,7 @@ async fn build_cetas_subagents(
 ) -> &@posoco.Extension noraise {
   let composer = CetasChildComposer::CetasChildComposer(
     parent_router~,
+    parent_mode~,
     approval~,
     ui~,
     context_fs~,
@@ -268,7 +302,7 @@ impl @subagent.ChildComposer for CetasChildComposer with fn compose(
   }
 
   let permission = @permission.PermissionPolicy(
-    spec.mode,
+    self.resolve_child_mode(spec.mode),
     approval=self.approval,
     workspace=Some(@devkit.WorkspaceAnchor::WorkspaceAnchor(self.cwd)),
   )

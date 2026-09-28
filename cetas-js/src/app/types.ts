@@ -42,11 +42,12 @@ export interface CetasHostConfig {
    */
   home: string;
   /**
-   * Permission posture for coding-agent tools. `"workspace_write"` (default)
+   * Permission posture for coding-agent tools. `"yolo"` (default)
+   * pre-approves everything without asking; `"workspace_write"`
    * auto-approves reads and gates writes/shell/unknown through a UI confirm;
    * `"readonly"` rejects every non-read tool; `"interactive"` gates every
-   * side-effecting tool; `"yolo"` pre-approves everything without asking.
-   * Unrecognized values fall back to `"workspace_write"`.
+   * side-effecting tool. Unrecognized values fall back to
+   * `"workspace_write"` — a typo never widens the posture.
    */
   permissionMode?: "readonly" | "workspace_write" | "interactive" | "yolo";
   /**

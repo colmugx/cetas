@@ -70,7 +70,8 @@ fn cetas_usage_manual() -> String {
     #|- readonly — file writes and shell commands are denied
     #|- workspace_write — writes inside the workspace are allowed, others ask
     #|- interactive — ask before every consequential action
-    #|- yolo — no approval prompts (use with care)
+    #|- yolo — no approval prompts (use with care); the default posture for
+    #|  the interactive hosts (terminal and ACP), headless keeps workspace_write
     #|Switch with /permission <mode>; it works mid-turn.
     #|
     #|## Sessions

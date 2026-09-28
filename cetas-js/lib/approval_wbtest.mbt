@@ -49,6 +49,7 @@ fn approval_request() -> @permission.ApprovalRequest {
     category: "shell",
     arguments_preview: "{\"cmd\":\"ls -la\"}",
     arguments: Json::object({ "cmd": Json::string("ls -la") }),
+    scopes: ["bash:ls"],
   }
 }
 
@@ -64,10 +65,11 @@ async test "approval ask presents the full decision space as a select" {
   match ui.asked[0] {
     @port.UiRequest::Select(prompt~, options~, default~) => {
       assert_eq(prompt, "Allow tool 'bash' (shell)?\n{\"cmd\":\"ls -la\"}")
-      assert_eq(options.length(), 3)
+      assert_eq(options.length(), 4)
       assert_eq(options[0], "Allow once")
-      assert_eq(options[1], "Allow for this session")
-      assert_eq(options[2], "Deny")
+      assert_eq(options[1], "Allow 'bash:ls' for this session")
+      assert_eq(options[2], "Allow all 'bash' commands for this session")
+      assert_eq(options[3], "Deny")
       assert_eq(default, Some(0))
     }
     _ => fail("the approval ask must be a Select request")
@@ -75,21 +77,81 @@ async test "approval ask presents the full decision space as a select" {
 }
 
 ///|
-async test "approval ask maps the session and deny options" {
+async test "approval ask maps the session, tool-grant, and deny options" {
   let ui = fake_ui(reply=@port.UiResponse::Selected(1))
   let session_source = BlockingApprovalSource()
   session_source.ui = Some(ui as &@posoco.UiPort)
   match session_source.ask(approval_request()) {
     @permission.ApprovalDecision::AllowSession => ()
-    _ => fail("option 1 must remember the approval for the session")
+    _ => fail("option 1 must remember the granted scope for the session")
   }
-  let deny_ui = fake_ui(reply=@port.UiResponse::Selected(2))
+  let tool_ui = fake_ui(reply=@port.UiResponse::Selected(2))
+  let tool_source = BlockingApprovalSource()
+  tool_source.ui = Some(tool_ui as &@posoco.UiPort)
+  match tool_source.ask(approval_request()) {
+    @permission.ApprovalDecision::AllowToolSession => ()
+    _ => fail("option 2 must grant the whole tool for the session")
+  }
+  let deny_ui = fake_ui(reply=@port.UiResponse::Selected(3))
   let deny_source = BlockingApprovalSource()
   deny_source.ui = Some(deny_ui as &@posoco.UiPort)
   match deny_source.ask(approval_request()) {
     @permission.ApprovalDecision::Deny(reason~) =>
       assert_eq(reason, "user declined")
-    _ => fail("option 2 must deny the call")
+    _ => fail("option 3 must deny the call")
+  }
+}
+
+///|
+async test "non-shell asks keep three options and scope the label to the tool" {
+  let ui = fake_ui(reply=@port.UiResponse::Selected(1))
+  let source = BlockingApprovalSource()
+  source.ui = Some(ui as &@posoco.UiPort)
+  let request : @permission.ApprovalRequest = {
+    tool_name: "edit",
+    call_id: "call-2",
+    category: "write",
+    arguments_preview: "{}",
+    arguments: Json::object(Map::from_array([])),
+    scopes: ["edit"],
+  }
+  match source.ask(request) {
+    @permission.ApprovalDecision::AllowSession => ()
+    _ => fail("option 1 must remember the tool for the session")
+  }
+  match ui.asked[0] {
+    @port.UiRequest::Select(options~, ..) => {
+      // Write/unknown tools already cache by bare tool name, so the session
+      // option IS the tool grant — no separate whole-tool option.
+      assert_eq(options.length(), 3)
+      assert_eq(options[1], "Allow 'edit' for this session")
+    }
+    _ => fail("the approval ask must be a Select request")
+  }
+}
+
+///|
+async test "a shell ask without a parseable scope falls back to the generic label" {
+  let ui = fake_ui(reply=@port.UiResponse::Selected(1))
+  let source = BlockingApprovalSource()
+  source.ui = Some(ui as &@posoco.UiPort)
+  let request = {
+    ..approval_request(),
+    scopes: [],
+  }
+  match source.ask(request) {
+    @permission.ApprovalDecision::AllowSession => ()
+    _ => fail("option 1 must approve the call for the session")
+  }
+  match ui.asked[0] {
+    @port.UiRequest::Select(options~, ..) => {
+      // Keyless calls are never cached; the generic label keeps the honest
+      // per-call semantics of the old wording.
+      assert_eq(options.length(), 4)
+      assert_eq(options[1], "Allow for this session")
+      assert_eq(options[2], "Allow all 'bash' commands for this session")
+    }
+    _ => fail("the approval ask must be a Select request")
   }
 }
 

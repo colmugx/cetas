@@ -51,7 +51,9 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
       config.cwd,
       config.maxToolRounds,
       config.home,
-      config.permissionMode ?? "workspace_write",
+      // Product default posture: yolo. A typo in an explicit value still
+      // falls back to workspace_write on the MoonBit side (never widens).
+      config.permissionMode ?? "yolo",
       // Empty string is the bridge's "not chosen" convention; the MoonBit
       // constructor then resolves the per-project session bucket.
       config.sessionsDir ?? "",
