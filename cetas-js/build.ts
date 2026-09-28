@@ -1,9 +1,10 @@
 // Pure compile script: knobs come from the environment, targets from argv,
 // binaries land in dist/.
 //
-//   bun run build              # all targets
+//   bun run build              # all standalone targets
 //   bun run build:macos        # single target (see package.json scripts)
 //   bun build.ts darwin-arm64 windows-x64 linux-x64   # several targets, one run
+//   bun run build:bundle       # minified single JS bundle; requires Bun at runtime
 //   CETAS_FLAVOR=personal bun run build:macos   # personal build: bake
 //                                                # Nowledge Mem, Obsidian, RTK
 //
@@ -43,9 +44,24 @@ const executable = executableIdx >= 0 ? args[executableIdx + 1] : undefined;
 const positional =
   executableIdx >= 0 ? [...args.slice(0, executableIdx), ...args.slice(executableIdx + 2)] : args;
 const dtsOnly = positional.includes("--dts-only");
+const bundleOnly = positional.includes("--bundle-only");
 const requested = new Set(positional.filter((a) => !a.startsWith("--")));
 
+if (dtsOnly && bundleOnly) {
+  console.error("--dts-only and --bundle-only are mutually exclusive");
+  process.exit(2);
+}
+if (bundleOnly && requested.size > 0) {
+  console.error("--bundle-only builds for the current host OS and does not accept target names");
+  process.exit(2);
+}
+if (bundleOnly && executable) {
+  console.error("--executable only applies to standalone --compile builds");
+  process.exit(2);
+}
+
 const osFor = (name: string) => (name.startsWith("windows") ? "windows" : "unix");
+const hostOs = process.platform === "win32" ? "windows" : "unix";
 const CORE_ROOT = join(import.meta.dir, "../cetas-core");
 const BUILD_CONFIG = join(CORE_ROOT, "lib/build_config.mbt");
 const GENERATOR = join(import.meta.dir, "../scripts/gen-build-config.sh");
@@ -73,6 +89,17 @@ const MOONBIT_DTS = {
   },
 };
 
+const RELEASE_BUNDLE = {
+  target: "bun" as const,
+  minify: true,
+  // Give dependencies a production-only branch to resolve against and make
+  // process.env.NODE_ENV statically removable by Bun's dead-code elimination.
+  conditions: ["production"],
+  define: {
+    "process.env.NODE_ENV": JSON.stringify("production"),
+  },
+};
+
 // The d.ts describes the API surface, not a flavor build: one pass, default
 // env, no flavor bake, no re-exec, no binary output.
 if (dtsOnly) {
@@ -92,14 +119,18 @@ if (dtsOnly) {
   process.exit(0);
 }
 
-console.log(`platform: per-target  flavor: ${flavorBake}${flavorBake === "personal" ? " (CETAS_FLAVOR=personal)" : ""}`);
+console.log(
+  `platform: ${bundleOnly ? hostOs : "per-target"}  flavor: ${flavorBake}${
+    flavorBake === "personal" ? " (CETAS_FLAVOR=personal)" : ""
+  }`,
+);
 
 const group = process.env.CETAS_BUILD_GROUP ?? "";
 if (group === "") {
-  // Parent pass: one child per OS group, each with the group's env in its
-  // real environment so every moon grandchild (dev_build rule included)
-  // bakes the same flavor.
-  for (const os of [...new Set(selected.map(osFor))]) {
+  // Parent pass: standalone builds need one child per selected OS group.
+  // Bundle-only has no cross-compile target, so it bakes for this host OS.
+  const groups = bundleOnly ? [hostOs] : [...new Set(selected.map(osFor))];
+  for (const os of groups) {
     const child = Bun.spawnSync(
       [process.execPath, import.meta.path, ...positional],
       {
@@ -113,10 +144,13 @@ if (group === "") {
 }
 
 const os = group as ReturnType<typeof osFor>;
-for (const name of selected.filter((n) => osFor(n) === os)) {
+
+function prepareMoonbitForGroup(): void {
   // Bake this group's flavor before the plugin's moon build sees the tree:
   // drop the generated config, regenerate it from the cetas-core module root,
-  // then moon-build once under the same env.
+  // then moon-build once under the same env. The generated JS depends on the
+  // OS group/flavor, not the CPU architecture, so one build can serve every
+  // standalone target in this child.
   rmSync(BUILD_CONFIG, { force: true });
   const gen = Bun.spawnSync(["sh", GENERATOR], {
     cwd: CORE_ROOT,
@@ -138,9 +172,21 @@ for (const name of selected.filter((n) => osFor(n) === os)) {
     console.error(`moon build failed for ${os}:\n${moonBuild.stderr.toString().trim()}`);
     process.exit(2);
   }
-  const outfile = `dist/cetas-bun-${name}`;
+}
+
+prepareMoonbitForGroup();
+
+if (bundleOnly) {
+  if (os !== hostOs) {
+    console.error(`bundle host/group mismatch: host=${hostOs}, group=${os}`);
+    process.exit(2);
+  }
+
+  const outfile = "dist/cetas-bun-bundle.js";
   const result = await Bun.build({
     entrypoints: ["host.ts"],
+    outfile,
+    ...RELEASE_BUNDLE,
     plugins: [
       moonbit({
         root: import.meta.dir,
@@ -148,8 +194,34 @@ for (const name of selected.filter((n) => osFor(n) === os)) {
         dts: MOONBIT_DTS,
       }),
     ],
-    compile: { target: TARGETS[name], outfile, ...(executable ? { executablePath: executable } : {}) },
-    minify: true,
+  });
+  if (!result.success) {
+    console.error("✗ bundle-only");
+    for (const log of result.logs) console.error(log);
+    throw new Error("Bun.build failed for --bundle-only");
+  }
+  const stat = await Bun.file(outfile).stat();
+  console.log(`✓ bundle-only  ${(stat.size / 1024 / 1024).toFixed(2)} MB  (run with: bun ${outfile})`);
+  process.exit(0);
+}
+
+for (const name of selected.filter((n) => osFor(n) === os)) {
+  const outfile = `dist/cetas-bun-${name}`;
+  const result = await Bun.build({
+    entrypoints: ["host.ts"],
+    ...RELEASE_BUNDLE,
+    plugins: [
+      moonbit({
+        root: import.meta.dir,
+        mode: "release",
+        dts: MOONBIT_DTS,
+      }),
+    ],
+    compile: {
+      target: TARGETS[name],
+      outfile,
+      ...(executable ? { executablePath: executable } : {}),
+    },
   });
   if (!result.success) {
     console.error(`✗ ${name}`);
