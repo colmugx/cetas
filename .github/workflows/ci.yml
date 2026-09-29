@@ -69,26 +69,29 @@ jobs:
         working-directory: posoco/external/cetas
         run: python3 -m unittest scripts/test_npm_stage.py
 
-      - name: moon update
+      - name: moon check (ACP full recipe, native)
         working-directory: posoco/external/cetas/cetas-acp
         run: |
-          python3 ../scripts/prepare-recipe.py --flavor all --frontend all-native --platform unix
+          python3 ../scripts/prepare-recipe.py --flavor all --frontend acp --platform unix
           moon update
+          moon check --target native --deny-warn --output-json
 
-      - name: moon check (all native recipe deps, deny warnings)
-        working-directory: posoco/external/cetas/cetas-acp
-        run: moon check --target native --deny-warn --output-json
+      - name: moon check (Run full recipe, native)
+        working-directory: posoco/external/cetas/cetas-run
+        run: |
+          python3 ../scripts/prepare-recipe.py --flavor all --frontend run --platform unix
+          moon check --target native --deny-warn --output-json
 
-      - name: moon check (run wasm, deny warnings)
+      - name: moon check (Run public recipe, wasm)
         working-directory: posoco/external/cetas/cetas-run
         run: |
           python3 ../scripts/prepare-recipe.py --flavor public --frontend run --platform unix
           moon check --target wasm --deny-warn --output-json
 
-      - name: moon check (all js recipe deps, deny warnings)
+      - name: moon check (JS full recipe)
         working-directory: posoco/external/cetas/cetas-js
         run: |
-          python3 ../scripts/prepare-recipe.py --flavor all --frontend all-js --platform unix
+          python3 ../scripts/prepare-recipe.py --flavor all --frontend js --platform unix
           moon check --target js --deny-warn --output-json
 
       - name: moon test (native)
