@@ -111,9 +111,8 @@ columns are outlets — add a column when a new outlet ships.
 | `posoco-kit-delegation` | — | ✓ (transitive) | — |
 
 > `posoco-ext-herdr`: cetas-headless reports presence only and never gets
-> `herdr_delegate` — headless is a depth-1 leaf (2026-09-10 hard rule), so a
-> delegated child cannot delegate further; pane delegation composes in
-> cetas-bun only.
+> `herdr_delegate` — headless is a depth-1 leaf, so a delegated child cannot
+> delegate further; pane delegation composes in cetas-bun only.
 
 ### Shared state — what "the same Cetas" means today
 
