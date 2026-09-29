@@ -73,13 +73,6 @@ class ApplicationCancellation implements CancellationToken {
   }
 }
 
-interface RateLimitMonitor<AgentHandle> {
-  agent: AgentHandle;
-  controller: AbortController;
-  settled: Promise<void>;
-  generation: number;
-}
-
 /** The once-per-instance background live catalog refresh task. */
 interface LiveCatalogRefreshTask {
   controller: AbortController;
@@ -126,16 +119,6 @@ export class CetasApplication<AgentHandle = unknown> {
     prompt: string;
     images?: readonly ImageAttachment[];
   }> = [];
-  private rateLimitMonitor: RateLimitMonitor<AgentHandle> | undefined;
-  /** A monitor teardown remains a serialization barrier until its promise settles. */
-  private rateLimitMonitorSettling: Promise<void> | undefined;
-  /** Host generation for pending recovery; context changes invalidate older callbacks. */
-  private rateLimitContextGeneration = 0;
-  /** Deferred restart requested while a command/turn owns the Agent. */
-  private rateLimitMonitorRestartRequest:
-    { agent: AgentHandle; generation: number } | undefined;
-  /** Only a live monitor may turn an otherwise idle observer event into recovery. */
-  private rateLimitRecoveryEligible = false;
   private readonly cancellation = new ApplicationCancellation();
   private shutdownPromise: Promise<void> | undefined;
   private piPackages: PiPackagesSummary | undefined;
@@ -382,8 +365,7 @@ export class CetasApplication<AgentHandle = unknown> {
         if (this.agent !== undefined && (this.state as AppState) !== "shutting_down") {
           const previousAgent = this.agent;
           this.agent = undefined;
-          this.rateLimitContextGeneration += 1;
-          await this.stopRateLimitMonitor(true);
+          this.options.bridge.cancelPendingRateLimit(previousAgent);
           await this.options.bridge.shutdown(previousAgent);
         }
         if ((this.state as AppState) !== "shutting_down") this.transition("needs_setup");
@@ -399,8 +381,7 @@ export class CetasApplication<AgentHandle = unknown> {
       ) {
         const previousAgent = this.agent;
         this.agent = undefined;
-        this.rateLimitContextGeneration += 1;
-        await this.stopRateLimitMonitor(true);
+        this.options.bridge.cancelPendingRateLimit(previousAgent);
         await this.options.bridge.shutdown(previousAgent);
       }
       if ((this.state as AppState) !== "shutting_down" && this.agent === undefined) {
@@ -413,9 +394,6 @@ export class CetasApplication<AgentHandle = unknown> {
       }
       if ((this.state as AppState) !== "shutting_down") {
         this.transition("ready");
-        if (this.agent !== undefined) {
-          this.startRateLimitMonitor(this.agent, this.rateLimitContextGeneration);
-        }
       }
       return this.snapshot();
     } catch (error: unknown) {
@@ -432,8 +410,7 @@ export class CetasApplication<AgentHandle = unknown> {
         const staleAgent = this.agent;
         this.agent = undefined;
         try {
-          this.rateLimitContextGeneration += 1;
-          await this.stopRateLimitMonitor(true);
+          this.options.bridge.cancelPendingRateLimit(staleAgent);
           await this.options.bridge.shutdown(staleAgent);
         } catch (error: unknown) {
           cleanupError = error;
@@ -457,8 +434,8 @@ export class CetasApplication<AgentHandle = unknown> {
 
   /**
    * Launch the once-per-instance background live catalog refresh (the
-   * rate-limit monitor idiom: an AbortController marks cancellation, the
-   * settled promise is a shutdown serialization barrier). Startup composed
+   * AbortController marks cancellation and the settled promise is a shutdown
+   * serialization barrier. Startup composed
    * from local caches only; this task asks the configured providers for
    * fresh `/models` lists, and the MoonBit entry has already persisted
    * caches and hot-swapped the composed agent's router by the time the
@@ -692,14 +669,12 @@ export class CetasApplication<AgentHandle = unknown> {
       abort,
       interruptible: true,
     });
-    const turnGeneration = ++this.rateLimitContextGeneration;
-    this.rateLimitRecoveryEligible = false;
+    this.options.bridge.cancelPendingRateLimit(agent);
     try {
       // The operation lease is installed before any bridge callback can
       // re-enter the host. The microtask preserves that ordering for bridge
       // implementations that synchronously publish observer events.
       await Promise.resolve();
-      await this.stopRateLimitMonitor(true);
       return await this.options.bridge.runTurn(
         agent,
         prompt,
@@ -715,9 +690,6 @@ export class CetasApplication<AgentHandle = unknown> {
       this.operations.markFinalizing(lease);
       this.clearAbortWatchdog();
       this.finishAgentOperation(lease);
-      if ((this.state as AppState) !== "shutting_down" && this.agent === agent) {
-        this.startRateLimitMonitor(agent, turnGeneration);
-      }
     }
   }
 
@@ -887,7 +859,6 @@ export class CetasApplication<AgentHandle = unknown> {
       return await compactPromise;
     } finally {
       if (this.activeCommand === lock) this.activeCommand = undefined;
-      this.flushRateLimitMonitorRestart();
     }
   }
 
@@ -904,7 +875,6 @@ export class CetasApplication<AgentHandle = unknown> {
         "another compact operation is already pending",
       );
     }
-    const turnGeneration = this.rateLimitContextGeneration;
     try {
       if (this.operations.busy) {
         this.publish();
@@ -931,7 +901,7 @@ export class CetasApplication<AgentHandle = unknown> {
         interruptible: true,
       });
       try {
-        await this.stopRateLimitMonitor(true);
+        this.options.bridge.cancelPendingRateLimit(agent);
         if (request.controller.signal.aborted) {
           return {
             ok: false,
@@ -956,9 +926,6 @@ export class CetasApplication<AgentHandle = unknown> {
         !this.operations.compactPending
       ) {
         this.transition("ready");
-      }
-      if ((this.state as AppState) !== "shutting_down" && this.agent === agent) {
-        this.startRateLimitMonitor(agent, turnGeneration);
       }
     }
   }
@@ -1138,7 +1105,6 @@ export class CetasApplication<AgentHandle = unknown> {
     } finally {
       if (this.activeCommand === commandPromise) this.activeCommand = undefined;
       this.cancellation.reset();
-      this.flushRateLimitMonitorRestart();
     }
   }
 
@@ -1259,24 +1225,15 @@ export class CetasApplication<AgentHandle = unknown> {
     }
     const agent = this.agent;
     const switchesModel = id === "model" && modelSelectionRequested(argsJson);
-    if (switchesModel) await this.stopRateLimitMonitor(false);
     let outcome: string;
     try {
       outcome = await this.options.bridge.invokeCommand(agent, id, argsJson);
       if (switchesModel && commandOutcomeSucceeded(outcome)) {
-        this.rateLimitContextGeneration += 1;
-        this.rateLimitRecoveryEligible = false;
         this.operations.clearRecoveryFollowUps();
         this.options.bridge.cancelPendingRateLimit(agent);
       }
     } finally {
-      if (
-        switchesModel &&
-        (this.state as AppState) !== "shutting_down" &&
-        this.agent === agent
-      ) {
-        this.startRateLimitMonitor(agent, this.rateLimitContextGeneration);
-      }
+      // no scheduler restart: recovery runtime lives with the Agent task group.
     }
     if (commandRequestsSetupRefresh(outcome)) {
       // Setup discovery is the serialization barrier while a refresh_settings
@@ -1306,7 +1263,9 @@ export class CetasApplication<AgentHandle = unknown> {
 
     this.shutdownPromise = (async () => {
       let pendingError: unknown;
-      await this.stopRateLimitMonitor(true);
+      if (this.agent !== undefined) {
+        this.options.bridge.cancelPendingRateLimit(this.agent);
+      }
       await this.stopLiveCatalogRefresh();
 
       try {
@@ -1384,7 +1343,6 @@ export class CetasApplication<AgentHandle = unknown> {
 
     if (
       type === "turn_started" &&
-      this.rateLimitRecoveryEligible &&
       !this.operations.busy &&
       !this.operations.compactPending &&
       this.state === "ready"
@@ -1393,7 +1351,6 @@ export class CetasApplication<AgentHandle = unknown> {
         interruptible: this.options.bridge.abortTurn !== undefined,
       });
       if (lease !== undefined) {
-        this.rateLimitRecoveryEligible = false;
         this.transition("running");
       }
     } else if (
@@ -1430,141 +1387,10 @@ export class CetasApplication<AgentHandle = unknown> {
     }
   }
 
-  private startRateLimitMonitor(
-    agent: AgentHandle,
-    generation = this.rateLimitContextGeneration,
-  ): void {
-    if (this.rateLimitMonitor !== undefined) return;
-    if (this.agent !== agent || this.rateLimitContextGeneration !== generation) return;
-    if (
-      this.state !== "ready" ||
-      this.operations.busy ||
-      this.operations.compactPending ||
-      this.activeCommand !== undefined
-    ) {
-      this.rateLimitMonitorRestartRequest = { agent, generation };
-      return;
-    }
-    const settling = this.rateLimitMonitorSettling;
-    if (settling !== undefined) {
-      this.rateLimitMonitorRestartRequest = { agent, generation };
-      void settling.then(() => this.flushRateLimitMonitorRestart());
-      return;
-    }
-    this.rateLimitMonitorRestartRequest = undefined;
-    this.rateLimitRecoveryEligible = true;
-    const controller = new AbortController();
-    const settled = Promise.resolve()
-      .then(() => this.options.bridge.startRateLimitMonitor(agent, controller.signal))
-      .then(
-        () => {
-          if (!controller.signal.aborted) {
-            this.reportRateLimitMonitorFailure(
-              new Error("rate-limit monitor stopped before its Agent lifetime ended"),
-            );
-          }
-        },
-        (error: unknown) => {
-          if (!isRateLimitMonitorAbort(error, controller.signal)) {
-            this.reportRateLimitMonitorFailure(error);
-          }
-        },
-      );
-    const monitor = { agent, controller, settled, generation };
-    this.rateLimitMonitor = monitor;
-    void settled.then(() => {
-      if (this.rateLimitMonitor === monitor) {
-        this.rateLimitMonitor = undefined;
-        this.rateLimitRecoveryEligible = false;
-        if (this.operations.activeKind === "recovery") {
-          const lease = this.operations.activeLease;
-          if (lease !== undefined) {
-            this.operations.clearRecoveryFollowUps();
-            this.operations.markFinalizing(lease);
-            this.finishAgentOperation(lease);
-          }
-        }
-      }
-    });
-  }
-
-  private stopRateLimitMonitor(cancelPending: boolean): Promise<void> {
-    const agent = this.agent ?? this.rateLimitMonitor?.agent;
-    if (cancelPending && agent !== undefined) {
-      this.options.bridge.cancelPendingRateLimit(agent);
-    }
-    this.rateLimitRecoveryEligible = false;
-    const monitor = this.rateLimitMonitor;
-    const settling = this.rateLimitMonitorSettling;
-    if (monitor === undefined) return settling ?? Promise.resolve();
-    this.rateLimitMonitor = undefined;
-    monitor.controller.abort();
-    const wait = settling === undefined
-      ? monitor.settled
-      : Promise.all([settling, monitor.settled]).then(() => undefined);
-    this.rateLimitMonitorSettling = wait;
-    void wait.then(() => {
-      if (this.rateLimitMonitorSettling === wait) this.rateLimitMonitorSettling = undefined;
-      if (this.operations.activeKind === "recovery") {
-        const lease = this.operations.activeLease;
-        if (lease !== undefined) {
-          this.operations.clearRecoveryFollowUps();
-          this.operations.markFinalizing(lease);
-          this.finishAgentOperation(lease);
-        }
-      }
-    });
-    return wait;
-  }
-
   private invalidateRateLimitContext(): void {
-    const agent = this.agent;
-    this.rateLimitContextGeneration += 1;
-    this.rateLimitRecoveryEligible = false;
     this.operations.clearRecoveryFollowUps();
-    if (agent === undefined) return;
-    const settled = this.stopRateLimitMonitor(true);
-    const generation = this.rateLimitContextGeneration;
-    void settled.then(() => {
-      if (
-        (this.state as AppState) === "ready" &&
-        !this.operations.busy &&
-        !this.operations.compactPending &&
-        this.activeCommand === undefined &&
-        (this.state as AppState) !== "shutting_down" &&
-        this.agent === agent &&
-        this.rateLimitContextGeneration === generation
-      ) {
-        this.startRateLimitMonitor(agent, generation);
-      }
-    });
-  }
-
-  private flushRateLimitMonitorRestart(): void {
-    const request = this.rateLimitMonitorRestartRequest;
-    if (request === undefined) return;
-    this.rateLimitMonitorRestartRequest = undefined;
-    if (
-      (this.state as AppState) === "shutting_down" ||
-      this.agent !== request.agent ||
-      this.rateLimitContextGeneration !== request.generation
-    ) return;
-    this.startRateLimitMonitor(request.agent, request.generation);
-  }
-
-  private reportRateLimitMonitorFailure(error: unknown): void {
-    const message = `rate-limit monitor failed: ${errorMessage(error)}`;
-    this.lastError = message;
-    this.publish();
-    try {
-      this.options.callbacks.observerCallback(JSON.stringify({
-        type: "custom",
-        source: "cetas-js.host",
-        label: "ratelimit_monitor_failed",
-        data: { message },
-      }));
-    } catch (callbackError: unknown) {
-      console.error(message, error, "observer callback failed", callbackError);
+    if (this.agent !== undefined) {
+      this.options.bridge.cancelPendingRateLimit(this.agent);
     }
   }
 }
@@ -1654,10 +1480,6 @@ function compactCommandOutcomeJson(outcome: CompactSessionOutcome): string {
   });
 }
 
-function isRateLimitMonitorAbort(error: unknown, signal: AbortSignal): boolean {
-  if (signal.aborted) return true;
-  return error instanceof Error && error.name === "AbortError";
-}
 
 function loginArguments(argsJson: string): { provider: string; method?: string } {
   let raw: unknown;
