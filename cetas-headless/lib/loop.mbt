@@ -10,7 +10,7 @@
 /// session, whose id the driver captures from the `session: <id>` stderr
 /// line (text modes) or the `turn_started` event (`--jsonl`).
 ///
-/// Output contract (2026-09-08, stdout purity): in text modes stdout carries
+/// Output contract: in text modes stdout carries
 /// ONLY the answer — the default face prints the final answer as one block
 /// (raw text, single trailing newline, empty answer prints nothing);
 /// `--stream` prints text deltas as they arrive and closes with one trailing
