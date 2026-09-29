@@ -1,5 +1,5 @@
 ///|
-/// cli.mbt — the decided command surface (cetas-headless-design §二):
+/// cli.mbt — the command surface:
 ///
 ///   cetas-headless [--model <id>] [--effort <level>] [--session <id>]
 ///                  [--yolo | --permission <readonly|workspace_write|interactive|auto>]
@@ -8,8 +8,8 @@
 ///
 /// One invocation = one user turn: `--yolo` and `--permission` are mutually
 /// exclusive; `--` ends the flags — every argv after it is THE task (when
-/// absent, one line is read on stdin). Output faces (2026-09-08, stdout
-/// purity): text modes keep stdout answer-only — `--stream` delivers the
+/// absent, one line is read on stdin). Text modes keep stdout answer-only —
+/// `--stream` delivers the
 /// answer as live text deltas, `--verbose` routes the jsonl-shaped event log
 /// to stderr, `--show-thinking` routes reasoning to stderr. `--jsonl` wins
 /// stdout over all three (the event stream is its machine contract);
