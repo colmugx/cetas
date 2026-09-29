@@ -7,6 +7,10 @@
 # and TypeScript typecheck before any platform build starts. Only after it
 # passes does the three-platform build matrix fan out.
 #
+# Dependency downloads (mooncakes registry, bun install cache) happen once per
+# run: the preflight uploads them as run-scoped artifacts and every matrix job
+# downloads them, so no platform re-fetches what another platform already got.
+#
 # Every build job checks out colmugx/posoco and points the embedded
 # external/cetas submodule at the tag being released. This stays correct
 # whatever the committed state of cetas' moon.work turns out to be: with no
@@ -112,12 +116,28 @@ jobs:
         working-directory: posoco/external/cetas/cetas-js
         run: moon update
 
+      # Upload half of the same-run handoff; build needs: [preflight], so the
+      # matrix jobs download these instead of re-fetching over the network.
+      - name: upload moon registry cache
+        uses: actions/upload-artifact@v6
+        with:
+          name: moon-registry
+          path: ~/.moon/registry
+          retention-days: 1
+
       - name: typecheck
         working-directory: posoco/external/cetas/cetas-js
         run: |
           bun install
           bun build.ts --dts-only
           bunx tsc --noEmit
+
+      - name: upload bun install cache
+        uses: actions/upload-artifact@v6
+        with:
+          name: bun-cache
+          path: ~/.bun/install/cache
+          retention-days: 1
 
   build:
     name: build (${{ matrix.target }})
@@ -181,6 +201,20 @@ jobs:
 
       - name: moon version
         run: moon version --all
+
+      # Download half of the same-run handoff from the preflight. Windows
+      # needs absolute paths — artifact actions do not expand ~ on Windows.
+      - name: download moon registry cache
+        uses: actions/download-artifact@v7
+        with:
+          name: moon-registry
+          path: ${{ matrix.os == 'windows-latest' && 'C:\Users\runneradmin\.moon\registry' || '~/.moon/registry' }}
+
+      - name: download bun install cache
+        uses: actions/download-artifact@v7
+        with:
+          name: bun-cache
+          path: ${{ matrix.os == 'windows-latest' && 'C:\Users\runneradmin\.bun\install\cache' || '~/.bun/install/cache' }}
 
       - name: moon update (cetas-acp)
         working-directory: posoco/external/cetas/cetas-acp
@@ -405,11 +439,25 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: download all artifacts (flattened)
+      # Named downloads, not "download all": the run also carries the
+      # preflight's moon/bun cache artifacts, which must not reach staging.
+      - name: download binaries (darwin-arm64)
         uses: actions/download-artifact@v7
         with:
+          name: binaries-darwin-arm64
           path: staging
-          merge-multiple: true
+
+      - name: download binaries (linux-x64)
+        uses: actions/download-artifact@v7
+        with:
+          name: binaries-linux-x64
+          path: staging
+
+      - name: download binaries (windows-x64)
+        uses: actions/download-artifact@v7
+        with:
+          name: binaries-windows-x64
+          path: staging
 
       # Drop the body file when missing or empty; the empty output then omits
       # body_path so the release is created without a body.
