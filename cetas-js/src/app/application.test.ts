@@ -617,8 +617,8 @@ describe("CetasApplication", () => {
         _config: CetasHostConfig,
         _providerIdsJson: string,
       ): Promise<string> {
-        // Receiver-binding regression: the app must call through the bridge
-        // object, never an unbound extracted method reference.
+        // Call through the bridge object so method receiver binding is
+        // preserved.
         this.refreshes += 1;
         return Promise.resolve(JSON.stringify({ results: [] }));
       }
