@@ -293,157 +293,24 @@ pub async fn build_cetas_skills(
 }
 
 ///|
-/// Default feature set: read/write/edit/glob/grep/astgrep/bash plus agent
-/// skills and (with `ui~`) the interactive ask_question tool. The flavor-gated
-/// extensions (Nowledge Mem, Obsidian, RTK) register only where the flavor
-/// table baked at compile time enables them — no runtime knob exists.
+/// Build the extension set selected by the compile recipe.
 ///
-/// The seven file/search/shell tools are context-free constructors; skills
-/// needs the host process context (fs/cwd/home) for discovery, so the
-/// function takes `ctx~`. Knobs: `ui~` gates ask_question (a headless host
-/// omits it — an always-erroring tool would only pollute the model's tool
-/// list); `nmem_group~` starts nmem's background flusher; `obsidian_vault~`
-/// injects the obsidian vault name so composition can avoid process env
-/// (`None` keeps the CETAS_OBSIDIAN contract); the unix shell is bash and
-/// Windows keeps ps1.
-///
-/// Attention budget: the file tools, astgrep, bash, the two skill tools,
-/// and ask_question are the only tools in the model catalog; every other
-/// episodic tool (webfetch, nmem, obsidian, Windows ps1) defers behind the
-/// lazytools gateway, whose tool_list / tool_execute are the sole route to
-/// it.
-///
-/// All seven direct tools share one `WorkspaceAnchor` built from `ctx.cwd`:
-/// relative paths in tool calls resolve against the launch directory instead
-/// of the host process's inherited cwd. The absolute root exists only on the
-/// host side — it never appears in model-visible prompts or tool results,
-/// which speak workspace-relative paths only.
-///
-/// Returns Extensions (each tool ext already impls Extension); hosts place
-/// the result directly into `Agent(exts=[...])`. Per-knob rationale lives
-/// in the inline comments at each registration site and in the contributing
-/// extension packages.
+/// The concrete dependency list and constructor registry live in
+/// recipe.generated.mbt, produced by scripts/prepare-recipe.py before Moon
+/// resolves the package graph. Missing recipe dependencies are intentionally
+/// compile errors rather than runtime feature gates.
 pub async fn build_default_features(
   ctx~ : HostContext,
   nmem_group? : @async.TaskGroup[Unit]? = None,
   host_help_note? : String? = None,
   obsidian_vault? : String? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
-  let exts = build_cetas_tools(ctx~, [
-    "read", "write", "edit", "glob", "grep", "astgrep",
-  ])
-  // Episodic tools defer behind the lazytools gateway. Each extension's
-  // non-tool ports (hooks, commands, memory, prompt) register through its
-  // toolless view.
-  // webfetch is a read-only tool (URL fetch, no workspace writes) and
-  // keeps its permission read class behind the gateway.
-  let episodic = build_cetas_tools(ctx~, ["webfetch"])
-  // Shell tool choice per platform. Unix's bash is a direct catalog tool —
-  // a coding turn shells out constantly, so the gateway hop only added
-  // latency; permission and rtk classify by the tool name (the shared
-  // unwrap convention passes direct calls through unchanged), so bash
-  // keeps its gating semantics without the gateway. Windows keeps ps1
-  // deferred like the other episodic tools. The manuals merge into the one
-  // skills extension below so both share the activate_skill tool; a second
-  // Skills instance would collide on tool names at composition.
-  let shell = build_cetas_tools(ctx~, ["bash"])
-  if shell_platform_is_windows() {
-    for ext in shell {
-      episodic.push(ext)
-    }
-  } else {
-    for ext in shell {
-      exts.push(ext)
-    }
-  }
-
-  // With built-ins merged in, the skills extension registers even on machines
-  // with no discovered skills: the product manual is always present.
-  let skills = build_cetas_skills(ctx~) catch { _ => None }
-  match skills {
-    Some(skills) => exts.push(skills)
-    None => ()
-  }
-  exts.push(@forme.Forme::Forme(host_note=host_help_note) as &@posoco.Extension)
-  // ask_question self-wires from the CompositionView (requires Capability::Ui);
-  // registering it unconditionally keeps the tool visible even in UI-less
-  // compositions, where each ask reports "Interactive UI is unavailable".
-  exts.push(@askquestion.AskQuestionTools() as &@posoco.Extension)
-  if compiled_nmem_enabled() {
-    let nmem = @nmem.NowledgeMem(
-      source_app="cetas",
-      transport=@nmem.HttpNmemTransport::HttpNmemTransport()
-        as &@nmem.NmemTransport,
-      mcp=@nmem.LazyNmemMcp::LazyNmemMcp() as &@nmem.NmemMcp,
-      platform=@nmem.PlatformFs::PlatformFs() as &@nmem.NmemPlatform,
-    )
-    match nmem_group {
-      Some(group) => nmem.attach(group)
-      None => ()
-    }
-    episodic.push(nmem as &@posoco.Extension)
-  }
-  // Handoff: the `/handoff` command over the extension's own default store
-  // (native @fs / node:fs behind the HandoffStore seam — this package itself
-  // still does no IO). The workspace probe reports only the project root:
-  // cetas owns no VCS facts today, so branch/HEAD stay unspecified until a
-  // host pushes them. No work source is registered yet, so `create` needs
-  // structured command arguments for its continuation anchors (objective,
-  // current_work, next_action); `inspect` works unconditionally.
-  exts.push(
-    @handoff.Handoff(
-      cwd=ctx.cwd,
-      store=@handoff.DefaultHandoffStore() as &@handoff.HandoffStore,
-      probe=@handoff.HandoffWorkspaceState(ctx.cwd)
-        as &@handoff.HandoffWorkspaceProbe,
-      work_sources=[],
-    )
-    as &@posoco.Extension,
+  build_compiled_recipe_features(
+    ctx~,
+    nmem_group~,
+    host_help_note~,
+    obsidian_vault~,
   )
-  // Obsidian vault tools via the official Obsidian CLI. Preference-tied:
-  // the flavor table bakes inclusion at compile time (public builds exclude
-  // it entirely). When enabled, the vault name comes from `obsidian_vault~`
-  // when given, else the CETAS_OBSIDIAN env contract applies: "on"/"1"/unset
-  // targets the active vault, any other non-"off" value names the vault
-  // (first CLI argument vault=<name>). Opting in grants whole-vault
-  // read/write; destructive writes (permanent delete, overwrite, heading
-  // replace/delete) still consent through the composed UI, and the extension
-  // degrades per-call when the CLI or the app is unavailable.
-  if compiled_obsidian_enabled() {
-    let vault : String? = match obsidian_vault {
-      Some(name) => Some(name)
-      None =>
-        match @env.get_env_var("CETAS_OBSIDIAN") {
-          Some(value) if value != "on" && value != "1" && value != "off" =>
-            Some(value)
-          _ => None
-        }
-    }
-    episodic.push(
-      @obsidian.ObsidianTools::new(
-        config=@obsidian.ObsidianConfig::ObsidianConfig(vault~, read_only=false),
-      )
-      as &@posoco.Extension,
-    )
-  }
-  // Assemble the gateway last: deferred providers are indexed here, the
-  // toolless views take their originals' places, and only the gateway's
-  // tool_list / tool_execute reach the model catalog.
-  match @lazytools.LazyTools::defer_extensions(exts=episodic) {
-    Ok((gateway, views)) => {
-      for view in views {
-        exts.push(view)
-      }
-      exts.push(gateway as &@posoco.Extension)
-    }
-    Err(message) =>
-      raise @posoco.CompositionError::ToolCollision(
-        "deferred tool name collision",
-        message,
-        manifests=["cetas-core.default_features"],
-      )
-  }
-  exts
 }
 
 ///|
