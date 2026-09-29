@@ -106,8 +106,8 @@ moon build --target native --release
 | `posoco-kit-delegation` | — | ✓ (transitive) | — |
 
 > `posoco-ext-herdr`：cetas-headless 仅 presence 上报、永不持有
-> `herdr_delegate`——headless 是深度 1 叶子（2026-09-10 硬规则），被委派的
-> 子代理无法再委派；pane 委派工具只在 cetas-bun 组合。
+> `herdr_delegate`——headless 是深度 1 叶子，被委派的子代理无法再委派；
+> pane 委派工具只在 cetas-bun 组合。
 
 ### 共享状态——"同一个 Cetas"今天意味着什么
 
