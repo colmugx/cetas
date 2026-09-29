@@ -96,7 +96,11 @@ pub async fn CetasHeadlessHost::CetasHeadlessHost(
     effort=effort_override,
     label~,
   )
-  let agent = @cetas_core.compose_cetas_agent(session~, tail_exts~)
+  let agent = @cetas_core.compose_cetas_agent(
+    session~,
+    tail_exts~,
+    runtime_group=mcp_group,
+  )
   let sid = if session_id.length() > 0 {
     session_id
   } else {
