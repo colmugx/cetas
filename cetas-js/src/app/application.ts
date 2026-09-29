@@ -1225,12 +1225,18 @@ export class CetasApplication<AgentHandle = unknown> {
     }
     const agent = this.agent;
     const switchesModel = id === "model" && modelSelectionRequested(argsJson);
+    // A deliberate model switch supersedes any scheduled retry before the
+    // router mutates; the Fuwaroid runtime remains alive, only stale tickets
+    // are invalidated.
+    if (switchesModel) {
+      this.operations.clearRecoveryFollowUps();
+      this.options.bridge.cancelPendingRateLimit(agent);
+    }
     let outcome: string;
     try {
       outcome = await this.options.bridge.invokeCommand(agent, id, argsJson);
       if (switchesModel && commandOutcomeSucceeded(outcome)) {
         this.operations.clearRecoveryFollowUps();
-        this.options.bridge.cancelPendingRateLimit(agent);
       }
     } finally {
       // no scheduler restart: recovery runtime lives with the Agent task group.
