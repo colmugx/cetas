@@ -1,9 +1,7 @@
 import { moonbit } from "bun-plugin-moonbit";
 
-// bun-plugin-moonbit's runtime resolver is synchronous by Bun contract, so
-// the Moon build must finish before Bun.plugin registration — hence prepare().
-// Published 0.1.0-beta.0 lacks the lifecycle API; with it, mbt: imports fail
-// at runtime instead. See round-1-plan.md open questions.
+// The runtime resolver is synchronous, so finish the Moon build before
+// Bun.plugin registration when the plugin exposes the prepare lifecycle.
 const watch = process.argv.some((arg) => arg === "--hot" || arg === "--watch");
 
 const plugin = moonbit({
