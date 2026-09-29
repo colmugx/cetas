@@ -1133,10 +1133,9 @@ async test "live refresh selector of only non-refreshable ids stays empty and si
 }
 
 ///|
-/// Regression for the reported boot failure: the TS host passes every
-/// configured provider id, including custom openai-compatible ids ("mtplx")
-/// that have no registered refreshable factory. The live entry must skip
-/// them silently instead of collapsing the whole refresh into the single
+/// The TS host passes every configured provider id, including custom
+/// openai-compatible ids ("mtplx") that have no registered refreshable
+/// factory. The live entry must skip them silently instead of collapsing the
 /// `provider:""` ManifestSchemaError summary. Via the real registry: openai
 /// stays selected (unconfigured on this temp home, so it reports one
 /// ordinary failed entry) and "mtplx" never appears.
