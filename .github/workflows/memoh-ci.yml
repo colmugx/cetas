@@ -16,6 +16,7 @@ on:
       - "extension/**"
       - ".github/workflows/memoh-ci.yml"
       - ".github/workflows/memoh-release.yml"
+      - ".github/workflows/memoh-live-e2e.yml"
   pull_request:
     paths:
       - "cetas-memoh/**"
@@ -28,6 +29,7 @@ on:
       - "extension/**"
       - ".github/workflows/memoh-ci.yml"
       - ".github/workflows/memoh-release.yml"
+      - ".github/workflows/memoh-live-e2e.yml"
 
 jobs:
   memoh-checks:
