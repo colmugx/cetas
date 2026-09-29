@@ -15,14 +15,9 @@
 //
 //   bun build.ts --dts-only   # regenerate gen/mbt.d.ts only (no binaries)
 //
-// cetas-core bakes the flavor table into a gitignored build_config.mbt from
-// CETAS_FLAVOR (default public here) and CETAS_PLATFORM (per target OS);
-// extensions the flavor does not hit are never constructed. The plugin's
-// moon children re-fire that bake rule with the inherited environment, and
-// Bun does not forward runtime process.env writes to children, so this
-// script re-execs itself once per OS group with the group's env baked into
-// the child's real environment.
-import { rmSync } from "node:fs";
+// cetas-core resolves recipes.csv into generated Moon package/source files
+// before each Moon build. CETAS_FLAVOR defaults to public; each OS group
+// re-execs so the generated recipe carries the target platform explicitly.
 import { join } from "node:path";
 import { moonbit } from "bun-plugin-moonbit";
 
@@ -47,8 +42,8 @@ const requested = new Set(positional.filter((a) => !a.startsWith("--")));
 
 const osFor = (name: string) => (name.startsWith("windows") ? "windows" : "unix");
 const CORE_ROOT = join(import.meta.dir, "../cetas-core");
-const BUILD_CONFIG = join(CORE_ROOT, "lib/build_config.mbt");
-const GENERATOR = join(import.meta.dir, "../scripts/gen-build-config.sh");
+const PREPARE_RECIPE = join(import.meta.dir, "../scripts/prepare-recipe.py");
+const PYTHON = process.platform === "win32" ? "python" : "python3";
 const flavorBake = process.env.CETAS_FLAVOR === "personal" ? "personal" : "public";
 const selected = (Object.keys(TARGETS) as (keyof typeof TARGETS)[]).filter(
   (name) => requested.size === 0 || requested.has(name),
@@ -73,9 +68,15 @@ const MOONBIT_DTS = {
   },
 };
 
-// The d.ts describes the API surface, not a flavor build: one pass, default
-// env, no flavor bake, no re-exec, no binary output.
+// The d.ts describes the JS public surface. Prepare that static recipe first
+// so Moon resolves exactly the same package graph used by public JS builds.
 if (dtsOnly) {
+  const os = process.platform === "win32" ? "windows" : "unix";
+  const prep = Bun.spawnSync(
+    [PYTHON, PREPARE_RECIPE, "--flavor", "public", "--frontend", "js", "--platform", os],
+    { cwd: join(import.meta.dir, ".."), stdout: "inherit", stderr: "inherit" },
+  );
+  if (prep.exitCode !== 0) process.exit(prep.exitCode ?? 2);
   const result = await Bun.build({
     entrypoints: ["host.ts"],
     // bun target like the compile passes; browser (the default) rejects
@@ -114,20 +115,17 @@ if (group === "") {
 
 const os = group as ReturnType<typeof osFor>;
 for (const name of selected.filter((n) => osFor(n) === os)) {
-  // Bake this group's flavor before the plugin's moon build sees the tree:
-  // drop the generated config, regenerate it from the cetas-core module root,
-  // then moon-build once under the same env.
-  rmSync(BUILD_CONFIG, { force: true });
-  const gen = Bun.spawnSync(["sh", GENERATOR], {
-    cwd: CORE_ROOT,
-    env: process.env,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  if (gen.exitCode !== 0) {
-    console.error(`gen-build-config failed for ${os}:\n${gen.stderr.toString().trim()}`);
-    process.exit(2);
-  }
+  // Resolve the static JS recipe before Moon calculates the package graph.
+  const prep = Bun.spawnSync(
+    [PYTHON, PREPARE_RECIPE, "--flavor", flavorBake, "--frontend", "js", "--platform", os],
+    {
+      cwd: join(import.meta.dir, ".."),
+      env: process.env,
+      stdout: "inherit",
+      stderr: "inherit",
+    },
+  );
+  if (prep.exitCode !== 0) process.exit(prep.exitCode ?? 2);
   const moonBuild = Bun.spawnSync(["moon", "build", "--target", "js", "--release"], {
     cwd: import.meta.dir,
     env: process.env,
