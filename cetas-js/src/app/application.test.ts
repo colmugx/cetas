@@ -45,13 +45,6 @@ function bridgeFor(
       counters.runs += 1;
       return "reply";
     },
-    startRateLimitMonitor: async (_agent, signal) => {
-      await new Promise<void>((_resolve, reject) => {
-        signal.addEventListener("abort", () => {
-          reject(new DOMException("aborted", "AbortError"));
-        }, { once: true });
-      });
-    },
     cancelPendingRateLimit: () => undefined,
     shutdown: async () => {
       counters.shutdowns += 1;
@@ -615,7 +608,6 @@ describe("CetasApplication", () => {
       describeSetup = base.describeSetup;
       createAgent = base.createAgent;
       runTurn = base.runTurn;
-      startRateLimitMonitor = base.startRateLimitMonitor;
       cancelPendingRateLimit = base.cancelPendingRateLimit;
       shutdown = base.shutdown;
       listCommands = base.listCommands;
