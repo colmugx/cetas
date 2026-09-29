@@ -2,7 +2,7 @@
 
 This document tracks the **real** Memoh validation path for `cetas-memoh`.
 Unit tests and fake ACP fixtures are useful, but they do not satisfy the live
-E2E requirement in issue #25.
+E2E requirement.
 
 ## 1. Prepare a real Memoh container workspace
 
