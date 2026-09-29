@@ -1,12 +1,4 @@
 ///|
-/// loop_wbtest.mbt — the one-shot protocol over the full cetas-core
-/// assembly with a scripted model, pinned to the clean-stdout contract:
-/// text-mode stdout is exactly the answer (one block, or live
-/// deltas under --stream); stderr carries the session line, the marker, the
-/// failure line, thinking, and the verbose event log; the --jsonl face is
-/// unchanged.
-
-///|
 /// A scripted stdin reader: `lines` are consumed in order, then EOF. The
 /// cell records how often the reader was polled. The async annotation is
 /// required by the slot (loop.mbt reads the real tty asynchronously) but
@@ -42,7 +34,6 @@ fn tk_sink() -> (async (String) -> Unit noraise, Array[String]) {
 }
 
 ///|
-/// A stop response carrying provider usage — for the jsonl usage assertion.
 fn tk_usage_response(
   text : String,
   input~ : Int,
@@ -65,8 +56,6 @@ fn tk_usage_response(
 }
 
 ///|
-/// A stop response carrying a committed reasoning block — for the
-/// --show-thinking assertions.
 fn tk_reasoning_response(
   text~ : String,
   reasoning~ : String,
