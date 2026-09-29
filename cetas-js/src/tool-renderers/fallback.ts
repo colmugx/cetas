@@ -41,5 +41,4 @@ export const fallbackRenderer: ToolRenderer = {
   },
 };
 
-// Re-export so host can `import { fallbackRenderer } from "./fallback"`.
 export { theme };
