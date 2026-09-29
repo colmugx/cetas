@@ -29,17 +29,16 @@ def redact(text: str, token: str) -> str:
     if token:
         text = text.replace(token, "<redacted>")
     text = re.sub(
-        r"(?i)(authorization\\s*[:=]\\s*bearer\\s+)[^\\s,}\\\"']+",
-        r"\\1<redacted>",
+        r"(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,}\\\"']+",
+        r"\1<redacted>",
         text,
     )
     text = re.sub(
-        r'(?i)(\"?(?:authorization|x-memoh-session-token|access_token|refresh_token)\"?\\s*:\\s*\")[^\"]*(\")',
-        r"\\1<redacted>\\2",
+        r'(?i)("?(?:authorization|x-memoh-session-token|access_token|refresh_token)"?\s*:\s*")[^"]*(")',
+        r"\1<redacted>\2",
         text,
     )
     return text
-
 
 def request_json(
     *,
