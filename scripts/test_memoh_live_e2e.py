@@ -122,5 +122,28 @@ class SelectionTest(unittest.TestCase):
             memoh_live_e2e.choose_value("", [])
 
 
+class ConcurrencySelectionTest(unittest.TestCase):
+    def _status(self, models):
+        return {
+            "models": {
+                "available_models": [{"id": model_id} for model_id in models]
+            }
+        }
+
+    def test_distinct_shared_models_preserve_first_runtime_order(self):
+        first, second = memoh_live_e2e.distinct_shared_model_ids(
+            self._status(["model-b", "model-a", "model-c"]),
+            self._status(["model-c", "model-b", "model-a"]),
+        )
+        self.assertEqual((first, second), ("model-b", "model-a"))
+
+    def test_distinct_shared_models_require_two_shared_ids(self):
+        with self.assertRaises(memoh_live_e2e.PreflightError):
+            memoh_live_e2e.distinct_shared_model_ids(
+                self._status(["model-a", "model-b"]),
+                self._status(["model-a", "model-c"]),
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
