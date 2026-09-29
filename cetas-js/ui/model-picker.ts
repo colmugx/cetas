@@ -712,9 +712,9 @@ class TabbedPickerPanel implements Component {
       this.confirmRow(this.searchRows[this.searchIndex]);
       return;
     }
-    // The keys above are consumed here, so the query input only receives
-    // character data and edit chords (backspace, word deletes, undo). The
-    // query is therefore append-only plus backspace for now.
+    // The keys above are consumed here, so the query input receives only
+    // character data and its supported edit chords (backspace, word deletes,
+    // undo).
     this.searchInput!.handleInput(data);
     this.refreshSearch();
   }
