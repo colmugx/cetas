@@ -13,7 +13,19 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - "cetas-memoh/**"
+      - "scripts/memoh_live_e2e.py"
+      - "scripts/test_memoh_live_e2e.py"
+      - ".github/workflows/memoh-ci.yml"
+      - ".github/workflows/memoh-release.yml"
   pull_request:
+    paths-ignore:
+      - "cetas-memoh/**"
+      - "scripts/memoh_live_e2e.py"
+      - "scripts/test_memoh_live_e2e.py"
+      - ".github/workflows/memoh-ci.yml"
+      - ".github/workflows/memoh-release.yml"
 
 jobs:
   checks:
