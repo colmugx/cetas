@@ -44,7 +44,7 @@ const osFor = (name: string) => (name.startsWith("windows") ? "windows" : "unix"
 const CORE_ROOT = join(import.meta.dir, "../cetas-core");
 const PREPARE_RECIPE = join(import.meta.dir, "../scripts/prepare-recipe.py");
 const PYTHON = process.platform === "win32" ? "python" : "python3";
-const flavorBake = process.env.CETAS_FLAVOR === "personal" ? "personal" : "public";
+const flavorBake = process.env.CETAS_FLAVOR?.trim() || "public";
 const selected = (Object.keys(TARGETS) as (keyof typeof TARGETS)[]).filter(
   (name) => requested.size === 0 || requested.has(name),
 );
@@ -93,7 +93,7 @@ if (dtsOnly) {
   process.exit(0);
 }
 
-console.log(`platform: per-target  flavor: ${flavorBake}${flavorBake === "personal" ? " (CETAS_FLAVOR=personal)" : ""}`);
+console.log(`platform: per-target  flavor: ${flavorBake}${flavorBake === "public" ? "" : ` (CETAS_FLAVOR=${flavorBake})`}`);
 
 const group = process.env.CETAS_BUILD_GROUP ?? "";
 if (group === "") {
