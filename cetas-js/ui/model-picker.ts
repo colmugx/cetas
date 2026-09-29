@@ -338,8 +338,8 @@ export function classifyProviderQuota(
     fiveHour === undefined ? windows : [fiveHour, ...windows.filter((w) => w !== fiveHour)];
   let primary = ordered[0]!;
   if (fiveHour === undefined) {
-    // No 5h label: fall back to the round-1 most constrained window, ties
-    // keeping the first reading (covers exotic labels like kimi(<duration>)).
+    // No 5h label: fall back to the most constrained window, keeping the
+    // first reading on ties (covers exotic labels like kimi(<duration>)).
     for (const w of ordered) {
       if (w.leftPercent < primary.leftPercent) primary = w;
     }
