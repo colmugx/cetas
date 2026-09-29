@@ -20,14 +20,14 @@ test "peer envelope parses from, session, and task" {
 test "peer envelope task may itself contain brackets and spaces" {
   let env = match
     parse_peer_envelope(
-      "[cetas-peer from=a session=b] run [cetas-headless] twice now",
+      "[cetas-peer from=a session=b] run [cetas-run] twice now",
     ) {
     Some(env) => env
     None => fail("task with brackets must parse")
   }
   assert_eq(env.from, "a")
   assert_eq(env.session, "b")
-  assert_eq(env.task, "run [cetas-headless] twice now")
+  assert_eq(env.task, "run [cetas-run] twice now")
 }
 
 ///|

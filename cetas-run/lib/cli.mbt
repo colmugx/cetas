@@ -1,7 +1,7 @@
 ///|
 /// cli.mbt — the command surface:
 ///
-///   cetas-headless [--model <id>] [--effort <level>] [--session <id>]
+///   cetas-run [--model <id>] [--effort <level>] [--session <id>]
 ///                  [--yolo | --permission <readonly|workspace_write|interactive|auto>]
 ///                  [--stream] [--verbose] [--show-thinking] [--jsonl]
 ///                  [-- "<task>"]
@@ -18,7 +18,7 @@
 
 ///|
 /// Parsed invocation. Zero values ("") mean "not given".
-pub(all) struct HeadlessCli {
+pub(all) struct RunCli {
   /// Run-scoped model override (`provider/model` slot id); never persisted.
   model : String
   /// Run-scoped reasoning effort override; never persisted.
@@ -67,7 +67,7 @@ pub fn parse_permission_mode_str(raw : String) -> @permission.PermissionMode? {
 }
 
 ///|
-pub fn parse_headless_cli(argv : Array[String]) -> Result[HeadlessCli, String] {
+pub fn parse_run_cli(argv : Array[String]) -> Result[RunCli, String] {
   let mut model = ""
   let mut effort = ""
   let mut session_id = ""
@@ -177,7 +177,7 @@ pub fn parse_headless_cli(argv : Array[String]) -> Result[HeadlessCli, String] {
 ///|
 /// The startup posture: an explicit `--permission` wins; `--yolo` is Yolo;
 /// the default is the interactive WorkspaceWrite + terminal approval shape.
-pub fn resolve_permission_mode(cli : HeadlessCli) -> @permission.PermissionMode {
+pub fn resolve_permission_mode(cli : RunCli) -> @permission.PermissionMode {
   match cli.permission_mode {
     Some(mode) => mode
     None => if cli.yolo { @permission.Yolo } else { @permission.WorkspaceWrite }
@@ -187,6 +187,6 @@ pub fn resolve_permission_mode(cli : HeadlessCli) -> @permission.PermissionMode 
 ///|
 /// Whether the terminal UI surface (approval bypass, ask_question) is wired.
 /// `--yolo` is the unattended master switch: no UI, approvals never asked.
-pub fn wants_terminal_ui(cli : HeadlessCli) -> Bool {
+pub fn wants_terminal_ui(cli : RunCli) -> Bool {
   !cli.yolo
 }

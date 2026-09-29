@@ -4,7 +4,7 @@
 /// Contract: every invocation runs exactly ONE user turn and
 /// exits — there is no stdin loop. The task comes from `-- "<task>"` argv;
 /// when absent, exactly one line is read from stdin (preserving
-/// `echo "task" | cetas-headless` and pane send-text injection). EOF or an
+/// `echo "task" | cetas-run` and pane send-text injection). EOF or an
 /// empty task is a usage error (exit 2). A conversation continues by
 /// re-invoking with `--session <id>`; absent `--session` mints a fresh
 /// session, whose id the driver captures from the `session: <id>` stderr
@@ -17,9 +17,9 @@
 /// newline (a model that never streams falls back to the answer block, so
 /// stdout stays the answer). Everything else rides stderr: the
 /// `session: <id>` line (always, written before the turn), the fixed
-/// completion marker `[cetas-headless] turn 1 done` (always, also for
+/// completion marker `[cetas-run] turn 1 done` (always, also for
 /// failed turns — waiting drivers never deadlock), the failure line
-/// (`[cetas-headless] turn failed: <reason>`, no answer block on failure),
+/// (`[cetas-run] turn failed: <reason>`, no answer block on failure),
 /// `--show-thinking` reasoning, and the `--verbose` event log. The
 /// `--jsonl` face is unchanged: stdout is the pure event stream and the
 /// session/marker ride the terminal events.
@@ -42,7 +42,7 @@
 ///|
 /// The fixed per-turn completion marker line (without the trailing newline).
 pub fn turn_marker(turn_no : Int) -> String {
-  "[cetas-headless] turn \{turn_no} done"
+  "[cetas-run] turn \{turn_no} done"
 }
 
 ///|
@@ -70,7 +70,7 @@ pub fn single_line(text : String) -> String {
 /// The pane-visible failure line: fixed prefix plus a single-lined reason, so
 /// drivers can match one literal and never lose the reason to a line wrap.
 pub fn turn_failed_line(reason : String) -> String {
-  "[cetas-headless] turn failed: " + single_line(reason)
+  "[cetas-run] turn failed: " + single_line(reason)
 }
 
 ///|

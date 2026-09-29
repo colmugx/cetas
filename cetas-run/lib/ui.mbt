@@ -68,7 +68,7 @@ pub impl @posoco.UiPort for TerminalUiPort with fn request(
     Some(tty) => tty
     None =>
       raise @error.UiError::Unsupported(
-        detail="cetas-headless: interactive requests unavailable (no controlling terminal or --yolo)",
+        detail="cetas-run: interactive requests unavailable (no controlling terminal or --yolo)",
       )
   }
   match req {
@@ -107,7 +107,7 @@ pub impl @posoco.UiPort for TerminalUiPort with fn request(
         }
       } nobreak {
         // `while true` exits only via the returns above.
-        abort("cetas-headless: confirm loop exited unexpectedly")
+        abort("cetas-run: confirm loop exited unexpectedly")
       }
     Select(prompt~, options~, default~) => {
       if options.is_empty() {
@@ -157,7 +157,7 @@ pub impl @posoco.UiPort for TerminalUiPort with fn request(
         }
       } nobreak {
         // `while true` exits only via the returns above.
-        abort("cetas-headless: select loop exited unexpectedly")
+        abort("cetas-run: select loop exited unexpectedly")
       }
     }
   }

@@ -14,7 +14,7 @@ Flags (release):
 Flow: preflight (repo root, unused cetas-v* tag; dirty tree allowed — release
 content counts committed changes only) -> scan commits since the
 newest cetas-v* tag -> suggest semver (feat/breaking -> minor, else patch;
-0.x forever) -> AI notes draft via cetas-headless over the same commits plus
+0.x forever) -> AI notes draft via cetas-run over the same commits plus
 the extension gitlink-range commits (fallback: grouped draft) -> $EDITOR or
 --notes-file -> preview ->
 apply (VERSION, 8 sync targets, CHANGELOG.md insert, commit, annotated tag)
@@ -34,11 +34,11 @@ from pathlib import Path
 SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
 MOON_READ = re.compile(r'(?m)^version\s*=\s*"([^"]+)"')
 ACP_READ = re.compile(r'const\s+CETAS_ACP_VERSION\s*=\s*"([^"]+)"')
-HEADLESS_READ = re.compile(r'const\s+CETAS_HEADLESS_VERSION\s*=\s*"([^"]+)"')
+RUN_READ = re.compile(r'const\s+CETAS_RUN_VERSION\s*=\s*"([^"]+)"')
 MEMOH_READ = re.compile(r'const\s+CETAS_MEMOH_VERSION\s*=\s*"([^"]+)"')
 MOON_SUB = re.compile(r'(?m)^(version\s*=\s*)"[^"]+"')
 ACP_SUB = re.compile(r'(?m)^(const\s+CETAS_ACP_VERSION\s*=\s*)"[^"]+"')
-HEADLESS_SUB = re.compile(r'(?m)^(const\s+CETAS_HEADLESS_VERSION\s*=\s*)"[^"]+"')
+RUN_SUB = re.compile(r'(?m)^(const\s+CETAS_RUN_VERSION\s*=\s*)"[^"]+"')
 MEMOH_SUB = re.compile(r'(?m)^(const\s+CETAS_MEMOH_VERSION\s*=\s*)"[^"]+"')
 META = re.compile(r"(?m)^([0-9a-f]{40})\x1f")
 TYPE = re.compile(r"^([a-z]+)(?:\([^)]*\))?!?:")
@@ -46,11 +46,11 @@ FEAT = re.compile(r"^feat(\(|!|:)")
 FIX = re.compile(r"^fix(\(|!|:)")
 BREAKING = re.compile(r"(?m)^BREAKING[-_ ]CHANGE|^[a-z]+(\([^)]*\))?!:")
 RELEASE_SKIP = re.compile(r"^chore\(release\):")
-HEADLESS_BIN = Path("_build/native/release/build/colmugx/cetas-headless/main/main.exe")
-HEADLESS_TIMEOUT = 600  # seconds, one LLM turn
+RUN_BIN = Path("_build/native/release/build/colmugx/cetas-run/main/main.exe")
+RUN_TIMEOUT = 600  # seconds, one LLM turn
 EXT_LOG_LIMIT = 30
 COMPONENTS = frozenset(
-    ("cetas-js", "cetas-acp", "cetas-core", "cetas-headless", "cetas-memoh", "cetas-ext-forme", "extension")
+    ("cetas-js", "cetas-acp", "cetas-core", "cetas-run", "cetas-memoh", "cetas-ext-forme", "extension")
 )
 GROUP_OF = {"feat": "Added", "fix": "Fixed", "refactor": "Changed", "perf": "Changed"}
 SYNC = [
@@ -58,8 +58,8 @@ SYNC = [
     ("cetas-js/package.json", None, None),
     ("cetas-acp/moon.mod", MOON_READ, MOON_SUB),
     ("cetas-acp/main/main.mbt", ACP_READ, ACP_SUB),
-    ("cetas-headless/moon.mod", MOON_READ, MOON_SUB),
-    ("cetas-headless/main/main.mbt", HEADLESS_READ, HEADLESS_SUB),
+    ("cetas-run/moon.mod", MOON_READ, MOON_SUB),
+    ("cetas-run/main/main.mbt", RUN_READ, RUN_SUB),
     ("cetas-memoh/moon.mod", MOON_READ, MOON_SUB),
     ("cetas-memoh/main/main.mbt", MEMOH_READ, MEMOH_SUB),
 ]
@@ -255,7 +255,7 @@ def ai_prompt(commits, ext_lines):
         "extension 单独设节。",
         "要求：1. 只输出 markdown 正文，不要代码围栏和任何解释。 2. 确认功能真实落实到某个端，才可列出。 3. 必须读提交，至少读个大概。禁止只看标题就总结。",
         "固定四个小节，标题原样：## Bun Ver.（cetas-js/cetas-bun）、"
-        "## ACP Ver.（cetas-acp）、## Headless Ver.（cetas-headless）、"
+        "## ACP Ver.（cetas-acp）、## Run Ver.（cetas-run）、"
         "## Memoh Ver.（cetas-memoh）；"
         "无内容的小节保留空标题。",
         "小节内按需使用 ### Feats / ### Fixes 子节，条目为 \"- \" 列表，"
@@ -275,25 +275,25 @@ def ai_prompt(commits, ext_lines):
 
 
 def ai_draft_notes(root, base, commits, binary=None):
-    binary = binary or root / HEADLESS_BIN
+    binary = binary or root / RUN_BIN
     if not binary.exists():
-        print("提示: 未找到 cetas-headless 二进制，改用机械分组草稿")
+        print("提示: 未找到 cetas-run 二进制，改用机械分组草稿")
         return None
-    print("调用 cetas-headless 总结提交（可能需要几分钟）...")
+    print("调用 cetas-run 总结提交（可能需要几分钟）...")
     prompt = ai_prompt(commits, extension_recent(root, base))
     try:
         # --yolo: piped summarizer run — approvals must never block on a tty.
         r = subprocess.run(
             [str(binary), "--model", "zai-coding-plan/glm-5.3-flash", "--effort", "low", "--jsonl", "--yolo", "--", prompt],
             cwd=str(root), capture_output=True, text=True,
-            timeout=HEADLESS_TIMEOUT,
+            timeout=RUN_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
-        print(f"警告: cetas-headless 超时（>{HEADLESS_TIMEOUT}s），改用机械分组草稿")
+        print(f"警告: cetas-run 超时（>{RUN_TIMEOUT}s），改用机械分组草稿")
         return None
     if r.returncode != 0:
         tail = (r.stderr.strip().splitlines() or [""])[-1]
-        print(f"警告: cetas-headless 退出码 {r.returncode}（{tail[:200]}），改用机械分组草稿")
+        print(f"警告: cetas-run 退出码 {r.returncode}（{tail[:200]}），改用机械分组草稿")
         return None
     for line in reversed(r.stdout.splitlines()):
         if '"turn_completed"' not in line and '"turn_failed"' not in line:
@@ -303,15 +303,15 @@ def ai_draft_notes(root, base, commits, binary=None):
         except ValueError:
             continue
         if ev.get("type") == "turn_failed":
-            print(f"警告: cetas-headless 轮次失败（{(ev.get('error') or '')[:200]}），改用机械分组草稿")
+            print(f"警告: cetas-run 轮次失败（{(ev.get('error') or '')[:200]}），改用机械分组草稿")
             return None
         if ev.get("type") == "turn_completed":
             summary = strip_fences(ev.get("summary") or "")
             if summary:
-                print("cetas-headless 已生成发布说明草稿")
+                print("cetas-run 已生成发布说明草稿")
                 return summary
             break
-    print("警告: cetas-headless 未返回有效总结，改用机械分组草稿")
+    print("警告: cetas-run 未返回有效总结，改用机械分组草稿")
     return None
 
 

@@ -11,8 +11,8 @@
 ///   {"type":"reasoning","turn":1,"content":"...","truncated":false}
 ///   {"type":"tool_call","turn":1,"name":"<tool_name>","call_id":"<id>","arguments":{...}}
 ///   {"type":"tool_result","turn":1,"name":"<tool_name>","call_id":"<id>","is_error":false,"outcome":"success","content":"...","truncated":false}
-///   {"type":"turn_completed","turn":1,"summary":"...","marker":"[cetas-headless] turn 1 done","usage":{"turns":1,"input_tokens":0,"output_tokens":0}}
-///   {"type":"turn_failed","turn":1,"error":"...","marker":"[cetas-headless] turn 1 done"}
+///   {"type":"turn_completed","turn":1,"summary":"...","marker":"[cetas-run] turn 1 done","usage":{"turns":1,"input_tokens":0,"output_tokens":0}}
+///   {"type":"turn_failed","turn":1,"error":"...","marker":"[cetas-run] turn 1 done"}
 ///
 /// With `--jsonl --stream` two delta event types ride along as live
 /// telemetry (`{"type":"reasoning_delta","turn":1,"token":"..."}` and the
@@ -124,7 +124,7 @@ pub struct JsonlObserver {
 ///|
 pub fn JsonlObserver::JsonlObserver(
   stream? : Bool = false,
-  id? : String = "cetas_headless_jsonl",
+  id? : String = "cetas_run_jsonl",
 ) -> JsonlObserver {
   {
     turn: 0,

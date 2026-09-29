@@ -42,17 +42,17 @@ async test "spike: open_tty_channel degrades to None without a controlling termi
 
 ///|
 /// Live roundtrip probe (manual only, never in CI): proves open → write →
-/// read end-to-end over a real /dev/tty. Opt in with CETAS_HEADLESS_TTY_PROBE=1
+/// read end-to-end over a real /dev/tty. Opt in with CETAS_RUN_TTY_PROBE=1
 /// and run it under a pty that feeds a line — a bare run against a real
 /// terminal blocks forever on the read, and the prompt text lands directly on
 /// that terminal:
 ///
 ///   (sleep 6; printf 'hello tty\n'; sleep 25) | script -q /tmp/ts.txt \
-///     env CETAS_HEADLESS_TTY_PROBE=1 moon test lib --target native
+///     env CETAS_RUN_TTY_PROBE=1 moon test lib --target native
 ///
 /// Any other environment exits through the clean-degradation branches above.
-async test "spike: live /dev/tty roundtrip (only when CETAS_HEADLESS_TTY_PROBE=1)" {
-  if @env.get_env_var("CETAS_HEADLESS_TTY_PROBE") != Some("1") {
+async test "spike: live /dev/tty roundtrip (only when CETAS_RUN_TTY_PROBE=1)" {
+  if @env.get_env_var("CETAS_RUN_TTY_PROBE") != Some("1") {
     return
   }
   let tty = open_tty_channel()
@@ -62,7 +62,7 @@ async test "spike: live /dev/tty roundtrip (only when CETAS_HEADLESS_TTY_PROBE=1
       return
     }
     Some(tty) => {
-      (tty.write)("cetas-headless tty probe — expect an echoed line: ")
+      (tty.write)("cetas-run tty probe — expect an echoed line: ")
       let line = (tty.read_line)()
       match line {
         Some(text) => {

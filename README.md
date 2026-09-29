@@ -26,7 +26,7 @@ cd cetas-js
 bun run build
 ```
 
-<!-- Build-time flavor selection: `CETAS_FLAVOR` (public|personal) picks the preference-tied extensions (nowledge-mem, rtk, obsidian — cetas-bun defaults to public, moon dev builds and cetas-acp to personal) and `CETAS_PLATFORM` (windows|unix) the shell tool; both bake into a gitignored `cetas-core/lib/build_config.mbt`, so after switching either, delete that file (or `moon clean`) before rebuilding. -->
+<!-- Build-time composition is recipe-driven. scripts/prepare-recipe.py selects flavor + frontend + platform from cetas-core/recipes.csv and generates the static cetas-core package/import graph before Moon runs. -->
 
 Provider configuration lives in `.cetas/settings.json` under your home directory. The settings object is passed opaquely to the selected provider extension — Cetas itself never parses endpoints or credentials.
 
@@ -62,13 +62,21 @@ Notes:
 - `CETAS_HOME` overrides the Cetas home directory (settings, credentials, sessions); `HOME` is the default.
 - MCP servers declared in `<cwd>/.mcp.json` (overriding `~/.cetas/mcp.json`) connect lazily at the first turn by default; set `CETAS_MCP_MODE=eager` to connect them all at startup.
 
+### cetas-run — one-shot automation / MoonX
+
+```bash
+moonx colmugx/cetas-run -- --yolo -- "fix the failing tests"
+```
+
+`cetas-run` executes exactly one Cetas turn per invocation and is intended for scripts, CI, agent swarms, and sandboxed MoonX execution. Use `--jsonl` for machine-readable output and `--session <id>` to continue a previous run.
+
 ### Extension holdings
 
 Which extensions each shipped cetas outlet installs. Rows are extensions,
 columns are outlets — add a column when a new outlet ships.
 ✓ = installed, — = not held.
 
-| Ext | cetas-bun | cetas-acp | cetas-headless |
+| Ext | cetas-bun | cetas-acp | cetas-run |
 |---|---|---|---|
 | **Tools** | | | |
 | `posoco-ext-read` / `-write` / `-edit` | ✓ | ✓ | ✓ |
@@ -110,7 +118,7 @@ columns are outlets — add a column when a new outlet ships.
 | `posoco-kit-lody` / `-paseo` | — | ✓ | — |
 | `posoco-kit-delegation` | — | ✓ (transitive) | — |
 
-> `posoco-ext-herdr`: cetas-headless reports presence only and never gets
+> `posoco-ext-herdr`: cetas-run reports presence only and never gets
 > `herdr_delegate` — headless is a depth-1 leaf, so a delegated child cannot
 > delegate further; pane delegation composes in cetas-bun only.
 

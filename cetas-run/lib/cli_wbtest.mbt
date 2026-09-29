@@ -3,7 +3,7 @@
 
 ///|
 test "cli parses the full flag surface and captures the -- task" {
-  let parsed = parse_headless_cli([
+  let parsed = parse_run_cli([
     "--model", "opencode/gpt-5.1-codex", "--effort", "high", "--session", "cetas-42",
     "--permission", "readonly", "--jsonl", "--", "fix", "the", "bug",
   ])
@@ -22,7 +22,7 @@ test "cli parses the full flag surface and captures the -- task" {
 
 ///|
 test "cli defaults: no flags means the interactive default posture" {
-  let cli = match parse_headless_cli([]) {
+  let cli = match parse_run_cli([]) {
     Ok(cli) => cli
     Err(message) => fail("empty argv must parse: \{message}")
   }
@@ -42,7 +42,7 @@ test "cli defaults: no flags means the interactive default posture" {
 
 ///|
 test "cli --yolo selects Yolo mode and drops the terminal ui" {
-  let cli = match parse_headless_cli(["--yolo", "--", "ship it"]) {
+  let cli = match parse_run_cli(["--yolo", "--", "ship it"]) {
     Ok(cli) => cli
     Err(message) => fail("--yolo must parse: \{message}")
   }
@@ -53,7 +53,7 @@ test "cli --yolo selects Yolo mode and drops the terminal ui" {
 
 ///|
 test "cli --permission accepts exactly the three documented modes" {
-  let ro = parse_headless_cli(["--permission", "readonly"])
+  let ro = parse_run_cli(["--permission", "readonly"])
   assert_true(
     match ro {
       Ok(cli) =>
@@ -64,7 +64,7 @@ test "cli --permission accepts exactly the three documented modes" {
       Err(_) => false
     },
   )
-  let ww = parse_headless_cli(["--permission", "workspace_write"])
+  let ww = parse_run_cli(["--permission", "workspace_write"])
   assert_true(
     match ww {
       Ok(cli) =>
@@ -75,7 +75,7 @@ test "cli --permission accepts exactly the three documented modes" {
       Err(_) => false
     },
   )
-  let ia = parse_headless_cli(["--permission", "interactive"])
+  let ia = parse_run_cli(["--permission", "interactive"])
   assert_true(
     match ia {
       Ok(cli) =>
@@ -86,13 +86,13 @@ test "cli --permission accepts exactly the three documented modes" {
       Err(_) => false
     },
   )
-  assert_true(parse_headless_cli(["--permission", "yolo"]) is Err(_))
-  assert_true(parse_headless_cli(["--permission", "bogus"]) is Err(_))
+  assert_true(parse_run_cli(["--permission", "yolo"]) is Err(_))
+  assert_true(parse_run_cli(["--permission", "bogus"]) is Err(_))
 }
 
 ///|
 test "cli rejects --yolo together with --permission" {
-  let parsed = parse_headless_cli(["--yolo", "--permission", "readonly"])
+  let parsed = parse_run_cli(["--yolo", "--permission", "readonly"])
   match parsed {
     Err(message) => assert_true(message.contains("mutually exclusive"))
     Ok(_) => fail("--yolo with --permission must be rejected")
@@ -101,14 +101,14 @@ test "cli rejects --yolo together with --permission" {
 
 ///|
 test "cli --jsonl switches stdout to the event stream face" {
-  let cli = match parse_headless_cli(["--jsonl", "--", "task"]) {
+  let cli = match parse_run_cli(["--jsonl", "--", "task"]) {
     Ok(cli) => cli
     Err(message) => fail("--jsonl must parse: \{message}")
   }
   assert_true(cli.jsonl)
   assert_false(cli.yolo)
   // Composable with the unattended posture (the swarm spawn shape).
-  let solo = parse_headless_cli(["--jsonl", "--yolo", "--", "task"])
+  let solo = parse_run_cli(["--jsonl", "--yolo", "--", "task"])
   assert_true(
     match solo {
       Ok(cli) => cli.jsonl && cli.yolo
@@ -119,14 +119,14 @@ test "cli --jsonl switches stdout to the event stream face" {
 
 ///|
 test "cli --verbose, --stream, --show-thinking: independent flags, all default off" {
-  let cli = match parse_headless_cli(["--verbose", "--", "task"]) {
+  let cli = match parse_run_cli(["--verbose", "--", "task"]) {
     Ok(cli) => cli
     Err(message) => fail("--verbose must parse: \{message}")
   }
   assert_true(cli.verbose)
   assert_false(cli.stream)
   assert_false(cli.show_thinking)
-  let streamed = match parse_headless_cli(["--stream", "--", "task"]) {
+  let streamed = match parse_run_cli(["--stream", "--", "task"]) {
     Ok(cli) => cli
     Err(message) => fail("--stream must parse: \{message}")
   }
@@ -134,7 +134,7 @@ test "cli --verbose, --stream, --show-thinking: independent flags, all default o
   // may coexist, neither implies the other.
   assert_true(streamed.stream)
   assert_false(streamed.verbose)
-  let thinking = match parse_headless_cli(["--show-thinking", "--", "task"]) {
+  let thinking = match parse_run_cli(["--show-thinking", "--", "task"]) {
     Ok(cli) => cli
     Err(message) => fail("--show-thinking must parse: \{message}")
   }
@@ -143,7 +143,7 @@ test "cli --verbose, --stream, --show-thinking: independent flags, all default o
   assert_false(thinking.verbose)
   // All three compose with each other and with --jsonl (--jsonl wins stdout;
   // the flag record stays truthful).
-  let combined = parse_headless_cli([
+  let combined = parse_run_cli([
     "--jsonl", "--stream", "--verbose", "--show-thinking", "--", "task",
   ])
   assert_true(
@@ -156,26 +156,26 @@ test "cli --verbose, --stream, --show-thinking: independent flags, all default o
 
 ///|
 test "cli rejects unknown flags, stray arguments, and missing values" {
-  assert_true(parse_headless_cli(["--json"]) is Err(_))
-  assert_true(parse_headless_cli(["--jsonl=1"]) is Err(_))
-  assert_true(parse_headless_cli(["stray"]) is Err(_))
-  assert_true(parse_headless_cli(["--model"]) is Err(_))
-  assert_true(parse_headless_cli(["--effort"]) is Err(_))
-  assert_true(parse_headless_cli(["--session"]) is Err(_))
-  assert_true(parse_headless_cli(["--permission"]) is Err(_))
+  assert_true(parse_run_cli(["--json"]) is Err(_))
+  assert_true(parse_run_cli(["--jsonl=1"]) is Err(_))
+  assert_true(parse_run_cli(["stray"]) is Err(_))
+  assert_true(parse_run_cli(["--model"]) is Err(_))
+  assert_true(parse_run_cli(["--effort"]) is Err(_))
+  assert_true(parse_run_cli(["--session"]) is Err(_))
+  assert_true(parse_run_cli(["--permission"]) is Err(_))
 }
 
 ///|
 test "cli rejects '--' as the value of every value-taking flag" {
-  assert_true(parse_headless_cli(["--model", "--", "task"]) is Err(_))
-  assert_true(parse_headless_cli(["--effort", "--", "task"]) is Err(_))
-  assert_true(parse_headless_cli(["--session", "--", "task"]) is Err(_))
-  assert_true(parse_headless_cli(["--permission", "--", "task"]) is Err(_))
+  assert_true(parse_run_cli(["--model", "--", "task"]) is Err(_))
+  assert_true(parse_run_cli(["--effort", "--", "task"]) is Err(_))
+  assert_true(parse_run_cli(["--session", "--", "task"]) is Err(_))
+  assert_true(parse_run_cli(["--permission", "--", "task"]) is Err(_))
 }
 
 ///|
 test "cli '--'-value rejection names the flag and points at the value order" {
-  match parse_headless_cli(["--session", "--", "task"]) {
+  match parse_run_cli(["--session", "--", "task"]) {
     Err(message) => {
       assert_true(message.contains("--session requires a value"))
       assert_true(message.contains("put the value before"))
@@ -186,7 +186,7 @@ test "cli '--'-value rejection names the flag and points at the value order" {
 
 ///|
 test "cli --session '' is equivalent to omitting it: a fresh session id" {
-  let cli = match parse_headless_cli(["--session", "", "--", "fix the bug"]) {
+  let cli = match parse_run_cli(["--session", "", "--", "fix the bug"]) {
     Ok(cli) => cli
     Err(message) => fail("explicit empty --session must parse: \{message}")
   }
@@ -198,5 +198,5 @@ test "cli --session '' is equivalent to omitting it: a fresh session id" {
 test "cli --session followed directly by the task text stays rejected" {
   // Before the '--' guard this failed as a stray argument; it must keep
   // failing now that '--' is refused as a value.
-  assert_true(parse_headless_cli(["--session", "--", "ship it"]) is Err(_))
+  assert_true(parse_run_cli(["--session", "--", "ship it"]) is Err(_))
 }

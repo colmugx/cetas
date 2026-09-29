@@ -1,4 +1,12 @@
 ///|
+/// loop_wbtest.mbt — the one-shot protocol over the full cetas-core
+/// assembly with a scripted model, pinned to the clean-stdout contract:
+/// text-mode stdout is exactly the answer (one block, or live
+/// deltas under --stream); stderr carries the session line, the marker, the
+/// failure line, thinking, and the verbose event log; the --jsonl face is
+/// unchanged.
+
+///|
 /// A scripted stdin reader: `lines` are consumed in order, then EOF. The
 /// cell records how often the reader was polled. The async annotation is
 /// required by the slot (loop.mbt reads the real tty asynchronously) but
@@ -112,11 +120,11 @@ async test "default face: stdout is exactly the answer block; stderr carries ses
     write_err~,
   )
   assert_false(failed)
-  // stdout: the raw answer, no session line, no `[cetas-headless] turn 1:`
+  // stdout: the raw answer, no session line, no `[cetas-run] turn 1:`
   // prefix, no marker.
   assert_eq(out, ["done one\n"])
   // stderr: session line first, marker last, nothing else.
-  assert_eq(err, ["session: cetas-once\n", "[cetas-headless] turn 1 done\n"])
+  assert_eq(err, ["session: cetas-once\n", "[cetas-run] turn 1 done\n"])
 }
 
 ///|
@@ -137,8 +145,8 @@ async test "default face failure: stdout stays empty, failure line and marker go
   assert_eq(out, [])
   assert_eq(err.length(), 3)
   assert_eq(err[0], "session: cetas-once\n")
-  assert_true(err[1].has_prefix("[cetas-headless] turn failed: "))
-  assert_eq(err[2], "[cetas-headless] turn 1 done\n")
+  assert_true(err[1].has_prefix("[cetas-run] turn failed: "))
+  assert_eq(err[2], "[cetas-run] turn 1 done\n")
 }
 
 ///|
@@ -217,8 +225,8 @@ async test "peer envelope task wraps the task in a low-trust herdr-peer context;
   // marker on stderr.
   assert_eq(out, ["done\n", "done\n"])
   assert_eq(err, [
-    "session: cetas-peer-test\n", "[cetas-headless] turn 1 done\n", "session: cetas-peer-test\n",
-    "[cetas-headless] turn 1 done\n",
+    "session: cetas-peer-test\n", "[cetas-run] turn 1 done\n", "session: cetas-peer-test\n",
+    "[cetas-run] turn 1 done\n",
   ])
 }
 
@@ -244,7 +252,7 @@ async test "jsonl single-turn happy path: the frozen event sequence with usage f
   // summary carries a trailing (json-escaped) \n. The session rides the
   // turn_started event only — nothing else on stdout, nothing on stderr.
   assert_eq(out, [
-    "{\"type\":\"turn_started\",\"turn\":1,\"session\":\"cetas-jsonl\"}\n", "{\"type\":\"turn_completed\",\"turn\":1,\"summary\":\"done one\\n\",\"marker\":\"[cetas-headless] turn 1 done\",\"usage\":{\"turns\":1,\"input_tokens\":11,\"output_tokens\":7}}\n",
+    "{\"type\":\"turn_started\",\"turn\":1,\"session\":\"cetas-jsonl\"}\n", "{\"type\":\"turn_completed\",\"turn\":1,\"summary\":\"done one\\n\",\"marker\":\"[cetas-run] turn 1 done\",\"usage\":{\"turns\":1,\"input_tokens\":11,\"output_tokens\":7}}\n",
   ])
   assert_eq(err, [])
 }
@@ -275,7 +283,7 @@ async test "jsonl single-turn failure path: turn_failed carries the marker and f
   assert_true(
     out[1].has_prefix("{\"type\":\"turn_failed\",\"turn\":1,\"error\":\""),
   )
-  assert_true(out[1].contains("\"marker\":\"[cetas-headless] turn 1 done\""))
+  assert_true(out[1].contains("\"marker\":\"[cetas-run] turn 1 done\""))
   // No usage object on turn_failed (frozen schema: error + marker only).
   assert_false(out[1].contains("\"usage\""))
   assert_eq(err, [])
@@ -307,7 +315,7 @@ async test "stream face: text deltas ride stdout live and one trailing newline c
   // The committed "hello" is NOT reprinted after the deltas; the answer
   // closes with exactly one trailing newline.
   assert_eq(out, ["hel", "lo", "\n"])
-  assert_eq(err, ["session: cetas-stream\n", "[cetas-headless] turn 1 done\n"])
+  assert_eq(err, ["session: cetas-stream\n", "[cetas-run] turn 1 done\n"])
 }
 
 ///|
@@ -332,7 +340,7 @@ async test "stream face falls back to the answer block when the model never stre
   // No deltas arrived, so the committed answer block keeps stdout's
   // "stdout is the answer" contract.
   assert_eq(out, ["done one\n"])
-  assert_eq(err, ["session: cetas-stream\n", "[cetas-headless] turn 1 done\n"])
+  assert_eq(err, ["session: cetas-stream\n", "[cetas-run] turn 1 done\n"])
 }
 
 ///|
@@ -360,7 +368,7 @@ async test "show-thinking without stream dumps the final committed reasoning to 
   assert_false(failed)
   assert_eq(out, ["all done\n"])
   assert_eq(err, [
-    "session: cetas-think\n", "check the file first\n", "[cetas-headless] turn 1 done\n",
+    "session: cetas-think\n", "check the file first\n", "[cetas-run] turn 1 done\n",
   ])
 }
 
@@ -397,13 +405,13 @@ async test "show-thinking with stream sends reasoning deltas to stderr, never st
   assert_eq(out, ["ans", "\n"])
   // stderr: session, raw reasoning deltas (no committed reprint), marker.
   assert_eq(err, [
-    "session: cetas-think\n", "thin", "king", "[cetas-headless] turn 1 done\n",
+    "session: cetas-think\n", "thin", "king", "[cetas-run] turn 1 done\n",
   ])
 }
 
 ///|
 async test "verbose face: the frozen jsonl event log rides stderr while stdout keeps the answer block" {
-  let log = JsonlObserver::JsonlObserver(id="cetas_headless_verbose")
+  let log = JsonlObserver::JsonlObserver(id="cetas_run_verbose")
   let (agent, _model) = tk_scripted_agent(
     [@posoco.Respond(@posoco.tk_stop_response("done one"))],
     tail_exts=[log as &@posoco.Extension],
@@ -430,14 +438,14 @@ async test "verbose face: the frozen jsonl event log rides stderr while stdout k
   )
   assert_eq(
     err[2],
-    "{\"type\":\"turn_completed\",\"turn\":1,\"summary\":\"done one\\n\",\"marker\":\"[cetas-headless] turn 1 done\",\"usage\":{\"turns\":1,\"input_tokens\":0,\"output_tokens\":0}}\n",
+    "{\"type\":\"turn_completed\",\"turn\":1,\"summary\":\"done one\\n\",\"marker\":\"[cetas-run] turn 1 done\",\"usage\":{\"turns\":1,\"input_tokens\":0,\"output_tokens\":0}}\n",
   )
-  assert_eq(err[3], "[cetas-headless] turn 1 done\n")
+  assert_eq(err[3], "[cetas-run] turn 1 done\n")
 }
 
 ///|
 async test "verbose face failure: turn_failed event, failure line, and marker all land on stderr in order" {
-  let log = JsonlObserver::JsonlObserver(id="cetas_headless_verbose")
+  let log = JsonlObserver::JsonlObserver(id="cetas_run_verbose")
   // No scripted steps: the model is exhausted and the turn fails.
   let (agent, _model) = tk_scripted_agent([], tail_exts=[
     log as &@posoco.Extension,
@@ -464,19 +472,19 @@ async test "verbose face failure: turn_failed event, failure line, and marker al
   assert_true(
     err[2].has_prefix("{\"type\":\"turn_failed\",\"turn\":1,\"error\":\""),
   )
-  assert_true(err[3].has_prefix("[cetas-headless] turn failed: "))
-  assert_eq(err[4], "[cetas-headless] turn 1 done\n")
+  assert_true(err[3].has_prefix("[cetas-run] turn failed: "))
+  assert_eq(err[4], "[cetas-run] turn 1 done\n")
 }
 
 ///|
 test "the marker and single-line helpers are protocol-stable" {
-  assert_eq(turn_marker(7), "[cetas-headless] turn 7 done")
+  assert_eq(turn_marker(7), "[cetas-run] turn 7 done")
   assert_eq(single_line("a\nb\r  c\td"), "a b c d")
   assert_eq(single_line("plain"), "plain")
 }
 
 ///|
 test "turn_failed_line pins the pane-visible failure line with a collapsed reason" {
-  assert_eq(turn_failed_line("a  b\nc"), "[cetas-headless] turn failed: a b c")
-  assert_eq(turn_failed_line("boom"), "[cetas-headless] turn failed: boom")
+  assert_eq(turn_failed_line("a  b\nc"), "[cetas-run] turn failed: a b c")
+  assert_eq(turn_failed_line("boom"), "[cetas-run] turn failed: boom")
 }

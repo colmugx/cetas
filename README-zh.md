@@ -25,7 +25,7 @@ cd cetas-js
 bun run build
 ```
 
-<!-- 构建期 flavor 选择：`CETAS_FLAVOR`（public|personal）决定偏好相关的扩展（nowledge-mem、rtk、obsidian——cetas-bun 默认 public，moon 开发构建与 cetas-acp 默认 personal），`CETAS_PLATFORM`（windows|unix）决定 shell 工具；两者都烧进被 gitignore 的 `cetas-core/lib/build_config.mbt`，切换后请删除该文件（或 `moon clean`）再重新构建。 -->
+<!-- 构建期组合由 recipe 驱动。scripts/prepare-recipe.py 根据 cetas-core/recipes.csv 选择 flavor + frontend + platform，并在 Moon 运行前生成静态 cetas-core package/import graph。 -->
 
 Provider 配置放在家目录下的 `.cetas/settings.json`。settings 对象会原样传给所选的 provider 扩展——Cetas 本身不解析 endpoint 或凭据。
 
@@ -61,9 +61,17 @@ moon build --target native --release
 - `CETAS_HOME` 可覆盖 Cetas 主目录（settings、凭据、sessions）；默认取 `HOME`。
 - `<cwd>/.mcp.json`（覆盖 `~/.cetas/mcp.json`）声明的 MCP server 默认在第一轮才懒连接；设置 `CETAS_MCP_MODE=eager` 可改为启动时全部连接。
 
+### cetas-run —— 一次性自动化 / MoonX
+
+```bash
+moonx colmugx/cetas-run -- --yolo -- "fix the failing tests"
+```
+
+`cetas-run` 每次调用只执行一轮 Cetas，面向脚本、CI、agent swarm 和 MoonX 沙箱执行。机器可读输出使用 `--jsonl`；通过 `--session <id>` 可以继续之前的会话。
+
 ### Extension 列表
 
-| Ext | cetas-bun | cetas-acp | cetas-headless |
+| Ext | cetas-bun | cetas-acp | cetas-run |
 |---|---|---|---|
 | **Tools** | | | |
 | `posoco-ext-read` / `-write` / `-edit` | ✓ | ✓ | ✓ |
@@ -105,7 +113,7 @@ moon build --target native --release
 | `posoco-kit-lody` / `-paseo` | — | ✓ | — |
 | `posoco-kit-delegation` | — | ✓ (transitive) | — |
 
-> `posoco-ext-herdr`：cetas-headless 仅 presence 上报、永不持有
+> `posoco-ext-herdr`：cetas-run 仅 presence 上报、永不持有
 > `herdr_delegate`——headless 是深度 1 叶子，被委派的子代理无法再委派；
 > pane 委派工具只在 cetas-bun 组合。
 

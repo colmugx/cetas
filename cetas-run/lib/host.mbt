@@ -17,7 +17,7 @@
 /// persisted selection the operator just overruled.
 
 ///|
-pub struct CetasHeadlessHost {
+pub struct CetasRunHost {
   home : String
   cwd : String
   /// The composed agent; `run_one_turn` drives the single turn.
@@ -37,7 +37,7 @@ pub struct CetasHeadlessHost {
 /// tail (ACP precedent: the `--jsonl` observer rides here). `fs~`
 /// substitutes the workspace fs in tests; production passes None for the
 /// native fs.
-pub async fn CetasHeadlessHost::CetasHeadlessHost(
+pub async fn CetasRunHost::CetasRunHost(
   home~ : String,
   cwd~ : String,
   mode~ : @permission.PermissionMode,
@@ -49,7 +49,7 @@ pub async fn CetasHeadlessHost::CetasHeadlessHost(
   tail_exts? : Array[&@posoco.Extension] = [],
   fs? : &@workspace.WorkspaceFs? = None,
   mcp_group? : @async.TaskGroup[Unit]? = None,
-  label? : String = "cetas-headless",
+  label? : String = "cetas-run",
   /// Test-safety knob only (tests pass false so composition never shells
   /// out to the real herdr CLI); production keeps the default.
   detect_herdr? : Bool = true,
@@ -58,7 +58,7 @@ pub async fn CetasHeadlessHost::CetasHeadlessHost(
       _ => ()
     }
   },
-) -> CetasHeadlessHost raise @posoco.CompositionError {
+) -> CetasRunHost raise @posoco.CompositionError {
   let fs : &@workspace.WorkspaceFs = match fs {
     Some(fs) => fs
     None => @workspace.NativeWorkspaceFs()

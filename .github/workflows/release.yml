@@ -1,5 +1,5 @@
 # Release pipeline for the cetas submodule (repo github.com/colmugx/cetas).
-# Tag builds publish cetas-acp, cetas-headless, and cetas-bun binaries plus
+# Tag builds publish cetas-acp, cetas-run, and cetas-bun binaries plus
 # a GitHub release. npm publishing (@posoco/cetas + @posoco/cetas-<target> payload packages)
 # is manual: dispatch .github/workflows/npm-publish.yml on the release tag.
 #
@@ -87,10 +87,10 @@ jobs:
         working-directory: posoco/external/cetas/cetas-acp
         run: moon check --target native --deny-warn --output-json
 
-      - name: moon check (headless wasm, public recipe)
-        working-directory: posoco/external/cetas/cetas-headless
+      - name: moon check (run wasm, public recipe)
+        working-directory: posoco/external/cetas/cetas-run
         run: |
-          python3 ../scripts/prepare-recipe.py --flavor public --frontend headless --platform unix
+          python3 ../scripts/prepare-recipe.py --flavor public --frontend run --platform unix
           moon check --target wasm --deny-warn --output-json
 
       - name: moon test (native)
@@ -281,61 +281,61 @@ jobs:
             }
           }
 
-      - name: prepare public headless recipe (unix)
+      - name: prepare public run recipe (unix)
         if: matrix.os != 'windows-latest'
         working-directory: posoco/external/cetas
-        run: python3 scripts/prepare-recipe.py --flavor public --frontend headless --platform unix
+        run: python3 scripts/prepare-recipe.py --flavor public --frontend run --platform unix
 
-      - name: prepare public headless recipe (Windows)
+      - name: prepare public run recipe (Windows)
         if: matrix.os == 'windows-latest'
         working-directory: posoco/external/cetas
         shell: pwsh
-        run: python scripts/prepare-recipe.py --flavor public --frontend headless --platform windows
+        run: python scripts/prepare-recipe.py --flavor public --frontend run --platform windows
 
-      - name: moon update (cetas-headless)
-        working-directory: posoco/external/cetas/cetas-headless
+      - name: moon update (cetas-run)
+        working-directory: posoco/external/cetas/cetas-run
         run: moon update
 
       # same workspace _build root as cetas-acp (moon.work), own package dir
-      - name: moon build cetas-headless (native release)
-        working-directory: posoco/external/cetas/cetas-headless
+      - name: moon build cetas-run (native release)
+        working-directory: posoco/external/cetas/cetas-run
         run: moon build --target native --release
 
-      - name: collect cetas-headless (unix)
+      - name: collect cetas-run (unix)
         if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas/cetas-headless
+        working-directory: posoco/external/cetas/cetas-run
         run: |
           mkdir -p ../stage
-          cp "../_build/native/release/build/colmugx/cetas-headless/main/main.exe" "../stage/cetas-headless"
+          cp "../_build/native/release/build/colmugx/cetas-run/main/main.exe" "../stage/cetas-run"
 
-      - name: collect cetas-headless (Windows)
+      - name: collect cetas-run (Windows)
         if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas/cetas-headless
+        working-directory: posoco/external/cetas/cetas-run
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "..\stage" | Out-Null
-          Copy-Item "..\_build\native\release\build\colmugx\cetas-headless\main\main.exe" -Destination "..\stage\cetas-headless.exe"
+          Copy-Item "..\_build\native\release\build\colmugx\cetas-run\main\main.exe" -Destination "..\stage\cetas-run.exe"
 
-      - name: version smoke cetas-headless (unix)
+      - name: version smoke cetas-run (unix)
         if: matrix.os != 'windows-latest'
         working-directory: posoco/external/cetas/stage
         run: |
-          out="$(./cetas-headless --version)"
+          out="$(./cetas-run --version)"
           echo "$out"
           if [[ "${{ github.event_name }}" == "push" ]]; then
-            expected="cetas-headless ${GITHUB_REF_NAME#cetas-v}"
+            expected="cetas-run ${GITHUB_REF_NAME#cetas-v}"
             [[ "$out" == "$expected" ]] || { echo "::error::--version mismatch: got '$out', want '$expected'"; exit 1; }
           fi
 
-      - name: version smoke cetas-headless (Windows)
+      - name: version smoke cetas-run (Windows)
         if: matrix.os == 'windows-latest'
         working-directory: posoco/external/cetas/stage
         shell: pwsh
         run: |
-          $out = (& ".\cetas-headless.exe" --version) -join ' '
+          $out = (& ".\cetas-run.exe" --version) -join ' '
           $out
           if ($env:GITHUB_EVENT_NAME -eq 'push') {
-            $expected = "cetas-headless " + ($env:GITHUB_REF_NAME -replace '^cetas-v', '')
+            $expected = "cetas-run " + ($env:GITHUB_REF_NAME -replace '^cetas-v', '')
             if ($out.Trim() -ne $expected) {
               Write-Host "::error::--version mismatch: got '$out', want '$expected'"
               exit 1
@@ -396,7 +396,7 @@ jobs:
         run: |
           tar -czf "cetas-bun-${{ matrix.target }}.tar.gz" cetas-bun
           tar -czf "cetas-acp-${{ matrix.target }}.tar.gz" cetas-acp
-          tar -czf "cetas-headless-${{ matrix.target }}.tar.gz" cetas-headless
+          tar -czf "cetas-run-${{ matrix.target }}.tar.gz" cetas-run
 
       - name: package (Windows)
         if: matrix.os == 'windows-latest'
@@ -405,7 +405,7 @@ jobs:
         run: |
           Compress-Archive -Path "cetas-bun.exe" -DestinationPath "cetas-bun-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-acp.exe" -DestinationPath "cetas-acp-windows-x64.zip" -Force
-          Compress-Archive -Path "cetas-headless.exe" -DestinationPath "cetas-headless-windows-x64.zip" -Force
+          Compress-Archive -Path "cetas-run.exe" -DestinationPath "cetas-run-windows-x64.zip" -Force
 
       - name: upload binaries
         uses: actions/upload-artifact@v6
@@ -415,6 +415,47 @@ jobs:
             posoco/external/cetas/stage/*.tar.gz
             posoco/external/cetas/stage/*.zip
             posoco/external/cetas/stage/release_body.md
+
+  mooncakes:
+    name: publish cetas-run to Mooncakes
+    needs: [preflight]
+    if: startsWith(github.ref, 'refs/tags/cetas-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          submodules: recursive
+
+      - name: install moon
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: moon version
+        run: moon version --all
+
+      - name: prepare public run recipe
+        run: python3 scripts/prepare-recipe.py --flavor public --frontend run --platform unix
+
+      - name: moon update
+        working-directory: cetas-run
+        run: moon update
+
+      - name: moon check
+        working-directory: cetas-run
+        run: moon check --target wasm --deny-warn --output-json
+
+      - name: publish cetas-run
+        working-directory: cetas-run
+        run: |
+          echo "$SECRET" > ~/.moon/credentials.json
+          moon publish
+          rm ~/.moon/credentials.json
+        env:
+          SECRET: ${{ secrets.MOONCAKES_TOKEN }}
 
   release:
     name: publish GitHub release

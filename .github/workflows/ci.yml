@@ -79,10 +79,10 @@ jobs:
         working-directory: posoco/external/cetas/cetas-acp
         run: moon check --target native --deny-warn --output-json
 
-      - name: moon check (headless wasm, deny warnings)
-        working-directory: posoco/external/cetas/cetas-headless
+      - name: moon check (run wasm, deny warnings)
+        working-directory: posoco/external/cetas/cetas-run
         run: |
-          python3 ../scripts/prepare-recipe.py --flavor public --frontend headless --platform unix
+          python3 ../scripts/prepare-recipe.py --flavor public --frontend run --platform unix
           moon check --target wasm --deny-warn --output-json
 
       - name: moon test (native)
@@ -117,7 +117,7 @@ jobs:
           # recipe intentionally includes native/js-only private integrations.
           python3 ../scripts/prepare-recipe.py --flavor public --frontend acp --platform unix
           moon info
-          git diff --exit-code -- . ../cetas-js ../cetas-core ../cetas-headless ../cetas-ext-forme
+          git diff --exit-code -- . ../cetas-js ../cetas-core ../cetas-run ../cetas-ext-forme
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2

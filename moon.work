@@ -1,7 +1,7 @@
 members = [
   "./cetas-acp",
   "./cetas-core",
-  "./cetas-headless",
+  "./cetas-run",
   "./cetas-memoh",
   "./cetas-js",
   "./cetas-ext-forme",
