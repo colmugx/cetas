@@ -2,8 +2,8 @@
  * These tests pin the step-boundary rules: reasoning after a tool call
  * (text→reasoning transition) must open a new step/block rather than
  * overwrite the previous step's ThinkingComponent.
- *   - Bug #2-b: the post-hoc `message_end` replay must NOT re-render reasoning
- *     or text that streaming already showed.
+ * Post-hoc `message_end` replay must not re-render reasoning or text that
+ * streaming already showed.
  *
  * Pattern (mirrors ui/extension-ui.test.ts): real pi-tui `Container` driven by
  * a fake `StreamingComponentFactory` / `EventRouterCallbacks`, asserted via
