@@ -3102,8 +3102,7 @@ async test "an empty injection leaves the discovered locals untouched" {
     fail("discover must read the seeded mcp.json")
   }
   union_mcp_servers(bridge, [])
-  // Pure-local session regression: no shadowing, no reordering, both stay
-  // registered exactly as discover produced them.
+  // Pure-local sessions preserve discovery order without shadowing.
   assert_eq(tk_pending_names(bridge), ["local-fs", "local-remote"])
   assert_true(bridge.configs.contains("local-fs"))
   assert_true(bridge.configs.contains("local-remote"))
