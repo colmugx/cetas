@@ -152,9 +152,9 @@ fn tk_approval_request(
 /// store rides the native filesystem, so the home must be a writable real
 /// path while settings stay fake and in-memory.
 async fn tk_test_home(fs : FakeFs) -> String noraise {
-  let home = @fs.tmpdir(prefix="cetas-headless-test-") catch {
+  let home = @fs.tmpdir(prefix="cetas-run-test-") catch {
     error =>
-      abort("cetas-headless test fixture: tmpdir failed: \{error.to_string()}")
+      abort("cetas-run test fixture: tmpdir failed: \{error.to_string()}")
   }
   fs.files[home + "/.cetas/settings.json"] = "{\"providers\":{\"opencode\":{\"api_key\":\"sk-zen-test\"}}}"
   fs.files[home + "/.cetas/model_lists.json"] = "{\"opencode\":[{\"model_id\":\"claude-sonnet-5\",\"thinking_efforts\":[],\"default_effort\":null,\"context_window\":null}]}"
@@ -200,7 +200,7 @@ async fn tk_scripted_agent(
   let session = @cetas_core.build_cetas_session(
     platform~,
     cwd="/w",
-    label="cetas-headless-tests",
+    label="cetas-run-tests",
   )
   (@cetas_core.compose_cetas_agent(session~, tail_exts~), model)
 }

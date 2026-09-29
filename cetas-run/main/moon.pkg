@@ -1,6 +1,6 @@
 import {
   "colmugx/cetas-core/lib" @cetas_core,
-  "colmugx/cetas-headless/lib",
+  "colmugx/cetas-run/lib",
   "colmugx/posoco",
   "colmugx/posoco-ext-permission" @permission,
   "moonbitlang/async",

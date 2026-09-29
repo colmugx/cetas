@@ -57,7 +57,7 @@ pub impl @permission.ApprovalSource for TerminalApprovalSource with fn ask(
     Some(tty) => tty
     None => {
       (self.notice)(
-        "cetas-headless: approval needed for '\{request.tool_name}' but no terminal is available — denied (unattended, use --yolo)\n",
+        "cetas-run: approval needed for '\{request.tool_name}' but no terminal is available — denied (unattended, use --yolo)\n",
       )
       return @permission.ApprovalDecision::Deny(
         reason="denied: no terminal for approval (unattended, use --yolo)",
@@ -80,7 +80,7 @@ pub impl @permission.ApprovalSource for TerminalApprovalSource with fn ask(
     }
   } nobreak {
     // `while true` exits only via the returns above.
-    abort("cetas-headless: approval loop exited unexpectedly")
+    abort("cetas-run: approval loop exited unexpectedly")
   }
 }
 

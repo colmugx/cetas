@@ -10,7 +10,7 @@
 /// persisted selection, so override behavior has something to merge over.
 async fn tk_host_fs() -> (FakeFs, String) {
   let fs = FakeFs()
-  let home = @fs.tmpdir(prefix="cetas-headless-test-")
+  let home = @fs.tmpdir(prefix="cetas-run-test-")
   fs.files[home + "/.cetas/settings.json"] = "{\"providers\":{\"opencode\":{\"api_key\":\"sk-zen-test\"}},\"model\":\"opencode/claude-sonnet-5\"}"
   fs.files[home + "/.cetas/model_lists.json"] = "{\"opencode\":[{\"model_id\":\"claude-sonnet-5\",\"thinking_efforts\":[\"low\",\"high\"],\"default_effort\":null,\"context_window\":null},{\"model_id\":\"gpt-5.1-codex\",\"thinking_efforts\":[\"low\",\"medium\",\"high\"],\"default_effort\":null,\"context_window\":null}]}"
   (fs, home)
@@ -25,9 +25,9 @@ async fn tk_host(
   model_override~ : String,
   effort_override~ : String,
   session_id~ : String,
-) -> (CetasHeadlessHost, Array[String]) raise @posoco.CompositionError {
+) -> (CetasRunHost, Array[String]) raise @posoco.CompositionError {
   let warnings : Array[String] = []
-  let host = CetasHeadlessHost::CetasHeadlessHost(
+  let host = CetasRunHost::CetasRunHost(
     home~,
     cwd="/w",
     mode=@permission.Yolo,
@@ -105,7 +105,7 @@ async fn tk_failed_compose(
   home~ : String,
   model_override~ : String,
   effort_override~ : String,
-) -> Result[CetasHeadlessHost, @posoco.CompositionError] {
+) -> Result[CetasRunHost, @posoco.CompositionError] {
   let attempted = Ok(
     tk_host(fs, home~, model_override~, effort_override~, session_id=""),
   ) catch {
@@ -197,7 +197,7 @@ async test "apply_model_override raises when the resolved slot is missing from t
       [drifted],
       model="other/model",
       effort="",
-      label="cetas-headless",
+      label="cetas-run",
     ),
   ) catch {
     error => Err(error)
@@ -216,7 +216,7 @@ async test "--model override routes the turn to the selected slot's model" {
   // the ACTUAL model call off the persisted selection, not just the router
   // label. The persisted selection is slot-a; the run asks for slot-b.
   let fs = FakeFs()
-  let home = @fs.tmpdir(prefix="cetas-headless-test-")
+  let home = @fs.tmpdir(prefix="cetas-run-test-")
   fs.files[home + "/.cetas/settings.json"] = "{\"providers\":{\"opencode\":{\"api_key\":\"sk-zen-test\"}},\"model\":\"opencode/slot-a\"}"
   let platform = @cetas_core.build_cetas_platform(
     home~,
@@ -257,14 +257,14 @@ async test "--model override routes the turn to the selected slot's model" {
   let session = @cetas_core.build_cetas_session(
     platform~,
     cwd="/w",
-    label="cetas-headless-tests",
+    label="cetas-run-tests",
   )
   apply_model_override(
     session.router,
     platform.catalogs,
     model="opencode/slot-b",
     effort="",
-    label="cetas-headless",
+    label="cetas-run",
   )
   let agent = @cetas_core.compose_cetas_agent(session~)
   let (write_out, _out) = tk_sink()

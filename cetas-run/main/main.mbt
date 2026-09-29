@@ -1,5 +1,5 @@
 ///|
-/// cetas-headless — run exactly ONE cetas user turn per invocation.
+/// cetas-run — run exactly ONE cetas user turn per invocation.
 ///
 /// The task comes from `-- "<task>"` argv, or — when absent — from exactly
 /// one line read on stdin (EOF or an empty task is a usage error). `--version`
@@ -10,7 +10,7 @@
 /// conversation by re-invoking with `--session`. In text modes stdout carries
 /// ONLY the answer — one block
 /// by default, text deltas under `--stream`; the marker line
-/// (`[cetas-headless] turn 1 done`, also for failed turns), the failure
+/// (`[cetas-run] turn 1 done`, also for failed turns), the failure
 /// line, warnings, and approval/tty prompts all ride stderr.
 /// `--verbose` routes the jsonl-shaped process event log to stderr;
 /// `--show-thinking` routes reasoning to stderr. Approval prompts and
@@ -24,37 +24,37 @@
 /// rejects (the message lists that slot's supported efforts): a one-shot
 /// run must never silently fall back to the settings.json selection.
 /// Startup/usage failures (exit 2) also print the
-/// `[cetas-headless] turn failed: ...` line first, so pane-based drivers can
+/// `[cetas-run] turn failed: ...` line first, so pane-based drivers can
 /// wait on it.
 /// Exit codes: 0 the turn completed; 1 the turn failed; 2 startup/usage.
 
 ///|
 /// Release train version — kept in lockstep with the cetas VERSION file by
 /// `scripts/release.py` (the moon.mod of this package carries the same value).
-const CETAS_HEADLESS_VERSION = "0.6.0"
+const CETAS_RUN_VERSION = "0.6.0"
 
 ///|
-const USAGE : String = "usage: cetas-headless [--model <id>] [--effort <level>] [--session <id>] [--yolo | --permission <readonly|workspace_write|interactive>] [--stream] [--verbose] [--show-thinking] [--jsonl] [-- \"<task>\"]\n"
+const USAGE : String = "usage: cetas-run [--model <id>] [--effort <level>] [--session <id>] [--yolo | --permission <readonly|workspace_write|interactive>] [--stream] [--verbose] [--show-thinking] [--jsonl] [-- \"<task>\"]\n"
 
 ///|
 async fn main {
   let args = @env.args()
   if args.contains("--version") {
-    println("cetas-headless \{CETAS_HEADLESS_VERSION}")
+    println("cetas-run \{CETAS_RUN_VERSION}")
     return
   }
   let argv : Array[String] = []
   for i = 1; i < args.length(); i = i + 1 {
     argv.push(args[i])
   }
-  let cli = match @lib.parse_headless_cli(argv) {
+  let cli = match @lib.parse_run_cli(argv) {
     Ok(cli) => cli
     Err(message) => {
       @stdio.stderr.write(@lib.turn_failed_line("startup: " + message) + "\n")
-      @stdio.stderr.write("cetas-headless: \{message}\n")
+      @stdio.stderr.write("cetas-run: \{message}\n")
       @stdio.stderr.write(USAGE)
       exit(2)
-      abort("cetas-headless: unreachable after exit")
+      abort("cetas-run: unreachable after exit")
     }
   }
   let home = @cetas_core.cetas_home()
@@ -78,7 +78,7 @@ async fn main {
   }
   if tty is None && @lib.wants_terminal_ui(cli) {
     stderr_note(
-      "cetas-headless: no controlling terminal — approvals deny automatically (unattended, use --yolo)\n",
+      "cetas-run: no controlling terminal — approvals deny automatically (unattended, use --yolo)\n",
     )
   }
   let approval : &@permission.ApprovalSource? = if @lib.wants_terminal_ui(cli) {
@@ -100,7 +100,7 @@ async fn main {
     None => None
   }
   // THE task: an argv task wins; otherwise exactly one line is read on
-  // stdin (pane send-text injection, `echo "task" | cetas-headless`). EOF
+  // stdin (pane send-text injection, `echo "task" | cetas-run`). EOF
   // or an empty task is a usage error — there is no line loop to wait in.
   let argv_task : String? = if cli.task == "" { None } else { Some(cli.task) }
   let read_line = async fn() noraise {
@@ -118,11 +118,11 @@ async fn main {
         "\n",
       )
       @stdio.stderr.write(
-        "cetas-headless: no task given — pass -- \"<task>\" or pipe one line on stdin\n",
+        "cetas-run: no task given — pass -- \"<task>\" or pipe one line on stdin\n",
       )
       @stdio.stderr.write(USAGE)
       exit(2)
-      abort("cetas-headless: unreachable after exit")
+      abort("cetas-run: unreachable after exit")
     }
   }
   let write_out = async fn(text : String) noraise {
@@ -157,7 +157,7 @@ async fn main {
     )
   }
   let verbose : @lib.JsonlObserver? = if cli.verbose && !cli.jsonl {
-    Some(@lib.JsonlObserver::JsonlObserver(id="cetas_headless_verbose"))
+    Some(@lib.JsonlObserver::JsonlObserver(id="cetas_run_verbose"))
   } else {
     None
   }
@@ -178,7 +178,7 @@ async fn main {
   // outcome. The task group is the composition's lifecycle scope; extensions
   // that attached to it (nowledge-mem's flusher) stop with the scope.
   @async.with_task_group(group => {
-    let host = @lib.CetasHeadlessHost(
+    let host = @lib.CetasRunHost(
       home~,
       cwd~,
       mode=@lib.resolve_permission_mode(cli),
@@ -197,9 +197,9 @@ async fn main {
           ".model_override",
         ) => {
         @stdio.stderr.write(@lib.turn_failed_line("startup: " + detail) + "\n")
-        @stdio.stderr.write("cetas-headless: \{detail}\n")
+        @stdio.stderr.write("cetas-run: \{detail}\n")
         exit(2)
-        abort("cetas-headless: unreachable after exit")
+        abort("cetas-run: unreachable after exit")
       }
       error => {
         @stdio.stderr.write(
@@ -209,10 +209,10 @@ async fn main {
           "\n",
         )
         @stdio.stderr.write(
-          "cetas-headless: agent composition failed: \{error.to_string()}\n",
+          "cetas-run: agent composition failed: \{error.to_string()}\n",
         )
         exit(2)
-        abort("cetas-headless: unreachable after exit")
+        abort("cetas-run: unreachable after exit")
       }
     }
     let failed = @lib.run_one_turn(

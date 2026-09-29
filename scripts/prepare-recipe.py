@@ -152,7 +152,7 @@ def load_recipe_rows(extra_overlays: list[str]) -> tuple[list[dict[str, str]], l
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--flavor", default=os.environ.get("CETAS_FLAVOR", "public"))
-    ap.add_argument("--frontend", required=True, choices=["acp", "headless", "js"])
+    ap.add_argument("--frontend", required=True, choices=["acp", "run", "js"])
     ap.add_argument("--platform", choices=["unix", "windows"], default=detect_platform())
     ap.add_argument(
         "--recipe-overlay",

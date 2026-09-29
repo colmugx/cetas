@@ -32,7 +32,7 @@ Entries in this file are written by `scripts/release.py` at release time, as `##
 ### Fixes
 - Permission session grants are labeled by scope, with an explicit tool-level grant for precise control.
 
-## Headless Ver.（cetas-headless）
+## Run Ver.（cetas-run）
 
 ### Feats
 - One-shot session transcripts (JSONL) support media attachments end-to-end.
@@ -58,7 +58,7 @@ Entries in this file are written by `scripts/release.py` at release time, as `##
 
 ## ACP Ver.（cetas-acp）
 
-## Headless Ver.（cetas-headless）
+## Run Ver.（cetas-run）
 
 ## 0.5.3 (2026-09-27)
 
@@ -66,7 +66,7 @@ Entries in this file are written by `scripts/release.py` at release time, as `##
 
 ## ACP Ver.（cetas-acp）
 
-## Headless Ver.（cetas-headless）
+## Run Ver.（cetas-run）
 
 ## 0.5.2 (2026-09-27)
 
@@ -156,10 +156,10 @@ Entries in this file are written by `scripts/release.py` at release time, as `##
 ### Fixes
 - Cancelled turns no longer leave the model transport in a broken state; cancellation handling is cleaner end to end.
 
-## Headless Ver.（cetas-headless）
+## Run Ver.（cetas-run）
 
 ### Feats
-- cetas-headless is now part of the release pipeline and published.
+- cetas-run is now part of the release pipeline and published.
 - A new `auto` permission mode is available via `--permission auto` (and `--yolo` remains for unattended runs), backed by DecisionPort preapproval.
 - Shell execution is fully cancellable with graceful termination and a hard-kill fallback.
 - Skills get semantic search, and the lazy-tools layer falls back to semantic matching for tool discovery.
@@ -187,7 +187,7 @@ Entries in this file are written by `scripts/release.py` at release time, as `##
 ### Feats
 - DeepSeek models gained explicit reasoning-effort levels and built-in pricing information.
 
-## Headless Ver.（cetas-headless）
+## Run Ver.（cetas-run）
 
 ### Feats
 - Herd progress reporting now runs on a dedicated delegate with a native backend channel for one-shot runs.
@@ -219,7 +219,7 @@ Entries in this file are written by `scripts/release.py` at release time, as `##
 - Remove strconv dependency and fix string conversion in the Kimi extension usage reporting
 - Update DeepSeek reasoning effort values to include `low` and improve model catalog handling
 
-## Headless Ver.（cetas-headless）
+## Run Ver.（cetas-run）
 
 ### Feats
 
@@ -268,7 +268,7 @@ Entries in this file are written by `scripts/release.py` at release time, as `##
 - Improved prompt cache key handling for better cache reuse
 - More robust SSE stream processing and error handling for responses-based models
 
-## Headless Ver.（cetas-headless）
+## Run Ver.（cetas-run）
 
 ### Feats
 - Enhanced JsonlObserver and TraceObserver for improved event streaming

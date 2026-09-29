@@ -71,7 +71,7 @@ test "jsonl observer projects tool results with error polarity and folds usage" 
   assert_eq(observer.take_lines(), [
     "{\"type\":\"turn_started\",\"turn\":3,\"session\":\"s-3\"}", "{\"type\":\"tool_result\",\"turn\":3,\"name\":\"bash\",\"call_id\":\"c-9\",\"is_error\":true,\"outcome\":\"tool_error\",\"content\":\"boom\",\"truncated\":false}",
     "{\"type\":\"tool_result\",\"turn\":3,\"name\":\"read\",\"call_id\":\"c-10\",\"is_error\":false,\"outcome\":\"success\",\"content\":\"file body\",\"truncated\":false}",
-    "{\"type\":\"turn_completed\",\"turn\":3,\"summary\":\"all done\",\"marker\":\"[cetas-headless] turn 3 done\",\"usage\":{\"turns\":1,\"input_tokens\":4,\"output_tokens\":2}}",
+    "{\"type\":\"turn_completed\",\"turn\":3,\"summary\":\"all done\",\"marker\":\"[cetas-run] turn 3 done\",\"usage\":{\"turns\":1,\"input_tokens\":4,\"output_tokens\":2}}",
   ])
   // Drained: the buffer is empty afterwards.
   assert_eq(observer.take_lines().length(), 0)
@@ -243,7 +243,7 @@ test "jsonl observer resets the usage window at each begin_turn and reports abse
   )
   observer.emit_turn_failed(error="late failure", marker=turn_marker(1))
   assert_eq(observer.take_lines(), [
-    "{\"type\":\"turn_failed\",\"turn\":1,\"error\":\"late failure\",\"marker\":\"[cetas-headless] turn 1 done\"}",
+    "{\"type\":\"turn_failed\",\"turn\":1,\"error\":\"late failure\",\"marker\":\"[cetas-run] turn 1 done\"}",
   ])
   // New turn: window resets; a response without usage stays at zeros
   // (unknown usage is never coerced, but the wire schema is ints).
@@ -257,7 +257,7 @@ test "jsonl observer resets the usage window at each begin_turn and reports abse
   )
   observer.emit_turn_completed(summary="ok", marker=turn_marker(2))
   assert_eq(observer.take_lines(), [
-    "{\"type\":\"turn_completed\",\"turn\":2,\"summary\":\"ok\",\"marker\":\"[cetas-headless] turn 2 done\",\"usage\":{\"turns\":0,\"input_tokens\":0,\"output_tokens\":0}}",
+    "{\"type\":\"turn_completed\",\"turn\":2,\"summary\":\"ok\",\"marker\":\"[cetas-run] turn 2 done\",\"usage\":{\"turns\":0,\"input_tokens\":0,\"output_tokens\":0}}",
   ])
 }
 
@@ -285,7 +285,7 @@ test "jsonl observer escapes wire-breaking characters through the json encoder" 
   )
   assert_eq(
     fields.get("marker").map(fn(j : Json) { j.stringify() }),
-    Some("\"[cetas-headless] turn 1 done\""),
+    Some("\"[cetas-run] turn 1 done\""),
   )
   assert_true(fields.get("session") is None)
 }

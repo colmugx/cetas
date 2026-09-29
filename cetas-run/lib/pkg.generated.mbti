@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "colmugx/cetas-headless/lib"
+package "colmugx/cetas-run/lib"
 
 import {
   "colmugx/posoco",
@@ -19,13 +19,13 @@ pub fn approval_prompt(@posoco-ext-permission.ApprovalRequest) -> String
 
 pub async fn open_tty_channel() -> TtyChannel? noraise
 
-pub fn parse_headless_cli(Array[String]) -> Result[HeadlessCli, String]
+pub fn parse_run_cli(Array[String]) -> Result[RunCli, String]
 
 pub fn parse_peer_envelope(String) -> PeerEnvelope?
 
 pub fn parse_permission_mode_str(String) -> @posoco-ext-permission.PermissionMode?
 
-pub fn resolve_permission_mode(HeadlessCli) -> @posoco-ext-permission.PermissionMode
+pub fn resolve_permission_mode(RunCli) -> @posoco-ext-permission.PermissionMode
 
 pub async fn resolve_task(String?, read_line~ : async () -> String? noraise) -> String? noraise
 
@@ -39,12 +39,12 @@ pub fn turn_failed_line(String) -> String
 
 pub fn turn_marker(Int) -> String
 
-pub fn wants_terminal_ui(HeadlessCli) -> Bool
+pub fn wants_terminal_ui(RunCli) -> Bool
 
 // Errors
 
 // Types and methods
-pub struct CetasHeadlessHost {
+pub struct CetasRunHost {
   home : String
   cwd : String
   agent : @posoco.Agent
@@ -52,9 +52,9 @@ pub struct CetasHeadlessHost {
   session_id : String
   routing : Map[String, &@port.ToolProvider]
 }
-pub async fn CetasHeadlessHost::CetasHeadlessHost(home~ : String, cwd~ : String, mode~ : @posoco-ext-permission.PermissionMode, approval~ : &@posoco-ext-permission.ApprovalSource?, ui~ : &@port.UiPort?, model_override? : String, effort_override? : String, session_id? : String, tail_exts? : Array[&@port.Extension], fs? : &@posoco-ext-workspace.WorkspaceFs?, mcp_group? : @async.TaskGroup[Unit]?, label? : String, detect_herdr? : Bool, warn? : async (String) -> Unit noraise) -> Self raise @error.CompositionError
+pub async fn CetasRunHost::CetasRunHost(home~ : String, cwd~ : String, mode~ : @posoco-ext-permission.PermissionMode, approval~ : &@posoco-ext-permission.ApprovalSource?, ui~ : &@port.UiPort?, model_override? : String, effort_override? : String, session_id? : String, tail_exts? : Array[&@port.Extension], fs? : &@posoco-ext-workspace.WorkspaceFs?, mcp_group? : @async.TaskGroup[Unit]?, label? : String, detect_herdr? : Bool, warn? : async (String) -> Unit noraise) -> Self raise @error.CompositionError
 
-pub(all) struct HeadlessCli {
+pub(all) struct RunCli {
   model : String
   effort : String
   session_id : String
