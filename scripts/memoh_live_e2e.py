@@ -148,6 +148,23 @@ def choose_value(current: Any, available: Any) -> str:
     return values[0]
 
 
+def distinct_shared_model_ids(
+    first_status: dict[str, Any],
+    second_status: dict[str, Any],
+) -> tuple[str, str]:
+    first_models = require_dict(first_status.get("models"), "models")
+    second_models = require_dict(second_status.get("models"), "models")
+    first_ids = option_ids(first_models.get("available_models"))
+    second_ids = set(option_ids(second_models.get("available_models")))
+    shared = [model_id for model_id in first_ids if model_id in second_ids]
+    if len(shared) < 2:
+        raise PreflightError(
+            "concurrency check requires at least two model IDs available "
+            "in both runtimes"
+        )
+    return shared[0], shared[1]
+
+
 def summarize(status: dict[str, Any]) -> str:
     models = (
         status.get("models") if isinstance(status.get("models"), dict) else {}
@@ -214,9 +231,17 @@ def parse_args() -> argparse.Namespace:
         help="PATCH one live model selection and one reasoning-effort selection",
     )
     parser.add_argument(
+        "--exercise-concurrency",
+        action="store_true",
+        help=(
+            "Start a second live runtime and verify two runtimes can hold "
+            "different model selections without state bleed"
+        ),
+    )
+    parser.add_argument(
         "--keep-runtime",
         action="store_true",
-        help="Do not DELETE the temporary runtime (debugging only)",
+        help="Do not DELETE temporary runtime(s) (debugging only)",
     )
     parser.add_argument(
         "--timeout",
@@ -252,6 +277,7 @@ def main() -> int:
     if args.project_path.strip():
         payload["project_path"] = args.project_path.strip()
 
+    runtime_ids: list[str] = []
     runtime_id = ""
     try:
         print("[run] starting real Memoh ACP runtime")
@@ -266,6 +292,7 @@ def main() -> int:
         runtime_id = require_nonempty_string(
             status.get("runtime_id"), "runtime_id"
         )
+        runtime_ids.append(runtime_id)
         runtime_url = (
             f"{runtimes_url}/{urllib.parse.quote(runtime_id, safe='')}"
         )
@@ -330,31 +357,118 @@ def main() -> int:
                 )
             print(f"[ok] reasoning control confirmed: {effort}")
 
+        if args.exercise_concurrency:
+            print("[run] starting second real Memoh ACP runtime")
+            second = request_json(
+                method="POST",
+                url=runtimes_url,
+                token=args.token,
+                timeout=args.timeout,
+                payload=payload,
+            )
+            assert_capabilities(second)
+            second_id = require_nonempty_string(
+                second.get("runtime_id"), "runtime_id"
+            )
+            runtime_ids.append(second_id)
+            second_url = (
+                f"{runtimes_url}/{urllib.parse.quote(second_id, safe='')}"
+            )
+            first_model, second_model = distinct_shared_model_ids(
+                fetched,
+                second,
+            )
+
+            first_updated = request_json(
+                method="PATCH",
+                url=runtime_url + "/model",
+                token=args.token,
+                timeout=args.timeout,
+                payload={"model_id": first_model},
+            )
+            second_updated = request_json(
+                method="PATCH",
+                url=second_url + "/model",
+                token=args.token,
+                timeout=args.timeout,
+                payload={"model_id": second_model},
+            )
+            first_current = require_dict(
+                first_updated.get("models"), "models"
+            ).get("current_model_id")
+            second_current = require_dict(
+                second_updated.get("models"), "models"
+            ).get("current_model_id")
+            if first_current != first_model or second_current != second_model:
+                raise PreflightError(
+                    "concurrency model updates were not confirmed: "
+                    f"first={first_current!r}, second={second_current!r}"
+                )
+
+            first_fetched = request_json(
+                method="GET",
+                url=runtime_url,
+                token=args.token,
+                timeout=args.timeout,
+            )
+            second_fetched = request_json(
+                method="GET",
+                url=second_url,
+                token=args.token,
+                timeout=args.timeout,
+            )
+            first_after = require_dict(
+                first_fetched.get("models"), "models"
+            ).get("current_model_id")
+            second_after = require_dict(
+                second_fetched.get("models"), "models"
+            ).get("current_model_id")
+            if first_after != first_model or second_after != second_model:
+                raise PreflightError(
+                    "cross-runtime model state bleed detected: "
+                    f"first={first_after!r}, second={second_after!r}; "
+                    f"expected {first_model!r} and {second_model!r}"
+                )
+            if first_after == second_after:
+                raise PreflightError(
+                    "concurrency check did not retain distinct model states"
+                )
+            print(
+                "[ok] concurrent runtimes retained independent models: "
+                f"{first_after} / {second_after}"
+            )
+
         print("[pass] real Memoh ACP runtime preflight")
         return 0
     except PreflightError as error:
         print("[fail] " + redact(str(error), args.token), file=sys.stderr)
         return 1
     finally:
-        if runtime_id and not args.keep_runtime:
-            runtime_url = (
-                f"{runtimes_url}/{urllib.parse.quote(runtime_id, safe='')}"
-            )
-            try:
-                request_json(
-                    method="DELETE",
-                    url=runtime_url,
-                    token=args.token,
-                    timeout=args.timeout,
-                    expect_json=False,
+        if runtime_ids and not args.keep_runtime:
+            for cleanup_id in reversed(runtime_ids):
+                cleanup_url = (
+                    f"{runtimes_url}/"
+                    f"{urllib.parse.quote(cleanup_id, safe='')}"
                 )
-                print("[ok] temporary ACP runtime closed")
-            except PreflightError as error:
-                print(
-                    "[warn] failed to close temporary ACP runtime: "
-                    + redact(str(error), args.token),
-                    file=sys.stderr,
-                )
+                try:
+                    request_json(
+                        method="DELETE",
+                        url=cleanup_url,
+                        token=args.token,
+                        timeout=args.timeout,
+                        expect_json=False,
+                    )
+                    print(
+                        "[ok] temporary ACP runtime closed: "
+                        f"{cleanup_id}"
+                    )
+                except PreflightError as error:
+                    print(
+                        "[warn] failed to close temporary ACP runtime "
+                        f"{cleanup_id}: "
+                        + redact(str(error), args.token),
+                        file=sys.stderr,
+                    )
 
 
 if __name__ == "__main__":

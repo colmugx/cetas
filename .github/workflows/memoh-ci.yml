@@ -5,7 +5,29 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "cetas-memoh/**"
+      - "scripts/memoh_live_e2e.py"
+      - "scripts/test_memoh_live_e2e.py"
+      - "scripts/release.py"
+      - "VERSION"
+      - "moon.work"
+      - "extension"
+      - "extension/**"
+      - ".github/workflows/memoh-ci.yml"
+      - ".github/workflows/memoh-release.yml"
   pull_request:
+    paths:
+      - "cetas-memoh/**"
+      - "scripts/memoh_live_e2e.py"
+      - "scripts/test_memoh_live_e2e.py"
+      - "scripts/release.py"
+      - "VERSION"
+      - "moon.work"
+      - "extension"
+      - "extension/**"
+      - ".github/workflows/memoh-ci.yml"
+      - ".github/workflows/memoh-release.yml"
 
 jobs:
   memoh-checks:
