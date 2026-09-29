@@ -126,5 +126,5 @@ During the same run:
 - inspect workspace storage before and after turns/restart and confirm there is
   no Cetas-owned conversation transcript.
 
-Record live evidence and failures on issue #25. Do not mark the live-only items
-complete from fake ACP tests or static inspection.
+Record live evidence and failures from the real workspace run. Do not mark the
+live-only items complete from fake ACP tests or static inspection.
