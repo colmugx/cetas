@@ -72,10 +72,6 @@ jobs:
         working-directory: posoco/external/cetas/cetas-acp
         run: moon test --target native --output-json
 
-      - name: moon build cetas-memoh (native release)
-        working-directory: posoco/external/cetas/cetas-memoh
-        run: moon build --target native --release
-
       - name: cetas-memoh version smoke
         working-directory: posoco/external/cetas
         shell: bash
