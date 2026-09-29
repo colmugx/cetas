@@ -31,17 +31,9 @@ CASES = {
         exts.push(
           @astgrep.AstGrepTools(anchor=Some(anchor)) as &@posoco.Extension,
         )''',
-    "bash": '''      "bash" =>
-        if compiled_target_os() == "unix" {
-          exts.push(
-            @bash.ShellTools(anchor=Some(anchor)) as &@posoco.Extension,
-          )
-        }''',
-    "ps1": '''      "ps1" =>
-        if compiled_target_os() == "windows" {
-          episodic.push(
-            @ps1.PowerShellTools(anchor=Some(anchor)) as &@posoco.Extension,
-          )
+    "shell": '''      "shell" =>
+        for shell in build_cetas_tools(ctx~, ["bash"]) {
+          exts.push(shell)
         }''',
     "webfetch": '''      "webfetch" =>
         episodic.push(@webfetch.WebFetchTools() as &@posoco.Extension)''',
@@ -107,7 +99,8 @@ CASES = {
 }
 
 RECIPE_FIELDS = [
-    "flavor", "frontend", "order", "key", "scope", "package", "alias", "platform",
+    "section", "flavor", "frontend", "order", "key", "scope",
+    "package", "alias", "platform", "runtime_key",
 ]
 
 def detect_platform() -> str:
@@ -152,7 +145,7 @@ def load_recipe_rows(extra_overlays: list[str]) -> tuple[list[dict[str, str]], l
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--flavor", default=os.environ.get("CETAS_FLAVOR", "public"))
-    ap.add_argument("--frontend", required=True, choices=["acp", "run", "js"])
+    ap.add_argument("--frontend", required=True, choices=["acp", "run", "js", "all", "all-native", "all-js"])
     ap.add_argument("--platform", choices=["unix", "windows"], default=detect_platform())
     ap.add_argument(
         "--recipe-overlay",
@@ -167,33 +160,73 @@ def main() -> int:
     args = ap.parse_args()
 
     rows, sources = load_recipe_rows(args.recipe_overlay)
-    valid_flavors = sorted({row["flavor"] for row in rows})
-    if args.flavor not in valid_flavors:
+    valid_flavors = sorted({
+        row["flavor"]
+        for row in rows
+        if row["section"] == "special" and row["flavor"] != "*"
+    })
+    if args.flavor != "all" and args.flavor not in valid_flavors and args.flavor != "public":
         raise SystemExit(
             "unknown recipe flavor "
             + repr(args.flavor)
             + "; available: "
-            + ", ".join(valid_flavors)
+            + ", ".join(["public", *valid_flavors, "all"])
         )
 
-    selected = [
-        row for row in rows
-        if row["flavor"] == args.flavor
-        and row["frontend"] == args.frontend
-        and row["platform"] in ("any", args.platform)
-    ]
-    selected.sort(key=lambda row: int(row["order"]))
-    if not selected:
+    if args.frontend == "all":
+        frontend_set = {"acp", "run", "js"}
+    elif args.frontend == "all-native":
+        frontend_set = {"acp", "run"}
+    elif args.frontend == "all-js":
+        frontend_set = {"js"}
+    else:
+        frontend_set = {args.frontend}
+
+    candidates = []
+    for row in rows:
+        if row["platform"] not in ("any", args.platform):
+            continue
+        if row["section"] == "general":
+            candidates.append(row)
+            continue
+        if row["section"] != "special":
+            raise SystemExit("unknown recipe section: " + repr(row["section"]))
+        if row["frontend"] not in frontend_set:
+            continue
+        if args.flavor == "all" or row["flavor"] in ("*", args.flavor):
+            candidates.append(row)
+
+    candidates.sort(key=lambda row: int(row["order"]))
+    if not candidates:
         raise SystemExit(f"no recipe rows for {args.flavor}/{args.frontend}/{args.platform}")
 
-    keys = [row["key"] for row in selected]
-    if len(keys) != len(set(keys)):
-        raise SystemExit("recipe contains duplicate feature keys")
+    selected_by_key: dict[str, dict[str, str]] = {}
+    for row in candidates:
+        key = row["key"]
+        previous = selected_by_key.get(key)
+        if previous is None:
+            selected_by_key[key] = row
+            continue
+        identity = ("scope", "package", "alias", "platform", "runtime_key")
+        if any(previous[field] != row[field] for field in identity):
+            raise SystemExit(
+                "ambiguous recipe key "
+                + repr(key)
+                + ": "
+                + repr(previous)
+                + " vs "
+                + repr(row)
+            )
+    selected = sorted(selected_by_key.values(), key=lambda row: int(row["order"]))
 
     imports = []
     seen_imports = set()
+    coverage_mode = args.frontend in ("all", "all-native", "all-js")
     for row in selected:
-        if row["scope"] != "core":
+        include = row["scope"] in ("base", "core") or (
+            coverage_mode and row["scope"] == "host"
+        )
+        if not include:
             continue
         entry = f'  "{row["package"]}" @{row["alias"]},'
         if entry not in seen_imports:
@@ -204,19 +237,30 @@ def main() -> int:
     pkg = pkg.replace("__RECIPE_IMPORTS__", "\n".join(imports))
     PKG_OUT.write_text(pkg, encoding="utf-8")
 
-    recipe_items = "\n".join(f'  "{row["key"]}",' for row in selected)
+    runtime_rows = [row for row in selected if row["scope"] in ("core", "host")]
+
+    runtime_keys = []
+    seen_runtime_keys = set()
+    for row in runtime_rows:
+        if row["scope"] != "core":
+            continue
+        runtime_key = row["runtime_key"] or row["key"]
+        if runtime_key not in seen_runtime_keys:
+            seen_runtime_keys.add(runtime_key)
+            runtime_keys.append(runtime_key)
+
+    recipe_items = "\n".join(f'  "{key}",' for key in runtime_keys)
     package_items = "\n".join(
-        f'    ("{row["key"]}", "{row["package"]}"),' for row in selected
+        f'    ("{row["key"]}", "{row["package"]}"),' for row in runtime_rows
     )
 
     cases = []
-    for row in selected:
-        if row["scope"] != "core":
-            continue
-        key = row["key"]
+    for key in runtime_keys:
         case = CASES.get(key)
         if case is None:
-            raise SystemExit(f"no MoonBit constructor registered for core recipe key: {key}")
+            raise SystemExit(
+                f"no MoonBit constructor registered for core recipe runtime key: {key}"
+            )
         cases.append(case)
 
     mbt = f'''///|
@@ -306,8 +350,17 @@ async fn build_compiled_recipe_features(
 
     print(f"recipe: {args.flavor}/{args.frontend}/{args.platform}")
     print("sources: " + ", ".join(str(path) for path in sources))
+    print("general:")
     for row in selected:
-        print(f"  {row['order']:>3}  {row['key']:<12} {row['package']}")
+        if row["section"] == "general":
+            print(f"  {row['order']:>3}  {row['key']:<18} {row['package']}")
+    print("special:")
+    for row in selected:
+        if row["section"] == "special":
+            print(
+                f"  {row['order']:>3}  {row['flavor']}/{row['frontend']:<12} "
+                f"{row['key']:<18} {row['package']}"
+            )
     return 0
 
 if __name__ == "__main__":
