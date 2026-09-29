@@ -7,7 +7,7 @@
  * last 3 tail lines of the partially-unescaped content. When the call
  * completes (`tool_call_started` carries the full authoritative args and
  * flips argsComplete), views delegate to `specRenderer(writeSpec)` so the
- * finalized look is byte-identical to the former declarative table entry.
+ * finalized rendering stays identical to the declarative spec.
  */
 
 import { Text } from "@earendil-works/pi-tui";
