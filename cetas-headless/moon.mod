@@ -29,7 +29,7 @@ supported_targets = "native"
 import {
   "colmugx/posoco@0.20.0",
   "colmugx/cetas-core@0.2.0",
-  "colmugx/posoco-devkit@0.3.0",
+  "colmugx/posoco-devkit@0.4.0",
   "colmugx/posoco-ext-herdr@0.1.0",
   "colmugx/posoco-ext-llm@0.2.0",
   "colmugx/posoco-ext-permission@0.2.0",
