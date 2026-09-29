@@ -142,8 +142,8 @@ async test "a shell ask without a parseable scope falls back to the generic labe
   }
   match ui.asked[0] {
     @port.UiRequest::Select(options~, ..) => {
-      // Keyless calls are never cached; the generic label keeps the honest
-      // per-call semantics of the old wording.
+      // Keyless calls are never cached, so the generic label keeps the
+      // per-call semantics explicit.
       assert_eq(options.length(), 4)
       assert_eq(options[1], "Allow for this session")
       assert_eq(options[2], "Allow all 'bash' commands for this session")
