@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-import argparse, csv, pathlib, platform as host_platform, sys
+import argparse, csv, os, pathlib, platform as host_platform, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CORE = ROOT / "cetas-core"
-RECIPES = CORE / "recipes.csv"
+BASE_RECIPES = CORE / "recipes.csv"
 PKG_TEMPLATE = CORE / "lib" / "moon.pkg.in"
 PKG_OUT = CORE / "lib" / "moon.pkg"
 MBT_OUT = CORE / "lib" / "recipe.generated.mbt"
@@ -106,18 +106,75 @@ CASES = {
     "lazytools": '''      "lazytools" => ()''',
 }
 
+RECIPE_FIELDS = [
+    "flavor", "frontend", "order", "key", "scope", "package", "alias", "platform",
+]
+
 def detect_platform() -> str:
     return "windows" if host_platform.system().lower().startswith("win") else "unix"
 
+def resolve_recipe_path(value: str) -> pathlib.Path:
+    path = pathlib.Path(value).expanduser()
+    if not path.is_absolute():
+        path = ROOT / path
+    return path
+
+def read_recipe_rows(path: pathlib.Path) -> list[dict[str, str]]:
+    if not path.is_file():
+        raise SystemExit(f"recipe file not found: {path}")
+    with path.open(newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames != RECIPE_FIELDS:
+            raise SystemExit(
+                f"recipe file {path} must have header: {','.join(RECIPE_FIELDS)}"
+            )
+        return list(reader)
+
+def load_recipe_rows(extra_overlays: list[str]) -> tuple[list[dict[str, str]], list[pathlib.Path]]:
+    sources = [BASE_RECIPES]
+    env_overlay = os.environ.get("CETAS_RECIPE_OVERLAY", "").strip()
+    if env_overlay:
+        sources.append(resolve_recipe_path(env_overlay))
+    sources.extend(resolve_recipe_path(value) for value in extra_overlays)
+
+    merged: dict[tuple[str, str, str, str], dict[str, str]] = {}
+    for source in sources:
+        for row in read_recipe_rows(source):
+            identity = (
+                row["flavor"],
+                row["frontend"],
+                row["key"],
+                row["platform"],
+            )
+            merged[identity] = row
+    return list(merged.values()), sources
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--flavor", default="public", choices=["public", "personal"])
+    ap.add_argument("--flavor", default=os.environ.get("CETAS_FLAVOR", "public"))
     ap.add_argument("--frontend", required=True, choices=["acp", "headless", "js"])
     ap.add_argument("--platform", choices=["unix", "windows"], default=detect_platform())
+    ap.add_argument(
+        "--recipe-overlay",
+        action="append",
+        default=[],
+        help=(
+            "additional recipe CSV; later rows override matching "
+            "(flavor,frontend,key,platform) entries. "
+            "CETAS_RECIPE_OVERLAY provides one local overlay path."
+        ),
+    )
     args = ap.parse_args()
 
-    with RECIPES.open(newline="", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
+    rows, sources = load_recipe_rows(args.recipe_overlay)
+    valid_flavors = sorted({row["flavor"] for row in rows})
+    if args.flavor not in valid_flavors:
+        raise SystemExit(
+            "unknown recipe flavor "
+            + repr(args.flavor)
+            + "; available: "
+            + ", ".join(valid_flavors)
+        )
 
     selected = [
         row for row in rows
@@ -248,6 +305,7 @@ async fn build_compiled_recipe_features(
     MBT_OUT.write_text(mbt, encoding="utf-8")
 
     print(f"recipe: {args.flavor}/{args.frontend}/{args.platform}")
+    print("sources: " + ", ".join(str(path) for path in sources))
     for row in selected:
         print(f"  {row['order']:>3}  {row['key']:<12} {row['package']}")
     return 0
