@@ -27,8 +27,7 @@ test "cetas base prompt declares behavioral limits" {
 ///|
 /// Greetings vs self-introduction: a bare greeting must never trigger
 /// workspace exploration; hallmark-file inspection belongs only to the
-/// self-introduction template and stays bounded. Regression: a "hi" once
-/// caused a glob plus four file reads.
+/// self-introduction template and stays bounded.
 test "cetas base prompt keeps greetings cheap" {
   let prompt = cetas_base_system_prompt(project_name="demo")
   assert_true(prompt.contains("pure greeting or thanks"))
@@ -96,9 +95,8 @@ test "cetas base prompt declares the workspace contract" {
 }
 
 ///|
-/// Privacy regression: the prompt is built from basename(cwd) only. The
-/// absolute home directory and any ancestor segment must never leak into
-/// model-visible text.
+/// The prompt is built from basename(cwd) only; the absolute home directory
+/// and ancestor segments must never leak into model-visible text.
 test "cetas base prompt leaks no absolute path from cwd" {
   let prompt = cetas_base_system_prompt(
     project_name=basename("/Users/secret/alice/proj"),
