@@ -145,7 +145,7 @@ def load_recipe_rows(extra_overlays: list[str]) -> tuple[list[dict[str, str]], l
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--flavor", default=os.environ.get("CETAS_FLAVOR", "public"))
-    ap.add_argument("--frontend", required=True, choices=["acp", "run", "js", "all", "all-native", "all-js"])
+    ap.add_argument("--frontend", required=True, choices=["acp", "run", "js"])
     ap.add_argument("--platform", choices=["unix", "windows"], default=detect_platform())
     ap.add_argument(
         "--recipe-overlay",
@@ -173,14 +173,7 @@ def main() -> int:
             + ", ".join(["public", *valid_flavors, "all"])
         )
 
-    if args.frontend == "all":
-        frontend_set = {"acp", "run", "js"}
-    elif args.frontend == "all-native":
-        frontend_set = {"acp", "run"}
-    elif args.frontend == "all-js":
-        frontend_set = {"js"}
-    else:
-        frontend_set = {args.frontend}
+    frontend_set = {args.frontend}
 
     candidates = []
     for row in rows:
@@ -221,12 +214,8 @@ def main() -> int:
 
     imports = []
     seen_imports = set()
-    coverage_mode = args.frontend in ("all", "all-native", "all-js")
     for row in selected:
-        include = row["scope"] in ("base", "core") or (
-            coverage_mode and row["scope"] == "host"
-        )
-        if not include:
+        if row["scope"] not in ("base", "core"):
             continue
         entry = f'  "{row["package"]}" @{row["alias"]},'
         if entry not in seen_imports:
