@@ -303,8 +303,8 @@ function formatKeyValue(entries: Array<{ key: string; value: string }>): string 
 /**
  * Render keyed entries as one status-bar line: every segment is a muted
  * `key:` label plus its value, values styled by their color role, segments
- * joined by a muted ` | `. A role-less first value keeps the legacy bold
- * treatment; later role-less values stay plain. A value that already carries
+ * joined by a muted ` | `. A role-less first value is bold; later role-less
+ * values stay plain. A value that already carries
  * its own `key:` label (the llm ctx segment publishes `ctx: …`) is not
  * double-prefixed. The host decides line placement through key routes; this
  * is only a shape.
