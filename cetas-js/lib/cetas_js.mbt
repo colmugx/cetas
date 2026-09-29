@@ -1111,7 +1111,7 @@ pub struct CetasJsAgent {
   home : String
   /// The live observer channel, so persistence warnings reach the TS host.
   observer : JsCallbackObserver
-  /// Rate-limit guard retained for the host-owned cancellable monitor.
+  /// Rate-limit guard retained for context invalidation and lifecycle shutdown.
   ratelimit : @ratelimit.RateLimitGuard
   /// Tool name → owning extension id, snapshotted once at composition so the
   /// host can render `ext:tool_name` titles without per-event attribution.
