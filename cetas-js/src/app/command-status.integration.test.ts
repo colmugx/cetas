@@ -1,12 +1,6 @@
-// Regression tests for cetas issue #2:
-// "会话中输入 /permission 会导致一直 running /permission 且无法退出"
-//
-// The command itself always settled (the original hang was the era's
-// unbounded shutdown); what misled the reporter into thinking it hung is the
-// status spinner keeping the command's label over a live turn. These tests
-// lock both halves over the real bridge: a mid-turn /permission settles
-// while an approval ask is parked, and the spinner returns to the turn's
-// status instead of staying on "running /permission".
+// A mid-turn /permission must settle while an approval ask is parked, and
+// the spinner must return to the turn status instead of staying on
+// "running /permission".
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -88,7 +82,7 @@ interface Harness {
 /**
  * One real agent over a temp workspace; the first model response is a
  * mutating bash call whose approval ask nobody answers, so the turn parks
- * busy inside the ask — the exact state the reporter ran /permission in.
+ * busy inside the ask.
  */
 async function startHarness(): Promise<Harness> {
   const cwd = await mkdtemp(join(tmpdir(), "cetas-cmd-status-"));
@@ -167,7 +161,7 @@ afterEach(async () => {
   }
 });
 
-describe("mid-turn /permission over the real bridge (issue #2)", () => {
+describe("mid-turn /permission over the real bridge", () => {
   test(
     "the command settles and the spinner returns to the turn status",
     async () => {
