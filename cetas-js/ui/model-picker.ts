@@ -794,8 +794,8 @@ class TabbedPickerPanel implements Component {
     return this.searchInput !== undefined && this.searchInput.getValue() !== "";
   }
 
-  /** Description fallback for search rows: quota mode carries the active
-   * group label, tabs mode keeps the legacy "All". */
+  /** Description fallback for search rows: quota mode uses the active group;
+   * tabs mode uses "All". */
   private searchTab(): string {
     return this.mode === "quota" ? this.tabs[this.activeTab]! : "All";
   }
