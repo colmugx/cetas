@@ -31,8 +31,8 @@ export interface SessionEntry {
   current: boolean;
   /**
    * Display title (MoonBit `display_title`): the user-chosen name or a
-   * prefix of the first user message. Absent for old listings — the label
-   * falls back to the id.
+   * prefix of the first user message. When absent, the label falls back to
+   * the id.
    */
   title?: string;
 }
