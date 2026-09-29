@@ -100,7 +100,7 @@ describe("StreamingUIController — step-block model", () => {
     expect(rendered).toContain("t1t2");
   });
 
-  test("Bug #1 regression: text→reasoning opens a NEW step (no overwrite)", () => {
+  test("text→reasoning opens a new step instead of overwriting", () => {
     const { transcript } = makeTranscriptHarness();
     const { controller } = makeController(transcript);
 
