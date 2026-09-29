@@ -3,7 +3,7 @@
 // directory (`<home>/.cetas/pi-packages`) and mutate the snapshot file
 // (`<home>/.cetas/pi-packages.json`); bare /pi and list report the three-way
 // state (loaded / skipped / failed) from the last loader summary. Progress
-// goes to console lines for v1 (UiPort Notice is out of scope here).
+// is reported as console lines.
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
