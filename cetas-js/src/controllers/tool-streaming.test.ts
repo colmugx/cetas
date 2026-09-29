@@ -1,6 +1,4 @@
 /**
- * tool-streaming.test.ts — regression coverage for streamed tool-call args.
- *
  * Contracts locked here:
  *   - deltas mount exactly ONE row per call, keyed `#index` until an id
  *     fragment re-keys it;
