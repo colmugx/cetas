@@ -199,6 +199,8 @@ async fn build_compiled_recipe_features(
   host_help_note? : String? = None,
   obsidian_vault? : String? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {{
+  let _ = nmem_group
+  let _ = obsidian_vault
   let exts : Array[&@posoco.Extension] = []
   let episodic : Array[&@posoco.Extension] = []
   let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
