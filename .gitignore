@@ -7,3 +7,5 @@ dist
 _build/
 .mooncakes/
 .moonagent/
+cetas-core/lib/moon.pkg
+cetas-core/lib/recipe.generated.mbt
