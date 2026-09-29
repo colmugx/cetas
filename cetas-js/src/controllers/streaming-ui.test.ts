@@ -176,7 +176,7 @@ describe("StreamingUIController — step-block model", () => {
 });
 
 describe("EventRouter — integration with step model + message_end dedup", () => {
-  test("Bug #2 regression: multi-step turn with post-hoc message_end replay, no duplication", () => {
+  test("multi-step turn with post-hoc message_end replay has no duplication", () => {
     const { transcript, callbacks } = makeTranscriptHarness();
     const router = new EventRouter(callbacks);
 
