@@ -1,4 +1,4 @@
-# Dedicated cetas-memoh CI. Keep Memoh checks out of the general Cetas pipeline.
+# Dedicated standalone CI for cetas-memoh.
 name: memoh-ci
 
 on:
@@ -7,26 +7,12 @@ on:
       - main
     paths:
       - "cetas-memoh/**"
-      - "scripts/memoh_live_e2e.py"
-      - "scripts/test_memoh_live_e2e.py"
-      - "scripts/release.py"
-      - "VERSION"
-      - "moon.work"
-      - "extension"
-      - "extension/**"
       - ".github/workflows/memoh-ci.yml"
       - ".github/workflows/memoh-release.yml"
       - ".github/workflows/memoh-live-e2e.yml"
   pull_request:
     paths:
       - "cetas-memoh/**"
-      - "scripts/memoh_live_e2e.py"
-      - "scripts/test_memoh_live_e2e.py"
-      - "scripts/release.py"
-      - "VERSION"
-      - "moon.work"
-      - "extension"
-      - "extension/**"
       - ".github/workflows/memoh-ci.yml"
       - ".github/workflows/memoh-release.yml"
       - ".github/workflows/memoh-live-e2e.yml"
@@ -35,71 +21,64 @@ jobs:
   memoh-checks:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      CETAS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
-      - name: Checkout posoco parent (recursively)
+      - name: memoh-checkout
         uses: actions/checkout@v4
         with:
-          repository: colmugx/posoco
-          ref: main
-          path: posoco
-          submodules: recursive
+          sparse-checkout: |
+            /cetas-memoh/
+          sparse-checkout-cone-mode: false
 
-      - name: Switch cetas submodule to event commit
-        shell: bash
-        working-directory: posoco/external/cetas
-        run: |
-          git fetch --depth=1 origin "${CETAS_SHA}"
-          git checkout "${CETAS_SHA}"
-          git submodule update --init --recursive
-
-      - name: Install moon (Unix)
+      - name: memoh-install-moon
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
 
-      - name: moon version
-        run: moon version --all
-
       - name: memoh-version-sync
-        working-directory: posoco/external/cetas
-        run: python3 scripts/release.py check --scope memoh
+        working-directory: cetas-memoh
+        run: python3 scripts/check_version.py
 
       - name: memoh-harness-unit
-        working-directory: posoco/external/cetas
+        working-directory: cetas-memoh
         run: python3 -m unittest scripts/test_memoh_live_e2e.py
 
+      - name: memoh-install-script-syntax
+        working-directory: cetas-memoh
+        run: bash -n install.sh
+
+      - name: memoh-bootstrap-workspace
+        working-directory: cetas-memoh
+        run: python3 scripts/bootstrap_workspace.py
+
       - name: memoh-update
-        working-directory: posoco/external/cetas/cetas-memoh
-        run: |
-          python3 ../scripts/prepare-recipe.py --flavor public --frontend run --platform unix
-          moon update
+        working-directory: cetas-memoh
+        run: moon update
 
       - name: memoh-check
-        working-directory: posoco/external/cetas/cetas-memoh
+        working-directory: cetas-memoh
         run: moon check --target native --deny-warn --output-json
 
       - name: memoh-test
-        working-directory: posoco/external/cetas/cetas-memoh
+        working-directory: cetas-memoh
         run: moon test --target native --output-json
 
       - name: memoh-build-release
-        working-directory: posoco/external/cetas/cetas-memoh
+        working-directory: cetas-memoh
         run: moon build --target native --release
 
       - name: memoh-version-smoke
-        working-directory: posoco/external/cetas
-        shell: bash
+        working-directory: cetas-memoh
         run: |
           expected="cetas-memoh $(cat VERSION)"
           out="$(_build/native/release/build/colmugx/cetas-memoh/main/main.exe --version)"
-          [[ "$out" == "$expected" ]] || { echo "::error::--version mismatch: got '$out', want '$expected'"; exit 1; }
+          [[ "$out" == "$expected" ]] || {
+            echo "::error::--version mismatch: got '$out', want '$expected'"
+            exit 1
+          }
 
       - name: memoh-fmt
-        working-directory: posoco/external/cetas/cetas-memoh
+        working-directory: cetas-memoh
         run: moon fmt
 
       - name: memoh-drift
-        working-directory: posoco/external/cetas/cetas-memoh
-        run: git diff --exit-code -- .
+        run: git diff --exit-code -- cetas-memoh

@@ -1,20 +1,20 @@
-# Dedicated release pipeline for cetas-memoh.
+# Dedicated Linux x86_64 release pipeline for cetas-memoh.
 name: memoh-release
 
 on:
   push:
-    tags: ["cetas-v*"]
+    tags: ["cetas-memoh-v*"]
   workflow_dispatch:
     inputs:
-      posoco_ref:
-        description: "posoco ref to build against"
+      cetas_ref:
+        description: "cetas ref containing the cetas-memoh source"
         default: "main"
 
 permissions:
   contents: write
 
 env:
-  POSOCO_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.posoco_ref || 'main' }}
+  CETAS_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.cetas_ref || github.ref }}
 
 jobs:
   memoh-preflight:
@@ -24,22 +24,10 @@ jobs:
       - name: memoh-checkout
         uses: actions/checkout@v4
         with:
-          repository: colmugx/posoco
-          ref: ${{ env.POSOCO_REF }}
-          path: posoco
-          submodules: recursive
-
-      - name: memoh-switch-tag
-        if: github.event_name == 'push'
-        working-directory: posoco/external/cetas
-        shell: bash
-        run: |
-          git fetch --depth=1 origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
-          git checkout "${GITHUB_REF_NAME}"
-
-      - name: memoh-init-submodules
-        working-directory: posoco/external/cetas
-        run: git submodule update --init --recursive
+          ref: ${{ env.CETAS_REF }}
+          sparse-checkout: |
+            /cetas-memoh/
+          sparse-checkout-cone-mode: false
 
       - name: memoh-install-moon
         run: |
@@ -47,182 +35,119 @@ jobs:
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
 
       - name: memoh-version-sync
-        working-directory: posoco/external/cetas
-        run: python3 scripts/release.py check --scope memoh
+        working-directory: cetas-memoh
+        run: python3 scripts/check_version.py
+
+      - name: memoh-tag-version
+        if: github.event_name == 'push'
+        working-directory: cetas-memoh
+        run: |
+          expected="${GITHUB_REF_NAME#cetas-memoh-v}"
+          actual="$(cat VERSION)"
+          [[ "$actual" == "$expected" ]] || {
+            echo "::error::tag/version mismatch: tag=$expected file=$actual"
+            exit 1
+          }
 
       - name: memoh-harness-unit
-        working-directory: posoco/external/cetas
+        working-directory: cetas-memoh
         run: python3 -m unittest scripts/test_memoh_live_e2e.py
 
+      - name: memoh-install-script-syntax
+        working-directory: cetas-memoh
+        run: bash -n install.sh
+
+      - name: memoh-bootstrap-workspace
+        working-directory: cetas-memoh
+        run: python3 scripts/bootstrap_workspace.py
+
       - name: memoh-update
-        working-directory: posoco/external/cetas/cetas-memoh
-        run: |
-          python3 ../scripts/prepare-recipe.py --flavor public --frontend run --platform unix
-          moon update
+        working-directory: cetas-memoh
+        run: moon update
 
       - name: memoh-check
-        working-directory: posoco/external/cetas/cetas-memoh
+        working-directory: cetas-memoh
         run: moon check --target native --deny-warn --output-json
 
       - name: memoh-test
-        working-directory: posoco/external/cetas/cetas-memoh
+        working-directory: cetas-memoh
         run: moon test --target native --output-json
 
-  memoh-build:
+  memoh-build-linux-x64:
     needs: [memoh-preflight]
-    name: memoh-build (${{ matrix.target }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: macos-latest, target: darwin-arm64 }
-          - { os: ubuntu-latest, target: linux-x64 }
-          - { os: windows-latest, target: windows-x64 }
     steps:
-      - name: memoh-disable-auto-crlf
-        if: matrix.os == 'windows-latest'
-        run: git config --global core.autocrlf false
-
       - name: memoh-checkout
         uses: actions/checkout@v4
         with:
-          repository: colmugx/posoco
-          ref: ${{ env.POSOCO_REF }}
-          path: posoco
-          submodules: recursive
+          ref: ${{ env.CETAS_REF }}
+          sparse-checkout: |
+            /cetas-memoh/
+          sparse-checkout-cone-mode: false
 
-      - name: memoh-switch-tag
-        if: github.event_name == 'push'
-        working-directory: posoco/external/cetas
-        shell: bash
-        run: |
-          git fetch --depth=1 origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
-          git checkout "${GITHUB_REF_NAME}"
-
-      - name: memoh-init-submodules
-        working-directory: posoco/external/cetas
-        run: git submodule update --init --recursive
-
-      - name: memoh-install-msvc
-        if: matrix.os == 'windows-latest'
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: memoh-install-moon-unix
-        if: matrix.os != 'windows-latest'
+      - name: memoh-install-moon
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
 
-      - name: memoh-install-moon-windows
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
-          irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
-          "C:\Users\runneradmin\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: memoh-bootstrap-workspace
+        working-directory: cetas-memoh
+        run: python3 scripts/bootstrap_workspace.py
 
       - name: memoh-update
-        working-directory: posoco/external/cetas/cetas-memoh
+        working-directory: cetas-memoh
         run: moon update
 
       - name: memoh-build-release
-        working-directory: posoco/external/cetas/cetas-memoh
+        working-directory: cetas-memoh
         run: moon build --target native --release
 
-      - name: memoh-collect-unix
-        if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas/cetas-memoh
+      - name: memoh-version-smoke
+        working-directory: cetas-memoh
         run: |
-          mkdir -p ../memoh-stage
-          cp "../_build/native/release/build/colmugx/cetas-memoh/main/main.exe" "../memoh-stage/cetas-memoh"
-
-      - name: memoh-collect-windows
-        if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas/cetas-memoh
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path "..\memoh-stage" | Out-Null
-          Copy-Item "..\_build\native\release\build\colmugx\cetas-memoh\main\main.exe" -Destination "..\memoh-stage\cetas-memoh.exe"
-
-      - name: memoh-version-smoke-unix
-        if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas/memoh-stage
-        run: |
-          out="$(./cetas-memoh --version)"
+          expected="cetas-memoh $(cat VERSION)"
+          out="$(_build/native/release/build/colmugx/cetas-memoh/main/main.exe --version)"
           echo "$out"
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            expected="cetas-memoh ${GITHUB_REF_NAME#cetas-v}"
-            [[ "$out" == "$expected" ]] || { echo "::error::--version mismatch: got '$out', want '$expected'"; exit 1; }
-          fi
-
-      - name: memoh-version-smoke-windows
-        if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas/memoh-stage
-        shell: pwsh
-        run: |
-          $out = (& ".\cetas-memoh.exe" --version) -join ' '
-          $out
-          if ($env:GITHUB_EVENT_NAME -eq 'push') {
-            $expected = "cetas-memoh " + ($env:GITHUB_REF_NAME -replace '^cetas-v', '')
-            if ($out.Trim() -ne $expected) {
-              Write-Host "::error::--version mismatch: got '$out', want '$expected'"
-              exit 1
-            }
+          [[ "$out" == "$expected" ]] || {
+            echo "::error::--version mismatch: got '$out', want '$expected'"
+            exit 1
           }
 
-      - name: memoh-package-unix
-        if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas/memoh-stage
-        run: tar -czf "cetas-memoh-${{ matrix.target }}.tar.gz" cetas-memoh
-
-      - name: memoh-package-windows
-        if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas/memoh-stage
-        shell: pwsh
-        run: Compress-Archive -Path "cetas-memoh.exe" -DestinationPath "cetas-memoh-windows-x64.zip" -Force
+      - name: memoh-package
+        working-directory: cetas-memoh
+        run: |
+          mkdir -p dist
+          cp "_build/native/release/build/colmugx/cetas-memoh/main/main.exe" "dist/cetas-memoh"
+          (
+            cd dist
+            tar -czf cetas-memoh-linux-x64.tar.gz cetas-memoh
+            sha256sum cetas-memoh-linux-x64.tar.gz > SHA256SUMS-memoh
+          )
 
       - name: memoh-upload
         uses: actions/upload-artifact@v6
         with:
-          name: memoh-binaries-${{ matrix.target }}
+          name: memoh-linux-x64
           path: |
-            posoco/external/cetas/memoh-stage/*.tar.gz
-            posoco/external/cetas/memoh-stage/*.zip
+            cetas-memoh/dist/cetas-memoh-linux-x64.tar.gz
+            cetas-memoh/dist/SHA256SUMS-memoh
 
   memoh-publish:
-    needs: [memoh-build]
-    if: startsWith(github.ref, 'refs/tags/cetas-v')
+    needs: [memoh-build-linux-x64]
+    if: startsWith(github.ref, 'refs/tags/cetas-memoh-v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: memoh-download-darwin
+      - name: memoh-download
         uses: actions/download-artifact@v7
         with:
-          name: memoh-binaries-darwin-arm64
+          name: memoh-linux-x64
           path: memoh-staging
-
-      - name: memoh-download-linux
-        uses: actions/download-artifact@v7
-        with:
-          name: memoh-binaries-linux-x64
-          path: memoh-staging
-
-      - name: memoh-download-windows
-        uses: actions/download-artifact@v7
-        with:
-          name: memoh-binaries-windows-x64
-          path: memoh-staging
-
-      - name: memoh-checksums
-        working-directory: memoh-staging
-        run: sha256sum *.tar.gz *.zip > SHA256SUMS-memoh
 
       - name: memoh-publish-assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            memoh-staging/*.tar.gz
-            memoh-staging/*.zip
+            memoh-staging/cetas-memoh-linux-x64.tar.gz
             memoh-staging/SHA256SUMS-memoh

@@ -21,7 +21,7 @@ For example, from a workspace shell:
 mkdir -p /data/bin
 cd /data/bin
 curl -fL -o cetas-memoh-linux-x64.tar.gz \
-  https://github.com/colmugx/cetas/releases/download/cetas-v0.6.0/cetas-memoh-linux-x64.tar.gz
+  https://github.com/colmugx/cetas/releases/download/cetas-memoh-v0.1.0/cetas-memoh-linux-x64.tar.gz
 tar -xzf cetas-memoh-linux-x64.tar.gz
 chmod +x cetas-memoh
 ./cetas-memoh --version
@@ -48,7 +48,7 @@ export MEMOH_API_URL="https://memoh.example/api"
 export MEMOH_TOKEN="..."
 export MEMOH_BOT_ID="..."
 
-python3 scripts/memoh_live_e2e.py
+python3 cetas-memoh/scripts/memoh_live_e2e.py
 ```
 
 The script creates a temporary **real** ACP runtime through Memoh, which starts
@@ -66,14 +66,14 @@ To also exercise Memoh's live model and reasoning control endpoints on that
 temporary runtime:
 
 ```sh
-python3 scripts/memoh_live_e2e.py --exercise-controls
+python3 cetas-memoh/scripts/memoh_live_e2e.py --exercise-controls
 ```
 
 To verify cross-session model isolation, start two real runtimes for the same
 bot and force them onto two different shared model IDs:
 
 ```sh
-python3 scripts/memoh_live_e2e.py --exercise-concurrency
+python3 cetas-memoh/scripts/memoh_live_e2e.py --exercise-concurrency
 ```
 
 This mode fails unless both runtimes expose at least two common models. It PATCHes
@@ -126,5 +126,5 @@ During the same run:
 - inspect workspace storage before and after turns/restart and confirm there is
   no Cetas-owned conversation transcript.
 
-Record live evidence and failures from the real workspace run. Do not mark the
-live-only items complete from fake ACP tests or static inspection.
+Record live evidence and failures on issue #25. Do not mark the live-only items
+complete from fake ACP tests or static inspection.

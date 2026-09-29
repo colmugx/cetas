@@ -1,0 +1,5 @@
+/_build/
+/.mooncakes/
+/dist/
+/.deps/
+/moon.work

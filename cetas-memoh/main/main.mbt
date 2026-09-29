@@ -4,11 +4,11 @@
 /// stdout is ACP JSON-RPC only. Durable provider state lives under
 /// CETAS_MEMOH_HOME (default $HOME/.cetas-memoh; Memoh generic ACP currently
 /// supplies HOME=/data). Conversation continuity is owned by Memoh.
-const CETAS_MEMOH_VERSION = "0.6.0"
+const CETAS_MEMOH_VERSION = "0.1.0"
 
 ///|
-/// Release train version — kept in lockstep with the cetas VERSION file by
-/// scripts/release.py.
+/// Independent cetas-memoh release version. This runtime does not follow the
+/// Cetas product release train.
 async fn main {
   if @env.args().contains("--version") {
     println("cetas-memoh \{CETAS_MEMOH_VERSION}")
