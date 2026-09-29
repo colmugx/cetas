@@ -2,7 +2,7 @@
 """Cetas release automation — GitHub-release flow (Python stdlib only).
 
 Usage:
-  release.py check                   version consistency gate; exit 1 on skew
+  release.py check [--scope SCOPE]   version consistency gate; exit 1 on skew
   release.py release [flags]         full release flow (default subcommand)
 
 Flags (release):
@@ -102,9 +102,19 @@ def is_tty():
 # ---------------------------------------------------------------- check
 
 
-def target_versions(root):
+def sync_targets(scope):
+    if scope == "all":
+        return SYNC
+    if scope == "memoh":
+        return [row for row in SYNC if row[0].startswith("cetas-memoh/")]
+    if scope == "core":
+        return [row for row in SYNC if not row[0].startswith("cetas-memoh/")]
+    raise ValueError(f"unknown check scope: {scope}")
+
+
+def target_versions(root, scope="all"):
     rows = []
-    for rel, rx, _ in SYNC:
+    for rel, rx, _ in sync_targets(scope):
         p = root / rel
         if not p.exists():
             rows.append((rel, None, "文件缺失"))
@@ -128,9 +138,9 @@ def cmd_check(args):
     expected = vp.read_text().strip()
     if not SEMVER.match(expected):
         die(f"VERSION 内容不是 semver: {expected!r}")
-    print(f"版本一致性检查（期望 {expected}）:")
+    print(f"版本一致性检查（期望 {expected}，范围 {args.scope}）:")
     bad = 0
-    for rel, actual, err in target_versions(root):
+    for rel, actual, err in target_versions(root, args.scope):
         if err:
             print(f"  {rel:<26} ERROR {err}")
             bad += 1
@@ -523,6 +533,12 @@ def main():
     rp.add_argument("--yes", action="store_true", help="skip interactive confirmations")
     rp.set_defaults(func=cmd_release)
     cp = sub.add_parser("check", help="version consistency gate; exit 1 on skew")
+    cp.add_argument(
+        "--scope",
+        choices=("all", "core", "memoh"),
+        default="all",
+        help="targets to check: all (default), core (exclude cetas-memoh), or memoh only",
+    )
     cp.set_defaults(func=cmd_check)
     args = ap.parse_args(argv)
     args.func(args)
