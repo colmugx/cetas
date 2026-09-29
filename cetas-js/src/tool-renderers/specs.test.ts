@@ -112,7 +112,7 @@ describe("spec table — call views", () => {
   });
 });
 
-describe("grep summaries — the N+1 count regression", () => {
+describe("grep summary match counts", () => {
   const MATCHES_27 =
     "Found 27 matches:\n" +
     Array.from({ length: 27 }, (_, i) => `f.txt:${i + 1}:needle\n`).join("");
