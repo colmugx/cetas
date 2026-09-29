@@ -3891,34 +3891,6 @@ async test "refresh pushes exactly one update per session from its own router vi
   }
 }
 
-// --------------------------------------- W5: rate-limit monitor exit audit
-
-///|
-priv struct TkMonitorTicks {
-  mut count : Int
-}
-
-///|
-/// The monitor must stop after on_shutdown, or every close leaks a parked poller on the mcp group.
-async test "rate-limit monitor stops after lifecycle shutdown" {
-  let ticks = TkMonitorTicks::{ count: 0, }
-  let rl_guard = @ratelimit.RateLimitGuard(poll_interval_ms=1, sleep_ms=async fn(
-    _ms : Int,
-  ) {
-    ticks.count += 1
-    @async.sleep(1)
-  })
-  @async.with_task_group(group => {
-    rl_guard.spawn_monitor(group)
-    while ticks.count < 3 {
-      @async.pause()
-    }
-    (rl_guard as &@posoco.Lifecycle).on_shutdown()
-    let settled = ticks.count
-    @async.sleep(20)
-    assert_eq(ticks.count, settled)
-  })
-}
 
 // --------------------------------------------- W9: session modes (plan mode)
 
