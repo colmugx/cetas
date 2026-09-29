@@ -1,6 +1,5 @@
 ///|
-/// jsonl.mbt — the `--jsonl` structured face (phase 3; process visibility
-/// extension 2026-09-08).
+/// jsonl.mbt — the `--jsonl` structured output face.
 ///
 /// With `--jsonl`, stdout carries a pure event stream: one JSON object per
 /// line, no separate human summary and no separate marker line (both fold
