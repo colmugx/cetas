@@ -1928,8 +1928,9 @@ pub fn cetas_js_runtime_create_agent(
               js_ui_request_fn_of(request_callback),
               js_ui_render_fn_of(render_callback),
             )
-            // The guard re-runs turns itself, so it needs the composed agent.
-            ratelimit.bind(agent)
+            // Recovery state/effects live for exactly the owning task-group
+            // lifetime; the TypeScript host no longer owns a scheduler loop.
+            ratelimit.start(group~, agent~)
             // Publish the live router on the runtime so the background catalog
             // refresh can hot-swap provider slots in place (see
             // refresh_model_lists_live); the handle keeps the same instance.
@@ -2254,28 +2255,6 @@ pub fn cetas_js_run_turn(
   // This second listener forces a reschedule round; spawning (and instantly
   // completing) a no-op coroutine is the public reschedule trigger. Listener
   // order matters: cancel runs first, the pump second.
-  js_signal_on_abort(signal, fn() {
-    ignore(@js_async.Promise::from_async() <| () => {  })
-  })
-  promise
-}
-
-///|
-/// Run the rate-limit scheduler for the handle lifetime. The JavaScript
-/// application owns the AbortController and restarts this monitor after an
-/// intentional session/model boundary.
-pub fn cetas_js_start_ratelimit_monitor(
-  handle : CetasJsAgent,
-  signal : @js_async.AbortSignal,
-) -> @js_async.Promise[Unit] {
-  let promise = @js_async.Promise::from_async(abort_signal=signal) <| () => {
-    handle.ratelimit.monitor()
-  }
-  // Same pump as cetas_js_run_turn: from_async's abort listener only cancels
-  // the sleeping monitor coroutine without pumping the scheduler, so a stop
-  // would otherwise wait out the current poll sleep (up to poll_interval_ms)
-  // before the JS host's await resolves. This listener forces the reschedule
-  // round that settles the monitor immediately.
   js_signal_on_abort(signal, fn() {
     ignore(@js_async.Promise::from_async() <| () => {  })
   })
