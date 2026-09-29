@@ -838,7 +838,7 @@ describe("submit-path pending spinner", () => {
   });
 });
 
-describe("command status restore on finish (issue #2)", () => {
+describe("command status restore on finish", () => {
   const statusText = (shell: TerminalShell): string =>
     (shell as unknown as { statusLoader: { render(width: number): string[] } }).statusLoader
       .render(80)
