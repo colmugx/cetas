@@ -13,10 +13,6 @@ import type {
 } from "./types.ts";
 
 const rateLimitExports = moonbit as unknown as {
-  cetas_js_start_ratelimit_monitor(
-    agent: moonbit.CetasJsAgent,
-    signal: AbortSignal,
-  ): Promise<void>;
   cetas_js_cancel_pending_ratelimit(agent: moonbit.CetasJsAgent): void;
 };
 
@@ -176,13 +172,6 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
       imagesJsonFor(images),
       sessionId,
       signal ?? new AbortController().signal,
-    );
-  }
-
-  startRateLimitMonitor(agent: unknown, signal: AbortSignal): Promise<void> {
-    return rateLimitExports.cetas_js_start_ratelimit_monitor(
-      agent as moonbit.CetasJsAgent,
-      signal,
     );
   }
 
