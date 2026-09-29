@@ -2273,9 +2273,8 @@ function escapeXml(value: string): string {
 
 /**
  * Stable cancellation marker the provider classifies into the AgentError text
- * before wrapping it as a transport failure. Typed cancellation needs a core
- * seam (round 2); until then this marker — not a `Cancelled` substring
- * regex — is the turn-level interrupt identifier.
+ * before wrapping it as a transport failure. The turn-level interrupt path
+ * matches this marker instead of relying on a generic `Cancelled` substring.
  */
 const CANCELLED_MARKER = "category=cancelled";
 
