@@ -209,12 +209,14 @@ pub async fn build_cetas_session(
 /// execution append their decorator extensions via `tail_exts~` (ACP: the
 /// MCP bridge) and pass the wrapping `runtime~`/`catalog_source~`; a plain
 /// host composes the default runtime. Binds the quota guard to the composed
-/// agent either way.
+/// agent either way. `runtime_group~` attaches the rate-limit runtime to the
+/// host lifetime; production hosts should always provide it.
 pub fn compose_cetas_agent(
   session~ : CetasSession,
   tail_exts? : Array[&@posoco.Extension] = [],
   runtime? : &@runtime.Runtime? = None,
   catalog_source? : &@runtime.CatalogSource? = None,
+  runtime_group? : @async.TaskGroup[Unit]? = None,
 ) -> @posoco.Agent raise @posoco.CompositionError {
   for ext in tail_exts {
     session.exts.push(ext)
@@ -235,7 +237,12 @@ pub fn compose_cetas_agent(
       )
     (None, _) => @posoco.Agent(exts=session.exts, config=session.config)
   }
-  // The guard re-runs turns itself, so it needs the composed agent.
-  session.ratelimit.bind(agent)
+  // Recovery owns its mutable state and async effects inside the host task
+  // group. Tests and embedders without a lifetime group simply compose the
+  // extension without starting recovery.
+  match runtime_group {
+    Some(group) => session.ratelimit.start(group~, agent~)
+    None => ()
+  }
   agent
 }
