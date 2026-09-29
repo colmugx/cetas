@@ -17,7 +17,7 @@ description = "Cetas core — target-agnostic host logic (assembly, slash, obser
 
 import {
   "colmugx/posoco@0.20.0",
-  "colmugx/posoco-devkit@0.3.0",
+  "colmugx/posoco-devkit@0.4.0",
   "colmugx/cetas-ext-forme@0.1.0",
   "colmugx/posoco-ext-read@0.2.0",
   "colmugx/posoco-ext-write@0.2.0",
@@ -50,6 +50,6 @@ import {
   "colmugx/posoco-ext-credentials@0.1.0",
   "colmugx/posoco-ext-fs-session@0.3.0",
   "colmugx/posoco-ext-permission@0.2.0",
-  "colmugx/posoco-ext-ratelimit@0.2.0",
+  "colmugx/posoco-ext-ratelimit@0.4.0",
   "moonbitlang/async@0.22.3",
 }
