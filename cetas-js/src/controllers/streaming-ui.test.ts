@@ -1,6 +1,4 @@
 /**
- * streaming-ui.test.ts — regression coverage for the step-block streaming model.
- *
  * These tests pin the step-boundary rules: reasoning after a tool call
  * (text→reasoning transition) must open a new step/block rather than
  * overwrite the previous step's ThinkingComponent.
