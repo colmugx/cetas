@@ -177,7 +177,7 @@ async test "plan review presents the name and the full plan, never truncated" {
   let ui = fake_ui(reply=@port.UiResponse::Selected(0))
   let source = PlanApprovalSource()
   source.ui = Some(ui as &@posoco.UiPort)
-  // Well past the former 2000-char protocol truncation.
+  // Exercise a plan well beyond 2000 characters.
   let sb = StringBuilder()
   for i in 0..<300 {
     sb.write_string("Step \{i}: investigate and verify the tricky part\n")
