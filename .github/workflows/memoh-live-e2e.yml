@@ -64,4 +64,4 @@ jobs:
           if [[ "${{ inputs.exercise_concurrency }}" == "true" ]]; then
             args+=(--exercise-concurrency)
           fi
-          python3 scripts/memoh_live_e2e.py "${args[@]}"
+          python3 cetas-memoh/scripts/memoh_live_e2e.py "${args[@]}"

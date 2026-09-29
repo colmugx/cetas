@@ -7,6 +7,51 @@ It deliberately does **not** depend on `cetas-core`. Memoh-specific semantics
 live in `posoco-ext-memoh`; this module owns process/session composition and
 provider configuration.
 
+## Release and installation
+
+`cetas-memoh` has its own version and release train. It does not follow the
+Cetas product version. The current version is **0.1.0**, released from tags of
+the form `cetas-memoh-vX.Y.Z`.
+
+The supported release target is **Linux x86_64** (including Debian GNU/Linux 13
+/ trixie). The release asset is:
+
+```text
+cetas-memoh-linux-x64.tar.gz
+```
+
+Install the current release to `~/.local/bin`:
+
+```sh
+./install.sh
+```
+
+Install a specific version:
+
+```sh
+./install.sh 0.1.0
+```
+
+Override the destination with `CETAS_MEMOH_INSTALL_DIR`. The installer
+downloads the GitHub Release asset and verifies `SHA256SUMS-memoh` before
+installing the binary.
+
+## Development workspace
+
+Some Posoco extension modules used by `cetas-memoh` are not yet published to
+the Moon registry. Until they are, the subtree pins a source revision in
+`EXTENSION_REV`. Prepare the local workspace with:
+
+```sh
+python3 scripts/bootstrap_workspace.py
+moon update
+moon check --target native
+```
+
+The bootstrap clones `posoco-extension` into the ignored `.deps/` directory
+and generates an ignored local `moon.work`. This temporary bridge is contained
+inside `cetas-memoh/` so the subtree can move to its own repository cleanly.
+
 ## Runtime ownership
 
 - Memoh owns durable conversation continuity.
