@@ -19,11 +19,11 @@ pub fn approval_prompt(@posoco-ext-permission.ApprovalRequest) -> String
 
 pub async fn open_tty_channel() -> TtyChannel? noraise
 
-pub fn parse_run_cli(Array[String]) -> Result[RunCli, String]
-
 pub fn parse_peer_envelope(String) -> PeerEnvelope?
 
 pub fn parse_permission_mode_str(String) -> @posoco-ext-permission.PermissionMode?
+
+pub fn parse_run_cli(Array[String]) -> Result[RunCli, String]
 
 pub fn resolve_permission_mode(RunCli) -> @posoco-ext-permission.PermissionMode
 
@@ -54,19 +54,6 @@ pub struct CetasRunHost {
 }
 pub async fn CetasRunHost::CetasRunHost(home~ : String, cwd~ : String, mode~ : @posoco-ext-permission.PermissionMode, approval~ : &@posoco-ext-permission.ApprovalSource?, ui~ : &@port.UiPort?, model_override? : String, effort_override? : String, session_id? : String, tail_exts? : Array[&@port.Extension], fs? : &@posoco-ext-workspace.WorkspaceFs?, mcp_group? : @async.TaskGroup[Unit]?, label? : String, detect_herdr? : Bool, warn? : async (String) -> Unit noraise) -> Self raise @error.CompositionError
 
-pub(all) struct RunCli {
-  model : String
-  effort : String
-  session_id : String
-  yolo : Bool
-  jsonl : Bool
-  verbose : Bool
-  stream : Bool
-  show_thinking : Bool
-  permission_mode : @posoco-ext-permission.PermissionMode?
-  task : String
-}
-
 pub struct JsonlObserver {
   mut turn : Int
   mut session_id : String
@@ -94,6 +81,19 @@ pub impl @port.Observer for JsonlObserver
 pub(all) struct PeerEnvelope {
   from : String
   session : String
+  task : String
+}
+
+pub(all) struct RunCli {
+  model : String
+  effort : String
+  session_id : String
+  yolo : Bool
+  jsonl : Bool
+  verbose : Bool
+  stream : Bool
+  show_thinking : Bool
+  permission_mode : @posoco-ext-permission.PermissionMode?
   task : String
 }
 

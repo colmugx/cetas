@@ -1,0 +1,31 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "colmugx/cetas-ext-forme/lib"
+
+import {
+  "colmugx/posoco-ext-skills",
+  "colmugx/posoco/error",
+  "colmugx/posoco/port",
+}
+
+// Values
+pub fn builtin_manual_skills() -> Array[@posoco-ext-skills.SkillDescriptor]
+
+// Errors
+
+// Types and methods
+pub(all) struct Forme {
+  host_note : String?
+}
+pub fn Forme::Forme(host_note? : String?) -> Self
+pub fn Forme::commands(Self) -> Array[@port.CommandDef]
+pub fn Forme::extension_id(Self) -> String
+pub async fn Forme::invoke(Self, String, Json) -> @port.CommandOutcome raise @error.CommandError
+pub fn Forme::manifest(Self) -> @port.ExtensionManifest
+pub fn Forme::system_prompt(Self) -> String
+pub impl @port.CommandPort for Forme
+pub impl @port.Extension for Forme
+pub impl @port.SystemPromptContributor for Forme
+
+// Type aliases
+
+// Traits
