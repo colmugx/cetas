@@ -79,30 +79,44 @@ jobs:
 
       - name: moon update (cetas-acp)
         working-directory: posoco/external/cetas/cetas-acp
-        run: moon update
+        run: |
+          python3 ../scripts/prepare-recipe.py --flavor public --frontend acp --platform unix
+          moon update
 
       - name: moon check (native, deny warnings)
         working-directory: posoco/external/cetas/cetas-acp
         run: moon check --target native --deny-warn --output-json
 
+      - name: moon check (headless wasm, public recipe)
+        working-directory: posoco/external/cetas/cetas-headless
+        run: |
+          python3 ../scripts/prepare-recipe.py --flavor public --frontend headless --platform unix
+          moon check --target wasm --deny-warn --output-json
+
       - name: moon test (native)
         id: test
         working-directory: posoco/external/cetas/cetas-acp
-        run: moon test --target native --output-json
+        run: |
+          python3 ../scripts/prepare-recipe.py --flavor personal --frontend acp --platform unix
+          moon test --target native --output-json
 
       # Keep release gating aligned with CI's one-shot retry for the known
       # async-ordering flaky test.
       - name: moon test (native, flake rerun)
         if: failure() && steps.test.outcome == 'failure'
         working-directory: posoco/external/cetas/cetas-acp
-        run: moon test --target native --output-json
+        run: |
+          python3 ../scripts/prepare-recipe.py --flavor personal --frontend acp --platform unix
+          moon test --target native --output-json
 
       - name: setup bun
         uses: oven-sh/setup-bun@v2
 
       - name: moon update (cetas-js)
         working-directory: posoco/external/cetas/cetas-js
-        run: moon update
+        run: |
+          python3 ../scripts/prepare-recipe.py --flavor public --frontend js --platform unix
+          moon update
 
       # Upload half of the same-run handoff; build needs: [preflight], so the
       # matrix jobs download these instead of re-fetching over the network.
@@ -204,6 +218,17 @@ jobs:
           name: bun-cache
           path: ${{ matrix.os == 'windows-latest' && 'C:\Users\runneradmin\.bun\install\cache' || '~/.bun/install/cache' }}
 
+      - name: prepare public acp recipe (unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: posoco/external/cetas
+        run: python3 scripts/prepare-recipe.py --flavor public --frontend acp --platform unix
+
+      - name: prepare public acp recipe (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: posoco/external/cetas
+        shell: pwsh
+        run: python scripts/prepare-recipe.py --flavor public --frontend acp --platform windows
+
       - name: moon update (cetas-acp)
         working-directory: posoco/external/cetas/cetas-acp
         run: moon update
@@ -255,6 +280,17 @@ jobs:
               exit 1
             }
           }
+
+      - name: prepare public headless recipe (unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: posoco/external/cetas
+        run: python3 scripts/prepare-recipe.py --flavor public --frontend headless --platform unix
+
+      - name: prepare public headless recipe (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: posoco/external/cetas
+        shell: pwsh
+        run: python scripts/prepare-recipe.py --flavor public --frontend headless --platform windows
 
       - name: moon update (cetas-headless)
         working-directory: posoco/external/cetas/cetas-headless
@@ -312,6 +348,17 @@ jobs:
       - name: bun install
         working-directory: posoco/external/cetas/cetas-js
         run: bun install
+
+      - name: prepare public js recipe (unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: posoco/external/cetas
+        run: python3 scripts/prepare-recipe.py --flavor public --frontend js --platform unix
+
+      - name: prepare public js recipe (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: posoco/external/cetas
+        shell: pwsh
+        run: python scripts/prepare-recipe.py --flavor public --frontend js --platform windows
 
       - name: moon update (cetas-js)
         working-directory: posoco/external/cetas/cetas-js
