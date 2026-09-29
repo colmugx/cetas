@@ -253,7 +253,7 @@ describe("long-lived cetas-js bridge", () => {
     }
   });
 
-  test("rate-limit monitor retries the interrupted user turn at reset without another host send", async () => {
+  test("rate-limit runtime retries the interrupted user turn at reset without another host send", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cetas-js-ratelimit-"));
     const home = await mkdtemp(join(tmpdir(), "cetas-js-ratelimit-home-"));
     cleanup.push(cwd, home);
