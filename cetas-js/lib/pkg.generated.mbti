@@ -72,8 +72,6 @@ pub fn cetas_js_sessions_dir(String, String) -> String
 
 pub fn cetas_js_shutdown(CetasJsAgent) -> @js_async.Promise[Unit]
 
-pub fn cetas_js_start_ratelimit_monitor(CetasJsAgent, @js_async.AbortSignal) -> @js_async.Promise[Unit]
-
 pub fn cetas_js_tool_catalog(CetasJsAgent) -> String
 
 // Errors
