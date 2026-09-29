@@ -52,7 +52,6 @@ options(
         "cetas_js_runtime_login_provider",
         "cetas_js_run_turn",
         "cetas_js_compact_session",
-        "cetas_js_start_ratelimit_monitor",
         "cetas_js_cancel_pending_ratelimit",
         "cetas_js_abort_turn",
         "cetas_js_enqueue_follow_up",
