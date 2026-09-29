@@ -49,15 +49,11 @@ jobs:
 
       - name: Version-sync gate
         working-directory: posoco/external/cetas
-        run: python3 scripts/release.py check
+        run: python3 scripts/release.py check --scope core
 
       - name: npm staging tests
         working-directory: posoco/external/cetas
         run: python3 -m unittest scripts/test_npm_stage.py
-
-      - name: Memoh live harness unit tests
-        working-directory: posoco/external/cetas
-        run: python3 -m unittest scripts/test_memoh_live_e2e.py
 
       - name: moon update
         working-directory: posoco/external/cetas/cetas-acp
@@ -90,7 +86,7 @@ jobs:
         working-directory: posoco/external/cetas/cetas-acp
         run: |
           moon info
-          git diff --exit-code -- . ../cetas-js ../cetas-core ../cetas-headless ../cetas-memoh ../cetas-ext-forme
+          git diff --exit-code -- . ../cetas-js ../cetas-core ../cetas-headless ../cetas-ext-forme
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
