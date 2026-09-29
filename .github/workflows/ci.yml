@@ -71,7 +71,9 @@ jobs:
 
       - name: moon update
         working-directory: posoco/external/cetas/cetas-acp
-        run: moon update
+        run: |
+          python3 ../scripts/prepare-recipe.py --flavor public --frontend acp --platform unix
+          moon update
 
       - name: moon check (native, deny warnings)
         working-directory: posoco/external/cetas/cetas-acp
@@ -79,12 +81,16 @@ jobs:
 
       - name: moon check (headless wasm, deny warnings)
         working-directory: posoco/external/cetas/cetas-headless
-        run: moon check --target wasm --deny-warn --output-json
+        run: |
+          python3 ../scripts/prepare-recipe.py --flavor public --frontend headless --platform unix
+          moon check --target wasm --deny-warn --output-json
 
       - name: moon test (native)
         id: test
         working-directory: posoco/external/cetas/cetas-acp
-        run: moon test --target native --output-json
+        run: |
+          python3 ../scripts/prepare-recipe.py --flavor personal --frontend acp --platform unix
+          moon test --target native --output-json
 
       # host_wbtest.mbt "a queued second prompt runs only after the first turn
       # fully settles" is known-flaky (async ordering): rerun the suite once
@@ -92,17 +98,22 @@ jobs:
       - name: moon test (native, flake rerun)
         if: failure() && steps.test.outcome == 'failure'
         working-directory: posoco/external/cetas/cetas-acp
-        run: moon test --target native --output-json
+        run: |
+          python3 ../scripts/prepare-recipe.py --flavor personal --frontend acp --platform unix
+          moon test --target native --output-json
 
       - name: moon fmt
         working-directory: posoco/external/cetas/cetas-acp
-        run: moon fmt
+        run: |
+          python3 ../scripts/prepare-recipe.py --flavor personal --frontend acp --platform unix
+          moon fmt
 
       # drift gate scoped to the cetas dirs; the posoco root is at main and
       # not ours to gate
       - name: moon info + interface drift gate
         working-directory: posoco/external/cetas/cetas-acp
         run: |
+          python3 ../scripts/prepare-recipe.py --flavor personal --frontend acp --platform unix
           moon info
           git diff --exit-code -- . ../cetas-js ../cetas-core ../cetas-headless ../cetas-ext-forme
 
