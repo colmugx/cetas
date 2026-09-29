@@ -24,7 +24,7 @@ description = "Cetas headless host — runs exactly one cetas user turn per invo
 
 preferred_target = "native"
 
-supported_targets = "native"
+supported_targets = "+native +wasm"
 
 import {
   "colmugx/posoco@0.20.0",
