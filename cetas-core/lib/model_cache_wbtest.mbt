@@ -1,10 +1,4 @@
 ///|
-/// White-box tests for the model-list disk cache: permissive read rules,
-/// catalog projection shape, merge round-trip, and write behavior on the
-/// in-memory WorkspaceFs shared with active_model_wbtest.mbt (no real IO,
-/// runs on every target).
-
-///|
 /// A slot carrying every projection-relevant field, over the scripted port.
 fn cache_slot(
   model_id : String,
