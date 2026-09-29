@@ -768,10 +768,8 @@ interface AskTui {
  * `restoreFocus` runs after the panel settles.
  *
  * One ask at a time; a newer ask withdraws the older. Presenting while an
- * ask is active auto-settles the previous one as `{type:"cancelled"}` (the
- * existing cancel path) before the new panel mounts — the old reject-on-
- * concurrent behavior surfaced as an opaque bridge failure on the MoonBit
- * side.
+ * ask is active auto-settles the previous one as `{type:"cancelled"}` before
+ * the new panel mounts, so concurrent asks resolve deterministically.
  */
 export class UiRequestBar {
   private active = false;
