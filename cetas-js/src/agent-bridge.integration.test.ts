@@ -16,10 +16,8 @@ const {
   cetas_js_invoke_command,
   cetas_js_run_turn,
   cetas_js_sessions_dir,
-  cetas_js_start_ratelimit_monitor,
   cetas_js_shutdown,
 } = await import("mbt:colmugx/cetas-js/lib") as unknown as typeof import("mbt:colmugx/cetas-js/lib") & {
-  cetas_js_start_ratelimit_monitor(agent: unknown, signal: AbortSignal): Promise<void>;
   cetas_js_cancel_pending_ratelimit(agent: unknown): void;
 };
 
@@ -323,9 +321,6 @@ describe("long-lived cetas-js bridge", () => {
       async () => "",
       () => false,
     );
-    const monitorController = new AbortController();
-    const monitor = cetas_js_start_ratelimit_monitor(agent, monitorController.signal);
-
     try {
       await expect(cetas_js_run_turn(
         agent,
@@ -356,10 +351,6 @@ describe("long-lived cetas-js bridge", () => {
     } finally {
       try {
         cetas_js_cancel_pending_ratelimit(agent);
-        monitorController.abort();
-        await monitor.catch((error: unknown) => {
-          if (!isAbortError(error)) throw error;
-        });
         await cetas_js_shutdown(agent);
       } finally {
         globalThis.fetch = originalFetch;
