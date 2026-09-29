@@ -1,8 +1,6 @@
 /**
- * Application-level contracts for cetas-js.
- *
- * This file deliberately has no pi-tui imports.  The terminal renderer is a
- * consumer of these snapshots; it is not allowed to own agent lifecycle or
+ * Application-level contracts are UI-framework independent; terminal
+ * rendering consumes these snapshots without owning agent lifecycle or
  * provider configuration.
  */
 
