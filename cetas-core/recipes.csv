@@ -7,8 +7,8 @@ public,acp,50,glob,core,colmugx/posoco-ext-glob,glob,any
 public,acp,60,grep,core,colmugx/posoco-ext-grep,grep,any
 public,acp,70,astgrep,core,colmugx/posoco-ext-astgrep,astgrep,any
 public,acp,80,webfetch,core,colmugx/posoco-ext-webfetch,webfetch,any
-public,acp,90,bash,core,colmugx/posoco-ext-bash,bash,unix
-public,acp,100,ps1,core,colmugx/posoco-ext-ps1,ps1,windows
+public,acp,90,bash,core,colmugx/posoco-ext-bash,bash,any
+public,acp,100,ps1,core,colmugx/posoco-ext-ps1,ps1,any
 public,acp,110,skills,core,colmugx/posoco-ext-skills,skills,any
 public,acp,120,askquestion,core,colmugx/posoco-ext-askquestion,askquestion,any
 public,acp,130,handoff,core,colmugx/posoco-ext-handoff,handoff,any
@@ -21,8 +21,8 @@ public,headless,50,glob,core,colmugx/posoco-ext-glob,glob,any
 public,headless,60,grep,core,colmugx/posoco-ext-grep,grep,any
 public,headless,70,astgrep,core,colmugx/posoco-ext-astgrep,astgrep,any
 public,headless,80,webfetch,core,colmugx/posoco-ext-webfetch,webfetch,any
-public,headless,90,bash,core,colmugx/posoco-ext-bash,bash,unix
-public,headless,100,ps1,core,colmugx/posoco-ext-ps1,ps1,windows
+public,headless,90,bash,core,colmugx/posoco-ext-bash,bash,any
+public,headless,100,ps1,core,colmugx/posoco-ext-ps1,ps1,any
 public,headless,110,skills,core,colmugx/posoco-ext-skills,skills,any
 public,headless,120,askquestion,core,colmugx/posoco-ext-askquestion,askquestion,any
 public,headless,130,handoff,core,colmugx/posoco-ext-handoff,handoff,any
@@ -35,8 +35,8 @@ public,js,50,glob,core,colmugx/posoco-ext-glob,glob,any
 public,js,60,grep,core,colmugx/posoco-ext-grep,grep,any
 public,js,70,astgrep,core,colmugx/posoco-ext-astgrep,astgrep,any
 public,js,80,webfetch,core,colmugx/posoco-ext-webfetch,webfetch,any
-public,js,90,bash,core,colmugx/posoco-ext-bash,bash,unix
-public,js,100,ps1,core,colmugx/posoco-ext-ps1,ps1,windows
+public,js,90,bash,core,colmugx/posoco-ext-bash,bash,any
+public,js,100,ps1,core,colmugx/posoco-ext-ps1,ps1,any
 public,js,110,skills,core,colmugx/posoco-ext-skills,skills,any
 public,js,120,askquestion,core,colmugx/posoco-ext-askquestion,askquestion,any
 public,js,130,handoff,core,colmugx/posoco-ext-handoff,handoff,any
@@ -49,8 +49,8 @@ personal,acp,50,glob,core,colmugx/posoco-ext-glob,glob,any
 personal,acp,60,grep,core,colmugx/posoco-ext-grep,grep,any
 personal,acp,70,astgrep,core,colmugx/posoco-ext-astgrep,astgrep,any
 personal,acp,80,webfetch,core,colmugx/posoco-ext-webfetch,webfetch,any
-personal,acp,90,bash,core,colmugx/posoco-ext-bash,bash,unix
-personal,acp,100,ps1,core,colmugx/posoco-ext-ps1,ps1,windows
+personal,acp,90,bash,core,colmugx/posoco-ext-bash,bash,any
+personal,acp,100,ps1,core,colmugx/posoco-ext-ps1,ps1,any
 personal,acp,110,skills,core,colmugx/posoco-ext-skills,skills,any
 personal,acp,120,askquestion,core,colmugx/posoco-ext-askquestion,askquestion,any
 personal,acp,130,handoff,core,colmugx/posoco-ext-handoff,handoff,any
@@ -65,8 +65,8 @@ personal,headless,50,glob,core,colmugx/posoco-ext-glob,glob,any
 personal,headless,60,grep,core,colmugx/posoco-ext-grep,grep,any
 personal,headless,70,astgrep,core,colmugx/posoco-ext-astgrep,astgrep,any
 personal,headless,80,webfetch,core,colmugx/posoco-ext-webfetch,webfetch,any
-personal,headless,90,bash,core,colmugx/posoco-ext-bash,bash,unix
-personal,headless,100,ps1,core,colmugx/posoco-ext-ps1,ps1,windows
+personal,headless,90,bash,core,colmugx/posoco-ext-bash,bash,any
+personal,headless,100,ps1,core,colmugx/posoco-ext-ps1,ps1,any
 personal,headless,110,skills,core,colmugx/posoco-ext-skills,skills,any
 personal,headless,120,askquestion,core,colmugx/posoco-ext-askquestion,askquestion,any
 personal,headless,130,handoff,core,colmugx/posoco-ext-handoff,handoff,any
@@ -79,8 +79,8 @@ personal,js,50,glob,core,colmugx/posoco-ext-glob,glob,any
 personal,js,60,grep,core,colmugx/posoco-ext-grep,grep,any
 personal,js,70,astgrep,core,colmugx/posoco-ext-astgrep,astgrep,any
 personal,js,80,webfetch,core,colmugx/posoco-ext-webfetch,webfetch,any
-personal,js,90,bash,core,colmugx/posoco-ext-bash,bash,unix
-personal,js,100,ps1,core,colmugx/posoco-ext-ps1,ps1,windows
+personal,js,90,bash,core,colmugx/posoco-ext-bash,bash,any
+personal,js,100,ps1,core,colmugx/posoco-ext-ps1,ps1,any
 personal,js,110,skills,core,colmugx/posoco-ext-skills,skills,any
 personal,js,120,askquestion,core,colmugx/posoco-ext-askquestion,askquestion,any
 personal,js,130,handoff,core,colmugx/posoco-ext-handoff,handoff,any
