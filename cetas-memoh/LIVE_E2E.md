@@ -85,7 +85,21 @@ The harness never prints the bearer token and redacts common authorization,
 session-token, access-token, and refresh-token shapes from HTTP error bodies.
 It does not modify durable bot configuration.
 
-## 3. Finish the UI/tool E2E manually
+## 3. Run from GitHub Actions
+
+A dedicated manual workflow is available as `memoh-live-e2e`. Configure the
+repository secret `MEMOH_TOKEN`, then dispatch the workflow with:
+
+- `api_url` — Memoh API base URL including `/api`,
+- `bot_id` — an existing bot whose generic ACP command launches `cetas-memoh`,
+- optional `project_path`,
+- optional model/reasoning and concurrency checks (enabled by default).
+
+The workflow uses only the dedicated `memoh-*` path and never runs as part of
+the general Cetas CI. GitHub masks the configured secret and the harness also
+redacts common credential shapes from HTTP error bodies.
+
+## 4. Finish the UI/tool E2E manually
 
 The preflight above is deliberately not claimed as full E2E. Complete these
 scenarios in a real Memoh conversation:

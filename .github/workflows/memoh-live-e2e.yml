@@ -1,0 +1,67 @@
+# Manual real-deployment preflight for cetas-memoh.
+name: memoh-live-e2e
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: "Memoh API base URL including /api"
+        required: true
+        type: string
+      bot_id:
+        description: "Bot ID configured with generic ACP -> cetas-memoh"
+        required: true
+        type: string
+      project_path:
+        description: "Optional ACP project path"
+        required: false
+        default: ""
+        type: string
+      exercise_controls:
+        description: "Exercise live model and reasoning controls"
+        required: true
+        default: true
+        type: boolean
+      exercise_concurrency:
+        description: "Verify two live runtimes retain distinct model state"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  memoh-live-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: memoh-live-checkout
+        uses: actions/checkout@v4
+
+      - name: memoh-live-require-token
+        env:
+          MEMOH_TOKEN: ${{ secrets.MEMOH_TOKEN }}
+        shell: bash
+        run: |
+          if [[ -z "$MEMOH_TOKEN" ]]; then
+            echo "::error::Repository secret MEMOH_TOKEN is required"
+            exit 1
+          fi
+
+      - name: memoh-live-preflight
+        env:
+          MEMOH_API_URL: ${{ inputs.api_url }}
+          MEMOH_BOT_ID: ${{ inputs.bot_id }}
+          MEMOH_PROJECT_PATH: ${{ inputs.project_path }}
+          MEMOH_TOKEN: ${{ secrets.MEMOH_TOKEN }}
+        shell: bash
+        run: |
+          args=()
+          if [[ "${{ inputs.exercise_controls }}" == "true" ]]; then
+            args+=(--exercise-controls)
+          fi
+          if [[ "${{ inputs.exercise_concurrency }}" == "true" ]]; then
+            args+=(--exercise-concurrency)
+          fi
+          python3 scripts/memoh_live_e2e.py "${args[@]}"
