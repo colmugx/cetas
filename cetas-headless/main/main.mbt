@@ -29,11 +29,6 @@
 /// Exit codes: 0 the turn completed; 1 the turn failed; 2 startup/usage.
 
 ///|
-/// Startup failure exit: bad CLI or composition failure. Native-only; the
-/// async runtime's own exit is not public, so call libc directly.
-extern "C" fn exit(code : Int) = "exit"
-
-///|
 /// Release train version — kept in lockstep with the cetas VERSION file by
 /// `scripts/release.py` (the moon.mod of this package carries the same value).
 const CETAS_HEADLESS_VERSION = "0.6.0"
