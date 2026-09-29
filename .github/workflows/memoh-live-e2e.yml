@@ -1,0 +1,44 @@
+name: Memoh live E2E preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      exercise_controls:
+        description: Exercise live model and reasoning controls
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Memoh live E2E secrets
+        shell: bash
+        env:
+          MEMOH_API_URL: ${{ secrets.MEMOH_API_URL }}
+          MEMOH_TOKEN: ${{ secrets.MEMOH_TOKEN }}
+          MEMOH_BOT_ID: ${{ secrets.MEMOH_BOT_ID }}
+        run: |
+          test -n "$MEMOH_API_URL" || { echo "::error::MEMOH_API_URL secret is not configured"; exit 1; }
+          test -n "$MEMOH_TOKEN" || { echo "::error::MEMOH_TOKEN secret is not configured"; exit 1; }
+          test -n "$MEMOH_BOT_ID" || { echo "::error::MEMOH_BOT_ID secret is not configured"; exit 1; }
+
+      - name: Run real Memoh ACP preflight
+        shell: bash
+        env:
+          MEMOH_API_URL: ${{ secrets.MEMOH_API_URL }}
+          MEMOH_TOKEN: ${{ secrets.MEMOH_TOKEN }}
+          MEMOH_BOT_ID: ${{ secrets.MEMOH_BOT_ID }}
+          MEMOH_PROJECT_PATH: ${{ secrets.MEMOH_PROJECT_PATH }}
+          EXERCISE_CONTROLS: ${{ inputs.exercise_controls }}
+        run: |
+          args=()
+          if [[ "$EXERCISE_CONTROLS" == "true" ]]; then
+            args+=(--exercise-controls)
+          fi
+          python3 scripts/memoh_live_e2e.py "${args[@]}"
