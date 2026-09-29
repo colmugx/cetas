@@ -107,7 +107,7 @@ describe("rate-limit recovery host lifecycle", () => {
     await app.shutdown();
   });
 
-  test("opening the model picker preserves recovery; successful selection invalidates it", async () => {
+  test("opening the model picker preserves recovery; selection intent invalidates it", async () => {
     const fixture = bridgeWithRecovery();
     const app = new CetasApplication({
       bridge: fixture.bridge,
