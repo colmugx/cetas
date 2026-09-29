@@ -2,8 +2,8 @@
 /// ui.mbt — the terminal UI port (ask_question's three primitives).
 ///
 /// Input/Confirm/Select are rendered on the /dev/tty bypass; `render` is a
-/// no-op (headless has no persistent UI region — structured consumption
-/// arrives with phase 3's `--jsonl`) and `ui_descriptor` is empty. Without
+/// no-op (headless has no persistent UI region; structured output is
+/// provided by `--jsonl`) and `ui_descriptor` is empty. Without
 /// a tty — or under `--yolo`, where no port is attached at all — requests
 /// raise `Unsupported`, which askquestion degrades from ("Interactive UI is
 /// unavailable").
