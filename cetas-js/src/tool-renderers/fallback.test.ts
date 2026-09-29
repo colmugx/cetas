@@ -1,11 +1,3 @@
-/**
- * fallback.test.ts — multi-line preview + toolLabel coverage for the
- * fallback renderer and the shared previewLines helper.
- *
- * Same harness style as specs.test.ts: renderers invoked directly, ANSI
- * stripped from `render(80)` output for plain-text substring checks.
- */
-
 import { describe, expect, test } from "bun:test";
 import {
   EXPANDED_MAX,
