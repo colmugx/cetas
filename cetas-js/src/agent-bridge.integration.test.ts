@@ -23,11 +23,8 @@ const {
 
 const cleanup: string[] = [];
 
-// async 0.21+ hands fetch a fully materialized MoonBit `Bytes` request body
-// (an Uint8Array on the JS backend — the standard BodyInit), so the stub can
-// decode it directly. The old pipe-backed ReadableStream body (async ≤0.20,
-// whose chunks were views onto a reused buffer and had to be copied
-// synchronously) is gone.
+// Fetch receives a fully materialized MoonBit `Bytes` request body (an
+// Uint8Array on the JS backend), so the stub can decode it directly.
 async function readRequestBody(body: unknown): Promise<string> {
   return new TextDecoder().decode(body as Uint8Array);
 }
