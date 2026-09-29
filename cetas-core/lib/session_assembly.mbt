@@ -208,8 +208,8 @@ pub async fn build_cetas_session(
 /// Compose the Agent from the session pieces. Hosts that decorate tool
 /// execution append their decorator extensions via `tail_exts~` (ACP: the
 /// MCP bridge) and pass the wrapping `runtime~`/`catalog_source~`; a plain
-/// host composes the default runtime. Binds the quota guard to the composed
-/// agent either way. `runtime_group~` attaches the rate-limit runtime to the
+/// host composes the default runtime. `runtime_group~` attaches the quota
+/// guard to the composed agent and starts its rate-limit runtime on the
 /// host lifetime; production hosts should always provide it.
 pub fn compose_cetas_agent(
   session~ : CetasSession,
