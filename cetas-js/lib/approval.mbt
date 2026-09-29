@@ -41,8 +41,7 @@ const APPROVAL_OPTION_DENY = "Deny"
 ///
 /// The ask is data-driven over the port's decision vocabulary, and the
 /// option layout is category-driven so every session option names exactly
-/// what it would remember (issue #1: "Allow for this session" used to read
-/// as a tool-level grant while the policy cached only the command scope):
+/// what it would remember:
 ///
 /// - shell asks present four options: once; the concrete scope(s) granted
 ///   (e.g. `Allow 'bash:ls' for this session`; the generic label when the
