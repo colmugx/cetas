@@ -9,3 +9,4 @@ _build/
 .moonagent/
 cetas-core/lib/moon.pkg
 cetas-core/lib/recipe.generated.mbt
+.personal/
