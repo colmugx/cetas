@@ -1520,11 +1520,9 @@ async fn build_session_agent(
     runtime=runtime as &@runtime.Runtime,
     catalog_source=catalog_source as &@runtime.CatalogSource,
   )
-  // The guard re-runs turns itself, so it needs the composed agent.
-  ratelimit.bind(agent)
-  // The monitor dies with the host group at stdin EOF.
+  // The Fuwaroid recovery runtime shares the host task-group lifetime.
   match platform.mcp_group {
-    Some(group) => ratelimit.spawn_monitor(group)
+    Some(group) => ratelimit.start(group~, agent~)
     None => ()
   }
   // After activation, dump the full session catalog (bridge cache + base_defs).
