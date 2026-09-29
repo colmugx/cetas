@@ -1,7 +1,7 @@
 ///|
 /// loop_wbtest.mbt — the one-shot protocol over the full cetas-core
-/// assembly with a scripted model, pinned to the clean-stdout contract
-/// (2026-09-08): text-mode stdout is exactly the answer (one block, or live
+/// assembly with a scripted model, pinned to the clean-stdout contract:
+/// text-mode stdout is exactly the answer (one block, or live
 /// deltas under --stream); stderr carries the session line, the marker, the
 /// failure line, thinking, and the verbose event log; the --jsonl face is
 /// unchanged.
