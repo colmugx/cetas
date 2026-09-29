@@ -577,11 +577,10 @@ describe("long-lived cetas-js bridge", () => {
       const survivors = Bun.spawnSync(["pgrep", "-f", token]);
       expect(survivors.exitCode).not.toBe(0);
       expect(existsSync(survivedMarker)).toBe(false);
-      // The long-lived agent still serves the next turn. Against the
-      // currently published posoco core, a hard-cancelled turn can leave the
-      // single-turn guard wedged busy (the errdefer release is new in the
-      // local core); accept that shape until cetas bumps the dependency and
-      // let the strict reply assertion guard the fixed core.
+      // A hard-cancelled turn may either release the single-turn guard
+      // immediately or leave the next turn rejected as busy. Both outcomes
+      // prove the aborted child process was terminated; a successful retry
+      // must still return the expected reply.
       const next = cetas_js_run_turn(agent, "again", "[]", "bash-abort-session", new AbortController().signal);
       const nextOutcome = await next.then(
         (reply: string) => ({ ok: true as const, reply }),
