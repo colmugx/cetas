@@ -83,7 +83,6 @@ export function pickToolRenderer(name: string): ToolRenderer {
   return REGISTRY[name] ?? fallbackRenderer;
 }
 
-/** Shared helpers for argument extraction (used by per-tool renderers). */
 export function argString(args: unknown, key: string): string {
   if (args && typeof args === "object" && key in (args as Record<string, unknown>)) {
     const v = (args as Record<string, unknown>)[key];
