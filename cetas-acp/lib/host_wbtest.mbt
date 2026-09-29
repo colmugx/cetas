@@ -3891,7 +3891,6 @@ async test "refresh pushes exactly one update per session from its own router vi
   }
 }
 
-
 // --------------------------------------------- W9: session modes (plan mode)
 
 ///|
