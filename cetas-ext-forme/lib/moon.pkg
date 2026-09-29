@@ -7,4 +7,4 @@ import {
   "moonbitlang/async",
 } for "wbtest"
 
-supported_targets = "+native +js"
+supported_targets = "+native +js +wasm"
