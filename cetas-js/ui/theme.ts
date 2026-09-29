@@ -1,14 +1,12 @@
 /**
  * theme.ts — fixed dark theme for cetas-js.
  *
- * MVP scope (per plan §"不在本规划内"): we do NOT hot-swap themes or read
- * OSC 11. The theme is a frozen record of (chalk style -> string -> string)
- * functions plus a couple of bg helpers for the Box component. Move to a
- * JSON/theme-loader if/when we add light mode.
+ * This host uses a fixed dark theme; it does not hot-swap themes or inspect
+ * OSC 11. Styles are represented as chalk functions plus Box background
+ * helpers.
  *
  * Slot names (toolTitle / toolOutput / accent / warning / error / muted)
- * follow pi-tui's Theme vocabulary so a future migration to its Theme type
- * is a 1:1 rename.
+ * mirror pi-tui's Theme vocabulary.
  */
 
 import chalk from "chalk";
