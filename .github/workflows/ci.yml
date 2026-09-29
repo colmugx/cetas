@@ -114,7 +114,11 @@ jobs:
         working-directory: posoco/external/cetas/cetas-acp
         run: |
           python3 ../scripts/prepare-recipe.py --flavor personal --frontend acp --platform unix
-          moon info --target native
+          moon info --target native -p colmugx/cetas-acp/lib
+          moon info --target native -p colmugx/cetas-acp/main
+          moon info --target native -p colmugx/cetas-headless/lib
+          moon info --target native -p colmugx/cetas-headless/main
+          moon info --target js -p colmugx/cetas-js/lib
           git diff --exit-code -- . ../cetas-js ../cetas-core ../cetas-headless ../cetas-ext-forme
 
       - name: Setup bun
