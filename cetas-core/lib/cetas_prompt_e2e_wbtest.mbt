@@ -25,8 +25,7 @@ async test "e2e: Cetas keeps project context envelope self-describing" {
     ),
   )
   // Compose exactly the way a host does: every part is an Extension.
-  // Test fakes (store / observer / ui / scripted model) are not Extensions
-  // yet — posoco reform is deferred; wrap via ManifestOnly for this test.
+  // Test fakes are wrapped with ManifestOnly.
   let agent = @posoco.Agent(
     exts=[
       cetas,
@@ -111,10 +110,8 @@ impl @posoco.SystemPromptContributor for CetasContextStub with fn system_prompt(
 }
 
 ///|
-/// Regression: the cetas base prompt and every prompt contributor from cetas
-/// and from later extensions must all land in the same SystemMessage. There
-/// must be no second hook that replaces it and discards the extensions'
-/// contributions.
+/// The cetas base prompt and every prompt contributor must land in the same
+/// SystemMessage; no later hook may replace it and discard contributions.
 async test "e2e: base + cetas contributor + ext contributor share one SystemMessage" {
   let model = @posoco.ScriptedModel([
     @posoco.ScriptedModelStep::Respond(@posoco.tk_stop_response("ok")),
