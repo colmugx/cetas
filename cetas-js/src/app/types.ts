@@ -204,11 +204,6 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
     signal?: AbortSignal,
     images?: readonly ImageAttachment[],
   ): Promise<string>;
-  /**
-   * Run the Agent's rate-limit scheduler for this handle. The promise stays
-   * pending for the handle lifetime and is cancelled through `signal`.
-   */
-  startRateLimitMonitor(agent: AgentHandle, signal: AbortSignal): Promise<void>;
   /** Permanently invalidate every recovery recorded before a context change. */
   cancelPendingRateLimit(agent: AgentHandle): void;
   /**
