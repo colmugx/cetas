@@ -68,15 +68,12 @@ export interface ToolRenderer {
   ): Component;
 }
 
-/** Render-state record — tool name → renderer. */
 const REGISTRY: Record<string, ToolRenderer> = {};
 
-/** Register a renderer. Call once at module load. */
 export function registerToolRenderer(name: string, r: ToolRenderer): void {
   REGISTRY[name] = r;
 }
 
-/** Lookup: spec table first, then registered hook, then graceful fallback. */
 export function pickToolRenderer(name: string): ToolRenderer {
   const spec = TOOL_ROW_SPECS[name];
   if (spec) return specRenderer(spec);
@@ -111,7 +108,6 @@ export function argBool(args: unknown, key: string, defv = false): boolean {
   return defv;
 }
 
-/** Truncate a string for one-line preview. */
 export function truncateForPreview(s: string, max = 200): string {
   const oneLine = s.replace(/\n/g, " ");
   return oneLine.length > max ? oneLine.slice(0, max) + "…" : oneLine;
@@ -150,7 +146,6 @@ export function previewLines(s: string, maxLines = 3): string {
 /**
  * Traffic-light bullet for tool rows — one glyph family (●), colored by
  * state: amber while the tool runs, green on success, red on error.
- * Replaces the earlier →/✓/✗ arrow-and-emoji mix.
  */
 export function statusBullet(state: "running" | "success" | "error"): string {
   if (state === "success") return theme.success("●");
@@ -158,12 +153,10 @@ export function statusBullet(state: "running" | "success" | "error"): string {
   return theme.warning("●");
 }
 
-/** Bullet state for a call view: error-colored once the call failed. */
 export function callBullet(ctx: ToolRenderContext): string {
   return statusBullet(ctx.isError ? "error" : "running");
 }
 
-/** Bold tool-title prefix used by most renderers. */
 export function toolTitle(name: string): string {
   return theme.toolTitle(name);
 }
