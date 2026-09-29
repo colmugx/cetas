@@ -1,5 +1,5 @@
 ///|
-/// peer.mbt — the herdr peer envelope (cetas-headless-design §二 建联协议).
+/// peer.mbt — the herdr peer attribution envelope.
 ///
 /// A driver (herdr pane, script) prefixes a task line with the attribution
 /// envelope `[cetas-peer from=<pane> session=<id>] <task>`. The task text is
