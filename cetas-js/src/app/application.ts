@@ -1232,15 +1232,7 @@ export class CetasApplication<AgentHandle = unknown> {
       this.operations.clearRecoveryFollowUps();
       this.options.bridge.cancelPendingRateLimit(agent);
     }
-    let outcome: string;
-    try {
-      outcome = await this.options.bridge.invokeCommand(agent, id, argsJson);
-      if (switchesModel && commandOutcomeSucceeded(outcome)) {
-        this.operations.clearRecoveryFollowUps();
-      }
-    } finally {
-      // no scheduler restart: recovery runtime lives with the Agent task group.
-    }
+    const outcome = await this.options.bridge.invokeCommand(agent, id, argsJson);
     if (commandRequestsSetupRefresh(outcome)) {
       // Setup discovery is the serialization barrier while a refresh_settings
       // outcome rebuilds provider state. Avoid a re-entrant shutdown waiting on
