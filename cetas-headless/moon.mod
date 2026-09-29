@@ -1,7 +1,7 @@
 // cetas-headless — terminal-text-world cetas host (one-shot turn over stdio).
 //
 // Target: native. One invocation = one user turn; the task comes from argv
-// after `--` or from one stdin line. Clean stdout (2026-09-08): text modes
+// after `--` or from one stdin line. Text modes
 // put only the answer on stdout (one block, or deltas under --stream);
 // the session line, the completion marker, failures, and the process
 // event log ride stderr. Approval prompts and interactive UI requests
