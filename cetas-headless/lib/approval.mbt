@@ -2,7 +2,7 @@
 /// approval.mbt — the terminal approval source.
 ///
 /// Permission prompts travel over the /dev/tty bypass; stdin stays the pure
-/// task protocol. The decided mapping (cetas-headless-design §二):
+/// task protocol. Accepted input mapping:
 ///
 ///   y / 1 → AllowOnce        a / 2 → AllowSession
 ///   n / 3 / <empty> → Deny   s / 4 → Deny(reason="skipped")
