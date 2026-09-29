@@ -2,7 +2,7 @@
 """Unit tests for the live Memoh E2E harness helpers.
 
 These tests only protect the harness implementation. They are not a substitute
-for the real Memoh workspace E2E tracked in issue #25.
+for the real Memoh workspace E2E.
 """
 
 from __future__ import annotations
