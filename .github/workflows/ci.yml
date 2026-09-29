@@ -113,7 +113,9 @@ jobs:
       - name: moon info + interface drift gate
         working-directory: posoco/external/cetas/cetas-acp
         run: |
-          python3 ../scripts/prepare-recipe.py --flavor personal --frontend acp --platform unix
+          # Interface drift is checked against the public graph. The personal
+          # recipe intentionally includes native/js-only private integrations.
+          python3 ../scripts/prepare-recipe.py --flavor public --frontend acp --platform unix
           moon info
           git diff --exit-code -- . ../cetas-js ../cetas-core ../cetas-headless ../cetas-ext-forme
 
