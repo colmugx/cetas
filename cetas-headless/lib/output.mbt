@@ -1,5 +1,5 @@
 ///|
-/// output.mbt — the clean-stdout text faces (2026-09-08 stdout purity).
+/// output.mbt — the clean-stdout text faces.
 ///
 /// In text modes stdout carries ONLY the answer: the default face prints the
 /// final answer as one block (raw text, a single trailing newline, empty
