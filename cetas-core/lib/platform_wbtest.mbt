@@ -1,9 +1,4 @@
 ///|
-/// platform_wbtest.mbt — whitebox coverage for the relocated platform
-/// pieces: session-id minting, the host sidecar, provider settings parsing,
-/// and the platform assembly itself. Reuses the package's shared FakeFs.
-
-///|
 /// Silent warn sink with capture for assertions.
 fn tk_capturing_warn(sink : Array[String]) -> async (String) -> Unit noraise {
   fn(message : String) { sink.push(message) }
