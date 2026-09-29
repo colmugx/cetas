@@ -1,7 +1,4 @@
 ///|
-/// Contract coverage for the cetas-js-owned subagent composition.
-
-///|
 fn subagent_test_slot(
   id : String,
   model : &@posoco.ModelPort,
