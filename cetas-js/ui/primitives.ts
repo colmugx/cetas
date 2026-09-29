@@ -12,7 +12,6 @@ import { Box, Container, Spacer, Text, type Component } from "@earendil-works/pi
 import { theme } from "./theme.ts";
 import { wrapAssistantLines, wrapUserLines } from "./osc133.ts";
 
-/** Plain labelled text block. */
 export class Txt extends Text {
   constructor(text: string, paddingX = 1, paddingY = 0) {
     super(text, paddingX, paddingY);
@@ -43,37 +42,30 @@ export class AssistantReply extends Container {
   }
 }
 
-/** Error text, single line. */
 export function errorText(msg: string): Text {
   return new Text(theme.error("✗ ") + msg, 1, 0);
 }
 
-/** Info text, single line. */
 export function infoText(msg: string): Text {
   return new Text(theme.info("ℹ ") + msg, 1, 0);
 }
 
-/** Soft spacer (one blank line) — shorthand used in several layouts. */
 export function blankLine(): Spacer {
   return new Spacer(1);
 }
 
-/** Box with the "pending tool" background — for tool-call rows. */
 export function pendingToolBox(): Box {
   return new Box(1, 0, theme.toolPendingBg);
 }
 
-/** Box with the "tool error" background. */
 export function errorToolBox(): Box {
   return new Box(1, 0, theme.toolErrorBg);
 }
 
-/** Box with the "tool success" background. */
 export function successToolBox(): Box {
   return new Box(1, 0, theme.toolSuccessBg);
 }
 
-/** Single-line banner used at the top of transcript / on /help. */
 export function banner(title: string, subtitle?: string): Component[] {
   const lines: Component[] = [
     new Text(theme.brandBold(title), 1, 0),
