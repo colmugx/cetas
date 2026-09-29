@@ -48,7 +48,7 @@ The credential directory uses the canonical
 
 ## ACP surface
 
-V1 bootstrap advertises:
+The ACP runtime advertises:
 
 - image prompts;
 - embedded context;
@@ -58,9 +58,8 @@ V1 bootstrap advertises:
 A session is rejected unless the ACP client identifies itself as `memoh` and
 injects the Memoh Tools HTTP MCP server.
 
-Model/effort config options are added in the next iteration; this bootstrap
-uses the first configured Router slot and intentionally persists no active
-selection.
+The runtime uses the first configured Router slot and intentionally persists
+no active selection.
 
 ## License
 
