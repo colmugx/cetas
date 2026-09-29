@@ -37,7 +37,6 @@ export interface SessionEntry {
   title?: string;
 }
 
-/** Minimal shape of the bridge's session titles (`id` → `title`). */
 export interface SessionTitleLike {
   id: string;
   title: string;
@@ -205,7 +204,6 @@ class SessionsPanel implements Component {
   }
 }
 
-/** A focused pi-tui overlay that returns one session id to resume. */
 export class SessionsOverlay {
   private handle?: OverlayHandle;
   private panel?: SessionsPanel;
