@@ -89,9 +89,8 @@ describe("OAuth UI interaction", () => {
   });
 
   test("cancels on every terminal encoding of Escape/Enter (Kitty, numpad)", () => {
-    // Regression: OAuthPanel previously compared raw \u001b/\r/\n, so the
-    // "Press Esc to close" hint did nothing on Kitty-protocol terminals
-    // (ESC arrives as a CSI u sequence) and on numpad-enter terminals.
+    // Escape and Enter arrive in multiple terminal encodings, including
+    // Kitty CSI-u and numpad-enter sequences.
     const cases = [
       "\u001b", // legacy single-byte ESC
       "\u001b[27u", // Kitty protocol CSI u encoding of Escape
