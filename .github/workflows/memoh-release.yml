@@ -56,7 +56,9 @@ jobs:
 
       - name: memoh-update
         working-directory: posoco/external/cetas/cetas-memoh
-        run: moon update
+        run: |
+          python3 ../scripts/prepare-recipe.py --flavor public --frontend headless --platform unix
+          moon update
 
       - name: memoh-check
         working-directory: posoco/external/cetas/cetas-memoh
