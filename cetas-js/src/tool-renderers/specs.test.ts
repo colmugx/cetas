@@ -1,11 +1,4 @@
-/**
- * specs.test.ts — assertion coverage for the data-driven ToolRow engine.
- *
- * Renderers are invoked directly with a minimal ToolRenderContext; pi-tui
- * `Text.render(80)` output is ANSI-stripped for plain-text substring checks
- * (style assertions compare against the same theme functions, so they hold
- * whether or not chalk is color-enabled in the test environment).
- */
+/** Renderers are invoked directly; ANSI is stripped for plain-text checks. */
 
 import { describe, expect, test } from "bun:test";
 import { Text } from "@earendil-works/pi-tui";
