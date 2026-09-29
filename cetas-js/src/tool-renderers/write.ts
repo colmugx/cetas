@@ -24,7 +24,7 @@ import { writeSpec } from "./specs.ts";
 
 const TAIL_LINES = 3;
 
-/** Finalized call + result views: exactly the old writeSpec output. */
+/** Finalized call + result views produced by the shared write spec. */
 const spec = specRenderer(writeSpec);
 
 /** Last N physical lines of a (possibly still-growing) string. */
