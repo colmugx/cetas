@@ -6,7 +6,7 @@
  *   - per-tool-call-id ToolRow map
  *   - status indicator callbacks
  *
- * MODEL (2026-07-31):
+ * Streaming model:
  *   - The StreamingUIController owns step lifecycle + component creation via a
  *     StreamingComponentFactory wired here. Step boundaries are inferred from
  *     stream_chunk kind ordering inside the controller.
@@ -16,8 +16,7 @@
  *     best-effort reconciliation: if the current step already streamed content,
  *     it only finalizes + closes the step and NEVER re-renders. Only when no
  *     stream_chunks arrived at all (non-streaming provider) does it build
- *     components from the full message. This is the fix for Bug #2-b (replayed
- *     reasoning/text was rendered a second time).
+ *     components from the full message to avoid duplicate replay rendering.
  */
 
 import { type Component } from "@earendil-works/pi-tui";
@@ -100,8 +99,7 @@ export class EventRouter {
         this.toolStream?.onArgsDelta(ev.index, ev.id, ev.name, ev.delta);
         break;
       case "tool_call_completed": {
-        // TUI surfaces media as text chips; real pixel rendering belongs to
-        // the future desktop host.
+        // The terminal UI represents media attachments as compact text chips.
         const chips = (ev.images ?? [])
           .map((img) => `\n🖼 ${img.media_type} ~${Math.ceil((img.data.length * 3) / 4 / 1024)} KB`)
           .join("");
@@ -125,7 +123,6 @@ export class EventRouter {
         this.cb.onSessionRedirect?.(ev.from, ev.to);
         break;
       case "model_invoked":
-        // Token-usage surfacing is a future enhancement.
         break;
       case "custom":
         this.cb.addTranscriptChild(
@@ -168,14 +165,14 @@ export class EventRouter {
    * Best-effort reconciliation for the post-hoc `message_end` replay.
    *
    * `message_end` is NOT a live per-step signal in this bridge — the pump
-   * reconstructs the final transcript after it finishes (agent_puppet.mbt
-   * step 7) and replays one `message_end` per AssistantMessage. By the time it
+   * reconstructs the final transcript after it finishes and replays one
+   * `message_end` per AssistantMessage. By the time it
    * arrives, streaming has usually already rendered that message's content.
    *
    * Two paths:
    *   A. Streaming happened this turn (any stream_chunk arrived) → reconcile
    *      only: finalize + close the current step. NEVER re-render (would
-   *      duplicate reasoning/text — Bug #2-b). This gate is turn-scoped, not
+   *      duplicate reasoning/text). This gate is turn-scoped, not
    *      step-scoped, because step-boundary detection may have already closed
    *      the step before the replay arrives.
    *   B. No stream_chunks arrived at all this turn (non-streaming provider) →
