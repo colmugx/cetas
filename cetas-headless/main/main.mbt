@@ -7,8 +7,8 @@
 /// `--session <id>` mints a fresh session; the id is printed as a
 /// `session: <id>` line on STDERR before the turn (or carried by the
 /// `turn_started` event under `--jsonl`) so drivers can continue the
-/// conversation by re-invoking with `--session`. stdout purity
-/// (2026-09-08): in text modes stdout carries ONLY the answer — one block
+/// conversation by re-invoking with `--session`. In text modes stdout carries
+/// ONLY the answer — one block
 /// by default, text deltas under `--stream`; the marker line
 /// (`[cetas-headless] turn 1 done`, also for failed turns), the failure
 /// line, warnings, and approval/tty prompts all ride stderr.
