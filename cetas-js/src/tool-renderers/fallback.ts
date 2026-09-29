@@ -1,8 +1,4 @@
-/**
- * fallback.ts — generic tool renderer used when no specific renderer is
- * registered. Shows the tool label, args as JSON, and (on completion) a
- * multi-line preview of the result — `structured.summary` when present.
- */
+/** Generic renderer used when no tool-specific renderer is registered. */
 
 import { Text } from "@earendil-works/pi-tui";
 import { theme } from "../../ui/theme.ts";
@@ -41,5 +37,4 @@ export const fallbackRenderer: ToolRenderer = {
   },
 };
 
-// Re-export so host can `import { fallbackRenderer } from "./fallback"`.
 export { theme };
