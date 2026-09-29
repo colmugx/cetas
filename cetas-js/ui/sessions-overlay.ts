@@ -45,8 +45,7 @@ export interface SessionTitleLike {
 
 /**
  * Merge bridge titles onto listed entries by id. Pure and sync so the picker
- * stays trivially testable; ids without a title (old files, fetch failure)
- * keep the id-based label.
+ * stays trivially testable; entries without a title keep the id-based label.
  */
 export function applySessionTitles(
   entries: readonly SessionEntry[],
