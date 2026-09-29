@@ -73,6 +73,21 @@ The harness never prints the bearer token and redacts common authorization,
 session-token, access-token, and refresh-token shapes from HTTP error bodies.
 It does not modify durable bot configuration.
 
+### GitHub Actions manual dispatch
+
+The repository also provides the manually triggered **Memoh live E2E preflight**
+workflow. Configure these repository secrets before running it:
+
+- `MEMOH_API_URL` — required; include the `/api` prefix.
+- `MEMOH_TOKEN` — required bearer token.
+- `MEMOH_BOT_ID` — required bot already configured with the generic `acp` agent.
+- `MEMOH_PROJECT_PATH` — optional project path.
+
+The workflow only runs via `workflow_dispatch`; normal pushes and pull requests
+never contact a live Memoh deployment or receive these secrets. The dispatch UI
+also exposes an `exercise_controls` boolean input for the optional model/effort
+PATCH checks.
+
 ## 3. Finish the UI/tool E2E manually
 
 The preflight above is deliberately not claimed as full E2E. Complete these
