@@ -11,3 +11,10 @@ import {
 pkgtype(kind: "executable")
 
 supported_targets = "+native +wasm"
+
+options(
+  targets: {
+    "exit.native.mbt": [ "native" ],
+    "exit.wasm.mbt": [ "wasm" ],
+  },
+)
