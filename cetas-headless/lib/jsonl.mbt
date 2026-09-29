@@ -101,9 +101,7 @@ fn JsonlObserver::push_tool_result(
 
 ///|
 pub struct JsonlObserver {
-  /// Current headless turn number, set by the loop before each run.
   mut turn : Int
-  /// Session attribution for turn_started lines, set with the turn number.
   mut session_id : String
   /// Per-turn usage window (reset at begin_turn), BridgeObserver pattern.
   mut turns_completed : Int

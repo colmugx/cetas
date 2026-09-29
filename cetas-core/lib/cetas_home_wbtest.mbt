@@ -33,9 +33,8 @@ test "sidecar_path rejects ids that cannot be filename stems" {
 }
 
 ///|
-/// The platform contract `cetas_home`'s chain rests on, pinned over injected
-/// values: the resolution core is pure, so this needs no process env (the
-/// former `cetas_home()` smoke test read the real environment).
+/// The platform contract `cetas_home` rests on, pinned over injected values.
+/// The resolution core is pure, so the test needs no process environment.
 test "home resolution keeps the platform contract over injected env" {
   // Unix: HOME.
   assert_eq(

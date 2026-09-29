@@ -41,7 +41,6 @@ export interface EventRouterCallbacks {
   setStatus(kind: "working" | "retry" | "compaction" | "idle", message?: string): void;
   /** Force pi-tui to re-render. */
   requestRender(): void;
-  /** Current working dir — used as ToolRow context. */
   cwd: string;
   /** Display label for a tool (e.g. `ext:name`); bare name when unknown. */
   toolLabel(toolName: string): string;
