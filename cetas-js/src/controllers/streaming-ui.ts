@@ -13,12 +13,9 @@
  *     post-hoc replay in this bridge (agent_puppet.mbt:456-535), not a live
  *     per-step signal.
  *
- * This model fixes two bugs the old "one thinking + one text slot per TURN"
- * design had:
- *   - Bug #1: reasoning arriving after a tool call overwrote the previous
- *     step's ThinkingComponent instead of opening a new block.
- *   - Bug #2-b: the post-hoc `message_end` replay re-rendered reasoning + text
- *     that streaming had already shown.
+ * The step model prevents reasoning after a tool call from overwriting the
+ * previous ThinkingComponent, and prevents post-hoc `message_end` replay from
+ * re-rendering reasoning or text that streaming already showed.
  */
 
 import { type Component } from "@earendil-works/pi-tui";
