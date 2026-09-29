@@ -52,7 +52,7 @@ warnings = "-unused_package"
 // nowledge-mem/plan/mcp precedent: restricted-target packages carry no
 // pkg.generated.mbti.
 
-supported_targets = "+native +js"
+supported_targets = "+native +js +wasm"
 
 // Compiles the flavor table into the build: sh ../scripts/gen-build-config.sh
 // (cwd is the module root) reads ../flavors.tsv under CETAS_FLAVOR
