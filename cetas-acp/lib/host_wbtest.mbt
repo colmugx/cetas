@@ -335,6 +335,7 @@ fn tk_spawn_session(
         in_flight: None,
         turn_lock: @async.Mutex::Mutex(),
         last_mode_id: "default",
+        scope_close: None,
       })
     } catch {
       error => Err(error.to_string())
@@ -483,6 +484,7 @@ fn tk_spawn_session_plan(
         in_flight: None,
         turn_lock: @async.Mutex::Mutex(),
         last_mode_id: "default",
+        scope_close: None,
       })
     } catch {
       error => Err(error.to_string())
@@ -2119,14 +2121,32 @@ async test "a session assembles over the platform task group and retires inside 
     ) catch {
       error => fail("platform assembly must succeed: " + error.to_string())
     }
-    let handle = build_session_agent(platform~, cwd="/", env=tk_no_env) catch {
+    let handle = build_session_agent(
+      platform~,
+      cwd="/",
+      session_id="scope-session",
+      env=tk_no_env,
+    ) catch {
       error => fail("session assembly must succeed: " + error.to_string())
     }
     assert_eq(handle.cwd, "/")
-    // Retire before scope close: the nmem flusher stops via on_shutdown, not group cancel.
+    assert_true(handle.scope_close is Some(_))
+    // Publication waits until run_scoped owns the task capability. A nested
+    // scope attempt must therefore reject as already active.
+    let nested : Result[Unit, Error] = Ok(
+      handle.agent.run_scoped(fn(_agent) { () }),
+    ) catch {
+      error => Err(error)
+    }
+    match nested {
+      Err(error) =>
+        assert_true(error.to_string().contains("task scope is already active"))
+      Ok(_) => fail("ACP session must already own its Agent task scope")
+    }
     handle.agent.shutdown() catch {
       error => fail("session shutdown must succeed: " + error.to_string())
     }
+    handle.release_agent_scope()
   })
 }
 
@@ -2146,6 +2166,7 @@ async test "the production session assembly always carries nowledge mem" {
   let handle = build_session_agent(platform~, cwd="/", env=tk_no_env) catch {
     error => fail("session assembly must succeed: " + error.to_string())
   }
+  assert_true(handle.scope_close is None)
   // nmem's tools fold behind the lazytools gateway, so the command surface
   // is the cheap observable: nmem is the only default extension registering
   // the `memory` / `nmem` commands.
@@ -3947,6 +3968,7 @@ fn tk_spawn_session_plan_noreview(
         in_flight: None,
         turn_lock: @async.Mutex::Mutex(),
         last_mode_id: "default",
+        scope_close: None,
       })
     } catch {
       error => Err(error.to_string())
