@@ -213,8 +213,8 @@ describe("UiRenderHost", () => {
     expect(lines).toHaveLength(1);
     const line = lines[0]!;
     // Every segment is a muted `key:` label plus its value; the role-less
-    // first value keeps the legacy bold treatment. Assertions recompose the
-    // expected fragments from the theme so they hold at any chalk level.
+    // first value stays bold. Assertions use the theme helpers so they hold
+    // at any chalk level.
     expect(line).toContain(`${theme.muted("model:")} ${theme.bold("deepseek-v4-pro")}`);
     expect(line).toContain(`${theme.muted("effort:")} high`);
     expect(line).toContain(`${theme.muted("tok:")} 10↑ 2↓`);
