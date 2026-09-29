@@ -69,6 +69,18 @@ temporary runtime:
 python3 scripts/memoh_live_e2e.py --exercise-controls
 ```
 
+To verify cross-session model isolation, start two real runtimes for the same
+bot and force them onto two different shared model IDs:
+
+```sh
+python3 scripts/memoh_live_e2e.py --exercise-concurrency
+```
+
+This mode fails unless both runtimes expose at least two common models. It PATCHes
+different model IDs into the two runtimes, reads both statuses back, and fails
+if either runtime changed to the other's model. Both temporary runtimes are
+deleted on exit unless `--keep-runtime` is supplied.
+
 The harness never prints the bearer token and redacts common authorization,
 session-token, access-token, and refresh-token shapes from HTTP error bodies.
 It does not modify durable bot configuration.
@@ -90,7 +102,8 @@ scenarios in a real Memoh conversation:
 - cancellation settling as ACP `cancelled`,
 - session close,
 - process restart continuity,
-- two concurrent sessions using different models.
+- two concurrent conversation sessions using different models after the API-level
+  `--exercise-concurrency` preflight has passed.
 
 During the same run:
 
