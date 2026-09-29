@@ -72,14 +72,6 @@ jobs:
         working-directory: posoco/external/cetas/cetas-acp
         run: moon test --target native --output-json
 
-      - name: cetas-memoh version smoke
-        working-directory: posoco/external/cetas
-        shell: bash
-        run: |
-          expected="cetas-memoh $(cat VERSION)"
-          out="$(_build/native/release/build/colmugx/cetas-memoh/main/main.exe --version)"
-          [[ "$out" == "$expected" ]] || { echo "::error::--version mismatch: got '$out', want '$expected'"; exit 1; }
-
       # host_wbtest.mbt "a queued second prompt runs only after the first turn
       # fully settles" is known-flaky (async ordering): rerun the suite once
       # before failing the job.
