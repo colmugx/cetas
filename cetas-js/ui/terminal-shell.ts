@@ -785,9 +785,8 @@ export class TerminalShell {
 
   private clearCommandStatus(): void {
     // The command is over; its label must not outlive it. While an operation
-    // is still running, the shared spinner returns to the turn's status
-    // (issue #2: a stuck "running /permission" over a live turn read as a
-    // hung command); only a settled app clears the line entirely.
+    // is still running, the shared spinner returns to the turn's status; only
+    // a settled app clears the line entirely.
     if (this.operationBusy) {
       const restore = this.turnStatusMessage ?? "working";
       this.statusLoader.setMessage(restore);
