@@ -113,7 +113,8 @@ jobs:
       - name: moon info + interface drift gate
         working-directory: posoco/external/cetas/cetas-acp
         run: |
-          python3 ../scripts/prepare-recipe.py --flavor personal --frontend acp --platform unix
+          # The preceding moon fmt step already prepared personal/acp/unix.
+          # Re-running prepare-recipe here would rewrite formatted moon.pkg files.
           moon info --target native -p colmugx/cetas-acp/lib
           moon info --target native -p colmugx/cetas-acp/main
           moon info --target native -p colmugx/cetas-headless/lib
