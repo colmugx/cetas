@@ -4,8 +4,8 @@
  * Lists the JSONL transcript files under the project sessions directory and
  * returns the chosen session id — the host then repoints the application at
  * it (`setSession`). The overlay reads nothing from the files beyond stat
- * metadata; replaying history into the transcript is out of scope (the
- * session store already feeds the model its context on the next turn).
+ * metadata. Selecting a session changes the active session; transcript
+ * history remains on disk and is not rendered into the current UI.
  */
 
 import { existsSync, readdirSync, statSync } from "node:fs";
