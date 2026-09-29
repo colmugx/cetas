@@ -25,7 +25,6 @@ import type { CetasEvent } from "../events.ts";
 // tests. We mostly drive synchronous flushes via end()/closeStep().
 const FAST_FLUSH_MS = 1;
 
-/** Build a real transcript + fake callbacks for EventRouter integration. */
 function makeTranscriptHarness() {
   const transcript = new Container();
   const statusCalls: Array<{ kind: string; message?: string }> = [];
@@ -43,7 +42,6 @@ function makeTranscriptHarness() {
   return { transcript, statusCalls, renderCalls, callbacks };
 }
 
-/** Build a StreamingUIController wired to a real transcript Container. */
 function makeController(transcript: Container) {
   const factory: StreamingComponentFactory = {
     createThinking: () => {
@@ -69,12 +67,10 @@ function makeController(transcript: Container) {
   return { controller, renders };
 }
 
-/** Count direct children of a given component type in a transcript. */
 function countChildren(transcript: Container, ctor: Function): number {
   return transcript.children.filter((c) => c instanceof ctor).length;
 }
 
-/** Helper: build a CetasEvent from a raw object, asserting it parsed. */
 function ev(raw: object): CetasEvent {
   const parsed = parseCetasEvent(raw);
   if (parsed === null) throw new Error(`failed to parse event: ${JSON.stringify(raw)}`);
@@ -125,7 +121,7 @@ describe("StreamingUIController — step-block model", () => {
     expect(rendered).toContain("B-answer");
   });
 
-  test("Bug #1 without explicit closeStep: controller detects boundary internally", () => {
+  test("without explicit closeStep the controller detects the boundary internally", () => {
     // Mirrors reality: no message_end between steps; the controller must infer
     // the step boundary from the text→reasoning transition alone.
     const { transcript } = makeTranscriptHarness();
