@@ -39,8 +39,8 @@ pub fn JsCallbackObserver::JsCallbackObserver(
 
 ///|
 /// Convert a Content block to its JSON wire form: `{type:"text",text}` or
-/// `{type:"image",url,mime}`. The UI only consumes the text form today;
-/// image blocks pass through for future renderers.
+/// `{type:"image",url,mime}`. Image blocks stay intact on the wire even when
+/// a renderer chooses not to display them.
 fn content_to_json(c : @posoco.Content) -> Json {
   match c {
     @posoco.Content::Text(t) =>
@@ -533,8 +533,8 @@ pub extend JsCallbackObserver with @posoco.Observer::{on_event, on_event_at}
 ///|
 /// AuthInteraction adapter for MCP server login: device codes, login URLs,
 /// and progress surface as observer Custom events (source "cetas-js.mcp") so
-/// the TS host renders them through the normal event channel. v1 has no
-/// mid-flow cancel.
+/// the TS host renders them through the normal event channel. This adapter
+/// exposes no mid-flow cancellation callback.
 struct JsMcpAuthInteraction {
   observer : JsCallbackObserver
 }
