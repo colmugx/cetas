@@ -77,6 +77,10 @@ jobs:
         working-directory: posoco/external/cetas/cetas-acp
         run: moon check --target native --deny-warn --output-json
 
+      - name: moon check (headless wasm, deny warnings)
+        working-directory: posoco/external/cetas/cetas-headless
+        run: moon check --target wasm --deny-warn --output-json
+
       - name: moon test (native)
         id: test
         working-directory: posoco/external/cetas/cetas-acp
