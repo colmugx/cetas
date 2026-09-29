@@ -55,6 +55,10 @@ jobs:
         working-directory: posoco/external/cetas
         run: python3 -m unittest scripts/test_npm_stage.py
 
+      - name: Memoh live harness unit tests
+        working-directory: posoco/external/cetas
+        run: python3 -m unittest scripts/test_memoh_live_e2e.py
+
       - name: moon update
         working-directory: posoco/external/cetas/cetas-acp
         run: moon update
