@@ -1215,7 +1215,6 @@ async fn[X] run_agent_group_session(
   compose~ : async (@async.TaskGroup[Unit]) -> X,
   serve~ : async (X) -> Result[Unit, Error],
 ) -> Unit {
-  // TODO: unused
   close |> ignore
   @async.with_task_group(async fn(group) {
     let handle = compose(group)
