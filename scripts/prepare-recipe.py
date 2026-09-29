@@ -32,11 +32,17 @@ CASES = {
           @astgrep.AstGrepTools(anchor=Some(anchor)) as &@posoco.Extension,
         )''',
     "bash": '''      "bash" =>
-        exts.push(@bash.ShellTools(anchor=Some(anchor)) as &@posoco.Extension)''',
+        if compiled_target_os() == "unix" {
+          exts.push(
+            @bash.ShellTools(anchor=Some(anchor)) as &@posoco.Extension,
+          )
+        }''',
     "ps1": '''      "ps1" =>
-        episodic.push(
-          @ps1.PowerShellTools(anchor=Some(anchor)) as &@posoco.Extension,
-        )''',
+        if compiled_target_os() == "windows" {
+          episodic.push(
+            @ps1.PowerShellTools(anchor=Some(anchor)) as &@posoco.Extension,
+          )
+        }''',
     "webfetch": '''      "webfetch" =>
         episodic.push(@webfetch.WebFetchTools() as &@posoco.Extension)''',
     "skills": '''      "skills" => {
