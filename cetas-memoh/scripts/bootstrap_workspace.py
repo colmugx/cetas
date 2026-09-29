@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare the temporary cetas-memoh development workspace.
-
-posoco-extension modules used by cetas-memoh are not yet published to the
-Moon registry. Pin their source revision locally until they are publishable.
-"""
+"""Prepare the temporary standalone cetas-memoh workspace."""
 
 from __future__ import annotations
 
@@ -17,7 +13,34 @@ EXTENSION = DEPS / "posoco-extension"
 REV_FILE = ROOT / "EXTENSION_REV"
 WORK_FILE = ROOT / "moon.work"
 REMOTE = "https://github.com/colmugx/posoco-extension.git"
-MEMBER = re.compile(r'^\s*"\./([^"]+)"')
+
+# Minimal source-module closure required by cetas-memoh. Do not import the
+# extension repository's full moon.work: unrelated modules must not participate
+# in Memoh CI/release.
+MEMBERS = (
+    "posoco-devkit",
+    "posoco-ext-acp",
+    "posoco-ext-memoh",
+    "posoco-ext-mcp",
+    "posoco-ext-llm",
+    "posoco-ext-credentials",
+    "posoco-ext-oauth",
+    "posoco-ext-workspace",
+    "posoco-ext-permission",
+    "posoco-ext-lazytools",
+    "posoco-ext-deepseek",
+    "posoco-ext-kimi",
+    "posoco-ext-openai",
+    "posoco-ext-openai-compatible",
+    "posoco-ext-opencode-zen",
+    "posoco-ext-openrouter",
+    "posoco-ext-zai",
+    "posoco-ext-zai-coding-plan",
+    "posoco-kit-chat-completions",
+    "posoco-kit-compact-evict",
+    "posoco-kit-compact-summary",
+    "posoco-kit-responses",
+)
 
 
 def run(*args: str, cwd: Path | None = None) -> None:
@@ -35,24 +58,20 @@ def main() -> None:
     run("git", "fetch", "--depth=1", "origin", rev, cwd=EXTENSION)
     run("git", "checkout", "--detach", rev, cwd=EXTENSION)
 
-    source = (EXTENSION / "moon.work").read_text().splitlines()
-    members = []
-    for line in source:
-        match = MEMBER.match(line)
-        if match:
-            members.append(
-                f'  "./.deps/posoco-extension/{match.group(1)}",'
-            )
-    if not members:
-        raise SystemExit("posoco-extension/moon.work contained no members")
+    missing = [name for name in MEMBERS if not (EXTENSION / name / "moon.mod").is_file()]
+    if missing:
+        raise SystemExit("missing pinned extension modules: " + ", ".join(missing))
 
-    WORK_FILE.write_text(
-        "members = [\n"
-        '  ".",\n'
-        + "\n".join(members)
-        + "\n]\n"
+    members = ['  ".",']
+    members.extend(
+        f'  "./.deps/posoco-extension/{name}",'
+        for name in MEMBERS
     )
-    print(f"prepared cetas-memoh workspace with posoco-extension {rev}")
+    WORK_FILE.write_text("members = [\n" + "\n".join(members) + "\n]\n")
+    print(
+        "prepared cetas-memoh workspace with posoco-extension "
+        f"{rev} ({len(MEMBERS)} modules)"
+    )
 
 
 if __name__ == "__main__":
