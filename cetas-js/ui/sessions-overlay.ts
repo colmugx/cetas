@@ -28,7 +28,6 @@ export interface SessionEntry {
   /** File mtime; ids are timestamp-prefixed so this tracks conversation time. */
   modifiedAt: Date;
   sizeBytes: number;
-  /** True for the session the application currently writes to. */
   current: boolean;
   /**
    * Display title (MoonBit `display_title`): the user-chosen name or a
