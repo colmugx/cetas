@@ -1,6 +1,3 @@
-///|
-/// tty_wbtest.mbt — /dev/tty behavior and live round-trip coverage.
-///
 /// Hermetic contract: the automated probes below touch the real /dev/tty only
 /// to open it. Write/read I/O over a real terminal lands on the user's screen
 /// (and a read blocks it), so that half lives exclusively in the env-gated
