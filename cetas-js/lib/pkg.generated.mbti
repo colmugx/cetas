@@ -4,9 +4,9 @@ package "colmugx/cetas-js/lib"
 import {
   "colmugx/posoco",
   "colmugx/posoco-ext-fs-session",
-  "colmugx/posoco-ext-llm",
+  "posoco/ext-llm",
   "colmugx/posoco-ext-mcp",
-  "colmugx/posoco-ext-oauth",
+  "posoco/ext-oauth",
   "colmugx/posoco-ext-permission",
   "colmugx/posoco-ext-pi-adaptor",
   "colmugx/posoco-ext-plan",

@@ -28,7 +28,7 @@ fn subagent_test_composer(router : @llm.RouterModelPort) -> CetasChildComposer {
 ///|
 fn subagent_test_spec(
   slot : String,
-  tools : Array[String],
+  tools : Array[String]?,
 ) -> @subagent.ChildSpec {
   {
     task: "inspect the workspace",
@@ -58,7 +58,7 @@ async test "subagent child sees only requested core tools and never agent" {
   let composer = subagent_test_composer(router)
   let child = @subagent.ChildComposer::compose(
     composer,
-    subagent_test_spec("test/a", ["read", "glob", "grep"]),
+    subagent_test_spec("test/a", Some(["read", "glob", "grep"])),
   )
   ignore(
     child.run_scoped(async fn(agent) {
@@ -86,7 +86,10 @@ async test "subagent child model selection does not mutate parent router" {
   )
   let composer = subagent_test_composer(router)
   ignore(
-    @subagent.ChildComposer::compose(composer, subagent_test_spec("test/b", [])),
+    @subagent.ChildComposer::compose(
+      composer,
+      subagent_test_spec("test/b", Some([])),
+    ),
   )
   assert_eq(router.active_slot_id(), "test/a")
   assert_true(router.active_effort() is None)
@@ -103,7 +106,7 @@ async test "subagent composer rejects recursive agent tool even in malformed spe
   let result : Result[@posoco.Agent, @subagent.ComposerError] = Ok(
     @subagent.ChildComposer::compose(
       composer,
-      subagent_test_spec("test/a", ["agent"]),
+      subagent_test_spec("test/a", Some(["agent"])),
     ),
   ) catch {
     error => Err(error)
@@ -213,30 +216,42 @@ test "resolve_child_mode applies the live parent posture" {
 }
 
 ///|
-test "subagent_config_from_settings_json_defaults_without_section" {
-  let config = subagent_config_from_settings_json(
+test "subagent_settings_from_json_defaults_without_section" {
+  let (config, kinds) = subagent_settings_from_json(
     "{\"providers\": {}, \"model\": \"zai/glm\"}",
   )
-  assert_true(config.models.is_empty())
-  assert_true(config.default_slot is None)
+  assert_true(config.default_model is None)
+  assert_true(config.default_effort is None)
+  assert_eq(kinds.length(), 0)
 }
 
 ///|
-test "subagent_config_from_settings_json_parses_the_section" {
-  let config = subagent_config_from_settings_json(
-    "{\"providers\": {}, \"subagent\": {\"models\": [{\"slot\": \"kimi/k2\", \"efforts\": [\"low\", \"high\"], \"default_effort\": \"low\"}], \"default_slot\": \"kimi/k2\"}}",
+test "subagent_settings_from_json_parses_defaults_and_kinds" {
+  let (config, kinds) = subagent_settings_from_json(
+    (
+      #|{"providers": {}, "subagent": {
+      #|  "default_model": "mtplx/local", "default_effort": "low",
+      #|  "kinds": [{"name": "news_search", "description": "Content retrieval",
+      #|            "model": "deepseek/deepseek-flash", "effort": "high"}]}}
+    ),
   )
-  assert_eq(config.models.length(), 1)
-  assert_eq(config.models[0].slot, "kimi/k2")
-  assert_eq(config.default_slot, Some("kimi/k2"))
-  assert_eq(config.models[0].default_effort, Some("low"))
+  assert_eq(config.default_model, Some("mtplx/local"))
+  assert_eq(config.default_effort, Some("low"))
+  assert_eq(kinds.length(), 1)
+  assert_eq(kinds[0].name, "news_search")
+  assert_eq(kinds[0].model, Some("deepseek/deepseek-flash"))
+  // Body omitted → the generic template carries the fill-in slot.
+  assert_true(kinds[0].body.contains("{{instructions}}"))
 }
 
 ///|
-test "subagent_config_from_settings_json_rejects_bad_section" {
-  let outcome : Result[@subagent_kit.SubagentConfig, @posoco.CompositionError] = Ok(
-    subagent_config_from_settings_json(
-      "{\"subagent\": {\"models\": [{\"slot\": \"\"}]}}",
+test "subagent_settings_from_json_rejects_bad_kind_entry" {
+  let outcome : Result[
+    (@subagent_kit.SubagentConfig, Array[@kind.KindSpec]),
+    @posoco.CompositionError,
+  ] = Ok(
+    subagent_settings_from_json(
+      "{\"subagent\": {\"kinds\": [{\"name\": \"x\"}]}}",
     ),
   ) catch {
     error => Err(error)
@@ -244,6 +259,6 @@ test "subagent_config_from_settings_json_rejects_bad_section" {
   match outcome {
     Err(error) =>
       assert_true(error.to_string().contains("must be a non-empty string"))
-    _ => fail("expected the subagent section to be rejected")
+    _ => fail("expected the subagent kinds entry to be rejected")
   }
 }

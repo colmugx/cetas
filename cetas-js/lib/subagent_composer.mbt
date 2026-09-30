@@ -12,21 +12,29 @@
 async fn load_cetas_subagent_catalog(
   home~ : String,
   cwd~ : String,
+  extra? : Array[@kind.KindSpec] = [],
 ) -> @kind.KindCatalog noraise {
-  // Kind overlays are optional product configuration: an IO failure must not
-  // disable the builtin delegation surface.
-  let loaded = @kind.KindCatalog::load(home~, cwd~) catch {
+  // On-disk overlays stay optional product configuration: an IO failure must
+  // not disable the builtin delegation surface. Settings-carried kinds, by
+  // contrast, are validated upstream (load_cetas_subagent_settings).
+  let loaded = @kind.KindCatalog::load(home~, cwd~, extra~) catch {
     _ => @kind.KindCatalog::builtin()
   }
   let entries : Array[@kind.KindSpec] = []
   for name in loaded.names() {
     match loaded.get(name) {
       Some(spec) => {
-        let tools : Array[String] = []
-        for tool in spec.tools {
-          let canonical = @cetas_core.canonical_cetas_tool_name(tool)
-          if !tools.contains(canonical) {
-            tools.push(canonical)
+        let tools : Array[String]? = match spec.tools {
+          None => None
+          Some(list) => {
+            let canonical : Array[String] = []
+            for tool in list {
+              let name = @cetas_core.canonical_cetas_tool_name(tool)
+              if !canonical.contains(name) {
+                canonical.push(name)
+              }
+            }
+            Some(canonical)
           }
         }
         entries.push({ ..spec, tools, })
@@ -241,14 +249,15 @@ async fn CetasChildComposer::skills_extension(
 }
 
 ///|
-/// Extract and parse the `subagent` section from settings.json text. Absent
-/// section → defaults (inheritance mode). A present-but-invalid section is a
-/// hard error, matching the provider-settings precedent: user-authored config
-/// must fail loudly instead of silently switching subagents back to
-/// inheritance.
-fn subagent_config_from_settings_json(
+/// Extract the `subagent` section from settings.json text into the config
+/// (default_model/default_effort/limits) plus the settings-carried kinds.
+/// Absent section → defaults and no extra kinds. A present-but-invalid
+/// section is a hard error, matching the provider-settings precedent:
+/// user-authored config must fail loudly instead of silently switching
+/// subagents back to inheritance.
+fn subagent_settings_from_json(
   text : String,
-) -> @subagent_kit.SubagentConfig raise @posoco.CompositionError {
+) -> (@subagent_kit.SubagentConfig, Array[@kind.KindSpec]) raise @posoco.CompositionError {
   let json = @json.parse(text) catch {
     _ =>
       raise @posoco.CompositionError::ManifestSchemaError(
@@ -264,30 +273,63 @@ fn subagent_config_from_settings_json(
         detail=".cetas/settings.json must be an object",
       )
   }
-  match section {
-    None => @subagent_kit.SubagentConfig::defaults()
-    Some(value) =>
-      @subagent_kit.parse_subagent_config(value.stringify()) catch {
-        @subagent_kit.SubagentConfigError::Invalid(message) =>
+  let section = match section {
+    None => return (@subagent_kit.SubagentConfig::defaults(), [])
+    Some(section) => section
+  }
+  let config = @subagent_kit.parse_subagent_config(section.stringify()) catch {
+    @subagent_kit.SubagentConfigError::Invalid(message) =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id="cetas-js.subagent",
+        detail="settings.subagent: \{message}",
+      )
+    @subagent_kit.SubagentConfigError::Malformed(message) =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id="cetas-js.subagent",
+        detail="settings.subagent: \{message}",
+      )
+  }
+  let kinds : Array[@kind.KindSpec] = match section {
+    Json::Object(fields) =>
+      match fields.get("kinds") {
+        None => []
+        Some(Json::Array(items)) => {
+          let out : Array[@kind.KindSpec] = []
+          for item in items {
+            let spec : @kind.KindSpec = @kind.kind_spec_from_json(item) catch {
+              @kind.KindError::InvalidKindFile(reason) =>
+                raise @posoco.CompositionError::ManifestSchemaError(
+                  manifest_id="cetas-js.subagent",
+                  detail="settings.subagent.kinds: \{reason}",
+                )
+              @kind.KindError::DuplicateKind(_) =>
+                raise @posoco.CompositionError::ManifestSchemaError(
+                  manifest_id="cetas-js.subagent",
+                  detail="settings.subagent.kinds: duplicate kind name",
+                )
+            }
+            out.push(spec)
+          }
+          out
+        }
+        Some(Json::Null) => []
+        Some(_) =>
           raise @posoco.CompositionError::ManifestSchemaError(
             manifest_id="cetas-js.subagent",
-            detail="settings.subagent: \{message}",
-          )
-        @subagent_kit.SubagentConfigError::Malformed(message) =>
-          raise @posoco.CompositionError::ManifestSchemaError(
-            manifest_id="cetas-js.subagent",
-            detail="settings.subagent: \{message}",
+            detail="settings.subagent.kinds must be an array",
           )
       }
+    _ => []
   }
+  (config, kinds)
 }
 
 ///|
-/// Load the subagent range config from the user's settings.json. Read
-/// failures are hard errors for the same reason as the provider settings.
-async fn load_cetas_subagent_config(
+/// Load the subagent settings from the user's settings.json. Read failures
+/// are hard errors for the same reason as the provider settings.
+async fn load_cetas_subagent_settings(
   home~ : String,
-) -> @subagent_kit.SubagentConfig raise @posoco.CompositionError {
+) -> (@subagent_kit.SubagentConfig, Array[@kind.KindSpec]) raise @posoco.CompositionError {
   let settings_path = home + "/.cetas/settings.json"
   let text = match
     @workspace.read_file_result(@workspace.JsWorkspaceFs(), settings_path) {
@@ -299,7 +341,7 @@ async fn load_cetas_subagent_config(
       )
     Content(text) => text
   }
-  subagent_config_from_settings_json(text)
+  subagent_settings_from_json(text)
 }
 
 ///|
@@ -313,7 +355,7 @@ async fn build_cetas_subagents(
   cwd~ : String,
   home~ : String,
 ) -> &@posoco.Extension raise @posoco.CompositionError {
-  let config = load_cetas_subagent_config(home~)
+  let (config, extra_kinds) = load_cetas_subagent_settings(home~)
   let composer = CetasChildComposer::CetasChildComposer(
     parent_router~,
     parent_mode~,
@@ -325,7 +367,7 @@ async fn build_cetas_subagents(
     home~,
   )
   let tools = @subagent.SubagentTools::SubagentTools(
-    catalog=load_cetas_subagent_catalog(home~, cwd~),
+    catalog=load_cetas_subagent_catalog(home~, cwd~, extra=extra_kinds),
     config~,
     composer=composer as &@subagent.ChildComposer,
     parent_slot=parent_router.active_slot_id(),
@@ -401,7 +443,13 @@ impl @subagent.ChildComposer for CetasChildComposer with fn compose(
     None => ()
   }
 
-  for ext in self.tool_extensions(spec.tools) {
+  // None = the kind omitted its tool face: inherit the host default core
+  // face (delegation tools are not part of it — depth 1 stays structural).
+  let tool_names : Array[String] = match spec.tools {
+    Some(names) => names
+    None => @cetas_core.cetas_tool_names()
+  }
+  for ext in self.tool_extensions(tool_names) {
     exts.push(ext)
   }
   match self.ui {

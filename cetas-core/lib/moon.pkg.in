@@ -1,6 +1,6 @@
 import {
   "colmugx/posoco",
-  "colmugx/posoco-devkit" @devkit,
+  "posoco/devkit" @devkit,
 __RECIPE_IMPORTS__
   "colmugx/posoco/runtime",
   "moonbitlang/core/json",

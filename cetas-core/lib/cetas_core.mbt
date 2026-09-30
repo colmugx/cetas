@@ -163,6 +163,23 @@ pub fn canonical_cetas_tool_name(name : String) -> String {
 }
 
 ///|
+/// Canonical reconstructable tool names — the "default face" a kind inherits
+/// when it omits `tools`. Mirrors the `build_cetas_tools` registry (keep the
+/// two in sync). Delegation tools (agent, agent_swarm, herdr_delegate, zcode)
+/// are extension-provided and deliberately absent: children never spawn.
+pub fn cetas_tool_names() -> Array[String] {
+  if shell_platform_is_windows() {
+    [
+      "read", "write", "edit", "glob", "grep", "astgrep", "ps1", "webfetch", "ask_question",
+    ]
+  } else {
+    [
+      "read", "write", "edit", "glob", "grep", "astgrep", "bash", "webfetch", "ask_question",
+    ]
+  }
+}
+
+///|
 /// Canonical constructor for reconstructable Cetas tools. This is the single
 /// place that knows which concrete extension owns a Cetas tool name and how
 /// fresh per-agent state (freshness ledger/workspace anchor) is created.

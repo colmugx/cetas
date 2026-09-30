@@ -3,7 +3,7 @@ package "colmugx/cetas-run/lib"
 
 import {
   "colmugx/posoco",
-  "colmugx/posoco-ext-llm",
+  "posoco/ext-llm",
   "colmugx/posoco-ext-permission",
   "colmugx/posoco-ext-workspace",
   "colmugx/posoco/error",
