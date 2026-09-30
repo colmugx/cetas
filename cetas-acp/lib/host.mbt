@@ -1179,6 +1179,9 @@ priv struct Platform {
   fs : &@workspace.WorkspaceFs
   catalogs : Array[@llm.ProviderModelCatalog]
   default_slot_id : String
+  /// The persisted selection is absent from the startup catalogs: the id
+  /// stays active and requests fail visibly instead of switching models.
+  default_slot_pending : Bool
   /// Persisted reasoning effort restored onto every session's router.
   persisted_effort : String?
   /// Startup tool-approval posture, resolved at assembly and stamped on
@@ -1285,17 +1288,20 @@ async fn build_platform(
   // No OAuth surface in a headless/stdio process; token refresh works for
   // on-disk credentials.
   let selection = @cetas_core.read_active_model_selection(fs, home~)
-  let default_slot_id = @cetas_core.resolve_default_slot_id(catalogs, selection)
-  match selection {
-    Some({ slot, .. }) =>
-      if default_slot_id == "" {
-        acp_warn(
-          "cetas-acp: persisted model slot '" +
-          slot +
-          "' is no longer configured; using the first catalog slot (stale entry kept in ~/.cetas/settings.json)\n",
-        )
-      }
-    None => ()
+  let restore = @cetas_core.resolve_active_model_restore(catalogs, selection)
+  let default_slot_id = match restore {
+    @cetas_core.NoSelection => ""
+    @cetas_core.Selected(slot~) => slot
+    @cetas_core.Pending(slot~) => slot
+  }
+  match restore {
+    @cetas_core.Pending(slot~) =>
+      acp_warn(
+        "cetas-acp: persisted model slot '" +
+        slot +
+        "' is not in the startup catalog; keeping it selected — requests will fail until it appears (login/refresh), switch with /model otherwise (entry kept in ~/.cetas/settings.json)\n",
+      )
+    _ => ()
   }
   let persisted_effort = match selection {
     Some({ effort: Some(effort), .. }) => Some(effort)
@@ -1310,6 +1316,7 @@ async fn build_platform(
     fs,
     catalogs,
     default_slot_id,
+    default_slot_pending: restore is @cetas_core.Pending(_),
     persisted_effort,
     permission_mode,
     credential_store: store,
@@ -1378,13 +1385,14 @@ async fn build_session_agent(
   let router = @llm.RouterModelPort::from_catalogs(
     platform.catalogs,
     default_slot_id=platform.default_slot_id,
+    allow_missing_default=platform.default_slot_pending,
     provider_credential_store=Some(
       platform.credential_store as &@oauth.ProviderCredentialStore,
     ),
   )
   match platform.persisted_effort {
     Some(effort) =>
-      if platform.default_slot_id != "" {
+      if platform.default_slot_id != "" && !platform.default_slot_pending {
         router.select_effort(platform.default_slot_id, effort) catch {
           _ =>
             acp_warn(
