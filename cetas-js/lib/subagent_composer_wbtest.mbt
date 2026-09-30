@@ -211,3 +211,39 @@ test "resolve_child_mode applies the live parent posture" {
     @permission.WorkspaceWrite,
   )
 }
+
+///|
+test "subagent_config_from_settings_json_defaults_without_section" {
+  let config = subagent_config_from_settings_json(
+    "{\"providers\": {}, \"model\": \"zai/glm\"}",
+  )
+  assert_true(config.models.is_empty())
+  assert_true(config.default_slot is None)
+}
+
+///|
+test "subagent_config_from_settings_json_parses_the_section" {
+  let config = subagent_config_from_settings_json(
+    "{\"providers\": {}, \"subagent\": {\"models\": [{\"slot\": \"kimi/k2\", \"efforts\": [\"low\", \"high\"], \"default_effort\": \"low\"}], \"default_slot\": \"kimi/k2\"}}",
+  )
+  assert_eq(config.models.length(), 1)
+  assert_eq(config.models[0].slot, "kimi/k2")
+  assert_eq(config.default_slot, Some("kimi/k2"))
+  assert_eq(config.models[0].default_effort, Some("low"))
+}
+
+///|
+test "subagent_config_from_settings_json_rejects_bad_section" {
+  let outcome : Result[@subagent_kit.SubagentConfig, @posoco.CompositionError] = Ok(
+    subagent_config_from_settings_json(
+      "{\"subagent\": {\"models\": [{\"slot\": \"\"}]}}",
+    ),
+  ) catch {
+    error => Err(error)
+  }
+  match outcome {
+    Err(error) =>
+      assert_true(error.to_string().contains("must be a non-empty string"))
+    _ => fail("expected the subagent section to be rejected")
+  }
+}

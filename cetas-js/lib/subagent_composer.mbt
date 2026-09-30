@@ -241,6 +241,68 @@ async fn CetasChildComposer::skills_extension(
 }
 
 ///|
+/// Extract and parse the `subagent` section from settings.json text. Absent
+/// section → defaults (inheritance mode). A present-but-invalid section is a
+/// hard error, matching the provider-settings precedent: user-authored config
+/// must fail loudly instead of silently switching subagents back to
+/// inheritance.
+fn subagent_config_from_settings_json(
+  text : String,
+) -> @subagent_kit.SubagentConfig raise @posoco.CompositionError {
+  let json = @json.parse(text) catch {
+    _ =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id="cetas-js.subagent",
+        detail=".cetas/settings.json is not valid JSON",
+      )
+  }
+  let section : Json? = match json {
+    Json::Object(fields) => fields.get("subagent")
+    _ =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id="cetas-js.subagent",
+        detail=".cetas/settings.json must be an object",
+      )
+  }
+  match section {
+    None => @subagent_kit.SubagentConfig::defaults()
+    Some(value) =>
+      @subagent_kit.parse_subagent_config(value.stringify()) catch {
+        @subagent_kit.SubagentConfigError::Invalid(message) =>
+          raise @posoco.CompositionError::ManifestSchemaError(
+            manifest_id="cetas-js.subagent",
+            detail="settings.subagent: \{message}",
+          )
+        @subagent_kit.SubagentConfigError::Malformed(message) =>
+          raise @posoco.CompositionError::ManifestSchemaError(
+            manifest_id="cetas-js.subagent",
+            detail="settings.subagent: \{message}",
+          )
+      }
+  }
+}
+
+///|
+/// Load the subagent range config from the user's settings.json. Read
+/// failures are hard errors for the same reason as the provider settings.
+async fn load_cetas_subagent_config(
+  home~ : String,
+) -> @subagent_kit.SubagentConfig raise @posoco.CompositionError {
+  let settings_path = home + "/.cetas/settings.json"
+  let text = match
+    @workspace.read_file_result(@workspace.JsWorkspaceFs(), settings_path) {
+    Missing => ""
+    Failed(message) =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id="cetas-js.subagent",
+        detail=".cetas/settings.json read failed: " + message,
+      )
+    Content(text) => text
+  }
+  subagent_config_from_settings_json(text)
+}
+
+///|
 async fn build_cetas_subagents(
   parent_router~ : @llm.RouterModelPort,
   parent_mode~ : () -> @permission.PermissionMode,
@@ -250,7 +312,8 @@ async fn build_cetas_subagents(
   feature_fs~ : &@workspace.WorkspaceFs,
   cwd~ : String,
   home~ : String,
-) -> &@posoco.Extension noraise {
+) -> &@posoco.Extension raise @posoco.CompositionError {
+  let config = load_cetas_subagent_config(home~)
   let composer = CetasChildComposer::CetasChildComposer(
     parent_router~,
     parent_mode~,
@@ -263,7 +326,7 @@ async fn build_cetas_subagents(
   )
   let tools = @subagent.SubagentTools::SubagentTools(
     catalog=load_cetas_subagent_catalog(home~, cwd~),
-    config=@subagent_kit.SubagentConfig::defaults(),
+    config~,
     composer=composer as &@subagent.ChildComposer,
     parent_slot=parent_router.active_slot_id(),
     parent_effort=parent_router.active_effort(),
