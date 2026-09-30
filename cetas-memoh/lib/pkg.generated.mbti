@@ -5,9 +5,9 @@ import {
   "colmugx/acp/agent",
   "colmugx/acp/protocol/session",
   "colmugx/posoco-ext-credentials",
-  "posoco/ext-llm",
   "colmugx/posoco-ext-workspace",
   "moonbitlang/async",
+  "posoco/ext-llm",
 }
 
 // Values
@@ -29,7 +29,7 @@ pub fn providers_path(String) -> String
 pub struct MemohHost {
   version : String
   cwd : String
-  catalogs : Array[@posoco-ext-llm.ProviderModelCatalog]
+  catalogs : Array[@ext-llm.ProviderModelCatalog]
   credential_store : @posoco-ext-credentials.FileProviderCredentialStore
   mcp_group : @async.TaskGroup[Unit]
   // private fields
@@ -49,7 +49,7 @@ pub(all) struct ProviderIssue {
 }
 
 pub(all) struct ProviderPlatform {
-  catalogs : Array[@posoco-ext-llm.ProviderModelCatalog]
+  catalogs : Array[@ext-llm.ProviderModelCatalog]
   credential_store : @posoco-ext-credentials.FileProviderCredentialStore
   issues : Array[ProviderIssue]
 }

@@ -4,9 +4,7 @@ package "colmugx/cetas-js/lib"
 import {
   "colmugx/posoco",
   "colmugx/posoco-ext-fs-session",
-  "posoco/ext-llm",
   "colmugx/posoco-ext-mcp",
-  "posoco/ext-oauth",
   "colmugx/posoco-ext-permission",
   "colmugx/posoco-ext-pi-adaptor",
   "colmugx/posoco-ext-plan",
@@ -17,6 +15,8 @@ import {
   "colmugx/posoco/types",
   "moonbitlang/async/aqueue",
   "moonbitlang/async/js_async",
+  "posoco/ext-llm",
+  "posoco/ext-oauth",
 }
 
 // Values
@@ -86,7 +86,7 @@ pub impl @posoco-ext-permission.ApprovalSource for BlockingApprovalSource
 
 pub struct CetasJsAgent {
   agent : @posoco.Agent
-  router : @posoco-ext-llm.RouterModelPort
+  router : @ext-llm.RouterModelPort
   plan : @posoco-ext-plan.PlanMode
   home : String
   observer : JsCallbackObserver
@@ -112,19 +112,19 @@ pub fn CetasJsConfig::CetasJsConfig(String, Int, String, String, String, String)
 
 pub(all) struct CetasJsRuntime {
   config : CetasJsConfig
-  catalog_cache : Map[String, @posoco-ext-llm.ProviderModelCatalog]
+  catalog_cache : Map[String, @ext-llm.ProviderModelCatalog]
   mut catalog_issues : Array[@colmugx/cetas-core/lib.CatalogBuildIssue]
   mut pi : @posoco-ext-pi-adaptor.PiAdaptor?
-  mut live_router : @posoco-ext-llm.RouterModelPort?
+  mut live_router : @ext-llm.RouterModelPort?
 }
 pub fn CetasJsRuntime::CetasJsRuntime(CetasJsConfig) -> Self
 
 type JsAuthInteraction
 pub fn JsAuthInteraction::is_cancelled(Self) -> Bool
-pub fn JsAuthInteraction::notify(Self, @posoco-ext-oauth.AuthMessage) -> Unit
-pub async fn JsAuthInteraction::prompt(Self, @posoco-ext-oauth.AuthPromptRequest) -> String raise @posoco-ext-oauth.OAuthError
-pub impl @posoco-ext-oauth.AuthInteraction for JsAuthInteraction
-pub impl @posoco-ext-oauth.AuthPromptInteraction for JsAuthInteraction
+pub fn JsAuthInteraction::notify(Self, @ext-oauth.AuthMessage) -> Unit
+pub async fn JsAuthInteraction::prompt(Self, @ext-oauth.AuthPromptRequest) -> String raise @ext-oauth.OAuthError
+pub impl @ext-oauth.AuthInteraction for JsAuthInteraction
+pub impl @ext-oauth.AuthPromptInteraction for JsAuthInteraction
 
 #external
 pub type JsCallback
@@ -145,8 +145,8 @@ pub type JsCancelCheck
 
 type JsMcpAuthInteraction
 pub fn JsMcpAuthInteraction::is_cancelled(Self) -> Bool
-pub fn JsMcpAuthInteraction::notify(Self, @posoco-ext-oauth.AuthMessage) -> Unit
-pub impl @posoco-ext-oauth.AuthInteraction for JsMcpAuthInteraction
+pub fn JsMcpAuthInteraction::notify(Self, @ext-oauth.AuthMessage) -> Unit
+pub impl @ext-oauth.AuthInteraction for JsMcpAuthInteraction
 
 pub(all) struct JsUiPort {
   render_callback : JsUiRenderCallback

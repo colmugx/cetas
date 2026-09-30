@@ -3,13 +3,13 @@ package "colmugx/cetas-run/lib"
 
 import {
   "colmugx/posoco",
-  "posoco/ext-llm",
   "colmugx/posoco-ext-permission",
   "colmugx/posoco-ext-workspace",
   "colmugx/posoco/error",
   "colmugx/posoco/port",
   "colmugx/posoco/types",
   "moonbitlang/async",
+  "posoco/ext-llm",
 }
 
 // Values
@@ -60,7 +60,7 @@ pub struct CetasRunHost {
   home : String
   cwd : String
   agent : @posoco.Agent
-  router : @posoco-ext-llm.RouterModelPort
+  router : @ext-llm.RouterModelPort
   session_id : String
   routing : Map[String, &@port.ToolProvider]
 }
