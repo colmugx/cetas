@@ -17,7 +17,9 @@
 /// and rejection rules stay unit-testable.
 
 ///|
-/// Parsed invocation. Zero values ("") mean "not given".
+/// Parsed run invocation. Zero values ("") mean "not given".
+/// Top-level help/version/login dispatch is handled by parse_invocation;
+/// parse_run_cli remains the compatible, pure run-only parser.
 pub(all) struct RunCli {
   /// Run-scoped model override (`provider/model` slot id); never persisted.
   model : String

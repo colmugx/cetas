@@ -135,21 +135,24 @@ fn apply_model_override(
     } else {
       @cetas_core.ActiveModelSelection::ActiveModelSelection(model)
     }
-    let slot = @cetas_core.resolve_default_slot_id(catalogs, Some(selection))
-    if slot == "" {
-      raise @posoco.CompositionError::ManifestSchemaError(
-        manifest_id=label + ".model_override",
-        detail="unknown --model '\{model}' — available model slots: \{comma_joined(router.list_slot_ids())}",
-      )
-    }
-    // resolve guarantees the slot exists in the catalogs; a router missing
-    // it means the two views drifted apart mid-composition — fail loudly.
-    router.switch_slot(slot) catch {
-      error =>
+    match @cetas_core.resolve_active_model_restore(catalogs, Some(selection)) {
+      // A pending --model override stays a loud composition failure: the
+      // flag names an explicit target, there is nothing to keep waiting for.
+      @cetas_core.Pending(..) | @cetas_core.NoSelection =>
         raise @posoco.CompositionError::ManifestSchemaError(
           manifest_id=label + ".model_override",
-          detail="--model '\{model}' switch failed: \{error.to_string()}",
+          detail="unknown --model '\{model}' — available model slots: \{comma_joined(router.list_slot_ids())}",
         )
+      @cetas_core.Selected(slot~) =>
+        // resolve guarantees the slot exists in the catalogs; a router missing
+        // it means the two views drifted apart mid-composition — fail loudly.
+        router.switch_slot(slot) catch {
+          error =>
+            raise @posoco.CompositionError::ManifestSchemaError(
+              manifest_id=label + ".model_override",
+              detail="--model '\{model}' switch failed: \{error.to_string()}",
+            )
+        }
     }
   }
   if effort.length() > 0 {

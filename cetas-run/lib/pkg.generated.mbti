@@ -17,7 +17,13 @@ pub fn approval_decision(String) -> @posoco-ext-permission.ApprovalDecision?
 
 pub fn approval_prompt(@posoco-ext-permission.ApprovalRequest) -> String
 
+pub fn invocation_help() -> String
+
+pub fn onboarding_guide(String, native~ : Bool) -> String
+
 pub async fn open_tty_channel() -> TtyChannel? noraise
+
+pub fn parse_invocation(Array[String]) -> Result[InvocationAction, String]
 
 pub fn parse_peer_envelope(String) -> PeerEnvelope?
 
@@ -25,11 +31,17 @@ pub fn parse_permission_mode_str(String) -> @posoco-ext-permission.PermissionMod
 
 pub fn parse_run_cli(Array[String]) -> Result[RunCli, String]
 
+pub async fn prepare_invocation(Array[String], home~ : String, native~ : Bool, create_settings? : async (String, String) -> Bool, note~ : async (String) -> Unit noraise) -> Result[InvocationAction, String]
+
 pub fn resolve_permission_mode(RunCli) -> @posoco-ext-permission.PermissionMode
 
 pub async fn resolve_task(String?, read_line~ : async () -> String? noraise) -> String? noraise
 
+pub async fn run_login(home~ : String, provider~ : String, note~ : async (String) -> Unit noraise) -> Unit
+
 pub async fn run_one_turn(agent~ : @posoco.Agent, session_id~ : String, task~ : String, jsonl~ : JsonlObserver?, streamer? : StreamPrinter?, verbose? : JsonlObserver?, write_out~ : async (String) -> Unit noraise, write_err? : async (String) -> Unit noraise) -> Bool noraise
+
+pub fn run_usage() -> String
 
 pub fn single_line(String) -> String
 
@@ -53,6 +65,13 @@ pub struct CetasRunHost {
   routing : Map[String, &@port.ToolProvider]
 }
 pub async fn CetasRunHost::CetasRunHost(home~ : String, cwd~ : String, mode~ : @posoco-ext-permission.PermissionMode, approval~ : &@posoco-ext-permission.ApprovalSource?, ui~ : &@port.UiPort?, model_override? : String, effort_override? : String, session_id? : String, tail_exts? : Array[&@port.Extension], fs? : &@posoco-ext-workspace.WorkspaceFs?, mcp_group? : @async.TaskGroup[Unit]?, label? : String, detect_herdr? : Bool, warn? : async (String) -> Unit noraise) -> Self raise @error.CompositionError
+
+pub(all) enum InvocationAction {
+  Run(RunCli)
+  Help
+  Version
+  Login(String)
+}
 
 pub struct JsonlObserver {
   mut turn : Int

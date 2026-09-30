@@ -34,38 +34,76 @@
 const CETAS_RUN_VERSION = "0.6.0"
 
 ///|
-const USAGE : String = "usage: cetas-run [--model <id>] [--effort <level>] [--session <id>] [--yolo | --permission <readonly|workspace_write|interactive>] [--stream] [--verbose] [--show-thinking] [--jsonl] [-- \"<task>\"]\n"
+#cfg(target="native")
+fn native_login_available() -> Bool {
+  true
+}
+
+///|
+#cfg(target="wasm")
+fn native_login_available() -> Bool {
+  false
+}
+
+///|
+async fn startup_failure(message : String, usage? : Bool = false) -> Unit {
+  @stdio.stderr.write(@lib.turn_failed_line("startup: " + message) + "\n")
+  @stdio.stderr.write("cetas-run: \{message}\n")
+  if usage {
+    @stdio.stderr.write(@lib.run_usage())
+  }
+  exit(2)
+  abort("cetas-run: unreachable after exit")
+}
 
 ///|
 async fn main {
   let args = @env.args()
-  if args.contains("--version") {
-    println("cetas-run \{CETAS_RUN_VERSION}")
-    return
-  }
   let argv : Array[String] = []
   for i = 1; i < args.length(); i = i + 1 {
     argv.push(args[i])
   }
-  let cli = match @lib.parse_run_cli(argv) {
-    Ok(cli) => cli
-    Err(message) => {
-      @stdio.stderr.write(@lib.turn_failed_line("startup: " + message) + "\n")
-      @stdio.stderr.write("cetas-run: \{message}\n")
-      @stdio.stderr.write(USAGE)
-      exit(2)
-      abort("cetas-run: unreachable after exit")
-    }
-  }
   let home = @cetas_core.cetas_home()
-  let cwd = match @env.current_dir() {
-    Some(dir) => dir
-    None => "."
-  }
   let stderr_note = async fn(text : String) noraise {
     @stdio.stderr.write(text) catch {
       _ => ()
     }
+  }
+  let action = @lib.prepare_invocation(
+    argv,
+    home~,
+    native=native_login_available(),
+    note=stderr_note,
+  ) catch {
+    error => {
+      startup_failure("settings bootstrap failed: " + error.to_string())
+      abort("cetas-run: unreachable after exit")
+    }
+  }
+  let cli = match action {
+    Ok(@lib.Help) => {
+      @stdio.stdout.write(@lib.invocation_help())
+      return
+    }
+    Ok(@lib.Version) => {
+      println("cetas-run \{CETAS_RUN_VERSION}")
+      return
+    }
+    Ok(@lib.Login(provider)) => {
+      @lib.run_login(home~, provider~, note=stderr_note) catch {
+        error => startup_failure("login failed: " + error.to_string())
+      }
+      return
+    }
+    Ok(@lib.Run(cli)) => cli
+    Err(message) => {
+      startup_failure(message, usage=true)
+      abort("cetas-run: unreachable after exit")
+    }
+  }
+  let cwd = match @env.current_dir() {
+    Some(dir) => dir
+    None => "."
   }
   // The terminal bypass: one channel shared by approval prompts and UI
   // requests. Absent under --yolo, or when no controlling terminal exists —
@@ -120,7 +158,7 @@ async fn main {
       @stdio.stderr.write(
         "cetas-run: no task given — pass -- \"<task>\" or pipe one line on stdin\n",
       )
-      @stdio.stderr.write(USAGE)
+      @stdio.stderr.write(@lib.run_usage())
       exit(2)
       abort("cetas-run: unreachable after exit")
     }

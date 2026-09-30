@@ -7,10 +7,15 @@ import {
   "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-workspace" @workspace,
   "colmugx/posoco-ext-llm" @llm,
+  "colmugx/posoco-ext-oauth" @oauth,
+  "colmugx/posoco-ext-credentials" @credentials,
+  "moonbitlang/core/env",
   "moonbitlang/async",
   "moonbitlang/async/aqueue",
   "moonbitlang/async/fs",
+  "moonbitlang/async/os_error",
   "moonbitlang/async/stdio",
+  "moonbitlang/async/types",
 }
 
 import {
@@ -20,3 +25,13 @@ import {
 } for "wbtest"
 
 supported_targets = "+native +wasm"
+
+options(
+  "native-stub": [ "terminal_auth_stub.c" ],
+  targets: {
+    "terminal_auth.native.mbt": [ "native" ],
+    "terminal_auth_native_wbtest.mbt": [ "native" ],
+    "login_native.mbt": [ "native" ],
+    "login_wasm.mbt": [ "wasm" ],
+  },
+)

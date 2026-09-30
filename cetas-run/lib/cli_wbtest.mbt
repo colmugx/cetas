@@ -159,6 +159,10 @@ test "cli rejects unknown flags, stray arguments, and missing values" {
   assert_true(parse_run_cli(["--json"]) is Err(_))
   assert_true(parse_run_cli(["--jsonl=1"]) is Err(_))
   assert_true(parse_run_cli(["stray"]) is Err(_))
+  match parse_run_cli(["hello"]) {
+    Err(message) => assert_true(message.contains("use --"))
+    Ok(_) => fail("task text must follow --")
+  }
   assert_true(parse_run_cli(["--model"]) is Err(_))
   assert_true(parse_run_cli(["--effort"]) is Err(_))
   assert_true(parse_run_cli(["--session"]) is Err(_))
