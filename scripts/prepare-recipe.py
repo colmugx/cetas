@@ -10,6 +10,8 @@ MBT_OUT = CORE / "lib" / "recipe.generated.mbt"
 
 PUBLIC_FORBIDDEN_PACKAGES = {
     "colmugx/posoco-ext-nowledge-mem",
+    "colmugx/posoco-ext-obsidian",
+    "colmugx/posoco-ext-zcode",
 }
 
 CASES = {
@@ -219,14 +221,15 @@ def main() -> int:
     if args.flavor == "public":
         forbidden = [
             row for row in selected
-            if row["key"] == "nmem" or row["package"] in PUBLIC_FORBIDDEN_PACKAGES
+            if row["key"] in ("nmem", "obsidian", "zcode")
+            or row["package"] in PUBLIC_FORBIDDEN_PACKAGES
         ]
         if forbidden:
             details = ", ".join(
                 f'{row["key"]}={row["package"]}' for row in forbidden
             )
             raise SystemExit(
-                "public recipe must not include nowledge-mem: " + details
+                "public recipe must not include private extensions: " + details
             )
 
     imports = []
