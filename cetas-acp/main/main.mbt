@@ -10,7 +10,7 @@
 /// lazily at the first turn.
 
 ///|
-const CETAS_ACP_VERSION = "0.6.0"
+const CETAS_ACP_VERSION = "0.7.0"
 
 ///|
 async fn main {

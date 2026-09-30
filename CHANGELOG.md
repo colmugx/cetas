@@ -2,6 +2,42 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.7.0 (2026-09-30)
+
+## General
+
+### Feats
+- Your saved model choice is never silently swapped anymore.
+
+## Bun Ver.（cetas-bun）
+
+### Feats
+- Configure your subagent fleet from `~/.cetas/settings.json`: a new optional `subagent` section lets you restrict which model slots and reasoning efforts subagents may use, pin a default subagent model, and cap swarm size, per-group/global concurrency, timeouts, and spawn budget.
+- Subagent kinds can now pin a reasoning effort.
+- OpenAI/Codex model lists now survive offline.
+
+### Fixes
+- Switching models while a rate-limit retry is scheduled now cancels the stale follow-up before the switch, so an outdated retry can no longer fire after you've moved to another model or duplicate your requests.
+
+## ACP Ver.（cetas-acp）
+
+### Feats
+- Startup now honors your saved model.
+- OpenAI/Codex catalogs rebuild from cached discovery records, so the full model list — not just a single static model — is available offline after a prior refresh.
+
+### Fixes
+- Every ACP session now holds its own agent task scope for its whole lifetime, so background and delegated work can be submitted from the first prompt and is shut down cleanly when the session retires.
+
+## Run Ver.（cetas-run）
+
+### Feats
+- Log in from the terminal: `cetas-run --login [provider]` runs the full authentication flow standalone, saves credentials to the shared Cetas home, refreshes the model catalog, and lets you pick your initial model (auto-selected when only one is available). Wasm builds get clear guidance to log in via Cetas `/login` with the same home.
+- cetas-run is now published on Mooncakes: run one-shot turns anywhere with `moonx colmugx/cetas-run -- --yolo -- "your task"` — built for scripts, CI pipelines, agent swarms, and sandboxed MoonX execution.
+- Friendlier first run: startup creates a minimal `~/.cetas/settings.json` with an onboarding guide, full `--help` output, and credentials shared with Cetas — if you're already logged in elsewhere, just retry your task.
+
+### Fixes
+- Reliable process exit codes on both native and wasm builds.
+
 ## 0.6.0 (2026-09-29)
 
 ## Bun Ver.（cetas-js/cetas-bun）
