@@ -178,6 +178,7 @@ async test "public default excludes private memory extensions" {
   assert_false(saw_nmem)
   assert_false(saw_obsidian)
 }
+
 ///|
 async test "default features register skills even with no discovered skills: the builtin manuals ride along" {
   let fs = SkillsCtxFs::{
