@@ -106,7 +106,7 @@ jobs:
         id: test
         working-directory: posoco/external/cetas/cetas-acp
         run: |
-          python3 ../scripts/prepare-recipe.py --flavor personal --frontend acp --platform unix
+          python3 ../scripts/prepare-recipe.py --flavor public --frontend acp --platform unix
           moon test --target native --output-json
 
       # Keep release gating aligned with CI's one-shot retry for the known
@@ -115,7 +115,7 @@ jobs:
         if: failure() && steps.test.outcome == 'failure'
         working-directory: posoco/external/cetas/cetas-acp
         run: |
-          python3 ../scripts/prepare-recipe.py --flavor personal --frontend acp --platform unix
+          python3 ../scripts/prepare-recipe.py --flavor public --frontend acp --platform unix
           moon test --target native --output-json
 
       - name: setup bun
