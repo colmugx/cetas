@@ -117,18 +117,6 @@ moonx colmugx/cetas-run -- --yolo -- "fix the failing tests"
 > `herdr_delegate`——headless 是深度 1 叶子，被委派的子代理无法再委派；
 > pane 委派工具只在 cetas-bun 组合。
 
-### Personal 配方增量
-
-上面的表描述默认发布的 **public** flavor。public 构建永远不包含 `posoco-ext-nowledge-mem`。
-
-`personal` flavor 在 public 名单之上增加：
-
-- `personal/js`：`nowledge-mem`、`obsidian`、`zcode`。
-- `personal/acp`：`nowledge-mem`、`obsidian`、`zcode`。
-- `personal/run`：只增加 `nowledge-mem`。
-
-这些都不属于 public 发布配置；特别是 **public recipe 绝不能包含 `nowledge-mem`**。
-
 ### 共享状态——"同一个 Cetas"今天意味着什么
 
 所有表示面读写同一个 Cetas 主目录（默认 `~/.cetas/`）：`settings.json`
