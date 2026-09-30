@@ -17,7 +17,7 @@ newest cetas-v* tag -> suggest semver (feat/breaking -> minor, else patch;
 0.x forever) -> AI notes draft via cetas-run over the same commits plus
 the extension gitlink-range commits (fallback: grouped draft) -> $EDITOR or
 --notes-file -> preview ->
-apply (VERSION, 8 sync targets, CHANGELOG.md insert, commit, annotated tag)
+apply (VERSION, 6 sync targets, CHANGELOG.md insert, commit, annotated tag)
 -> optional push prompt + submodule-pointer reminder.
 """
 import argparse
@@ -35,11 +35,9 @@ SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
 MOON_READ = re.compile(r'(?m)^version\s*=\s*"([^"]+)"')
 ACP_READ = re.compile(r'const\s+CETAS_ACP_VERSION\s*=\s*"([^"]+)"')
 RUN_READ = re.compile(r'const\s+CETAS_RUN_VERSION\s*=\s*"([^"]+)"')
-MEMOH_READ = re.compile(r'const\s+CETAS_MEMOH_VERSION\s*=\s*"([^"]+)"')
 MOON_SUB = re.compile(r'(?m)^(version\s*=\s*)"[^"]+"')
 ACP_SUB = re.compile(r'(?m)^(const\s+CETAS_ACP_VERSION\s*=\s*)"[^"]+"')
 RUN_SUB = re.compile(r'(?m)^(const\s+CETAS_RUN_VERSION\s*=\s*)"[^"]+"')
-MEMOH_SUB = re.compile(r'(?m)^(const\s+CETAS_MEMOH_VERSION\s*=\s*)"[^"]+"')
 META = re.compile(r"(?m)^([0-9a-f]{40})\x1f")
 TYPE = re.compile(r"^([a-z]+)(?:\([^)]*\))?!?:")
 FEAT = re.compile(r"^feat(\(|!|:)")
@@ -50,7 +48,7 @@ RUN_BIN = Path("_build/native/release/build/colmugx/cetas-run/main/main.exe")
 RUN_TIMEOUT = 600  # seconds, one LLM turn
 EXT_LOG_LIMIT = 30
 COMPONENTS = frozenset(
-    ("cetas-js", "cetas-acp", "cetas-core", "cetas-run", "cetas-memoh", "cetas-ext-forme", "extension")
+    ("cetas-js", "cetas-acp", "cetas-core", "cetas-run", "cetas-ext-forme", "extension")
 )
 GROUP_OF = {"feat": "Added", "fix": "Fixed", "refactor": "Changed", "perf": "Changed"}
 SYNC = [
@@ -60,8 +58,6 @@ SYNC = [
     ("cetas-acp/main/main.mbt", ACP_READ, ACP_SUB),
     ("cetas-run/moon.mod", MOON_READ, MOON_SUB),
     ("cetas-run/main/main.mbt", RUN_READ, RUN_SUB),
-    ("cetas-memoh/moon.mod", MOON_READ, MOON_SUB),
-    ("cetas-memoh/main/main.mbt", MEMOH_READ, MEMOH_SUB),
 ]
 NOTES_HEADER = (
     "<!-- 此文件内容将作为发布说明（写入 CHANGELOG.md 小节）。"
@@ -103,12 +99,8 @@ def is_tty():
 
 
 def sync_targets(scope):
-    if scope == "all":
+    if scope in ("all", "core"):
         return SYNC
-    if scope == "memoh":
-        return [row for row in SYNC if row[0].startswith("cetas-memoh/")]
-    if scope == "core":
-        return [row for row in SYNC if not row[0].startswith("cetas-memoh/")]
     raise ValueError(f"unknown check scope: {scope}")
 
 
@@ -250,18 +242,17 @@ def extension_recent(root, base, limit=EXT_LOG_LIMIT):
 def ai_prompt(commits, ext_lines):
     out = [
         "作为 cetas 社区运营主管，把下面两段提交记录整理成发布说明草稿。",
-        "背景：cetas 一次发版同时带出四个端侧应用；因 cetas 会集成来自 extension 子仓库的扩展，"
+        "背景：cetas 一次发版同时带出三个端侧应用；因 cetas 会集成来自 extension 子仓库的扩展，"
         "所以需要分析 extension 在这段提交历史中为 cetas 供应的功能，并作为功能点列出。禁止为 "
         "extension 单独设节。",
         "要求：1. 只输出 markdown 正文，不要代码围栏和任何解释。 2. 确认功能真实落实到某个端，才可列出。 3. 必须读提交，至少读个大概。禁止只看标题就总结。",
-        "固定四个小节，标题原样：## Bun Ver.（cetas-js/cetas-bun）、"
-        "## ACP Ver.（cetas-acp）、## Run Ver.（cetas-run）、"
-        "## Memoh Ver.（cetas-memoh）；"
+        "固定三个小节，标题原样：## Bun Ver.（cetas-js/cetas-bun）、"
+        "## ACP Ver.（cetas-acp）、## Run Ver.（cetas-run）；"
         "无内容的小节保留空标题。",
         "小节内按需使用 ### Feats / ### Fixes 子节，条目为 \"- \" 列表，"
         "英文、面向用户、不含 hash；chore/internal/refactor/文档等非用户可见变更省略。",
         "归入规则：主仓库提交按改动路径对应的小节归入；extension 提交按它影响的端侧应用"
-        "归入，影响多个端侧就分别列出；对四个端侧都无用户可见影响的省略。",
+        "归入，影响多个端侧就分别列出；对三个端侧都无用户可见影响的省略。",
         "注意：你的任务就是让未来的客户能迅速了解 cetas 带来新的强劲功能，如因敷衍导致潜在客户流失，你作为员工需要付出一些奖金上的代价",
         "请使用 English 发布您的伟大卖点",
         "",
@@ -535,9 +526,9 @@ def main():
     cp = sub.add_parser("check", help="version consistency gate; exit 1 on skew")
     cp.add_argument(
         "--scope",
-        choices=("all", "core", "memoh"),
+        choices=("all", "core"),
         default="all",
-        help="targets to check: all (default), core (exclude cetas-memoh), or memoh only",
+        help="targets to check: all (default) or core (compatibility alias for all Cetas release targets)",
     )
     cp.set_defaults(func=cmd_check)
     args = ap.parse_args(argv)
