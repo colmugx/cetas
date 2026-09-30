@@ -56,10 +56,8 @@ priv struct SessionHandle {
 async fn start_session_agent_scope(
   agent : @posoco.Agent,
   group : @async.TaskGroup[Unit],
-) -> @aqueue.Queue[Unit] raise {
-  let ready : @aqueue.Queue[Result[Unit, Error]] = @aqueue.Queue(
-    kind=Unbounded,
-  )
+) -> @aqueue.Queue[Unit] {
+  let ready : @aqueue.Queue[Result[Unit, Error]] = @aqueue.Queue(kind=Unbounded)
   let close : @aqueue.Queue[Unit] = @aqueue.Queue(kind=Unbounded)
   group.spawn_bg(async fn() {
     let published = Ref(false)
@@ -1590,31 +1588,31 @@ async fn build_session_agent(
   // Production ACP keeps one run_scoped open from session assembly until
   // retirement. This is the admission scope required by Capability::Tasks
   // consumers such as subagents/background delegation extensions.
-  let scope_close : @aqueue.Queue[Unit]? =
-    if session_id.length() == 0 {
-      // Direct assembly/test seam: without a live host session there is no
-      // retirement owner to release a session-lifetime task scope.
-      None
-    } else {
-      match platform.mcp_group {
-        Some(group) => {
-          let activated : Result[@aqueue.Queue[Unit], Error] = Ok(
-            start_session_agent_scope(agent, group),
-          ) catch {
-            error => Err(error)
-          }
-          match activated {
-            Ok(close) => Some(close)
-            Err(error) =>
-              raise @posoco.CompositionError::ManifestSchemaError(
-                manifest_id="cetas-acp.agent_scope",
-                detail="failed to activate session task scope: " + error.to_string(),
-              )
-          }
+  let scope_close : @aqueue.Queue[Unit]? = if session_id.length() == 0 {
+    // Direct assembly/test seam: without a live host session there is no
+    // retirement owner to release a session-lifetime task scope.
+    None
+  } else {
+    match platform.mcp_group {
+      Some(group) => {
+        let activated : Result[@aqueue.Queue[Unit], Error] = Ok(
+          start_session_agent_scope(agent, group),
+        ) catch {
+          error => Err(error)
         }
-        None => None
+        match activated {
+          Ok(close) => Some(close)
+          Err(error) =>
+            raise @posoco.CompositionError::ManifestSchemaError(
+              manifest_id="cetas-acp.agent_scope",
+              detail="failed to activate session task scope: " +
+                error.to_string(),
+            )
+        }
       }
+      None => None
     }
+  }
   // After activation, dump the full session catalog (bridge cache + base_defs).
   if platform.debug.catalog && session_id.length() > 0 {
     debug_dump_catalog(
