@@ -44,10 +44,3 @@ special,*,js,450,statusbar,host,colmugx/posoco-ext-statusbar,statusbar,any,
 special,*,js,460,subagent,host,colmugx/posoco-ext-subagent,subagent,any,
 special,*,js,470,kind,host,colmugx/posoco-ext-kind,kind,any,
 special,*,js,480,subagent_kit,host,colmugx/posoco-kit-subagent,subagent_kit,any,
-special,personal,acp,500,nmem,core,colmugx/posoco-ext-nowledge-mem,nmem,any,nmem
-special,personal,acp,510,obsidian,core,colmugx/posoco-ext-obsidian,obsidian,any,obsidian
-special,personal,acp,520,zcode,host,colmugx/posoco-ext-zcode,zcode,any,
-special,personal,run,500,nmem,core,colmugx/posoco-ext-nowledge-mem,nmem,any,nmem
-special,personal,js,500,nmem,core,colmugx/posoco-ext-nowledge-mem,nmem,any,nmem
-special,personal,js,510,obsidian,core,colmugx/posoco-ext-obsidian,obsidian,any,obsidian
-special,personal,js,520,zcode,host,colmugx/posoco-ext-zcode,zcode,any,
