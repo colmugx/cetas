@@ -122,16 +122,6 @@ Rows are extensions, columns are outlets — add a column when a new outlet ship
 > `herdr_delegate` — headless is a depth-1 leaf, so a delegated child cannot
 > delegate further; pane delegation composes in cetas-bun only.
 
-### Personal recipe deltas
-
-The `personal` flavor adds private/preference-tied extensions on top of the public roster:
-
-- `personal/js`: `nowledge-mem`, `obsidian`, `zcode`.
-- `personal/acp`: `nowledge-mem`, `obsidian`, `zcode`.
-- `personal/run`: `nowledge-mem` only.
-
-These are not part of the public distribution. In particular, **public recipes must never contain `nowledge-mem`**.
-
 ### Shared state — what "the same Cetas" means today
 
 All surfaces read and write the same Cetas home (default `~/.cetas/`):
