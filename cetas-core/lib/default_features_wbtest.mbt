@@ -131,12 +131,10 @@ async test "default features include discovered skills through injected ctx" {
     ctx={ fs, cwd: "/repo", home: "/home/u", },
     obsidian_vault=Some("test-vault"),
   )
-  // The ten feature extensions (read/write/edit/glob/grep/astgrep/bash
-  // direct, skills with the built-in manuals merged in, forme, handoff),
-  // the three toolless gateway views (webfetch, nmem, obsidian), and the
-  // gateway itself — the default compiled flavor is personal, so nmem and
-  // obsidian register (rtk is lean-only now).
-  assert_eq(exts.length(), 15)
+  // Public/default composition: ten direct feature extensions, the
+  // webfetch deferred view, ask_question, and the lazytools gateway.
+  // Preference-tied/private extensions are not part of this contract.
+  assert_eq(exts.length(), 13)
   let ids : Array[String] = []
   for ext in exts {
     ids.push(ext.extension_id())
@@ -159,42 +157,27 @@ async test "default features include discovered skills through injected ctx" {
 }
 
 ///|
-async test "nowledge-mem registers in the personal flavor" {
+async test "public default excludes private memory extensions" {
   let fs = SkillsCtxFs::{
     files: Map::from_array([]),
     dirs: Map::from_array([]),
   }
   let ctx : HostContext = { fs, cwd: "/nowhere", home: "/home/u", }
-  // Personal builds bake nmem in: the default set plus Nowledge Mem.
   let exts = build_default_features(ctx~, obsidian_vault=Some("test-vault"))
-  assert_eq(exts.length(), 15)
-  let mut found = false
-  let mut gateway_tools = 0
+  assert_eq(exts.length(), 13)
+  let mut saw_nmem = false
+  let mut saw_obsidian = false
   for ext in exts {
     if ext.extension_id() == "posoco_ext_nowledge_mem" {
-      found = true
-      // The toolless view keeps the MemoryPort session briefing (core
-      // injects it once per session behind its fixed lead line; the
-      // <nmem-context> envelope itself is the extension's), the /memory
-      // command, and prompt guidance — but its tool schemas now defer
-      // behind the lazytools gateway.
-      let manifest = ext.manifest()
-      assert_eq(manifest.tools.length(), 0)
-      assert_eq(manifest.memory.length(), 1)
-      assert_eq(manifest.commands.length(), 1)
-      assert_eq(manifest.commands[0].commands()[0].id, "memory")
-      assert_eq(manifest.prompt_contributors.length(), 1)
+      saw_nmem = true
     }
-    if ext.extension_id() == "posoco_ext_lazytools" {
-      gateway_tools = ext.manifest().tools[0].list_tools().length()
+    if ext.extension_id() == "posoco_ext_obsidian" {
+      saw_obsidian = true
     }
   }
-  assert_true(found)
-  // The gateway exposes exactly its two meta tools (tool_list /
-  // tool_execute); the deferred webfetch and nmem tools ride behind them.
-  assert_eq(gateway_tools, 2)
+  assert_false(saw_nmem)
+  assert_false(saw_obsidian)
 }
-
 ///|
 async test "default features register skills even with no discovered skills: the builtin manuals ride along" {
   let fs = SkillsCtxFs::{
@@ -208,7 +191,7 @@ async test "default features register skills even with no discovered skills: the
   // An empty environment still registers the skills extension: the built-in
   // manuals (cetas-about/usage/config) are merged into the catalog, so both
   // skill tools stay live and the `skills` command always has content.
-  assert_eq(exts.length(), 15)
+  assert_eq(exts.length(), 13)
   let mut found = false
   for ext in exts {
     if ext.extension_id() == "posoco_ext_skills" {
@@ -266,13 +249,13 @@ async test "ask_question always joins the default set" {
     dirs: Map::from_array([]),
   }
   let ctx : HostContext = { fs, cwd: "/nowhere", home: "/home/u", }
-  // The default set (read/write/edit/glob/grep/astgrep/bash direct; skills,
-  // forme, handoff), the three gateway views, the gateway ext, and
-  // ask_question — which no longer depends on a host UI port: it resolves
+  // The public default set (read/write/edit/glob/grep/astgrep/bash direct;
+  // skills, forme, handoff), the webfetch deferred view, the gateway ext,
+  // and ask_question — which no longer depends on a host UI port: it resolves
   // the composed port from its CompositionView and reports "Interactive UI
   // is unavailable" per ask when none exists.
   let bare = build_default_features(ctx~, obsidian_vault=Some("test-vault"))
-  assert_eq(bare.length(), 15)
+  assert_eq(bare.length(), 13)
   let mut found = false
   for ext in bare {
     if ext.extension_id() == "posoco_ext_askquestion" {
