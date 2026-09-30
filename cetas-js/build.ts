@@ -4,8 +4,8 @@
 //   bun run build              # all targets
 //   bun run build:macos        # single target (see package.json scripts)
 //   bun build.ts darwin-arm64 windows-x64 linux-x64   # several targets, one run
-//   CETAS_FLAVOR=personal bun run build:macos   # personal build: bake
-//                                                # Nowledge Mem, Obsidian, RTK
+//   CETAS_FLAVOR=<overlay-flavor> bun run build:macos
+//     # local/private recipe overlays may add extra extensions
 //
 //   bun build.ts darwin-arm64 --executable <path>   # supply a local Bun
 //   binary for the target platform; skips Bun's runtime download (useful
