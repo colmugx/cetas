@@ -33,5 +33,8 @@ options(
     "terminal_auth_native_wbtest.mbt": [ "native" ],
     "login_native.mbt": [ "native" ],
     "login_wasm.mbt": [ "wasm" ],
+    "login_wbtest.mbt": [ "native" ],
+    "login_driver_wbtest.mbt": [ "native" ],
+    "login_storage_wbtest.mbt": [ "native" ],
   },
 )

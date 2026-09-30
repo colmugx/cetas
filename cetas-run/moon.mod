@@ -12,8 +12,6 @@ keywords = [ "cetas", "runner", "stdio", "one-shot", "agent" ]
 
 description = "Cetas run host — runs exactly one cetas user turn per invocation (argv task or one stdin line) with a /dev/tty interactive bypass"
 
-preferred_target = "native"
-
 supported_targets = "+native +wasm"
 
 import {

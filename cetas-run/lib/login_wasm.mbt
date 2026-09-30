@@ -14,3 +14,13 @@ pub async fn run_login(
     "Login is unsupported on the wasm target",
   )
 }
+
+///|
+// Native-only login and terminal-auth code leaves these imports unused on wasm.
+#coverage.skip
+let _keep_native_only_imports : Unit = {
+  ignore(@credentials.encode_provider_credential)
+  ignore(@env.rand)
+  let _ : (@types.Fd) -> Unit = ignore
+  let _ : (&@oauth.AuthInteraction) -> Unit = ignore
+}
