@@ -8,6 +8,10 @@ PKG_TEMPLATE = CORE / "lib" / "moon.pkg.in"
 PKG_OUT = CORE / "lib" / "moon.pkg"
 MBT_OUT = CORE / "lib" / "recipe.generated.mbt"
 
+PUBLIC_FORBIDDEN_PACKAGES = {
+    "colmugx/posoco-ext-nowledge-mem",
+}
+
 CASES = {
     "read": '''      "read" =>
         exts.push(
@@ -211,6 +215,19 @@ def main() -> int:
                 + repr(row)
             )
     selected = sorted(selected_by_key.values(), key=lambda row: int(row["order"]))
+
+    if args.flavor == "public":
+        forbidden = [
+            row for row in selected
+            if row["key"] == "nmem" or row["package"] in PUBLIC_FORBIDDEN_PACKAGES
+        ]
+        if forbidden:
+            details = ", ".join(
+                f'{row["key"]}={row["package"]}' for row in forbidden
+            )
+            raise SystemExit(
+                "public recipe must not include nowledge-mem: " + details
+            )
 
     imports = []
     seen_imports = set()
