@@ -2151,7 +2151,7 @@ async test "a session assembles over the platform task group and retires inside 
 }
 
 ///|
-async test "the production session assembly always carries nowledge mem" {
+async test "the public production session assembly excludes private memory extensions" {
   let fs = FakeFs()
   fs.files["/cetas-home/.cetas/settings.json"] = "{\"providers\":{\"opencode\":{\"api_key\":\"sk-zen-test\"}}}"
   let platform = build_platform(
@@ -2167,9 +2167,6 @@ async test "the production session assembly always carries nowledge mem" {
     error => fail("session assembly must succeed: " + error.to_string())
   }
   assert_true(handle.scope_close is None)
-  // nmem's tools fold behind the lazytools gateway, so the command surface
-  // is the cheap observable: nmem is the only default extension registering
-  // the `memory` / `nmem` commands.
   let mut memory = false
   let mut nmem = false
   for port in handle.agent.commands() {
@@ -2182,8 +2179,8 @@ async test "the production session assembly always carries nowledge mem" {
       }
     }
   }
-  assert_true(memory)
-  assert_true(nmem)
+  assert_false(memory)
+  assert_false(nmem)
 }
 
 ///|
