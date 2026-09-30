@@ -98,7 +98,7 @@ jobs:
         id: test
         working-directory: posoco/external/cetas/cetas-acp
         run: |
-          python3 ../scripts/prepare-recipe.py --flavor personal --frontend acp --platform unix
+          python3 ../scripts/prepare-recipe.py --flavor public --frontend acp --platform unix
           moon test --target native --output-json
 
       # host_wbtest.mbt "a queued second prompt runs only after the first turn
@@ -108,13 +108,13 @@ jobs:
         if: failure() && steps.test.outcome == 'failure'
         working-directory: posoco/external/cetas/cetas-acp
         run: |
-          python3 ../scripts/prepare-recipe.py --flavor personal --frontend acp --platform unix
+          python3 ../scripts/prepare-recipe.py --flavor public --frontend acp --platform unix
           moon test --target native --output-json
 
       - name: moon fmt
         working-directory: posoco/external/cetas/cetas-acp
         run: |
-          python3 ../scripts/prepare-recipe.py --flavor personal --frontend acp --platform unix
+          python3 ../scripts/prepare-recipe.py --flavor public --frontend acp --platform unix
           moon fmt
 
       # drift gate scoped to the cetas dirs; the posoco root is at main and
@@ -122,8 +122,7 @@ jobs:
       - name: moon info + interface drift gate
         working-directory: posoco/external/cetas/cetas-acp
         run: |
-          # Interface drift is checked against the public graph. The personal
-          # recipe intentionally includes native/js-only private integrations.
+          # Interface drift is checked against the public graph.
           python3 ../scripts/prepare-recipe.py --flavor public --frontend acp --platform unix
           moon info
           git diff --exit-code -- . ../cetas-js ../cetas-core ../cetas-run ../cetas-ext-forme
