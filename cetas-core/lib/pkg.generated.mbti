@@ -112,7 +112,7 @@ pub async fn refresh_provider_catalog(&@posoco-ext-llm.RefreshableProviderFactor
 
 pub fn refreshable_factories(@posoco-devkit.ExtContext, device_id? : String) -> Array[&@posoco-ext-llm.RefreshableProviderFactory]
 
-pub fn resolve_default_slot_id(Array[@posoco-ext-llm.ProviderModelCatalog], ActiveModelSelection?) -> String
+pub fn resolve_active_model_restore(Array[@posoco-ext-llm.ProviderModelCatalog], ActiveModelSelection?) -> ActiveModelRestore
 
 pub fn resolve_login_method(String, String, settings? : Map[String, Json]) -> String raise @error.CommandError
 
@@ -147,6 +147,12 @@ pub async fn write_model_list_cache(&@posoco-ext-workspace.WorkspaceFs, home~ : 
 // Errors
 
 // Types and methods
+pub(all) enum ActiveModelRestore {
+  NoSelection
+  Selected(slot~ : String)
+  Pending(slot~ : String)
+}
+
 pub struct ActiveModelSelection {
   slot : String
   effort : String?
@@ -173,6 +179,7 @@ pub(all) struct CetasPlatform {
   fs : &@posoco-ext-workspace.WorkspaceFs
   catalogs : Array[@posoco-ext-llm.ProviderModelCatalog]
   default_slot_id : String
+  default_slot_pending : Bool
   persisted_effort : String?
   permission_mode : @posoco-ext-permission.PermissionMode
   credential_store : @posoco-ext-credentials.FileProviderCredentialStore
