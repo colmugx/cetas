@@ -70,10 +70,10 @@ moonx colmugx/cetas-run -- --yolo -- "fix the failing tests"
 
 `cetas-run` executes exactly one Cetas turn per invocation and is intended for scripts, CI, agent swarms, and sandboxed MoonX execution. Use `--jsonl` for machine-readable output and `--session <id>` to continue a previous run.
 
-### Extension holdings
+### Public extension holdings
 
-Which extensions each shipped cetas outlet installs. Rows are extensions,
-columns are outlets — add a column when a new outlet ships.
+This table describes the **public** flavor shipped by default. Public builds never include `posoco-ext-nowledge-mem`.
+Rows are extensions, columns are outlets — add a column when a new outlet ships.
 ✓ = installed, — = not held.
 
 | Ext | cetas-bun | cetas-acp | cetas-run |
@@ -102,10 +102,10 @@ columns are outlets — add a column when a new outlet ships.
 | `posoco-ext-permission` | ✓ | ✓ | ✓ |
 | `posoco-ext-ratelimit` | ✓ | ✓ | ✓ |
 | `posoco-devkit` | ✓ | ✓ | ✓ |
-| **Preference-tied** (baked per outlet) | | | |
-| `posoco-ext-nowledge-mem` | — | ✓ | ✓ |
-| `posoco-ext-rtk` | — | ✓ | ✓ |
+| **Preference-tied** (public flavor) | | | |
+| `posoco-ext-nowledge-mem` | — | — | — |
 | `posoco-ext-obsidian` | — | — | — |
+| `posoco-ext-zcode` | — | — | — |
 | **Outlet-specific** | | | |
 | `posoco-ext-herdr` | ✓ (presence + `herdr_delegate`) | — | ✓ (presence only) |
 | `posoco-ext-mcp` | ✓ | ✓ | — |
@@ -113,7 +113,7 @@ columns are outlets — add a column when a new outlet ships.
 | `posoco-ext-goal` | — | — | — |
 | `posoco-ext-statusbar` / `-stats` | ✓ | — | — |
 | `posoco-ext-pi-adaptor` | ✓ | — | — |
-| `posoco-ext-zcode` | — | ✓ ¹ | — |
+| `posoco-ext-zcode` | — | — | — |
 | `posoco-ext-acp` | — | ✓ | — |
 | `posoco-kit-lody` / `-paseo` | — | ✓ | — |
 | `posoco-kit-delegation` | — | ✓ (transitive) | — |
@@ -121,6 +121,16 @@ columns are outlets — add a column when a new outlet ships.
 > `posoco-ext-herdr`: cetas-run reports presence only and never gets
 > `herdr_delegate` — headless is a depth-1 leaf, so a delegated child cannot
 > delegate further; pane delegation composes in cetas-bun only.
+
+### Personal recipe deltas
+
+The `personal` flavor adds private/preference-tied extensions on top of the public roster:
+
+- `personal/js`: `nowledge-mem`, `obsidian`, `zcode`.
+- `personal/acp`: `nowledge-mem`, `obsidian`, `zcode`.
+- `personal/run`: `nowledge-mem` only.
+
+These are not part of the public distribution. In particular, **public recipes must never contain `nowledge-mem`**.
 
 ### Shared state — what "the same Cetas" means today
 
