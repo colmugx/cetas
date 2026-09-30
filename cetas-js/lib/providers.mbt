@@ -342,9 +342,11 @@ fn active_model_warning(
 /// Build the provider router with the persisted active-model selection
 /// restored: `~/.cetas/settings.json`'s flat `model`/`reasoning_effort` keys
 /// pick the default slot and effort instead of always resetting to the first
-/// catalog slot. A drifted slot or stale effort degrades to the router default
-/// with one observer warning; malformed settings still fail composition
-/// loudly (the same file is already validated for `providers`). The shared
+/// catalog slot. A slot that is absent from the startup catalogs stays
+/// selected as a pending default — requests to it fail visibly until a
+/// login/refresh provides it — instead of silently switching models.
+/// Malformed settings still fail composition loudly (the same file is already
+/// validated for `providers`). The shared
 /// event bus rides along so the router can publish model/token/cache status
 /// ops alongside the other cetas extensions.
 /// `extra_quota_sources` holds host-injected quota sources consulted before
@@ -366,23 +368,26 @@ async fn build_provider_router(
     @workspace.JsWorkspaceFs(),
     home=runtime.config.home,
   )
-  let default_slot_id = @cetas_core.resolve_default_slot_id(catalogs, selection)
-  match selection {
-    Some({ slot, .. }) =>
-      if default_slot_id == "" {
-        active_model_warning(
-          observer,
-          "active_model_restore_warning",
-          "Persisted model slot '" +
-          slot +
-          "' is no longer configured; falling back to the first catalog slot. The stale entry stays in ~/.cetas/settings.json until the next selection overwrites it.",
-        )
-      }
-    None => ()
+  let restore = @cetas_core.resolve_active_model_restore(catalogs, selection)
+  match restore {
+    @cetas_core.Pending(slot~) =>
+      active_model_warning(
+        observer,
+        "active_model_restore_warning",
+        "Persisted model slot '" +
+        slot +
+        "' is not in the startup catalog; keeping it selected — requests will fail until it appears (login/refresh), switch with /model otherwise. The entry stays in ~/.cetas/settings.json until the next selection overwrites it.",
+      )
+    _ => ()
   }
   let router = @llm.RouterModelPort::from_catalogs(
     catalogs,
-    default_slot_id~,
+    default_slot_id=match restore {
+      @cetas_core.NoSelection => ""
+      @cetas_core.Selected(slot~) => slot
+      @cetas_core.Pending(slot~) => slot
+    },
+    allow_missing_default=restore is @cetas_core.Pending(_),
     bus~,
     provider_credential_store=Some(store as &@oauth.ProviderCredentialStore),
     auth_interaction=Some(auth as &@oauth.AuthInteraction),
@@ -391,8 +396,8 @@ async fn build_provider_router(
   )
   match selection {
     Some({ effort: Some(effort), .. }) =>
-      if default_slot_id != "" {
-        router.select_effort(default_slot_id, effort) catch {
+      if restore is @cetas_core.Selected(slot~) {
+        router.select_effort(slot, effort) catch {
           _ =>
             active_model_warning(
               observer,
@@ -400,7 +405,7 @@ async fn build_provider_router(
               "Persisted reasoning effort '" +
               effort +
               "' is not advertised by model slot '" +
-              default_slot_id +
+              slot +
               "'; using the slot's default effort.",
             )
         }

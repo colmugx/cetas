@@ -109,27 +109,42 @@ pub fn merge_active_model_selection(
 }
 
 ///|
+/// The persisted selection resolved against the startup catalogs.
+///
+/// `Pending` replaces the old "silently fall back to the first catalog slot"
+/// policy: a persisted slot that is absent from the catalogs stays selected
+/// and requests to it fail visibly until the slot appears (login/refresh).
+pub(all) enum ActiveModelRestore {
+  /// No persisted selection; the router picks its own default.
+  NoSelection
+  /// The persisted slot exists in the catalogs; select it normally.
+  Selected(slot~ : String)
+  /// The persisted slot is absent from the catalogs; keep it selected as a
+  /// pending default (router `allow_missing_default`) and warn visibly.
+  Pending(slot~ : String)
+}
+
+///|
 /// Resolve the persisted selection to a `RouterModelPort::from_catalogs`
-/// `default_slot_id`. `""` keeps the router's first-slot default: either no
-/// selection exists, or the selected slot drifted away (provider
-/// unconfigured since) — a drifted selection must not fail composition.
-pub fn resolve_default_slot_id(
+/// default decision. A present slot resolves to `Selected` only when some
+/// catalog still advertises it; otherwise it degrades to `Pending` — never
+/// to a different model.
+pub fn resolve_active_model_restore(
   catalogs : Array[@llm.ProviderModelCatalog],
   selection : ActiveModelSelection?,
-) -> String {
-  match selection {
-    None => ""
-    Some(selected) => {
-      for catalog in catalogs {
-        for slot in catalog.slots {
-          if slot.id == selected.slot {
-            return selected.slot
-          }
-        }
+) -> ActiveModelRestore {
+  let selected = match selection {
+    None => return NoSelection
+    Some(selected) => selected
+  }
+  for catalog in catalogs {
+    for slot in catalog.slots {
+      if slot.id == selected.slot {
+        return Selected(slot=selected.slot)
       }
-      ""
     }
   }
+  Pending(slot=selected.slot)
 }
 
 ///|

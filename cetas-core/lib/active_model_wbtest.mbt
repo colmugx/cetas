@@ -191,18 +191,29 @@ test "parse: wrong shapes fail loudly instead of being sanitized" {
 // ----------------------------------------------------------------- resolve
 
 ///|
-test "resolve: no selection or drifted slot keeps the router default" {
+test "resolve: no selection keeps the router default" {
   let catalogs = [tk_catalog([tk_slot("a/x"), tk_slot("b/y")])]
-  assert_eq(resolve_default_slot_id(catalogs, None), "")
-  let drifted = Some({ slot: "gone/z", effort: None, })
-  assert_eq(resolve_default_slot_id(catalogs, drifted), "")
+  assert_true(resolve_active_model_restore(catalogs, None) is NoSelection)
 }
 
 ///|
 test "resolve: a live selection wins over slot order" {
   let catalogs = [tk_catalog([tk_slot("a/x"), tk_slot("b/y")])]
   let selected = Some({ slot: "b/y", effort: Some("high"), })
-  assert_eq(resolve_default_slot_id(catalogs, selected), "b/y")
+  match resolve_active_model_restore(catalogs, selected) {
+    Selected(slot~) => assert_eq(slot, "b/y")
+    _ => fail("expected Selected(b/y)")
+  }
+}
+
+///|
+test "resolve: a drifted slot stays pending instead of switching models" {
+  let catalogs = [tk_catalog([tk_slot("a/x"), tk_slot("b/y")])]
+  let drifted = Some({ slot: "gone/z", effort: None, })
+  match resolve_active_model_restore(catalogs, drifted) {
+    Pending(slot~) => assert_eq(slot, "gone/z")
+    _ => fail("expected Pending(gone/z)")
+  }
 }
 
 // ----------------------------------------------------------- read + write

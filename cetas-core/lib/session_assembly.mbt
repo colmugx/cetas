@@ -33,6 +33,7 @@ pub fn build_cetas_router(
   @llm.RouterModelPort::from_catalogs(
     platform.catalogs,
     default_slot_id=platform.default_slot_id,
+    allow_missing_default=platform.default_slot_pending,
     provider_credential_store=Some(
       platform.credential_store as &@oauth.ProviderCredentialStore,
     ),
@@ -77,7 +78,7 @@ pub async fn build_cetas_session(
   }
   match platform.persisted_effort {
     Some(effort) =>
-      if platform.default_slot_id != "" {
+      if platform.default_slot_id != "" && !platform.default_slot_pending {
         router.select_effort(platform.default_slot_id, effort) catch {
           _ =>
             warn(

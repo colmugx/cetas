@@ -151,6 +151,7 @@ async test "the platform assembly seeds catalogs from the model cache and swaps 
   )
   assert_true(platform.permission_mode is WorkspaceWrite)
   assert_eq(platform.default_slot_id, "")
+  assert_false(platform.default_slot_pending)
   assert_true(platform.persisted_effort is None)
   // An unreadable cache warns and degrades to the static catalog.
   fs.files["/home/.cetas/model_lists.json"] = "{corrupt"
@@ -351,4 +352,56 @@ async test "bus_exts builds after the policy subscribes and lands in the routing
   assert_eq(seen_bus.length(), 1)
   // The probe's tool is routable: the closure ran before the capture.
   assert_true(session.routing.contains("bus_probe_tool"))
+}
+
+///|
+async test "a drifted persisted selection stays pending instead of switching models" {
+  let fs = FakeFs()
+  let warnings : Array[String] = []
+  fs.files["/home/.cetas/settings.json"] = "{\"providers\":{\"opencode\":{\"api_key\":\"sk-zen-test\"}},\"model\":\"openai/gone\",\"reasoning_effort\":\"high\"}"
+  fs.files["/home/.cetas/model_lists.json"] = "{\"opencode\":[{\"model_id\":\"claude-sonnet-5\",\"thinking_efforts\":[],\"default_effort\":null,\"context_window\":null}]}"
+  let platform = build_cetas_platform(
+    home="/home",
+    cwd="/",
+    fs,
+    permission_mode=@permission.WorkspaceWrite,
+    warn=tk_capturing_warn(warnings),
+  )
+  // The absent slot stays selected as a pending default — no silent switch.
+  assert_eq(platform.default_slot_id, "openai/gone")
+  assert_true(platform.default_slot_pending)
+  // The persisted effort is kept but must not apply to a pending slot.
+  assert_eq(platform.persisted_effort, Some("high"))
+  let router = build_cetas_router(platform~)
+  assert_eq(router.active_slot_id(), "openai/gone")
+  assert_true(router.provider_config() == @posoco.ProviderConfig::empty())
+  // The drift is announced on the warn sink, never swallowed.
+  let mut saw_drift_warn = false
+  for message in warnings {
+    if message.contains(
+        "persisted model slot 'openai/gone' is not in the startup catalog",
+      ) {
+      saw_drift_warn = true
+    }
+  }
+  assert_true(saw_drift_warn)
+}
+
+///|
+async test "a live persisted selection composes without the pending flag" {
+  let fs = FakeFs()
+  let warnings : Array[String] = []
+  fs.files["/home/.cetas/settings.json"] = "{\"providers\":{\"opencode\":{\"api_key\":\"sk-zen-test\"}},\"model\":\"opencode/gpt-5.1-codex\"}"
+  fs.files["/home/.cetas/model_lists.json"] = "{\"opencode\":[{\"model_id\":\"claude-sonnet-5\",\"thinking_efforts\":[],\"default_effort\":null,\"context_window\":null},{\"model_id\":\"gpt-5.1-codex\",\"thinking_efforts\":[],\"default_effort\":null,\"context_window\":null}]}"
+  let platform = build_cetas_platform(
+    home="/home",
+    cwd="/",
+    fs,
+    permission_mode=@permission.WorkspaceWrite,
+    warn=tk_capturing_warn(warnings),
+  )
+  assert_eq(platform.default_slot_id, "opencode/gpt-5.1-codex")
+  assert_false(platform.default_slot_pending)
+  let router = build_cetas_router(platform~)
+  assert_eq(router.active_slot_id(), "opencode/gpt-5.1-codex")
 }

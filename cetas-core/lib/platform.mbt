@@ -25,6 +25,9 @@ pub(all) struct CetasPlatform {
   fs : &@workspace.WorkspaceFs
   catalogs : Array[@llm.ProviderModelCatalog]
   default_slot_id : String
+  /// The persisted selection is absent from the startup catalogs: the id
+  /// stays active and requests fail visibly instead of switching models.
+  default_slot_pending : Bool
   /// Persisted reasoning effort restored onto every session's router.
   persisted_effort : String?
   /// Startup tool-approval posture, resolved by the host and stamped on
@@ -124,18 +127,21 @@ pub async fn build_cetas_platform(
   // No OAuth surface in a headless/stdio process; token refresh works for
   // on-disk credentials.
   let selection = read_active_model_selection(fs, home~)
-  let default_slot_id = resolve_default_slot_id(catalogs, selection)
-  match selection {
-    Some({ slot, .. }) =>
-      if default_slot_id == "" {
-        warn(
-          label +
-          ": persisted model slot '" +
-          slot +
-          "' is no longer configured; using the first catalog slot (stale entry kept in ~/.cetas/settings.json)\n",
-        )
-      }
-    None => ()
+  let restore = resolve_active_model_restore(catalogs, selection)
+  let default_slot_id = match restore {
+    NoSelection => ""
+    Selected(slot~) => slot
+    Pending(slot~) => slot
+  }
+  match restore {
+    Pending(slot~) =>
+      warn(
+        label +
+        ": persisted model slot '" +
+        slot +
+        "' is not in the startup catalog; keeping it selected — requests will fail until it appears (login/refresh), switch with /model otherwise (entry kept in ~/.cetas/settings.json)\n",
+      )
+    _ => ()
   }
   let persisted_effort = match selection {
     Some({ effort: Some(effort), .. }) => Some(effort)
@@ -150,6 +156,7 @@ pub async fn build_cetas_platform(
     fs,
     catalogs,
     default_slot_id,
+    default_slot_pending: restore is Pending(_),
     persisted_effort,
     permission_mode,
     credential_store: store,
