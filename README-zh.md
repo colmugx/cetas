@@ -69,7 +69,7 @@ moonx colmugx/cetas-run -- --yolo -- "fix the failing tests"
 
 `cetas-run` 每次调用只执行一轮 Cetas，面向脚本、CI、agent swarm 和 MoonX 沙箱执行。机器可读输出使用 `--jsonl`；通过 `--session <id>` 可以继续之前的会话。
 
-### Extension 列表
+### Public Extension 列表
 
 | Ext | cetas-bun | cetas-acp | cetas-run |
 |---|---|---|---|
@@ -97,10 +97,10 @@ moonx colmugx/cetas-run -- --yolo -- "fix the failing tests"
 | `posoco-ext-permission` | ✓ | ✓ | ✓ |
 | `posoco-ext-ratelimit` | ✓ | ✓ | ✓ |
 | `posoco-devkit` | ✓ | ✓ | ✓ |
-| **Preference-tied** (baked per outlet) | | | |
-| `posoco-ext-nowledge-mem` | — | ✓ | ✓ |
-| `posoco-ext-rtk` | — | ✓ | ✓ |
+| **Preference-tied**（public flavor） | | | |
+| `posoco-ext-nowledge-mem` | — | — | — |
 | `posoco-ext-obsidian` | — | — | — |
+| `posoco-ext-zcode` | — | — | — |
 | **Outlet-specific** | | | |
 | `posoco-ext-herdr` | ✓ (presence + `herdr_delegate`) | — | ✓ (presence only) |
 | `posoco-ext-mcp` | ✓ | ✓ | — |
@@ -108,7 +108,7 @@ moonx colmugx/cetas-run -- --yolo -- "fix the failing tests"
 | `posoco-ext-goal` | — | — | — |
 | `posoco-ext-statusbar` / `-stats` | ✓ | — | — |
 | `posoco-ext-pi-adaptor` | ✓ | — | — |
-| `posoco-ext-zcode` | — | ✓ ¹ | — |
+| `posoco-ext-zcode` | — | — | — |
 | `posoco-ext-acp` | — | ✓ | — |
 | `posoco-kit-lody` / `-paseo` | — | ✓ | — |
 | `posoco-kit-delegation` | — | ✓ (transitive) | — |
@@ -116,6 +116,18 @@ moonx colmugx/cetas-run -- --yolo -- "fix the failing tests"
 > `posoco-ext-herdr`：cetas-run 仅 presence 上报、永不持有
 > `herdr_delegate`——headless 是深度 1 叶子，被委派的子代理无法再委派；
 > pane 委派工具只在 cetas-bun 组合。
+
+### Personal 配方增量
+
+上面的表描述默认发布的 **public** flavor。public 构建永远不包含 `posoco-ext-nowledge-mem`。
+
+`personal` flavor 在 public 名单之上增加：
+
+- `personal/js`：`nowledge-mem`、`obsidian`、`zcode`。
+- `personal/acp`：`nowledge-mem`、`obsidian`、`zcode`。
+- `personal/run`：只增加 `nowledge-mem`。
+
+这些都不属于 public 发布配置；特别是 **public recipe 绝不能包含 `nowledge-mem`**。
 
 ### 共享状态——"同一个 Cetas"今天意味着什么
 
