@@ -29,6 +29,7 @@ supported_targets = "+native +wasm"
 options(
   "native-stub": [ "terminal_auth_stub.c" ],
   targets: {
+    "login.mbt": [ "native" ],
     "terminal_auth.native.mbt": [ "native" ],
     "terminal_auth_native_wbtest.mbt": [ "native" ],
     "login_native.mbt": [ "native" ],
