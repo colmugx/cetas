@@ -1433,8 +1433,7 @@ async fn build_session_agent(
   }
   // The bridge is the policy's approval source (asks become
   // session/request_permission renders) and ask_question's UI (each ask
-  // maps onto an ACP elicitation form). nmem registers because acp builds
-  // as a personal flavor — the compile-time constant is the only gate.
+  // maps onto an ACP elicitation form).
   let permission_policy = @permission.PermissionPolicy(
     platform.permission_mode,
     approval=Some(bridge as &@permission.ApprovalSource),
