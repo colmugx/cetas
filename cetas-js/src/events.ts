@@ -125,6 +125,18 @@ export type CetasEvent =
       data?: unknown;
     }
   | {
+      /**
+       * One tagged child-run event from an embedded subagent. `ev` is the
+       * child's own turn event (same shapes as the parent stream); hosts key
+       * live tool-row rendering on `parent_call`.
+       */
+      type: "subagent_event";
+      child_session: string;
+      kind: string;
+      parent_call: string;
+      ev: CetasEvent;
+    }
+  | {
       type: "config_changed";
       field: string;
       old: string;
@@ -400,6 +412,23 @@ export function parseCetasEvent(raw: unknown): CetasEvent | null {
       };
     case "ui_render":
       return { type: "ui_render", render: parseUiRender(ev.render) };
+    case "subagent_event": {
+      const inner = parseCetasEvent(ev.ev);
+      if (inner === null) return null;
+      return {
+        type: "subagent_event",
+        child_session: requireString(
+          ev.child_session,
+          "subagent_event.child_session",
+        ),
+        kind: requireString(ev.kind, "subagent_event.kind"),
+        parent_call: requireString(
+          ev.parent_call,
+          "subagent_event.parent_call",
+        ),
+        ev: inner,
+      };
+    }
     default:
       return null;
   }

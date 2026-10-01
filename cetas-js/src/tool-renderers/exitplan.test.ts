@@ -32,6 +32,7 @@ function makeCtx(args: unknown): ToolRenderContext {
     argsComplete: true,
     isPartial: false,
     isError: false,
+    expanded: false,
     invalidate: () => {},
   };
 }

@@ -24,7 +24,7 @@ preferred_target = "native"
 supported_targets = "native"
 
 import {
-  "colmugx/posoco@0.20.0",
+  "colmugx/posoco@0.20.1",
   "colmugx/acp@0.2.1",
   "colmugx/posoco-ext-acp@0.3.0",
   "colmugx/posoco-ext-permission@0.2.0",
@@ -34,9 +34,9 @@ import {
   "colmugx/posoco-ext-bash@0.2.0",
   "colmugx/posoco-ext-context@0.2.0",
   "colmugx/posoco-ext-credentials@0.1.0",
-  "colmugx/posoco-ext-fs-session@0.3.0",
+  "colmugx/posoco-ext-fs-session@0.4.0",
   "posoco/ext-llm@0.2.0",
-  "colmugx/posoco-ext-mcp@0.4.0",
+  "colmugx/posoco-ext-mcp@0.5.1",
   "posoco/ext-oauth@0.1.0",
   "colmugx/posoco-ext-plan@0.4.0",
   "colmugx/posoco-ext-webfetch@0.1.0",

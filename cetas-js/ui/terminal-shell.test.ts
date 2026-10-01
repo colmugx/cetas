@@ -445,6 +445,12 @@ describe("isAbortError", () => {
     ).toBe(true);
   });
 
+  test("the Agent's typed AgentError::Cancelled string marks an interrupt", () => {
+    expect(isAbortError("AgentError::Cancelled(turn cancelled)")).toBe(true);
+    expect(isAbortError(new Error("AgentError::Cancelled(compact cancelled)"))).toBe(true);
+    expect(isAbortError(new Error("AgentError::Runtime(...)"))).toBe(false);
+  });
+
   test("a bare Cancelled message is a real failure, not an interrupt", () => {
     expect(
       isAbortError(new Error("AgentError::Model(provider fetch failed: Cancelled)")),

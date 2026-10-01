@@ -21,6 +21,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { theme, markdownTheme } from "../../ui/theme.ts";
 import { wrapAssistantLines, wrapUserLines } from "../../ui/osc133.ts";
+import type { SubagentActivityStore } from "../controllers/subagent-activity.ts";
 import {
   pickToolRenderer,
   statusBullet,
@@ -167,6 +168,12 @@ export interface ToolRowOptions {
    * rename). Defaults to identity.
    */
   labelFor?: (name: string) => string;
+  /**
+   * Shell-owned subagent activity store, exposed to renderers through the
+   * row's ToolRenderContext (`subagentActivity`). Optional: hosts without
+   * subagent live-display omit it and rows render without live data.
+   */
+  subagentActivity?: SubagentActivityStore;
 }
 
 /**
@@ -212,6 +219,8 @@ export class ToolRow extends Container {
       argsComplete: !streaming,
       isPartial: streaming,
       isError: false,
+      expanded,
+      subagentActivity: options?.subagentActivity,
       invalidate: () => {
         this.rebuild();
         invalidateParent();
@@ -264,6 +273,31 @@ export class ToolRow extends Container {
     this.rebuild();
   }
 
+  /**
+   * Internal: live-refresh a pending row (subagent elapsed/step ticking,
+   * driven by the event router — rows never own timers). Finished rows
+   * refuse: a result view is final and must not rebuild. Returns whether
+   * the row was refreshed.
+   */
+  refreshLive(): boolean {
+    if (this.finished) return false;
+    this.rebuild();
+    return true;
+  }
+
+  /**
+   * Re-key the row to the authoritative call id (streaming adoption: rows
+   * mounted from `tool_args_delta` fragments may only know the temporary
+   * `#<index>`). Renderers key live lookups on `ctx.toolCallId` — the
+   * `agent` row reads its child snapshots by parent_call — so adoption
+   * must land the real id.
+   */
+  setCallId(toolCallId: string): void {
+    if (this.ctx.toolCallId === toolCallId) return;
+    this.ctx.toolCallId = toolCallId;
+    this.rebuild();
+  }
+
   /** ctrl+o target: widen/narrow this row's result preview, then re-render. */
   setExpanded(v: boolean): void {
     if (this.expanded === v) return;
@@ -276,6 +310,7 @@ export class ToolRow extends Container {
     while (this.children.length > 1) {
       this.children.pop();
     }
+    this.ctx.expanded = this.expanded;
     let comp: Component;
     if (this.finished && this.result) {
       comp = this.renderer.renderResult?.(

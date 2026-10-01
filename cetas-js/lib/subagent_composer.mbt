@@ -350,6 +350,7 @@ async fn build_cetas_subagents(
   parent_mode~ : () -> @permission.PermissionMode,
   approval? : &@permission.ApprovalSource? = None,
   ui? : &@posoco.UiPort? = None,
+  observers? : Array[(@subagent_kit.SubagentEvent) -> Unit] = [],
   context_fs~ : &@workspace.WorkspaceFs,
   feature_fs~ : &@workspace.WorkspaceFs,
   cwd~ : String,
@@ -375,6 +376,7 @@ async fn build_cetas_subagents(
     parent_selection=Some(fn() {
       (parent_router.active_slot_id(), parent_router.active_effort())
     }),
+    observers~,
   )
   tools as &@posoco.Extension
 }

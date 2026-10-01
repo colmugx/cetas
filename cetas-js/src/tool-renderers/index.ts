@@ -16,6 +16,7 @@ import { askQuestionRenderer } from "./askquestion.ts";
 import { bashRenderer } from "./bash.ts";
 import { exitPlanRenderer } from "./exitplan.ts";
 import { writeRenderer } from "./write.ts";
+import { subagentRenderer } from "./subagent.ts";
 
 let registered = false;
 
@@ -27,6 +28,7 @@ export function registerBuiltinToolRenderers(): void {
   registerToolRenderer("bash", bashRenderer);
   registerToolRenderer("exit_plan_mode", exitPlanRenderer);
   registerToolRenderer("write", writeRenderer);
+  registerToolRenderer("agent", subagentRenderer);
 }
 
 // Side-effect on import — covers the case where callers just `import

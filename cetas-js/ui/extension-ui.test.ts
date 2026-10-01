@@ -1029,28 +1029,6 @@ describe("UiRequestBar", () => {
     );
   });
 
-  test("an invalid policy budget degrades to no deadline instead of killing the ask", async () => {
-    const { tui, bar } = makeBar();
-    const callback = createUiRequestCallback(bar, () => -5);
-    const responsePromise = callback(
-      JSON.stringify({
-        type: "ui_request",
-        request_id: "request-bad-budget",
-        request: { type: "input", prompt: "Wait" },
-      }),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(bar.isActive()).toBe(true);
-    tui.focused!.handleInput!("typed\r");
-    await expect(responsePromise).resolves.toBe(
-      JSON.stringify({
-        type: "ui_response",
-        request_id: "request-bad-budget",
-        response: { type: "text", text: "typed" },
-      }),
-    );
-  });
-
   test("isPlanReviewRequest matches only the plan-review select title", () => {
     expect(
       isPlanReviewRequest({

@@ -25,7 +25,7 @@ preferred_target = "js"
 supported_targets = "js"
 
 import {
-  "colmugx/posoco@0.20.0",
+  "colmugx/posoco@0.20.1",
   "colmugx/cetas-core@0.2.0",
   "colmugx/cetas-ext-forme@0.1.0",
   "posoco/devkit@0.4.1",
@@ -33,12 +33,12 @@ import {
   "colmugx/posoco-ext-context@0.2.0",
   "colmugx/posoco-ext-credentials@0.1.0",
   "colmugx/posoco-ext-edit@0.2.0",
-  "colmugx/posoco-ext-fs-session@0.3.0",
+  "colmugx/posoco-ext-fs-session@0.4.0",
   "colmugx/posoco-ext-glob@0.2.0",
   "colmugx/posoco-ext-grep@0.2.0",
   "posoco/ext-herdr@0.1.0",
   "posoco/ext-llm@0.2.0",
-  "colmugx/posoco-ext-mcp@0.4.0",
+  "colmugx/posoco-ext-mcp@0.5.1",
   "posoco/ext-oauth@0.1.0",
   "colmugx/posoco-ext-openai@0.1.0",
   "colmugx/posoco-ext-permission@0.2.0",

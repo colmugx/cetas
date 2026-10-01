@@ -31,6 +31,7 @@ function makeCtx(overrides: Partial<ToolRenderContext> = {}): ToolRenderContext 
     argsComplete: true,
     isPartial: false,
     isError: false,
+    expanded: false,
     invalidate: () => {},
     ...overrides,
   };

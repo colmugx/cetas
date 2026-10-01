@@ -17,6 +17,8 @@ import {
   SelectList,
   Text,
   TUI,
+  TuiMainScreen,
+  stripTerminalSequences,
   type Component,
   type EditorTheme,
   type OverlayHandle,
@@ -54,6 +56,13 @@ import {
   type ImageAttachment,
 } from "../src/app/image-attachments.ts";
 import { EventRouter } from "../src/controllers/event-router.ts";
+import { SubagentActivityStore } from "../src/controllers/subagent-activity.ts";
+import {
+  SubagentHeader,
+  projectSubagentHeader,
+  renderSubagentHeader,
+  type SubagentHeaderSource,
+} from "./subagent-header.ts";
 import {
   errorNotice,
   systemNotice,
@@ -234,6 +243,12 @@ export class TerminalShell {
   private readonly editor: Editor;
   private readonly statusBarMount: Container;
   private readonly router: EventRouter;
+  private readonly subagents = new SubagentActivityStore();
+  /** Background activity above the editor, separate from transcript history. */
+  private readonly agentSwarm: Container;
+  private readonly subagentHeader: SubagentHeader;
+  private readonly askRegion: Container;
+  private swarmLines: string[] = [];
   private readonly uiRenderHost: UiRenderHost;
   private readonly uiRequestBar: UiRequestBar;
   private readonly uiRegistry = new UiRegistry();
@@ -342,8 +357,12 @@ export class TerminalShell {
     this.statusWrapper = new Container();
     this.setupStatus = new Container();
     this.extensionStatus = new Container();
+    this.agentSwarm = new Container();
+    this.subagentHeader = new SubagentHeader(() => this.subagentHeaderSource());
+    this.agentSwarm.addChild(this.subagentHeader);
     const statusRegion = new Container();
     statusRegion.addChild(this.statusWrapper);
+    statusRegion.addChild(this.agentSwarm);
     statusRegion.addChild(this.setupStatus);
     statusRegion.addChild(this.extensionStatus);
     this.tui.addChild(statusRegion);
@@ -354,8 +373,8 @@ export class TerminalShell {
     // Interactive asks (permission approval, extension questions) render
     // inline here — directly above the editor — instead of a centered
     // overlay that fights the streaming transcript for the same rows.
-    const askRegion = new Container();
-    this.tui.addChild(askRegion);
+    this.askRegion = new Container();
+    this.tui.addChild(this.askRegion);
 
     this.editor = new Editor(this.tui, editorTheme);
     this.editor.setAutocompleteProvider(this.uiRegistry);
@@ -378,7 +397,7 @@ export class TerminalShell {
         "status:statusbar": { mount: this.statusBarMount, format: "line" },
       },
     );
-    this.uiRequestBar = new UiRequestBar(this.tui, askRegion, () => {
+    this.uiRequestBar = new UiRequestBar(this.tui, this.askRegion, () => {
       this.tui.setFocus(this.editor);
     });
     // Every overlay-style popup goes through the veil host so centered
@@ -408,6 +427,8 @@ export class TerminalShell {
       cwd: this.cwd,
       toolLabel: (name) => toolDisplayLabel(options.toolLabels?.get(name), name),
       initialToolExpanded: () => this.toolOutputExpanded,
+      subagentActivity: this.subagents,
+      canRefreshSubagentRow: (row) => this.canRefreshSubagentRow(row),
       onSessionRedirect: (_from, to) => {
         // Follow the redirect immediately so later prompts target the new
         // thread, and adopt it at the app boundary as an observed runtime
@@ -422,6 +443,7 @@ export class TerminalShell {
           );
         }
       },
+      onSubagentEvent: (ev) => this.handleSubagentEvent(ev),
     });
 
     this.tui.addInputListener((data) => this.handleInput(data));
@@ -668,6 +690,11 @@ export class TerminalShell {
       try {
         if (this.app !== undefined) await this.app.shutdown();
       } finally {
+        this.stopSwarmTicker();
+        this.statusLoader.stop();
+        this.subagents.clear();
+        this.agentSwarm.clear();
+        this.replayedToolRows.clear();
         this.uiRenderHost.dispose();
         if (this.started) this.tui.stop();
       }
@@ -801,7 +828,39 @@ export class TerminalShell {
     this.tui.requestRender();
   }
 
+  private canRefreshSubagentRow(row: ToolRow): boolean {
+    if (!(this.tui instanceof TuiMainScreen) || this.tui.hasOverlay()) return false;
+    const { columns: width, rows: height } = this.tui.terminal;
+    const painted = this.tui.captureRenderState();
+    if (painted.previousLines.length === 0) return true;
+    if (painted.previousWidth !== width || painted.previousHeight !== height) return false;
+    const prefix: string[] = [];
+    let mounted = false;
+    for (const root of this.tui.children) {
+      if (root !== this.transcript) {
+        prefix.push(...root.render(width));
+        continue;
+      }
+      for (const child of this.transcript.children) {
+        if (child === row) {
+          mounted = true;
+          break;
+        }
+        prefix.push(...child.render(width));
+      }
+      break;
+    }
+    if (!mounted || prefix.length < painted.previousViewportTop) return false;
+    const cached = row.render(width);
+    if (prefix.length + cached.length > painted.previousViewportTop + height) return false;
+    // The row sits fully inside the previous viewport: an in-place content
+    // refresh stays incremental. Content equality is deliberately NOT
+    // required — a changed tail/tool is exactly what we are refreshing.
+    return true;
+  }
+
   private handleObserverEvent(eventJson: string): void {
+    if (this.shutdownPromise !== undefined) return;
     if (this.handleOperationLifecycleEvent(eventJson)) return;
     const outcome = parseCetasEventLenient(eventJson);
     if ("skipped" in outcome) {
@@ -827,6 +886,80 @@ export class TerminalShell {
       routed = { type: "turn_completed" };
     }
     this.router.handleEvent(routed);
+  }
+
+  private swarmTicker: ReturnType<typeof setInterval> | undefined;
+
+  private handleSubagentEvent(ev: CetasEvent & { type: "subagent_event" }): void {
+    if (!this.subagents.apply(ev, this.sessionId)) return;
+    const activity = this.subagents.get(ev.child_session);
+    if (activity?.owner_session === this.sessionId && activity.background !== true) {
+      if (this.router.refreshSubagentRow(activity.parent_call)) this.tui.requestRender();
+    }
+    this.renderSubagentTerminal(ev.child_session);
+    this.refreshSwarmLine();
+    this.ensureSwarmTicker();
+  }
+
+  private renderSubagentTerminal(childSession: string): void {
+    const notice = this.subagents.claimTerminalNotification(childSession, this.sessionId);
+    if (notice === undefined) return;
+    const summary = (notice.summary ?? "").replace(/\s+/g, " ").trim();
+    const preview = summary.length > 200 ? `${summary.slice(0, 200)}…` : summary;
+    this.addTranscriptChild(systemNotice(
+      `${notice.success ? "✓" : "✗"} agent(${notice.display_name}) · ${notice.kind} ${notice.terminal_state}` +
+      (preview.length > 0 ? ` — ${preview}` : ""),
+    ));
+  }
+
+  private ensureSwarmTicker(): void {
+    if (this.shutdownPromise !== undefined || this.subagents.running(this.sessionId).length === 0) {
+      this.stopSwarmTicker();
+      return;
+    }
+    if (this.swarmTicker !== undefined) return;
+    this.swarmTicker = setInterval(() => {
+      this.refreshSwarmLine();
+      if (this.router.refreshRunningSubagents() > 0) this.tui.requestRender();
+      this.ensureSwarmTicker();
+    }, 1000);
+  }
+
+  private stopSwarmTicker(): void {
+    if (this.swarmTicker === undefined) return;
+    clearInterval(this.swarmTicker);
+    this.swarmTicker = undefined;
+  }
+
+  private subagentHeaderSource(): SubagentHeaderSource {
+    const records = this.subagents.runningBackground(this.sessionId);
+    if (records.length === 0) return { records, now: Date.now() };
+    const width = this.tui.terminal.columns;
+    const chrome = [
+      this.statusWrapper, this.setupStatus, this.extensionStatus,
+      this.extensionWidgets, this.askRegion, this.editor, this.statusBarMount,
+    ];
+    return {
+      records,
+      now: Date.now(),
+      height: this.tui.terminal.rows,
+      bottomReserve: 4 + chrome.reduce((rows, component) => rows + component.render(width).length, 0),
+    };
+  }
+
+  private refreshSwarmLine(): void {
+    const source = this.subagentHeaderSource();
+    const lines = renderSubagentHeader(projectSubagentHeader(source.records, source), this.tui.terminal.columns);
+    if (lines.length === this.swarmLines.length && lines.every((line, i) => line === this.swarmLines[i])) return;
+    this.swarmLines = lines;
+    this.tui.requestRender();
+  }
+
+  private refreshSessionSubagents(): void {
+    this.replayedToolRows.clear();
+    for (const record of this.subagents.all(this.sessionId)) this.renderSubagentTerminal(record.child_session);
+    this.refreshSwarmLine();
+    this.ensureSwarmTicker();
   }
 
   /**
@@ -2271,17 +2404,28 @@ function escapeXml(value: string): string {
 }
 
 /**
- * Stable cancellation marker the provider classifies into the AgentError text
- * before wrapping it as a transport failure. The turn-level interrupt path
- * matches this marker instead of relying on a generic `Cancelled` substring.
+ * Stable cancellation markers for the three interrupt channels that can win
+ * the abort race: the provider classifies stream cancellation into the
+ * AgentError text (`category=cancelled`), the Agent surfaces a typed
+ * `AgentError::Cancelled(...)` string, and a JS-signal coroutine cancel
+ * rejects with an AbortError.
  */
 const CANCELLED_MARKER = "category=cancelled";
+const CANCELLED_ERROR_PREFIX = "AgentError::Cancelled";
 
 export function isAbortError(error: unknown): boolean {
   if (error instanceof Error) {
-    return error.name === "AbortError" || error.message.includes(CANCELLED_MARKER);
+    return (
+      error.name === "AbortError" ||
+      error.message.includes(CANCELLED_MARKER) ||
+      error.message.includes(CANCELLED_ERROR_PREFIX)
+    );
   }
-  return typeof error === "string" && error.includes(CANCELLED_MARKER);
+  return (
+    typeof error === "string" &&
+    (error.includes(CANCELLED_MARKER) ||
+      error.includes(CANCELLED_ERROR_PREFIX))
+  );
 }
 
 function authMethodLabel(method: string): string {

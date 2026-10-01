@@ -14,6 +14,7 @@
 
 import { Text, type Component } from "@earendil-works/pi-tui";
 import { theme } from "../../ui/theme.ts";
+import type { SubagentActivityStore } from "../controllers/subagent-activity.ts";
 import { fallbackRenderer } from "./fallback.ts";
 import {
   TOOL_ROW_SPECS,
@@ -39,6 +40,15 @@ export interface ToolRenderContext {
   isPartial: boolean;
   /** True if the last result was an error. */
   isError: boolean;
+  /** Global ctrl+o expansion state (call view honors it like the result view). */
+  expanded: boolean;
+  /**
+   * Shell-owned subagent activity store (optional: hosts without subagent
+   * live-display omit it). Injected per row via ToolRowOptions; the `agent`
+   * renderer reads running child snapshots keyed on `toolCallId` from here
+   * instead of a process-global singleton.
+   */
+  subagentActivity?: SubagentActivityStore;
   /** Force this tool row to re-render. */
   invalidate(): void;
   /** Previously returned component, if any — for diffing / reuse. */

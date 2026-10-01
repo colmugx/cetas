@@ -828,8 +828,17 @@ describe("esc mid-stream, compact, and resume over the real bridge", () => {
         },
         (error: unknown) => error,
       );
+      // Three interrupt channels race: the provider's stable
+      // `category=cancelled` marker, the Agent's typed
+      // `AgentError::Cancelled(...)` string, and the JS signal cancelling
+      // the coroutine (AbortError, empty message). The UI's isAbortError
+      // accepts all three — pin that contract.
       const text = rejection instanceof Error ? rejection.message : String(rejection);
-      expect(text).toContain("category=cancelled");
+      const aborted =
+        (rejection instanceof Error && rejection.name === "AbortError") ||
+        text.includes("category=cancelled") ||
+        text.includes("AgentError::Cancelled");
+      expect(aborted).toBe(true);
 
       // Same handle, same session: no agent rebuild, no new user message.
       const compactRaw = await cetas_js_compact_session(agent, "esc-session", new AbortController().signal);
@@ -898,7 +907,9 @@ describe("esc mid-stream, compact, and resume over the real bridge", () => {
       const second = JSON.parse(
         await cetas_js_compact_session(agent, "cancel-session", new AbortController().signal),
       );
-      expect(second).toMatchObject({ ok: true, mode: "Replace", messages_after: 1 });
+      // The compact window now carries the raw-output anchor assistant plus
+      // the retained projection items (openai-compact-repair W2).
+      expect(second).toMatchObject({ ok: true, mode: "Replace", messages_after: 2 });
 
       const reply = await cetas_js_run_turn(
         agent,

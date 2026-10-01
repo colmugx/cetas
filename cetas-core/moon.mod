@@ -16,7 +16,7 @@ keywords = [ "cetas", "posoco", "host", "core" ]
 description = "Cetas core — target-agnostic host logic (assembly, slash, observer, session) for cetas-native and cetas-js"
 
 import {
-  "colmugx/posoco@0.20.0",
+  "colmugx/posoco@0.20.1",
   "posoco/devkit@0.4.1",
   "colmugx/cetas-ext-forme@0.1.0",
   "colmugx/posoco-ext-read@0.2.0",
@@ -30,7 +30,7 @@ import {
   "colmugx/posoco-ext-webfetch@0.1.0",
   "posoco/ext-llm@0.2.0",
   "colmugx/posoco-ext-skills@0.2.0",
-  "colmugx/posoco-ext-nowledge-mem@0.1.0",
+  "colmugx/posoco-ext-nowledge-mem@0.2.0",
   "colmugx/posoco-ext-askquestion@0.1.0",
   "colmugx/posoco-ext-rtk@0.3.0",
   "posoco/ext-oauth@0.1.0",
@@ -48,7 +48,7 @@ import {
   "colmugx/posoco-ext-lazytools@0.1.0",
   "colmugx/posoco-ext-context@0.2.0",
   "colmugx/posoco-ext-credentials@0.1.0",
-  "colmugx/posoco-ext-fs-session@0.3.0",
+  "colmugx/posoco-ext-fs-session@0.4.0",
   "colmugx/posoco-ext-permission@0.2.0",
   "colmugx/posoco-ext-ratelimit@0.4.0",
   "moonbitlang/async@0.22.4",

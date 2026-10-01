@@ -1738,11 +1738,31 @@ pub fn cetas_js_runtime_create_agent(
               Some(source) => Some(source as &@permission.ApprovalSource)
               None => None
             }
+            // Child-run events ride the same JS callback as parent events,
+            // wrapped so the TS router can tell them apart. `turn_event_to_json`
+            // is the parent mapping reused verbatim for the child event.
+            let subagent_observers : Array[
+              (@subagent_kit.SubagentEvent) -> Unit,
+            ] = [
+              fn(event) {
+                let payload = Json::object(
+                  Map::from_array([
+                    ("type", Json::string("subagent_event")),
+                    ("child_session", Json::string(event.child_session)),
+                    ("kind", Json::string(event.kind)),
+                    ("parent_call", Json::string(event.parent_call)),
+                    ("ev", turn_event_to_json(event.event)),
+                  ]),
+                )
+                observer_callback.invoke(payload.stringify())
+              },
+            ]
             let subagents = build_cetas_subagents(
               parent_router=model,
               parent_mode=fn() { policy.mode() },
               approval=child_approval,
               ui=Some(ui as &@posoco.UiPort),
+              observers=subagent_observers,
               context_fs~,
               feature_fs=context_fs,
               cwd=runtime.config.cwd,

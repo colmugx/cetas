@@ -143,6 +143,35 @@ describe("parseCetasEvent", () => {
     expect(parseCetasEvent({ type: "future_event" })).toBeNull();
   });
 
+  test("parses a subagent_event with its nested child event", () => {
+    expect(
+      parseCetasEvent({
+        type: "subagent_event",
+        child_session: "subagent-1",
+        kind: "coder",
+        parent_call: "call_9",
+        ev: { type: "turn_started" },
+      }),
+    ).toEqual({
+      type: "subagent_event",
+      child_session: "subagent-1",
+      kind: "coder",
+      parent_call: "call_9",
+      ev: { type: "turn_started" },
+    });
+  });
+
+  test("subagent_event requires the tag fields", () => {
+    expect(() =>
+      parseCetasEvent({
+        type: "subagent_event",
+        child_session: "s",
+        kind: "coder",
+        ev: { type: "turn_started" },
+      }),
+    ).toThrow("subagent_event.parent_call must be a string");
+  });
+
   test("parses config_changed emitted by Agent::update_model", () => {
     expect(
       parseCetasEvent({

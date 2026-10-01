@@ -21,6 +21,7 @@
 
 import { type Component } from "@earendil-works/pi-tui";
 import type { BridgeMessage, CetasEvent } from "../events.ts";
+import type { SubagentActivityStore } from "./subagent-activity.ts";
 import {
   errorNotice,
   systemNotice,
@@ -51,6 +52,25 @@ export interface EventRouterCallbacks {
    * hosts that don't follow redirects still get the notice rendering.
    */
   onSessionRedirect?(from: string, to: string): void;
+  /**
+   * One tagged child-run event from an embedded subagent. Optional: hosts
+   * without subagent live-display simply omit it (events are dropped).
+   */
+  onSubagentEvent?(ev: CetasEvent & { type: "subagent_event" }): void;
+  /**
+   * Shell-owned subagent activity store, handed to tool rows through
+   * ToolRowOptions so the `agent` renderer reads child snapshots from the
+   * host's instance. Optional: hosts without subagent live-display omit it.
+   */
+  subagentActivity?: SubagentActivityStore;
+  /**
+   * Host visibility gate for live subagent row refreshes: the shell answers
+   * whether `row` is safely on-screen (no overlay, stable layout, inside the
+   * painted viewport — see TerminalShell.canRefreshSubagentRow). Optional:
+   * absent means always allowed, so plain unit harnesses refresh without a
+   * terminal.
+   */
+  canRefreshSubagentRow?(row: ToolRow): boolean;
 }
 
 export class EventRouter {
@@ -121,6 +141,11 @@ export class EventRouter {
         );
         this.cb.onSessionRedirect?.(ev.from, ev.to);
         break;
+      case "subagent_event":
+        // Child-run events never touch the parent's turn/stream state — the
+        // subscriber owns folding and row invalidation.
+        this.cb.onSubagentEvent?.(ev);
+        return;
       case "model_invoked":
         break;
       case "custom":
@@ -224,6 +249,10 @@ export class EventRouter {
     // path below runs unchanged (history replay / non-streaming providers).
     const adopted = this.toolStream?.onCallStarted(toolCallId, toolName, args);
     if (adopted) {
+      // Fragments may have mounted the row keyed `#<index>`; renderers key
+      // live lookups on ctx.toolCallId (the `agent` row resolves child
+      // snapshots by parent_call), so adoption lands the authoritative id.
+      adopted.setCallId(toolCallId);
       this.toolRows.set(toolCallId, adopted);
       this.cb.setStatus("working", `running ${toolName}`);
       return;
@@ -236,6 +265,7 @@ export class EventRouter {
       () => this.cb.requestRender(),
       this.cb.toolLabel(toolName),
       this.cb.initialToolExpanded(),
+      { subagentActivity: this.cb.subagentActivity },
     );
     this.toolRows.set(toolCallId, row);
     this.cb.addTranscriptChild(row);
@@ -261,6 +291,51 @@ export class EventRouter {
     if (this.stream !== null) {
       this.cb.setStatus("working", "waiting for model");
     }
+  }
+
+  // -- live subagent row refresh -------------------------------------------
+
+  /**
+   * Refresh the pending `agent` row for one parent call (called by the shell
+   * when a child event lands). Only a row of the CURRENT turn that has not
+   * finished qualifies — `toolRows` is cleared at turn end and
+   * ToolRow.refreshLive() refuses finished rows — and the host visibility
+   * gate (cb.canRefreshSubagentRow) can veto off-screen refreshes. Returns
+   * whether a row was actually refreshed.
+   */
+  refreshSubagentRow(parentCall: string): boolean {
+    const row = this.toolRows.get(parentCall);
+    if (row === undefined) return false;
+    if (
+      this.cb.canRefreshSubagentRow !== undefined &&
+      !this.cb.canRefreshSubagentRow(row)
+    ) {
+      return false;
+    }
+    return row.refreshLive();
+  }
+
+  /**
+   * One-stop 1s tick for the shell: refresh every foreground child's parent
+   * row still live this turn. Walks the store's running set, skips
+   * background children (they render in the header, never as transcript
+   * rows), dedupes by parent call (several children may share one `agent`
+   * call), and applies the same visibility gate as refreshSubagentRow.
+   * Returns the number of rows refreshed.
+   */
+  refreshRunningSubagents(): number {
+    const running = this.cb.subagentActivity?.running() ?? [];
+    const seen = new Set<string>();
+    let refreshed = 0;
+    for (const record of running) {
+      if (record.background === true) continue;
+      const parentCall = record.parent_call;
+      if (parentCall.length === 0 || parentCall === "background") continue;
+      if (seen.has(parentCall)) continue;
+      seen.add(parentCall);
+      if (this.refreshSubagentRow(parentCall)) refreshed += 1;
+    }
+    return refreshed;
   }
 
   // -- turn lifecycle ------------------------------------------------------
@@ -300,7 +375,13 @@ export class EventRouter {
           () => this.cb.requestRender(),
           displayName.length > 0 ? this.cb.toolLabel(displayName) : undefined,
           this.cb.initialToolExpanded(),
-          { streaming: true, labelFor: (n) => this.cb.toolLabel(n) },
+          {
+            streaming: true,
+            labelFor: (n) => this.cb.toolLabel(n),
+            // Same injection as the classic path: an adopted `agent` row
+            // must reach live child data with the same options.
+            subagentActivity: this.cb.subagentActivity,
+          },
         );
         this.cb.addTranscriptChild(row);
         return row;
