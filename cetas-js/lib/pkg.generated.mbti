@@ -52,6 +52,8 @@ pub fn cetas_js_refresh_model_catalogs(CetasJsConfig, String) -> @js_async.Promi
 
 pub fn cetas_js_refresh_model_lists_live(CetasJsConfig, String) -> @js_async.Promise[String]
 
+pub fn cetas_js_resume_turn(CetasJsAgent, String, @js_async.AbortSignal) -> @js_async.Promise[String]
+
 pub fn cetas_js_rewind(CetasJsAgent, String, Int) -> @js_async.Promise[String]
 
 pub fn cetas_js_run_turn(CetasJsAgent, String, String, String, @js_async.AbortSignal) -> @js_async.Promise[String]
