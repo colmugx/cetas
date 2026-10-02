@@ -268,14 +268,16 @@ describe("parseCetasEventLenient", () => {
   });
 
   test("a malformed known type is skipped, never throws", () => {
-    // turn_failed without its required fields.
+    // turn_failed without its required fields; the real reason rides along.
     const outcome = parseCetasEventLenient('{"type":"turn_failed"}');
-    expect(outcome).toEqual({ skipped: "malformed turn_failed" });
+    expect(outcome).toEqual({
+      skipped: "malformed turn_failed: turn_failed.error_message must be a string",
+    });
     expect(() =>
       parseCetasEventLenient('{"type":"turn_failed"}'),
     ).not.toThrow();
     expect(parseCetasEventLenient('"just a string"')).toEqual({
-      skipped: "malformed (no type)",
+      skipped: "malformed (no type): cetas event must be an object",
     });
   });
 });
@@ -328,16 +330,17 @@ describe("handleInput key-release filtering", () => {
 });
 
 describe("handleObserverEvent FFI degrade path", () => {
-  test("skipped events warn and render at most one notice per turn window", () => {
+  test("skipped events never touch the console; one notice per turn window", () => {
     const { shell } = makeShell();
     const { warns, restore } = captureWarn();
     try {
       (shell as any).handleObserverEvent("{broken");
       (shell as any).handleObserverEvent('{"type":"definitely_new_thing"}');
-      expect(warns).toHaveLength(2);
+      // Raw console output corrupts the TUI frame — strictly forbidden.
+      expect(warns).toHaveLength(0);
       const transcript = () => (shell as any).transcript.render(200).join("\n");
       const notices = () =>
-        transcript().match(/unrecognized bridge event/g) ?? [];
+        transcript().match(/degraded UI event/g) ?? [];
       expect(notices()).toHaveLength(1);
       expect(transcript()).toContain("(last: unparseable json)");
 

@@ -312,8 +312,7 @@ impl @posoco.ToolProvider for BusExtProbe with fn list_tools(_self) {
 ///|
 impl @posoco.ToolProvider for BusExtProbe with fn execute(
   _self,
-  _name : String,
-  _call : @posoco.ToolCall,
+  _ctx : @posoco.ToolCallContext,
 ) -> @posoco.ToolOutcome raise @posoco.RuntimeError {
   @posoco.ToolOutcome::Success(content="probe", structured=None)
 }

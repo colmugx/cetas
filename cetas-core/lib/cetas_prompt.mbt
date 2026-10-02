@@ -11,7 +11,7 @@
 /// `SystemPromptHook`.
 fn cetas_base_system_prompt(project_name~ : String) -> String {
   (
-    $|You are Cetas, a working partner in an active workspace with the user.
+    $|You are Cetas, a working partner in an active workspace with the user, treat the user as mates, and mates never betray each other.
     $|Think Different; do the right thing; don't be evil. Inspire the World, Create the Future; dream it possible and make it possible.
     $|
     $|Working-partner covenant:

@@ -703,7 +703,7 @@ describe("long-lived cetas-js bridge", () => {
 /**
  * Esc → /compact acceptance flows over the real bridge with the OpenAI
  * Responses provider: the model endpoint is `/responses` (SSE) and manual
- * compaction is `/responses/compact` (JSON `output` window).
+ * compaction uses `/responses` SSE with a final compaction_trigger.
  */
 describe("esc mid-stream, compact, and resume over the real bridge", () => {
   const openaiSse = (text: string) =>
@@ -724,12 +724,25 @@ describe("esc mid-stream, compact, and resume over the real bridge", () => {
   const sseResponse = (text: string) =>
     new Response(openaiSse(text), { headers: { "content-type": "text/event-stream" } });
 
-  const compactJson = (text: string) =>
-    JSON.stringify({
-      output: [
-        { type: "message", role: "assistant", content: [{ type: "output_text", text }] },
-      ],
-    });
+  const compactSse = (opaque: string) =>
+  [
+    `data: ${JSON.stringify({ type: "response.output_item.done", item: { type: "compaction", id: "cmp_fixture", encrypted_content: opaque } })}`,
+    `data: ${JSON.stringify({ type: "response.output_item.done", item: { type: "message", role: "assistant", content: [{ type: "output_text", text: "discarded compact reply" }] } })}`,
+    `data: ${JSON.stringify({ type: "response.completed", response: { id: "resp_compact_fixture", status: "completed" } })}`,
+    "",
+  ].join("\n\n");
+
+const isCompactRequest = (body: string): boolean => {
+  const request = JSON.parse(body);
+  const compact = request.input?.at(-1)?.type === "compaction_trigger";
+  if (compact) {
+    expect(request.stream).toBe(true);
+    expect(request.input.filter((item: { type?: string }) => item.type === "compaction_trigger")).toHaveLength(1);
+    expect(request.tools.length).toBeGreaterThan(0);
+    expect(typeof request.instructions).toBe("string");
+  }
+  return compact;
+};
 
   function gatedSseResponse(text: string, gate: Promise<void>): Response {
     const encoder = new TextEncoder();
@@ -797,13 +810,15 @@ describe("esc mid-stream, compact, and resume over the real bridge", () => {
       if (!url.startsWith("http://cetas.test")) {
         return new Response("service unavailable", { status: 503 });
       }
-      if (url.endsWith("/responses/compact")) {
-        requests.push({ path: "compact", body: await readRequestBody(init!.body) });
-        return new Response(compactJson("compact checkpoint"), {
-          headers: { "content-type": "application/json" },
+      if (url.endsWith("/responses/compact")) return new Response("legacy compact route", { status: 404 });
+      const requestBody = await readRequestBody(init!.body);
+      if (isCompactRequest(requestBody)) {
+        requests.push({ path: "compact", body: requestBody });
+        return new Response(compactSse("compact checkpoint"), {
+          headers: { "content-type": "text/event-stream" },
         });
       }
-      requests.push({ path: "responses", body: await readRequestBody(init!.body) });
+      requests.push({ path: "responses", body: requestBody });
       if (requests.filter((entry) => entry.path === "responses").length === 1) {
         return gatedSseResponse("interrupted reply", modelGate);
       }
@@ -857,7 +872,9 @@ describe("esc mid-stream, compact, and resume over the real bridge", () => {
       expect(requests[1]!.body.match(/first question/g)).toHaveLength(1);
       // The next request runs on the committed compacted window.
       expect(requests[2]!.body).toContain("compact checkpoint");
-      expect(requests[2]!.body).not.toContain("first question");
+      expect(requests[2]!.body.match(/first question/g)).toHaveLength(1);
+      expect(requests[2]!.body).not.toContain("discarded compact reply");
+      expect(requests[2]!.body).not.toContain("compaction_trigger");
     } finally {
       releaseModel();
       globalThis.fetch = originalFetch;
@@ -877,13 +894,15 @@ describe("esc mid-stream, compact, and resume over the real bridge", () => {
       if (!url.startsWith("http://cetas.test")) {
         return new Response("service unavailable", { status: 503 });
       }
-      if (url.endsWith("/responses/compact")) {
+      if (url.endsWith("/responses/compact")) return new Response("legacy compact route", { status: 404 });
+      const requestBody = await readRequestBody(init!.body);
+      if (isCompactRequest(requestBody)) {
         compactSeen += 1;
         if (compactSeen === 1) {
           return new Promise<Response>(() => {});
         }
-        return new Response(compactJson("second checkpoint"), {
-          headers: { "content-type": "application/json" },
+        return new Response(compactSse("second checkpoint"), {
+          headers: { "content-type": "text/event-stream" },
         });
       }
       void init;
@@ -907,7 +926,7 @@ describe("esc mid-stream, compact, and resume over the real bridge", () => {
       const second = JSON.parse(
         await cetas_js_compact_session(agent, "cancel-session", new AbortController().signal),
       );
-      // The compact window now carries the raw-output anchor assistant plus
+      // The compact window now carries the latest-history anchor assistant plus
       // the retained projection items (openai-compact-repair W2).
       expect(second).toMatchObject({ ok: true, mode: "Replace", messages_after: 2 });
 
@@ -947,25 +966,27 @@ describe("esc mid-stream, compact, and resume over the real bridge", () => {
       if (!url.startsWith("http://cetas.test")) {
         return new Response("service unavailable", { status: 503 });
       }
-      if (url.endsWith("/responses/compact")) {
-        requests.push({ path: "compact", body: await readRequestBody(init!.body) });
+      if (url.endsWith("/responses/compact")) return new Response("legacy compact route", { status: 404 });
+      const requestBody = await readRequestBody(init!.body);
+      if (isCompactRequest(requestBody)) {
+        requests.push({ path: "compact", body: requestBody });
         if (!compactGated) {
           compactGated = true;
           const encoder = new TextEncoder();
           const body = new ReadableStream<Uint8Array>({
             async start(controller) {
               await compactGate;
-              controller.enqueue(encoder.encode(compactJson("compact checkpoint")));
+              controller.enqueue(encoder.encode(compactSse("compact checkpoint")));
               controller.close();
             },
           });
-          return new Response(body, { headers: { "content-type": "application/json" } });
+          return new Response(body, { headers: { "content-type": "text/event-stream" } });
         }
-        return new Response(compactJson("compact checkpoint"), {
-          headers: { "content-type": "application/json" },
+        return new Response(compactSse("compact checkpoint"), {
+          headers: { "content-type": "text/event-stream" },
         });
       }
-      requests.push({ path: "responses", body: await readRequestBody(init!.body) });
+      requests.push({ path: "responses", body: requestBody });
       if (requests.filter((entry) => entry.path === "responses").length === 1) {
         return gatedSseResponse("interrupted reply", modelGate);
       }

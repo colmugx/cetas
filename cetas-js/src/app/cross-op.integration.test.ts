@@ -83,12 +83,25 @@ function gatedSseResponse(text: string, gate: Promise<void>): Response {
   return new Response(body, { headers: { "content-type": "text/event-stream" } });
 }
 
-const compactJson = (text: string) =>
-  JSON.stringify({
-    output: [
-      { type: "message", role: "assistant", content: [{ type: "output_text", text }] },
-    ],
-  });
+const compactSse = (opaque: string) =>
+  [
+    `data: ${JSON.stringify({ type: "response.output_item.done", item: { type: "compaction", id: "cmp_fixture", encrypted_content: opaque } })}`,
+    `data: ${JSON.stringify({ type: "response.output_item.done", item: { type: "message", role: "assistant", content: [{ type: "output_text", text: "discarded compact reply" }] } })}`,
+    `data: ${JSON.stringify({ type: "response.completed", response: { id: "resp_compact_fixture", status: "completed" } })}`,
+    "",
+  ].join("\n\n");
+
+const isCompactRequest = (body: string): boolean => {
+  const request = JSON.parse(body);
+  const compact = request.input?.at(-1)?.type === "compaction_trigger";
+  if (compact) {
+    expect(request.stream).toBe(true);
+    expect(request.input.filter((item: { type?: string }) => item.type === "compaction_trigger")).toHaveLength(1);
+    expect(request.tools.length).toBeGreaterThan(0);
+    expect(typeof request.instructions).toBe("string");
+  }
+  return compact;
+};
 
 interface Harness {
   app: CetasApplication;
@@ -98,7 +111,7 @@ interface Harness {
 }
 
 // One agent over a temp workspace; the model endpoint is the OpenAI Responses
-// SSE route and manual compaction is /responses/compact. The stub must be
+// SSE route; compact uses that route with a final compaction_trigger. The stub must be
 // installed before start(): composition already talks to the provider seam.
 async function startHarness(
   fetchImpl: (input: unknown, init: { body?: unknown }) => Promise<Response>,
@@ -181,10 +194,11 @@ describe("cross-operation cancellation over the real bridge", () => {
           throw new Error("model request body is required");
         }
         const body = await readRequestBody(init.body);
-        if (url.endsWith("/responses/compact")) {
+        if (url.endsWith("/responses/compact")) return new Response("legacy compact route", { status: 404 });
+        if (isCompactRequest(body)) {
           harness.requests.push({ path: "compact", body });
-          return new Response(compactJson("unused checkpoint"), {
-            headers: { "content-type": "application/json" },
+          return new Response(compactSse("unused checkpoint"), {
+            headers: { "content-type": "text/event-stream" },
           });
         }
         harness.requests.push({ path: "responses", body });
@@ -217,7 +231,12 @@ describe("cross-operation cancellation over the real bridge", () => {
           (error: unknown) => error,
         );
         const text = rejection instanceof Error ? rejection.message : String(rejection);
-        expect(text).toContain("category=cancelled");
+        // Same three-channel interrupt family the UI's isAbortError accepts.
+        const aborted =
+          (rejection instanceof Error && rejection.name === "AbortError") ||
+          text.includes("category=cancelled") ||
+          text.includes("AgentError::Cancelled");
+        expect(aborted).toBe(true);
         expect(turnFailedCount(events)).toBe(1);
 
         // Esc after the operation settled must not cancel the next one.
@@ -265,14 +284,15 @@ describe("cross-operation cancellation over the real bridge", () => {
           throw new Error("model request body is required");
         }
         const body = await readRequestBody(init.body);
-        if (url.endsWith("/responses/compact")) {
+        if (url.endsWith("/responses/compact")) return new Response("legacy compact route", { status: 404 });
+        if (isCompactRequest(body)) {
           harness.requests.push({ path: "compact", body });
           if (!compactGated) {
             compactGated = true;
             return new Promise<Response>(() => {});
           }
-          return new Response(compactJson("compact checkpoint"), {
-            headers: { "content-type": "application/json" },
+          return new Response(compactSse("compact checkpoint"), {
+            headers: { "content-type": "text/event-stream" },
           });
         }
         harness.requests.push({ path: "responses", body });
@@ -334,7 +354,10 @@ describe("cross-operation cancellation over the real bridge", () => {
         expect(reply).toContain("after-compact reply");
         const lastBody = requests.at(-1)!.body;
         expect(lastBody).toContain("compact checkpoint");
-        expect(lastBody).not.toContain("crossop first question");
+        expect(countOf(lastBody, "crossop first question")).toBe(1);
+        expect(lastBody).not.toContain(TOOL_FACT_MARKER);
+        expect(lastBody).not.toContain("discarded compact reply");
+        expect(lastBody).not.toContain("compaction_trigger");
         expect(turnFailedCount(events)).toBe(1);
         await app.shutdown();
       } finally {

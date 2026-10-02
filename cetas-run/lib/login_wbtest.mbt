@@ -356,8 +356,10 @@ async test "login model picker saves choice and preserves unrelated cache and se
   let fs = FakeFs()
   fs.files["/login-home/.cetas/settings.json"] = "{\"unknown\":true,\"providers\":{}}"
   fs.files["/login-home/.cetas/model_lists.json"] = "{\"other\":[{\"model_id\":\"keep\"}]}"
+  // Records round trip through `catalog_model_records`, whose contract now
+  // carries the slot's `use_responses_lite` capability beside `image_in`.
   let records = @json.parse(
-    "[{\"model_id\":\"gpt-4o\",\"thinking_efforts\":[],\"default_effort\":null,\"context_window\":null,\"image_in\":false},{\"model_id\":\"gpt-4.1\",\"thinking_efforts\":[],\"default_effort\":null,\"context_window\":null,\"image_in\":false}]",
+    "[{\"model_id\":\"gpt-4o\",\"thinking_efforts\":[],\"default_effort\":null,\"context_window\":null,\"image_in\":false,\"use_responses_lite\":false},{\"model_id\":\"gpt-4.1\",\"thinking_efforts\":[],\"default_effort\":null,\"context_window\":null,\"image_in\":false,\"use_responses_lite\":false}]",
   )
   let probe = LoginProbe(cached_models=Some(records))
   let prompt = LoginPrompt([

@@ -313,7 +313,26 @@ async fn run_login_with_interactions(
       settings~,
       label="cetas-run.login",
     )
-    (driver.refresh)(selected_provider, device_id, snapshot)
+    // Providers own the composition contract: one that cannot yet assemble a
+    // catalog from the saved auth and the current settings (deepseek requires
+    // an explicit model, for example) reports a composition error, not a
+    // failed refresh action. Keep the saved auth and take the designed
+    // no-catalog path below; only non-composition failures (a cancelled
+    // prompt, a command error) fail the login as a refresh error.
+    (driver.refresh)(selected_provider, device_id, snapshot) catch {
+      action_failure =>
+        match action_failure {
+          // Host-action failures stay fatal with the bounded refresh error.
+          @posoco.CommandError::ExecutionFailed(_)
+          | @posoco.CommandError::InvalidArgs(..)
+          | @posoco.CommandError::NotFound(_) => raise action_failure
+          // A provider refusing to compose a catalog from the saved auth and
+          // the current settings (deepseek requires an explicit model, for
+          // example) is not a failed refresh action: keep the saved auth and
+          // take the designed no-catalog path below.
+          _ => None
+        }
+    }
   } catch {
     _ =>
       raise @posoco.CommandError::ExecutionFailed(

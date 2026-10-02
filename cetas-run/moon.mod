@@ -15,7 +15,7 @@ description = "Cetas run host — runs exactly one cetas user turn per invocatio
 supported_targets = "+native +wasm"
 
 import {
-  "colmugx/posoco@0.20.1",
+  "colmugx/posoco@0.20.4",
   "colmugx/cetas-core@0.2.0",
   "posoco/devkit@0.4.1",
   "posoco/ext-herdr@0.1.0",

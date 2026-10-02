@@ -272,8 +272,7 @@ impl @posoco.ToolProvider for ScopeSubmitProbe with fn list_tools(
 ///|
 impl @posoco.ToolProvider for ScopeSubmitProbe with fn execute(
   self : ScopeSubmitProbe,
-  _name : String,
-  _call : @posoco.ToolCall,
+  _ctx : @posoco.ToolCallContext,
 ) -> @posoco.ToolOutcome raise @posoco.RuntimeError {
   let tasks = match self.tasks {
     Some(value) => value

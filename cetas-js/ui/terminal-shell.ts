@@ -864,7 +864,7 @@ export class TerminalShell {
     if (this.handleOperationLifecycleEvent(eventJson)) return;
     const outcome = parseCetasEventLenient(eventJson);
     if ("skipped" in outcome) {
-      this.noteSkippedBridgeEvent(outcome.skipped, eventJson);
+      this.noteDegradedEvent(outcome.skipped);
       return;
     }
     const event = outcome.event;
@@ -896,20 +896,12 @@ export class TerminalShell {
     if (activity?.owner_session === this.sessionId && activity.background !== true) {
       if (this.router.refreshSubagentRow(activity.parent_call)) this.tui.requestRender();
     }
-    this.renderSubagentTerminal(ev.child_session);
+    // Background children are SILENT in the transcript: live state lives in
+    // the header above the input, and the result reaches the conversation
+    // through the task-outcome envelope on the next ordinary turn. Never
+    // scroll transcript rows for background bookkeeping.
     this.refreshSwarmLine();
     this.ensureSwarmTicker();
-  }
-
-  private renderSubagentTerminal(childSession: string): void {
-    const notice = this.subagents.claimTerminalNotification(childSession, this.sessionId);
-    if (notice === undefined) return;
-    const summary = (notice.summary ?? "").replace(/\s+/g, " ").trim();
-    const preview = summary.length > 200 ? `${summary.slice(0, 200)}…` : summary;
-    this.addTranscriptChild(systemNotice(
-      `${notice.success ? "✓" : "✗"} agent(${notice.display_name}) · ${notice.kind} ${notice.terminal_state}` +
-      (preview.length > 0 ? ` — ${preview}` : ""),
-    ));
   }
 
   private ensureSwarmTicker(): void {
@@ -957,7 +949,6 @@ export class TerminalShell {
 
   private refreshSessionSubagents(): void {
     this.replayedToolRows.clear();
-    for (const record of this.subagents.all(this.sessionId)) this.renderSubagentTerminal(record.child_session);
     this.refreshSwarmLine();
     this.ensureSwarmTicker();
   }
@@ -1017,19 +1008,20 @@ export class TerminalShell {
 
   /**
    * Visible degradation for bridge bytes we cannot parse (version skew, bad
-   * payload): every skip is logged with a bounded payload, but at most one
-   * transcript notice renders per turn window so a skewed MoonBit bundle
-   * cannot flood the UI. The callback must never throw across the FFI.
+   * payload) and for degraded extension UI callbacks: at most one transcript
+   * notice renders per turn window so a skewed bundle cannot flood the UI,
+   * and NOTHING is ever written to the raw console — stray stderr lines
+   * corrupt pi-tui's frame sync and can push the input area off screen.
+   * The callback must never throw across the FFI.
    */
-  private noteSkippedBridgeEvent(reason: string, eventJson: string): void {
-    console.warn(`cetas: skipped bridge event (${reason}): ${boundedJson(eventJson)}`);
+  private noteDegradedEvent(reason: string): void {
     this.skippedBridgeEvents += 1;
     if (this.skippedEventsNoticed) return;
     this.skippedEventsNoticed = true;
     const count = this.skippedBridgeEvents;
     this.addTranscriptChild(
       errorNotice(
-        `⚠ skipped ${count} unrecognized bridge event${count === 1 ? "" : "s"} (last: ${reason})`,
+        `⚠ dropped ${count} degraded UI event${count === 1 ? "" : "s"} (last: ${reason})`,
       ),
     );
   }
@@ -1043,7 +1035,10 @@ export class TerminalShell {
   }
 
   private handleUiRender(eventJson: string): void {
-    createUiRenderCallback(this.uiRenderHost)(eventJson);
+    createUiRenderCallback(
+      this.uiRenderHost,
+      () => this.noteDegradedEvent("extension ui_render"),
+    )(eventJson);
   }
 
   private handleUiRequest(eventJson: string): Promise<string> {
@@ -1071,8 +1066,10 @@ export class TerminalShell {
     // Plan-review asks wait for the user indefinitely — reading a plan is
     // reading a document, not a tool call; Esc remains the explicit cancel.
     // Every other ask keeps the blanket deadlock guard.
-    return createUiRequestCallback(this.uiRequestBar, (request) =>
-      isPlanReviewRequest(request) ? null : 300_000,
+    return createUiRequestCallback(
+      this.uiRequestBar,
+      (request) => (isPlanReviewRequest(request) ? null : 300_000),
+      () => this.noteDegradedEvent("extension ui_request"),
     )(eventJson);
   }
 
@@ -2389,8 +2386,13 @@ export function parseCetasEventLenient(
       return { skipped: `unknown type ${eventTypeTag(parsed)}` };
     }
     return { event };
-  } catch {
-    return { skipped: `malformed ${eventTypeTag(parsed)}` };
+  } catch (error: unknown) {
+    // Keep the real reason (bounded) — "malformed X" alone hides which
+    // field/inner event failed validation.
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      skipped: `malformed ${eventTypeTag(parsed)}: ${message.slice(0, 80)}`,
+    };
   }
 }
 

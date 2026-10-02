@@ -70,6 +70,10 @@ pub fn catalog_model_records(catalog : @llm.ProviderModelCatalog) -> Json {
             },
           ),
           ("image_in", Json::boolean(slot.capabilities.contains("image_in"))),
+          (
+            "use_responses_lite",
+            Json::boolean(slot.capabilities.contains("use_responses_lite")),
+          ),
         ]),
       ),
     )

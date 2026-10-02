@@ -11,6 +11,7 @@ fn cache_slot(
   thinking_efforts? : Array[String] = [],
   default_effort? : String? = None,
   context_window? : Int? = None,
+  capabilities? : Array[String] = [],
 ) -> @llm.ModelSlot {
   @llm.ModelSlot::ModelSlot(
     id="test/" + model_id,
@@ -21,6 +22,7 @@ fn cache_slot(
     thinking_efforts~,
     default_effort~,
     context_window~,
+    capabilities~,
   )
 }
 
@@ -72,6 +74,7 @@ test "projection: catalog slots round into ordered records" {
       thinking_efforts=["off", "high"],
       default_effort=Some("high"),
       context_window=Some(131072),
+      capabilities=["use_responses_lite"],
     ),
   ])
   let records = catalog_model_records(catalog)
@@ -88,6 +91,7 @@ test "projection: catalog slots round into ordered records" {
   assert_eq(first.get("thinking_efforts"), Some(Json::array([])))
   assert_eq(first.get("default_effort"), Some(Json::null()))
   assert_eq(first.get("context_window"), Some(Json::null()))
+  assert_eq(first.get("use_responses_lite"), Some(Json::boolean(false)))
   let second = match items[1] {
     Json::Object(fields) => fields
     _ => fail("records must be objects")
@@ -99,6 +103,7 @@ test "projection: catalog slots round into ordered records" {
   )
   assert_eq(second.get("default_effort"), Some(Json::string("high")))
   assert_eq(second.get("context_window"), Some(Json::number(131072.0)))
+  assert_eq(second.get("use_responses_lite"), Some(Json::boolean(true)))
 }
 
 // ------------------------------------------------------- merge and write

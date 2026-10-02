@@ -1560,21 +1560,17 @@ async fn build_session_agent(
   }
   // Lazy activation changes the tool set mid-life, so the catalog is owned
   // by the runtime-seam source; MCP execution routes through the decorator.
+  // Shell cancellation is port-level now: the composed ShellTools registers
+  // a ToolCancellable facet, so a cancelled turn (session/cancel
+  // interrupting the in-flight turn task) terminates the spawned `sh -c`
+  // child without a host-side runtime decorator.
   let base_runtime = @runtime.PortRuntime(
     model=router as &@posoco.ModelPort,
     tools=routing,
   )
-  // Shell effects run through the cancellable decorator so a cancelled turn
-  // (session/cancel interrupting the in-flight turn task) terminates the
-  // spawned `sh -c` child instead of orphaning it. The anchor matches
-  // build_default_features' WorkspaceAnchor(cwd).
-  let shell_runtime = @bash.CancellableShellRuntime(
-    fallback=base_runtime as &@runtime.Runtime,
-    anchor=Some(@devkit.WorkspaceAnchor::WorkspaceAnchor(cwd)),
-  )
   let runtime = @mcp.McpRuntime(
     bridge=mcp_bridge,
-    fallback=shell_runtime as &@runtime.Runtime,
+    fallback=base_runtime as &@runtime.Runtime,
   )
   let catalog_source = @mcp.McpCatalogSource(
     bridge=mcp_bridge,

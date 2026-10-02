@@ -135,17 +135,19 @@ describe("subagent display — real pi-tui output", () => {
     expect(h.visible()).toContain("53s");
   });
 
-  test("child turn end is not background exit and terminal notification is emitted once", () => {
+  test("background children are silent: no transcript rows, header only", () => {
     const h = harness(30);
     h.spawn("terminal");
     h.child("terminal", "call-terminal", { type: "turn_completed" });
     expect(h.visible()).toContain("⚡");
     h.custom("terminal", "background_exited", { state: "cancelled", detail: "cancelled" });
     expect(h.visible()).not.toContain("⚡");
+    // Terminal bookkeeping never scrolls the transcript — the outcome reaches
+    // the conversation via the task-outcome envelope on the next turn.
     h.custom("terminal", "background_terminal", { state: "timed_out", summary: "display-final-marker" });
     h.custom("terminal", "background_terminal", { state: "timed_out", summary: "display-final-marker" });
-    expect(h.visible().split("display-final-marker").length - 1).toBe(1);
-    expect(h.visible()).toContain("timed_out");
+    expect(h.visible()).not.toContain("display-final-marker");
+    expect(h.visible()).not.toContain("timed_out");
     h.child("terminal", "call-terminal", {
       type: "custom", source: "unrelated-extension", label: "late", data: {},
     });

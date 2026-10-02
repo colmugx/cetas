@@ -33,6 +33,7 @@ import {
 }
 
 import {
+  "colmugx/posoco/kernel",
   "moonbitlang/async",
   "moonbitlang/async/aqueue",
 } for "wbtest"

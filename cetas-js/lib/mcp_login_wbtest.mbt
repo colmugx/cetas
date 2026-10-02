@@ -56,6 +56,7 @@ extern "js" fn js_start_oauth_fixture(
   #| async (spawn, port_file) => {
   #|   return await new Promise((resolve, reject) => {
   #|     const child = spawn(process.execPath, ['../extension/posoco-ext-mcp/test_fixtures/http_oauth_server.mjs', port_file], { stdio: 'ignore' })
+  #|     process.once('exit', () => { try { child.kill() } catch {} })
   #|     child.once('spawn', () => resolve(child.pid))
   #|     child.once('error', (e) => reject(e))
   #|   })
@@ -111,6 +112,9 @@ async test "js mcp login flow and startup token injection" {
   if pid < 0 {
     fail("failed to spawn oauth fixture (relative fixture path unreachable?)")
   }
+  // The fixture must be reaped on every exit path: errdefer covers failed
+  // asserts and raised errors, the trailing kill covers success.
+  errdefer js_kill_pid(pid)
   let mut port = ""
   for _ in 0..<100 {
     port = js_read_text_file(node_read_text_sync, port_file)
@@ -120,7 +124,6 @@ async test "js mcp login flow and startup token injection" {
     @async.sleep(50)
   }
   if port == "" {
-    js_kill_pid(pid)
     fail("oauth fixture did not report a port")
   }
   let dir = root + "/mcplogindir"
@@ -139,10 +142,7 @@ async test "js mcp login flow and startup token injection" {
       mode=@mcp.LoadMode::Lazy,
     ) {
     Ok(bridge) => bridge
-    Err(message) => {
-      js_kill_pid(pid)
-      fail("discover failed: " + message)
-    }
+    Err(message) => fail("discover failed: " + message)
   }
   // Activation eats the 401; the challenge is captured for the login flow.
   @async.with_task_group(group => {
@@ -159,19 +159,13 @@ async test "js mcp login flow and startup token injection" {
   match login {
     Ok(feedback) =>
       inspect(feedback, content="logged into 'oa'; 1 tool available")
-    Err(reason) => {
-      js_kill_pid(pid)
-      fail("login flow failed: " + reason)
-    }
+    Err(reason) => fail("login flow failed: " + reason)
   }
   // The stored record carries the two keys a later refresh needs.
   let stored = store.read("mcp.oa") catch { _ => None }
   let stored_cred = match stored {
     Some(@oauth.ProviderCredential::OAuth(credential)) => credential
-    _ => {
-      js_kill_pid(pid)
-      fail("expected a stored OAuth credential for mcp.oa")
-    }
+    _ => fail("expected a stored OAuth credential for mcp.oa")
   }
   inspect(
     stored_cred.metadata_value("token_endpoint") is Some(_),
@@ -185,18 +179,12 @@ async test "js mcp login flow and startup token injection" {
     name: @posoco.ToolName::unchecked("oa__oauth_tool"),
     arguments: Json::object(Map::from_array([])),
   }
-  let outcome = @posoco.ToolProvider::execute(bridge, "oa__oauth_tool", call) catch {
-    error => {
-      js_kill_pid(pid)
-      fail("execute after login failed: " + error.to_string())
-    }
+  let outcome = @posoco.ToolProvider::execute(bridge, mcp_login_ctx(call)) catch {
+    error => fail("execute after login failed: " + error.to_string())
   }
   match outcome {
     Success(content~, ..) => inspect(content, content="oauth:ok")
-    _ => {
-      js_kill_pid(pid)
-      fail("expected success outcome after login")
-    }
+    _ => fail("expected success outcome after login")
   }
   // The startup pass's refresh branch: expire the stored record, re-inject.
   // The fixture's refresh grant revokes the access token issued with the
@@ -204,10 +192,7 @@ async test "js mcp login flow and startup token injection" {
   // on the wire.
   let expired = { ..stored_cred, expires_at: now - 10, }
   store.write("mcp.oa", @oauth.ProviderCredential::OAuth(expired)) catch {
-    _ => {
-      js_kill_pid(pid)
-      fail("expiring the stored credential failed")
-    }
+    _ => fail("expiring the stored credential failed")
   }
   mcp_inject_stored_tokens(bridge, store, transport, now)
   let reconnected : Result[Unit, String] = bridge.reconnect_server("oa") catch {
@@ -215,37 +200,26 @@ async test "js mcp login flow and startup token injection" {
   }
   match reconnected {
     Ok(_) => ()
-    Err(message) => {
-      js_kill_pid(pid)
-      fail("reconnect after injection failed: " + message)
-    }
+    Err(message) => fail("reconnect after injection failed: " + message)
   }
   let call2 : @posoco.ToolCall = {
     call_id: @posoco.CallId::unchecked("call_refresh_inject"),
     name: @posoco.ToolName::unchecked("oa__oauth_tool"),
     arguments: Json::object(Map::from_array([])),
   }
-  let outcome2 = @posoco.ToolProvider::execute(bridge, "oa__oauth_tool", call2) catch {
-    error => {
-      js_kill_pid(pid)
+  let outcome2 = @posoco.ToolProvider::execute(bridge, mcp_login_ctx(call2)) catch {
+    error =>
       fail("execute after refresh injection failed: " + error.to_string())
-    }
   }
   match outcome2 {
     Success(content~, ..) => inspect(content, content="oauth:ok")
-    _ => {
-      js_kill_pid(pid)
-      fail("expected success outcome after refresh injection")
-    }
+    _ => fail("expected success outcome after refresh injection")
   }
   // The rotated credential was persisted with the endpoints still on record.
   let rotated_record = store.read("mcp.oa") catch { _ => None }
   let rotated = match rotated_record {
     Some(@oauth.ProviderCredential::OAuth(credential)) => credential
-    _ => {
-      js_kill_pid(pid)
-      fail("expected the rotated credential to be persisted")
-    }
+    _ => fail("expected the rotated credential to be persisted")
   }
   inspect(rotated.access_token != expired.access_token, content="true")
   inspect(rotated.expires_at > now, content="true")
@@ -253,4 +227,16 @@ async test "js mcp login flow and startup token injection" {
   inspect(rotated.metadata_value("client_id") is Some(_), content="true")
   bridge.close()
   js_kill_pid(pid)
+}
+
+///|
+/// Effect context for direct bridge execute calls (no-op registrar).
+fn mcp_login_ctx(call : @posoco.ToolCall) -> @posoco.ToolCallContext {
+  {
+    effect_id: @kernel.EffectId::{ value: 1, },
+    call_id: call.call_id,
+    name: call.name,
+    arguments: call.arguments,
+    register_cancel: fn(_ : &@posoco.ToolCancellable) { () },
+  }
 }

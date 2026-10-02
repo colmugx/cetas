@@ -836,9 +836,14 @@ export class CetasApplication<AgentHandle = unknown> {
       );
     }
     if (this.activeCommand !== undefined) {
+      // The documented switch contract: while another compact owns the
+      // interrupt/finalize/cleanup sequence, say so instead of a generic
+      // busy label (mirrors invokeCommand's waiting-for-cleanup branch).
       throw new CetasApplicationError(
         "already_running",
-        "another command is already running",
+        this.operations.compactPending
+          ? "waiting for the interrupted operation to finish cleanup before starting the compact"
+          : "another command is already running",
       );
     }
     const bridge = this.options.bridge as CompactCapableBridge<AgentHandle>;

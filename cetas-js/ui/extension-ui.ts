@@ -478,12 +478,16 @@ export class UiRenderHost {
 /**
  * Build the one-way callback consumed by JsUiPort.render. It crosses the
  * MoonBit FFI, where a throw kills the whole turn, so any failure — bad
- * json, wrong type tag, malformed render body — is logged (bounded) and the
- * render dropped: a lost status widget beats a dead turn.
+ * json, wrong type tag, malformed render body — is reported to `onNoise`
+ * (defaults to console.warn for non-TUI hosts) and the render dropped: a
+ * lost status widget beats a dead turn. TUI hosts MUST pass a sink — raw
+ * stderr lines corrupt pi-tui's frame sync.
  */
 export function createUiRenderCallback(
   host: UiRenderHost,
+  onNoise?: (line: string) => void,
 ): (eventJson: string) => void {
+  const noise = onNoise ?? ((line: string) => console.warn(line));
   return (eventJson) => {
     try {
       const event = requireRecord(JSON.parse(eventJson), "ui_render");
@@ -492,7 +496,7 @@ export function createUiRenderCallback(
       }
       host.render(parseUiRender(event.render));
     } catch (error: unknown) {
-      console.warn(
+      noise(
         `cetas: dropped ui_render (${boundedReason(error)}): ${boundedJson(eventJson)}`,
       );
     }
@@ -871,7 +875,9 @@ export function isPlanReviewRequest(request: UiRequest): boolean {
 export function createUiRequestCallback(
   bar: UiRequestBar,
   timeout: number | UiRequestTimeoutPolicy,
+  onNoise?: (line: string) => void,
 ): (eventJson: string) => Promise<string> {
+  const noise = onNoise ?? ((line: string) => console.warn(line));
   if (
     typeof timeout === "number" &&
     (!Number.isInteger(timeout) || timeout <= 0)
@@ -932,7 +938,7 @@ export function createUiRequestCallback(
         if (timer !== undefined) clearTimeout(timer);
       }
     } catch (error: unknown) {
-      console.warn(
+      noise(
         `cetas: rejected ui_request (${boundedReason(error)}): ${boundedJson(eventJson)}`,
       );
       return JSON.stringify({

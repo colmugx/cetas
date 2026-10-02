@@ -1740,18 +1740,25 @@ pub fn cetas_js_runtime_create_agent(
             }
             // Child-run events ride the same JS callback as parent events,
             // wrapped so the TS router can tell them apart. `turn_event_to_json`
-            // is the parent mapping reused verbatim for the child event.
+            // is the parent mapping reused verbatim for the child event; it
+            // maps audit-only variants (ToolCallApproved/ToolCallStarted) to
+            // Json::null() — those carry nothing to project, so the wrapper
+            // drops them instead of emitting an unparseable envelope.
             let subagent_observers : Array[
               (@subagent_kit.SubagentEvent) -> Unit,
             ] = [
               fn(event) {
+                let inner = turn_event_to_json(event.event)
+                if inner is Json::Null {
+                  return
+                }
                 let payload = Json::object(
                   Map::from_array([
                     ("type", Json::string("subagent_event")),
                     ("child_session", Json::string(event.child_session)),
                     ("kind", Json::string(event.kind)),
                     ("parent_call", Json::string(event.parent_call)),
-                    ("ev", turn_event_to_json(event.event)),
+                    ("ev", inner),
                   ]),
                 )
                 observer_callback.invoke(payload.stringify())
@@ -1879,26 +1886,17 @@ pub fn cetas_js_runtime_create_agent(
             // owned by the runtime-seam source; MCP tool execution routes through
             // the decorator, everything else through the default port runtime. Pi
             // wraps MCP as the outermost runtime and shares the layered catalog so
-            // base, live MCP, and live pi tools all reach the model.
+            // base, live MCP, and live pi tools all reach the model. Shell
+            // cancellation is port-level now: the composed ShellTools registers
+            // a ToolCancellable facet, so an aborted turn kills the spawned
+            // `sh -c` child without a host-side runtime decorator.
             let base_runtime = @runtime.PortRuntime(
               model=model as &@posoco.ModelPort,
               tools=routing,
             )
-            // Shell effects run through the cancellable decorator so an
-            // aborted turn kills the spawned `sh -c` child instead of
-            // orphaning it (ESC mid-`bash`); everything non-shell is
-            // unchanged. The anchor mirrors build_default_features' anchor
-            // (WorkspaceAnchor(config.cwd)) so cwd pinning matches the
-            // plain ShellTools provider exactly.
-            let shell_runtime = @bash.CancellableShellRuntime(
-              fallback=base_runtime as &@runtime.Runtime,
-              anchor=Some(
-                @devkit.WorkspaceAnchor::WorkspaceAnchor(runtime.config.cwd),
-              ),
-            )
             let mcp_runtime = @mcp.McpRuntime(
               bridge=mcp_bridge,
-              fallback=shell_runtime as &@runtime.Runtime,
+              fallback=base_runtime as &@runtime.Runtime,
             )
             let pi_runtime = @pi.PiRuntime(
               adaptor=pi,
