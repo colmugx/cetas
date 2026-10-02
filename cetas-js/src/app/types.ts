@@ -241,6 +241,14 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
    */
   rewind(agent: AgentHandle, sessionId: string, fromIndex: number): Promise<void>;
   /**
+   * Resume a session's interrupted turn from its persisted transcript (the
+   * Agent replays a trailing user message or appends a fixed continuation).
+   * A turn-shaped operation: leases like runTurn and rejects with the same
+   * typed errors. Optional because test bridges may omit it; callers fail
+   * with a typed error rather than degrading silently.
+   */
+  resumeTurn?(agent: AgentHandle, sessionId: string, signal?: AbortSignal): Promise<string>;
+  /**
    * One-shot workspace file index (paths relative to `config.cwd`,
    * directories with a trailing `/`) for `@`-mention autocomplete.
    * Stateless and Agent-free: available before setup and mid-turn. Optional

@@ -610,6 +610,71 @@ export class CetasApplication<AgentHandle = unknown> {
   }
 
   /**
+   * Resume this session's interrupted turn from its persisted transcript.
+   * Turn-shaped: same guards and operation lease as runTurn, but the Agent
+   * replays the persisted input instead of a fresh prompt. Requires a bridge
+   * that exposes resumeTurn; otherwise the typed error tells the host.
+   */
+  async resumeTurn(sessionId = this.currentSessionId): Promise<string> {
+    if (sessionId.length === 0) {
+      throw new CetasApplicationError("invalid_state", "session id must not be empty");
+    }
+    if (this.state === "shutting_down") {
+      throw new CetasApplicationError(
+        "shutting_down",
+        "cannot resume a turn after shutdown has begun",
+      );
+    }
+    if (this.startPromise !== undefined || this.activeCommand !== undefined) {
+      throw new CetasApplicationError(
+        "already_running",
+        this.startPromise !== undefined
+          ? "cannot resume a turn while setup discovery is in progress"
+          : "cannot resume a turn while a command is running",
+      );
+    }
+    if (this.state === "needs_setup" || this.agent === undefined) {
+      throw new CetasApplicationError(
+        "not_ready",
+        "no model provider is configured; use /model or /login [provider] [method] to complete setup",
+      );
+    }
+    if (this.operations.busy || this.operations.compactPending) {
+      throw new CetasApplicationError(
+        "already_running",
+        "a turn is already running",
+      );
+    }
+    if (this.options.bridge.resumeTurn === undefined) {
+      throw new CetasApplicationError(
+        "not_ready",
+        "this bridge does not expose turn resume",
+      );
+    }
+
+    this.currentSessionId = sessionId;
+    const agent = this.agent;
+    const abort = new AbortController();
+    const lease = this.beginAgentOperation("turn", {
+      abort,
+      interruptible: true,
+    });
+    this.options.bridge.cancelPendingRateLimit(agent);
+    try {
+      await Promise.resolve();
+      return await this.options.bridge.resumeTurn(agent, sessionId, abort.signal);
+    } catch (error: unknown) {
+      this.lastError = errorMessage(error);
+      this.publish();
+      throw error;
+    } finally {
+      this.operations.markFinalizing(lease);
+      this.clearAbortWatchdog();
+      this.finishAgentOperation(lease);
+    }
+  }
+
+  /**
    * Whether the active model accepts image input (`image_in` capability).
    * Absent bridge support (older bundles) reads as `true` so the gate never
    * blocks on a stale build; the encoder still downgrades safely.

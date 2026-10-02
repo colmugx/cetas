@@ -2279,6 +2279,56 @@ pub fn cetas_js_run_turn(
 }
 
 ///|
+/// Resume a session's interrupted turn from its persisted transcript. The
+/// pi session bookkeeping matches `cetas_js_run_turn` (session naming,
+/// session_start reason, persisted custom entries); only the Agent entry
+/// differs — `resume_turn` instead of a fresh user prompt.
+pub fn cetas_js_resume_turn(
+  handle : CetasJsAgent,
+  session_id : String,
+  signal : @js_async.AbortSignal,
+) -> @js_async.Promise[String] {
+  let promise = @js_async.Promise::from_async(abort_signal=signal) <| () => {
+    handle.plan.set_session_name(session_id)
+    let pi_new_session = match handle.pi_session {
+      Some(id) => id != session_id
+      None => true
+    }
+    if pi_new_session {
+      let reason = match handle.pi_session {
+        Some(_) => "resume"
+        None => "new"
+      }
+      seed_pi_custom_entries(handle, session_id)
+      emit_pi_session_start(handle, session_id, reason)
+      handle.pi_session = Some(session_id)
+    }
+    let result : Result[String, Error] = Ok(
+      @cetas_core.run_resume(handle.agent, session_id),
+    ) catch {
+      err => Err(err)
+    }
+    match result {
+      Ok(text) => {
+        persist_pi_custom_entries(handle, session_id)
+        if handle.agent.control().pending_follow_ups() == 0 {
+          handle.pi.events.emit_agent_boundary()
+        }
+        text
+      }
+      Err(err) => {
+        handle.pi.events.reset_agent_run()
+        raise err
+      }
+    }
+  }
+  js_signal_on_abort(signal, fn() {
+    ignore(@js_async.Promise::from_async() <| () => {  })
+  })
+  promise
+}
+
+///|
 /// Permanently invalidate recoveries recorded before a host context change.
 pub fn cetas_js_cancel_pending_ratelimit(handle : CetasJsAgent) -> Unit {
   handle.ratelimit.cancel_pending()

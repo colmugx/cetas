@@ -71,6 +71,25 @@ pub async fn run_prompt(
   }
   let user_msg : @posoco.Message = @posoco.Message::UserMessage(content=blocks)
   let result = agent.run_turn(user_msg, session_id)
+  assistant_text(result)
+}
+
+///|
+/// Resume a session's interrupted turn from its persisted transcript and
+/// return the final assistant text (same projection as `run_prompt`). The
+/// Agent replays a trailing user message as-is or appends the fixed
+/// continuation — hosts pass no prompt of their own.
+pub async fn run_resume(
+  agent : @posoco.Agent,
+  session_id : String,
+) -> String raise @posoco.AgentError {
+  let result = agent.resume_turn(session_id)
+  assistant_text(result)
+}
+
+///|
+/// Text-block projection shared by `run_prompt` and `run_resume`.
+fn assistant_text(result : @posoco.TurnResult) -> String {
   let builder = StringBuilder()
   let content_blocks = match result.message {
     AssistantMessage(content~, ..) => content

@@ -109,6 +109,10 @@ describe("matchLocalSlash", () => {
     expect(matchLocalSlash("/skills")?.id).toBe("skills");
   });
 
+  test("/resume is a local route", () => {
+    expect(matchLocalSlash("/resume")?.id).toBe("resume");
+  });
+
   test("/name is unknown locally and falls through to the extension fallback", () => {
     expect(matchLocalSlash("/name")).toBeUndefined();
   });
@@ -916,5 +920,23 @@ describe("command status restore on finish", () => {
     (shell as any).clearCommandStatus();
     expect(statusText(shell)).toContain("working");
     expect(statusText(shell)).not.toContain("running /permission");
+  });
+});
+
+describe("surfaceHostFault", () => {
+  test("appends the fault notice to the transcript", () => {
+    const { shell } = makeShell();
+    shell.surfaceHostFault("⚠ host fault (unhandled rejection) logged to /tmp/cetas-js-crash.log");
+    const transcript = (shell as any).transcript.render(200).join("\n");
+    expect(transcript).toContain("host fault (unhandled rejection)");
+    expect(transcript).toContain("/tmp/cetas-js-crash.log");
+  });
+
+  test("is a no-op once shutdown has started", async () => {
+    const { shell } = makeShell();
+    await shell.shutdown();
+    const before = (shell as any).transcript.children.length;
+    shell.surfaceHostFault("late fault");
+    expect((shell as any).transcript.children.length).toBe(before);
   });
 });

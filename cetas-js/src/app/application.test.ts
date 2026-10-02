@@ -1867,3 +1867,83 @@ describe("CetasApplication", () => {
   });
 
 });
+
+describe("resumeTurn", () => {
+  function resumeBridge(
+    counters: { resumes: number },
+    setup: ProviderSetupSnapshot,
+  ): CetasAgentBridge<{ id: string }> {
+    return {
+      ...bridgeFor(setup, { created: 0, runs: 0, shutdowns: 0 }),
+      resumeTurn: async () => {
+        counters.resumes += 1;
+        return "resumed";
+      },
+    };
+  }
+
+  const readySetup: ProviderSetupSnapshot = {
+    providers: [
+      {
+        id: "openai/gpt",
+        label: "GPT",
+        provider: "openai",
+        model: "gpt",
+        active: true,
+        efforts: [],
+        oauth: false,
+      },
+    ],
+    oauthProviders: [],
+    activeModelId: "openai/gpt",
+  };
+
+  test("resumes through the bridge with a turn lease", async () => {
+    const counters = { resumes: 0 };
+    const app = new CetasApplication({
+      bridge: resumeBridge(counters, readySetup),
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+    await app.start();
+    expect(await app.resumeTurn()).toBe("resumed");
+    expect(counters.resumes).toBe(1);
+    await app.shutdown();
+  });
+
+  test("rejects with a typed error when the bridge omits resumeTurn", async () => {
+    const app = new CetasApplication({
+      bridge: bridgeFor(readySetup, { created: 0, runs: 0, shutdowns: 0 }),
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+    await app.start();
+    await expect(app.resumeTurn()).rejects.toThrow("does not expose turn resume");
+    await app.shutdown();
+  });
+
+  test("stays idle-only: a running operation rejects resume", async () => {
+    let releaseTurn: (() => void) | undefined;
+    const counters = { resumes: 0 };
+    const bridge = resumeBridge(counters, readySetup);
+    const originalRun = bridge.runTurn.bind(bridge);
+    bridge.runTurn = async () =>
+      new Promise((resolve) => {
+        releaseTurn = () => resolve("reply");
+      });
+    const app = new CetasApplication({
+      bridge,
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+    await app.start();
+    const pending = originalRun !== undefined ? app.runTurn("hello") : undefined;
+    await expect(app.resumeTurn()).rejects.toBeInstanceOf(CetasApplicationError);
+    releaseTurn?.();
+    await pending;
+    await app.shutdown();
+  });
+});

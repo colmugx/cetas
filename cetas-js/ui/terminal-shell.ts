@@ -676,6 +676,18 @@ export class TerminalShell {
     );
   }
 
+  /**
+   * Surface a host-level fault (stray unhandled rejection/exception) in the
+   * transcript. The process-level handlers in host.ts log the full detail to
+   * the crash file; this keeps the session alive and tells the user where to
+   * find it without writing raw console output over the TUI.
+   */
+  surfaceHostFault(message: string): void {
+    if (this.shutdownPromise !== undefined) return;
+    this.addTranscriptChild(errorNotice(message));
+    this.tui.requestRender();
+  }
+
   async shutdown(): Promise<void> {
     if (this.shutdownPromise !== undefined) return this.shutdownPromise;
     this.shutdownPromise = (async () => {
@@ -1097,6 +1109,7 @@ export class TerminalShell {
               ["/new", "Start a new session"],
               ["/sessions", "Browse and resume past sessions"],
               ["/rewind", "Rewind to an earlier message of this session"],
+              ["/resume", "Resume this session's interrupted turn"],
               ["/compact", "Compact this session's context on the server"],
               ["/model", "Select a model and effort"],
               ["/skills", "Browse discovered agent skills by scope"],
@@ -1298,6 +1311,7 @@ export class TerminalShell {
     new: () => this.startNewSession(),
     sessions: () => this.openSessionsPicker(),
     rewind: () => this.openRewindPicker(),
+    resume: () => this.runResumeCommand(),
     exit: () => this.requestShutdown(0),
     compact: (rawArgs) => this.runCompactCommand(rawArgs),
     model: async (rawArgs) => {
@@ -1363,6 +1377,28 @@ export class TerminalShell {
    * operation events; the typed command outcome renders only when the bundle
    * emitted no finalize event for this compact (version-skew fallback).
    */
+  private async runResumeCommand(): Promise<void> {
+    if (this.commandBusy) {
+      this.addTranscriptChild(errorNotice("/resume cannot run while another command is active"));
+      return;
+    }
+    if (this.operationBusy) {
+      this.addTranscriptChild(
+        errorNotice("/resume needs an idle session — wait for the running operation to finish"),
+      );
+      return;
+    }
+    this.commandLock.acquire("resuming interrupted turn");
+    try {
+      await this.requireApp().resumeTurn();
+      this.addTranscriptChild(systemNotice("resumed interrupted turn"));
+    } catch (error: unknown) {
+      this.addTranscriptChild(errorNotice(`/resume failed: ${errorMessage(error)}`));
+    } finally {
+      this.commandLock.release();
+    }
+  }
+
   private async runCompactCommand(rawArgs: string): Promise<void> {
     if (this.commandBusy) {
       this.addTranscriptChild(errorNotice("/compact cannot run while another command is active"));
@@ -1706,6 +1742,9 @@ export class TerminalShell {
       for (const component of banner("cetas-js", `resumed session ${sessionId}`)) {
         this.transcript.addChild(component);
       }
+      this.addTranscriptChild(
+        systemNotice("if this session ended mid-turn, /resume continues it"),
+      );
       // Replay the persisted history into the view. The session store already
       // fed it to the model through setSession; this makes the screen match
       // what the model sees. Read errors and empty sessions render the banner
@@ -2214,6 +2253,7 @@ const LOCAL_SLASH_ROUTES: readonly SlashRoute[] = [
   { id: "new" },
   { id: "sessions" },
   { id: "rewind" },
+  { id: "resume" },
   { id: "exit", aliases: ["quit"] },
   { id: "compact" },
   { id: "model" },

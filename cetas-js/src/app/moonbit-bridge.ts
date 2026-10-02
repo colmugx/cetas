@@ -179,6 +179,19 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
     rateLimitExports.cetas_js_cancel_pending_ratelimit(agent as moonbit.CetasJsAgent);
   }
 
+  /** Interrupted-turn recovery through the Agent's resume_turn entry. */
+  resumeTurn(
+    agent: unknown,
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    return moonbit.cetas_js_resume_turn(
+      agent as moonbit.CetasJsAgent,
+      sessionId,
+      signal ?? new AbortController().signal,
+    );
+  }
+
   activeModelSupportsImages(agent: unknown): boolean {
     return moonbit.cetas_js_active_model_supports_images(agent as moonbit.CetasJsAgent) === "true";
   }
