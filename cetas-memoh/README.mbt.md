@@ -36,6 +36,48 @@ Override the destination with `CETAS_MEMOH_INSTALL_DIR`. The installer
 downloads the GitHub Release asset and verifies `SHA256SUMS-memoh` before
 installing the binary.
 
+
+## First-run setup
+
+A fresh Memoh-only workspace does not need a separate Cetas installation or
+generic `~/.cetas` configuration. Bootstrap one runnable model provider from
+a controlling terminal:
+
+```sh
+cetas-memoh setup
+```
+
+Or select a bootstrap-ready provider directly:
+
+```sh
+cetas-memoh setup openai
+cetas-memoh setup kimi
+cetas-memoh setup opencode
+cetas-memoh setup zai
+cetas-memoh setup zai-coding-plan
+```
+
+Credential input is read from the controlling terminal with echo disabled. It
+is never accepted through ACP stdin or a command-line argument. The provider
+extension owns prompting and validation; Cetas-Memoh persists the resulting
+record through `FileProviderCredentialStore` only after the credential can
+produce a non-empty offline model catalog.
+
+DeepSeek and OpenRouter are intentionally not first-run choices: without a
+cached catalog they also require non-secret model settings. After any bootstrap
+provider starts Cetas, activate the built-in `cetas-memoh-config` manual and
+use Memoh Tools to configure those non-secret settings.
+
+The Memoh composition also includes:
+
+- built-in Cetas identity, usage, and Memoh-specific configuration skills;
+- `ask_question`, rendered through Memoh's ACP elicitation surface;
+- LazyTools around the Memoh Tools MCP catalog, so the full platform tool
+  schemas are loaded only when needed.
+
+It deliberately does not add parallel local filesystem, shell, web, memory,
+context, or permission extensions; those remain Memoh-owned surfaces.
+
 ## Development workspace
 
 Some Posoco extension modules used by `cetas-memoh` are not yet published to
