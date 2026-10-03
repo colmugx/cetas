@@ -4,10 +4,8 @@ import {
   "colmugx/cetas-native/src/ui",
 }
 
-pkgtype(kind: "executable")
+options(
+  "is-main": false,
+)
 
 supported_targets = "+native"
-
-options(
-  targets: { "native_tui.mbt": [ "native" ] },
-)
