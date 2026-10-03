@@ -60,7 +60,9 @@ jobs:
           moon check -p cetas-native/src/validation --target native --deny-warn
 
       - name: MoonBit native app tests
-        run: moon test -p cetas-native/src/app --target native
+        run: |
+          moon test -p cetas-native/src/app --target native
+          moon test -p cetas-native/src/cetas --target native
 
       - name: Cetas core rewind parity tests
         run: moon test -p cetas-core/lib --target native
