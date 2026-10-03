@@ -2,7 +2,7 @@ import {
   "colmugx/posoco",
   "colmugx/posoco/error",
   "colmugx/cetas-core/lib" @cetas_core,
-  "posoco/devkit" @devkit,
+  "posoco/devkit",
   "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-workspace" @workspace,
   "posoco/ext-llm" @llm,
