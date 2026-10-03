@@ -7,32 +7,18 @@ version = "0.2.0"
 
 readme = "README.mbt.md"
 
-repository = ""
+repository = "https://github.com/colmugx/cetas"
 
 license = "Apache-2.0"
 
 keywords = [ "cetas", "posoco", "host", "core" ]
 
-description = "Cetas core — target-agnostic host logic (assembly, slash, observer, session) for cetas-native and cetas-js"
+description = "Cetas core — host-agnostic application/domain logic shared by every Cetas surface"
 
 import {
   "colmugx/posoco@0.20.4",
   "posoco/devkit@0.4.1",
-  "colmugx/cetas-ext-forme@0.1.0",
-  "colmugx/posoco-ext-read@0.2.0",
-  "colmugx/posoco-ext-write@0.2.0",
-  "colmugx/posoco-ext-edit@0.2.0",
-  "colmugx/posoco-ext-bash@0.2.0",
-  "colmugx/posoco-ext-ps1@0.1.0",
-  "colmugx/posoco-ext-glob@0.2.0",
-  "colmugx/posoco-ext-grep@0.2.0",
-  "colmugx/posoco-ext-astgrep@0.1.0",
-  "colmugx/posoco-ext-webfetch@0.1.0",
   "posoco/ext-llm@0.2.0",
-  "colmugx/posoco-ext-skills@0.2.0",
-  "colmugx/posoco-ext-nowledge-mem@0.2.0",
-  "colmugx/posoco-ext-askquestion@0.1.0",
-  "colmugx/posoco-ext-rtk@0.3.0",
   "posoco/ext-oauth@0.1.0",
   "colmugx/posoco-ext-deepseek@0.2.0",
   "colmugx/posoco-ext-kimi@0.2.0",
@@ -43,9 +29,6 @@ import {
   "colmugx/posoco-ext-zai-coding-plan@0.1.0",
   "colmugx/posoco-ext-openrouter@0.1.0",
   "colmugx/posoco-ext-workspace@0.1.0",
-  "colmugx/posoco-ext-handoff@0.1.0",
-  "colmugx/posoco-ext-obsidian@0.1.0",
-  "colmugx/posoco-ext-lazytools@0.1.0",
   "colmugx/posoco-ext-context@0.2.0",
   "colmugx/posoco-ext-credentials@0.1.0",
   "colmugx/posoco-ext-fs-session@0.4.0",
