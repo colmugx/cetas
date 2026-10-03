@@ -52,7 +52,12 @@ jobs:
         run: cargo test --release
 
       - name: MoonBit native check
-        run: moon check -p cetas-native/src --target native --deny-warn
+        run: |
+          moon check -p cetas-native/src/native --target native --deny-warn
+          moon check -p cetas-native/src/ui --target native --deny-warn
+          moon check -p cetas-native/src/app --target native --deny-warn
+          moon check -p cetas-native/src/cetas --target native --deny-warn
+          moon check -p cetas-native/src/validation --target native --deny-warn
 
       - name: MoonBit native app tests
         run: moon test -p cetas-native/src/app --target native
