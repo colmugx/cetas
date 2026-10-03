@@ -1,0 +1,91 @@
+name: cetas-tui validation
+
+concurrency:
+  group: cetas-tui-validation-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "cetas-tui"
+  pull_request:
+    paths:
+      - "cetas-native/**"
+      - "cetas-core/**"
+      - "cetas-js/**"
+      - "extension/**"
+      - "moon.work"
+      - ".github/workflows/cetas-tui-validation.yml"
+
+jobs:
+  linux-staticlib-moonbit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout cetas
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Tool versions
+        run: |
+          moon version --all
+          rustc --version
+          cargo --version
+          node --version
+
+      - name: Prepare native public recipe
+        run: python3 scripts/prepare-recipe.py --flavor public --frontend native --platform unix
+
+      - name: Resolve MoonBit workspace dependencies
+        run: moon update
+
+      - name: Rust tests
+        working-directory: cetas-native/native/cetas-tui
+        run: cargo test --release
+
+      - name: MoonBit native check
+        run: moon check -p cetas-native/src --target native --deny-warn
+
+      - name: MoonBit native app tests
+        run: moon test -p cetas-native/src/app --target native
+
+      - name: Cetas core rewind parity tests
+        run: moon test -p cetas-core/lib --target native
+
+      - name: Build interactive native preview
+        run: moon build cetas-native/src/main --target native --release
+
+      - name: Generate MoonBit interfaces
+        run: moon info
+
+      - name: Upload generated MoonBit interfaces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cetas-tui-mbti
+          path: |
+            **/*.mbti
+            !.mooncakes/**
+          if-no-files-found: error
+
+      - name: MoonBit interface drift
+        run: |
+          git diff --exit-code -- ':(glob)**/*.mbti'
+          test -z "$(git ls-files --others --exclude-standard -- '*.mbti')"
+
+
+      - name: Shared semantic parity fixtures
+        working-directory: cetas-native
+        run: python3 scripts/parity_smoke.py
+
+      - name: Build and run FFI + PTY inline smoke test
+        working-directory: cetas-native
+        run: python3 scripts/pty_smoke.py

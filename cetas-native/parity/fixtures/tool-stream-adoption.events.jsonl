@@ -1,0 +1,6 @@
+{"type":"turn_started"}
+{"type":"tool_args_delta","index":0,"name":"write","delta":"{\"path\":"}
+{"type":"tool_args_delta","index":0,"id":"call-1","delta":"\"a\"}"}
+{"type":"tool_call_started","tool_call_id":"call-1","tool_name":"write","args":{"path":"a","content":"full"}}
+{"type":"tool_call_completed","tool_call_id":"call-1","result":"wrote a","is_error":false}
+{"type":"turn_completed"}

@@ -9,6 +9,11 @@ HOSTS = {
     "acp": ROOT / "cetas-acp",
     "run": ROOT / "cetas-run",
     "js": ROOT / "cetas-js",
+    "native": ROOT / "cetas-native",
+}
+
+HOST_PACKAGE_DIRS = {
+    "native": pathlib.Path("src/app"),
 }
 
 RECIPE_MOD_BEGIN = "  // recipe-deps:begin"
@@ -641,6 +646,7 @@ def main() -> int:
             package_imports.append(f'  "{package}" @{row["alias"]},')
 
         host = HOSTS[frontend]
+        package_dir = host / HOST_PACKAGE_DIRS.get(frontend, pathlib.Path("lib"))
         replace_marked(
             host / "moon.mod",
             RECIPE_MOD_BEGIN,
@@ -648,12 +654,12 @@ def main() -> int:
             module_imports,
         )
         replace_marked(
-            host / "lib" / "moon.pkg",
+            package_dir / "moon.pkg",
             RECIPE_PKG_BEGIN,
             RECIPE_PKG_END,
             package_imports,
         )
-        (host / "lib" / "recipe.generated.mbt").write_text(
+        (package_dir / "recipe.generated.mbt").write_text(
             generated_mbt(args.flavor, frontend, args.platform, selected),
             encoding="utf-8",
         )

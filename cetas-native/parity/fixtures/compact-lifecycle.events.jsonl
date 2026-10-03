@@ -1,0 +1,3 @@
+{"type":"compact_started","trigger":"manual"}
+{"type":"compact_finished","trigger":"manual","mode":"Replace","final_session_id":"session-new","messages_after":3}
+{"type":"operation_finalized","operation":"compact","outcome":"completed","detail":""}

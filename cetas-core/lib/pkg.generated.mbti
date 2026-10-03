@@ -64,6 +64,8 @@ pub fn debug_wire_path(String, String) -> String
 
 pub fn default_agent_config(max_tool_rounds? : Int?, system_prompt? : String?) -> @posoco.AgentConfig
 
+pub fn list_persisted_rewind_points(String) -> Array[PersistedRewindPoint]
+
 pub async fn load_provider_settings(&@posoco-ext-workspace.WorkspaceFs, home~ : String, label? : String) -> Map[String, Json] raise @error.CompositionError
 
 pub fn login_outcome_json(LoginOutcome) -> String
@@ -100,6 +102,8 @@ pub async fn read_credential_snapshot(@posoco-ext-credentials.FileProviderCreden
 
 pub async fn read_model_list_cache(&@posoco-ext-workspace.WorkspaceFs, home~ : String) -> Result[Map[String, Json], String] noraise
 
+pub fn read_persisted_rewind_user_message(String, Int) -> String?
+
 pub async fn read_session_sidecar(&@posoco-ext-workspace.WorkspaceFs, home~ : String, session_id~ : String, label? : String, warn? : async (String) -> Unit noraise) -> SessionSidecar? noraise
 
 pub async fn refresh_provider_catalog(&@ext-llm.RefreshableProviderFactory, ProviderCredentialSnapshot) -> @ext-llm.ProviderModelCatalog? raise @error.CompositionError
@@ -109,6 +113,8 @@ pub fn refreshable_factories(@devkit.ExtContext, device_id? : String) -> Array[&
 pub fn resolve_active_model_restore(Array[@ext-llm.ProviderModelCatalog], ActiveModelSelection?) -> ActiveModelRestore
 
 pub fn resolve_login_method(String, String, settings? : Map[String, Json]) -> String raise @error.CommandError
+
+pub async fn rewind_session(&@port.SessionStore, String, Int) -> Unit raise @error.SessionError
 
 pub async fn run_compact(@posoco.Agent, String) -> CompactRunOutcome raise @error.AgentError
 
@@ -218,6 +224,11 @@ pub(all) struct LoginOutcome {
   login_method : String
   feedback : String
   credential : @ext-oauth.ProviderCredential
+}
+
+pub(all) struct PersistedRewindPoint {
+  message_index : Int
+  preview : String
 }
 
 pub(all) struct ProviderCredentialSnapshot {

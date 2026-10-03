@@ -1,0 +1,396 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "colmugx/cetas-native/src/ui"
+
+import {
+  "colmugx/cetas-native/src/native",
+}
+
+// Values
+pub fn active_autocomplete_matches(String, Array[AutocompleteSourceSpec]) -> Array[AutocompleteMatch]
+
+pub fn decode_terminal_event(FixedArray[UInt]) -> TerminalEvent?
+
+pub fn editor_validation_marker() -> Int
+
+pub fn event_validation_marker() -> Int
+
+pub fn layout_validation_marker() -> Int
+
+pub fn markdown_validation_marker() -> Int
+
+pub fn modifier_alt() -> UInt
+
+pub fn modifier_bold() -> UInt
+
+pub fn modifier_control() -> UInt
+
+pub fn modifier_dim() -> UInt
+
+pub fn modifier_hyper() -> UInt
+
+pub fn modifier_italic() -> UInt
+
+pub fn modifier_meta() -> UInt
+
+pub fn modifier_reversed() -> UInt
+
+pub fn modifier_shift() -> UInt
+
+pub fn modifier_super() -> UInt
+
+pub fn modifier_underlined() -> UInt
+
+pub fn overlay_validation_marker() -> Int
+
+pub fn rewind_validation_marker() -> Int
+
+pub fn select_list_validation_marker() -> Int
+
+pub fn tool_streaming_validation_marker() -> Int
+
+pub fn transcript_validation_marker() -> Int
+
+pub fn validation_marker() -> Int
+
+// Errors
+
+// Types and methods
+pub(all) struct AutocompleteMatch {
+  source_index : Int
+  trigger_index : Int
+  query : String
+  replacement_prefix : String
+}
+
+pub(all) struct AutocompleteSourceSpec {
+  trigger : String
+  span_spaces : Bool
+}
+
+pub(all) struct EditorCursor {
+  line : Int
+  column : Int
+}
+
+pub struct EditorModel {
+  lines : Array[String]
+  mut cursor_line : Int
+  mut cursor_column : Int
+  mut submit_disabled : Bool
+  history : Array[String]
+  mut history_index : Int?
+  mut history_draft : String
+}
+pub fn EditorModel::apply_completion(Self, String, String) -> Bool
+pub fn EditorModel::backspace(Self) -> Unit
+pub fn EditorModel::can_submit(Self) -> Bool
+pub fn EditorModel::clear(Self) -> Unit
+pub fn EditorModel::current_line(Self) -> String
+pub fn EditorModel::cursor(Self) -> EditorCursor
+pub fn EditorModel::delete_forward(Self) -> Unit
+pub fn EditorModel::history_length(Self) -> Int
+pub fn EditorModel::history_next(Self) -> Bool
+pub fn EditorModel::history_previous(Self) -> Bool
+pub fn EditorModel::insert_newline(Self) -> Unit
+pub fn EditorModel::insert_text(Self, String) -> Unit
+pub fn EditorModel::line(Self, Int) -> String?
+pub fn EditorModel::line_count(Self) -> Int
+pub fn EditorModel::move_down(Self) -> Unit
+pub fn EditorModel::move_end(Self) -> Unit
+pub fn EditorModel::move_home(Self) -> Unit
+pub fn EditorModel::move_left(Self) -> Unit
+pub fn EditorModel::move_right(Self) -> Unit
+pub fn EditorModel::move_up(Self) -> Unit
+pub fn EditorModel::new() -> Self
+pub fn EditorModel::record_history(Self, String) -> Unit
+pub fn EditorModel::replace_current_line_range(Self, Int, Int, String) -> Bool
+pub fn EditorModel::set_submit_disabled(Self, Bool) -> Unit
+pub fn EditorModel::set_text(Self, String) -> Unit
+pub fn EditorModel::text(Self) -> String
+pub fn EditorModel::text_before_cursor(Self) -> String
+
+pub(all) enum KeyAction {
+  KeyPress
+  KeyRepeat
+  KeyRelease
+  KeyActionUnknown(UInt)
+} derive(Eq)
+pub fn KeyAction::equal(Self, Self) -> Bool
+pub fn KeyAction::not_equal(Self, Self) -> Bool
+
+pub(all) enum KeyCode {
+  KeyChar(UInt)
+  KeyEnter
+  KeyEscape
+  KeyBackspace
+  KeyTab
+  KeyBackTab
+  KeyLeft
+  KeyRight
+  KeyUp
+  KeyDown
+  KeyHome
+  KeyEnd
+  KeyPageUp
+  KeyPageDown
+  KeyDelete
+  KeyInsert
+  KeyFunction(UInt)
+  KeyUnknown(UInt)
+} derive(Eq)
+pub fn KeyCode::equal(Self, Self) -> Bool
+pub fn KeyCode::not_equal(Self, Self) -> Bool
+
+pub(all) struct OverlayEntry {
+  id : Int
+  capturing : Bool
+  hidden : Bool
+  focused : Bool
+}
+
+pub struct OverlayStack {
+  entries : Array[OverlayEntry]
+  mut next_id : Int
+}
+pub fn OverlayStack::active_count(Self) -> Int
+pub fn OverlayStack::focus(Self, Int) -> Bool
+pub fn OverlayStack::focused_id(Self) -> Int?
+pub fn OverlayStack::hide(Self, Int) -> Bool
+pub fn OverlayStack::is_hidden(Self, Int) -> Bool?
+pub fn OverlayStack::new() -> Self
+pub fn OverlayStack::open(Self, capturing? : Bool) -> Int
+pub fn OverlayStack::set_hidden(Self, Int, Bool) -> Bool
+pub fn OverlayStack::veil_visible(Self) -> Bool
+pub fn OverlayStack::visible_count(Self) -> Int
+
+type PendingToolCall
+
+pub(all) struct PendingToolCallSnapshot {
+  slot : Int
+  id : String?
+  index : Int
+  name : String?
+  raw_args : String
+}
+
+pub(all) struct Rect {
+  x : UInt
+  y : UInt
+  width : UInt
+  height : UInt
+}
+pub fn Rect::bottom(Self) -> UInt
+pub fn Rect::centered_percent(Self, UInt, UInt) -> Self
+pub fn Rect::inset(Self, UInt) -> Self
+pub fn Rect::new(UInt, UInt, UInt, UInt) -> Self
+pub fn Rect::right(Self) -> UInt
+
+pub(all) enum RewindPickerAction {
+  RewindUnhandled
+  RewindChanged
+  RewindCancelled
+  RewindPicked(Int)
+} derive(Eq)
+pub fn RewindPickerAction::equal(Self, Self) -> Bool
+pub fn RewindPickerAction::not_equal(Self, Self) -> Bool
+
+pub struct RewindPickerModel {
+  mut active : Bool
+  mut points : Array[RewindPoint]
+  mut list : SelectListModel
+}
+pub fn RewindPickerModel::close(Self) -> Unit
+pub fn RewindPickerModel::handle_key(Self, TerminalEvent) -> RewindPickerAction
+pub fn RewindPickerModel::is_active(Self) -> Bool
+pub fn RewindPickerModel::new() -> Self
+pub fn RewindPickerModel::open(Self, Array[RewindPoint]) -> Bool
+pub fn RewindPickerModel::point(Self, Int) -> RewindPoint?
+pub fn RewindPickerModel::point_count(Self) -> Int
+pub fn RewindPickerModel::selected_index(Self) -> Int
+pub fn RewindPickerModel::selected_point(Self) -> RewindPoint?
+
+pub(all) struct RewindPoint {
+  message_index : Int
+  preview : String
+}
+
+pub(all) struct Scene {
+  words : FixedArray[UInt]
+  styles : FixedArray[UInt]
+  text : Bytes
+}
+pub fn Scene::validation() -> Self
+
+pub struct SceneBuilder {
+  words : Array[UInt]
+  styles : Array[UInt]
+  text : Array[Byte]
+}
+pub fn SceneBuilder::border(Self, UInt, UInt, UInt, UInt, Bytes, TextStyle) -> Unit
+pub fn SceneBuilder::clear(Self, UInt, UInt, UInt, UInt) -> Unit
+pub fn SceneBuilder::cursor(Self, UInt, UInt) -> Unit
+pub fn SceneBuilder::finish(Self) -> Scene
+pub fn SceneBuilder::new() -> Self
+pub fn SceneBuilder::text(Self, UInt, UInt, UInt, UInt, Bytes) -> Unit
+pub fn SceneBuilder::text_styled(Self, UInt, UInt, UInt, UInt, Bytes, TextStyle) -> Unit
+
+pub(all) struct SelectItem {
+  value : String
+  label : String
+  description : String
+}
+
+pub struct SelectListModel {
+  items : Array[SelectItem]
+  mut selected : Int
+}
+pub fn SelectListModel::end(Self) -> Unit
+pub fn SelectListModel::home(Self) -> Unit
+pub fn SelectListModel::is_empty(Self) -> Bool
+pub fn SelectListModel::item(Self, Int) -> SelectItem?
+pub fn SelectListModel::item_count(Self) -> Int
+pub fn SelectListModel::new(Array[SelectItem]) -> Self
+pub fn SelectListModel::next(Self) -> Unit
+pub fn SelectListModel::previous(Self) -> Unit
+pub fn SelectListModel::select(Self, Int) -> Bool
+pub fn SelectListModel::selected_index(Self) -> Int
+pub fn SelectListModel::selected_item(Self) -> SelectItem?
+
+pub struct Terminal {
+  mut raw : @native.RawTui?
+}
+pub fn Terminal::close(Self) -> Unit
+pub fn Terminal::event_text(Self) -> Bytes?
+pub fn Terminal::insert_before(Self, String) -> Int
+pub fn Terminal::is_open(Self) -> Bool
+pub fn Terminal::open_inline(UInt) -> Self?
+pub fn Terminal::poll(Self, UInt64) -> (Int, TerminalEvent?)
+pub fn Terminal::poll_raw(Self, UInt64) -> (Int, FixedArray[UInt])
+pub fn Terminal::render(Self, Scene) -> Int
+pub fn Terminal::resume_terminal(Self) -> Int
+pub fn Terminal::suspend(Self) -> Int
+pub fn Terminal::viewport_size(Self) -> (Int, FixedArray[UInt])
+
+pub(all) struct TerminalEvent {
+  abi_version : UInt
+  struct_size : UInt
+  kind : UInt
+  key_code : UInt
+  codepoint : UInt
+  modifiers : UInt
+  key_action : UInt
+  width : UInt
+  height : UInt
+  mouse_x : UInt
+  mouse_y : UInt
+  mouse_kind : UInt
+  mouse_button : UInt
+  text_len : UInt
+} derive(Eq)
+pub fn TerminalEvent::equal(Self, Self) -> Bool
+pub fn TerminalEvent::has_modifier(Self, UInt) -> Bool
+pub fn TerminalEvent::is_actionable_key(Self) -> Bool
+pub fn TerminalEvent::is_key_release(Self) -> Bool
+pub fn TerminalEvent::key_action_value(Self) -> KeyAction
+pub fn TerminalEvent::key_code_value(Self) -> KeyCode
+pub fn TerminalEvent::kind_value(Self) -> TerminalEventKind
+pub fn TerminalEvent::matches_char(Self, UInt, UInt) -> Bool
+pub fn TerminalEvent::matches_key(Self, KeyCode, UInt) -> Bool
+pub fn TerminalEvent::not_equal(Self, Self) -> Bool
+
+pub(all) enum TerminalEventKind {
+  EventNone
+  EventKey
+  EventResize
+  EventMouse
+  EventPaste
+  EventFocusIn
+  EventFocusOut
+  EventUnknown(UInt)
+} derive(Eq)
+pub fn TerminalEventKind::equal(Self, Self) -> Bool
+pub fn TerminalEventKind::not_equal(Self, Self) -> Bool
+
+pub(all) struct TextStyle {
+  fg : TuiColor
+  bg : TuiColor
+  modifiers : UInt
+}
+pub fn TextStyle::new(fg? : TuiColor, bg? : TuiColor, modifiers? : UInt) -> Self
+
+pub struct ToolStreamingModel {
+  pending : Array[PendingToolCall]
+  mut next_slot : Int
+}
+pub fn ToolStreamingModel::end_turn(Self) -> Unit
+pub fn ToolStreamingModel::new() -> Self
+pub fn ToolStreamingModel::on_args_delta(Self, Int, String?, String?, String?) -> PendingToolCallSnapshot
+pub fn ToolStreamingModel::on_call_started(Self, String, String, String) -> PendingToolCallSnapshot?
+pub fn ToolStreamingModel::pending_count(Self) -> Int
+pub fn ToolStreamingModel::snapshot(Self, Int) -> PendingToolCallSnapshot?
+
+pub struct TranscriptModel {
+  rows : Array[TranscriptRow]
+  mut next_id : Int
+  mut in_turn : Bool
+  mut streamed_this_turn : Bool
+  mut thinking_id : Int?
+  mut text_id : Int?
+}
+pub fn TranscriptModel::append_finalized(Self, TranscriptRowKind, String) -> Int
+pub fn TranscriptModel::append_live(Self, TranscriptRowKind, String) -> Int
+pub fn TranscriptModel::append_live_scene(Self, SceneBuilder, UInt, UInt, UInt) -> UInt
+pub fn TranscriptModel::append_queued_user(Self, String) -> Int
+pub fn TranscriptModel::append_reasoning(Self, String) -> Unit
+pub fn TranscriptModel::append_text(Self, String) -> Unit
+pub fn TranscriptModel::begin_turn(Self) -> Unit
+pub fn TranscriptModel::close_step(Self) -> Unit
+pub fn TranscriptModel::end_turn(Self) -> Unit
+pub fn TranscriptModel::finalize(Self, Int) -> Bool
+pub fn TranscriptModel::has_streamed_this_turn(Self) -> Bool
+pub fn TranscriptModel::is_in_turn(Self) -> Bool
+pub fn TranscriptModel::message_end(Self, String, String) -> Unit
+pub fn TranscriptModel::new() -> Self
+pub fn TranscriptModel::promote_queued_user(Self, Int) -> Bool
+pub fn TranscriptModel::row(Self, Int) -> TranscriptRow
+pub fn TranscriptModel::row_count(Self) -> Int
+pub fn TranscriptModel::take_scrollback_ready(Self) -> Array[TranscriptRowSnapshot]
+pub fn TranscriptModel::update_row(Self, Int, String) -> Bool
+
+pub(all) struct TranscriptRow {
+  id : Int
+  mut kind : TranscriptRowKind
+  mut text : String
+  mut finalized : Bool
+  mut scrollback_committed : Bool
+}
+
+pub(all) enum TranscriptRowKind {
+  TranscriptUser
+  TranscriptQueuedUser
+  TranscriptThinking
+  TranscriptAssistant
+  TranscriptTool
+  TranscriptSystem
+  TranscriptError
+} derive(Eq)
+pub fn TranscriptRowKind::equal(Self, Self) -> Bool
+pub fn TranscriptRowKind::not_equal(Self, Self) -> Bool
+
+pub(all) struct TranscriptRowSnapshot {
+  id : Int
+  kind : TranscriptRowKind
+  text : String
+}
+pub fn TranscriptRowSnapshot::scrollback_text(Self) -> String
+
+pub(all) enum TuiColor {
+  ColorInherit
+  ColorReset
+  ColorIndexed(UInt)
+  ColorRgb(UInt, UInt, UInt)
+}
+
+// Type aliases
+
+// Traits

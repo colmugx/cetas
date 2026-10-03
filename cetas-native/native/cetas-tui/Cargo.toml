@@ -1,0 +1,12 @@
+[package]
+name = "cetas-tui"
+version = "0.0.1"
+edition = "2021"
+publish = false
+
+[lib]
+name = "cetas_tui"
+crate-type = ["staticlib"]
+
+[dependencies]
+ratatui = { version = "0.30.2", features = ["scrolling-regions"] }

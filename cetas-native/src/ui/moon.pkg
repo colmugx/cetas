@@ -1,0 +1,10 @@
+import {
+  "colmugx/cetas-native/src/native" @native,
+  "moonbitlang/core/encoding/utf8" @utf8,
+}
+
+options(
+  "is-main": false,
+)
+
+supported_targets = "+native"

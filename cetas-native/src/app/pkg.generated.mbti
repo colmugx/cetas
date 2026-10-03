@@ -1,0 +1,417 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "colmugx/cetas-native/src/app"
+
+import {
+  "colmugx/cetas-core/lib",
+  "colmugx/cetas-native/src/ui",
+  "colmugx/posoco",
+  "colmugx/posoco-ext-permission",
+  "colmugx/posoco-ext-workspace",
+  "colmugx/posoco/error",
+  "colmugx/posoco/port",
+  "colmugx/posoco/runtime",
+  "colmugx/posoco/types",
+  "moonbitlang/async",
+  "moonbitlang/async/aqueue",
+}
+
+// Values
+pub fn command_lock_validation_marker() -> Int
+
+pub fn editor_input_validation_marker() -> Int
+
+pub fn event_wire_validation_marker() -> Int
+
+pub fn handle_editor_key(@ui.EditorModel, @ui.TerminalEvent) -> EditorInputAction
+
+pub fn handle_editor_paste(@ui.EditorModel, String) -> EditorInputAction
+
+pub fn input_validation_marker() -> Int
+
+pub fn parse_native_events(String) -> Array[NativeEvent]?
+
+pub fn runtime_validation_marker() -> Int
+
+pub fn should_open_rewind_on_escape(UInt64?, UInt64, window_ms? : UInt64) -> Bool
+
+pub fn snapshot_validation_marker() -> Int
+
+pub fn typed_observer_validation_marker() -> Int
+
+pub fn validation_marker() -> Int
+
+// Errors
+
+// Types and methods
+type ActiveUiRequest
+
+pub struct CommandLockModel {
+  mut held : Bool
+  mut label : String?
+}
+pub fn CommandLockModel::acquire(Self, String) -> Unit
+pub fn CommandLockModel::is_held(Self) -> Bool
+pub fn CommandLockModel::label(Self) -> String?
+pub fn CommandLockModel::new() -> Self
+pub fn CommandLockModel::release(Self) -> Bool
+
+pub(all) enum EditorInputAction {
+  EditorUnchanged
+  EditorChanged
+  EditorSubmit(String)
+  EditorComplete
+} derive(Eq)
+pub fn EditorInputAction::equal(Self, Self) -> Bool
+pub fn EditorInputAction::not_equal(Self, Self) -> Bool
+
+pub struct NativeAppLoop {
+  driver : NativeTurnDriver
+  runtime : NativeRuntime
+  editor : @ui.EditorModel
+  rewind : @ui.RewindPickerModel
+  mut compact_pending : Bool
+  command_lock : CommandLockModel
+  mut dismissible_overlay_visible : Bool
+}
+pub fn NativeAppLoop::acquire_command(Self, String) -> Unit
+pub async fn NativeAppLoop::apply_rewind(Self, Int) -> Unit raise @error.SessionError
+pub fn NativeAppLoop::command_busy(Self) -> Bool
+pub fn NativeAppLoop::command_label(Self) -> String?
+pub fn NativeAppLoop::editor(Self) -> @ui.EditorModel
+pub fn NativeAppLoop::is_turn_running(Self) -> Bool
+pub fn NativeAppLoop::new(NativeHost, NativeUiPort, @ui.Terminal) -> Self
+pub fn NativeAppLoop::open_rewind(Self) -> Bool raise @error.SessionError
+pub fn NativeAppLoop::release_command(Self) -> Bool
+pub async fn NativeAppLoop::run_until_signal(Self, @async.TaskGroup[Unit]) -> NativeLoopSignal
+pub fn NativeAppLoop::set_command_busy(Self, Bool) -> Unit
+pub fn NativeAppLoop::set_compact_pending(Self, Bool) -> Unit
+pub fn NativeAppLoop::set_dismissible_overlay_visible(Self, Bool) -> Unit
+pub async fn NativeAppLoop::shutdown(Self) -> Unit
+pub fn NativeAppLoop::tick(Self, @async.TaskGroup[Unit]) -> NativeLoopSignal
+
+pub struct NativeApprovalSource {
+  mut ui : &@port.UiPort?
+}
+pub async fn NativeApprovalSource::ask(Self, @posoco-ext-permission.ApprovalRequest) -> @posoco-ext-permission.ApprovalDecision
+pub fn NativeApprovalSource::new() -> Self
+pub impl @posoco-ext-permission.ApprovalSource for NativeApprovalSource
+
+pub(all) enum NativeEvent {
+  NativeTurnStarted
+  NativeTurnCompleted
+  NativeTurnFailed(String)
+  NativeStreamText(String)
+  NativeStreamReasoning(String)
+  NativeMessageEnd(String, String)
+  NativeSessionRedirect(String, String)
+  NativeToolCallDeferred(String, String, String)
+  NativeCompactStarted(String)
+  NativeCompactFinished(String, String, String, Int)
+  NativeOperationFinalized(String, String, String)
+  NativeToolArgsDelta(Int, String?, String?, String?)
+  NativeToolCallStarted(String, String, String)
+  NativeToolCallCompleted(String, String, Bool)
+}
+
+pub struct NativeHost {
+  agent : @posoco.Agent
+  shell : NativeShell
+  store : &@port.SessionStore
+  session : NativeSessionState
+  session_root : String?
+}
+pub async fn NativeHost::compose(home~ : String, cwd~ : String, mode~ : @posoco-ext-permission.PermissionMode, approval? : &@posoco-ext-permission.ApprovalSource?, ui? : &@port.UiPort?, tail_exts? : Array[&@port.Extension], session_id? : String, fs? : &@posoco-ext-workspace.WorkspaceFs?, mcp_group? : @async.TaskGroup[Unit]?, warn? : async (String) -> Unit noraise) -> Self raise @error.CompositionError
+pub async fn NativeHost::compose_interactive(home~ : String, cwd~ : String, mode~ : @posoco-ext-permission.PermissionMode, session_id? : String, fs? : &@posoco-ext-workspace.WorkspaceFs?, mcp_group? : @async.TaskGroup[Unit]?, warn? : async (String) -> Unit noraise) -> (Self, NativeUiPort) raise @error.CompositionError
+pub fn NativeHost::interrupt_active(Self) -> @runtime.EnqueueOutcome
+pub fn NativeHost::queue_follow_up(Self, String) -> @runtime.EnqueueOutcome
+pub async fn NativeHost::rewind(Self, Int) -> Unit raise @error.SessionError
+pub fn NativeHost::rewind_points(Self) -> Array[@lib.PersistedRewindPoint] raise @error.SessionError
+pub fn NativeHost::rewind_user_message(Self, Int) -> String? raise @error.SessionError
+pub async fn NativeHost::run_text_turn(Self, String) -> @types.TurnResult raise @error.AgentError
+pub fn NativeHost::session_id(Self) -> String
+pub fn NativeHost::shell(Self) -> NativeShell
+pub async fn NativeHost::shutdown(Self) -> Unit
+
+pub(all) enum NativeInputRoute {
+  RouteUiActive
+  RouteUiSettled
+  RouteShell(ShellInputAction)
+} derive(Eq)
+pub fn NativeInputRoute::equal(Self, Self) -> Bool
+pub fn NativeInputRoute::not_equal(Self, Self) -> Bool
+
+pub struct NativeInputRouter {
+  shell : ShellInputModel
+  ui : NativeUiController
+}
+pub fn NativeInputRouter::close_ui(Self) -> Unit
+pub fn NativeInputRouter::new(NativeUiController) -> Self
+pub fn NativeInputRouter::pump_ui(Self) -> Bool
+pub fn NativeInputRouter::route_key(Self, @ui.TerminalEvent, UInt64, Bool, Bool, Bool, Bool, Bool) -> NativeInputRoute
+pub fn NativeInputRouter::route_paste(Self, String) -> Bool
+pub fn NativeInputRouter::ui_active(Self) -> Bool
+pub fn NativeInputRouter::ui_input_text(Self) -> String?
+pub fn NativeInputRouter::ui_kind(Self) -> UiRequestPanelKind?
+pub fn NativeInputRouter::ui_option_count(Self) -> Int
+pub fn NativeInputRouter::ui_option_label(Self, Int) -> String?
+pub fn NativeInputRouter::ui_prompt(Self) -> String?
+pub fn NativeInputRouter::ui_selected_index(Self) -> Int?
+
+pub(all) enum NativeLoopSignal {
+  LoopContinue
+  LoopExit
+  LoopOpenRewind
+  LoopApplyRewind(Int)
+  LoopDismissOverlay
+  LoopAutocomplete
+  LoopToggleThinking
+  LoopToggleToolOutput
+  LoopTerminalFailed(Int)
+} derive(Eq)
+pub fn NativeLoopSignal::equal(Self, Self) -> Bool
+pub fn NativeLoopSignal::not_equal(Self, Self) -> Bool
+
+pub struct NativeRuntime {
+  terminal : @ui.Terminal
+  shell : NativeShell
+  input : NativeInputRouter
+  editor : @ui.EditorModel
+  rewind : @ui.RewindPickerModel
+}
+pub fn NativeRuntime::close(Self) -> Unit
+pub fn NativeRuntime::editor(Self) -> @ui.EditorModel
+pub fn NativeRuntime::flush_scrollback(Self) -> Int
+pub fn NativeRuntime::is_open(Self) -> Bool
+pub fn NativeRuntime::new(@ui.Terminal, NativeShell, NativeInputRouter, @ui.EditorModel, @ui.RewindPickerModel) -> Self
+pub fn NativeRuntime::poll_once(Self, UInt64, RuntimeInputState) -> RuntimeEvent
+pub fn NativeRuntime::render(Self) -> Int
+
+pub struct NativeSessionState {
+  mut session_id : String
+}
+pub fn NativeSessionState::adopt_redirect(Self, String) -> Bool
+pub fn NativeSessionState::new(String) -> Self
+pub fn NativeSessionState::session_id(Self) -> String
+
+pub struct NativeShell {
+  transcript : @ui.TranscriptModel
+  tools : @ui.ToolStreamingModel
+  mut pending_tool_rows : Map[Int, Int]
+  mut tool_rows : Map[String, Int]
+  queued_prompt_rows : Array[Int]
+  mut interrupt_requested : Bool
+  mut tool_output_expanded : Bool
+  mut finalized_operations : Int
+  mut termination_notices : Int
+  mut status : ShellStatus
+}
+pub fn NativeShell::append_error(Self, String) -> Int
+pub fn NativeShell::append_live_scene(Self, @ui.SceneBuilder, UInt, UInt, UInt) -> UInt
+pub fn NativeShell::append_notice(Self, String) -> Int
+pub fn NativeShell::append_reasoning(Self, String) -> Unit
+pub fn NativeShell::append_text(Self, String) -> Unit
+pub fn NativeShell::append_user(Self, String) -> Int
+pub fn NativeShell::begin_turn(Self) -> Unit
+pub fn NativeShell::compact_finished(Self, String, Int) -> Unit
+pub fn NativeShell::compact_started(Self, String) -> Unit
+pub fn NativeShell::end_turn(Self) -> Unit
+pub fn NativeShell::fail_turn(Self, String) -> Unit
+pub fn NativeShell::finalized_operation_count(Self) -> Int
+pub fn NativeShell::handle_event(Self, NativeEvent) -> Unit
+pub fn NativeShell::handle_event_json(Self, String) -> Bool
+pub fn NativeShell::interrupt_requested(Self) -> Bool
+pub fn NativeShell::is_in_turn(Self) -> Bool
+pub fn NativeShell::message_end(Self, String, String) -> Unit
+pub fn NativeShell::new() -> Self
+pub fn NativeShell::operation_finalized(Self, String, String, String) -> Unit
+pub fn NativeShell::queue_follow_up(Self, String) -> Int
+pub fn NativeShell::queued_prompt_count(Self) -> Int
+pub fn NativeShell::request_interrupt(Self) -> Unit
+pub fn NativeShell::session_redirect(Self, String, String) -> Unit
+pub fn NativeShell::snapshot_json(Self) -> Json
+pub fn NativeShell::status(Self) -> ShellStatus
+pub fn NativeShell::take_scrollback_ready(Self) -> Array[@ui.TranscriptRowSnapshot]
+pub fn NativeShell::termination_notice_count(Self) -> Int
+pub fn NativeShell::toggle_tool_output_expanded(Self) -> Bool
+pub fn NativeShell::tool_args_delta(Self, Int, String?, String?, String?) -> Unit
+pub fn NativeShell::tool_call_completed(Self, String, String, Bool) -> Unit
+pub fn NativeShell::tool_call_deferred(Self, String, String) -> Unit
+pub fn NativeShell::tool_call_started(Self, String, String, String) -> Unit
+pub fn NativeShell::tool_output_expanded(Self) -> Bool
+pub fn NativeShell::transcript(Self) -> @ui.TranscriptModel
+
+pub struct NativeShellObserver {
+  shell : NativeShell
+  session_state : NativeSessionState?
+}
+pub fn NativeShellObserver::extension_id(Self) -> String
+pub fn NativeShellObserver::manifest(Self) -> @port.ExtensionManifest
+pub fn NativeShellObserver::new(NativeShell, session_state? : NativeSessionState?) -> Self
+pub fn NativeShellObserver::on_event(Self, @types.TurnEvent) -> Unit
+pub fn NativeShellObserver::on_event_at(Self, @types.EventScope?, @types.TurnEvent) -> Unit
+pub impl @port.Extension for NativeShellObserver
+pub impl @port.Observer for NativeShellObserver
+
+pub struct NativeTurnDriver {
+  host : NativeHost
+  editor : @ui.EditorModel
+  mut turn : @async.Task[@types.TurnResult]?
+  mut deferred_prompt : String?
+}
+pub async fn NativeTurnDriver::cancel_and_wait(Self) -> Unit
+pub fn NativeTurnDriver::editor(Self) -> @ui.EditorModel
+pub fn NativeTurnDriver::host(Self) -> NativeHost
+pub fn NativeTurnDriver::interrupt(Self) -> @runtime.EnqueueOutcome
+pub fn NativeTurnDriver::is_running(Self) -> Bool
+pub fn NativeTurnDriver::new(NativeHost, @ui.EditorModel) -> Self
+pub fn NativeTurnDriver::poll_settle(Self, @async.TaskGroup[Unit]) -> Bool
+pub async fn NativeTurnDriver::shutdown(Self) -> Unit
+pub fn NativeTurnDriver::submit(Self, @async.TaskGroup[Unit], String) -> PromptSubmitOutcome
+
+pub struct NativeUiBridge {
+  approval : NativeApprovalSource
+}
+pub fn NativeUiBridge::extension_id(Self) -> String
+pub fn NativeUiBridge::manifest(Self) -> @port.ExtensionManifest
+pub fn NativeUiBridge::new(NativeApprovalSource) -> Self
+pub fn NativeUiBridge::on_compose(Self, @port.CompositionView) -> Unit raise @error.CompositionError
+pub async fn NativeUiBridge::on_shutdown(Self) -> Unit
+pub async fn NativeUiBridge::on_start(Self) -> Unit
+pub impl @port.Extension for NativeUiBridge
+pub impl @port.Lifecycle for NativeUiBridge
+
+pub struct NativeUiController {
+  ui : NativeUiPort
+  mut active : ActiveUiRequest?
+}
+pub fn NativeUiController::active_input_text(Self) -> String?
+pub fn NativeUiController::active_kind(Self) -> UiRequestPanelKind?
+pub fn NativeUiController::active_option_count(Self) -> Int
+pub fn NativeUiController::active_option_label(Self, Int) -> String?
+pub fn NativeUiController::active_prompt(Self) -> String?
+pub fn NativeUiController::active_selected_index(Self) -> Int?
+pub fn NativeUiController::cancel_active(Self) -> Bool
+pub fn NativeUiController::close(Self) -> Unit
+pub fn NativeUiController::handle_key(Self, @ui.TerminalEvent) -> Bool
+pub fn NativeUiController::handle_paste(Self, String) -> Unit
+pub fn NativeUiController::is_active(Self) -> Bool
+pub fn NativeUiController::new(NativeUiPort) -> Self
+pub fn NativeUiController::pump(Self) -> Bool
+
+pub struct NativeUiPort {
+  renders : @aqueue.Queue[@port.UiRender]
+  requests : @aqueue.Queue[PendingUiRequest]
+  mut next_request_id : Int
+  mut closed : Bool
+}
+pub fn NativeUiPort::close(Self) -> Unit
+pub fn NativeUiPort::is_closed(Self) -> Bool
+pub fn NativeUiPort::new() -> Self
+pub fn NativeUiPort::render(Self, @port.UiRender) -> Unit
+pub async fn NativeUiPort::request(Self, @port.UiRequest) -> @port.UiResponse raise @error.UiError
+pub fn NativeUiPort::take_render(Self) -> @port.UiRender?
+pub fn NativeUiPort::take_request(Self) -> PendingUiRequest?
+pub fn NativeUiPort::ui_descriptor(Self) -> @port.UiDescriptor
+pub impl @port.UiPort for NativeUiPort
+
+pub struct PendingUiRequest {
+  id : Int
+  request : @port.UiRequest
+  response : @aqueue.Queue[@port.UiResponse]
+  mut resolved : Bool
+}
+pub fn PendingUiRequest::id(Self) -> Int
+pub fn PendingUiRequest::request(Self) -> @port.UiRequest
+pub fn PendingUiRequest::respond(Self, @port.UiResponse) -> Bool
+
+pub(all) enum PromptSubmitOutcome {
+  PromptIgnored
+  PromptStarted
+  PromptQueued
+  PromptDeferred
+  PromptQueueFull(Int)
+  PromptQueueFailed(String)
+} derive(Eq)
+pub fn PromptSubmitOutcome::equal(Self, Self) -> Bool
+pub fn PromptSubmitOutcome::not_equal(Self, Self) -> Bool
+
+pub(all) enum RuntimeEvent {
+  RuntimeIdle
+  RuntimeUiUpdated
+  RuntimeUiSettled
+  RuntimeRewindAction(@ui.RewindPickerAction)
+  RuntimeEditorKey(@ui.TerminalEvent)
+  RuntimeShellAction(ShellInputAction)
+  RuntimePaste(String)
+  RuntimeResize(UInt, UInt)
+  RuntimeFocus(Bool)
+  RuntimeTerminalError(Int)
+} derive(Eq)
+pub fn RuntimeEvent::equal(Self, Self) -> Bool
+pub fn RuntimeEvent::not_equal(Self, Self) -> Bool
+
+pub(all) struct RuntimeInputState {
+  now_ms : UInt64
+  editor_has_text : Bool
+  in_turn : Bool
+  compact_pending : Bool
+  command_busy : Bool
+  dismissible_overlay_visible : Bool
+}
+
+pub(all) enum ShellInputAction {
+  InputPass
+  InputConsume
+  InputShutdown
+  InputDismissOverlay
+  InputInterrupt
+  InputClearEditor
+  InputOpenRewind
+  InputToggleThinking
+  InputToggleToolOutput
+} derive(Eq)
+pub fn ShellInputAction::equal(Self, Self) -> Bool
+pub fn ShellInputAction::not_equal(Self, Self) -> Bool
+
+pub struct ShellInputModel {
+  mut last_escape_at_ms : UInt64?
+}
+pub fn ShellInputModel::handle_global_key(Self, @ui.TerminalEvent, UInt64, Bool, Bool, Bool, Bool, Bool, Bool) -> ShellInputAction
+pub fn ShellInputModel::last_escape_at_ms(Self) -> UInt64?
+pub fn ShellInputModel::new() -> Self
+
+pub(all) enum ShellStatus {
+  ShellIdle
+  ShellWorking(String)
+  ShellFailed(String)
+} derive(Eq)
+pub fn ShellStatus::equal(Self, Self) -> Bool
+pub fn ShellStatus::not_equal(Self, Self) -> Bool
+
+pub(all) enum UiRequestPanelKind {
+  UiPanelInput
+  UiPanelConfirm
+  UiPanelSelect
+} derive(Eq)
+pub fn UiRequestPanelKind::equal(Self, Self) -> Bool
+pub fn UiRequestPanelKind::not_equal(Self, Self) -> Bool
+
+pub struct UiRequestPanelModel {
+  kind : UiRequestPanelKind
+  prompt : String
+  editor : @ui.EditorModel
+  list : @ui.SelectListModel
+}
+pub fn UiRequestPanelModel::handle_key(Self, @ui.TerminalEvent) -> @port.UiResponse?
+pub fn UiRequestPanelModel::handle_paste(Self, String) -> Unit
+pub fn UiRequestPanelModel::input_text(Self) -> String
+pub fn UiRequestPanelModel::kind(Self) -> UiRequestPanelKind
+pub fn UiRequestPanelModel::new(@port.UiRequest) -> Self
+pub fn UiRequestPanelModel::option_count(Self) -> Int
+pub fn UiRequestPanelModel::option_label(Self, Int) -> String?
+pub fn UiRequestPanelModel::prompt(Self) -> String
+pub fn UiRequestPanelModel::selected_index(Self) -> Int
+
+// Type aliases
+
+// Traits
