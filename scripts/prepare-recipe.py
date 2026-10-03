@@ -2,7 +2,7 @@
 import argparse, csv, os, pathlib, platform as host_platform, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-BASE_RECIPES = ROOT / "cetas-core" / "recipes.csv"
+BASE_RECIPES = ROOT / "composition" / "recipes.csv"
 
 HOSTS = {
     "acp": ROOT / "cetas-acp",
