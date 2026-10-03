@@ -1,0 +1,34 @@
+import {
+  "colmugx/posoco",
+  "posoco/devkit" @devkit,
+  "posoco/ext-llm" @llm,
+  "posoco/ext-oauth" @oauth,
+  "colmugx/posoco-ext-deepseek" @deepseek,
+  "colmugx/posoco-ext-kimi" @kimi,
+  "colmugx/posoco-ext-openai" @openai,
+  "colmugx/posoco-ext-openai-compatible" @openai_compatible,
+  "colmugx/posoco-ext-opencode-zen" @opencode_zen,
+  "colmugx/posoco-ext-zai" @zai,
+  "colmugx/posoco-ext-zai-coding-plan" @zai_coding_plan,
+  "colmugx/posoco-ext-openrouter" @openrouter,
+  "colmugx/posoco-ext-workspace" @workspace,
+  "colmugx/posoco-ext-context" @context,
+  "colmugx/posoco-ext-credentials" @credentials,
+  "colmugx/posoco-ext-fs-session" @fs_session,
+  "colmugx/posoco-ext-permission" @permission,
+  "colmugx/posoco-ext-ratelimit" @ratelimit,
+  "colmugx/posoco/runtime",
+  "moonbitlang/core/json",
+  "moonbitlang/core/env",
+  "moonbitlang/async",
+}
+
+import {
+  "moonbitlang/async",
+  "colmugx/posoco-ext-fs-session" @fs_session,
+  "colmugx/posoco-ext-workspace" @workspace,
+} for "wbtest"
+
+warnings = "-unused_package"
+
+supported_targets = "+native +js +wasm"
