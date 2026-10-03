@@ -152,6 +152,35 @@ pub(all) struct HostContext {
 }
 
 ///|
+/// Product-level reconstructable capability vocabulary. Hosts bind the
+/// logical `shell` capability to their platform adapter (bash/ps1); the
+/// remaining names are already concrete tool vocabulary.
+///
+/// Keep product semantics here: composition generators may choose concrete
+/// packages, but must not redefine what the default Cetas capability set is.
+pub fn cetas_reconstructable_capabilities() -> Array[String] {
+  [
+    "read",
+    "write",
+    "edit",
+    "glob",
+    "grep",
+    "astgrep",
+    "shell",
+    "webfetch",
+    "ask_question",
+  ]
+}
+
+///|
+/// Product policy for the skills extension. The concrete Skills adapter lives
+/// in the host composition root; this value remains in core so every host
+/// applies the same Cetas behavior.
+pub fn cetas_skills_max_instruction_chars() -> Int {
+  65536
+}
+
+///|
 /// The cetas default `AgentConfig`, single-sourced so every host (js, acp,
 /// headless, ...) ships the same product tuning: `temperature = Some(0.0)`
 /// for deterministic coding turns instead of provider-side defaults
