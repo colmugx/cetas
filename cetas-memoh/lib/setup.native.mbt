@@ -53,7 +53,7 @@ fn bootstrap_providers() -> Array[BootstrapProvider] {
 }
 
 ///|
-fn select_bootstrap_provider(
+async fn select_bootstrap_provider(
   providers : Array[BootstrapProvider],
   requested : String,
   prompt : &@oauth.AuthPromptInteraction,
