@@ -95,7 +95,7 @@ pub async fn NativeHost::compose(
     fs,
     permission_mode=mode,
     mcp_group~,
-    label="cetas-native",
+    label="cetas",
     warn~,
   )
 
@@ -120,7 +120,7 @@ pub async fn NativeHost::compose(
     approval~,
     ui~,
     feature_exts~,
-    label="cetas-native",
+    label="cetas",
     warn~,
   )
   let host_exts : Array[&@posoco.Extension] = [observer as &@posoco.Extension]
