@@ -25,4 +25,6 @@ import {
   "moonbitlang/async@0.22.4",
   "posoco/ext-oauth@0.1.0",
   "colmugx/posoco-ext-credentials@0.1.0",
+  // recipe-deps:begin
+  // recipe-deps:end
 }
