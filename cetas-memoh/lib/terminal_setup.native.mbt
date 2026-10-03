@@ -129,8 +129,8 @@ impl @oauth.AuthPromptInteraction for SetupPrompt with fn prompt(
 
 ///|
 async fn with_setup_prompt(
-  body : async (&@oauth.AuthPromptInteraction) -> Unit,
-) -> Unit {
+  body : async (&@oauth.AuthPromptInteraction) -> String,
+) -> String {
   let input = open_setup_terminal()
   defer (input.close)()
   let prompt = SetupPrompt::{ input, }
