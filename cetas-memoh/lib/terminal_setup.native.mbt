@@ -76,9 +76,13 @@ priv struct SetupPrompt {
 async fn SetupPrompt::line(
   self : SetupPrompt,
 ) -> String raise @oauth.OAuthError {
-  match (self.input.read_line)() catch {
-    _ => None
-  } {
+  let line = (self.input.read_line)() catch {
+    _ =>
+      raise @oauth.OAuthError::ParseError(
+        "terminal setup input failed",
+      )
+  }
+  match line {
     Some(text) => text.trim_end(chars="\r\n").to_owned()
     None => raise @oauth.OAuthError::Cancelled
   }
@@ -89,40 +93,62 @@ impl @oauth.AuthPromptInteraction for SetupPrompt with fn prompt(
   self : SetupPrompt,
   request : @oauth.AuthPromptRequest,
 ) -> String {
-  match request {
-    Secret(message~) => {
-      defer (self.input.end_secret)()
-      (self.input.begin_secret)()
-      (self.input.write)(message + ": ")
-      let answer = self.line()
-      (self.input.write)("\n")
-      answer
-    }
-    Select(message~, options~) => {
-      if options.is_empty() {
-        raise @oauth.OAuthError::ParseError("setup selection has no options")
+  try {
+    match request {
+      Secret(message~) => {
+        // Cleanup is installed before echo is disabled so every error path
+        // restores the controlling terminal before it escapes this boundary.
+        defer (self.input.end_secret)()
+        (self.input.begin_secret)()
+        (self.input.write)(message + ": ")
+        let answer = self.line()
+        (self.input.write)("\n")
+        answer
       }
-      (self.input.write)(message + "\n")
-      for i, option in options {
-        let description = match option.description {
-          Some(text) => " — " + text
-          None => ""
+      Select(message~, options~) => {
+        if options.is_empty() {
+          raise @oauth.OAuthError::ParseError("setup selection has no options")
         }
-        (self.input.write)(
-          "  " + (i + 1).to_string() + ". " + option.label + description + "\n",
-        )
-      }
-      while true {
-        (self.input.write)("Choose a number: ")
-        let answer = self.line().trim().to_owned()
+        (self.input.write)(message + "\n")
         for i, option in options {
-          if answer == (i + 1).to_string() {
-            return option.id
+          let description = match option.description {
+            Some(text) => " — " + text
+            None => ""
           }
+          (self.input.write)(
+            "  " +
+            (i + 1).to_string() +
+            ". " +
+            option.label +
+            description +
+            "\n",
+          )
         }
-        (self.input.write)("Invalid selection; choose a listed number.\n")
+        while true {
+          (self.input.write)("Choose a number: ")
+          let answer = self.line().trim().to_owned()
+          for i, option in options {
+            if answer == (i + 1).to_string() {
+              return option.id
+            }
+          }
+          (self.input.write)("Invalid selection; choose a listed number.\n")
+        }
+        abort("unreachable")
       }
-      abort("unreachable")
+    }
+  } catch {
+    error => {
+      match error {
+        @oauth.OAuthError::Cancelled =>
+          raise @oauth.OAuthError::Cancelled
+        @oauth.OAuthError::ParseError(detail) =>
+          raise @oauth.OAuthError::ParseError(detail)
+        _ =>
+          raise @oauth.OAuthError::ParseError(
+            "secure terminal setup prompt failed",
+          )
+      }
     }
   }
 }
