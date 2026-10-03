@@ -30,6 +30,8 @@ import {
   "moonbitlang/async/js_async",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
+  // recipe-imports:begin
+  // recipe-imports:end
 }
 
 import {
