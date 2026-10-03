@@ -185,7 +185,7 @@ async fn MemohHost::build_session(
   }
   let ask = @askquestion.AskQuestionTools()
   let mcp_ext : &@posoco.Extension = mcp_bridge
-  let (lazy, mcp_views) = match
+  let (lazy_gateway, mcp_views) = match
     @lazytools.LazyTools::defer_extensions(exts=[mcp_ext]) {
     Ok(value) => value
     Err(message) => {
@@ -203,7 +203,7 @@ async fn MemohHost::build_session(
   for view in mcp_views {
     exts.push(view)
   }
-  exts.push(lazy as &@posoco.Extension)
+  exts.push(lazy_gateway as &@posoco.Extension)
   let config = @posoco.agent_config(
     temperature=Some(0.0),
     system_prompt=Some(memoh_system_prompt()),
