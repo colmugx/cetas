@@ -75,6 +75,9 @@ jobs:
           test -z "$(find _build/native/release/build/colmugx/cetas-native -type f \( -name 'src.exe' -o -name 'main.exe' \) -print)"
 
 
+      - name: Prepare all host recipes for workspace interfaces
+        run: python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
+
       - name: Generate MoonBit interfaces
         run: moon info
 
