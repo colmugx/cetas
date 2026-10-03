@@ -46,4 +46,6 @@ import {
   "colmugx/posoco-kit-lody@0.1.0",
   "colmugx/posoco-kit-paseo@0.1.0",
   "moonbitlang/async@0.22.4",
+  // recipe-deps:begin
+  // recipe-deps:end
 }
