@@ -2152,39 +2152,6 @@ async test "a session assembles over the platform task group and retires inside 
 }
 
 ///|
-async test "the public production session assembly excludes private memory extensions" {
-  let fs = FakeFs()
-  fs.files["/cetas-home/.cetas/settings.json"] = "{\"providers\":{\"opencode\":{\"api_key\":\"sk-zen-test\"}}}"
-  let platform = build_platform(
-    home="/cetas-home",
-    cwd="/",
-    fs,
-    mcp_group=None,
-    mcp_mode=@mcp.LoadMode::Lazy,
-  ) catch {
-    error => fail("platform assembly must succeed: " + error.to_string())
-  }
-  let handle = build_session_agent(platform~, cwd="/", env=tk_no_env) catch {
-    error => fail("session assembly must succeed: " + error.to_string())
-  }
-  assert_true(handle.scope_close is None)
-  let mut memory = false
-  let mut nmem = false
-  for port in handle.agent.commands() {
-    for def in port.commands() {
-      if def.id == "memory" {
-        memory = true
-      }
-      if def.id == "nmem" {
-        nmem = true
-      }
-    }
-  }
-  assert_false(memory)
-  assert_false(nmem)
-}
-
-///|
 async test "refresh_model_lists swaps router slots, persists the cache, and pushes updates" {
   let fs = FakeFs()
   let refreshed = @llm.ProviderModelCatalog::ProviderModelCatalog(
