@@ -29,7 +29,6 @@ MEMBERS = (
     "posoco-ext-permission",
     "posoco-ext-skills",
     "posoco-ext-askquestion",
-    "posoco-ext-ratelimit",
     "posoco-ext-lazytools",
     "posoco-ext-deepseek",
     "posoco-ext-kimi",
