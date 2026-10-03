@@ -4,9 +4,11 @@
 /// product semantics remain in cetas-core.
 async test "public run recipe assembles the standard Cetas capabilities" {
   let fs = FakeFs()
-  let exts = build_compiled_recipe_features(
-    ctx={ fs, cwd: "/repo", home: "/home/u", },
-  )
+  let exts = build_compiled_recipe_features(ctx={
+    fs,
+    cwd: "/repo",
+    home: "/home/u",
+  })
   assert_eq(exts.length(), 13)
   let ids : Array[String] = []
   for ext in exts {
