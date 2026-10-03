@@ -41,7 +41,7 @@ def main() -> int:
             [
                 "moon",
                 "run",
-                "cetas-native/src",
+                "cetas-native/src/validation",
                 "--target",
                 "native",
                 "--release",
