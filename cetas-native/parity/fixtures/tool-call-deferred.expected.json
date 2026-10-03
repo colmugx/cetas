@@ -1,0 +1,13 @@
+{
+  "status": {
+    "kind": "idle"
+  },
+  "rows": [
+    {
+      "id": 1,
+      "kind": "system",
+      "text": "⏸ deferred: write (awaiting approval)",
+      "finalized": true
+    }
+  ]
+}

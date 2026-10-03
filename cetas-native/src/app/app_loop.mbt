@@ -1,0 +1,297 @@
+/// Product-level native terminal loop.
+///
+/// NativeAppLoop joins NativeTurnDriver and NativeRuntime without collapsing
+/// their boundaries. Agent work runs in a child task; terminal polling is
+/// non-blocking; one tick applies input semantics, flushes immutable
+/// scrollback, and paints the latest live snapshot.
+
+///|
+pub(all) enum NativeLoopSignal {
+  LoopContinue
+  LoopExit
+  LoopOpenRewind
+  LoopApplyRewind(Int)
+  LoopDismissOverlay
+  LoopAutocomplete
+  LoopToggleThinking
+  LoopToggleToolOutput
+  LoopTerminalFailed(Int)
+} derive(Eq)
+
+///|
+pub extend NativeLoopSignal with Eq::{equal, not_equal}
+
+///|
+pub struct NativeAppLoop {
+  driver : NativeTurnDriver
+  runtime : NativeRuntime
+  editor : @ui.EditorModel
+  rewind : @ui.RewindPickerModel
+  mut compact_pending : Bool
+  command_lock : CommandLockModel
+  mut dismissible_overlay_visible : Bool
+}
+
+///|
+pub fn NativeAppLoop::new(
+  host : NativeHost,
+  ui : NativeUiPort,
+  terminal : @ui.Terminal,
+) -> NativeAppLoop {
+  let shell = host.shell()
+  let editor = @ui.EditorModel::new()
+  let controller = NativeUiController::new(ui)
+  let router = NativeInputRouter::new(controller)
+  let rewind = @ui.RewindPickerModel::new()
+  let runtime = NativeRuntime::new(terminal, shell, router, editor, rewind)
+  let driver = NativeTurnDriver::new(host, editor)
+  {
+    driver,
+    runtime,
+    editor,
+    rewind,
+    compact_pending: false,
+    command_lock: CommandLockModel::new(),
+    dismissible_overlay_visible: false,
+  }
+}
+
+///|
+pub fn NativeAppLoop::editor(self : NativeAppLoop) -> @ui.EditorModel {
+  self.editor
+}
+
+///|
+pub fn NativeAppLoop::is_turn_running(self : NativeAppLoop) -> Bool {
+  self.driver.is_running()
+}
+
+///|
+pub fn NativeAppLoop::set_compact_pending(
+  self : NativeAppLoop,
+  value : Bool,
+) -> Unit {
+  self.compact_pending = value
+}
+
+///|
+pub fn NativeAppLoop::command_busy(self : NativeAppLoop) -> Bool {
+  self.command_lock.is_held()
+}
+
+///|
+pub fn NativeAppLoop::command_label(self : NativeAppLoop) -> String? {
+  self.command_lock.label()
+}
+
+///|
+/// Acquire/re-arm the command gate, matching cetas-js CommandLock.
+///
+/// Repeated acquire is intentional: auth/login flows may re-arm while a
+/// picker already owns the gate. This is not a reference-counted lock.
+pub fn NativeAppLoop::acquire_command(
+  self : NativeAppLoop,
+  label : String,
+) -> Unit {
+  self.command_lock.acquire(label)
+  self.editor.set_submit_disabled(true)
+}
+
+///|
+/// Release the command gate once. Duplicate releases are no-ops.
+pub fn NativeAppLoop::release_command(self : NativeAppLoop) -> Bool {
+  let released = self.command_lock.release()
+  if released {
+    self.editor.set_submit_disabled(false)
+  }
+  released
+}
+
+///|
+/// Compatibility seam for callers still expressed as a busy boolean.
+pub fn NativeAppLoop::set_command_busy(
+  self : NativeAppLoop,
+  value : Bool,
+) -> Unit {
+  if value {
+    self.acquire_command("")
+  } else {
+    ignore(self.release_command())
+  }
+}
+
+///|
+pub fn NativeAppLoop::set_dismissible_overlay_visible(
+  self : NativeAppLoop,
+  value : Bool,
+) -> Unit {
+  self.dismissible_overlay_visible = value
+}
+
+///|
+/// Resolve physical JSONL rewind targets and mount the picker.
+///
+/// False means there is nothing rewindable; this matches the picker reducer's
+/// empty-source close behavior and leaves the editor focused.
+pub fn NativeAppLoop::open_rewind(
+  self : NativeAppLoop,
+) -> Bool raise @posoco.SessionError {
+  let points : Array[@ui.RewindPoint] = []
+  for point in self.driver.host().rewind_points() {
+    points.push({
+      message_index: point.message_index,
+      preview: point.preview,
+    })
+  }
+  self.rewind.open(points)
+}
+
+///|
+/// Apply one picked physical-line address and refill the original prompt.
+///
+/// The full user text is captured before truncate because the selected user
+/// row itself is the first row removed by SessionStore::truncate.
+pub async fn NativeAppLoop::apply_rewind(
+  self : NativeAppLoop,
+  message_index : Int,
+) -> Unit raise @posoco.SessionError {
+  let host = self.driver.host()
+  let refill = host.rewind_user_message(message_index)
+  host.rewind(message_index)
+  match refill {
+    Some(text) => self.editor.set_text(text)
+    None => self.editor.clear()
+  }
+  ignore(host.shell().append_notice(
+    "rewound to message #" +
+    message_index.to_string() +
+    " — the original prompt is back in the editor",
+  ))
+}
+
+///|
+fn NativeAppLoop::runtime_state(self : NativeAppLoop) -> RuntimeInputState {
+  {
+    now_ms: @async.now().reinterpret_as_uint64(),
+    editor_has_text: !self.editor.text().is_empty(),
+    in_turn: self.driver.is_running(),
+    compact_pending: self.compact_pending,
+    command_busy: self.command_lock.is_held(),
+    dismissible_overlay_visible: self.dismissible_overlay_visible,
+  }
+}
+
+///|
+fn NativeAppLoop::apply_editor_action(
+  self : NativeAppLoop,
+  group : @async.TaskGroup[Unit],
+  action : EditorInputAction,
+) -> NativeLoopSignal {
+  match action {
+    EditorSubmit(prompt) => {
+      ignore(self.driver.submit(group, prompt))
+      LoopContinue
+    }
+    EditorComplete => LoopAutocomplete
+    EditorChanged | EditorUnchanged => LoopContinue
+  }
+}
+
+///|
+fn NativeAppLoop::apply_shell_action(
+  self : NativeAppLoop,
+  action : ShellInputAction,
+) -> NativeLoopSignal {
+  match action {
+    InputShutdown => LoopExit
+    InputInterrupt => {
+      ignore(self.driver.interrupt())
+      LoopContinue
+    }
+    InputClearEditor => {
+      self.editor.clear()
+      LoopContinue
+    }
+    InputOpenRewind => LoopOpenRewind
+    InputDismissOverlay => LoopDismissOverlay
+    InputToggleThinking => LoopToggleThinking
+    InputToggleToolOutput => {
+      ignore(self.driver.host().shell().toggle_tool_output_expanded())
+      LoopToggleToolOutput
+    }
+    InputConsume | InputPass => LoopContinue
+  }
+}
+
+///|
+/// Run one non-blocking terminal iteration.
+///
+/// A caller that handles rewind/autocomplete/overlay flows may consume the
+/// returned signal and then resume ticking the same loop.
+pub fn NativeAppLoop::tick(
+  self : NativeAppLoop,
+  group : @async.TaskGroup[Unit],
+) -> NativeLoopSignal {
+  ignore(self.driver.poll_settle(group))
+
+  let signal = match self.runtime.poll_once(0UL, self.runtime_state()) {
+    RuntimeIdle | RuntimeUiUpdated | RuntimeUiSettled |
+    RuntimeResize(_, _) | RuntimeFocus(_) => LoopContinue
+    RuntimeRewindAction(action) =>
+      match action {
+        @ui.RewindPicked(message_index) => LoopApplyRewind(message_index)
+        @ui.RewindUnhandled |
+        @ui.RewindChanged |
+        @ui.RewindCancelled => LoopContinue
+      }
+    RuntimeEditorKey(event) =>
+      self.apply_editor_action(group, handle_editor_key(self.editor, event))
+    RuntimePaste(text) =>
+      self.apply_editor_action(group, handle_editor_paste(self.editor, text))
+    RuntimeShellAction(action) => self.apply_shell_action(action)
+    RuntimeTerminalError(status) => LoopTerminalFailed(status)
+  }
+
+  if signal is LoopTerminalFailed(_) {
+    return signal
+  }
+
+  let scrollback_status = self.runtime.flush_scrollback()
+  if scrollback_status != 0 {
+    return LoopTerminalFailed(scrollback_status)
+  }
+  let render_status = self.runtime.render()
+  if render_status != 0 {
+    return LoopTerminalFailed(render_status)
+  }
+
+  signal
+}
+
+///|
+/// Convenience driver for the plain interactive loop.
+///
+/// Signals that need an application command/modal owner are returned to the
+/// caller rather than silently swallowed. The 8ms cooperative sleep keeps the
+/// Agent/model tasks progressing while capping idle redraw latency.
+pub async fn NativeAppLoop::run_until_signal(
+  self : NativeAppLoop,
+  group : @async.TaskGroup[Unit],
+) -> NativeLoopSignal {
+  while true {
+    let signal = self.tick(group)
+    if signal != LoopContinue {
+      return signal
+    }
+    @async.sleep(8)
+  }
+  LoopExit
+}
+
+///|
+/// Idempotent process shutdown ordering: cancel UI waiters/terminal first,
+/// then cancel/drain any Agent turn and shut down the Agent.
+pub async fn NativeAppLoop::shutdown(self : NativeAppLoop) -> Unit {
+  self.runtime.close()
+  self.driver.shutdown()
+}

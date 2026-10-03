@@ -1,0 +1,5 @@
+{"type":"turn_started"}
+{"type":"stream_chunk","kind":"reasoning","raw":"working"}
+{"type":"stream_chunk","kind":"text","raw":"partial answer"}
+{"type":"tool_args_delta","index":0,"name":"grep","delta":"{\"q\":\"needle"}
+{"type":"turn_failed","error_message":"turn failed: AgentError::Session"}

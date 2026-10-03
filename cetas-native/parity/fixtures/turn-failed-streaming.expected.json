@@ -1,0 +1,31 @@
+{
+  "status": {
+    "kind": "idle"
+  },
+  "rows": [
+    {
+      "id": 1,
+      "kind": "thinking",
+      "text": "working",
+      "finalized": true
+    },
+    {
+      "id": 2,
+      "kind": "assistant",
+      "text": "partial answer",
+      "finalized": true
+    },
+    {
+      "id": 3,
+      "kind": "tool",
+      "text": "● grep {\"q\":\"needle",
+      "finalized": true
+    },
+    {
+      "id": 4,
+      "kind": "error",
+      "text": "turn failed: AgentError::Session",
+      "finalized": true
+    }
+  ]
+}

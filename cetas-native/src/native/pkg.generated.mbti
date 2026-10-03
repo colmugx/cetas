@@ -1,0 +1,51 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "colmugx/cetas-native/src/native"
+
+// Values
+pub fn abi_version() -> UInt
+
+pub fn close(RawTui) -> Unit
+
+pub fn event_size() -> UInt
+
+pub fn event_text_copy(RawTui, FixedArray[Byte], UInt) -> Int
+
+pub fn event_text_len(RawTui) -> UInt
+
+pub fn headless_batch_probe(FixedArray[UInt], UInt, Bytes, UInt) -> UInt
+
+pub fn headless_probe() -> UInt
+
+pub fn headless_scene_probe(FixedArray[UInt], UInt, FixedArray[UInt], UInt, Bytes, UInt) -> UInt
+
+pub fn inline_probe(UInt) -> UInt
+
+pub fn insert_before_text(RawTui, Bytes, UInt) -> Int
+
+pub fn is_null(RawTui) -> UInt
+
+pub fn open_inline(UInt) -> RawTui
+
+pub fn poll_words(RawTui, UInt64, FixedArray[UInt], UInt) -> Int
+
+pub fn render_batch(RawTui, FixedArray[UInt], UInt, Bytes, UInt) -> Int
+
+pub fn render_scene(RawTui, FixedArray[UInt], UInt, FixedArray[UInt], UInt, Bytes, UInt) -> Int
+
+pub fn resume_terminal(RawTui) -> Int
+
+pub fn suspend(RawTui) -> Int
+
+pub fn tty_probe() -> UInt
+
+pub fn viewport_size(RawTui, FixedArray[UInt], UInt) -> Int
+
+// Errors
+
+// Types and methods
+#external
+pub type RawTui
+
+// Type aliases
+
+// Traits

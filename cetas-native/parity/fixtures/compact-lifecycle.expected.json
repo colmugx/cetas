@@ -1,0 +1,14 @@
+{
+  "status": {
+    "kind": "working",
+    "message": "compacting (manual)"
+  },
+  "rows": [
+    {
+      "id": 1,
+      "kind": "system",
+      "text": "context compacted (Replace, 3 messages)",
+      "finalized": true
+    }
+  ]
+}

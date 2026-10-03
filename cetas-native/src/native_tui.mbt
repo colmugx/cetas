@@ -1,0 +1,161 @@
+/// Native TUI validation host.
+///
+/// Raw C ABI declarations live in @native. This executable verifies the
+/// MoonBit-facing substrate links and behaves correctly under a real PTY.
+
+///|
+extern "C" fn exit(code : Int) = "exit"
+
+///|
+fn main {
+  let scene = @ui.Scene::validation()
+  let word_count = scene.words.length().reinterpret_as_uint()
+  let text_len = scene.text.length().reinterpret_as_uint()
+
+  let scene_decode_ok = @native.headless_scene_probe(
+    scene.words,
+    word_count,
+    scene.styles,
+    scene.styles.length().reinterpret_as_uint(),
+    scene.text,
+    text_len,
+  ) == 1
+
+  let terminal = match @ui.Terminal::open_inline(3U) {
+    Some(value) => value
+    None => {
+      println("cetas-tui validation: FAILED")
+      exit(1)
+      return
+    }
+  }
+
+  let batch_tty_ok = terminal.render(scene) == 0
+
+  let transcript = @ui.TranscriptModel::new()
+  ignore(transcript.append_finalized(
+    @ui.TranscriptAssistant,
+    "cetas-scrollback\n第二行",
+  ))
+  let ready = transcript.take_scrollback_ready()
+  let scrollback_insert_ok = ready.length() == 1 &&
+    terminal.insert_before(ready[0].scrollback_text()) == 0 &&
+    transcript.take_scrollback_ready().is_empty()
+
+  let suspend_ok = terminal.suspend() == 0
+  let resume_ok = terminal.resume_terminal() == 0
+  let redraw_after_resume_ok = terminal.render(@ui.Scene::validation()) == 0
+
+  let (initial_viewport_status, initial_viewport_words) =
+    terminal.viewport_size()
+  let initial_viewport_ok = initial_viewport_status == 0 &&
+    initial_viewport_words[0] == 80U &&
+    initial_viewport_words[1] == 3U
+
+  let mut saw_focus = false
+  let mut saw_paste = false
+  let mut saw_key = false
+  let mut saw_resize = false
+  let mut input_status_ok = true
+
+  for _ in 0..<8 {
+    let (status, event) = terminal.poll(250UL)
+    if status == 0 {
+      match event {
+        Some(value) =>
+          match value.kind_value() {
+            @ui.EventFocusIn => saw_focus = true
+            @ui.EventPaste =>
+              saw_paste = match terminal.event_text() {
+                Some(payload) => payload == b"cetas-paste"
+                None => false
+              }
+            @ui.EventKey =>
+              match value.key_code_value() {
+                @ui.KeyChar(code) if code == 113U => saw_key = true
+                _ => ()
+              }
+            @ui.EventResize =>
+              if value.width == 81U && value.height == 24U {
+                saw_resize = true
+              }
+            _ => ()
+          }
+        None => input_status_ok = false
+      }
+    } else if status != 1 {
+      input_status_ok = false
+    }
+  }
+
+  let (resized_viewport_status, resized_viewport_words) =
+    terminal.viewport_size()
+  let resized_viewport_ok = resized_viewport_status == 0 &&
+    resized_viewport_words[0] == 81U &&
+    resized_viewport_words[1] == 3U
+
+  let input_runtime_ok = input_status_ok &&
+    saw_focus &&
+    saw_paste &&
+    saw_key &&
+    saw_resize
+
+  terminal.close()
+  let close_ok = !terminal.is_open()
+  terminal.close()
+
+  let ok = @native.abi_version() == 2 &&
+    @native.headless_probe() == 1 &&
+    scene_decode_ok &&
+    batch_tty_ok &&
+    scrollback_insert_ok &&
+    suspend_ok &&
+    resume_ok &&
+    redraw_after_resume_ok &&
+    initial_viewport_ok &&
+    resized_viewport_ok &&
+    input_runtime_ok &&
+    close_ok &&
+    @native.inline_probe(8) == 1 &&
+    @native.event_size() > 0 &&
+    @native.tty_probe() == 1 &&
+    @app.validation_marker() == 1 &&
+    @ui.validation_marker() == 1
+
+  if ok {
+    println("cetas-tui validation: ok")
+  } else {
+    println("cetas-tui validation: FAILED")
+    println("scene_decode_ok=\{scene_decode_ok}")
+    println("batch_tty_ok=\{batch_tty_ok}")
+    println("scrollback_insert_ok=\{scrollback_insert_ok}")
+    println("suspend_ok=\{suspend_ok}")
+    println("resume_ok=\{resume_ok}")
+    println("redraw_after_resume_ok=\{redraw_after_resume_ok}")
+    println("initial_viewport_status=\{initial_viewport_status}")
+    println(
+      "initial_viewport=\{initial_viewport_words[0]}x\{initial_viewport_words[1]}",
+    )
+    println("resized_viewport_status=\{resized_viewport_status}")
+    println(
+      "resized_viewport=\{resized_viewport_words[0]}x\{resized_viewport_words[1]}",
+    )
+    println("input_status_ok=\{input_status_ok}")
+    println("saw_focus=\{saw_focus}")
+    println("saw_paste=\{saw_paste}")
+    println("saw_key=\{saw_key}")
+    println("saw_resize=\{saw_resize}")
+    println("close_ok=\{close_ok}")
+    println("app_validation=\{@app.validation_marker()}")
+    println("ui_validation=\{@ui.validation_marker()}")
+    println("ui_layout=\{@ui.layout_validation_marker()}")
+    println("ui_select_list=\{@ui.select_list_validation_marker()}")
+    println("ui_event=\{@ui.event_validation_marker()}")
+    println("ui_editor=\{@ui.editor_validation_marker()}")
+    println("ui_overlay=\{@ui.overlay_validation_marker()}")
+    println("ui_rewind=\{@ui.rewind_validation_marker()}")
+    println("ui_transcript=\{@ui.transcript_validation_marker()}")
+    println("ui_tool_streaming=\{@ui.tool_streaming_validation_marker()}")
+    exit(1)
+  }
+}

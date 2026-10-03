@@ -5,6 +5,7 @@ import {
   "colmugx/acp/agent",
   "colmugx/acp/protocol/session",
   "colmugx/posoco-ext-credentials",
+  "colmugx/posoco-ext-skills",
   "colmugx/posoco-ext-workspace",
   "moonbitlang/async",
   "posoco/ext-llm",
@@ -19,9 +20,13 @@ pub fn credentials_path(String) -> String
 
 pub async fn load_provider_settings(&@posoco-ext-workspace.WorkspaceFs, String) -> Map[String, Json] raise @colmugx/posoco/error.CompositionError
 
+pub fn memoh_builtin_skills() -> Array[@posoco-ext-skills.SkillDescriptor]
+
 pub async fn memoh_warn(String) -> Unit noraise
 
 pub fn providers_path(String) -> String
+
+pub async fn run_setup(home~ : String, provider? : String) -> String
 
 // Errors
 

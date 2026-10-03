@@ -1,0 +1,13 @@
+{
+  "status": {
+    "kind": "idle"
+  },
+  "rows": [
+    {
+      "id": 1,
+      "kind": "system",
+      "text": "↻ redirect: session-old → session-new",
+      "finalized": true
+    }
+  ]
+}

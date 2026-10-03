@@ -1,0 +1,37 @@
+{
+  "status": {
+    "kind": "idle"
+  },
+  "rows": [
+    {
+      "id": 1,
+      "kind": "thinking",
+      "text": "think-A",
+      "finalized": true
+    },
+    {
+      "id": 2,
+      "kind": "assistant",
+      "text": "answer-A",
+      "finalized": true
+    },
+    {
+      "id": 3,
+      "kind": "thinking",
+      "text": "think-B",
+      "finalized": true
+    },
+    {
+      "id": 4,
+      "kind": "assistant",
+      "text": "answer-B",
+      "finalized": true
+    },
+    {
+      "id": 5,
+      "kind": "tool",
+      "text": "✓ ok",
+      "finalized": true
+    }
+  ]
+}
