@@ -80,12 +80,17 @@ pub async fn CetasRunHost::CetasRunHost(
       None => ()
     }
   }
+  let feature_exts = build_compiled_recipe_features(
+    ctx={ fs, cwd, home, },
+    nmem_group=mcp_group,
+  )
   let session = @cetas_core.build_cetas_session(
     platform~,
     cwd~,
     approval~,
     ui~,
     client_exts~,
+    feature_exts~,
     label~,
     warn~,
   )
