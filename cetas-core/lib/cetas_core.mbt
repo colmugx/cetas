@@ -160,15 +160,7 @@ pub(all) struct HostContext {
 /// packages, but must not redefine what the default Cetas capability set is.
 pub fn cetas_reconstructable_capabilities() -> Array[String] {
   [
-    "read",
-    "write",
-    "edit",
-    "glob",
-    "grep",
-    "astgrep",
-    "shell",
-    "webfetch",
-    "ask_question",
+    "read", "write", "edit", "glob", "grep", "astgrep", "shell", "webfetch", "ask_question",
   ]
 }
 
