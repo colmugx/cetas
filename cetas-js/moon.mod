@@ -57,4 +57,6 @@ import {
   "colmugx/posoco-ext-write@0.2.0",
   "colmugx/posoco-ext-zcode@0.1.0",
   "moonbitlang/async@0.22.4",
+  // recipe-deps:begin
+  // recipe-deps:end
 }
