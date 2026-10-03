@@ -1,0 +1,13 @@
+import {
+  "colmugx/cetas-native/src/app",
+  "colmugx/cetas-native/src/ui",
+  "colmugx/cetas-core/lib" @cetas_core,
+  "colmugx/posoco-ext-permission" @permission,
+  "moonbitlang/async",
+  "moonbitlang/async/stdio",
+  "moonbitlang/core/env",
+}
+
+pkgtype(kind: "executable")
+
+supported_targets = "native"
