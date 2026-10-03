@@ -1704,22 +1704,15 @@ pub fn cetas_js_runtime_create_agent(
               )
             })
             exts.push(ratelimit as &@posoco.Extension)
-            // Default features (coding tools + agent skills + ask_question, with
-            // episodic tools like webfetch/nmem/obsidian deferred behind the
-            // lazytools gateway) take the host context: fs injection plus cwd/home.
-            // Skills policy (activation budget) is single-sourced inside cetas-core;
-            // ask_question asks through the same JsUiPort the approval source uses,
-            // so the TS host renders it with the standard extension-UI overlays.
+            // Concrete capabilities are selected by the host-owned compiled
+            // recipe; cetas-core still owns the agent/session semantics.
             for
-              tool in @cetas_core.build_default_features(
+              feature in build_compiled_recipe_features(
                 ctx={
                   fs: context_fs,
                   cwd: runtime.config.cwd,
                   home: runtime.config.home,
                 },
-                // The agent-lifetime group starts nmem's background flusher and arms
-                // its attach gate: without it the ext stays fully inert (no boot
-                // config resolution, no inbound injection, no drains).
                 nmem_group=Some(group),
                 host_help_note=if runtime.config.host_help_note == "" {
                   None
@@ -1727,7 +1720,7 @@ pub fn cetas_js_runtime_create_agent(
                   Some(runtime.config.host_help_note)
                 },
               ) {
-              exts.push(tool)
+              exts.push(feature)
             }
 
             // Subagents inherit only the reconstructable Cetas core face.
@@ -1791,22 +1784,17 @@ pub fn cetas_js_runtime_create_agent(
               Some(delegate) => exts.push(delegate as &@posoco.Extension)
               None => ()
             }
-            // Personal host opt-in: zcode delegation registers when detected, degrades to absent otherwise.
-            if @cetas_core.compiled_zcode_enabled() {
-              let zcode_ext = @zcode.zcode_ext_if_detected(
+            match
+              build_compiled_zcode_ext(
                 env=fn(key : String) { @env.get_env_var(key) },
                 exists=async fn(path : String) -> Bool {
                   context_fs.exists(path) catch {
                     _ => false
                   }
                 },
-              ) catch {
-                _ => None
-              }
-              match zcode_ext {
-                Some(ext) => exts.push(ext as &@posoco.Extension)
-                None => ()
-              }
+              ) {
+              Some(ext) => exts.push(ext)
+              None => ()
             }
             // MCP servers from mcp.json (`<cwd>/.mcp.json` overriding
             // `<home>/.cetas/mcp.json`), connected by composition-time
