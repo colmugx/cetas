@@ -70,7 +70,7 @@ commit graph one commit at a time.
 The executable entrypoint is:
 
 ```text
-cetas-native/src/main/main.mbt
+cetas-native/src/cetas/main.mbt
 ```
 
 The application path is now:
@@ -166,7 +166,7 @@ git switch cetas-tui
 python3 scripts/prepare-recipe.py --flavor public --frontend native --platform unix
 moon update
 
-moon run cetas-native/src/main --target native --release
+moon run cetas-native/src/cetas --target native --release
 ```
 
 Do not run the preview from inside `cetas-native/`. The current development
@@ -217,7 +217,7 @@ PASS  FFI + PTY inline smoke test
 ```
 
 The important point for manual testing is that the actual
-`cetas-native/src/main` executable successfully builds on the rebuilt branch
+`cetas-native/src/cetas` executable successfully builds on the rebuilt branch
 against the latest-main workspace, and terminal mechanics still pass the PTY
 smoke.
 
@@ -349,7 +349,7 @@ do not rewrite the backup ref.
 ## Files to read first next time
 
 ```text
-cetas-native/src/main/main.mbt
+cetas-native/src/cetas/main.mbt
 cetas-native/src/app/app_loop.mbt
 cetas-native/src/app/turn_driver.mbt
 cetas-native/src/app/runtime.mbt
