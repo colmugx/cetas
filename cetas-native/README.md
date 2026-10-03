@@ -16,7 +16,7 @@ From the **repository root** (workspace mode is required):
 ```bash
 python3 scripts/prepare-recipe.py --flavor public --frontend native --platform unix
 moon update
-moon run cetas-native/src/main --target native --release
+moon run cetas-native/src/cetas --target native --release
 ```
 
 Do not run this preview from inside `cetas-native/`: current Cetas packages are
