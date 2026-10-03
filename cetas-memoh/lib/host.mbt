@@ -50,7 +50,10 @@ fn memoh_system_prompt() -> String {
   "Memoh is the authority for conversation continuity, workspace/platform " +
   "operations, memory, and host authorization. Current-turn Memoh context " +
   "is supplied separately from the user's message. Use Memoh Tools for " +
-  "platform and workspace actions; do not invent a parallel host state."
+  "platform and workspace actions; do not invent a parallel host state. " +
+  "For Cetas identity, usage, or configuration questions, activate the " +
+  "matching built-in manual first: cetas-about, cetas-usage, or " +
+  "cetas-memoh-config."
 }
 
 ///|
@@ -163,12 +166,44 @@ async fn MemohHost::build_session(
       return Err("Memoh Tools connection failed: " + message)
     }
   }
+  // Memoh owns the workspace/platform surface. Keep only product/self-management
+  // capabilities local, and fold the (potentially large) Memoh Tools MCP
+  // catalog behind LazyTools without dropping the bridge's lifecycle ports.
+  let fs_impl = @workspace.NativeWorkspaceFs()
+  let fs : &@workspace.WorkspaceFs = fs_impl
+  let manual_catalog = @skills.SkillCatalog::{
+    skills: memoh_builtin_skills(),
+    diagnostics: [],
+  }
+  let skills_ext = match
+    @skills.Skills::from_catalog(fs, catalog=manual_catalog) {
+    Ok(value) => value
+    Err(message) => {
+      close_failed_mcp_bridge(mcp_bridge)
+      return Err("built-in manual composition failed: " + message)
+    }
+  }
+  let ask = @askquestion.AskQuestionTools()
+  let mcp_ext : &@posoco.Extension = mcp_bridge
+  let (lazy, mcp_views) = match
+    @lazytools.LazyTools::defer_extensions(exts=[mcp_ext]) {
+    Ok(value) => value
+    Err(message) => {
+      close_failed_mcp_bridge(mcp_bridge)
+      return Err("Memoh Tools lazy catalog failed: " + message)
+    }
+  }
   let exts : Array[&@posoco.Extension] = [
     router as &@posoco.Extension,
     memoh as &@posoco.Extension,
     bridge as &@posoco.Extension,
-    mcp_bridge as &@posoco.Extension,
+    skills_ext as &@posoco.Extension,
+    ask as &@posoco.Extension,
   ]
+  for view in mcp_views {
+    exts.push(view)
+  }
+  exts.push(lazy as &@posoco.Extension)
   let config = @posoco.agent_config(
     temperature=Some(0.0),
     system_prompt=Some(memoh_system_prompt()),
