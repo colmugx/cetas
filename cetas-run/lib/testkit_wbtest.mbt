@@ -197,9 +197,13 @@ async fn tk_scripted_agent(
       slot,
     ]),
   )
+  let feature_exts = build_compiled_recipe_features(
+    ctx={ fs, cwd: "/w", home, },
+  )
   let session = @cetas_core.build_cetas_session(
     platform~,
     cwd="/w",
+    feature_exts~,
     label="cetas-run-tests",
   )
   (@cetas_core.compose_cetas_agent(session~, tail_exts~), model)
