@@ -1,11 +1,34 @@
 ///|
-/// cetas-tui native preview entrypoint.
+/// Native Cetas terminal entrypoint.
 ///
-/// This is intentionally a narrow product loop: real Cetas composition,
+/// This is intentionally a narrow product loop: shared Cetas composition,
 /// Ratatui inline terminal, streaming Agent turns, follow-up queueing,
 /// interrupts, and interactive UiPort/approval requests are live. Higher
 /// command/modal flows continue to migrate behind NativeLoopSignal.
 extern "C" fn exit(code : Int) = "exit"
+
+///|
+fn startup_permission_mode(
+  raw : String?,
+) -> (@permission.PermissionMode, String?) {
+  match raw {
+    None => (@permission.Yolo, None)
+    Some("readonly") => (@permission.ReadOnly, None)
+    Some("workspace_write") => (@permission.WorkspaceWrite, None)
+    Some("interactive") => (@permission.Interactive, None)
+    Some("auto") => (@permission.Auto, None)
+    Some("yolo") => (@permission.Yolo, None)
+    Some(value) =>
+      (
+        @permission.WorkspaceWrite,
+        Some(
+          "CETAS_PERMISSION_MODE '" +
+          value +
+          "' is not one of readonly/workspace_write/interactive/auto/yolo; using workspace_write",
+        ),
+      )
+  }
+}
 
 ///|
 async fn main {
@@ -33,12 +56,19 @@ async fn main {
         startup_warnings.push(trimmed)
       }
     }
+    let (permission_mode, permission_warning) = startup_permission_mode(
+      @env.get_env_var("CETAS_PERMISSION_MODE"),
+    )
+    match permission_warning {
+      Some(message) => startup_warnings.push(message)
+      None => ()
+    }
 
     let composed : Result[( @app.NativeHost, @app.NativeUiPort ), Error] = Ok(
       @app.NativeHost::compose_interactive(
         home~,
         cwd~,
-        mode=@permission.WorkspaceWrite,
+        mode=permission_mode,
         mcp_group=Some(group),
         warn~,
       ),
@@ -106,8 +136,10 @@ async fn main {
           ignore(
             app.open_rewind() catch {
               error => {
-                @stdio.stderr.write(
-                  "cetas-tui: rewind points failed: " + error.to_string() + "\n",
+                ignore(
+                  app.append_error(
+                    "rewind points failed: " + error.to_string(),
+                  ),
                 )
                 false
               }
@@ -116,8 +148,8 @@ async fn main {
         @app.LoopApplyRewind(message_index) =>
           app.apply_rewind(message_index) catch {
             error =>
-              @stdio.stderr.write(
-                "cetas-tui: rewind failed: " + error.to_string() + "\n",
+              ignore(
+                app.append_error("rewind failed: " + error.to_string()),
               )
           }
         @app.LoopAutocomplete
@@ -137,7 +169,7 @@ async fn main {
     match terminal_failure {
       Some(status) => {
         @stdio.stderr.write(
-          "cetas-tui: terminal failure (" + status.to_string() + ")\n",
+          "cetas: terminal failure (" + status.to_string() + ")\n",
         )
         exit(1)
       }
