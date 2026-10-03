@@ -12,6 +12,9 @@ package.
   They bind concrete extensions and platform/protocol adapters.
 - **this roster** is the single human-edited inventory from which host
   dependency/import/constructor projections are generated.
+- **the generator is infrastructure only**: it binds logical capabilities to
+  concrete packages/constructors. Product behavior and capability policy stay
+  in `cetas-core` and are consumed by generated host code.
 
 ## Vocabulary
 
