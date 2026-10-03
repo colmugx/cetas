@@ -4,7 +4,7 @@ import {
   "colmugx/posoco/port",
   "colmugx/posoco/runtime",
   "colmugx/cetas-core/lib" @cetas_core,
-  "posoco/devkit" @devkit,
+  "posoco/devkit",
   "colmugx/posoco-ext-context" @context,
   "colmugx/posoco-ext-credentials" @credentials,
   "colmugx/posoco-ext-fs-session" @fs_session,
