@@ -1471,24 +1471,22 @@ async fn build_session_agent(
   let ratelimit = @ratelimit.RateLimitGuard()
   exts.push(ratelimit as &@posoco.Extension)
   for
-    tool in @cetas_core.build_default_features(
+    feature in build_compiled_recipe_features(
       ctx={ fs: session_fs, cwd, home: platform.home, },
       nmem_group=platform.mcp_group,
     ) {
-    exts.push(tool)
+    exts.push(feature)
   }
-  // Personal host opt-in: zcode delegation registers when detected, degrades to absent otherwise.
-  let zcode_ext = @zcode.zcode_ext_if_detected(env~, exists=async fn(
-    path : String,
-  ) -> Bool {
-    session_fs.exists(path) catch {
-      _ => false
-    }
-  }) catch {
-    _ => None
-  }
-  match zcode_ext {
-    Some(ext) => exts.push(ext as &@posoco.Extension)
+  match
+    build_compiled_zcode_ext(
+      env~,
+      exists=async fn(path : String) -> Bool {
+        session_fs.exists(path) catch {
+          _ => false
+        }
+      },
+    ) {
+    Some(ext) => exts.push(ext)
     None => ()
   }
 
