@@ -63,6 +63,13 @@ jobs:
       - name: Build interactive native preview
         run: moon build cetas-native/src/cetas --target native --release
 
+      - name: Validate native product executable shape
+        run: |
+          product="_build/native/release/build/colmugx/cetas-native/src/cetas/cetas.exe"
+          test -f "$product"
+          test -z "$(find _build/native/release/build/colmugx/cetas-native -type f \( -name 'src.exe' -o -name 'main.exe' \) -print)"
+
+
       - name: Generate MoonBit interfaces
         run: moon info
 
