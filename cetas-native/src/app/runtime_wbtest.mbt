@@ -50,7 +50,6 @@ test "runtime scene lowers idle status without transcript duplication" {
   assert_true(text.contains("· idle"))
 }
 
-
 ///|
 test "runtime scene gives active rewind picker editor precedence" {
   let shell = NativeShell::new()
@@ -59,10 +58,12 @@ test "runtime scene gives active rewind picker editor precedence" {
   let editor = @ui.EditorModel::new()
   editor.set_text("draft")
   let rewind = @ui.RewindPickerModel::new()
-  assert_true(rewind.open([
-    { message_index: 1, preview: "first prompt" },
-    { message_index: 4, preview: "second prompt" },
-  ]))
+  assert_true(
+    rewind.open([
+      { message_index: 1, preview: "first prompt", },
+      { message_index: 4, preview: "second prompt", },
+    ]),
+  )
 
   let scene = build_runtime_scene(shell, router, editor, rewind, 40U, 6U)
   let text = @utf8.decode(scene.text)

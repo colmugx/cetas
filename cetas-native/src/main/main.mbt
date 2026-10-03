@@ -1,10 +1,10 @@
+///|
 /// cetas-tui native preview entrypoint.
 ///
 /// This is intentionally a narrow product loop: real Cetas composition,
 /// Ratatui inline terminal, streaming Agent turns, follow-up queueing,
 /// interrupts, and interactive UiPort/approval requests are live. Higher
 /// command/modal flows continue to migrate behind NativeLoopSignal.
-
 extern "C" fn exit(code : Int) = "exit"
 
 ///|
@@ -16,7 +16,9 @@ async fn main {
   }
 
   let warn = async fn(message : String) noraise {
-    @stdio.stderr.write(message) catch { _ => () }
+    @stdio.stderr.write(message) catch {
+      _ => ()
+    }
   }
 
   @async.with_task_group(group => {
@@ -36,11 +38,15 @@ async fn main {
       }
     }
 
-    ignore(host.shell().append_notice(
-      "cetas-native preview · session " +
-      host.session_id() +
-      " · Enter submit · Esc interrupt · double-Esc rewind · Ctrl+C exit",
-    ))
+    ignore(
+      host
+      .shell()
+      .append_notice(
+        "cetas-native preview · session " +
+        host.session_id() +
+        " · Enter submit · Esc interrupt · double-Esc rewind · Ctrl+C exit",
+      ),
+    )
 
     let terminal = match @ui.Terminal::open_inline(12U) {
       Some(value) => value
@@ -60,34 +66,31 @@ async fn main {
       match app.run_until_signal(group) {
         @app.LoopContinue => ()
         @app.LoopExit => running = false
-        @app.LoopDismissOverlay => {
-          app.set_dismissible_overlay_visible(false)
-        }
-        @app.LoopOpenRewind => {
-          ignore(app.open_rewind() catch {
-            error => {
-              @stdio.stderr.write(
-                "cetas-tui: rewind points failed: " + error.to_string() + "\n",
-              )
-              false
-            }
-          })
-        }
-        @app.LoopApplyRewind(message_index) => {
+        @app.LoopDismissOverlay => app.set_dismissible_overlay_visible(false)
+        @app.LoopOpenRewind =>
+          ignore(
+            app.open_rewind() catch {
+              error => {
+                @stdio.stderr.write(
+                  "cetas-tui: rewind points failed: " + error.to_string() + "\n",
+                )
+                false
+              }
+            },
+          )
+        @app.LoopApplyRewind(message_index) =>
           app.apply_rewind(message_index) catch {
             error =>
               @stdio.stderr.write(
                 "cetas-tui: rewind failed: " + error.to_string() + "\n",
               )
           }
-        }
-        @app.LoopAutocomplete |
-        @app.LoopToggleThinking |
-        @app.LoopToggleToolOutput => {
+        @app.LoopAutocomplete
+        | @app.LoopToggleThinking
+        | @app.LoopToggleToolOutput =>
           // These product presentation flows are still migrating behind the
           // stable loop signal boundary.
           ()
-        }
         @app.LoopTerminalFailed(status) => {
           terminal_failure = Some(status)
           running = false

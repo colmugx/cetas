@@ -36,7 +36,7 @@ pub fn EditorModel::new() -> EditorModel {
 
 ///|
 pub fn EditorModel::cursor(self : EditorModel) -> EditorCursor {
-  { line: self.cursor_line, column: self.cursor_column }
+  { line: self.cursor_line, column: self.cursor_column, }
 }
 
 ///|
@@ -45,10 +45,7 @@ pub fn EditorModel::line_count(self : EditorModel) -> Int {
 }
 
 ///|
-pub fn EditorModel::line(
-  self : EditorModel,
-  index : Int,
-) -> String? {
+pub fn EditorModel::line(self : EditorModel, index : Int) -> String? {
   if index < 0 || index >= self.lines.length() {
     None
   } else {
@@ -95,10 +92,7 @@ fn EditorModel::leave_history_browse(self : EditorModel) -> Unit {
 ///
 /// Empty prompts are ignored. Consecutive duplicates are collapsed so key
 /// repeat or retry paths cannot flood the history with identical entries.
-pub fn EditorModel::record_history(
-  self : EditorModel,
-  text : String,
-) -> Unit {
+pub fn EditorModel::record_history(self : EditorModel, text : String) -> Unit {
   if text.is_empty() {
     return
   }
@@ -129,12 +123,7 @@ pub fn EditorModel::history_previous(self : EditorModel) -> Bool {
       self.history_draft = self.text()
       self.history.length() - 1
     }
-    Some(value) =>
-      if value > 0 {
-        value - 1
-      } else {
-        return false
-      }
+    Some(value) => if value > 0 { value - 1 } else { return false }
   }
 
   self.history_index = Some(index)
@@ -146,9 +135,7 @@ pub fn EditorModel::history_previous(self : EditorModel) -> Bool {
 /// Browse toward newer entries. Moving beyond the newest recorded prompt
 /// restores the draft that was present before history browsing began.
 pub fn EditorModel::history_next(self : EditorModel) -> Bool {
-  guard self.history_index is Some(index) else {
-    return false
-  }
+  guard self.history_index is Some(index) else { return false }
 
   if index + 1 < self.history.length() {
     let next = index + 1
@@ -189,10 +176,7 @@ pub fn EditorModel::clear(self : EditorModel) -> Unit {
 }
 
 ///|
-pub fn EditorModel::set_text(
-  self : EditorModel,
-  text : String,
-) -> Unit {
+pub fn EditorModel::set_text(self : EditorModel, text : String) -> Unit {
   self.leave_history_browse()
   self.set_text_from_history(text)
 }
@@ -228,7 +212,10 @@ fn next_column(line : String, column : Int) -> Int {
 ///|
 pub fn EditorModel::move_left(self : EditorModel) -> Unit {
   if self.cursor_column > 0 {
-    self.cursor_column = previous_column(self.current_line(), self.cursor_column)
+    self.cursor_column = previous_column(
+      self.current_line(),
+      self.cursor_column,
+    )
   } else if self.cursor_line > 0 {
     self.cursor_line -= 1
     self.cursor_column = self.current_line().length()
@@ -262,7 +249,10 @@ pub fn EditorModel::move_up(self : EditorModel) -> Unit {
     return
   }
   self.cursor_line -= 1
-  self.cursor_column = Int::min(self.cursor_column, self.current_line().length())
+  self.cursor_column = Int::min(
+    self.cursor_column,
+    self.current_line().length(),
+  )
 }
 
 ///|
@@ -271,14 +261,14 @@ pub fn EditorModel::move_down(self : EditorModel) -> Unit {
     return
   }
   self.cursor_line += 1
-  self.cursor_column = Int::min(self.cursor_column, self.current_line().length())
+  self.cursor_column = Int::min(
+    self.cursor_column,
+    self.current_line().length(),
+  )
 }
 
 ///|
-pub fn EditorModel::insert_text(
-  self : EditorModel,
-  text : String,
-) -> Unit {
+pub fn EditorModel::insert_text(self : EditorModel, text : String) -> Unit {
   self.leave_history_browse()
   if text.is_empty() {
     return
@@ -322,8 +312,8 @@ pub fn EditorModel::backspace(self : EditorModel) -> Unit {
   if self.cursor_column > 0 {
     let line = self.current_line()
     let start = previous_column(line, self.cursor_column)
-    self.lines[self.cursor_line] =
-      line[:start].to_owned() + line[self.cursor_column:].to_owned()
+    self.lines[self.cursor_line] = line[:start].to_owned() +
+      line[self.cursor_column:].to_owned()
     self.cursor_column = start
     return
   }
@@ -345,8 +335,8 @@ pub fn EditorModel::delete_forward(self : EditorModel) -> Unit {
   let line = self.current_line()
   if self.cursor_column < line.length() {
     let end = next_column(line, self.cursor_column)
-    self.lines[self.cursor_line] =
-      line[:self.cursor_column].to_owned() + line[end:].to_owned()
+    self.lines[self.cursor_line] = line[:self.cursor_column].to_owned() +
+      line[end:].to_owned()
     return
   }
 
@@ -367,12 +357,16 @@ pub fn EditorModel::replace_current_line_range(
 ) -> Bool {
   self.leave_history_browse()
   let line = self.current_line()
-  if start < 0 || end < start || end > line.length() || replacement.contains("\n") {
+  if start < 0 ||
+    end < start ||
+    end > line.length() ||
+    replacement.contains("\n") {
     return false
   }
 
-  self.lines[self.cursor_line] =
-    line[:start].to_owned() + replacement + line[end:].to_owned()
+  self.lines[self.cursor_line] = line[:start].to_owned() +
+    replacement +
+    line[end:].to_owned()
   self.cursor_column = start + replacement.length()
   true
 }
@@ -456,16 +450,20 @@ pub fn active_autocomplete_matches(
 
   let mut winner = matches[0]
   for candidate in matches {
-    if candidate.replacement_prefix.length() > winner.replacement_prefix.length() ||
-      (candidate.replacement_prefix.length() == winner.replacement_prefix.length() &&
-        candidate.trigger_index > winner.trigger_index) {
+    if candidate.replacement_prefix.length() >
+      winner.replacement_prefix.length() ||
+      (
+        candidate.replacement_prefix.length() ==
+        winner.replacement_prefix.length() &&
+        candidate.trigger_index > winner.trigger_index
+      ) {
       winner = candidate
     }
   }
 
-  matches.filter(
-    candidate => candidate.replacement_prefix == winner.replacement_prefix,
-  )
+  matches.filter(candidate => {
+    candidate.replacement_prefix == winner.replacement_prefix
+  })
 }
 
 ///|
@@ -541,10 +539,10 @@ pub fn editor_validation_marker() -> Int {
   }
 
   let sources : Array[AutocompleteSourceSpec] = [
-    { trigger: "/", span_spaces: false },
-    { trigger: "@", span_spaces: false },
-    { trigger: "/model ", span_spaces: true },
-    { trigger: "/model ", span_spaces: true },
+    { trigger: "/", span_spaces: false, },
+    { trigger: "@", span_spaces: false, },
+    { trigger: "/model ", span_spaces: true, },
+    { trigger: "/model ", span_spaces: true, },
   ]
 
   let model_matches = active_autocomplete_matches("/model gpt", sources)
@@ -566,7 +564,10 @@ pub fn editor_validation_marker() -> Int {
   }
 
   editor.set_text("/mo")
-  let completion = active_autocomplete_matches(editor.text_before_cursor(), sources)
+  let completion = active_autocomplete_matches(
+    editor.text_before_cursor(),
+    sources,
+  )
   if completion.length() != 1 ||
     !editor.apply_completion(completion[0].replacement_prefix, "/model ") ||
     editor.text() != "/model " {

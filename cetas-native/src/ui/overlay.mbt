@@ -20,7 +20,7 @@ pub struct OverlayStack {
 
 ///|
 pub fn OverlayStack::new() -> OverlayStack {
-  { entries: [], next_id: 1 }
+  { entries: [], next_id: 1, }
 }
 
 ///|
@@ -88,30 +88,19 @@ fn OverlayStack::restore_top_focus(self : OverlayStack) -> Unit {
 ///
 /// Capturing overlays take keyboard focus. Non-capturing overlays (for example
 /// a visual veil) participate in layering without stealing focus.
-pub fn OverlayStack::open(
-  self : OverlayStack,
-  capturing~ : Bool = true,
-) -> Int {
+pub fn OverlayStack::open(self : OverlayStack, capturing? : Bool = true) -> Int {
   let id = self.next_id
   self.next_id += 1
 
   if capturing {
     self.clear_focus()
   }
-  self.entries.push({
-    id,
-    capturing,
-    hidden: false,
-    focused: capturing,
-  })
+  self.entries.push({ id, capturing, hidden: false, focused: capturing, })
   id
 }
 
 ///|
-pub fn OverlayStack::hide(
-  self : OverlayStack,
-  id : Int,
-) -> Bool {
+pub fn OverlayStack::hide(self : OverlayStack, id : Int) -> Bool {
   for index, entry in self.entries {
     if entry.id == id {
       let removed = self.entries.remove(index)
@@ -145,7 +134,11 @@ pub fn OverlayStack::set_hidden(
         id: entry.id,
         capturing: entry.capturing,
         hidden,
-        focused: if hidden { false } else { entry.focused },
+        focused: if hidden {
+          false
+        } else {
+          entry.focused
+        },
       }
 
       if hidden && was_focused {
@@ -158,10 +151,7 @@ pub fn OverlayStack::set_hidden(
 }
 
 ///|
-pub fn OverlayStack::focus(
-  self : OverlayStack,
-  id : Int,
-) -> Bool {
+pub fn OverlayStack::focus(self : OverlayStack, id : Int) -> Bool {
   for entry in self.entries {
     if entry.id == id {
       if entry.hidden || !entry.capturing {
@@ -186,10 +176,7 @@ pub fn OverlayStack::focus(
 }
 
 ///|
-pub fn OverlayStack::is_hidden(
-  self : OverlayStack,
-  id : Int,
-) -> Bool? {
+pub fn OverlayStack::is_hidden(self : OverlayStack, id : Int) -> Bool? {
   for entry in self.entries {
     if entry.id == id {
       return Some(entry.hidden)

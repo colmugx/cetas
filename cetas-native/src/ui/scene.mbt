@@ -33,7 +33,7 @@ pub fn TextStyle::new(
   bg? : TuiColor = ColorInherit,
   modifiers? : UInt = 0U,
 ) -> TextStyle {
-  { fg, bg, modifiers }
+  { fg, bg, modifiers, }
 }
 
 ///|
@@ -91,7 +91,7 @@ pub struct SceneBuilder {
 
 ///|
 pub fn SceneBuilder::new() -> SceneBuilder {
-  { words: [], styles: [], text: [] }
+  { words: [], styles: [], text: [], }
 }
 
 ///|
@@ -126,10 +126,7 @@ fn SceneBuilder::append_text(self : SceneBuilder, text : Bytes) -> UInt {
 }
 
 ///|
-fn SceneBuilder::push_style(
-  self : SceneBuilder,
-  style : TextStyle,
-) -> UInt {
+fn SceneBuilder::push_style(self : SceneBuilder, style : TextStyle) -> UInt {
   let style_ref = (self.styles.length() / 4).reinterpret_as_uint() + 1U
   self.styles.push(style.fg.encode())
   self.styles.push(style.bg.encode())
@@ -196,11 +193,7 @@ pub fn SceneBuilder::clear(
 }
 
 ///|
-pub fn SceneBuilder::cursor(
-  self : SceneBuilder,
-  x : UInt,
-  y : UInt,
-) -> Unit {
+pub fn SceneBuilder::cursor(self : SceneBuilder, x : UInt, y : UInt) -> Unit {
   self.push_command(3U, x, y, 0U, 0U, 0U, 0U, 0U)
 }
 
@@ -246,10 +239,7 @@ pub fn Scene::validation() -> Scene {
     16U,
     1U,
     b"cetas-batch",
-    TextStyle::new(
-      fg=ColorRgb(10U, 200U, 100U),
-      modifiers=modifier_bold(),
-    ),
+    TextStyle::new(fg=ColorRgb(10U, 200U, 100U), modifiers=modifier_bold()),
   )
   builder.border(
     0U,

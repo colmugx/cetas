@@ -13,13 +13,14 @@ fn main {
   let text_len = scene.text.length().reinterpret_as_uint()
 
   let scene_decode_ok = @native.headless_scene_probe(
-    scene.words,
-    word_count,
-    scene.styles,
-    scene.styles.length().reinterpret_as_uint(),
-    scene.text,
-    text_len,
-  ) == 1
+      scene.words,
+      word_count,
+      scene.styles,
+      scene.styles.length().reinterpret_as_uint(),
+      scene.text,
+      text_len,
+    ) ==
+    1
 
   let terminal = match @ui.Terminal::open_inline(3U) {
     Some(value) => value
@@ -33,10 +34,12 @@ fn main {
   let batch_tty_ok = terminal.render(scene) == 0
 
   let transcript = @ui.TranscriptModel::new()
-  ignore(transcript.append_finalized(
-    @ui.TranscriptAssistant,
-    "cetas-scrollback\n第二行",
-  ))
+  ignore(
+    transcript.append_finalized(
+      @ui.TranscriptAssistant,
+      "cetas-scrollback\n第二行",
+    ),
+  )
   let ready = transcript.take_scrollback_ready()
   let scrollback_insert_ok = ready.length() == 1 &&
     terminal.insert_before(ready[0].scrollback_text()) == 0 &&
@@ -46,8 +49,7 @@ fn main {
   let resume_ok = terminal.resume_terminal() == 0
   let redraw_after_resume_ok = terminal.render(@ui.Scene::validation()) == 0
 
-  let (initial_viewport_status, initial_viewport_words) =
-    terminal.viewport_size()
+  let (initial_viewport_status, initial_viewport_words) = terminal.viewport_size()
   let initial_viewport_ok = initial_viewport_status == 0 &&
     initial_viewport_words[0] == 80U &&
     initial_viewport_words[1] == 3U
@@ -88,8 +90,7 @@ fn main {
     }
   }
 
-  let (resized_viewport_status, resized_viewport_words) =
-    terminal.viewport_size()
+  let (resized_viewport_status, resized_viewport_words) = terminal.viewport_size()
   let resized_viewport_ok = resized_viewport_status == 0 &&
     resized_viewport_words[0] == 81U &&
     resized_viewport_words[1] == 3U

@@ -26,11 +26,7 @@ pub struct UiRequestPanelModel {
 fn ui_request_items(options : Array[String]) -> Array[@ui.SelectItem] {
   let items : Array[@ui.SelectItem] = []
   for index, option in options {
-    items.push({
-      value: index.to_string(),
-      label: option,
-      description: "",
-    })
+    items.push({ value: index.to_string(), label: option, description: "", })
   }
   items
 }
@@ -53,26 +49,20 @@ pub fn UiRequestPanelModel::new(
         list: @ui.SelectListModel::new([]),
       }
     }
-    @posoco.UiRequest::Confirm(prompt~) => {
+    @posoco.UiRequest::Confirm(prompt~) =>
       {
         kind: UiPanelConfirm,
         prompt,
         editor: @ui.EditorModel::new(),
         list: @ui.SelectListModel::new(ui_request_items(["Yes", "No"])),
       }
-    }
     @posoco.UiRequest::Select(prompt~, options~, default~) => {
       let list = @ui.SelectListModel::new(ui_request_items(options))
       match default {
         Some(index) => ignore(list.select(index))
         None => ()
       }
-      {
-        kind: UiPanelSelect,
-        prompt,
-        editor: @ui.EditorModel::new(),
-        list,
-      }
+      { kind: UiPanelSelect, prompt, editor: @ui.EditorModel::new(), list, }
     }
   }
 }
@@ -90,23 +80,17 @@ pub fn UiRequestPanelModel::prompt(self : UiRequestPanelModel) -> String {
 }
 
 ///|
-pub fn UiRequestPanelModel::input_text(
-  self : UiRequestPanelModel,
-) -> String {
+pub fn UiRequestPanelModel::input_text(self : UiRequestPanelModel) -> String {
   self.editor.text()
 }
 
 ///|
-pub fn UiRequestPanelModel::selected_index(
-  self : UiRequestPanelModel,
-) -> Int {
+pub fn UiRequestPanelModel::selected_index(self : UiRequestPanelModel) -> Int {
   self.list.selected_index()
 }
 
 ///|
-pub fn UiRequestPanelModel::option_count(
-  self : UiRequestPanelModel,
-) -> Int {
+pub fn UiRequestPanelModel::option_count(self : UiRequestPanelModel) -> Int {
   match self.kind {
     UiPanelInput => 0
     UiPanelConfirm | UiPanelSelect => self.list.item_count()
@@ -140,13 +124,10 @@ pub fn UiRequestPanelModel::handle_paste(
 
 ///|
 fn ui_request_char(event : @ui.TerminalEvent) -> String? {
-  guard event.key_code_value() is @ui.KeyChar(codepoint) else {
-    return None
-  }
+  guard event.key_code_value() is @ui.KeyChar(codepoint) else { return None }
   // Control/Alt chords are shell shortcuts, not text input. Shift is allowed:
   // Crossterm already gives us the post-layout Unicode code point.
-  let non_text_modifiers =
-    @ui.modifier_control() |
+  let non_text_modifiers = @ui.modifier_control() |
     @ui.modifier_alt() |
     @ui.modifier_super() |
     @ui.modifier_hyper() |
@@ -219,8 +200,7 @@ pub fn UiRequestPanelModel::handle_key(
       None
     }
     UiPanelConfirm => {
-      if event.matches_key(@ui.KeyUp, 0U) ||
-        event.matches_key(@ui.KeyLeft, 0U) {
+      if event.matches_key(@ui.KeyUp, 0U) || event.matches_key(@ui.KeyLeft, 0U) {
         self.list.previous()
         return None
       }
@@ -239,8 +219,7 @@ pub fn UiRequestPanelModel::handle_key(
       None
     }
     UiPanelSelect => {
-      if event.matches_key(@ui.KeyUp, 0U) ||
-        event.matches_key(@ui.KeyLeft, 0U) {
+      if event.matches_key(@ui.KeyUp, 0U) || event.matches_key(@ui.KeyLeft, 0U) {
         self.list.previous()
         return None
       }

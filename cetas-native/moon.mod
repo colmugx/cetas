@@ -16,10 +16,6 @@ preferred_target = "native"
 
 supported_targets = "native"
 
-options(
-  "--moonbit-unstable-prebuild": "build.js",
-)
-
 import {
   "colmugx/posoco@0.20.4",
   "colmugx/cetas-core@0.2.0",
@@ -46,3 +42,7 @@ import {
   "colmugx/posoco-ext-lazytools@0.1.0",
   // recipe-deps:end
 }
+
+options(
+  "--moonbit-unstable-prebuild": "build.js",
+)

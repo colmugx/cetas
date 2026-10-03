@@ -1,6 +1,6 @@
 import {
-  "colmugx/cetas-native/src/app" @app,
-  "colmugx/cetas-native/src/ui" @ui,
+  "colmugx/cetas-native/src/app",
+  "colmugx/cetas-native/src/ui",
   "colmugx/cetas-core/lib" @cetas_core,
   "colmugx/posoco-ext-permission" @permission,
   "moonbitlang/async",

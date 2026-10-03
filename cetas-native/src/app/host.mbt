@@ -36,7 +36,6 @@ pub fn NativeSessionState::adopt_redirect(
 }
 
 ///|
-///|
 pub struct NativeHost {
   agent : @posoco.Agent
   shell : NativeShell
@@ -58,7 +57,7 @@ fn NativeHost::from_parts(
     Some(value) => value
     None => NativeSessionState::new(session_id)
   }
-  { agent, shell, store, session, session_root }
+  { agent, shell, store, session, session_root, }
 }
 
 ///|
@@ -120,16 +119,11 @@ pub async fn NativeHost::compose(
     label="cetas-native",
     warn~,
   )
-  let host_exts : Array[&@posoco.Extension] = [
-    observer as &@posoco.Extension,
-  ]
+  let host_exts : Array[&@posoco.Extension] = [observer as &@posoco.Extension]
   for extension in tail_exts {
     host_exts.push(extension)
   }
-  let agent = @cetas_core.compose_cetas_agent(
-    session~,
-    tail_exts=host_exts,
-  )
+  let agent = @cetas_core.compose_cetas_agent(session~, tail_exts=host_exts)
   NativeHost::from_parts(
     agent,
     shell,
@@ -207,9 +201,11 @@ pub fn NativeHost::queue_follow_up(
   self : NativeHost,
   prompt : String,
 ) -> @runtime.EnqueueOutcome {
-  let outcome = self.agent.control().enqueue_follow_up(
-    @posoco.Message::UserMessage(content=[@posoco.Content::Text(prompt)]),
-  )
+  let outcome = self.agent
+    .control()
+    .enqueue_follow_up(
+      @posoco.Message::UserMessage(content=[@posoco.Content::Text(prompt)]),
+    )
   match outcome {
     @runtime.Accepted(..) => ignore(self.shell.queue_follow_up(prompt))
     _ => ()
@@ -235,7 +231,6 @@ pub fn NativeHost::interrupt_active(
   outcome
 }
 
-
 ///|
 fn NativeHost::read_persisted_jsonl(
   self : NativeHost,
@@ -247,8 +242,7 @@ fn NativeHost::read_persisted_jsonl(
   }
   match @fs_session.validate_session_id(self.session.session_id()) {
     Ok(_) => ()
-    Err(reason) =>
-      raise @posoco.SessionError::Load("jsonl: " + reason)
+    Err(reason) => raise @posoco.SessionError::Load("jsonl: " + reason)
   }
   let path = @fs_session.jsonl_session_path(root, self.session.session_id())
   if !@xfs.path_exists(path) {

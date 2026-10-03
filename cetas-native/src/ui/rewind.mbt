@@ -31,11 +31,7 @@ pub struct RewindPickerModel {
 
 ///|
 pub fn RewindPickerModel::new() -> RewindPickerModel {
-  {
-    active: false,
-    points: [],
-    list: SelectListModel::new([]),
-  }
+  { active: false, points: [], list: SelectListModel::new([]), }
 }
 
 ///|
@@ -183,12 +179,11 @@ pub fn rewind_validation_marker() -> Int {
     return 0
   }
 
-  let long_preview =
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-extra"
+  let long_preview = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-extra"
   if !picker.open([
-    { message_index: 3, preview: "first" },
-    { message_index: 8, preview: long_preview },
-  ]) ||
+      { message_index: 3, preview: "first", },
+      { message_index: 8, preview: long_preview, },
+    ]) ||
     !picker.is_active() ||
     picker.selected_index() != 0 {
     return 0
@@ -208,16 +203,14 @@ pub fn rewind_validation_marker() -> Int {
     return 0
   }
 
-  guard picker.selected_point() is Some(selected) else {
-    return 0
-  }
+  guard picker.selected_point() is Some(selected) else { return 0 }
   if selected.message_index != 8 ||
     picker.handle_key(enter) != RewindPicked(8) ||
     picker.is_active() {
     return 0
   }
 
-  if !picker.open([{ message_index: 1, preview: "again" }]) ||
+  if !picker.open([{ message_index: 1, preview: "again", }]) ||
     picker.handle_key(escape) != RewindCancelled ||
     picker.is_active() {
     return 0

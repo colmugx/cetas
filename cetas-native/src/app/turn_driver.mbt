@@ -39,9 +39,7 @@ pub fn NativeTurnDriver::host(self : NativeTurnDriver) -> NativeHost {
 }
 
 ///|
-pub fn NativeTurnDriver::editor(
-  self : NativeTurnDriver,
-) -> @ui.EditorModel {
+pub fn NativeTurnDriver::editor(self : NativeTurnDriver) -> @ui.EditorModel {
   self.editor
 }
 
@@ -103,13 +101,21 @@ pub fn NativeTurnDriver::submit(
       PromptDeferred
     }
     @runtime.RejectedQueueFull(depth~) => {
-      ignore(self.host.shell().append_error(
-        "follow-up queue is full (" + depth.to_string() + "); wait for the turn to finish",
-      ))
+      ignore(
+        self.host
+        .shell()
+        .append_error(
+          "follow-up queue is full (" +
+          depth.to_string() +
+          "); wait for the turn to finish",
+        ),
+      )
       PromptQueueFull(depth)
     }
     @runtime.RejectedQueueFailure(reason~) => {
-      ignore(self.host.shell().append_error("follow-up queue failed: " + reason))
+      ignore(
+        self.host.shell().append_error("follow-up queue failed: " + reason),
+      )
       PromptQueueFailed(reason)
     }
     @runtime.AbortAlreadyRequested => {
@@ -121,9 +127,7 @@ pub fn NativeTurnDriver::submit(
 }
 
 ///|
-fn NativeTurnDriver::failure_already_projected(
-  self : NativeTurnDriver,
-) -> Bool {
+fn NativeTurnDriver::failure_already_projected(self : NativeTurnDriver) -> Bool {
   let transcript = self.host.shell().transcript()
   let count = transcript.row_count()
   if count <= 0 {
@@ -131,8 +135,7 @@ fn NativeTurnDriver::failure_already_projected(
   }
   let last = transcript.row(count - 1)
   last.kind == @ui.TranscriptError ||
-    (last.kind == @ui.TranscriptSystem &&
-      last.text == "⏹ interrupted")
+  (last.kind == @ui.TranscriptSystem && last.text == "⏹ interrupted")
 }
 
 ///|
@@ -144,9 +147,7 @@ pub fn NativeTurnDriver::poll_settle(
   self : NativeTurnDriver,
   group : @async.TaskGroup[Unit],
 ) -> Bool {
-  guard self.turn is Some(task) else {
-    return false
-  }
+  guard self.turn is Some(task) else { return false }
 
   let result : Result[@posoco.TurnResult?, Error] = Ok(task.try_wait()) catch {
     error => Err(error)
@@ -183,15 +184,15 @@ pub fn NativeTurnDriver::poll_settle(
 }
 
 ///|
-pub fn NativeTurnDriver::interrupt(self : NativeTurnDriver) -> @runtime.EnqueueOutcome {
+pub fn NativeTurnDriver::interrupt(
+  self : NativeTurnDriver,
+) -> @runtime.EnqueueOutcome {
   self.host.interrupt_active()
 }
 
 ///|
 /// Cancel and drain the child task during process shutdown.
-pub async fn NativeTurnDriver::cancel_and_wait(
-  self : NativeTurnDriver,
-) -> Unit {
+pub async fn NativeTurnDriver::cancel_and_wait(self : NativeTurnDriver) -> Unit {
   match self.turn {
     Some(task) => {
       task.cancel()

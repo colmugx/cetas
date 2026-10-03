@@ -30,10 +30,7 @@ priv enum EventParse {
 }
 
 ///|
-fn string_field(
-  fields : Map[String, Json],
-  key : String,
-) -> String? {
+fn string_field(fields : Map[String, Json], key : String) -> String? {
   match fields.get(key) {
     Some(Json::String(value)) => Some(value)
     _ => None
@@ -53,10 +50,7 @@ fn optional_string_field(
 }
 
 ///|
-fn bool_field(
-  fields : Map[String, Json],
-  key : String,
-) -> Bool? {
+fn bool_field(fields : Map[String, Json], key : String) -> Bool? {
   match fields.get(key) {
     Some(Json::True) => Some(true)
     Some(Json::False) => Some(false)
@@ -65,10 +59,7 @@ fn bool_field(
 }
 
 ///|
-fn non_negative_int_field(
-  fields : Map[String, Json],
-  key : String,
-) -> Int? {
+fn non_negative_int_field(fields : Map[String, Json], key : String) -> Int? {
   match fields.get(key) {
     Some(Json::Number(value, ..)) => {
       let int = value.to_int()
@@ -84,21 +75,13 @@ fn non_negative_int_field(
 
 ///|
 fn message_end_payload(value : Json) -> (String, String)? {
-  guard value is Json::Object(fields) else {
-    return None
-  }
-  guard string_field(fields, "role") == Some("assistant") else {
-    return None
-  }
-  guard fields.get("content") is Some(Json::Array(content)) else {
-    return None
-  }
+  guard value is Json::Object(fields) else { return None }
+  guard string_field(fields, "role") == Some("assistant") else { return None }
+  guard fields.get("content") is Some(Json::Array(content)) else { return None }
 
   let text_parts : Array[String] = []
   for block in content {
-    guard block is Json::Object(block_fields) else {
-      return None
-    }
+    guard block is Json::Object(block_fields) else { return None }
     match string_field(block_fields, "type") {
       Some("text") =>
         match string_field(block_fields, "text") {
@@ -127,12 +110,8 @@ fn parse_one(value : Json) -> EventParse {
   if value is Json::Null {
     return Skipped
   }
-  guard value is Json::Object(fields) else {
-    return Invalid
-  }
-  guard string_field(fields, "type") is Some(kind) else {
-    return Invalid
-  }
+  guard value is Json::Object(fields) else { return Invalid }
+  guard string_field(fields, "type") is Some(kind) else { return Invalid }
 
   match kind {
     "turn_started" => Parsed(NativeTurnStarted)
@@ -143,9 +122,7 @@ fn parse_one(value : Json) -> EventParse {
         None => Invalid
       }
     "stream_chunk" => {
-      guard string_field(fields, "raw") is Some(raw) else {
-        return Invalid
-      }
+      guard string_field(fields, "raw") is Some(raw) else { return Invalid }
       match string_field(fields, "kind") {
         Some("text") => Parsed(NativeStreamText(raw))
         Some("reasoning") => Parsed(NativeStreamReasoning(raw))
@@ -162,12 +139,8 @@ fn parse_one(value : Json) -> EventParse {
         None => Invalid
       }
     "session_redirect" => {
-      guard string_field(fields, "from") is Some(from) else {
-        return Invalid
-      }
-      guard string_field(fields, "to") is Some(to) else {
-        return Invalid
-      }
+      guard string_field(fields, "from") is Some(from) else { return Invalid }
+      guard string_field(fields, "to") is Some(to) else { return Invalid }
       Parsed(NativeSessionRedirect(from, to))
     }
     "tool_call_deferred" => {
@@ -191,21 +164,17 @@ fn parse_one(value : Json) -> EventParse {
       guard string_field(fields, "trigger") is Some(trigger) else {
         return Invalid
       }
-      guard string_field(fields, "mode") is Some(mode) else {
-        return Invalid
-      }
+      guard string_field(fields, "mode") is Some(mode) else { return Invalid }
       guard string_field(fields, "final_session_id") is Some(final_session_id) else {
         return Invalid
       }
-      guard non_negative_int_field(fields, "messages_after") is Some(messages_after) else {
+      guard non_negative_int_field(fields, "messages_after")
+        is Some(messages_after) else {
         return Invalid
       }
-      Parsed(NativeCompactFinished(
-        trigger,
-        mode,
-        final_session_id,
-        messages_after,
-      ))
+      Parsed(
+        NativeCompactFinished(trigger, mode, final_session_id, messages_after),
+      )
     }
     "operation_finalized" => {
       guard string_field(fields, "operation") is Some(operation) else {
@@ -265,9 +234,7 @@ fn parse_one(value : Json) -> EventParse {
 /// array; ordinary events arrive as one object. Some([]) means a well-formed
 /// payload containing only skip/unknown events. None means malformed input.
 pub fn parse_native_events(raw : String) -> Array[NativeEvent]? {
-  let parsed = @json.parse(raw) catch {
-    _ => return None
-  }
+  let parsed = @json.parse(raw) catch { _ => return None }
   let values : Array[Json] = match parsed {
     Json::Array(items) => items
     single => [single]
@@ -316,10 +283,7 @@ pub fn NativeShell::handle_event(
 ///|
 /// Parse and dispatch one observer callback payload. False means malformed
 /// JSON or a malformed event with a known tag.
-pub fn NativeShell::handle_event_json(
-  self : NativeShell,
-  raw : String,
-) -> Bool {
+pub fn NativeShell::handle_event_json(self : NativeShell, raw : String) -> Bool {
   match parse_native_events(raw) {
     None => false
     Some(events) => {
@@ -346,14 +310,14 @@ pub fn event_wire_validation_marker() -> Int {
   }
 
   if !shell.handle_event_json(
-    "[{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"a\"}],\"reasoning\":\"r\"}},{\"type\":\"model_invoked\",\"model\":\"\"}]",
-  ) {
+      "[{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"a\"}],\"reasoning\":\"r\"}},{\"type\":\"model_invoked\",\"model\":\"\"}]",
+    ) {
     return 0
   }
 
   if !shell.handle_event_json(
-    "{\"type\":\"tool_args_delta\",\"index\":0,\"name\":\"write\",\"delta\":\"part-\"}",
-  ) ||
+      "{\"type\":\"tool_args_delta\",\"index\":0,\"name\":\"write\",\"delta\":\"part-\"}",
+    ) ||
     !shell.handle_event_json(
       "{\"type\":\"tool_args_delta\",\"index\":0,\"id\":\"call-1\",\"delta\":\"rest\"}",
     ) ||
@@ -374,25 +338,24 @@ pub fn event_wire_validation_marker() -> Int {
   }
 
   if !shell.handle_event_json(
-    "{\"type\":\"session_redirect\",\"from\":\"s_old\",\"to\":\"s_new\"}",
-  ) ||
+      "{\"type\":\"session_redirect\",\"from\":\"s_old\",\"to\":\"s_new\"}",
+    ) ||
     shell.transcript().row_count() != 4 ||
     shell.transcript().row(3).text != "↻ redirect: s_old → s_new" {
     return 0
   }
 
   if !shell.handle_event_json(
-    "{\"type\":\"tool_call_deferred\",\"tool_call_id\":\"call-d\",\"tool_name\":\"write\",\"reason\":\"awaiting approval\"}",
-  ) ||
+      "{\"type\":\"tool_call_deferred\",\"tool_call_id\":\"call-d\",\"tool_name\":\"write\",\"reason\":\"awaiting approval\"}",
+    ) ||
     shell.transcript().row_count() != 5 ||
-    shell.transcript().row(4).text !=
-      "⏸ deferred: write (awaiting approval)" {
+    shell.transcript().row(4).text != "⏸ deferred: write (awaiting approval)" {
     return 0
   }
 
   if !shell.handle_event_json(
-    "{\"type\":\"compact_started\",\"trigger\":\"manual\"}",
-  ) ||
+      "{\"type\":\"compact_started\",\"trigger\":\"manual\"}",
+    ) ||
     !shell.handle_event_json(
       "{\"type\":\"compact_finished\",\"trigger\":\"manual\",\"mode\":\"Replace\",\"final_session_id\":\"s_new\",\"messages_after\":3}",
     ) ||
@@ -402,8 +365,7 @@ pub fn event_wire_validation_marker() -> Int {
     shell.status() != ShellWorking("compacting (manual)") ||
     shell.finalized_operation_count() != 1 ||
     shell.transcript().row_count() != 6 ||
-    shell.transcript().row(5).text !=
-      "context compacted (Replace, 3 messages)" {
+    shell.transcript().row(5).text != "context compacted (Replace, 3 messages)" {
     return 0
   }
 

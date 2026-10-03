@@ -1,7 +1,5 @@
 ///|
-async fn take_pending_ui_request(
-  ui : NativeUiPort,
-) -> PendingUiRequest {
+async fn take_pending_ui_request(ui : NativeUiPort) -> PendingUiRequest {
   for _ in 0..<32 {
     match ui.take_request() {
       Some(request) => return request
@@ -39,11 +37,13 @@ async test "native UiPort suspends requests until terminal-side response" {
     })
     let second = group.spawn(async fn() {
       let result : Result[@posoco.UiResponse, @posoco.UiError] = Ok(
-        ui.request(@posoco.UiRequest::Select(
-          prompt="second?",
-          options=["a", "b"],
-          default=Some(0),
-        )),
+        ui.request(
+          @posoco.UiRequest::Select(
+            prompt="second?",
+            options=["a", "b"],
+            default=Some(0),
+          ),
+        ),
       ) catch {
         error => Err(error)
       }
@@ -59,9 +59,7 @@ async test "native UiPort suspends requests until terminal-side response" {
     let (confirm, select) = match (a.request(), b.request()) {
       (@posoco.UiRequest::Confirm(..), @posoco.UiRequest::Select(..)) => (a, b)
       (@posoco.UiRequest::Select(..), @posoco.UiRequest::Confirm(..)) => (b, a)
-      _ => {
-        fail("unexpected native UI request pair")
-      }
+      _ => fail("unexpected native UI request pair")
     }
 
     assert_true(select.respond(@posoco.UiResponse::Selected(1)))
@@ -70,12 +68,14 @@ async test "native UiPort suspends requests until terminal-side response" {
 
     match first.wait() {
       Ok(@posoco.UiResponse::Yes) => ()
-      Ok(other) => fail("first request received wrong response: " + other.to_string())
+      Ok(other) =>
+        fail("first request received wrong response: " + other.to_string())
       Err(error) => fail("first request failed: " + error.to_string())
     }
     match second.wait() {
       Ok(@posoco.UiResponse::Selected(1)) => ()
-      Ok(other) => fail("second request received wrong response: " + other.to_string())
+      Ok(other) =>
+        fail("second request received wrong response: " + other.to_string())
       Err(error) => fail("second request failed: " + error.to_string())
     }
   })

@@ -114,9 +114,7 @@ pub fn TerminalEvent::has_modifier(
 }
 
 ///|
-pub fn TerminalEvent::kind_value(
-  self : TerminalEvent,
-) -> TerminalEventKind {
+pub fn TerminalEvent::kind_value(self : TerminalEvent) -> TerminalEventKind {
   match self.kind {
     0U => EventNone
     1U => EventKey
@@ -130,9 +128,7 @@ pub fn TerminalEvent::kind_value(
 }
 
 ///|
-pub fn TerminalEvent::key_action_value(
-  self : TerminalEvent,
-) -> KeyAction {
+pub fn TerminalEvent::key_action_value(self : TerminalEvent) -> KeyAction {
   match self.key_action {
     1U => KeyPress
     2U => KeyRepeat
@@ -142,9 +138,7 @@ pub fn TerminalEvent::key_action_value(
 }
 
 ///|
-pub fn TerminalEvent::key_code_value(
-  self : TerminalEvent,
-) -> KeyCode {
+pub fn TerminalEvent::key_code_value(self : TerminalEvent) -> KeyCode {
   match self.key_code {
     1U => KeyChar(self.codepoint)
     2U => KeyEnter
@@ -199,8 +193,8 @@ pub fn TerminalEvent::matches_key(
   modifiers : UInt,
 ) -> Bool {
   self.is_actionable_key() &&
-    self.key_code_value() == code &&
-    self.modifiers == modifiers
+  self.key_code_value() == code &&
+  self.modifiers == modifiers
 }
 
 ///|
@@ -213,9 +207,7 @@ pub fn TerminalEvent::matches_char(
 }
 
 ///|
-pub fn decode_terminal_event(
-  words : FixedArray[UInt],
-) -> TerminalEvent? {
+pub fn decode_terminal_event(words : FixedArray[UInt]) -> TerminalEvent? {
   if words.length() < 14 {
     return None
   }
@@ -240,12 +232,9 @@ pub fn decode_terminal_event(
 ///|
 pub fn event_validation_marker() -> Int {
   let words : FixedArray[UInt] = [
-    2U, 56U, 1U, 1U, 113U, 2U, 1U,
-    0U, 0U, 0U, 0U, 0U, 0U, 0U,
+    2U, 56U, 1U, 1U, 113U, 2U, 1U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
   ]
-  guard decode_terminal_event(words) is Some(event) else {
-    return 0
-  }
+  guard decode_terminal_event(words) is Some(event) else { return 0 }
   if event.kind_value() != EventKey ||
     event.key_code_value() != KeyChar(113U) ||
     event.key_action_value() != KeyPress ||
@@ -257,12 +246,9 @@ pub fn event_validation_marker() -> Int {
   }
 
   let release_words : FixedArray[UInt] = [
-    2U, 56U, 1U, 1U, 113U, 2U, 3U,
-    0U, 0U, 0U, 0U, 0U, 0U, 0U,
+    2U, 56U, 1U, 1U, 113U, 2U, 3U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
   ]
-  guard decode_terminal_event(release_words) is Some(release) else {
-    return 0
-  }
+  guard decode_terminal_event(release_words) is Some(release) else { return 0 }
   if !release.is_key_release() ||
     release.is_actionable_key() ||
     release.matches_char(113U, modifier_control()) {
@@ -270,8 +256,7 @@ pub fn event_validation_marker() -> Int {
   }
 
   let back_tab_words : FixedArray[UInt] = [
-    2U, 56U, 1U, 6U, 0U, 1U, 1U,
-    0U, 0U, 0U, 0U, 0U, 0U, 0U,
+    2U, 56U, 1U, 6U, 0U, 1U, 1U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
   ]
   guard decode_terminal_event(back_tab_words) is Some(back_tab) else {
     return 0

@@ -18,7 +18,7 @@ pub struct NativeUiController {
 
 ///|
 pub fn NativeUiController::new(ui : NativeUiPort) -> NativeUiController {
-  { ui, active: None }
+  { ui, active: None, }
 }
 
 ///|
@@ -41,12 +41,8 @@ pub fn NativeUiController::pump(self : NativeUiController) -> Bool {
 
 ///|
 /// Cancel the focused request, if any, and release its suspended waiter.
-pub fn NativeUiController::cancel_active(
-  self : NativeUiController,
-) -> Bool {
-  guard self.active is Some(active) else {
-    return false
-  }
+pub fn NativeUiController::cancel_active(self : NativeUiController) -> Bool {
+  guard self.active is Some(active) else { return false }
   let delivered = active.pending.respond(@posoco.UiResponse::Cancelled)
   self.active = None
   delivered
@@ -142,9 +138,7 @@ pub fn NativeUiController::handle_key(
   self : NativeUiController,
   event : @ui.TerminalEvent,
 ) -> Bool {
-  guard self.active is Some(active) else {
-    return false
-  }
+  guard self.active is Some(active) else { return false }
   match active.panel.handle_key(event) {
     None => false
     Some(response) => {

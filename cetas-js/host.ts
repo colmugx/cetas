@@ -18,6 +18,7 @@ import { ProcessTerminal, TuiMainScreen } from "@earendil-works/pi-tui";
 import * as moonbit from "mbt:colmugx/cetas-js/lib";
 
 import { buildCetasHostConfig, CetasApplication } from "./src/app/index.ts";
+import { makeUnhandledFaultHandler, TrackedTerminal } from "./src/host-fault.ts";
 import {
   MoonbitCetasAgentBridge,
   resolvedSessionsDir,
@@ -32,9 +33,15 @@ import { TerminalShell, CETAS_TUI_HELP_NOTE } from "./ui/terminal-shell.ts";
 // transient transport fault must end the turn, not the session.
 // Full detail goes to the crash file; the transcript notice points at it.
 // Registered before main() runs so no early async work can race them.
+// A fault with the terminal already torn down (pi-tui stops the terminal
+// before throwing on an oversize line) cannot be surfaced anywhere — the
+// host exits instead of running on as a painted zombie holding the tty.
 let surfaceFault: ((message: string) => void) | undefined;
 
-function reportUnhandledFault(kind: string, error: unknown): void {
+/** The live terminal, once main() composes the TUI. */
+let terminal: TrackedTerminal | undefined;
+
+function reportUnhandledFault(kind: string, error: unknown): string {
   const detail =
     error instanceof Error
       ? `${error.name}: ${error.message}\n${error.stack ?? ""}`
@@ -45,17 +52,29 @@ function reportUnhandledFault(kind: string, error: unknown): void {
       crashPath,
       `[${new Date().toISOString()}] ${kind}\n${detail}\n\n`,
     );
-    surfaceFault?.(`⚠ host fault (${kind}) logged to ${crashPath}`);
+    return `⚠ host fault (${kind}) logged to ${crashPath}`;
   } catch {
     console.error(`cetas-js ${kind}`, error);
+    return `⚠ host fault (${kind})`;
   }
 }
 
+const onUnhandledFault = makeUnhandledFaultHandler({
+  report: reportUnhandledFault,
+  surface: (notice) => surfaceFault?.(notice),
+  exitFatal: (notice) => {
+    console.error(`${notice}\ncetas: terminal torn down — exiting.`);
+    moonbit.cetas_js_herdr_release();
+    process.exit(1);
+  },
+  isTerminalStopped: () => terminal?.terminalStopped ?? false,
+});
+
 process.on("unhandledRejection", (reason: unknown) => {
-  reportUnhandledFault("unhandled rejection", reason);
+  onUnhandledFault("unhandled rejection", reason);
 });
 process.on("uncaughtException", (error: unknown) => {
-  reportUnhandledFault("uncaught exception", error);
+  onUnhandledFault("uncaught exception", error);
 });
 
 async function main(): Promise<void> {
@@ -72,7 +91,8 @@ async function main(): Promise<void> {
       toolLabels.set(name, ext);
     }
   };
-  const tui = new TuiMainScreen(new ProcessTerminal());
+  terminal = new TrackedTerminal(new ProcessTerminal());
+  const tui = new TuiMainScreen(terminal);
   const shell = new TerminalShell({
     tui,
     cwd: config.cwd,

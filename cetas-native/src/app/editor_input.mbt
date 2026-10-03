@@ -19,11 +19,8 @@ pub extend EditorInputAction with Eq::{equal, not_equal}
 
 ///|
 fn editor_text_char(event : @ui.TerminalEvent) -> String? {
-  guard event.key_code_value() is @ui.KeyChar(codepoint) else {
-    return None
-  }
-  let non_text_modifiers =
-    @ui.modifier_control() |
+  guard event.key_code_value() is @ui.KeyChar(codepoint) else { return None }
+  let non_text_modifiers = @ui.modifier_control() |
     @ui.modifier_alt() |
     @ui.modifier_super() |
     @ui.modifier_hyper() |
@@ -143,18 +140,14 @@ pub fn handle_editor_paste(
 ///|
 pub fn editor_input_validation_marker() -> Int {
   let editor = @ui.EditorModel::new()
-  if handle_editor_key(
-    editor,
-    validation_key(1U, 104U, 0U, 1U),
-  ) != EditorChanged ||
+  if handle_editor_key(editor, validation_key(1U, 104U, 0U, 1U)) !=
+    EditorChanged ||
     editor.text() != "h" {
     return 0
   }
 
-  if handle_editor_key(
-    editor,
-    validation_key(2U, 0U, @ui.modifier_shift(), 1U),
-  ) != EditorChanged ||
+  if handle_editor_key(editor, validation_key(2U, 0U, @ui.modifier_shift(), 1U)) !=
+    EditorChanged ||
     editor.text() != "h\n" {
     return 0
   }
@@ -166,10 +159,8 @@ pub fn editor_input_validation_marker() -> Int {
   }
 
   editor.set_submit_disabled(true)
-  if handle_editor_key(
-    editor,
-    validation_key(2U, 0U, 0U, 1U),
-  ) != EditorUnchanged {
+  if handle_editor_key(editor, validation_key(2U, 0U, 0U, 1U)) !=
+    EditorUnchanged {
     return 0
   }
   editor.set_submit_disabled(false)
@@ -182,10 +173,7 @@ pub fn editor_input_validation_marker() -> Int {
     return 0
   }
 
-  if handle_editor_key(
-    editor,
-    validation_key(5U, 0U, 0U, 1U),
-  ) != EditorComplete {
+  if handle_editor_key(editor, validation_key(5U, 0U, 0U, 1U)) != EditorComplete {
     return 0
   }
 

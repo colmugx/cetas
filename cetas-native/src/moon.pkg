@@ -1,14 +1,13 @@
 import {
-  "colmugx/cetas-native/src/app" @app,
-  "colmugx/cetas-native/src/native" @native,
-  "colmugx/cetas-native/src/ui" @ui,
+  "colmugx/cetas-native/src/app",
+  "colmugx/cetas-native/src/native",
+  "colmugx/cetas-native/src/ui",
 }
 
-options(
-  "is-main": true,
-  targets: {
-    "native_tui.mbt": [ "native" ],
-  },
-)
+pkgtype(kind: "executable")
 
 supported_targets = "+native"
+
+options(
+  targets: { "native_tui.mbt": [ "native" ] },
+)

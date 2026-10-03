@@ -22,15 +22,16 @@ async test "native input router gives focused UiRequest precedence over ESC" {
     }
     assert_true(router.ui_active())
 
-    match router.route_key(
-      validation_key(3U, 0U, 0U, 1U),
-      1000UL,
-      false,
-      true,
-      false,
-      false,
-      false,
-    ) {
+    match
+      router.route_key(
+        validation_key(3U, 0U, 0U, 1U),
+        1000UL,
+        false,
+        true,
+        false,
+        false,
+        false,
+      ) {
       RouteUiSettled => ()
       _ => fail("ESC must settle focused UiRequest")
     }
@@ -77,20 +78,22 @@ async test "native input router keeps ctrl+c global while UiRequest is focused" 
         false,
         false,
         false,
-      ) == RouteShell(InputShutdown),
+      ) ==
+      RouteShell(InputShutdown),
     )
     assert_true(router.ui_active())
 
     // Settle the parked waiter so the task group can join.
-    match router.route_key(
-      validation_key(3U, 0U, 0U, 1U),
-      1001UL,
-      false,
-      true,
-      false,
-      false,
-      false,
-    ) {
+    match
+      router.route_key(
+        validation_key(3U, 0U, 0U, 1U),
+        1001UL,
+        false,
+        true,
+        false,
+        false,
+        false,
+      ) {
       RouteUiSettled => ()
       _ => fail("cleanup ESC must settle request")
     }

@@ -19,9 +19,7 @@ pub fn NativeShellObserver::new(
 }
 
 ///|
-fn assistant_message_payload(
-  message : @posoco.Message,
-) -> (String, String)? {
+fn assistant_message_payload(message : @posoco.Message) -> (String, String)? {
   match message {
     AssistantMessage(content~, reasoning~, ..) => {
       let text_parts : Array[String] = []
@@ -62,21 +60,13 @@ pub impl @posoco.Observer for NativeShellObserver with fn on_event(
         call.arguments.stringify(),
       )
     @posoco.TurnEvent::ToolCallSucceeded(call~, content~, ..) =>
-      self.shell.tool_call_completed(
-        call.call_id.to_string(),
-        content,
-        false,
-      )
+      self.shell.tool_call_completed(call.call_id.to_string(), content, false)
     @posoco.TurnEvent::ToolCallFailed(call~, failure~) => {
       let result = match failure {
         ReportedError(content~, ..) => content
         Runtime(message~, ..) => message
       }
-      self.shell.tool_call_completed(
-        call.call_id.to_string(),
-        result,
-        true,
-      )
+      self.shell.tool_call_completed(call.call_id.to_string(), result, true)
     }
     @posoco.TurnEvent::ToolCallRejected(call~, ..) =>
       self.shell.tool_call_completed(
@@ -105,16 +95,10 @@ pub impl @posoco.Observer for NativeShellObserver with fn on_event(
       self.shell.operation_finalized(operation, outcome, detail)
     @posoco.TurnEvent::StreamChunkReceived(chunk~) =>
       match chunk {
-        @posoco.StreamChunk::TextDelta(token~) =>
-          self.shell.append_text(token)
+        @posoco.StreamChunk::TextDelta(token~) => self.shell.append_text(token)
         @posoco.StreamChunk::ReasoningDelta(token~) =>
           self.shell.append_reasoning(token)
-        @posoco.StreamChunk::ToolCallDelta(
-          index~,
-          id~,
-          name~,
-          arguments_delta~
-        ) =>
+        @posoco.StreamChunk::ToolCallDelta(index~, id~, name~, arguments_delta~) =>
           self.shell.tool_args_delta(index, id, name, arguments_delta)
         @posoco.StreamChunk::Usage(..) | @posoco.StreamChunk::Finish(..) => ()
       }
@@ -151,14 +135,10 @@ pub fn typed_observer_validation_marker() -> Int {
   observer.on_event(@posoco.TurnEvent::TurnStarted)
 
   let reasoning : @posoco.StreamChunk = ReasoningDelta(token="r")
-  observer.on_event(
-    @posoco.TurnEvent::StreamChunkReceived(chunk=reasoning),
-  )
+  observer.on_event(@posoco.TurnEvent::StreamChunkReceived(chunk=reasoning))
 
   let text : @posoco.StreamChunk = TextDelta(token="a")
-  observer.on_event(
-    @posoco.TurnEvent::StreamChunkReceived(chunk=text),
-  )
+  observer.on_event(@posoco.TurnEvent::StreamChunkReceived(chunk=text))
 
   observer.on_event(@posoco.TurnEvent::TurnCompleted)
 
@@ -187,7 +167,7 @@ pub fn typed_observer_validation_marker() -> Int {
     lifecycle_shell.termination_notice_count() != 1 ||
     lifecycle_shell.transcript().row_count() != 2 ||
     lifecycle_shell.transcript().row(0).text !=
-      "context compacted (Replace, 3 messages)" ||
+    "context compacted (Replace, 3 messages)" ||
     lifecycle_shell.transcript().row(1).text != "⏹ compact interrupted" {
     return 0
   }

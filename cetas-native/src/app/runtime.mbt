@@ -129,16 +129,11 @@ fn append_editor_scene(
     if y >= height {
       break
     }
-    guard editor.line(index) is Some(line) else {
-      continue
-    }
+    guard editor.line(index) is Some(line) else { continue }
     let prefix = if index == 0 { "> " } else { "  " }
     append_runtime_text(builder, 0U, y, width, prefix + line)
     if focused && index == cursor.line {
-      builder.cursor(
-        2U + cursor.column.reinterpret_as_uint(),
-        y,
-      )
+      builder.cursor(2U + cursor.column.reinterpret_as_uint(), y)
     }
     y += 1U
   }
@@ -159,9 +154,7 @@ fn build_runtime_scene(
 
   let mut y = shell.append_live_scene(builder, 0U, 0U, width)
   if input.ui_active() {
-    guard input.ui_prompt() is Some(prompt) else {
-      return builder.finish()
-    }
+    guard input.ui_prompt() is Some(prompt) else { return builder.finish() }
     y = append_multiline_runtime_text(builder, 0U, y, width, height, prompt)
     match input.ui_kind() {
       Some(UiPanelInput) =>
@@ -268,8 +261,7 @@ pub fn runtime_validation_marker() -> Int {
   let editor = @ui.EditorModel::new()
   let rewind = @ui.RewindPickerModel::new()
   let scene = build_runtime_scene(shell, router, editor, rewind, 40U, 3U)
-  if scene.words.length() == 32 &&
-    scene.text == @utf8.encode("> · idle") {
+  if scene.words.length() == 32 && scene.text == @utf8.encode("> · idle") {
     1
   } else {
     0
@@ -294,22 +286,21 @@ pub fn NativeRuntime::poll_once(
   if status != 0 {
     return RuntimeTerminalError(status)
   }
-  guard event is Some(value) else {
-    return RuntimeTerminalError(2)
-  }
+  guard event is Some(value) else { return RuntimeTerminalError(2) }
 
   match value.kind_value() {
     @ui.EventKey =>
       if self.input.ui_active() {
-        match self.input.route_key(
-          value,
-          state.now_ms,
-          state.editor_has_text,
-          state.in_turn,
-          state.compact_pending,
-          state.command_busy,
-          state.dismissible_overlay_visible,
-        ) {
+        match
+          self.input.route_key(
+            value,
+            state.now_ms,
+            state.editor_has_text,
+            state.in_turn,
+            state.compact_pending,
+            state.command_busy,
+            state.dismissible_overlay_visible,
+          ) {
           RouteUiActive => RuntimeUiUpdated
           RouteUiSettled => RuntimeUiSettled
           RouteShell(InputPass) => RuntimeEditorKey(value)
@@ -318,15 +309,16 @@ pub fn NativeRuntime::poll_once(
       } else if self.rewind.is_active() {
         RuntimeRewindAction(self.rewind.handle_key(value))
       } else {
-        match self.input.route_key(
-          value,
-          state.now_ms,
-          state.editor_has_text,
-          state.in_turn,
-          state.compact_pending,
-          state.command_busy,
-          state.dismissible_overlay_visible,
-        ) {
+        match
+          self.input.route_key(
+            value,
+            state.now_ms,
+            state.editor_has_text,
+            state.in_turn,
+            state.compact_pending,
+            state.command_busy,
+            state.dismissible_overlay_visible,
+          ) {
           RouteUiActive => RuntimeUiUpdated
           RouteUiSettled => RuntimeUiSettled
           RouteShell(InputPass) => RuntimeEditorKey(value)

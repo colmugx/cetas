@@ -53,11 +53,7 @@ test "native UiRequest confirm and select preserve selection semantics" {
   }
 
   let cancel = UiRequestPanelModel::new(
-    @posoco.UiRequest::Select(
-      prompt="pick",
-      options=["a"],
-      default=None,
-    ),
+    @posoco.UiRequest::Select(prompt="pick", options=["a"], default=None),
   )
   match cancel.handle_key(validation_key(3U, 0U, 0U, 1U)) {
     Some(@posoco.UiResponse::Cancelled) => ()

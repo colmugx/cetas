@@ -12,13 +12,8 @@ pub(all) struct Rect {
 }
 
 ///|
-pub fn Rect::new(
-  x : UInt,
-  y : UInt,
-  width : UInt,
-  height : UInt,
-) -> Rect {
-  { x, y, width, height }
+pub fn Rect::new(x : UInt, y : UInt, width : UInt, height : UInt) -> Rect {
+  { x, y, width, height, }
 }
 
 ///|
@@ -36,7 +31,7 @@ pub fn Rect::inset(self : Rect, margin : UInt) -> Rect {
   let horizontal = margin * 2U
   let vertical = margin * 2U
   if horizontal >= self.width || vertical >= self.height {
-    return { x: self.x, y: self.y, width: 0U, height: 0U }
+    return { x: self.x, y: self.y, width: 0U, height: 0U, }
   }
   {
     x: self.x + margin,

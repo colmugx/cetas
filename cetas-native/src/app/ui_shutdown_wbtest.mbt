@@ -31,7 +31,8 @@ async test "native UiPort close cancels queued requests" {
 
     match waiter.wait() {
       Ok(@posoco.UiResponse::Cancelled) => ()
-      Ok(other) => fail("queued close delivered wrong response: " + other.to_string())
+      Ok(other) =>
+        fail("queued close delivered wrong response: " + other.to_string())
       Err(error) => fail("queued request failed: " + error.to_string())
     }
   })
@@ -60,7 +61,8 @@ async test "native UiController close cancels active request" {
 
     match waiter.wait() {
       Ok(@posoco.UiResponse::Cancelled) => ()
-      Ok(other) => fail("active close delivered wrong response: " + other.to_string())
+      Ok(other) =>
+        fail("active close delivered wrong response: " + other.to_string())
       Err(error) => fail("active request failed: " + error.to_string())
     }
   })

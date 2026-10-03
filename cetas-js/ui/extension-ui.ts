@@ -6,6 +6,7 @@ import {
   Markdown,
   matchesKey,
   Text,
+  truncateToWidth,
   type Component,
   type TUI,
   visibleWidth,
@@ -626,7 +627,7 @@ class AskPanel implements Component {
       const input = this.input as Input & { focused?: boolean };
       if (typeof input.focused === "boolean") input.focused = this.focused;
       if (this.placeholderLine !== undefined) {
-        lines.push(theme.muted(this.placeholderLine));
+        lines.push(theme.muted(truncateToWidth(this.placeholderLine, width)));
       }
       lines.push(...this.input.render(width));
       lines.push(theme.muted(" ⏎ submit · esc cancel"));
@@ -642,11 +643,14 @@ class AskPanel implements Component {
       for (let i = start; i < end; i++) {
         const option = this.options[i]!;
         if (i === this.selectedIndex) {
-          const label = ` ${option.label}`;
+          // pi-tui tears the whole TUI down on any line wider than
+          // `width` — truncate before padding, or a label that already
+          // fills the width leaks past the block's leading space.
+          const label = truncateToWidth(` ${option.label}`, width);
           const pad = " ".repeat(Math.max(0, width - visibleWidth(label)));
           lines.push(theme.selection(label + pad));
         } else {
-          lines.push(theme.muted(option.label));
+          lines.push(theme.muted(truncateToWidth(option.label, width)));
         }
       }
       if (this.options.length > MAX_VISIBLE_OPTIONS) {

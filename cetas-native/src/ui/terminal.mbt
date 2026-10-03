@@ -14,7 +14,7 @@ pub fn Terminal::open_inline(rows : UInt) -> Terminal? {
   if @native.is_null(raw) != 0 {
     return None
   }
-  Some({ raw: Some(raw) })
+  Some({ raw: Some(raw), })
 }
 
 ///|
@@ -66,12 +66,8 @@ pub fn Terminal::render(self : Terminal, scene : Scene) -> Int {
   }
 }
 
-
 ///|
-pub fn Terminal::insert_before(
-  self : Terminal,
-  text : String,
-) -> Int {
+pub fn Terminal::insert_before(self : Terminal, text : String) -> Int {
   let bytes = @utf8.encode(text)
   match self.raw {
     Some(raw) =>
@@ -85,9 +81,7 @@ pub fn Terminal::insert_before(
 }
 
 ///|
-pub fn Terminal::viewport_size(
-  self : Terminal,
-) -> (Int, FixedArray[UInt]) {
+pub fn Terminal::viewport_size(self : Terminal) -> (Int, FixedArray[UInt]) {
   let out : FixedArray[UInt] = FixedArray::make(2, 0U)
   let status = match self.raw {
     Some(raw) => @native.viewport_size(raw, out, 2U)
@@ -108,7 +102,6 @@ pub fn Terminal::poll_raw(
   }
   (status, out)
 }
-
 
 ///|
 pub fn Terminal::poll(

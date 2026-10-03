@@ -14,10 +14,7 @@ async test "native host routes a real Posoco turn into NativeShell" {
     ),
   )
   let agent = @posoco.Agent(
-    exts=[
-      io as &@posoco.Extension,
-      observer as &@posoco.Extension,
-    ],
+    exts=[io as &@posoco.Extension, observer as &@posoco.Extension],
     config=@posoco.agent_config(max_tool_rounds=Some(2)),
   )
   let host = NativeHost::from_parts(
@@ -49,7 +46,6 @@ async test "native host routes a real Posoco turn into NativeShell" {
   host.shutdown()
 }
 
-
 ///|
 async test "native host enumerates rewind points from physical JSONL lines" {
   let model = @posoco.ScriptedModel([])
@@ -71,30 +67,46 @@ async test "native host enumerates rewind points from physical JSONL lines" {
   let path = @fs_session.jsonl_session_path(root, session_id)
   let jsonl = [
     Json::object(Map::from_array([])).stringify(),
-    Json::object(Map::from_array([
-      ("role", Json::string("user")),
-      ("content", Json::array([
-        Json::object(Map::from_array([
-          ("type", Json::string("text")),
-          ("text", Json::string("before")),
-        ])),
-      ])),
-    ])).stringify(),
+    Json::object(
+      Map::from_array([
+        ("role", Json::string("user")),
+        (
+          "content",
+          Json::array([
+            Json::object(
+              Map::from_array([
+                ("type", Json::string("text")),
+                ("text", Json::string("before")),
+              ]),
+            ),
+          ]),
+        ),
+      ]),
+    ).stringify(),
     "{bad",
     "",
-    Json::object(Map::from_array([
-      ("role", Json::string("assistant")),
-      ("content", Json::array([])),
-    ])).stringify(),
-    Json::object(Map::from_array([
-      ("role", Json::string("user")),
-      ("content", Json::array([
-        Json::object(Map::from_array([
-          ("type", Json::string("text")),
-          ("text", Json::string("after\nline")),
-        ])),
-      ])),
-    ])).stringify(),
+    Json::object(
+      Map::from_array([
+        ("role", Json::string("assistant")),
+        ("content", Json::array([])),
+      ]),
+    ).stringify(),
+    Json::object(
+      Map::from_array([
+        ("role", Json::string("user")),
+        (
+          "content",
+          Json::array([
+            Json::object(
+              Map::from_array([
+                ("type", Json::string("text")),
+                ("text", Json::string("after\nline")),
+              ]),
+            ),
+          ]),
+        ),
+      ]),
+    ).stringify(),
   ].join("\n")
   @xfs.write_string_to_file(path, jsonl) catch {
     @xfs.IOError::IOError(detail) =>
@@ -110,7 +122,8 @@ async test "native host enumerates rewind points from physical JSONL lines" {
   )
 
   let points = host.rewind_points() catch {
-    error => fail("failed to enumerate native rewind points: " + error.to_string())
+    error =>
+      fail("failed to enumerate native rewind points: " + error.to_string())
   }
   assert_eq(points.length(), 2)
   assert_eq(points[0].message_index, 0)
@@ -130,17 +143,13 @@ async test "native host enumerates rewind points from physical JSONL lines" {
   }
 }
 
-
 ///|
 async test "native host adopts typed session redirects immediately" {
   let model = @posoco.ScriptedModel([])
   let store = @posoco.RecordingSessionStore::RecordingSessionStore()
   let shell = NativeShell::new()
   let state = NativeSessionState::new("session-old")
-  let observer = NativeShellObserver::new(
-    shell,
-    session_state=Some(state),
-  )
+  let observer = NativeShellObserver::new(shell, session_state=Some(state))
   let io = @posoco.ManifestOnly::ManifestOnly(
     @posoco.ExtensionManifest(
       id="native_host_redirect_io",
@@ -149,10 +158,7 @@ async test "native host adopts typed session redirects immediately" {
     ),
   )
   let agent = @posoco.Agent(
-    exts=[
-      io as &@posoco.Extension,
-      observer as &@posoco.Extension,
-    ],
+    exts=[io as &@posoco.Extension, observer as &@posoco.Extension],
     config=@posoco.agent_config(max_tool_rounds=Some(1)),
   )
   let host = NativeHost::from_parts(

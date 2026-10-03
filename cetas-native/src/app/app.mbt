@@ -75,10 +75,7 @@ pub fn NativeShell::begin_turn(self : NativeShell) -> Unit {
 ///
 /// Queue capacity/stale-race policy belongs to the application boundary. This
 /// reducer owns only the visible semantic bubble after queueFollowUp accepts it.
-pub fn NativeShell::queue_follow_up(
-  self : NativeShell,
-  prompt : String,
-) -> Int {
+pub fn NativeShell::queue_follow_up(self : NativeShell, prompt : String) -> Int {
   let row_id = self.transcript.append_queued_user(prompt)
   self.queued_prompt_rows.push(row_id)
   row_id
@@ -128,9 +125,7 @@ pub fn NativeShell::tool_output_expanded(self : NativeShell) -> Bool {
 }
 
 ///|
-pub fn NativeShell::toggle_tool_output_expanded(
-  self : NativeShell,
-) -> Bool {
+pub fn NativeShell::toggle_tool_output_expanded(self : NativeShell) -> Bool {
   self.tool_output_expanded = !self.tool_output_expanded
   self.tool_output_expanded
 }
@@ -142,10 +137,9 @@ fn NativeShell::finish_interrupted_turn(self : NativeShell) -> Unit {
   self.transcript.end_turn()
   self.tool_rows = Map::from_array([])
   self.promote_all_queued_prompts()
-  ignore(self.transcript.append_finalized(
-    @ui.TranscriptSystem,
-    "⏹ interrupted",
-  ))
+  ignore(
+    self.transcript.append_finalized(@ui.TranscriptSystem, "⏹ interrupted"),
+  )
   self.interrupt_requested = false
   self.status = ShellIdle
 }
@@ -155,26 +149,17 @@ fn NativeShell::finish_interrupted_turn(self : NativeShell) -> Unit {
 ///
 /// Queued follow-ups use `queue_follow_up` instead; their existing bubble is
 /// promoted on the next TurnStarted so the transcript never duplicates them.
-pub fn NativeShell::append_user(
-  self : NativeShell,
-  prompt : String,
-) -> Int {
+pub fn NativeShell::append_user(self : NativeShell, prompt : String) -> Int {
   self.transcript.append_finalized(@ui.TranscriptUser, prompt)
 }
 
 ///|
-pub fn NativeShell::append_notice(
-  self : NativeShell,
-  message : String,
-) -> Int {
+pub fn NativeShell::append_notice(self : NativeShell, message : String) -> Int {
   self.transcript.append_finalized(@ui.TranscriptSystem, message)
 }
 
 ///|
-pub fn NativeShell::append_error(
-  self : NativeShell,
-  message : String,
-) -> Int {
+pub fn NativeShell::append_error(self : NativeShell, message : String) -> Int {
   self.transcript.append_finalized(@ui.TranscriptError, message)
 }
 
@@ -196,9 +181,7 @@ pub fn NativeShell::tool_call_deferred(
   tool_name : String,
   reason : String,
 ) -> Unit {
-  ignore(self.append_notice(
-    "⏸ deferred: " + tool_name + " (" + reason + ")",
-  ))
+  ignore(self.append_notice("⏸ deferred: " + tool_name + " (" + reason + ")"))
 }
 
 ///|
@@ -215,13 +198,15 @@ pub fn NativeShell::compact_finished(
   mode : String,
   messages_after : Int,
 ) -> Unit {
-  ignore(self.append_notice(
-    "context compacted (" +
-    mode +
-    ", " +
-    messages_after.to_string() +
-    " messages)",
-  ))
+  ignore(
+    self.append_notice(
+      "context compacted (" +
+      mode +
+      ", " +
+      messages_after.to_string() +
+      " messages)",
+    ),
+  )
 }
 
 ///|
@@ -260,10 +245,7 @@ pub fn NativeShell::append_reasoning(
 }
 
 ///|
-pub fn NativeShell::append_text(
-  self : NativeShell,
-  token : String,
-) -> Unit {
+pub fn NativeShell::append_text(self : NativeShell, token : String) -> Unit {
   self.transcript.append_text(token)
   self.status = ShellWorking("responding")
 }
@@ -278,10 +260,7 @@ pub fn NativeShell::message_end(
 }
 
 ///|
-fn tool_live_text(
-  name : String?,
-  args : String,
-) -> String {
+fn tool_live_text(name : String?, args : String) -> String {
   let label = match name {
     Some(value) if !value.is_empty() => value
     _ => "tool"
@@ -325,9 +304,7 @@ pub fn NativeShell::tool_call_started(
   authoritative_args : String,
 ) -> Unit {
   let adopted = self.tools.on_call_started(
-    tool_call_id,
-    tool_name,
-    authoritative_args,
+    tool_call_id, tool_name, authoritative_args,
   )
 
   let row_id = match adopted {
@@ -335,10 +312,12 @@ pub fn NativeShell::tool_call_started(
       match self.pending_tool_rows.get(pending.slot) {
         Some(existing) => {
           ignore(self.pending_tool_rows.remove(pending.slot))
-          ignore(self.transcript.update_row(
-            existing,
-            tool_live_text(Some(tool_name), authoritative_args),
-          ))
+          ignore(
+            self.transcript.update_row(
+              existing,
+              tool_live_text(Some(tool_name), authoritative_args),
+            ),
+          )
           existing
         }
         None =>
@@ -398,10 +377,7 @@ pub fn NativeShell::end_turn(self : NativeShell) -> Unit {
 }
 
 ///|
-pub fn NativeShell::fail_turn(
-  self : NativeShell,
-  message : String,
-) -> Unit {
+pub fn NativeShell::fail_turn(self : NativeShell, message : String) -> Unit {
   if self.interrupt_requested {
     self.finish_interrupted_turn()
     return
@@ -448,9 +424,7 @@ pub fn validation_marker() -> Int {
   shell.tool_args_delta(0, None, Some("write"), Some("{\"path\":"))
   shell.tool_args_delta(0, Some("call-1"), None, Some("\"a\""))
   shell.tool_call_started(
-    "call-1",
-    "write",
-    "{\"path\":\"a\",\"content\":\"full\"}",
+    "call-1", "write", "{\"path\":\"a\",\"content\":\"full\"}",
   )
   shell.tool_call_completed("call-1", "wrote a", false)
   shell.end_turn()
@@ -472,8 +446,7 @@ pub fn validation_marker() -> Int {
   shell.begin_turn()
   shell.tool_args_delta(1, None, Some("grep"), Some("{\"q\":\"foo"))
   shell.end_turn()
-  if shell.transcript().row_count() != 4 ||
-    !shell.transcript().row(3).finalized {
+  if shell.transcript().row_count() != 4 || !shell.transcript().row(3).finalized {
     return 0
   }
 
@@ -534,19 +507,17 @@ pub fn validation_marker() -> Int {
   lifecycle.operation_finalized("compact", "completed", "")
   lifecycle.operation_finalized("compact", "cancelled", "compact cancelled")
   lifecycle.operation_finalized(
-    "compact",
-    "failed",
-    "puppet rejected the compact",
+    "compact", "failed", "puppet rejected the compact",
   )
   if lifecycle.finalized_operation_count() != 3 ||
     lifecycle.termination_notice_count() != 1 ||
     lifecycle.transcript().row_count() != 3 ||
     lifecycle.transcript().row(0).text !=
-      "context compacted (Replace, 3 messages)" ||
+    "context compacted (Replace, 3 messages)" ||
     lifecycle.transcript().row(1).text != "⏹ compact interrupted" ||
     lifecycle.transcript().row(2).kind != @ui.TranscriptError ||
     lifecycle.transcript().row(2).text !=
-      "compact failed: puppet rejected the compact" {
+    "compact failed: puppet rejected the compact" {
     return 0
   }
 
@@ -555,7 +526,7 @@ pub fn validation_marker() -> Int {
   if deferred.transcript().row_count() != 1 ||
     deferred.transcript().row(0).kind != @ui.TranscriptSystem ||
     deferred.transcript().row(0).text !=
-      "⏸ deferred: write (awaiting approval)" {
+    "⏸ deferred: write (awaiting approval)" {
     return 0
   }
 

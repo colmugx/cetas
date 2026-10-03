@@ -138,10 +138,7 @@ pub fn NativeAppLoop::open_rewind(
 ) -> Bool raise @posoco.SessionError {
   let points : Array[@ui.RewindPoint] = []
   for point in self.driver.host().rewind_points() {
-    points.push({
-      message_index: point.message_index,
-      preview: point.preview,
-    })
+    points.push({ message_index: point.message_index, preview: point.preview, })
   }
   self.rewind.open(points)
 }
@@ -162,11 +159,15 @@ pub async fn NativeAppLoop::apply_rewind(
     Some(text) => self.editor.set_text(text)
     None => self.editor.clear()
   }
-  ignore(host.shell().append_notice(
-    "rewound to message #" +
-    message_index.to_string() +
-    " — the original prompt is back in the editor",
-  ))
+  ignore(
+    host
+    .shell()
+    .append_notice(
+      "rewound to message #" +
+      message_index.to_string() +
+      " — the original prompt is back in the editor",
+    ),
+  )
 }
 
 ///|
@@ -235,14 +236,16 @@ pub fn NativeAppLoop::tick(
   ignore(self.driver.poll_settle(group))
 
   let signal = match self.runtime.poll_once(0UL, self.runtime_state()) {
-    RuntimeIdle | RuntimeUiUpdated | RuntimeUiSettled |
-    RuntimeResize(_, _) | RuntimeFocus(_) => LoopContinue
+    RuntimeIdle
+    | RuntimeUiUpdated
+    | RuntimeUiSettled
+    | RuntimeResize(_, _)
+    | RuntimeFocus(_) => LoopContinue
     RuntimeRewindAction(action) =>
       match action {
         @ui.RewindPicked(message_index) => LoopApplyRewind(message_index)
-        @ui.RewindUnhandled |
-        @ui.RewindChanged |
-        @ui.RewindCancelled => LoopContinue
+        @ui.RewindUnhandled | @ui.RewindChanged | @ui.RewindCancelled =>
+          LoopContinue
       }
     RuntimeEditorKey(event) =>
       self.apply_editor_action(group, handle_editor_key(self.editor, event))

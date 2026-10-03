@@ -742,6 +742,50 @@ describe("UiRequestBar", () => {
     await expect(pending).resolves.toEqual({ type: "cancelled" });
   });
 
+  test("truncates stacked CJK options that meet or exceed the width", async () => {
+    const detectedLevel = chalk.level;
+    chalk.level = 3;
+    try {
+      const { tui, mount, bar } = makeBar();
+      // 28 hanzi = 56 columns: exactly the render width, so the selected
+      // block's leading space used to push the line to width+1 and tear
+      // the TUI down (pi-tui rejects any line wider than the terminal).
+      const exact = "一二三四五六七八九十甲乙丙丁戊己庚辛壬子丑寅卯辰巳午未申";
+      const overlong = "甲乙丙丁戊己庚辛壬子丑寅卯辰巳午未申酉戌亥天地玄黄宇宙洪荒日月";
+      const pending = bar.request({
+        type: "select",
+        title: "选一个",
+        options: [exact, overlong],
+      });
+
+      let lines = mount.render(56);
+      for (const line of lines) {
+        expect(visibleWidth(line)).toBeLessThanOrEqual(56);
+      }
+      const selected = lines.find((line) => line.includes("\u001b[46m"))!;
+      expect(visibleWidth(selected)).toBe(56);
+      expect(selected).toContain(" 一二三四五");
+      expect(selected).toContain("...");
+
+      // Down moves the block onto the overlong label; the now-unselected
+      // exactly-width label renders intact, without an ellipsis.
+      tui.focused!.handleInput!("\u001b[B");
+      lines = mount.render(56);
+      for (const line of lines) {
+        expect(visibleWidth(line)).toBeLessThanOrEqual(56);
+      }
+      expect(lines.find((line) => line.includes("\u001b[46m"))!).toContain("甲乙丙");
+      const exactRow = lines.find((line) => line.includes(exact))!;
+      expect(visibleWidth(exactRow)).toBe(56);
+      expect(exactRow).not.toContain("...");
+
+      bar.cancel();
+      await expect(pending).resolves.toEqual({ type: "cancelled" });
+    } finally {
+      chalk.level = detectedLevel;
+    }
+  });
+
   test("word-wraps title and detail lines to the render width", async () => {
     const { mount, bar } = makeBar();
     const argsPreview =

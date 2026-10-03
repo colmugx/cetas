@@ -62,7 +62,10 @@ pub fn TranscriptModel::row_count(self : TranscriptModel) -> Int {
 }
 
 ///|
-pub fn TranscriptModel::row(self : TranscriptModel, index : Int) -> TranscriptRow {
+pub fn TranscriptModel::row(
+  self : TranscriptModel,
+  index : Int,
+) -> TranscriptRow {
   self.rows[index]
 }
 
@@ -75,21 +78,12 @@ fn TranscriptModel::append_row(
 ) -> Int {
   let id = self.next_id
   self.next_id += 1
-  self.rows.push({
-    id,
-    kind,
-    text,
-    finalized,
-    scrollback_committed: false,
-  })
+  self.rows.push({ id, kind, text, finalized, scrollback_committed: false, })
   id
 }
 
 ///|
-fn TranscriptModel::find_row_index(
-  self : TranscriptModel,
-  id : Int,
-) -> Int? {
+fn TranscriptModel::find_row_index(self : TranscriptModel, id : Int) -> Int? {
   for index, row in self.rows {
     if row.id == id {
       return Some(index)
@@ -111,10 +105,7 @@ fn TranscriptModel::append_row_text(
 }
 
 ///|
-fn TranscriptModel::finalize_row(
-  self : TranscriptModel,
-  id : Int,
-) -> Unit {
+fn TranscriptModel::finalize_row(self : TranscriptModel, id : Int) -> Unit {
   match self.find_row_index(id) {
     Some(index) => self.rows[index].finalized = true
     None => ()
@@ -136,9 +127,7 @@ pub fn TranscriptModel::is_in_turn(self : TranscriptModel) -> Bool {
 }
 
 ///|
-pub fn TranscriptModel::has_streamed_this_turn(
-  self : TranscriptModel,
-) -> Bool {
+pub fn TranscriptModel::has_streamed_this_turn(self : TranscriptModel) -> Bool {
   self.streamed_this_turn
 }
 
@@ -176,11 +165,7 @@ pub fn TranscriptModel::append_reasoning(
   let id = match self.thinking_id {
     Some(value) => value
     None => {
-      let value = self.append_row(
-        TranscriptThinking,
-        "",
-        finalized=false,
-      )
+      let value = self.append_row(TranscriptThinking, "", finalized=false)
       self.thinking_id = Some(value)
       value
     }
@@ -204,11 +189,7 @@ pub fn TranscriptModel::append_text(
   let id = match self.text_id {
     Some(value) => value
     None => {
-      let value = self.append_row(
-        TranscriptAssistant,
-        "",
-        finalized=false,
-      )
+      let value = self.append_row(TranscriptAssistant, "", finalized=false)
       self.text_id = Some(value)
       value
     }
@@ -235,18 +216,16 @@ pub fn TranscriptModel::message_end(
   }
 
   if !reasoning.trim().is_empty() {
-    ignore(self.append_row(
-      TranscriptThinking,
-      reasoning.trim().to_owned(),
-      finalized=true,
-    ))
+    ignore(
+      self.append_row(
+        TranscriptThinking,
+        reasoning.trim().to_owned(),
+        finalized=true,
+      ),
+    )
   }
   if !text.is_empty() {
-    ignore(self.append_row(
-      TranscriptAssistant,
-      text,
-      finalized=true,
-    ))
+    ignore(self.append_row(TranscriptAssistant, text, finalized=true))
   }
   self.close_step()
 }
@@ -311,23 +290,19 @@ pub fn TranscriptModel::update_row(
   text : String,
 ) -> Bool {
   match self.find_row_index(id) {
-    Some(index) => {
+    Some(index) =>
       if self.rows[index].finalized {
         false
       } else {
         self.rows[index].text = text
         true
       }
-    }
     None => false
   }
 }
 
 ///|
-pub fn TranscriptModel::finalize(
-  self : TranscriptModel,
-  id : Int,
-) -> Bool {
+pub fn TranscriptModel::finalize(self : TranscriptModel, id : Int) -> Bool {
   match self.find_row_index(id) {
     Some(index) => {
       self.rows[index].finalized = true
@@ -359,11 +334,7 @@ pub fn TranscriptModel::take_scrollback_ready(
   let ready : Array[TranscriptRowSnapshot] = []
   for index, row in self.rows {
     if row.finalized && !row.scrollback_committed {
-      ready.push({
-        id: row.id,
-        kind: row.kind,
-        text: row.text,
-      })
+      ready.push({ id: row.id, kind: row.kind, text: row.text, })
       self.rows[index].scrollback_committed = true
     }
   }
@@ -414,13 +385,7 @@ pub fn TranscriptModel::append_live_scene(
         TranscriptError => "● " + row.text
       }
       let bytes = @utf8.encode(rendered)
-      builder.text(
-        x,
-        row_y,
-        width,
-        1U,
-        bytes,
-      )
+      builder.text(x, row_y, width, 1U, bytes)
       row_y += 1U
     }
   }
@@ -507,8 +472,7 @@ pub fn transcript_validation_marker() -> Int {
     return 0
   }
   let promoted = queued.take_scrollback_ready()
-  if promoted.length() != 1 ||
-    promoted[0].scrollback_text() != "> follow up" {
+  if promoted.length() != 1 || promoted[0].scrollback_text() != "> follow up" {
     return 0
   }
 

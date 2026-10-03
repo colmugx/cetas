@@ -41,15 +41,17 @@ pub impl @permission.ApprovalSource for NativeApprovalSource with fn ask(
     request.category +
     ")?\n" +
     request.arguments_preview
-  let response = ui.request(@posoco.UiRequest::Select(
-    prompt~,
-    options=[
-      NATIVE_APPROVAL_ONCE,
-      NATIVE_APPROVAL_SESSION,
-      NATIVE_APPROVAL_DENY,
-    ],
-    default=Some(0),
-  )) catch {
+  let response = ui.request(
+    @posoco.UiRequest::Select(
+      prompt~,
+      options=[
+        NATIVE_APPROVAL_ONCE,
+        NATIVE_APPROVAL_SESSION,
+        NATIVE_APPROVAL_DENY,
+      ],
+      default=Some(0),
+    ),
+  ) catch {
     error =>
       return @permission.ApprovalDecision::Deny(
         reason="approval UI failed: " + error.to_string(),
@@ -76,9 +78,7 @@ pub struct NativeUiBridge {
 }
 
 ///|
-pub fn NativeUiBridge::new(
-  approval : NativeApprovalSource,
-) -> NativeUiBridge {
+pub fn NativeUiBridge::new(approval : NativeApprovalSource) -> NativeUiBridge {
   { approval, }
 }
 
@@ -93,11 +93,9 @@ pub impl @posoco.Extension for NativeUiBridge with fn extension_id(
 pub impl @posoco.Extension for NativeUiBridge with fn manifest(
   self : NativeUiBridge,
 ) -> @posoco.ExtensionManifest {
-  @posoco.ExtensionManifest(
-    id="cetas_native_ui_bridge",
-    lifecycle=[self],
-    requires=[@posoco.Capability::Ui],
-  )
+  @posoco.ExtensionManifest(id="cetas_native_ui_bridge", lifecycle=[self], requires=[
+    @posoco.Capability::Ui,
+  ])
 }
 
 ///|
@@ -122,4 +120,8 @@ pub extend NativeApprovalSource with @permission.ApprovalSource::{ask}
 pub extend NativeUiBridge with @posoco.Extension::{extension_id, manifest}
 
 ///|
-pub extend NativeUiBridge with @posoco.Lifecycle::{on_compose, on_shutdown, on_start}
+pub extend NativeUiBridge with @posoco.Lifecycle::{
+  on_compose,
+  on_shutdown,
+  on_start,
+}

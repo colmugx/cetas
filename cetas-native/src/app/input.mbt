@@ -31,7 +31,7 @@ pub struct ShellInputModel {
 
 ///|
 pub fn ShellInputModel::new() -> ShellInputModel {
-  { last_escape_at_ms: None }
+  { last_escape_at_ms: None, }
 }
 
 ///|
@@ -45,11 +45,9 @@ pub fn ShellInputModel::last_escape_at_ms(self : ShellInputModel) -> UInt64? {
 pub fn should_open_rewind_on_escape(
   last_escape_at_ms : UInt64?,
   now_ms : UInt64,
-  window_ms~ : UInt64 = 500UL,
+  window_ms? : UInt64 = 500UL,
 ) -> Bool {
-  guard last_escape_at_ms is Some(previous) else {
-    return false
-  }
+  guard last_escape_at_ms is Some(previous) else { return false }
   now_ms >= previous && now_ms - previous < window_ms
 }
 
@@ -96,9 +94,7 @@ pub fn ShellInputModel::handle_global_key(
     return InputInterrupt
   }
 
-  if !in_turn &&
-    !command_busy &&
-    event.matches_key(@ui.KeyEscape, 0U) {
+  if !in_turn && !command_busy && event.matches_key(@ui.KeyEscape, 0U) {
     if editor_has_text {
       self.last_escape_at_ms = Some(now_ms)
       return InputClearEditor
@@ -163,185 +159,101 @@ pub fn input_validation_marker() -> Int {
   let ctrl_o = validation_key(1U, 111U, @ui.modifier_control(), 1U)
 
   if input.handle_global_key(
-    escape_release,
-    1000UL,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-  ) != InputConsume {
+      escape_release, 1000UL, false, false, false, false, false, false,
+    ) !=
+    InputConsume {
     return 0
   }
 
   if input.handle_global_key(
-    ctrl_c,
-    1000UL,
-    false,
-    false,
-    false,
-    false,
-    true,
-    false,
-  ) != InputShutdown {
+      ctrl_c, 1000UL, false, false, false, false, true, false,
+    ) !=
+    InputShutdown {
     return 0
   }
 
   // Focused asks/modals own their input and must not arm double-ESC.
   if input.handle_global_key(
-    escape,
-    1000UL,
-    false,
-    false,
-    false,
-    false,
-    true,
-    false,
-  ) != InputPass ||
+      escape, 1000UL, false, false, false, false, true, false,
+    ) !=
+    InputPass ||
     input.last_escape_at_ms() is Some(_) {
     return 0
   }
 
   if input.handle_global_key(
-    escape,
-    1000UL,
-    false,
-    true,
-    false,
-    false,
-    false,
-    false,
-  ) != InputInterrupt {
+      escape, 1000UL, false, true, false, false, false, false,
+    ) !=
+    InputInterrupt {
     return 0
   }
 
   if input.handle_global_key(
-    escape,
-    1000UL,
-    true,
-    false,
-    false,
-    false,
-    false,
-    false,
-  ) != InputClearEditor ||
+      escape, 1000UL, true, false, false, false, false, false,
+    ) !=
+    InputClearEditor ||
     input.last_escape_at_ms() != Some(1000UL) {
     return 0
   }
 
   if input.handle_global_key(
-    escape,
-    1499UL,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-  ) != InputOpenRewind ||
+      escape, 1499UL, false, false, false, false, false, false,
+    ) !=
+    InputOpenRewind ||
     input.last_escape_at_ms() is Some(_) {
     return 0
   }
 
   // Exactly 500ms is outside the window and re-arms the gesture.
   if input.handle_global_key(
-    escape,
-    2000UL,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-  ) != InputConsume ||
+      escape, 2000UL, false, false, false, false, false, false,
+    ) !=
+    InputConsume ||
     input.handle_global_key(
-      escape,
-      2500UL,
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-    ) != InputConsume ||
+      escape, 2500UL, false, false, false, false, false, false,
+    ) !=
+    InputConsume ||
     input.last_escape_at_ms() != Some(2500UL) {
     return 0
   }
 
   // A backwards timestamp cannot satisfy the gesture.
   if input.handle_global_key(
-    escape,
-    2400UL,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-  ) != InputConsume ||
+      escape, 2400UL, false, false, false, false, false, false,
+    ) !=
+    InputConsume ||
     input.last_escape_at_ms() != Some(2400UL) {
     return 0
   }
 
   if input.handle_global_key(
-    escape,
-    2401UL,
-    false,
-    false,
-    false,
-    false,
-    false,
-    true,
-  ) != InputDismissOverlay {
+      escape, 2401UL, false, false, false, false, false, true,
+    ) !=
+    InputDismissOverlay {
     return 0
   }
 
   if input.handle_global_key(
-    ctrl_t,
-    3000UL,
-    false,
-    false,
-    false,
-    false,
-    false,
-    false,
-  ) != InputToggleThinking ||
+      ctrl_t, 3000UL, false, false, false, false, false, false,
+    ) !=
+    InputToggleThinking ||
     input.handle_global_key(
-      ctrl_o,
-      3000UL,
-      false,
-      false,
-      false,
-      false,
-      false,
-      false,
-    ) != InputToggleToolOutput {
+      ctrl_o, 3000UL, false, false, false, false, false, false,
+    ) !=
+    InputToggleToolOutput {
     return 0
   }
 
   // Command-busy consumes ordinary keys, but focused UI above it still wins.
   let plain_q = validation_key(1U, 113U, 0U, 1U)
   if input.handle_global_key(
-    plain_q,
-    3000UL,
-    false,
-    false,
-    false,
-    true,
-    false,
-    false,
-  ) != InputConsume ||
+      plain_q, 3000UL, false, false, false, true, false, false,
+    ) !=
+    InputConsume ||
     input.handle_global_key(
-      plain_q,
-      3000UL,
-      false,
-      false,
-      false,
-      true,
-      true,
-      false,
-    ) != InputPass {
+      plain_q, 3000UL, false, false, false, true, true, false,
+    ) !=
+    InputPass {
     return 0
   }
 

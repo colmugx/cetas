@@ -31,7 +31,7 @@ pub struct ToolStreamingModel {
 
 ///|
 pub fn ToolStreamingModel::new() -> ToolStreamingModel {
-  { pending: [], next_slot: 1 }
+  { pending: [], next_slot: 1, }
 }
 
 ///|
@@ -96,13 +96,7 @@ pub fn ToolStreamingModel::on_args_delta(
     None => {
       let slot = self.next_slot
       self.next_slot += 1
-      self.pending.push({
-        slot,
-        id,
-        index,
-        name,
-        raw_args: "",
-      })
+      self.pending.push({ slot, id, index, name, raw_args: "", })
       self.pending.length() - 1
     }
   }
@@ -194,18 +188,8 @@ pub fn tool_streaming_validation_marker() -> Int {
   let stream = ToolStreamingModel::new()
 
   // First fragment may be index-only.
-  let first = stream.on_args_delta(
-    0,
-    None,
-    Some("write"),
-    Some("{\"path\":"),
-  )
-  let claimed = stream.on_args_delta(
-    0,
-    Some("call-1"),
-    None,
-    Some("\"a\""),
-  )
+  let first = stream.on_args_delta(0, None, Some("write"), Some("{\"path\":"))
+  let claimed = stream.on_args_delta(0, Some("call-1"), None, Some("\"a\""))
   if stream.pending_count() != 1 || first.slot != claimed.slot {
     return 0
   }
@@ -221,11 +205,10 @@ pub fn tool_streaming_validation_marker() -> Int {
   }
 
   // Commitment consumes the pending entry and replaces lossy partial args.
-  let adopted = match stream.on_call_started(
-    "call-1",
-    "write",
-    "{\"path\":\"a\",\"content\":\"full\"}",
-  ) {
+  let adopted = match
+    stream.on_call_started(
+      "call-1", "write", "{\"path\":\"a\",\"content\":\"full\"}",
+    ) {
     Some(value) => value
     None => return 0
   }

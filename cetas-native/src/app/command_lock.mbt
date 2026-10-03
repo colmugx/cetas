@@ -17,7 +17,7 @@ pub struct CommandLockModel {
 
 ///|
 pub fn CommandLockModel::new() -> CommandLockModel {
-  { held: false, label: None }
+  { held: false, label: None, }
 }
 
 ///|
@@ -58,21 +58,17 @@ pub fn command_lock_validation_marker() -> Int {
   }
 
   lock.acquire("loading model catalog")
-  if !lock.is_held() ||
-    lock.label() != Some("loading model catalog") {
+  if !lock.is_held() || lock.label() != Some("loading model catalog") {
     return 0
   }
 
   // Re-acquire is not reference counting. It re-arms and refreshes the label.
   lock.acquire("authenticating github")
-  if !lock.is_held() ||
-    lock.label() != Some("authenticating github") {
+  if !lock.is_held() || lock.label() != Some("authenticating github") {
     return 0
   }
 
-  if !lock.release() ||
-    lock.is_held() ||
-    lock.label() is Some(_) {
+  if !lock.release() || lock.is_held() || lock.label() is Some(_) {
     return 0
   }
 

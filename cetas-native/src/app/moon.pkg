@@ -1,7 +1,7 @@
 import {
-  "colmugx/cetas-native/src/ui" @ui,
+  "colmugx/cetas-native/src/ui",
   "colmugx/cetas-core/lib" @cetas_core,
-  "colmugx/posoco" @posoco,
+  "colmugx/posoco",
   "posoco/devkit",
   // recipe-imports:begin
   "colmugx/cetas-ext-forme/lib" @forme,
@@ -19,23 +19,23 @@ import {
   "colmugx/posoco-ext-handoff" @handoff,
   "colmugx/posoco-ext-lazytools" @lazytools,
   // recipe-imports:end
-  "colmugx/posoco/runtime" @runtime,
+  "colmugx/posoco/runtime",
   "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-workspace" @workspace,
   "colmugx/posoco-ext-fs-session" @fs_session,
   "moonbitlang/x/fs" @xfs,
   "moonbitlang/async",
   "moonbitlang/async/aqueue",
-  "moonbitlang/core/json" @json,
-  "moonbitlang/core/encoding/utf8" @utf8,
+  "moonbitlang/core/json",
+  "moonbitlang/core/encoding/utf8",
 }
-
-options(
-  "is-main": false,
-)
 
 supported_targets = "+native"
 
 import {
   "moonbitlang/async/fs",
 } for "wbtest"
+
+options(
+  "is-main": false,
+)

@@ -17,10 +17,8 @@ pub struct SelectListModel {
 }
 
 ///|
-pub fn SelectListModel::new(
-  items : Array[SelectItem],
-) -> SelectListModel {
-  { items, selected: if items.is_empty() { -1 } else { 0 } }
+pub fn SelectListModel::new(items : Array[SelectItem]) -> SelectListModel {
+  { items, selected: if items.is_empty() { -1 } else { 0 }, }
 }
 
 ///|
@@ -51,9 +49,7 @@ pub fn SelectListModel::selected_index(self : SelectListModel) -> Int {
 }
 
 ///|
-pub fn SelectListModel::selected_item(
-  self : SelectListModel,
-) -> SelectItem? {
+pub fn SelectListModel::selected_item(self : SelectListModel) -> SelectItem? {
   if self.selected < 0 || self.selected >= self.items.length() {
     return None
   }
@@ -61,10 +57,7 @@ pub fn SelectListModel::selected_item(
 }
 
 ///|
-pub fn SelectListModel::select(
-  self : SelectListModel,
-  index : Int,
-) -> Bool {
+pub fn SelectListModel::select(self : SelectListModel, index : Int) -> Bool {
   if index < 0 || index >= self.items.length() {
     return false
   }
@@ -117,9 +110,9 @@ pub fn SelectListModel::end(self : SelectListModel) -> Unit {
 ///|
 pub fn select_list_validation_marker() -> Int {
   let list = SelectListModel::new([
-    { value: "a", label: "A", description: "" },
-    { value: "b", label: "B", description: "" },
-    { value: "c", label: "C", description: "" },
+    { value: "a", label: "A", description: "", },
+    { value: "b", label: "B", description: "", },
+    { value: "c", label: "C", description: "", },
   ])
   if !list.select(1) || list.selected_index() != 1 || list.select(99) {
     return 0

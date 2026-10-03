@@ -22,9 +22,7 @@ pub struct NativeInputRouter {
 }
 
 ///|
-pub fn NativeInputRouter::new(
-  ui : NativeUiController,
-) -> NativeInputRouter {
+pub fn NativeInputRouter::new(ui : NativeUiController) -> NativeInputRouter {
   { shell: ShellInputModel::new(), ui, }
 }
 
@@ -52,23 +50,17 @@ pub fn NativeInputRouter::ui_kind(
 }
 
 ///|
-pub fn NativeInputRouter::ui_input_text(
-  self : NativeInputRouter,
-) -> String? {
+pub fn NativeInputRouter::ui_input_text(self : NativeInputRouter) -> String? {
   self.ui.active_input_text()
 }
 
 ///|
-pub fn NativeInputRouter::ui_selected_index(
-  self : NativeInputRouter,
-) -> Int? {
+pub fn NativeInputRouter::ui_selected_index(self : NativeInputRouter) -> Int? {
   self.ui.active_selected_index()
 }
 
 ///|
-pub fn NativeInputRouter::ui_option_count(
-  self : NativeInputRouter,
-) -> Int {
+pub fn NativeInputRouter::ui_option_count(self : NativeInputRouter) -> Int {
   self.ui.active_option_count()
 }
 
@@ -113,13 +105,7 @@ pub fn NativeInputRouter::route_key(
   } else {
     RouteShell(
       self.shell.handle_global_key(
-        event,
-        now_ms,
-        editor_has_text,
-        in_turn,
-        compact_pending,
-        command_busy,
-        false,
+        event, now_ms, editor_has_text, in_turn, compact_pending, command_busy, false,
         dismissible_overlay_visible,
       ),
     )

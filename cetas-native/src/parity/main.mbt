@@ -11,9 +11,7 @@ async fn main {
   let shell = @app.NativeShell::new()
 
   while true {
-    let next = @stdio.stdin.read_until("\n") catch {
-      _ => None
-    }
+    let next = @stdio.stdin.read_until("\n") catch { _ => None }
     match next {
       None => break
       Some(line) => {

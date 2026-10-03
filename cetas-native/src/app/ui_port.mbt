@@ -21,9 +21,7 @@ pub fn PendingUiRequest::id(self : PendingUiRequest) -> Int {
 }
 
 ///|
-pub fn PendingUiRequest::request(
-  self : PendingUiRequest,
-) -> @posoco.UiRequest {
+pub fn PendingUiRequest::request(self : PendingUiRequest) -> @posoco.UiRequest {
   self.request
 }
 
@@ -37,9 +35,7 @@ pub fn PendingUiRequest::respond(
   if self.resolved {
     return false
   }
-  let ok = self.response.try_put(response) catch {
-    _ => false
-  }
+  let ok = self.response.try_put(response) catch { _ => false }
   if ok {
     self.resolved = true
   }
@@ -77,9 +73,7 @@ pub fn NativeUiPort::close(self : NativeUiPort) -> Unit {
   self.closed = true
 
   while true {
-    let pending = self.requests.try_get() catch {
-      _ => None
-    }
+    let pending = self.requests.try_get() catch { _ => None }
     match pending {
       Some(request) => ignore(request.respond(@posoco.UiResponse::Cancelled))
       None => break
@@ -105,9 +99,7 @@ pub fn NativeUiPort::take_render(self : NativeUiPort) -> @posoco.UiRender? {
 
 ///|
 /// Non-blocking interactive-request drain for the terminal loop.
-pub fn NativeUiPort::take_request(
-  self : NativeUiPort,
-) -> PendingUiRequest? {
+pub fn NativeUiPort::take_request(self : NativeUiPort) -> PendingUiRequest? {
   self.requests.try_get() catch {
     _ => None
   }
@@ -128,9 +120,7 @@ pub impl @posoco.UiPort for NativeUiPort with fn render(
   if self.closed {
     return
   }
-  ignore(self.renders.try_put(intent) catch {
-    _ => false
-  })
+  ignore(self.renders.try_put(intent) catch { _ => false })
 }
 
 ///|
@@ -139,9 +129,7 @@ pub impl @posoco.UiPort for NativeUiPort with fn request(
   request : @posoco.UiRequest,
 ) -> @posoco.UiResponse {
   if self.closed {
-    raise @posoco.UiError::Unsupported(
-      detail="native UI is closed",
-    )
+    raise @posoco.UiError::Unsupported(detail="native UI is closed")
   }
   let id = self.next_request_id
   self.next_request_id += 1
