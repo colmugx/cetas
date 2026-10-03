@@ -4,27 +4,19 @@
 priv type MemohTerminalMode
 
 ///|
-extern "C" fn memoh_terminal_mode_new(
-  fd : @types.Fd,
-) -> MemohTerminalMode = "cetas_memoh_auth_mode_new"
+extern "C" fn memoh_terminal_mode_new(fd : @types.Fd) -> MemohTerminalMode = "cetas_memoh_auth_mode_new"
 
 ///|
 #borrow(mode)
-extern "C" fn memoh_terminal_mode_enter(
-  mode : MemohTerminalMode,
-) -> Bool = "cetas_memoh_auth_mode_enter"
+extern "C" fn memoh_terminal_mode_enter(mode : MemohTerminalMode) -> Bool = "cetas_memoh_auth_mode_enter"
 
 ///|
 #borrow(mode)
-extern "C" fn memoh_terminal_mode_restore(
-  mode : MemohTerminalMode,
-) -> Bool = "cetas_memoh_auth_mode_restore"
+extern "C" fn memoh_terminal_mode_restore(mode : MemohTerminalMode) -> Bool = "cetas_memoh_auth_mode_restore"
 
 ///|
 #borrow(mode)
-extern "C" fn memoh_terminal_mode_close(
-  mode : MemohTerminalMode,
-) -> Unit = "cetas_memoh_auth_mode_close"
+extern "C" fn memoh_terminal_mode_close(mode : MemohTerminalMode) -> Unit = "cetas_memoh_auth_mode_close"
 
 ///|
 priv struct SetupTerminalInput {
@@ -38,7 +30,10 @@ priv struct SetupTerminalInput {
 ///|
 async fn open_setup_terminal() -> SetupTerminalInput {
   let file = @fs.open("/dev/tty", mode=ReadWrite) catch {
-    _ => fail("setup requires a controlling terminal; ACP stdin is never used for credentials")
+    _ =>
+      fail(
+        "setup requires a controlling terminal; ACP stdin is never used for credentials",
+      )
   }
   let mode = memoh_terminal_mode_new(file.fd())
   let mut handed_off = false
@@ -77,10 +72,7 @@ async fn SetupPrompt::line(
   self : SetupPrompt,
 ) -> String raise @oauth.OAuthError {
   let line = (self.input.read_line)() catch {
-    _ =>
-      raise @oauth.OAuthError::ParseError(
-        "terminal setup input failed",
-      )
+    _ => raise @oauth.OAuthError::ParseError("terminal setup input failed")
   }
   match line {
     Some(text) => text.trim_end(chars="\r\n").to_owned()
@@ -138,10 +130,9 @@ impl @oauth.AuthPromptInteraction for SetupPrompt with fn prompt(
       }
     }
   } catch {
-    error => {
+    error =>
       match error {
-        @oauth.OAuthError::Cancelled =>
-          raise @oauth.OAuthError::Cancelled
+        @oauth.OAuthError::Cancelled => raise @oauth.OAuthError::Cancelled
         @oauth.OAuthError::ParseError(detail) =>
           raise @oauth.OAuthError::ParseError(detail)
         _ =>
@@ -149,7 +140,6 @@ impl @oauth.AuthPromptInteraction for SetupPrompt with fn prompt(
             "secure terminal setup prompt failed",
           )
       }
-    }
   }
 }
 
