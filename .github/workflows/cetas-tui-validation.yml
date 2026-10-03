@@ -61,7 +61,7 @@ jobs:
         run: moon test -p cetas-core/lib --target native
 
       - name: Build interactive native preview
-        run: moon build cetas-native/src/main --target native --release
+        run: moon build cetas-native/src/cetas --target native --release
 
       - name: Generate MoonBit interfaces
         run: moon info
