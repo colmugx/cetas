@@ -313,9 +313,10 @@ def render_zcode_builder(selected: list[dict[str, str]]) -> str:
   env~ : (String) -> String?,
   exists~ : async (String) -> Bool,
 ) -> &@posoco.Extension? {
-  match @zcode.zcode_ext_if_detected(env~, exists~) catch {
+  let detected = @zcode.zcode_ext_if_detected(env~, exists~) catch {
     _ => None
-  } {
+  }
+  match detected {
     Some(ext) => Some(ext as &@posoco.Extension)
     None => None
   }
