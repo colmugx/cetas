@@ -22,9 +22,19 @@ import {
   "colmugx/posoco-ext-zai" @zai,
   "colmugx/posoco-ext-zai-coding-plan" @zai_coding_plan,
   "moonbitlang/async",
+  "moonbitlang/async/fs",
+  "moonbitlang/async/types",
   "moonbitlang/async/stdio",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
 }
 
 supported_targets = "+native"
+
+options(
+  "native-stub": [ "terminal_setup_stub.c" ],
+  targets: {
+    "terminal_setup.native.mbt": [ "native" ],
+    "setup.native.mbt": [ "native" ],
+  },
+)
