@@ -34,17 +34,9 @@ pub async fn build_cetas_platform(home~ : String, cwd~ : String, &@posoco-ext-wo
 
 pub fn build_cetas_router(platform~ : CetasPlatform) -> @ext-llm.RouterModelPort raise @error.CompositionError
 
-pub async fn build_cetas_session(platform~ : CetasPlatform, cwd~ : String, router? : @ext-llm.RouterModelPort?, approval? : &@posoco-ext-permission.ApprovalSource?, ui? : &@port.UiPort?, event_bus? : @devkit.EventBus?, client_exts? : Array[&@port.Extension], policy_exts? : Array[&@port.Extension], bus_exts? : ((@devkit.EventBus) -> Array[&@port.Extension])?, prompt_suffix? : String?, session_fs? : &@posoco-ext-workspace.WorkspaceFs?, label? : String, warn? : async (String) -> Unit noraise, obsidian_vault? : String?) -> CetasSession raise @error.CompositionError
-
-pub async fn build_cetas_skills(ctx~ : HostContext, requested? : Array[String]?) -> &@port.Extension? raise @error.CompositionError
-
-pub fn build_cetas_tools(ctx~ : HostContext, Array[String]) -> Array[&@port.Extension] raise @error.CompositionError
-
-pub async fn build_default_features(ctx~ : HostContext, nmem_group? : @async.TaskGroup[Unit]?, host_help_note? : String?, obsidian_vault? : String?) -> Array[&@port.Extension] raise @error.CompositionError
+pub async fn build_cetas_session(platform~ : CetasPlatform, cwd~ : String, router? : @ext-llm.RouterModelPort?, approval? : &@posoco-ext-permission.ApprovalSource?, ui? : &@port.UiPort?, event_bus? : @devkit.EventBus?, client_exts? : Array[&@port.Extension], policy_exts? : Array[&@port.Extension], bus_exts? : ((@devkit.EventBus) -> Array[&@port.Extension])?, feature_exts? : Array[&@port.Extension], prompt_suffix? : String?, session_fs? : &@posoco-ext-workspace.WorkspaceFs?, label? : String, warn? : async (String) -> Unit noraise) -> CetasSession raise @error.CompositionError
 
 pub fn build_provider_catalog(&@ext-llm.ProviderFactory, ProviderCredentialSnapshot, cached_models? : Json?) -> @ext-llm.ProviderModelCatalog? raise @error.CompositionError
-
-pub fn canonical_cetas_tool_name(String) -> String
 
 pub fn catalog_model_records(@ext-llm.ProviderModelCatalog) -> Json
 
@@ -54,11 +46,7 @@ pub fn cetas_home() -> String
 
 pub fn cetas_system_prompt(cwd~ : String) -> String
 
-pub fn cetas_tool_names() -> Array[String]
-
 pub fn compatible_provider_factories(Map[String, Json], @devkit.ExtContext) -> Array[@posoco-ext-openai-compatible.OpenAICompatibleProvider]
-
-pub fn compiled_zcode_enabled() -> Bool
 
 pub fn compose_cetas_agent(session~ : CetasSession, tail_exts? : Array[&@port.Extension], runtime? : &@runtime.Runtime?, catalog_source? : &@runtime.CatalogSource?, runtime_group? : @async.TaskGroup[Unit]?) -> @posoco.Agent raise @error.CompositionError
 
