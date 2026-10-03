@@ -240,10 +240,7 @@ async test "the session store buckets per cwd and its /name command reaches the 
   )
   // The store rides the session exts, so its /name command lands in the
   // composed agent's command table with no host-side wiring.
-  let session = build_cetas_session(
-    platform=underscore,
-    cwd="/a/b_c",
-  )
+  let session = build_cetas_session(platform=underscore, cwd="/a/b_c")
   let agent = compose_cetas_agent(session~)
   let mut name_registered = false
   for port in agent.commands() {
@@ -268,10 +265,7 @@ async test "the session assembly joins the host prompt suffix onto the cetas pro
     permission_mode=@permission.WorkspaceWrite,
   )
   let base = cetas_system_prompt(cwd="/w")
-  let plain = build_cetas_session(
-    platform~,
-    cwd="/w",
-  )
+  let plain = build_cetas_session(platform~, cwd="/w")
   assert_eq(plain.config.system_prompt, Some(base))
   let suffixed = build_cetas_session(
     platform~,
