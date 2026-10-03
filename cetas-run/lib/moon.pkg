@@ -16,6 +16,8 @@ import {
   "moonbitlang/async/os_error",
   "moonbitlang/async/stdio",
   "moonbitlang/async/types",
+  // recipe-imports:begin
+  // recipe-imports:end
 }
 
 import {
