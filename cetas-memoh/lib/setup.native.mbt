@@ -79,7 +79,8 @@ async fn select_bootstrap_provider(
     }
   }
   raise @oauth.OAuthError::ParseError(
-    "unsupported bootstrap provider: " + id +
+    "unsupported bootstrap provider: " +
+    id +
     " (choose openai, kimi, opencode, zai, or zai-coding-plan)",
   )
 }
@@ -125,19 +126,23 @@ async fn setup_with_prompt(
   // setup means the next plain cetas-memoh process can cross the same gate.
   let platform = build_provider_platform(fs, home)
   if platform.catalogs.is_empty() {
-    fail("credential was saved but the production provider platform stayed empty")
+    fail(
+      "credential was saved but the production provider platform stayed empty",
+    )
   }
-  "configured " + selected.id + " (" + slots.length().to_string() +
-  " model slot" + (if slots.length() == 1 { "" } else { "s" }) + ")"
+  "configured " +
+  selected.id +
+  " (" +
+  slots.length().to_string() +
+  " model slot" +
+  (if slots.length() == 1 { "" } else { "s" }) +
+  ")"
 }
 
 ///|
 /// Trusted first-run ignition. Secret input is read from the controlling TTY,
 /// never ACP stdin or argv.
-pub async fn run_setup(
-  home~ : String,
-  provider? : String = "",
-) -> String {
+pub async fn run_setup(home~ : String, provider? : String = "") -> String {
   with_setup_prompt(async fn(prompt) {
     setup_with_prompt(home, provider, prompt)
   })
