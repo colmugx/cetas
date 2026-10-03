@@ -26,7 +26,7 @@ cd cetas-js
 bun run build
 ```
 
-<!-- Build-time composition is recipe-driven. scripts/prepare-recipe.py selects flavor + frontend + platform from cetas-core/recipes.csv and generates the static cetas-core package/import graph before Moon runs. -->
+<!-- Build-time composition is recipe-driven. `composition/recipes.csv` is the capability roster; `scripts/prepare-recipe.py` projects flavor + frontend + platform into each host's static module/package graph before Moon runs. `cetas-core` itself is recipe-invariant. -->
 
 Provider configuration lives in `.cetas/settings.json` under your home directory. The settings object is passed opaquely to the selected provider extension — Cetas itself never parses endpoints or credentials.
 
