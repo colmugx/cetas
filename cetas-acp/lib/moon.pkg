@@ -24,6 +24,8 @@ import {
   "moonbitlang/async/fs",
   "moonbitlang/async/stdio",
   "moonbitlang/core/env",
+  // recipe-imports:begin
+  // recipe-imports:end
 }
 
 import {
