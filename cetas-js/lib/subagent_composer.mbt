@@ -29,7 +29,7 @@ async fn load_cetas_subagent_catalog(
           Some(list) => {
             let canonical : Array[String] = []
             for tool in list {
-              let name = @cetas_core.canonical_cetas_tool_name(tool)
+              let name = canonical_cetas_tool_name(tool)
               if !canonical.contains(name) {
                 canonical.push(name)
               }
@@ -221,7 +221,7 @@ fn CetasChildComposer::tool_extensions(
   self : CetasChildComposer,
   names : Array[String],
 ) -> Array[&@posoco.Extension] raise @subagent.ComposerError {
-  @cetas_core.build_cetas_tools(
+  build_cetas_tools(
     ctx={ fs: self.feature_fs, cwd: self.cwd, home: self.home, },
     names,
   ) catch {
@@ -237,7 +237,7 @@ async fn CetasChildComposer::skills_extension(
   self : CetasChildComposer,
   requested : Array[String],
 ) -> &@posoco.Extension? raise @subagent.ComposerError {
-  @cetas_core.build_cetas_skills(
+  build_cetas_skills(
     ctx={ fs: self.feature_fs, cwd: self.cwd, home: self.home, },
     requested=Some(requested),
   ) catch {
@@ -449,7 +449,7 @@ impl @subagent.ChildComposer for CetasChildComposer with fn compose(
   // face (delegation tools are not part of it — depth 1 stays structural).
   let tool_names : Array[String] = match spec.tools {
     Some(names) => names
-    None => @cetas_core.cetas_tool_names()
+    None => cetas_tool_names()
   }
   for ext in self.tool_extensions(tool_names) {
     exts.push(ext)
