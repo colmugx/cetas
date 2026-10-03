@@ -25,7 +25,7 @@ cd cetas-js
 bun run build
 ```
 
-<!-- 构建期组合由 recipe 驱动。scripts/prepare-recipe.py 根据 cetas-core/recipes.csv 选择 flavor + frontend + platform，并在 Moon 运行前生成静态 cetas-core package/import graph。 -->
+<!-- 构建期组合由 recipe 驱动。`composition/recipes.csv` 是 capability roster；`scripts/prepare-recipe.py` 根据 flavor + frontend + platform，在 Moon 运行前把静态 module/package graph 投影到各 host。`cetas-core` 本身不再随 recipe 改变。 -->
 
 Provider 配置放在家目录下的 `.cetas/settings.json`。settings 对象会原样传给所选的 provider 扩展——Cetas 本身不解析 endpoint 或凭据。
 
