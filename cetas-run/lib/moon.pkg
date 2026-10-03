@@ -2,8 +2,7 @@ import {
   "colmugx/posoco",
   "colmugx/posoco/error",
   "colmugx/cetas-core/lib" @cetas_core,
-  "posoco/devkit",
-  "posoco/ext-herdr" @herdr,
+  "posoco/devkit" @devkit,
   "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-workspace" @workspace,
   "posoco/ext-llm" @llm,
@@ -17,6 +16,21 @@ import {
   "moonbitlang/async/stdio",
   "moonbitlang/async/types",
   // recipe-imports:begin
+  "colmugx/cetas-ext-forme/lib" @forme,
+  "colmugx/posoco-ext-read" @read,
+  "colmugx/posoco-ext-write" @write,
+  "colmugx/posoco-ext-edit" @edit,
+  "colmugx/posoco-ext-glob" @glob,
+  "colmugx/posoco-ext-grep" @grep,
+  "colmugx/posoco-ext-astgrep" @astgrep,
+  "colmugx/posoco-ext-webfetch" @webfetch,
+  "colmugx/posoco-ext-bash" @bash,
+  "colmugx/posoco-ext-ps1" @ps1,
+  "colmugx/posoco-ext-skills" @skills,
+  "colmugx/posoco-ext-askquestion" @askquestion,
+  "colmugx/posoco-ext-handoff" @handoff,
+  "colmugx/posoco-ext-lazytools" @lazytools,
+  "posoco/ext-herdr" @herdr,
   // recipe-imports:end
 }
 
