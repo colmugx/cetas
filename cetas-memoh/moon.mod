@@ -30,7 +30,6 @@ import {
   "colmugx/posoco-ext-skills@0.2.0",
   "colmugx/posoco-ext-askquestion@0.1.0",
   "colmugx/posoco-ext-lazytools@0.1.0",
-  "colmugx/posoco-ext-ratelimit@0.4.0",
   "colmugx/cetas-ext-forme@0.1.0",
   "colmugx/posoco-ext-deepseek@0.2.0",
   "colmugx/posoco-ext-kimi@0.2.0",
