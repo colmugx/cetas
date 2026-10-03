@@ -1,6 +1,6 @@
 import {
   "colmugx/posoco",
-  "posoco/devkit" @devkit,
+  "posoco/devkit",
   "posoco/ext-llm" @llm,
   "posoco/ext-oauth" @oauth,
   "colmugx/posoco-ext-deepseek" @deepseek,
