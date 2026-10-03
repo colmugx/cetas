@@ -40,6 +40,10 @@ pub fn build_provider_catalog(&@ext-llm.ProviderFactory, ProviderCredentialSnaps
 
 pub fn catalog_model_records(@ext-llm.ProviderModelCatalog) -> Json
 
+pub fn cetas_reconstructable_capabilities() -> Array[String]
+
+pub fn cetas_skills_max_instruction_chars() -> Int
+
 pub fn cetas_dir(String) -> String
 
 pub fn cetas_home() -> String
