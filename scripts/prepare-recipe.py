@@ -3,6 +3,7 @@ import argparse, csv, os, pathlib, platform as host_platform, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BASE_RECIPES = ROOT / "composition" / "recipes.csv"
+LEGACY_CORE_RECIPE = ROOT / "cetas-core" / "lib" / "recipe.generated.mbt"
 
 HOSTS = {
     "acp": ROOT / "cetas-acp",
@@ -118,6 +119,16 @@ RECIPE_FIELDS = [
 
 MODULE_NAME = re.compile(r'(?m)^name\s*=\s*"([^"]+)"')
 MODULE_VERSION = re.compile(r'(?m)^version\s*=\s*"([^"]+)"')
+
+
+def cleanup_legacy_core_recipe() -> None:
+    # Pre host-owned-composition builds generated this ignored source inside
+    # cetas-core. Existing worktrees keep ignored/untracked files across a
+    # merge, and Moon compiles every .mbt in the package directory. Remove
+    # that obsolete artifact before preparing any host composition.
+    if LEGACY_CORE_RECIPE.exists():
+        LEGACY_CORE_RECIPE.unlink()
+        print(f"removed legacy generated recipe: {LEGACY_CORE_RECIPE}")
 
 
 def detect_platform() -> str:
@@ -598,6 +609,7 @@ def main() -> int:
     )
     args = ap.parse_args()
 
+    cleanup_legacy_core_recipe()
     rows, sources = load_recipe_rows(args.recipe_overlay)
     modules = local_modules()
     frontends = sorted(HOSTS) if args.frontend == "all" else [args.frontend]
