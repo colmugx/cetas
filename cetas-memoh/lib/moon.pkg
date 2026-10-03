@@ -12,7 +12,6 @@ import {
   "colmugx/posoco-ext-skills" @skills,
   "colmugx/posoco-ext-askquestion" @askquestion,
   "colmugx/posoco-ext-lazytools" @lazytools,
-  "colmugx/posoco-ext-ratelimit" @ratelimit,
   "colmugx/cetas-ext-forme/lib" @forme,
   "colmugx/posoco-ext-deepseek" @deepseek,
   "colmugx/posoco-ext-kimi" @kimi,
