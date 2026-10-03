@@ -53,9 +53,10 @@ pub fn build_cetas_router(
 /// to the cetas system prompt, and `session_fs~` substitutes a delegating
 /// workspace shell. `bus_exts~` builds extensions that publish to the bus at
 /// construction (e.g. tool exemptions): it runs only after the policy has
-/// subscribed, so such publications always reach a live gate. `obsidian_vault~`
-/// injects the obsidian vault name (see `build_default_features`); hosts that
-/// omit it keep the CETAS_OBSIDIAN env fallback.
+/// subscribed, so such publications always reach a live gate.
+/// `feature_exts~` is the host-owned composition root projection: concrete
+/// extension selection is compiled outside cetas-core, while core retains the
+/// authoritative product ordering and lifecycle.
 pub async fn build_cetas_session(
   platform~ : CetasPlatform,
   cwd~ : String,
@@ -66,11 +67,11 @@ pub async fn build_cetas_session(
   client_exts? : Array[&@posoco.Extension] = [],
   policy_exts? : Array[&@posoco.Extension] = [],
   bus_exts? : ((@devkit.EventBus) -> Array[&@posoco.Extension])? = None,
+  feature_exts? : Array[&@posoco.Extension] = [],
   prompt_suffix? : String? = None,
   session_fs? : &@workspace.WorkspaceFs? = None,
   label? : String = "cetas-acp",
   warn? : async (String) -> Unit noraise = fn(_ : String) { () },
-  obsidian_vault? : String? = None,
 ) -> CetasSession raise @posoco.CompositionError {
   let router = match router {
     Some(router) => router
@@ -160,13 +161,8 @@ pub async fn build_cetas_session(
     Some(fs) => fs
     None => platform.fs
   }
-  for
-    tool in build_default_features(
-      ctx={ fs: session_fs, cwd, home: platform.home, },
-      nmem_group=platform.mcp_group,
-      obsidian_vault~,
-    ) {
-    exts.push(tool)
+  for ext in feature_exts {
+    exts.push(ext)
   }
 
   // The routing table and catalog base are captured BEFORE any host tail
