@@ -31,6 +31,24 @@ fn startup_permission_mode(
 }
 
 ///|
+fn startup_banner(
+  model : String,
+  effort : String?,
+  session_id : String,
+) -> String {
+  let active_model = if model.is_empty() { "no active model" } else { model }
+  let active_effort = match effort {
+    Some(value) if !value.is_empty() => " · effort " + value
+    _ => ""
+  }
+  "Cetas 0.7.0 · model " +
+  active_model +
+  active_effort +
+  " · session " +
+  session_id
+}
+
+///|
 async fn main {
   let home = @cetas_core.cetas_home()
   let cwd = match @env.current_dir() {
@@ -92,24 +110,15 @@ async fn main {
       }
     }
 
-    let model = if host.active_model().is_empty() {
-      "no active model"
-    } else {
-      host.active_model()
-    }
-    let effort = match host.active_effort() {
-      Some(value) if !value.is_empty() => " · effort " + value
-      _ => ""
-    }
     ignore(
       host
       .shell()
       .append_notice(
-        "Cetas 0.7.0 · model " +
-        model +
-        effort +
-        " · session " +
-        host.session_id(),
+        startup_banner(
+          host.active_model(),
+          host.active_effort(),
+          host.session_id(),
+        ),
       ),
     )
     for warning in startup_warnings {
