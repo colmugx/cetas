@@ -10,11 +10,35 @@ const CETAS_MEMOH_VERSION = "0.1.0"
 /// Independent cetas-memoh release version. This runtime does not follow the
 /// Cetas product release train.
 async fn main {
-  if @env.args().contains("--version") {
+  let args = @env.args()
+  let argv : Array[String] = []
+  for i = 1; i < args.length(); i = i + 1 {
+    argv.push(args[i])
+  }
+  if argv.contains("--version") {
     println("cetas-memoh \{CETAS_MEMOH_VERSION}")
     return
   }
   let home = @lib.cetas_memoh_home()
+  if !argv.is_empty() && argv[0] == "setup" {
+    if argv.length() > 2 {
+      @stdio.stderr.write(
+        "usage: cetas-memoh setup [openai|kimi|opencode|zai|zai-coding-plan]\n",
+      )
+      return
+    }
+    let provider = if argv.length() == 2 { argv[1] } else { "" }
+    let result = @lib.run_setup(home~, provider~) catch {
+      error => {
+        @stdio.stderr.write(
+          "cetas-memoh: setup failed: " + error.to_string() + "\n",
+        )
+        return
+      }
+    }
+    println("cetas-memoh: " + result)
+    return
+  }
   let cwd = match @env.current_dir() {
     Some(value) => value
     None => "."
