@@ -15,48 +15,82 @@ async fn main {
     None => "."
   }
 
-  let warn = async fn(message : String) noraise {
-    @stdio.stderr.write(message) catch {
-      _ => ()
-    }
-  }
-
   @async.with_task_group(group => {
-    let (host, native_ui) = @app.NativeHost::compose_interactive(
-      home~,
-      cwd~,
-      mode=@permission.WorkspaceWrite,
-      mcp_group=Some(group),
-      warn~,
-    ) catch {
-      error => {
-        @stdio.stderr.write(
-          "cetas-tui: composition failed: " + error.to_string() + "\n",
-        )
+    let terminal = match @ui.Terminal::open_inline(12U) {
+      Some(value) => value
+      None => {
+        @stdio.stderr.write("cetas: failed to initialize terminal\n")
         exit(2)
-        abort("cetas-tui: unreachable after composition exit")
+        abort("cetas: unreachable after terminal exit")
       }
     }
 
+    let startup_warnings : Array[String] = []
+    let warn = async fn(message : String) noraise {
+      let trimmed = message.trim()
+      if !trimmed.is_empty() {
+        startup_warnings.push(trimmed)
+      }
+    }
+
+    let composed : Result[( @app.NativeHost, @app.NativeUiPort ), Error] = Ok(
+      @app.NativeHost::compose_interactive(
+        home~,
+        cwd~,
+        mode=@permission.WorkspaceWrite,
+        mcp_group=Some(group),
+        warn~,
+      ),
+    ) catch {
+      error => Err(error)
+    }
+    let (host, native_ui) = match composed {
+      Ok(value) => value
+      Err(error) => {
+        for warning in startup_warnings {
+          ignore(terminal.insert_before("· " + warning))
+        }
+        ignore(
+          terminal.insert_before(
+            "● error: Cetas setup failed: " + error.to_string(),
+          ),
+        )
+        terminal.close()
+        exit(2)
+        abort("cetas: unreachable after composition exit")
+      }
+    }
+
+    let model = if host.active_model().is_empty() {
+      "no active model"
+    } else {
+      host.active_model()
+    }
+    let effort = match host.active_effort() {
+      Some(value) if !value.is_empty() => " · effort " + value
+      _ => ""
+    }
     ignore(
       host
       .shell()
       .append_notice(
-        "cetas-native preview · session " +
-        host.session_id() +
-        " · Enter submit · Esc interrupt · double-Esc rewind · Ctrl+C exit",
+        "Cetas 0.7.0 · model " +
+        model +
+        effort +
+        " · session " +
+        host.session_id(),
       ),
     )
-
-    let terminal = match @ui.Terminal::open_inline(12U) {
-      Some(value) => value
-      None => {
-        host.shutdown()
-        @stdio.stderr.write("cetas-tui: failed to initialize terminal\n")
-        exit(2)
-        abort("cetas-tui: unreachable after terminal exit")
-      }
+    for warning in startup_warnings {
+      ignore(host.shell().append_notice(warning))
     }
+    ignore(
+      host
+      .shell()
+      .append_notice(
+        "Enter submit · Esc interrupt · double-Esc rewind · Ctrl+C exit",
+      ),
+    )
 
     let app = @app.NativeAppLoop::new(host, native_ui, terminal)
     let mut running = true
