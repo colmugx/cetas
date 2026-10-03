@@ -350,15 +350,17 @@ def generated_mbt(
     if frontend == "js":
         tool_names_block = '''///|
 fn cetas_tool_names() -> Array[String] {
-  if shell_platform_is_windows() {
-    [
-      "read", "write", "edit", "glob", "grep", "astgrep", "ps1", "webfetch", "ask_question",
-    ]
-  } else {
-    [
-      "read", "write", "edit", "glob", "grep", "astgrep", "bash", "webfetch", "ask_question",
-    ]
+  let names : Array[String] = []
+  for capability in @cetas_core.cetas_reconstructable_capabilities() {
+    names.push(
+      if capability == "shell" {
+        if shell_platform_is_windows() { "ps1" } else { "bash" }
+      } else {
+        capability
+      },
+    )
   }
+  names
 }
 
 '''
@@ -464,7 +466,10 @@ fn build_cetas_tools(
 
 ///|
 fn cetas_skills_config() -> @skills.SkillsConfig {{
-  {{ ..@skills.SkillsConfig::default(), max_instruction_chars: 65536, }}
+  {{
+    ..@skills.SkillsConfig::default(),
+    max_instruction_chars: @cetas_core.cetas_skills_max_instruction_chars(),
+  }}
 }}
 
 ///|
