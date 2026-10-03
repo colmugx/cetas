@@ -343,7 +343,9 @@ def generated_mbt(
             )
         cases.append(case)
 
-    zcode_builder = render_zcode_builder(selected)
+    zcode_builder = ""
+    if frontend in ("acp", "js"):
+        zcode_builder = render_zcode_builder(selected)
     tool_names_block = ""
     if frontend == "js":
         tool_names_block = '''///|
