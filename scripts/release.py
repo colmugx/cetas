@@ -48,7 +48,7 @@ RUN_BIN = Path("_build/native/release/build/colmugx/cetas-run/main/main.exe")
 RUN_TIMEOUT = 600  # seconds, one LLM turn
 EXT_LOG_LIMIT = 30
 COMPONENTS = frozenset(
-    ("cetas-js", "cetas-acp", "cetas-core", "cetas-run", "cetas-ext-forme", "extension")
+    ("cetas-js", "cetas-acp", "cetas-core", "cetas-run", "cetas-native", "cetas-ext-forme", "extension")
 )
 GROUP_OF = {"feat": "Added", "fix": "Fixed", "refactor": "Changed", "perf": "Changed"}
 SYNC = [
@@ -58,6 +58,7 @@ SYNC = [
     ("cetas-acp/main/main.mbt", ACP_READ, ACP_SUB),
     ("cetas-run/moon.mod", MOON_READ, MOON_SUB),
     ("cetas-run/main/main.mbt", RUN_READ, RUN_SUB),
+    ("cetas-native/moon.mod", MOON_READ, MOON_SUB),
 ]
 NOTES_HEADER = (
     "<!-- 此文件内容将作为发布说明（写入 CHANGELOG.md 小节）。"
