@@ -1478,14 +1478,11 @@ async fn build_session_agent(
     exts.push(feature)
   }
   match
-    build_compiled_zcode_ext(
-      env~,
-      exists=async fn(path : String) -> Bool {
-        session_fs.exists(path) catch {
-          _ => false
-        }
-      },
-    ) {
+    build_compiled_zcode_ext(env~, exists=async fn(path : String) -> Bool {
+      session_fs.exists(path) catch {
+        _ => false
+      }
+    }) {
     Some(ext) => exts.push(ext)
     None => ()
   }
