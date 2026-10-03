@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
-import argparse, csv, os, pathlib, platform as host_platform, sys
+import argparse, csv, os, pathlib, platform as host_platform, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-CORE = ROOT / "cetas-core"
-BASE_RECIPES = CORE / "recipes.csv"
-PKG_TEMPLATE = CORE / "lib" / "moon.pkg.in"
-PKG_OUT = CORE / "lib" / "moon.pkg"
-MBT_OUT = CORE / "lib" / "recipe.generated.mbt"
+BASE_RECIPES = ROOT / "cetas-core" / "recipes.csv"
+
+HOSTS = {
+    "acp": ROOT / "cetas-acp",
+    "run": ROOT / "cetas-run",
+    "js": ROOT / "cetas-js",
+}
+
+RECIPE_MOD_BEGIN = "  // recipe-deps:begin"
+RECIPE_MOD_END = "  // recipe-deps:end"
+RECIPE_PKG_BEGIN = "  // recipe-imports:begin"
+RECIPE_PKG_END = "  // recipe-imports:end"
 
 PUBLIC_FORBIDDEN_PACKAGES = {
     "colmugx/posoco-ext-nowledge-mem",
@@ -109,14 +116,20 @@ RECIPE_FIELDS = [
     "package", "alias", "platform", "runtime_key",
 ]
 
+MODULE_NAME = re.compile(r'(?m)^name\s*=\s*"([^"]+)"')
+MODULE_VERSION = re.compile(r'(?m)^version\s*=\s*"([^"]+)"')
+
+
 def detect_platform() -> str:
     return "windows" if host_platform.system().lower().startswith("win") else "unix"
+
 
 def resolve_recipe_path(value: str) -> pathlib.Path:
     path = pathlib.Path(value).expanduser()
     if not path.is_absolute():
         path = ROOT / path
     return path
+
 
 def read_recipe_rows(path: pathlib.Path) -> list[dict[str, str]]:
     if not path.is_file():
@@ -128,6 +141,7 @@ def read_recipe_rows(path: pathlib.Path) -> list[dict[str, str]]:
                 f"recipe file {path} must have header: {','.join(RECIPE_FIELDS)}"
             )
         return list(reader)
+
 
 def load_recipe_rows(extra_overlays: list[str]) -> tuple[list[dict[str, str]], list[pathlib.Path]]:
     sources = [BASE_RECIPES]
@@ -148,56 +162,95 @@ def load_recipe_rows(extra_overlays: list[str]) -> tuple[list[dict[str, str]], l
             merged[identity] = row
     return list(merged.values()), sources
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--flavor", default=os.environ.get("CETAS_FLAVOR", "public"))
-    ap.add_argument("--frontend", required=True, choices=["acp", "run", "js"])
-    ap.add_argument("--platform", choices=["unix", "windows"], default=detect_platform())
-    ap.add_argument(
-        "--recipe-overlay",
-        action="append",
-        default=[],
-        help=(
-            "additional recipe CSV; later rows override matching "
-            "(flavor,frontend,key,platform) entries. "
-            "CETAS_RECIPE_OVERLAY provides one local overlay path."
-        ),
-    )
-    args = ap.parse_args()
 
-    rows, sources = load_recipe_rows(args.recipe_overlay)
+def local_modules() -> list[tuple[str, str]]:
+    paths = list(ROOT.glob("*/moon.mod"))
+    extension = ROOT / "extension"
+    if extension.is_dir():
+        paths.extend(extension.glob("*/moon.mod"))
+    modules: list[tuple[str, str]] = []
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        name = MODULE_NAME.search(text)
+        version = MODULE_VERSION.search(text)
+        if name is not None and version is not None:
+            modules.append((name.group(1), version.group(1)))
+    return modules
+
+
+def module_for_package(
+    package: str,
+    modules: list[tuple[str, str]],
+) -> tuple[str, str]:
+    matches = [
+        (name, version)
+        for name, version in modules
+        if package == name or package.startswith(name + "/")
+    ]
+    if not matches:
+        raise SystemExit(
+            "recipe package has no local moon.mod metadata: "
+            + package
+            + " (initialize/update the extension workspace first)"
+        )
+    matches.sort(key=lambda item: len(item[0]), reverse=True)
+    return matches[0]
+
+
+def replace_marked(
+    path: pathlib.Path,
+    begin: str,
+    end: str,
+    body: list[str],
+) -> None:
+    text = path.read_text(encoding="utf-8")
+    start = text.find(begin)
+    finish = text.find(end)
+    if start < 0 or finish < 0 or finish < start:
+        raise SystemExit(
+            f"{path} is missing generated-region markers {begin!r} / {end!r}"
+        )
+    finish += len(end)
+    replacement = "\n".join([begin, *body, end])
+    path.write_text(text[:start] + replacement + text[finish:], encoding="utf-8")
+
+
+def select_rows(
+    rows: list[dict[str, str]],
+    flavor: str,
+    frontend: str,
+    platform: str,
+) -> list[dict[str, str]]:
     valid_flavors = sorted({
         row["flavor"]
         for row in rows
         if row["section"] == "special" and row["flavor"] != "*"
     })
-    if args.flavor != "all" and args.flavor not in valid_flavors and args.flavor != "public":
+    if flavor != "all" and flavor not in valid_flavors and flavor != "public":
         raise SystemExit(
             "unknown recipe flavor "
-            + repr(args.flavor)
+            + repr(flavor)
             + "; available: "
             + ", ".join(["public", *valid_flavors, "all"])
         )
 
-    frontend_set = {args.frontend}
-
     candidates = []
     for row in rows:
-        if row["platform"] not in ("any", args.platform):
+        if row["platform"] not in ("any", platform):
             continue
         if row["section"] == "general":
             candidates.append(row)
             continue
         if row["section"] != "special":
             raise SystemExit("unknown recipe section: " + repr(row["section"]))
-        if row["frontend"] not in frontend_set:
+        if row["frontend"] != frontend:
             continue
-        if args.flavor == "all" or row["flavor"] in ("*", args.flavor):
+        if flavor == "all" or row["flavor"] in ("*", flavor):
             candidates.append(row)
 
     candidates.sort(key=lambda row: int(row["order"]))
     if not candidates:
-        raise SystemExit(f"no recipe rows for {args.flavor}/{args.frontend}/{args.platform}")
+        raise SystemExit(f"no recipe rows for {flavor}/{frontend}/{platform}")
 
     selected_by_key: dict[str, dict[str, str]] = {}
     for row in candidates:
@@ -218,7 +271,7 @@ def main() -> int:
             )
     selected = sorted(selected_by_key.values(), key=lambda row: int(row["order"]))
 
-    if args.flavor == "public":
+    if flavor == "public":
         forbidden = [
             row for row in selected
             if row["key"] in ("nmem", "obsidian", "zcode")
@@ -231,21 +284,39 @@ def main() -> int:
             raise SystemExit(
                 "public recipe must not include private extensions: " + details
             )
+    return selected
 
-    imports = []
-    seen_imports = set()
-    for row in selected:
-        if row["scope"] not in ("base", "core"):
-            continue
-        entry = f'  "{row["package"]}" @{row["alias"]},'
-        if entry not in seen_imports:
-            seen_imports.add(entry)
-            imports.append(entry)
 
-    pkg = PKG_TEMPLATE.read_text(encoding="utf-8")
-    pkg = pkg.replace("__RECIPE_IMPORTS__", "\n".join(imports))
-    PKG_OUT.write_text(pkg, encoding="utf-8")
+def render_zcode_builder(selected: list[dict[str, str]]) -> str:
+    enabled = any(row["key"] == "zcode" for row in selected)
+    if not enabled:
+        return '''async fn build_compiled_zcode_ext(
+  env : (String) -> String?,
+  exists : async (String) -> Bool,
+) -> &@posoco.Extension? {
+  let _ = env
+  let _ = exists
+  None
+}'''
+    return '''async fn build_compiled_zcode_ext(
+  env : (String) -> String?,
+  exists : async (String) -> Bool,
+) -> &@posoco.Extension? {
+  match @zcode.zcode_ext_if_detected(env~, exists~) catch {
+    _ => None
+  } {
+    Some(ext) => Some(ext as &@posoco.Extension)
+    None => None
+  }
+}'''
 
+
+def generated_mbt(
+    flavor: str,
+    frontend: str,
+    platform: str,
+    selected: list[dict[str, str]],
+) -> str:
     runtime_rows = [row for row in selected if row["scope"] in ("core", "host")]
 
     runtime_keys = []
@@ -268,13 +339,15 @@ def main() -> int:
         case = CASES.get(key)
         if case is None:
             raise SystemExit(
-                f"no MoonBit constructor registered for core recipe runtime key: {key}"
+                f"no MoonBit constructor registered for recipe runtime key: {key}"
             )
         cases.append(case)
 
-    mbt = f'''///|
+    zcode_builder = render_zcode_builder(selected)
+
+    return f'''///|
 /// GENERATED by scripts/prepare-recipe.py — do not edit.
-/// flavor={args.flavor} frontend={args.frontend} platform={args.platform}
+/// flavor={flavor} frontend={frontend} platform={platform}
 let compiled_recipe : Array[String] = [
 {recipe_items}
 ]
@@ -293,18 +366,168 @@ fn compiled_recipe_has(key : String) -> Bool {{
 }}
 
 ///|
-pub fn compiled_zcode_enabled() -> Bool {{
-  compiled_recipe_has("zcode")
+fn compiled_target_os() -> String {{
+  "{platform}"
 }}
 
 ///|
-fn compiled_target_os() -> String {{
-  "{args.platform}"
+fn shell_platform_is_windows() -> Bool {{
+  compiled_target_os() == "windows"
 }}
+
+///|
+fn canonical_cetas_tool_name(name : String) -> String {{
+  if shell_platform_is_windows() && name == "bash" {{
+    "ps1"
+  }} else {{
+    name
+  }}
+}}
+
+///|
+fn cetas_tool_names() -> Array[String] {{
+  if shell_platform_is_windows() {{
+    [
+      "read", "write", "edit", "glob", "grep", "astgrep", "ps1", "webfetch", "ask_question",
+    ]
+  }} else {{
+    [
+      "read", "write", "edit", "glob", "grep", "astgrep", "bash", "webfetch", "ask_question",
+    ]
+  }}
+}}
+
+///|
+fn build_cetas_tools(
+  ctx~ : @cetas_core.HostContext,
+  names : Array[String],
+) -> Array[&@posoco.Extension] raise @posoco.CompositionError {{
+  let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
+  let freshness = @devkit.FreshnessGuard::FreshnessGuard()
+  let exts : Array[&@posoco.Extension] = []
+  let seen : Set[String] = Set([])
+  for requested in names {{
+    let name = canonical_cetas_tool_name(requested)
+    if seen.contains(name) {{
+      continue
+    }}
+    seen.add(name)
+    match name {{
+      "read" =>
+        exts.push(
+          @read.ReadTools(freshness~, anchor=Some(anchor), fs=Some(ctx.fs))
+          as &@posoco.Extension,
+        )
+      "write" =>
+        exts.push(
+          @write.WriteTools(freshness~, anchor=Some(anchor))
+          as &@posoco.Extension,
+        )
+      "edit" =>
+        exts.push(
+          @edit.EditTools(freshness~, anchor=Some(anchor))
+          as &@posoco.Extension,
+        )
+      "glob" =>
+        exts.push(@glob.GlobTools(anchor=Some(anchor)) as &@posoco.Extension)
+      "grep" =>
+        exts.push(@grep.GrepTools(anchor=Some(anchor)) as &@posoco.Extension)
+      "astgrep" =>
+        exts.push(
+          @astgrep.AstGrepTools(anchor=Some(anchor)) as &@posoco.Extension,
+        )
+      "bash" =>
+        exts.push(@bash.ShellTools(anchor=Some(anchor)) as &@posoco.Extension)
+      "ps1" =>
+        if shell_platform_is_windows() {{
+          exts.push(
+            @ps1.PowerShellTools(anchor=Some(anchor)) as &@posoco.Extension,
+          )
+        }} else {{
+          raise @posoco.CompositionError::ManifestSchemaError(
+            manifest_id="cetas.tools",
+            detail="tool 'ps1' is unavailable in the Unix Cetas build",
+          )
+        }}
+      "webfetch" =>
+        exts.push(@webfetch.WebFetchTools() as &@posoco.Extension)
+      "ask_question" =>
+        exts.push(@askquestion.AskQuestionTools() as &@posoco.Extension)
+      _ =>
+        raise @posoco.CompositionError::ManifestSchemaError(
+          manifest_id="cetas.tools",
+          detail="tool '" +
+            requested +
+            "' is not in the canonical Cetas tool registry",
+        )
+    }}
+  }}
+  exts
+}}
+
+///|
+fn cetas_skills_config() -> @skills.SkillsConfig {{
+  {{ ..@skills.SkillsConfig::default(), max_instruction_chars: 65536, }}
+}}
+
+///|
+async fn build_cetas_skills(
+  ctx~ : @cetas_core.HostContext,
+  requested? : Array[String]? = None,
+) -> &@posoco.Extension? raise @posoco.CompositionError {{
+  let discovered : @skills.SkillCatalog = match
+    @skills.Skills::discover(
+      ctx.fs,
+      cwd=ctx.cwd,
+      home=ctx.home,
+      config=cetas_skills_config(),
+    ) {{
+    Some(skills) => skills.catalog()
+    None => @skills.SkillCatalog::empty()
+  }}
+  let full = @skills.merge_builtin_skills(
+    discovered,
+    @forme.builtin_manual_skills(),
+  )
+  let catalog = match requested {{
+    None => full
+    Some(names) if names.is_empty() => full
+    Some(names) => {{
+      let selected : Array[@skills.SkillDescriptor] = []
+      for name in names {{
+        match full.find(name) {{
+          Some(skill) => selected.push(skill)
+          None =>
+            raise @posoco.CompositionError::ManifestSchemaError(
+              manifest_id="cetas.skills",
+              detail="unknown skill '" +
+                name +
+                "' (available: " +
+                full.names().join(", ") +
+                ")",
+            )
+        }}
+      }}
+      @skills.SkillCatalog::{{ skills: selected, diagnostics: [], }}
+    }}
+  }}
+  match
+    @skills.Skills::from_catalog(ctx.fs, catalog~, config=cetas_skills_config()) {{
+    Ok(skills) => Some(skills as &@posoco.Extension)
+    Err(reason) =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id="cetas.skills",
+        detail="skills composition failed: " + reason,
+      )
+  }}
+}}
+
+///|
+{zcode_builder}
 
 ///|
 async fn build_compiled_recipe_features(
-  ctx~ : HostContext,
+  ctx~ : @cetas_core.HostContext,
   nmem_group? : @async.TaskGroup[Unit]? = None,
   host_help_note? : String? = None,
   obsidian_vault? : String? = None,
@@ -319,7 +542,6 @@ async fn build_compiled_recipe_features(
   for key in compiled_recipe {{
     match key {{
 {chr(10).join(cases)}
-      "zcode" => ()
       _ =>
         raise @posoco.CompositionError::ManifestSchemaError(
           manifest_id="cetas.recipe",
@@ -341,7 +563,7 @@ async fn build_compiled_recipe_features(
           raise @posoco.CompositionError::ToolCollision(
             "deferred tool name collision",
             message,
-            manifests=["cetas-core.default_features"],
+            manifests=["cetas.recipe"],
           )
       }}
     None =>
@@ -355,7 +577,67 @@ async fn build_compiled_recipe_features(
   exts
 }}
 '''
-    MBT_OUT.write_text(mbt, encoding="utf-8")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--flavor", default=os.environ.get("CETAS_FLAVOR", "public"))
+    ap.add_argument("--frontend", required=True, choices=sorted(HOSTS))
+    ap.add_argument("--platform", choices=["unix", "windows"], default=detect_platform())
+    ap.add_argument(
+        "--recipe-overlay",
+        action="append",
+        default=[],
+        help=(
+            "additional recipe CSV; later rows override matching "
+            "(flavor,frontend,key,platform) entries. "
+            "CETAS_RECIPE_OVERLAY provides one local overlay path."
+        ),
+    )
+    args = ap.parse_args()
+
+    rows, sources = load_recipe_rows(args.recipe_overlay)
+    selected = select_rows(rows, args.flavor, args.frontend, args.platform)
+    dependency_rows = [
+        row for row in selected if row["scope"] in ("core", "host")
+    ]
+
+    modules = local_modules()
+    module_imports = []
+    seen_modules = set()
+    for row in dependency_rows:
+        module, version = module_for_package(row["package"], modules)
+        if module in seen_modules:
+            continue
+        seen_modules.add(module)
+        module_imports.append(f'  "{module}@{version}",')
+
+    package_imports = []
+    seen_packages = set()
+    for row in dependency_rows:
+        package = row["package"]
+        if package in seen_packages:
+            continue
+        seen_packages.add(package)
+        package_imports.append(f'  "{package}" @{row["alias"]},')
+
+    host = HOSTS[args.frontend]
+    replace_marked(
+        host / "moon.mod",
+        RECIPE_MOD_BEGIN,
+        RECIPE_MOD_END,
+        module_imports,
+    )
+    replace_marked(
+        host / "lib" / "moon.pkg",
+        RECIPE_PKG_BEGIN,
+        RECIPE_PKG_END,
+        package_imports,
+    )
+    (host / "lib" / "recipe.generated.mbt").write_text(
+        generated_mbt(args.flavor, args.frontend, args.platform, selected),
+        encoding="utf-8",
+    )
 
     print(f"recipe: {args.flavor}/{args.frontend}/{args.platform}")
     print("sources: " + ", ".join(str(path) for path in sources))
@@ -370,7 +652,11 @@ async fn build_compiled_recipe_features(
                 f"  {row['order']:>3}  {row['flavor']}/{row['frontend']:<12} "
                 f"{row['key']:<18} {row['package']}"
             )
+    print("modules:")
+    for item in module_imports:
+        print(item.strip().rstrip(","))
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())
