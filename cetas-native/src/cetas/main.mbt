@@ -26,8 +26,8 @@ async fn main {
     }
 
     let startup_warnings : Array[String] = []
-    let warn = async fn(message : String) noraise {
-      let trimmed = message.trim()
+    let warn = fn(message : String) noraise {
+      let trimmed = message.trim().to_string()
       if !trimmed.is_empty() {
         startup_warnings.push(trimmed)
       }
