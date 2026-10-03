@@ -42,6 +42,8 @@ pub struct NativeHost {
   store : &@posoco.SessionStore
   session : NativeSessionState
   session_root : String?
+  active_model : String
+  active_effort : String?
 }
 
 ///|
@@ -52,12 +54,14 @@ fn NativeHost::from_parts(
   session_id : String,
   session_root? : String? = None,
   session_state? : NativeSessionState? = None,
+  active_model? : String = "",
+  active_effort? : String? = None,
 ) -> NativeHost {
   let session = match session_state {
     Some(value) => value
     None => NativeSessionState::new(session_id)
   }
-  { agent, shell, store, session, session_root, }
+  { agent, shell, store, session, session_root, active_model, active_effort, }
 }
 
 ///|
@@ -131,6 +135,8 @@ pub async fn NativeHost::compose(
     sid,
     session_root=Some(session.session_store.root_dir),
     session_state=Some(session_state),
+    active_model=session.router.active_slot_id(),
+    active_effort=session.router.active_effort(),
   )
 }
 
@@ -175,6 +181,16 @@ pub fn NativeHost::shell(self : NativeHost) -> NativeShell {
 ///|
 pub fn NativeHost::session_id(self : NativeHost) -> String {
   self.session.session_id()
+}
+
+///|
+pub fn NativeHost::active_model(self : NativeHost) -> String {
+  self.active_model
+}
+
+///|
+pub fn NativeHost::active_effort(self : NativeHost) -> String? {
+  self.active_effort
 }
 
 ///|
