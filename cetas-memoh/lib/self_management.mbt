@@ -1,15 +1,35 @@
 ///|
-/// Built-in manuals for the Memoh composition. Reuse the product-wide identity
-/// and usage manuals, but replace the generic Cetas configuration manual with
-/// one that reflects Memoh's independent provider home and ownership boundary.
+/// Built-in manuals owned by the standalone Memoh composition. Keep these
+/// truthful to the capabilities actually composed here instead of importing
+/// generic Cetas host documentation.
 pub fn memoh_builtin_skills() -> Array[@skills.SkillDescriptor] {
-  let manuals : Array[@skills.SkillDescriptor] = []
-  for skill in @forme.builtin_manual_skills() {
-    if skill.name != "cetas-config" {
-      manuals.push(skill)
-    }
-  }
-  manuals.push(
+  [
+    @skills.SkillDescriptor::builtin(
+      name="cetas-about",
+      description="Cetas identity, capabilities, limits, and Memoh ownership; use for who/what/can-you-do questions.",
+      body="You are Cetas running as a first-class Memoh ACP runtime on Posoco. " +
+      "Memoh owns durable conversation continuity, workspace/platform operations, " +
+      "memory, and host authorization. Posoco owns the agent/tool loop, and " +
+      "RouterModelPort owns model execution. The local runtime intentionally " +
+      "does not install parallel filesystem, shell, web, memory, or permission " +
+      "surfaces: use Memoh Tools for host operations. Cetas-Memoh owns only its " +
+      "provider configuration and credentials plus product-level self-management. " +
+      "Memoh Tools are exposed through a lazy tool gateway so their full schemas " +
+      "are loaded only when needed."
+    ),
+    @skills.SkillDescriptor::builtin(
+      name="cetas-usage",
+      description="How to use Cetas inside Memoh: normal turns, model controls, questions, and lazy Memoh Tools.",
+      body="Use Cetas normally from a Memoh conversation. Model and reasoning " +
+      "choices are exposed through ACP session config options. When clarification " +
+      "is required, the ask_question tool uses Memoh's ACP elicitation UI. " +
+      "Workspace, platform, memory, and host-authorized actions must use Memoh " +
+      "Tools. Those tools are deferred behind tool_list/tool_execute; discover a " +
+      "relevant group when needed and reuse a schema already present in history. " +
+      "For configuration questions, activate cetas-memoh-config before answering. " +
+      "Do not assume generic Cetas ~/.cetas settings or local coding tools exist " +
+      "in this composition."
+    ),
     @skills.SkillDescriptor::builtin(
       name="cetas-memoh-config",
       description="Use when configuring Cetas inside Memoh, providers, models, credentials, or explaining what Memoh owns.",
@@ -29,6 +49,5 @@ pub fn memoh_builtin_skills() -> Array[@skills.SkillDescriptor] {
       "the authority for conversation continuity, workspace/platform operations, " +
       "memory, and host authorization."
     ),
-  )
-  manuals
+  ]
 }
