@@ -46,7 +46,7 @@ members = [
   "./extension/posoco-ext-stats",
   "./extension/posoco-ext-statusbar",
   "./extension/posoco-ext-subagent",
-  "./extension/posoco-ext-todo",
+  // "./extension/posoco-ext-todo",
   "./extension/posoco-ext-webfetch",
   "./extension/posoco-ext-workspace",
   "./extension/posoco-ext-write",
