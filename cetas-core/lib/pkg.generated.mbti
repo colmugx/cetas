@@ -122,6 +122,8 @@ pub async fn run_compact(@posoco.Agent, String) -> CompactRunOutcome raise @erro
 
 pub async fn run_prompt(@posoco.Agent, String, String, images? : Array[@kernel.Content]) -> String raise @error.AgentError
 
+pub async fn run_resume(@posoco.Agent, String) -> String raise @error.AgentError
+
 pub fn sessions_dir(String) -> String
 
 pub fn settings_path(String) -> String
