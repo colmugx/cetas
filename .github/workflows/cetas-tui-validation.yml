@@ -67,7 +67,7 @@ jobs:
       - name: Cetas core rewind parity tests
         run: moon test -p cetas-core/lib --target native
 
-      - name: Build interactive native preview
+      - name: Build native Cetas terminal host
         run: moon build cetas-native/src/cetas --target native --release
 
       - name: Validate native product executable shape
