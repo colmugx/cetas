@@ -244,18 +244,15 @@ def ai_prompt(commits, ext_lines):
     out = [
         "作为 cetas 社区运营主管，把下面两段提交记录整理成发布说明草稿。",
         "背景：cetas 一次发版同时带出三个端侧应用；因 cetas 会集成来自 extension 子仓库的扩展，"
-        "所以需要分析 extension 在这段提交历史中为 cetas 供应的功能，并作为功能点列出。禁止为 "
-        "extension 单独设节。",
-        "要求：1. 只输出 markdown 正文，不要代码围栏和任何解释。 2. 确认功能真实落实到某个端，才可列出。 3. 必须读提交，至少读个大概。禁止只看标题就总结。",
-        "固定三个小节，标题原样：## Bun Ver.（cetas-js/cetas-bun）、"
-        "## ACP Ver.（cetas-acp）、## Run Ver.（cetas-run）；"
+        "所以需要分析 extension 在这段提交历史中为 cetas 供应的功能，并作为功能点列出。禁止为 extension 单独设节。"
+        "要求：1. 只输出 markdown 正文，不要代码围栏和任何解释。 2. 确认功能真实落实到某个端，才可列出。 3. 必须读提交，至少读个大概。禁止只看标题就总结。 4. 以“帮用户实现了什么功能/解决了什么问题”为导向",
+        "固定四个小节，标题原样：## General、## Bun Ver.（cetas-bun）、## ACP Ver.（cetas-acp）、## Run Ver.（cetas-run）；"
         "无内容的小节保留空标题。",
         "小节内按需使用 ### Feats / ### Fixes 子节，条目为 \"- \" 列表，"
-        "英文、面向用户、不含 hash；chore/internal/refactor/文档等非用户可见变更省略。",
+        "请使用 English、面向用户、不含 hash；chore/internal/refactor/文档等非用户可见变更省略。",
         "归入规则：主仓库提交按改动路径对应的小节归入；extension 提交按它影响的端侧应用"
         "归入，影响多个端侧就分别列出；对三个端侧都无用户可见影响的省略。",
         "注意：你的任务就是让未来的客户能迅速了解 cetas 带来新的强劲功能，如因敷衍导致潜在客户流失，你作为员工需要付出一些奖金上的代价",
-        "请使用 English 发布您的伟大卖点",
         "",
         "## cetas 上个 tag..HEAD 提交：",
         *([f"{c['hash'][:7]} {c['subject']}" for c in commits] or ["Everything up-to-date"]),
@@ -276,7 +273,7 @@ def ai_draft_notes(root, base, commits, binary=None):
     try:
         # --yolo: piped summarizer run — approvals must never block on a tty.
         r = subprocess.run(
-            [str(binary), "--model", "zai-coding-plan/glm-5.3-flash", "--effort", "low", "--jsonl", "--yolo", "--", prompt],
+            [str(binary), "--model", "zai-coding-plan/glm-5.3-flash", "--effort", "high", "--jsonl", "--yolo", "--", prompt],
             cwd=str(root), capture_output=True, text=True,
             timeout=RUN_TIMEOUT,
         )
