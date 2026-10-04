@@ -74,6 +74,7 @@ pub struct NativeAppLoop {
   mut dismissible_overlay_visible : Bool
 }
 pub fn NativeAppLoop::acquire_command(Self, String) -> Unit
+pub fn NativeAppLoop::append_error(Self, String) -> Int
 pub async fn NativeAppLoop::apply_rewind(Self, Int) -> Unit raise @error.SessionError
 pub fn NativeAppLoop::command_busy(Self) -> Bool
 pub fn NativeAppLoop::command_label(Self) -> String?
