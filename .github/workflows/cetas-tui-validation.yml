@@ -52,16 +52,33 @@ jobs:
         run: cargo test --release
 
       - name: MoonBit native check
-        run: moon check -p cetas-native/src --target native --deny-warn
+        run: |
+          moon check -p cetas-native/src/native --target native --deny-warn
+          moon check -p cetas-native/src/ui --target native --deny-warn
+          moon check -p cetas-native/src/app --target native --deny-warn
+          moon check -p cetas-native/src/cetas --target native --deny-warn
+          moon check -p cetas-native/src/validation --target native --deny-warn
 
       - name: MoonBit native app tests
-        run: moon test -p cetas-native/src/app --target native
+        run: |
+          moon test -p cetas-native/src/app --target native
+          moon test -p cetas-native/src/cetas --target native
 
       - name: Cetas core rewind parity tests
         run: moon test -p cetas-core/lib --target native
 
-      - name: Build interactive native preview
-        run: moon build cetas-native/src/main --target native --release
+      - name: Build native Cetas terminal host
+        run: moon build cetas-native/src/cetas --target native --release
+
+      - name: Validate native product executable shape
+        run: |
+          product="_build/native/release/build/colmugx/cetas-native/src/cetas/cetas.exe"
+          test -f "$product"
+          test -z "$(find _build/native/release/build/colmugx/cetas-native -type f \( -name 'src.exe' -o -name 'main.exe' \) -print)"
+
+
+      - name: Prepare all host recipes for workspace interfaces
+        run: python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
 
       - name: Generate MoonBit interfaces
         run: moon info

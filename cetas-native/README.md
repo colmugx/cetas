@@ -3,7 +3,7 @@
 MoonBit owns the native Cetas application/UI state. Rust owns only terminal
 mechanics behind the narrow `native/cetas-tui` C ABI using Ratatui + Crossterm.
 
-## Try the interactive preview
+## Run the native Cetas terminal host
 
 Prerequisites:
 
@@ -14,18 +14,22 @@ Prerequisites:
 From the **repository root** (workspace mode is required):
 
 ```bash
+# Required once after switching from the old src/main preview layout:
+# it removes stale _build artifacts such as main.exe/src.exe.
+moon clean
+
 python3 scripts/prepare-recipe.py --flavor public --frontend native --platform unix
 moon update
-moon run cetas-native/src/main --target native --release
+moon run cetas-native/src/cetas --target native --release
 ```
 
-Do not run this preview from inside `cetas-native/`: current Cetas packages are
+Do not run the product host from inside `cetas-native/`: current Cetas packages are
 developed together in the root `moon.work`, and the native host intentionally
 uses those workspace siblings rather than stale published module versions.
 
 The Moon prebuild hook builds the local Rust static library automatically.
 
-The preview currently wires the real product loop:
+The native host currently wires the product loop:
 
 - inline Ratatui terminal startup and cleanup;
 - multiline editor input and paste;
@@ -39,7 +43,7 @@ The preview currently wires the real product loop:
 - Ctrl+O toggles the shell-owned tool-output expansion state;
 - Ctrl+C exits and restores the terminal.
 
-Still intentionally incomplete in this preview:
+Still intentionally incomplete in the native host:
 
 - Tab/autocomplete is surfaced by the loop but not yet presented;
 - Ctrl+T thinking presentation is not yet wired;
@@ -57,7 +61,7 @@ The dedicated `cetas-tui validation` workflow checks:
 - MoonBit native `--deny-warn`;
 - native app wbtests;
 - cetas-core rewind parity tests;
-- the interactive preview build;
+- the native Cetas terminal host build;
 - shared semantic parity fixtures;
 - a protocol-aware PTY smoke covering inline viewport, scrollback,
   suspend/resume, focus, paste, key input, resize, and terminal restoration.

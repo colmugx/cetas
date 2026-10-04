@@ -70,7 +70,7 @@ commit graph one commit at a time.
 The executable entrypoint is:
 
 ```text
-cetas-native/src/main/main.mbt
+cetas-native/src/cetas/main.mbt
 ```
 
 The application path is now:
@@ -135,10 +135,10 @@ Commit:
 feat(cetas-tui): surface runnable preview controls
 ```
 
-At startup the preview writes a real finalized transcript/scrollback notice
+At startup the native host writes a real finalized transcript/scrollback notice
 showing:
 
-- that this is the native preview;
+- that this is the native Cetas terminal host;
 - the current session id;
 - Enter = submit;
 - Escape = interrupt;
@@ -163,20 +163,23 @@ Recommended commands:
 ```bash
 git switch cetas-tui
 
+# Required once after the old src/main package layout:
+moon clean
+
 python3 scripts/prepare-recipe.py --flavor public --frontend native --platform unix
 moon update
 
-moon run cetas-native/src/main --target native --release
+moon run cetas-native/src/cetas --target native --release
 ```
 
-Do not run the preview from inside `cetas-native/`. The current development
+Do not run the native host from inside `cetas-native/`. The current development
 setup expects root `moon.work` workspace resolution so sibling Cetas packages
 are used instead of stale published versions.
 
 Expected first-screen behavior:
 
 1. terminal switches into the inline native UI;
-2. a scrollback notice identifies the native preview and session id;
+2. a scrollback notice identifies `Cetas 0.7.0`, the active model/effort, and session id;
 3. the editor shows a `> ` prompt;
 4. status starts as `idle`;
 5. type a prompt and press Enter;
@@ -211,13 +214,13 @@ PASS  Rust tests
 PASS  MoonBit native check --deny-warn
 PASS  MoonBit native app tests
 PASS  cetas-core rewind parity tests
-PASS  Build interactive native preview
+PASS  Build interactive native Cetas terminal host
 PASS  Shared semantic parity fixtures
 PASS  FFI + PTY inline smoke test
 ```
 
 The important point for manual testing is that the actual
-`cetas-native/src/main` executable successfully builds on the rebuilt branch
+`cetas-native/src/cetas` executable successfully builds on the rebuilt branch
 against the latest-main workspace, and terminal mechanics still pass the PTY
 smoke.
 
@@ -283,7 +286,7 @@ Do not remove `cetas-js` yet.
 Before broadening the implementation, manually exercise this exact sequence
 with a real configured provider:
 
-1. launch the preview;
+1. launch the native host;
 2. submit one normal prompt;
 3. observe streaming text and finalized scrollback;
 4. run a prompt that invokes a tool;
@@ -349,7 +352,7 @@ do not rewrite the backup ref.
 ## Files to read first next time
 
 ```text
-cetas-native/src/main/main.mbt
+cetas-native/src/cetas/main.mbt
 cetas-native/src/app/app_loop.mbt
 cetas-native/src/app/turn_driver.mbt
 cetas-native/src/app/runtime.mbt
@@ -365,7 +368,7 @@ cetas-native/README.md
 ## Bottom line
 
 The branch has been rebuilt cleanly onto current `main`, the old branch state
-is preserved, the native preview executable builds and passes the full
+is preserved, the native Cetas terminal host executable builds and passes the full
 dedicated native validation gate, and the minimum loop is ready for a developer
 to try with a real configured provider.
 

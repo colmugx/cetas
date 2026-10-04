@@ -58,7 +58,7 @@ const staticLibrary = path.join(
 console.log(JSON.stringify({
   link_configs: [
     {
-      package: 'colmugx/cetas-native/src',
+      package: 'colmugx/cetas-native/src/app',
       link_flags: [shellQuote(staticLibrary), match[1].trim()].join(' '),
     },
     {
@@ -66,7 +66,11 @@ console.log(JSON.stringify({
       link_flags: [shellQuote(staticLibrary), match[1].trim()].join(' '),
     },
     {
-      package: 'colmugx/cetas-native/src/main',
+      package: 'colmugx/cetas-native/src/cetas',
+      link_flags: [shellQuote(staticLibrary), match[1].trim()].join(' '),
+    },
+    {
+      package: 'colmugx/cetas-native/src/validation',
       link_flags: [shellQuote(staticLibrary), match[1].trim()].join(' '),
     },
   ],

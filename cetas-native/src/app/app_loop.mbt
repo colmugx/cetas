@@ -67,6 +67,16 @@ pub fn NativeAppLoop::is_turn_running(self : NativeAppLoop) -> Bool {
 }
 
 ///|
+/// Surface application-level failures through the transcript while the TUI
+/// owns the terminal. Stderr is reserved for failures after terminal teardown.
+pub fn NativeAppLoop::append_error(
+  self : NativeAppLoop,
+  message : String,
+) -> Int {
+  self.driver.host().shell().append_error(message)
+}
+
+///|
 pub fn NativeAppLoop::set_compact_pending(
   self : NativeAppLoop,
   value : Bool,

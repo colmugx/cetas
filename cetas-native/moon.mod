@@ -1,6 +1,6 @@
 name = "colmugx/cetas-native"
 
-version = "0.0.1"
+version = "0.7.0"
 
 readme = "README.md"
 
@@ -10,7 +10,7 @@ license = "Apache-2.0"
 
 keywords = [ "cetas", "tui", "native", "ratatui" ]
 
-description = "Native Cetas TUI validation host backed by Ratatui"
+description = "Native Cetas TUI host backed by Ratatui"
 
 preferred_target = "native"
 
