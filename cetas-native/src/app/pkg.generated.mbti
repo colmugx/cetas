@@ -74,6 +74,7 @@ pub struct NativeAppLoop {
   mut dismissible_overlay_visible : Bool
 }
 pub fn NativeAppLoop::acquire_command(Self, String) -> Unit
+pub fn NativeAppLoop::append_error(Self, String) -> Int
 pub async fn NativeAppLoop::apply_rewind(Self, Int) -> Unit raise @error.SessionError
 pub fn NativeAppLoop::command_busy(Self) -> Bool
 pub fn NativeAppLoop::command_label(Self) -> String?
@@ -119,7 +120,11 @@ pub struct NativeHost {
   store : &@port.SessionStore
   session : NativeSessionState
   session_root : String?
+  active_model : String
+  active_effort : String?
 }
+pub fn NativeHost::active_effort(Self) -> String?
+pub fn NativeHost::active_model(Self) -> String
 pub async fn NativeHost::compose(home~ : String, cwd~ : String, mode~ : @posoco-ext-permission.PermissionMode, approval? : &@posoco-ext-permission.ApprovalSource?, ui? : &@port.UiPort?, tail_exts? : Array[&@port.Extension], session_id? : String, fs? : &@posoco-ext-workspace.WorkspaceFs?, mcp_group? : @async.TaskGroup[Unit]?, warn? : async (String) -> Unit noraise) -> Self raise @error.CompositionError
 pub async fn NativeHost::compose_interactive(home~ : String, cwd~ : String, mode~ : @posoco-ext-permission.PermissionMode, session_id? : String, fs? : &@posoco-ext-workspace.WorkspaceFs?, mcp_group? : @async.TaskGroup[Unit]?, warn? : async (String) -> Unit noraise) -> (Self, NativeUiPort) raise @error.CompositionError
 pub fn NativeHost::interrupt_active(Self) -> @runtime.EnqueueOutcome
