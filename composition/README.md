@@ -43,7 +43,7 @@ python3 scripts/prepare-recipe.py \
 ```
 
 The generator projects the roster into each host's marked `moon.mod` and
-`lib/moon.pkg` regions and writes an ignored `lib/recipe.generated.mbt`.
+host package `moon.pkg` regions and writes an ignored `lib/recipe.generated.mbt`.
 
 Do not add dependency fallbacks for missing modules. A selected capability
 whose module/target is unavailable is intentionally a Moon build-plan or

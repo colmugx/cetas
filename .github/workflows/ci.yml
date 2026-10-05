@@ -125,7 +125,7 @@ jobs:
           # Interface drift is checked against the public graph.
           python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
           moon info
-          git diff --exit-code -- . ../cetas-js ../cetas-core ../cetas-run ../cetas-ext-forme
+          git diff --exit-code -- . ../cetas-js ../cetas-core ../cetas-run ../cetas-web ../cetas-ext-forme
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
@@ -146,3 +146,15 @@ jobs:
             src/app/rate-limit-recovery.test.ts \
             src/controllers/event-router.test.ts \
             ui/terminal-shell.test.ts
+
+      - name: Setup Node for cetas-web
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: cetas-web typecheck + build
+        working-directory: posoco/external/cetas/cetas-web/web
+        run: |
+          npm install --no-audit --no-fund
+          npm run typecheck
+          npm run build

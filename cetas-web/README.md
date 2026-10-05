@@ -1,39 +1,89 @@
 # cetas-web
 
-Bootstrap for the web-native Cetas host.
+Web-native Cetas host.
 
-This directory intentionally starts with the smallest architecture slice that fixes the
-host boundary:
+The browser UI is deliberately a separate runtime from the agent:
 
-- **Solid 2** owns browser UI and fine-grained reactive state.
+- **Solid 2** owns browser interaction and fine-grained reactive presentation.
+- **Solid Router 2** owns the client application route tree.
+- **Tailwind CSS v4** provides the styling pipeline.
+- **Lucide Solid 2** provides the initial icon set.
 - **Moonback** owns HTTP, WebSocket, static assets, and the native server process.
-- **Cetas protocol** will connect them; the browser does not own the agent loop.
-- Production static assets enter Moonback through `web_assets() -> Map[String, Bytes]`.
+- **cetas-core** still owns Cetas product semantics, provider/model setup, sessions, tools, and the Posoco agent lifecycle.
+- Production assets enter Moonback through `web_assets() -> Map[String, Bytes]`.
 
-The current PR is phase 0. It proves the frontend/server boundary and leaves Cetas session
-composition for the next slice.
+The current draft is intentionally a day-1 application shell rather than a complete chat implementation. It composes the real Cetas runtime and exposes that boot state to the frontend, while the turn protocol remains the next architectural slice.
 
 ## Layout
 
 ```text
 cetas-web/
-├── server/             MoonBit + Moonback native host
+├── moon.mod
+├── server/
 │   ├── main.mbt
-│   └── web_assets.mbt  production embedding seam (empty in this bootstrap)
-└── web/                Solid 2 client app
+│   ├── runtime.mbt
+│   ├── recipe.generated.mbt
+│   └── web_assets.mbt
+└── web/
     ├── src/
+    │   ├── cetas/       HTTP/WS client + runtime context
+    │   ├── components/  application shell
+    │   ├── pages/       Chat / Workspace / Settings
+    │   └── ui/          Cetas-owned primitive facade
     └── vite.config.ts
 ```
 
-## Requirements
+## Frontend baseline
+
+The Solid 2 ecosystem is still converging, so versions are deliberately exact rather than broad ranges.
+
+```text
+solid-js              2.0.0-rc.13
+@solidjs/web           2.0.0-rc.13
+@solidjs/vite-plugin   3.0.0-next.47
+@solidjs/router        2.0.0-next.35
+@lucide/solid          0.0.1
+Tailwind CSS           4.3.3
+Vite                   8.3.2
+```
+
+Do not use the Solid 1 `lucide-solid` or Solid Router 1.x packages in this application.
+
+Headless component libraries are intentionally kept behind `src/ui/`. Kobalte and Ark UI can be evaluated as their Solid 2 support settles; application components should not import a third-party primitive library directly.
+
+## Cetas runtime
+
+The native process now composes the same core assembly used by other Cetas hosts:
+
+```text
+build_cetas_platform
+       ↓
+build_compiled_recipe_features
+       ↓
+build_cetas_session
+       ↓
+compose_cetas_agent
+```
+
+The Web bootstrap starts in `ReadOnly` permission mode until the approval surface is wired.
+
+If provider/settings composition succeeds, `GET /api/runtime` reports a real session id, active model, effort, and cwd. If setup is incomplete, the HTTP server still starts and reports `needs_setup` so the browser can remain usable for the future setup UI.
+
+## Development
+
+Requirements:
 
 - MoonBit toolchain
 - Node.js 22.12 or newer
 
-Solid 2 is intentionally pinned to the current release-candidate line. Direct dependencies
-use exact versions so an RC update is an explicit repository change.
+Prepare the public Web recipe when working on composition code:
 
-## Development
+```sh
+python3 scripts/prepare-recipe.py \
+  --flavor public \
+  --frontend web \
+  --platform unix
+```
 
 Start Moonback from the repository root:
 
@@ -41,7 +91,7 @@ Start Moonback from the repository root:
 moon run ./cetas-web/server
 ```
 
-Then start the Solid dev server:
+Then start Solid:
 
 ```sh
 cd cetas-web/web
@@ -56,45 +106,45 @@ Vite serves the frontend on port 5173 and proxies:
 /ws     -> ws://127.0.0.1:8787/ws
 ```
 
-The bootstrap UI displays HTTP and WebSocket connectivity.
+The day-1 shell has Chat, Workspace, and Settings routes. Chat shows the real core boot state; the composer is intentionally disabled until the realtime turn contract exists.
+
+## HTTP bootstrap
+
+```text
+GET /api/health
+GET /api/runtime
+GET /ws
+```
+
+`/ws` still sends a connection envelope and echoes frames. It is not yet the final Cetas turn protocol.
 
 ## Static production build
-
-Build Solid:
 
 ```sh
 cd cetas-web/web
 npm run build
 ```
 
-Solid start mode emits a static client build under:
+Solid 2 start mode emits the static client build under:
 
 ```text
 cetas-web/web/dist/client/
 ```
 
-While `web_assets()` is empty, Moonback serves that directory from disk. Set
-`CETAS_WEB_DIST` to point at another build directory.
+While `web_assets()` is empty, Moonback serves that directory from disk. `CETAS_WEB_DIST` can point at another build directory.
 
-The next packaging slice will turn the same directory into a generated
-`Map[String, Bytes]` and feed it through Moonback's `from_assets` middleware. At that
-point the release artifact becomes a single native executable without a sidecar static
-directory.
-
-## Bootstrap endpoints
-
-```text
-GET /api/health
-GET /ws
-```
-
-The WebSocket currently sends a connection envelope and echoes frames. It is deliberately
-not the Cetas turn protocol yet.
+The packaging slice will generate `web_assets.mbt` from the same directory and serve it through Moonback `from_assets()`, producing a single native executable without a sidecar static directory.
 
 ## Next slice
 
-1. Add the `web` composition recipe and build a long-lived Cetas session runtime.
-2. Define the first realtime protocol envelopes: attach, turn start, text delta, tool
-   lifecycle, completion, abort, and reconnect sequence numbers.
-3. Generate the static asset map during release builds.
-4. Add protocol replay fixtures before the UI grows around the wire format.
+The next architectural change should define the realtime protocol before enabling the composer:
+
+1. session attach + snapshot
+2. stable event id / sequence number
+3. turn start / abort / follow-up
+4. text + reasoning deltas
+5. tool lifecycle
+6. approval / UI request-response
+7. reconnect + replay
+
+After that, the day-1 shell can become the first real Cetas Web transcript without changing the core/runtime boundary.
