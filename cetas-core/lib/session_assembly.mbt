@@ -29,11 +29,13 @@ pub(all) struct CetasSession {
 /// active slot's context window) call this first and inject the router.
 pub fn build_cetas_router(
   platform~ : CetasPlatform,
+  event_bus? : @devkit.EventBus? = None,
 ) -> @llm.RouterModelPort raise @posoco.CompositionError {
   @llm.RouterModelPort::from_catalogs(
     platform.catalogs,
     default_slot_id=platform.default_slot_id,
     allow_missing_default=platform.default_slot_pending,
+    bus=event_bus,
     provider_credential_store=Some(
       platform.credential_store as &@oauth.ProviderCredentialStore,
     ),
@@ -73,9 +75,16 @@ pub async fn build_cetas_session(
   label? : String = "cetas-acp",
   warn? : async (String) -> Unit noraise = fn(_ : String) { () },
 ) -> CetasSession raise @posoco.CompositionError {
+  // Session-private so status/model/permission facts never leak into another
+  // session. Construct the bus before the router so the router can publish its
+  // model/context segments onto the same channel consumed by host bridges.
+  let event_bus = match event_bus {
+    Some(bus) => bus
+    None => @devkit.EventBus()
+  }
   let router = match router {
     Some(router) => router
-    None => build_cetas_router(platform~)
+    None => build_cetas_router(platform~, event_bus=Some(event_bus))
   }
   match platform.persisted_effort {
     Some(effort) =>
@@ -107,11 +116,6 @@ pub async fn build_cetas_session(
       context_contributor as &@posoco.SystemPromptContributor,
     ),
   )
-  // Session-private so plan/permission facts never leak into another's hooks.
-  let event_bus = match event_bus {
-    Some(bus) => bus
-    None => @devkit.EventBus()
-  }
   let permission_policy = @permission.PermissionPolicy(
     platform.permission_mode,
     approval~,

@@ -120,6 +120,22 @@ pub fn RewindPickerModel::close(self : RewindPickerModel) -> Unit {
 }
 
 ///|
+/// Present rewind candidates through the shared Ratatui List primitive.
+pub fn RewindPickerModel::append_scene(
+  self : RewindPickerModel,
+  builder : SceneBuilder,
+  x : UInt,
+  y : UInt,
+  width : UInt,
+  height : UInt,
+) -> Unit {
+  if self.active {
+    self.list.append_scene(builder, x, y, width, height)
+  }
+}
+
+///|
+///|
 pub fn RewindPickerModel::handle_key(
   self : RewindPickerModel,
   event : TerminalEvent,

@@ -108,6 +108,28 @@ pub fn SelectListModel::end(self : SelectListModel) -> Unit {
 }
 
 ///|
+/// Lower this model through the native Ratatui List presentation primitive.
+pub fn SelectListModel::append_scene(
+  self : SelectListModel,
+  builder : SceneBuilder,
+  x : UInt,
+  y : UInt,
+  width : UInt,
+  height : UInt,
+) -> Unit {
+  let rendered : Array[String] = []
+  for item in self.items {
+    if item.description.is_empty() {
+      rendered.push(item.label)
+    } else {
+      rendered.push(item.label + "  " + item.description)
+    }
+  }
+  builder.select_list(x, y, width, height, rendered, self.selected)
+}
+
+///|
+///|
 pub fn select_list_validation_marker() -> Int {
   let list = SelectListModel::new([
     { value: "a", label: "A", description: "", },
@@ -123,9 +145,19 @@ pub fn select_list_validation_marker() -> Int {
   }
   list.next()
   list.next()
-  if list.selected_item() is Some(item) && item.value == "c" {
-    1
-  } else {
-    0
+  guard list.selected_item() is Some(item) && item.value == "c" else {
+    return 0
   }
+
+  let builder = SceneBuilder::new()
+  list.append_scene(builder, 0U, 0U, 24U, 3U)
+  let scene = builder.finish()
+  if scene.words.length() != 8 ||
+    scene.words[0] != 5U ||
+    scene.words[7] != 3U ||
+    scene.text != @utf8.encode("A\nB\nC") {
+    return 0
+  }
+
+  1
 }

@@ -22,9 +22,12 @@ import {
   "colmugx/posoco-ext-permission@0.2.0",
   "colmugx/posoco-ext-workspace@0.1.0",
   "colmugx/posoco-ext-fs-session@0.4.0",
+  "colmugx/posoco-ext-context@0.2.0",
+  "posoco/ext-llm@0.2.0",
   "moonbitlang/async@0.22.4",
   "moonbitlang/x@0.5.5",
   "posoco/devkit@0.4.1",
+  "posoco/ext-oauth@0.1.0",
   // recipe-deps:begin
   "colmugx/cetas-ext-forme@0.1.0",
   "colmugx/posoco-ext-read@0.2.0",
@@ -40,6 +43,11 @@ import {
   "colmugx/posoco-ext-askquestion@0.1.0",
   "colmugx/posoco-ext-handoff@0.1.0",
   "colmugx/posoco-ext-lazytools@0.1.0",
+  "colmugx/posoco-ext-stats@0.1.0",
+  "colmugx/posoco-ext-statusbar@0.3.0",
+  "colmugx/posoco-ext-subagent@0.1.3",
+  "colmugx/posoco-ext-kind@0.1.0",
+  "colmugx/posoco-kit-subagent@0.1.1",
   // recipe-deps:end
 }
 

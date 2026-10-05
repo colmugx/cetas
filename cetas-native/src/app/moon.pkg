@@ -1,8 +1,11 @@
 import {
   "colmugx/cetas-native/src/ui",
   "colmugx/cetas-core/lib" @cetas_core,
+  "colmugx/posoco-ext-context" @context,
+  "posoco/ext-llm" @llm,
   "colmugx/posoco",
   "posoco/devkit",
+  "posoco/ext-oauth" @oauth,
   // recipe-imports:begin
   "colmugx/cetas-ext-forme/lib" @forme,
   "colmugx/posoco-ext-read" @read,
@@ -18,6 +21,11 @@ import {
   "colmugx/posoco-ext-askquestion" @askquestion,
   "colmugx/posoco-ext-handoff" @handoff,
   "colmugx/posoco-ext-lazytools" @lazytools,
+  "colmugx/posoco-ext-stats" @stats,
+  "colmugx/posoco-ext-statusbar" @statusbar,
+  "colmugx/posoco-ext-subagent" @subagent,
+  "colmugx/posoco-ext-kind" @kind,
+  "colmugx/posoco-kit-subagent" @subagent_kit,
   // recipe-imports:end
   "colmugx/posoco/runtime",
   "colmugx/posoco-ext-permission" @permission,

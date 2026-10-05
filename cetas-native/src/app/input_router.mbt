@@ -73,8 +73,28 @@ pub fn NativeInputRouter::ui_option_label(
 }
 
 ///|
+pub fn NativeInputRouter::render_line_count(
+  self : NativeInputRouter,
+) -> Int {
+  self.ui.render_line_count()
+}
+
+///|
+pub fn NativeInputRouter::render_line(
+  self : NativeInputRouter,
+  index : Int,
+) -> String? {
+  self.ui.render_line(index)
+}
+
+///|
 pub fn NativeInputRouter::close_ui(self : NativeInputRouter) -> Unit {
   self.ui.close()
+}
+
+///|
+pub fn NativeInputRouter::auth_ui(self : NativeInputRouter) -> NativeAuthUi {
+  self.ui.auth_ui()
 }
 
 ///|

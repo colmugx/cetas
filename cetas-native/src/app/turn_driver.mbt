@@ -62,6 +62,24 @@ fn NativeTurnDriver::spawn_fresh(
 }
 
 ///|
+fn NativeTurnDriver::start_expanded(
+  self : NativeTurnDriver,
+  group : @async.TaskGroup[Unit],
+  prompt : String,
+  display_prompt : String,
+) -> Bool {
+  if self.is_running() {
+    return false
+  }
+  let task = group.spawn(
+    () => self.host.run_text_turn_with_echo(prompt, display_prompt),
+    allow_failure=true,
+  )
+  self.turn = Some(task)
+  true
+}
+
+///|
 fn NativeTurnDriver::accepted_editor_submit(
   self : NativeTurnDriver,
   prompt : String,

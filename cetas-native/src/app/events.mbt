@@ -333,7 +333,7 @@ pub fn event_wire_validation_marker() -> Int {
 
   if shell.status() != ShellIdle ||
     shell.transcript().row_count() != 3 ||
-    shell.transcript().row(2).text != "✓ ok" {
+    shell.transcript().row(2).text != "✓ write\n      ok" {
     return 0
   }
 

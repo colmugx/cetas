@@ -9,4 +9,5 @@ name = "cetas_tui"
 crate-type = ["staticlib"]
 
 [dependencies]
-ratatui = { version = "0.30.2", features = ["scrolling-regions"] }
+ratatui = { version = "0.30.2", features = ["scrolling-regions", "unstable-rendered-line-info"] }
+tui-markdown = { version = "0.3.10", default-features = false }

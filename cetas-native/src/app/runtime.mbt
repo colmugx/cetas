@@ -39,6 +39,7 @@ pub struct NativeRuntime {
   input : NativeInputRouter
   editor : @ui.EditorModel
   rewind : @ui.RewindPickerModel
+  autocomplete : AutocompletePopupModel
 }
 
 ///|
@@ -49,12 +50,33 @@ pub fn NativeRuntime::new(
   editor : @ui.EditorModel,
   rewind : @ui.RewindPickerModel,
 ) -> NativeRuntime {
-  { terminal, shell, input, editor, rewind, }
+  {
+    terminal,
+    shell,
+    input,
+    editor,
+    rewind,
+    autocomplete: AutocompletePopupModel::new(),
+  }
 }
 
 ///|
 pub fn NativeRuntime::editor(self : NativeRuntime) -> @ui.EditorModel {
   self.editor
+}
+
+///|
+fn NativeRuntime::open_autocomplete(
+  self : NativeRuntime,
+  prefix : String,
+  items : Array[@ui.SelectItem],
+) -> Bool {
+  self.autocomplete.open(prefix, items)
+}
+
+///|
+fn NativeRuntime::close_autocomplete(self : NativeRuntime) -> Unit {
+  self.autocomplete.close()
 }
 
 ///|
@@ -71,11 +93,25 @@ pub fn NativeRuntime::close(self : NativeRuntime) -> Unit {
 }
 
 ///|
+pub fn NativeRuntime::close_ui_only(self : NativeRuntime) -> Unit {
+  self.input.close_ui()
+}
+
+///|
+pub fn NativeRuntime::auth_ui(self : NativeRuntime) -> NativeAuthUi {
+  self.input.auth_ui()
+}
+
+///|
 /// Flush finalized rows exactly once into real terminal scrollback.
 pub fn NativeRuntime::flush_scrollback(self : NativeRuntime) -> Int {
   let ready = self.shell.take_scrollback_ready()
   for row in ready {
-    let status = self.terminal.insert_before(row.scrollback_text())
+    let status = if row.kind == @ui.TranscriptAssistant {
+      self.terminal.insert_before_markdown(row.text)
+    } else {
+      self.terminal.insert_before(self.shell.scrollback_text(row))
+    }
     if status != 0 {
       return status
     }
@@ -115,6 +151,37 @@ fn append_multiline_runtime_text(
 }
 
 ///|
+fn append_extension_render_lines(
+  builder : @ui.SceneBuilder,
+  input : NativeInputRouter,
+  mut_y : UInt,
+  width : UInt,
+  height : UInt,
+  max_rows : UInt,
+) -> UInt {
+  let mut y = mut_y
+  let count = input.render_line_count()
+  let mut shown = 0U
+  let start = if count > max_rows.reinterpret_as_int() {
+    count - max_rows.reinterpret_as_int()
+  } else {
+    0
+  }
+  for index in start..<count {
+    if y >= height || shown >= max_rows {
+      break
+    }
+    match input.render_line(index) {
+      Some(line) => append_runtime_text(builder, 0U, y, width, line)
+      None => ()
+    }
+    y += 1U
+    shown += 1U
+  }
+  y
+}
+
+///|
 fn append_editor_scene(
   builder : @ui.SceneBuilder,
   editor : @ui.EditorModel,
@@ -146,18 +213,96 @@ fn build_runtime_scene(
   input : NativeInputRouter,
   editor : @ui.EditorModel,
   rewind : @ui.RewindPickerModel,
+  autocomplete : AutocompletePopupModel,
   width : UInt,
   height : UInt,
 ) -> @ui.Scene {
   let builder = @ui.SceneBuilder::new()
   builder.clear(0U, 0U, width, height)
 
+  // Normal query/answer mode is bottom-anchored: the editor and one-line
+  // status stay stable while Ratatui wraps the live answer in all rows above
+  // them. Finalized rows leave this viewport through insert_before.
+  if !input.ui_active() && !rewind.is_active() {
+    if height == 0U {
+      return builder.finish()
+    }
+    let status_y = height - 1U
+    let requested_editor_rows = editor.line_count().reinterpret_as_uint()
+    let available_editor_rows = status_y
+    let editor_rows = if requested_editor_rows < available_editor_rows {
+      requested_editor_rows
+    } else {
+      available_editor_rows
+    }
+    let editor_y = status_y - editor_rows
+    let popup_capacity = if editor_y < 8U { editor_y } else { 8U }
+    let requested_popup_rows = autocomplete.item_count().reinterpret_as_uint()
+    let popup_rows = if requested_popup_rows < popup_capacity {
+      requested_popup_rows
+    } else {
+      popup_capacity
+    }
+    let popup_y = editor_y - popup_rows
+    let render_capacity = if popup_y < 4U { popup_y } else { 4U }
+    let requested_render_rows = input.render_line_count().reinterpret_as_uint()
+    let render_rows = if requested_render_rows < render_capacity {
+      requested_render_rows
+    } else {
+      render_capacity
+    }
+    let render_y = popup_y - render_rows
+    shell.append_live_block_scene(builder, 0U, 0U, width, render_y)
+    if render_rows > 0U {
+      ignore(
+        append_extension_render_lines(
+          builder,
+          input,
+          render_y,
+          width,
+          popup_y,
+          render_rows,
+        ),
+      )
+    }
+    if popup_rows > 0U {
+      autocomplete.append_scene(builder, 0U, popup_y, width, popup_rows)
+    }
+    ignore(
+      append_editor_scene(
+        builder,
+        editor,
+        editor_y,
+        width,
+        status_y,
+        true,
+      ),
+    )
+    let status = match shell.status() {
+      ShellIdle => "idle"
+      ShellWorking(detail) => detail
+      ShellFailed(detail) => "error: " + detail
+    }
+    append_runtime_text(builder, 0U, status_y, width, "· " + status)
+    return builder.finish()
+  }
+
   let mut y = shell.append_live_scene(builder, 0U, 0U, width)
+  if input.render_line_count() > 0 && y < height {
+    y = append_extension_render_lines(
+      builder,
+      input,
+      y,
+      width,
+      height,
+      4U,
+    )
+  }
   if input.ui_active() {
     guard input.ui_prompt() is Some(prompt) else { return builder.finish() }
     y = append_multiline_runtime_text(builder, 0U, y, width, height, prompt)
     match input.ui_kind() {
-      Some(UiPanelInput) =>
+      Some(UiPanelInput) | Some(UiPanelSecretInput) =>
         if y < height {
           let value = match input.ui_input_text() {
             Some(text) => text
@@ -170,20 +315,17 @@ fn build_runtime_scene(
           Some(index) => index
           None => -1
         }
-        let count = input.ui_option_count()
-        for index in 0..<count {
-          if y >= height {
-            break
-          }
+        let items : Array[String] = []
+        for index in 0..<input.ui_option_count() {
           match input.ui_option_label(index) {
-            Some(label) => {
-              let prefix = if index == selected { "> " } else { "  " }
-              append_runtime_text(builder, 0U, y, width, prefix + label)
-              y += 1U
-            }
+            Some(label) => items.push(label)
             None => ()
           }
         }
+        let remaining = if y < height { height - y } else { 0U }
+        builder.select_list(0U, y, width, remaining, items, selected)
+        let item_rows = items.length().reinterpret_as_uint()
+        y += if item_rows < remaining { item_rows } else { remaining }
       }
       None => ()
     }
@@ -194,20 +336,10 @@ fn build_runtime_scene(
       append_runtime_text(builder, 0U, y, width, "Rewind to:")
       y += 1U
     }
-    let selected = rewind.selected_index()
-    for index in 0..<rewind.point_count() {
-      if y >= height {
-        break
-      }
-      match rewind.point(index) {
-        Some(point) => {
-          let prefix = if index == selected { "> " } else { "  " }
-          append_runtime_text(builder, 0U, y, width, prefix + point.preview)
-          y += 1U
-        }
-        None => ()
-      }
-    }
+    let remaining = if y < height { height - y } else { 0U }
+    rewind.append_scene(builder, 0U, y, width, remaining)
+    let point_rows = rewind.point_count().reinterpret_as_uint()
+    y += if point_rows < remaining { point_rows } else { remaining }
   } else {
     y = append_editor_scene(
       builder,
@@ -247,6 +379,7 @@ pub fn NativeRuntime::render(self : NativeRuntime) -> Int {
       self.input,
       self.editor,
       self.rewind,
+      self.autocomplete,
       size[0],
       size[1],
     ),
@@ -260,7 +393,15 @@ pub fn runtime_validation_marker() -> Int {
   let router = NativeInputRouter::new(NativeUiController::new(ui))
   let editor = @ui.EditorModel::new()
   let rewind = @ui.RewindPickerModel::new()
-  let scene = build_runtime_scene(shell, router, editor, rewind, 40U, 3U)
+  let scene = build_runtime_scene(
+    shell,
+    router,
+    editor,
+    rewind,
+    AutocompletePopupModel::new(),
+    40U,
+    3U,
+  )
   if scene.words.length() == 32 && scene.text == @utf8.encode("> · idle") {
     1
   } else {
@@ -278,6 +419,9 @@ pub fn NativeRuntime::poll_once(
   state : RuntimeInputState,
 ) -> RuntimeEvent {
   ignore(self.input.pump_ui())
+  if self.input.ui_active() || self.rewind.is_active() {
+    self.autocomplete.close()
+  }
 
   let (status, event) = self.terminal.poll(timeout_ms)
   if status == 1 {
@@ -308,6 +452,30 @@ pub fn NativeRuntime::poll_once(
         }
       } else if self.rewind.is_active() {
         RuntimeRewindAction(self.rewind.handle_key(value))
+      } else if self.autocomplete.is_active() {
+        match self.autocomplete.handle_key(value) {
+          AutocompleteChanged | AutocompleteCancelled => RuntimeUiUpdated
+          AutocompleteAccepted(prefix, replacement) => {
+            ignore(self.editor.apply_completion(prefix, replacement))
+            RuntimeUiUpdated
+          }
+          AutocompleteUnhandled =>
+            match
+              self.input.route_key(
+            value,
+            state.now_ms,
+            state.editor_has_text,
+            state.in_turn,
+            state.compact_pending,
+            state.command_busy,
+            state.dismissible_overlay_visible,
+          ) {
+              RouteUiActive => RuntimeUiUpdated
+              RouteUiSettled => RuntimeUiSettled
+              RouteShell(InputPass) => RuntimeEditorKey(value)
+              RouteShell(action) => RuntimeShellAction(action)
+            }
+        }
       } else {
         match
           self.input.route_key(

@@ -51,6 +51,14 @@ async test "native turn driver runs Agent without blocking editor state" {
     assert_true(shell.transcript().row(1).kind == @ui.TranscriptAssistant)
     assert_eq(shell.transcript().row(1).text, "driver ok")
 
+    // Dogfood query -> answer gate: the accepted editor query must finish as
+    // immutable terminal output, not merely exist inside reducer state.
+    let ready = shell.take_scrollback_ready()
+    assert_eq(ready.length(), 2)
+    assert_eq(ready[0].scrollback_text(), "> hello driver")
+    assert_eq(ready[1].scrollback_text(), "driver ok")
+    assert_true(shell.take_scrollback_ready().is_empty())
+
     let persisted = store.load("native-turn-driver")
     assert_eq(persisted.messages.length(), 2)
   })

@@ -86,6 +86,14 @@ pub extern "C" fn insert_before_text(
 ) -> Int = "ctui_insert_before_text"
 
 ///|
+#borrow(text)
+pub extern "C" fn insert_before_markdown(
+  tui : RawTui,
+  text : Bytes,
+  text_len : UInt,
+) -> Int = "ctui_insert_before_markdown"
+
+///|
 #borrow(out_words)
 pub extern "C" fn viewport_size(
   tui : RawTui,

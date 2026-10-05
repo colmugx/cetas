@@ -32,7 +32,7 @@ pub fn auth_prompt_json(@ext-oauth.AuthPromptRequest) -> String
 
 pub async fn build_cetas_platform(home~ : String, cwd~ : String, &@posoco-ext-workspace.WorkspaceFs, permission_mode~ : @posoco-ext-permission.PermissionMode, mcp_group? : @async.TaskGroup[Unit]?, label? : String, warn? : async (String) -> Unit noraise) -> CetasPlatform raise @error.CompositionError
 
-pub fn build_cetas_router(platform~ : CetasPlatform) -> @ext-llm.RouterModelPort raise @error.CompositionError
+pub fn build_cetas_router(platform~ : CetasPlatform, event_bus? : @devkit.EventBus?) -> @ext-llm.RouterModelPort raise @error.CompositionError
 
 pub async fn build_cetas_session(platform~ : CetasPlatform, cwd~ : String, router? : @ext-llm.RouterModelPort?, approval? : &@posoco-ext-permission.ApprovalSource?, ui? : &@port.UiPort?, event_bus? : @devkit.EventBus?, client_exts? : Array[&@port.Extension], policy_exts? : Array[&@port.Extension], bus_exts? : ((@devkit.EventBus) -> Array[&@port.Extension])?, feature_exts? : Array[&@port.Extension], prompt_suffix? : String?, session_fs? : &@posoco-ext-workspace.WorkspaceFs?, label? : String, warn? : async (String) -> Unit noraise) -> CetasSession raise @error.CompositionError
 
@@ -119,6 +119,8 @@ pub async fn rewind_session(&@port.SessionStore, String, Int) -> Unit raise @err
 pub async fn run_compact(@posoco.Agent, String) -> CompactRunOutcome raise @error.AgentError
 
 pub async fn run_prompt(@posoco.Agent, String, String, images? : Array[@kernel.Content]) -> String raise @error.AgentError
+
+pub async fn run_provider_login_flow(home~ : String, provider~ : String, &@posoco-ext-workspace.WorkspaceFs, &@ext-oauth.AuthInteraction, &@ext-oauth.AuthPromptInteraction, () -> String raise @error.CommandError, note? : async (String) -> Unit noraise) -> Unit raise @error.CommandError
 
 pub async fn run_resume(@posoco.Agent, String) -> String raise @error.AgentError
 
