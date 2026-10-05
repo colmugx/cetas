@@ -417,13 +417,10 @@ fn NativeHost::user_message(
     guard native_image_mime(path) is Some(media_type) else { continue }
     seen.add(path)
     let bytes = @xfs.read_file_to_bytes(path) catch {
-      error => {
+      @xfs.IOError::IOError(detail) => {
         ignore(
           self.shell.append_notice(
-            "image attachment skipped @" +
-            path +
-            ": " +
-            error.to_string(),
+            "image attachment skipped @" + path + ": " + detail,
           ),
         )
         continue
