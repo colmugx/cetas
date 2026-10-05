@@ -1,6 +1,17 @@
 ///|
 const WEB_EVENT_QUEUE_CAPACITY : Int = 4096
 
+// Keep in sync with moon.mod pins: colmugx/posoco, colmugx/cetas-core, colmugx/cetas-web.
+
+///|
+const POSOCO_VERSION : String = "0.21.1"
+
+///|
+const CETAS_VERSION : String = "0.2.0"
+
+///|
+const WEB_VERSION : String = "0.1.0"
+
 ///|
 async fn drain_web_events(
   queue : @aqueue.Queue[String],
@@ -128,6 +139,13 @@ async fn main {
     let api = @moonback.App(ctx => {
       ctx.get("/health", (_req, res) => {
         res.send_json({ "status": "ok", "host": "cetas-web", "protocol": "0.1" })
+      })
+      ctx.get("/versions", (_req, res) => {
+        res.send_json({
+          "posoco": POSOCO_VERSION,
+          "cetas": CETAS_VERSION,
+          "web": WEB_VERSION,
+        })
       })
       ctx.get("/runtime", (_req, res) => {
         match boot {

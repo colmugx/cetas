@@ -45,6 +45,12 @@ export type ModelCatalog = {
   slots: ModelSlot[];
 };
 
+export type Versions = {
+  posoco: string;
+  cetas: string;
+  web: string;
+};
+
 async function readJson<T>(
   path: string,
   label: string,
@@ -79,6 +85,10 @@ async function postJson<T>(
 
 export function probeHealth(signal?: AbortSignal): Promise<Health> {
   return readJson<Health>("/api/health", "health probe", signal);
+}
+
+export function probeVersions(): Promise<Versions> {
+  return readJson<Versions>("/api/versions", "version probe");
 }
 
 export function probeRuntime(signal?: AbortSignal): Promise<RuntimeSnapshot> {

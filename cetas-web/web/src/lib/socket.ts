@@ -1,5 +1,4 @@
-import { createEffect, createSignal, onCleanup } from "solid-js";
-import { websocketUrl } from "./client";
+import { websocketUrl } from "./api";
 
 export type ServerEvent = {
   type: string;
@@ -10,18 +9,26 @@ export type ServerEvent = {
   [key: string]: unknown;
 };
 
+export type RealtimeState = "connecting" | "online" | "offline";
+
 export type RealtimeClient = {
-  state: () => "connecting" | "online" | "offline";
+  readonly state: RealtimeState;
   send: (message: Record<string, unknown>) => boolean;
   onEvent: (handler: (event: ServerEvent) => void) => () => void;
 };
 
-export function createRealtimeClient(): RealtimeClient {
-  const [state, setState] = createSignal<"connecting" | "online" | "offline">(
-    "connecting",
-  );
+export function createRealtimeClient(
+  onStateChange: (state: RealtimeState) => void,
+): RealtimeClient {
   const handlers = new Set<(event: ServerEvent) => void>();
+  let state: RealtimeState = "connecting";
   let socket: WebSocket | undefined;
+
+  const setState = (next: RealtimeState) => {
+    if (state === next) return;
+    state = next;
+    onStateChange(next);
+  };
 
   const connect = () => {
     setState("connecting");
@@ -37,8 +44,7 @@ export function createRealtimeClient(): RealtimeClient {
         const event = JSON.parse(String(message.data)) as ServerEvent;
         handlers.forEach((handler) => handler(event));
       } catch {
-        // Protocol parse errors are surfaced by the server. Ignore malformed
-        // network payloads rather than letting one frame kill the app shell.
+        // One malformed frame must not kill the app shell.
       }
     });
 
@@ -46,11 +52,12 @@ export function createRealtimeClient(): RealtimeClient {
     socket.addEventListener("error", () => setState("offline"));
   };
 
-  createEffect(() => null, () => connect());
-  onCleanup(() => socket?.close());
+  connect();
 
-  const api: RealtimeClient = {
-    state,
+  return {
+    get state() {
+      return state;
+    },
     send(message) {
       if (!socket || socket.readyState !== WebSocket.OPEN) return false;
       socket.send(JSON.stringify(message));
@@ -61,6 +68,4 @@ export function createRealtimeClient(): RealtimeClient {
       return () => handlers.delete(handler);
     },
   };
-
-  return api;
 }

@@ -112,6 +112,7 @@ The day-1 shell has Chat, Workspace, and Settings routes. Chat shows the real co
 
 ```text
 GET  /api/health
+GET  /api/versions        posoco / cetas / web versions
 GET  /api/runtime          ready state incl. active model, effort, permission
 GET  /api/sessions         persisted sessions for this cwd bucket
 POST /api/session          {id?} switch to id, or mint a new session

@@ -1,0 +1,13 @@
+node_modules
+
+/web/dist
+/web/.svelte-kit
+/web/build
+
+.DS_Store
+.env
+.env.*
+!.env.example
+
+web/vite.config.js.timestamp-*
+web/vite.config.ts.timestamp-*

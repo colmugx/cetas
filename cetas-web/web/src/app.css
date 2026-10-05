@@ -11,6 +11,18 @@
   --animate-caret: caret 1.1s steps(2, start) infinite;
   --animate-breathe: breathe 1.8s ease-in-out infinite;
   --animate-rise: rise 0.28s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  --animate-pop: pop 0.16s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* Semantic colors resolve through theme-scoped variables so every utility
