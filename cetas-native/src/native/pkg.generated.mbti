@@ -20,6 +20,8 @@ pub fn headless_scene_probe(FixedArray[UInt], UInt, FixedArray[UInt], UInt, Byte
 
 pub fn inline_probe(UInt) -> UInt
 
+pub fn insert_before_markdown(RawTui, Bytes, UInt) -> Int
+
 pub fn insert_before_text(RawTui, Bytes, UInt) -> Int
 
 pub fn is_null(RawTui) -> UInt

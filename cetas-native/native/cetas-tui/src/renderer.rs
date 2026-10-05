@@ -6,7 +6,7 @@ use crate::{
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Position, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::widgets::{Block, Clear, Paragraph, Widget};
+use ratatui::widgets::{Block, Clear, List, ListItem, ListState, Paragraph, StatefulWidget, Widget, Wrap};
 use std::slice;
 
 const COMMAND_WORDS: usize = 8;
@@ -25,6 +25,15 @@ enum DrawCommand<'a> {
         area: Rect,
         title: &'a str,
         style_ref: u32,
+    },
+    List {
+        area: Rect,
+        text: &'a str,
+        selected: Option<usize>,
+    },
+    Markdown {
+        area: Rect,
+        text: &'a str,
     },
 }
 
@@ -195,6 +204,46 @@ fn decode_commands<'a>(
                     style_ref: flags,
                 });
             }
+            5 => {
+                let Some(end) = text_offset.checked_add(text_len) else {
+                    return Err(CTUI_STATUS_MALFORMED_COMMAND);
+                };
+                let Some(raw_text) = text_bytes.get(text_offset..end) else {
+                    return Err(CTUI_STATUS_MALFORMED_COMMAND);
+                };
+                let Ok(text) = std::str::from_utf8(raw_text) else {
+                    return Err(CTUI_STATUS_MALFORMED_COMMAND);
+                };
+                let selected = if flags == 0 {
+                    None
+                } else {
+                    Some((flags - 1) as usize)
+                };
+                let item_count = if text.is_empty() { 0 } else { text.lines().count() };
+                if selected.is_some_and(|index| index >= item_count) {
+                    return Err(CTUI_STATUS_MALFORMED_COMMAND);
+                }
+                out.push(DrawCommand::List {
+                    area,
+                    text,
+                    selected,
+                });
+            }
+            6 => {
+                if flags != 0 {
+                    return Err(CTUI_STATUS_MALFORMED_COMMAND);
+                }
+                let Some(end) = text_offset.checked_add(text_len) else {
+                    return Err(CTUI_STATUS_MALFORMED_COMMAND);
+                };
+                let Some(raw_text) = text_bytes.get(text_offset..end) else {
+                    return Err(CTUI_STATUS_MALFORMED_COMMAND);
+                };
+                let Ok(text) = std::str::from_utf8(raw_text) else {
+                    return Err(CTUI_STATUS_MALFORMED_COMMAND);
+                };
+                out.push(DrawCommand::Markdown { area, text });
+            }
             _ => return Err(CTUI_STATUS_MALFORMED_COMMAND),
         }
     }
@@ -243,6 +292,27 @@ fn render_to_buffer(
                     .border_style(style)
                     .render(*area, buffer);
             }
+            DrawCommand::List {
+                area,
+                text,
+                selected,
+            } => {
+                let items: Vec<ListItem<'_>> = if text.is_empty() {
+                    Vec::new()
+                } else {
+                    text.lines().map(ListItem::new).collect()
+                };
+                let list = List::new(items)
+                    .highlight_symbol("> ")
+                    .highlight_style(Style::new().add_modifier(Modifier::REVERSED));
+                let mut state = ListState::default().with_selected(*selected);
+                StatefulWidget::render(list, *area, buffer, &mut state);
+            }
+            DrawCommand::Markdown { area, text } => {
+                Paragraph::new(tui_markdown::from_str(text))
+                    .wrap(Wrap { trim: false })
+                    .render(*area, buffer);
+            }
         }
     }
     Ok(())
@@ -262,7 +332,8 @@ fn decode_scene<'a>(
             | DrawCommand::Border { style_ref, .. } => {
                 let _ = command_style(*style_ref, &styles)?;
             }
-            _ => {}
+            DrawCommand::Markdown { .. } | DrawCommand::List { .. }
+            | DrawCommand::Clear { .. } | DrawCommand::Cursor { .. } => {}
         }
     }
 
@@ -451,6 +522,29 @@ pub extern "C" fn ctui_render_scene(
                         *area,
                     );
                 }
+                DrawCommand::List {
+                    area,
+                    text,
+                    selected,
+                } => {
+                    let items: Vec<ListItem<'_>> = if text.is_empty() {
+                        Vec::new()
+                    } else {
+                        text.lines().map(ListItem::new).collect()
+                    };
+                    let list = List::new(items)
+                        .highlight_symbol("> ")
+                        .highlight_style(Style::new().add_modifier(Modifier::REVERSED));
+                    let mut state = ListState::default().with_selected(*selected);
+                    frame.render_stateful_widget(list, *area, &mut state);
+                }
+                DrawCommand::Markdown { area, text } => {
+                    frame.render_widget(
+                        Paragraph::new(tui_markdown::from_str(text))
+                            .wrap(Wrap { trim: false }),
+                        *area,
+                    );
+                }
             }
         }
     }) {
@@ -521,6 +615,41 @@ mod tests {
         assert_eq!(buffer[(0, 0)].symbol(), "┌");
         assert_eq!(buffer[(1, 0)].symbol(), "c");
         assert_eq!(buffer[(0, 0)].fg, Color::Rgb(10, 200, 100));
+    }
+
+    #[test]
+    fn renders_stateful_list_selection() {
+        let text = b"first\nsecond\nthird";
+        let words = [5u32, 0, 0, 16, 3, 0, text.len() as u32, 2];
+        let (commands, styles) = decode_scene(&words, &[], text).unwrap();
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 16, 3));
+        render_to_buffer(&mut buffer, &commands, &styles).unwrap();
+
+        assert_eq!(buffer[(0, 1)].symbol(), ">");
+        assert_eq!(buffer[(2, 1)].symbol(), "s");
+        assert!(buffer[(2, 1)].modifier.contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn renders_markdown_command_with_semantic_style() {
+        let text = b"**bold**";
+        let words = [6u32, 0, 0, 16, 2, 0, text.len() as u32, 0];
+        let (commands, styles) = decode_scene(&words, &[], text).unwrap();
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 16, 2));
+        render_to_buffer(&mut buffer, &commands, &styles).unwrap();
+
+        assert_eq!(buffer[(0, 0)].symbol(), "b");
+        assert!(buffer[(0, 0)].modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn rejects_out_of_range_list_selection() {
+        let text = b"first\nsecond";
+        let words = [5u32, 0, 0, 16, 2, 0, text.len() as u32, 3];
+        assert_eq!(
+            decode_scene(&words, &[], text).unwrap_err(),
+            CTUI_STATUS_MALFORMED_COMMAND
+        );
     }
 
     #[test]

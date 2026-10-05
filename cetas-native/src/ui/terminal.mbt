@@ -81,6 +81,23 @@ pub fn Terminal::insert_before(self : Terminal, text : String) -> Int {
 }
 
 ///|
+pub fn Terminal::insert_before_markdown(
+  self : Terminal,
+  text : String,
+) -> Int {
+  let bytes = @utf8.encode(text)
+  match self.raw {
+    Some(raw) =>
+      @native.insert_before_markdown(
+        raw,
+        bytes,
+        bytes.length().reinterpret_as_uint(),
+      )
+    None => 2
+  }
+}
+
+///|
 pub fn Terminal::viewport_size(self : Terminal) -> (Int, FixedArray[UInt]) {
   let out : FixedArray[UInt] = FixedArray::make(2, 0U)
   let status = match self.raw {

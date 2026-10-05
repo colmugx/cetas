@@ -222,6 +222,70 @@ pub fn SceneBuilder::border(
 }
 
 ///|
+///|
+/// Render Markdown through the same tui-markdown -> Ratatui Text path used
+/// by finalized assistant scrollback. MoonBit continues to own transcript
+/// identity and lifecycle; Rust only owns presentation.
+fn SceneBuilder::markdown(
+  self : SceneBuilder,
+  x : UInt,
+  y : UInt,
+  width : UInt,
+  height : UInt,
+  text : Bytes,
+) -> Unit {
+  let offset = self.append_text(text)
+  self.push_command(
+    6U,
+    x,
+    y,
+    width,
+    height,
+    offset,
+    text.length().reinterpret_as_uint(),
+    0U,
+  )
+}
+
+///|
+/// Render a semantic selection list through Ratatui's stateful List widget.
+///
+/// The scene keeps application state in MoonBit: `selected` is encoded as a
+/// one-based command flag only for this frame; Rust owns viewport scrolling
+/// and highlight presentation, not selection policy.
+pub fn SceneBuilder::select_list(
+  self : SceneBuilder,
+  x : UInt,
+  y : UInt,
+  width : UInt,
+  height : UInt,
+  items : Array[String],
+  selected : Int,
+) -> Unit {
+  if height == 0U || items.is_empty() {
+    return
+  }
+  let joined = items[:].join("\n")
+  let bytes = @utf8.encode(joined)
+  let offset = self.append_text(bytes)
+  let selected_flag = if selected >= 0 && selected < items.length() {
+    selected.reinterpret_as_uint() + 1U
+  } else {
+    0U
+  }
+  self.push_command(
+    5U,
+    x,
+    y,
+    width,
+    height,
+    offset,
+    bytes.length().reinterpret_as_uint(),
+    selected_flag,
+  )
+}
+
+///|
 pub fn SceneBuilder::finish(self : SceneBuilder) -> Scene {
   {
     words: FixedArray::makei(self.words.length(), i => self.words[i]),

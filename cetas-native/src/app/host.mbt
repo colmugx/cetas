@@ -36,14 +36,28 @@ pub fn NativeSessionState::adopt_redirect(
 }
 
 ///|
+fn NativeSessionState::switch_to(
+  self : NativeSessionState,
+  to : String,
+) -> Bool {
+  if to.is_empty() {
+    return false
+  }
+  self.session_id = to
+  true
+}
+
+///|
 pub struct NativeHost {
   agent : @posoco.Agent
   shell : NativeShell
   store : &@posoco.SessionStore
   session : NativeSessionState
   session_root : String?
-  active_model : String
-  active_effort : String?
+  workspace_files : Array[String]
+  mut skill_completion_items : Array[@ui.SelectItem]
+  mut active_model : String
+  mut active_effort : String?
 }
 
 ///|
@@ -54,6 +68,8 @@ fn NativeHost::from_parts(
   session_id : String,
   session_root? : String? = None,
   session_state? : NativeSessionState? = None,
+  workspace_files? : Array[String] = [],
+  skill_completion_items? : Array[@ui.SelectItem] = [],
   active_model? : String = "",
   active_effort? : String? = None,
 ) -> NativeHost {
@@ -61,7 +77,17 @@ fn NativeHost::from_parts(
     Some(value) => value
     None => NativeSessionState::new(session_id)
   }
-  { agent, shell, store, session, session_root, active_model, active_effort, }
+  {
+    agent,
+    shell,
+    store,
+    session,
+    session_root,
+    workspace_files,
+    skill_completion_items,
+    active_model,
+    active_effort,
+  }
 }
 
 ///|
@@ -89,6 +115,8 @@ pub async fn NativeHost::compose(
     None => @workspace.NativeWorkspaceFs()
   }
 
+  let workspace_files = native_workspace_file_index(fs, cwd)
+
   let platform = @cetas_core.build_cetas_platform(
     home~,
     cwd~,
@@ -114,30 +142,63 @@ pub async fn NativeHost::compose(
     ctx={ fs, cwd, home, },
     nmem_group=mcp_group,
   )
+  let event_bus = @devkit.EventBus()
   let session = @cetas_core.build_cetas_session(
     platform~,
     cwd~,
     approval~,
     ui~,
+    event_bus=Some(event_bus),
+    bus_exts=Some(fn(bus) {
+      [
+        @statusbar.StatusBar(bus=Some(bus)) as &@posoco.Extension,
+        @stats.Stats(bus=Some(bus)) as &@posoco.Extension,
+      ]
+    }),
     feature_exts~,
     label="cetas",
     warn~,
   )
-  let host_exts : Array[&@posoco.Extension] = [observer as &@posoco.Extension]
+  let subagent_observers : Array[(@subagent_kit.SubagentEvent) -> Unit] = []
+  match ui {
+    Some(port) =>
+      subagent_observers.push(fn(event) {
+        render_native_subagent_event(port, event)
+      })
+    None => ()
+  }
+  let subagents = build_cetas_subagents(
+    parent_router=session.router,
+    parent_mode=fn() { session.permission.mode() },
+    approval~,
+    ui~,
+    observers=subagent_observers,
+    context_fs=fs,
+    feature_fs=fs,
+    cwd~,
+    home~,
+  )
+  let host_exts : Array[&@posoco.Extension] = [
+    observer as &@posoco.Extension,
+    subagents,
+  ]
   for extension in tail_exts {
     host_exts.push(extension)
   }
   let agent = @cetas_core.compose_cetas_agent(session~, tail_exts=host_exts)
-  NativeHost::from_parts(
+  let host = NativeHost::from_parts(
     agent,
     shell,
     session.session_store as &@posoco.SessionStore,
     sid,
     session_root=Some(session.session_store.root_dir),
     session_state=Some(session_state),
+    workspace_files~,
     active_model=session.router.active_slot_id(),
     active_effort=session.router.active_effort(),
   )
+  host.refresh_skill_completion_cache()
+  host
 }
 
 ///|
@@ -194,6 +255,87 @@ pub fn NativeHost::active_effort(self : NativeHost) -> String? {
 }
 
 ///|
+fn NativeHost::switch_session(
+  self : NativeHost,
+  session_id : String,
+) -> Result[Unit, String] {
+  match @fs_session.validate_session_id(session_id) {
+    Err(reason) => Err(reason)
+    Ok(_) =>
+      if self.session.switch_to(session_id) {
+        Ok(())
+      } else {
+        Err("session id must not be empty")
+      }
+  }
+}
+
+///|
+fn NativeHost::session_catalog(self : NativeHost) -> @posoco.CommandOutcome {
+  guard self.session_root is Some(root) else {
+    return @posoco.CommandOutcome::Failure(
+      reason="native session directory is unavailable",
+    )
+  }
+  let names = if @xfs.path_exists(root) {
+    @xfs.read_dir(root) catch {
+      @xfs.IOError::IOError(detail) =>
+        return @posoco.CommandOutcome::Failure(
+          reason="failed to list sessions: " + detail,
+        )
+    }
+  } else {
+    []
+  }
+  let ids : Array[String] = []
+  for name in names {
+    if !name.has_suffix(".jsonl") || name.length() <= 6 {
+      continue
+    }
+    let path = if root.has_suffix("/") { root + name } else { root + "/" + name }
+    let is_file = @xfs.is_file(path) catch { _ => false }
+    if !is_file {
+      continue
+    }
+    let id = name[:name.length() - 6].to_owned()
+    match @fs_session.validate_session_id(id) {
+      Ok(_) => ids.push(id)
+      Err(_) => ()
+    }
+  }
+  // Cetas-native session ids are clock-minted, so descending id order is
+  // newest-first. Custom validator-clean ids remain deterministic.
+  ids.sort()
+  let entries : Array[Json] = []
+  let current = self.session_id()
+  let mut index = ids.length() - 1
+  while index >= 0 {
+    let id = ids[index]
+    entries.push(
+      Json::object(
+        Map::from_array([
+          ("id", Json::string(id)),
+          ("current", Json::boolean(id == current)),
+        ]),
+      ),
+    )
+    index -= 1
+  }
+  @posoco.CommandOutcome::Success(
+    feedback=ids.length().to_string() + " sessions",
+    structured=Some(
+      Json::object(
+        Map::from_array([
+          ("kind", Json::string("session_catalog")),
+          ("sessions", Json::array(entries)),
+        ]),
+      ),
+    ),
+    ui_hint=None,
+  )
+}
+
+///|
 /// Start one fresh user turn. The user echo is committed before Posoco emits
 /// TurnStarted; all later assistant/tool state arrives through the typed
 /// NativeShellObserver installed during composition.
@@ -201,7 +343,16 @@ pub async fn NativeHost::run_text_turn(
   self : NativeHost,
   prompt : String,
 ) -> @posoco.TurnResult raise @posoco.AgentError {
-  ignore(self.shell.append_user(prompt))
+  self.run_text_turn_with_echo(prompt, prompt)
+}
+
+///|
+pub async fn NativeHost::run_text_turn_with_echo(
+  self : NativeHost,
+  prompt : String,
+  display_prompt : String,
+) -> @posoco.TurnResult raise @posoco.AgentError {
+  ignore(self.shell.append_user(display_prompt))
   self.agent.run_turn(
     @posoco.Message::UserMessage(content=[@posoco.Content::Text(prompt)]),
     self.session.session_id(),

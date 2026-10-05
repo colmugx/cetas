@@ -13,17 +13,21 @@ struct ActiveUiRequest {
 ///|
 pub struct NativeUiController {
   ui : NativeUiPort
+  renders : NativeUiRenderModel
   mut active : ActiveUiRequest?
 }
 
 ///|
 pub fn NativeUiController::new(ui : NativeUiPort) -> NativeUiController {
-  { ui, active: None, }
+  { ui, renders: NativeUiRenderModel::new(), active: None, }
 }
 
 ///|
 /// Pull at most one queued request into focus. False means no request is active.
 pub fn NativeUiController::pump(self : NativeUiController) -> Bool {
+  while self.ui.take_render() is Some(intent) {
+    self.renders.apply(intent)
+  }
   if self.active is Some(_) {
     return true
   }
@@ -57,6 +61,11 @@ pub fn NativeUiController::close(self : NativeUiController) -> Unit {
 }
 
 ///|
+pub fn NativeUiController::auth_ui(self : NativeUiController) -> NativeAuthUi {
+  NativeAuthUi::new(self.ui)
+}
+
+///|
 pub fn NativeUiController::is_active(self : NativeUiController) -> Bool {
   self.active is Some(_)
 }
@@ -85,8 +94,9 @@ pub fn NativeUiController::active_input_text(
 ) -> String? {
   match self.active {
     Some(active) =>
-      if active.panel.kind() == UiPanelInput {
-        Some(active.panel.input_text())
+      if active.panel.kind() == UiPanelInput ||
+        active.panel.kind() == UiPanelSecretInput {
+        Some(active.panel.display_input_text())
       } else {
         None
       }
@@ -100,7 +110,8 @@ pub fn NativeUiController::active_selected_index(
 ) -> Int? {
   match self.active {
     Some(active) =>
-      if active.panel.kind() == UiPanelInput {
+      if active.panel.kind() == UiPanelInput ||
+        active.panel.kind() == UiPanelSecretInput {
         None
       } else {
         Some(active.panel.selected_index())
@@ -117,6 +128,21 @@ pub fn NativeUiController::active_option_count(
     Some(active) => active.panel.option_count()
     None => 0
   }
+}
+
+///|
+pub fn NativeUiController::render_line_count(
+  self : NativeUiController,
+) -> Int {
+  self.renders.line_count()
+}
+
+///|
+pub fn NativeUiController::render_line(
+  self : NativeUiController,
+  index : Int,
+) -> String? {
+  self.renders.line(index)
 }
 
 ///|

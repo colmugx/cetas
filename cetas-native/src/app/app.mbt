@@ -20,8 +20,11 @@ pub struct NativeShell {
   tools : @ui.ToolStreamingModel
   mut pending_tool_rows : Map[Int, Int]
   mut tool_rows : Map[String, Int]
+  mut tool_names : Map[String, String]
+  mut tool_args : Map[String, String]
   queued_prompt_rows : Array[Int]
   mut interrupt_requested : Bool
+  mut thinking_expanded : Bool
   mut tool_output_expanded : Bool
   mut finalized_operations : Int
   mut termination_notices : Int
@@ -35,8 +38,11 @@ pub fn NativeShell::new() -> NativeShell {
     tools: @ui.ToolStreamingModel::new(),
     pending_tool_rows: Map::from_array([]),
     tool_rows: Map::from_array([]),
+    tool_names: Map::from_array([]),
+    tool_args: Map::from_array([]),
     queued_prompt_rows: [],
     interrupt_requested: false,
+    thinking_expanded: false,
     tool_output_expanded: false,
     finalized_operations: 0,
     termination_notices: 0,
@@ -65,6 +71,8 @@ pub fn NativeShell::begin_turn(self : NativeShell) -> Unit {
   self.tools.end_turn()
   self.pending_tool_rows = Map::from_array([])
   self.tool_rows = Map::from_array([])
+  self.tool_names = Map::from_array([])
+  self.tool_args = Map::from_array([])
   self.promote_queued_prompt()
   self.transcript.begin_turn()
   self.status = ShellWorking("thinking")
@@ -118,6 +126,17 @@ pub fn NativeShell::interrupt_requested(self : NativeShell) -> Bool {
 }
 
 ///|
+pub fn NativeShell::thinking_expanded(self : NativeShell) -> Bool {
+  self.thinking_expanded
+}
+
+///|
+pub fn NativeShell::toggle_thinking_expanded(self : NativeShell) -> Bool {
+  self.thinking_expanded = !self.thinking_expanded
+  self.thinking_expanded
+}
+
+///|
 /// Persistent ctrl+o state. Like cetas-js, this survives turn boundaries so
 /// newly created tool rows can inherit the current presentation preference.
 pub fn NativeShell::tool_output_expanded(self : NativeShell) -> Bool {
@@ -127,6 +146,19 @@ pub fn NativeShell::tool_output_expanded(self : NativeShell) -> Bool {
 ///|
 pub fn NativeShell::toggle_tool_output_expanded(self : NativeShell) -> Bool {
   self.tool_output_expanded = !self.tool_output_expanded
+  for call_id, row_id in self.tool_rows {
+    guard self.tool_names.get(call_id) is Some(name) else { continue }
+    let args = match self.tool_args.get(call_id) {
+      Some(value) => value
+      None => ""
+    }
+    ignore(
+      self.transcript.update_row(
+        row_id,
+        tool_call_view(name, args, self.tool_output_expanded),
+      ),
+    )
+  }
   self.tool_output_expanded
 }
 
@@ -136,6 +168,8 @@ fn NativeShell::finish_interrupted_turn(self : NativeShell) -> Unit {
   self.tools.end_turn()
   self.transcript.end_turn()
   self.tool_rows = Map::from_array([])
+  self.tool_names = Map::from_array([])
+  self.tool_args = Map::from_array([])
   self.promote_all_queued_prompts()
   ignore(
     self.transcript.append_finalized(@ui.TranscriptSystem, "⏹ interrupted"),
@@ -260,16 +294,66 @@ pub fn NativeShell::message_end(
 }
 
 ///|
-fn tool_live_text(name : String?, args : String) -> String {
-  let label = match name {
-    Some(value) if !value.is_empty() => value
-    _ => "tool"
+fn preview_lines(text : String, max_lines : Int) -> String {
+  if text.is_empty() {
+    return ""
   }
-  if args.is_empty() {
-    "● " + label
+  let lines : Array[String] = []
+  for line in text.split("\n") {
+    lines.push(line.to_owned())
+  }
+  if lines.length() <= max_lines {
+    return text
+  }
+  let kept : Array[String] = []
+  for index in 0..<max_lines {
+    kept.push(lines[index])
+  }
+  kept.join("\n") +
+    "\n… (+" +
+    (lines.length() - max_lines).to_string() +
+    " lines)"
+}
+
+///|
+fn one_line_preview(text : String, max_chars : Int) -> String {
+  let lines : Array[String] = []
+  for line in text.split("\n") {
+    lines.push(line.to_owned())
+  }
+  let flat = lines.join(" ")
+  if flat.length() <= max_chars {
+    flat
   } else {
-    "● " + label + " " + args
+    flat[:max_chars].to_owned() + "…"
   }
+}
+
+///|
+fn tool_call_view(name : String, args : String, expanded : Bool) -> String {
+  if args.is_empty() {
+    return "● " + name
+  }
+  if expanded {
+    "● " + name + "\n      " + preview_lines(args, 50)
+  } else {
+    "● " + name + " " + one_line_preview(args, 200)
+  }
+}
+
+///|
+fn tool_result_view(
+  name : String,
+  result : String,
+  is_error : Bool,
+  expanded : Bool,
+) -> String {
+  let head = (if is_error { "✗ " } else { "✓ " }) + name
+  if result.is_empty() {
+    return head
+  }
+  let body = preview_lines(result, if expanded { 50 } else { 3 })
+  head + "\n      " + body
 }
 
 ///|
@@ -283,7 +367,11 @@ pub fn NativeShell::tool_args_delta(
   delta : String?,
 ) -> Unit {
   let pending = self.tools.on_args_delta(index, id, name, delta)
-  let text = tool_live_text(pending.name, pending.raw_args)
+  let label = match pending.name {
+    Some(value) if !value.is_empty() => value
+    _ => "tool"
+  }
+  let text = tool_call_view(label, pending.raw_args, self.tool_output_expanded)
 
   match self.pending_tool_rows.get(pending.slot) {
     Some(row_id) => ignore(self.transcript.update_row(row_id, text))
@@ -315,7 +403,11 @@ pub fn NativeShell::tool_call_started(
           ignore(
             self.transcript.update_row(
               existing,
-              tool_live_text(Some(tool_name), authoritative_args),
+              tool_call_view(
+                tool_name,
+                authoritative_args,
+                self.tool_output_expanded,
+              ),
             ),
           )
           existing
@@ -323,17 +415,27 @@ pub fn NativeShell::tool_call_started(
         None =>
           self.transcript.append_live(
             @ui.TranscriptTool,
-            tool_live_text(Some(tool_name), authoritative_args),
+            tool_call_view(
+              tool_name,
+              authoritative_args,
+              self.tool_output_expanded,
+            ),
           )
       }
     None =>
       self.transcript.append_live(
         @ui.TranscriptTool,
-        tool_live_text(Some(tool_name), authoritative_args),
+        tool_call_view(
+          tool_name,
+          authoritative_args,
+          self.tool_output_expanded,
+        ),
       )
   }
 
   self.tool_rows[tool_call_id] = row_id
+  self.tool_names[tool_call_id] = tool_name
+  self.tool_args[tool_call_id] = authoritative_args
   self.status = ShellWorking("running " + tool_name)
 }
 
@@ -346,8 +448,16 @@ pub fn NativeShell::tool_call_completed(
 ) -> Unit {
   match self.tool_rows.get(tool_call_id) {
     Some(row_id) => {
-      let prefix = if is_error { "✗ " } else { "✓ " }
-      ignore(self.transcript.update_row(row_id, prefix + result))
+      let name = match self.tool_names.get(tool_call_id) {
+        Some(value) => value
+        None => "tool"
+      }
+      ignore(
+        self.transcript.update_row(
+          row_id,
+          tool_result_view(name, result, is_error, self.tool_output_expanded),
+        ),
+      )
       ignore(self.transcript.finalize(row_id))
     }
     None => ()
@@ -373,6 +483,8 @@ pub fn NativeShell::end_turn(self : NativeShell) -> Unit {
   self.tools.end_turn()
   self.transcript.end_turn()
   self.tool_rows = Map::from_array([])
+  self.tool_names = Map::from_array([])
+  self.tool_args = Map::from_array([])
   self.status = ShellIdle
 }
 
@@ -387,6 +499,8 @@ pub fn NativeShell::fail_turn(self : NativeShell, message : String) -> Unit {
   self.tools.end_turn()
   self.transcript.end_turn()
   self.tool_rows = Map::from_array([])
+  self.tool_names = Map::from_array([])
+  self.tool_args = Map::from_array([])
   self.promote_all_queued_prompts()
   ignore(self.transcript.append_finalized(@ui.TranscriptError, message))
   // Match cetas-js EventRouter: the error is durable transcript state, while
@@ -409,7 +523,54 @@ pub fn NativeShell::append_live_scene(
   y : UInt,
   width : UInt,
 ) -> UInt {
-  self.transcript.append_live_scene(builder, x, y, width)
+  self.transcript.append_live_scene_with_thinking(
+    builder,
+    x,
+    y,
+    width,
+    self.thinking_expanded,
+  )
+}
+
+///|
+pub fn NativeShell::append_live_block_scene(
+  self : NativeShell,
+  builder : @ui.SceneBuilder,
+  x : UInt,
+  y : UInt,
+  width : UInt,
+  height : UInt,
+) -> Unit {
+  self.transcript.append_live_block_scene_with_thinking(
+    builder,
+    x,
+    y,
+    width,
+    height,
+    self.thinking_expanded,
+  )
+}
+
+///|
+pub fn NativeShell::scrollback_text(
+  self : NativeShell,
+  row : @ui.TranscriptRowSnapshot,
+) -> String {
+  if row.kind == @ui.TranscriptThinking {
+    let body = if self.thinking_expanded {
+      row.text
+    } else {
+      preview_lines(row.text, 3)
+    }
+    let lines = row.text.split("\n").fold(init=0, fn(count, _) { count + 1 })
+    "💭 thought · " +
+      lines.to_string() +
+      " lines · ctrl+t " +
+      (if self.thinking_expanded { "收起" } else { "展开" }) +
+      (if body.is_empty() { "" } else { "\n" + body })
+  } else {
+    row.scrollback_text()
+  }
 }
 
 ///|
@@ -432,7 +593,7 @@ pub fn validation_marker() -> Int {
   if shell.status() != ShellIdle ||
     shell.transcript().row_count() != 3 ||
     shell.transcript().row(2).kind != @ui.TranscriptTool ||
-    shell.transcript().row(2).text != "✓ wrote a" ||
+    shell.transcript().row(2).text != "✓ write\n      wrote a" ||
     !shell.transcript().row(2).finalized {
     return 0
   }
@@ -538,7 +699,15 @@ pub fn validation_marker() -> Int {
     return 0
   }
 
-  // Tool expansion is shell-owned and persists across turns.
+  // Thinking/tool expansion state is shell-owned and persists across turns.
+  if shell.thinking_expanded() ||
+    !shell.toggle_thinking_expanded() ||
+    !shell.thinking_expanded() ||
+    shell.toggle_thinking_expanded() ||
+    shell.thinking_expanded() {
+    return 0
+  }
+
   if shell.tool_output_expanded() ||
     !shell.toggle_tool_output_expanded() ||
     !shell.tool_output_expanded() {
@@ -565,6 +734,9 @@ pub fn validation_marker() -> Int {
     return 0
   }
   if command_lock_validation_marker() != 1 {
+    return 0
+  }
+  if autocomplete_validation_marker() != 1 {
     return 0
   }
   if runtime_validation_marker() != 1 {

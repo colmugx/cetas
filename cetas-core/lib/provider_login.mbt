@@ -395,3 +395,299 @@ pub fn login_outcome_json(outcome : LoginOutcome) -> String {
     ]),
   ).stringify()
 }
+
+///|
+/// Provider-neutral interactive login flow shared by native hosts.
+///
+/// The caller owns presentation through AuthInteraction/AuthPromptInteraction
+/// and supplies a device-id mint callback. Cetas-core owns provider/method
+/// discovery, credential persistence, catalog refresh/cache, and initial model
+/// selection so every host observes one login contract.
+pub async fn run_provider_login_flow(
+  home~ : String,
+  provider~ : String,
+  fs : &@workspace.WorkspaceFs,
+  interaction : &@oauth.AuthInteraction,
+  prompt : &@oauth.AuthPromptInteraction,
+  mint_device_id : () -> String raise @posoco.CommandError,
+  note? : async (String) -> Unit noraise = fn(_ : String) { () },
+) -> Unit raise @posoco.CommandError {
+  let settings = load_provider_settings(fs, home~, label="cetas.login") catch {
+    _ =>
+      raise @posoco.CommandError::ExecutionFailed(
+        "Cannot read login provider settings",
+      )
+  }
+  let factories = all_provider_factories(
+    @devkit.ExtContext::default(),
+    settings,
+  )
+  validate_provider_settings(settings, factories) catch {
+    _ =>
+      raise @posoco.CommandError::ExecutionFailed(
+        "Invalid login provider settings",
+      )
+  }
+  let active = read_active_model_selection(fs, home~) catch {
+    _ =>
+      raise @posoco.CommandError::ExecutionFailed(
+        "Cannot read persisted model selection",
+      )
+  }
+
+  let provider_ids : Array[String] = []
+  let provider_methods : Array[Array[String]] = []
+  let add_method = fn(id : String, auth_method : String) {
+    let mut found = -1
+    for index in 0..<provider_ids.length() {
+      if provider_ids[index] == id {
+        found = index
+        break
+      }
+    }
+    if found < 0 {
+      provider_ids.push(id)
+      provider_methods.push([auth_method])
+    } else if !provider_methods[found].contains(auth_method) {
+      provider_methods[found].push(auth_method)
+    }
+  }
+  let ctx = @devkit.ExtContext::default()
+  for factory in all_api_key_factories(ctx, settings) {
+    add_method(factory.provider_id(), "api_key")
+  }
+  for factory in oauth_factories(ctx) {
+    add_method(factory.provider_id(), "oauth")
+  }
+
+  let select = async fn(
+    message : String,
+    options : Array[@oauth.AuthPromptOption],
+  ) -> String raise @posoco.CommandError {
+    if interaction.is_cancelled() {
+      raise @posoco.CommandError::ExecutionFailed("Login cancelled")
+    }
+    let selected = prompt.prompt(
+      @oauth.AuthPromptRequest::Select(message~, options~),
+    ) catch {
+      @oauth.OAuthError::Cancelled =>
+        raise @posoco.CommandError::ExecutionFailed("Login cancelled")
+      _ => raise @posoco.CommandError::ExecutionFailed("Login selection failed")
+    }
+    if interaction.is_cancelled() {
+      raise @posoco.CommandError::ExecutionFailed("Login cancelled")
+    }
+    for option in options {
+      if option.id == selected {
+        return selected
+      }
+    }
+    raise @posoco.CommandError::InvalidArgs(reason="Invalid login selection")
+  }
+
+  let selected_provider = if provider.is_empty() {
+    let options : Array[@oauth.AuthPromptOption] = []
+    for id in provider_ids {
+      options.push(@oauth.AuthPromptOption::AuthPromptOption(id~, label=id))
+    }
+    select("Select login provider", options)
+  } else {
+    provider
+  }
+
+  let methods : Array[String] = []
+  for index in 0..<provider_ids.length() {
+    if provider_ids[index] == selected_provider {
+      methods.append(provider_methods[index])
+      break
+    }
+  }
+  if methods.is_empty() {
+    raise @posoco.CommandError::InvalidArgs(
+      reason="Unknown login provider; select a registered authentication provider",
+    )
+  }
+  let selected_method = if methods.length() == 1 {
+    methods[0]
+  } else {
+    let options : Array[@oauth.AuthPromptOption] = []
+    for auth_method in methods {
+      options.push(
+        @oauth.AuthPromptOption::AuthPromptOption(
+          id=auth_method,
+          label=if auth_method == "oauth" {
+            "OAuth / browser login"
+          } else {
+            "API key"
+          },
+        ),
+      )
+    }
+    select("Select authentication method", options)
+  }
+
+  let device_id = if selected_provider == "kimi" && selected_method == "oauth" {
+    let path = cetas_dir(home) + "/kimi_device_id"
+    match @workspace.read_file_result(fs, path) {
+      @workspace.Content(text) if !text.trim().is_empty() =>
+        text.trim().to_owned()
+      @workspace.Failed(_) =>
+        raise @posoco.CommandError::ExecutionFailed(
+          "Cannot read persistent login device id",
+        )
+      _ => {
+        let id = mint_device_id()
+        fs.mkdir(cetas_dir(home), recursive=true) catch {
+          _ =>
+            raise @posoco.CommandError::ExecutionFailed(
+              "Cannot save persistent login device id",
+            )
+        }
+        fs.write_file_atomic(path, id) catch {
+          _ =>
+            raise @posoco.CommandError::ExecutionFailed(
+              "Cannot save persistent login device id",
+            )
+        }
+        id
+      }
+    }
+  } else {
+    ""
+  }
+
+  let outcome = login_provider(
+    selected_provider,
+    selected_method,
+    settings~,
+    device_id~,
+    interaction,
+    prompt,
+  ) catch {
+    _ =>
+      raise @posoco.CommandError::ExecutionFailed(
+        "Authentication failed or was cancelled; credentials were not saved",
+      )
+  }
+  if interaction.is_cancelled() {
+    raise @posoco.CommandError::ExecutionFailed("Login cancelled")
+  }
+  if outcome.provider_id != selected_provider ||
+    outcome.login_method != selected_method {
+    raise @posoco.CommandError::ExecutionFailed(
+      "Authentication returned an inconsistent provider or method",
+    )
+  }
+
+  let store = @credentials.FileProviderCredentialStore(
+    fs,
+    credentials_path(home),
+  )
+  store.write(selected_provider, outcome.credential) catch {
+    _ =>
+      raise @posoco.CommandError::ExecutionFailed(
+        "Authentication completed, but credentials could not be saved; catalog was not refreshed",
+      )
+  }
+  note("Authentication saved for " + selected_provider)
+
+  let snapshot = read_credential_snapshot(
+    store,
+    factories,
+    settings~,
+    label="cetas.login",
+  ) catch {
+    _ =>
+      raise @posoco.CommandError::ExecutionFailed(
+        "Authentication saved, but credentials could not be reloaded",
+      )
+  }
+
+  let mut catalog : @llm.ProviderModelCatalog? = None
+  let mut refreshable_found = false
+  for factory in refreshable_factories(ctx, device_id~) {
+    if factory.provider_id() == selected_provider {
+      refreshable_found = true
+      catalog = refresh_provider_catalog(factory, snapshot) catch {
+        _ =>
+          raise @posoco.CommandError::ExecutionFailed(
+            "Authentication saved for " +
+            selected_provider +
+            ", but catalog refresh failed; saved credentials were retained",
+          )
+      }
+      break
+    }
+  }
+  if !refreshable_found {
+    for factory in all_provider_factories(ctx, settings) {
+      if factory.provider_id() == selected_provider {
+        catalog = build_provider_catalog(factory, snapshot) catch { _ => None }
+        break
+      }
+    }
+  }
+
+  match catalog {
+    None =>
+      note(
+        "Authentication saved, but no model catalog is available; use /model after configuring this provider",
+      )
+    Some(value) => {
+      write_model_list_cache(
+        fs,
+        home~,
+        selected_provider,
+        catalog_model_records(value),
+      ) catch {
+        _ =>
+          raise @posoco.CommandError::ExecutionFailed(
+            "Authentication saved, but refreshed model catalog could not be cached; saved credentials were retained",
+          )
+      }
+      if active is Some(_) {
+        return
+      }
+      let slots = value.slots()
+      if slots.is_empty() {
+        note("No models were discovered; use /model after login")
+        return
+      }
+      let selected = if slots.length() == 1 {
+        slots[0].id
+      } else {
+        let options : Array[@oauth.AuthPromptOption] = []
+        for slot in slots {
+          options.push(
+            @oauth.AuthPromptOption::AuthPromptOption(
+              id=slot.id,
+              label=slot.label,
+            ),
+          )
+        }
+        select(
+          "Select initial model (authentication is already saved)", options,
+        )
+      }
+      let current = read_active_model_selection(fs, home~) catch {
+        _ =>
+          raise @posoco.CommandError::ExecutionFailed(
+            "Authentication saved, but persisted model selection could not be read",
+          )
+      }
+      if current is None {
+        write_active_model_selection(
+          fs,
+          home~,
+          ActiveModelSelection::ActiveModelSelection(selected),
+        ) catch {
+          _ =>
+            raise @posoco.CommandError::ExecutionFailed(
+              "Authentication saved, but initial model selection could not be saved",
+            )
+        }
+        note("Initial model saved: " + selected)
+      }
+    }
+  }
+}

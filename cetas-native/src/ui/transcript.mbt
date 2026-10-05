@@ -365,6 +365,102 @@ pub fn TranscriptRowSnapshot::scrollback_text(
 ///
 /// Finalized rows are intentionally omitted: after finalization they belong to
 /// the scrollback handoff path and must never be painted in both regions.
+///|
+/// Lower the mutable/live transcript into one bounded Ratatui Paragraph.
+///
+/// The normal product loop reserves the bottom rows for the editor/status and
+/// gives the remaining viewport to this block. Paragraph wrapping then happens
+/// in Rust/Ratatui instead of pretending every streamed answer is one row.
+pub fn TranscriptModel::append_live_block_scene(
+  self : TranscriptModel,
+  builder : SceneBuilder,
+  x : UInt,
+  y : UInt,
+  width : UInt,
+  height : UInt,
+) -> Unit {
+  self.append_live_block_scene_with_thinking(
+    builder,
+    x,
+    y,
+    width,
+    height,
+    false,
+  )
+}
+
+///|
+pub fn TranscriptModel::append_live_block_scene_with_thinking(
+  self : TranscriptModel,
+  builder : SceneBuilder,
+  x : UInt,
+  y : UInt,
+  width : UInt,
+  height : UInt,
+  thinking_expanded : Bool,
+) -> Unit {
+  if height == 0U {
+    return
+  }
+  let lines : Array[String] = []
+  let mut assistant_only = true
+  for row in self.rows {
+    if !row.finalized {
+      let rendered = match row.kind {
+        TranscriptThinking => {
+          assistant_only = false
+          if thinking_expanded {
+            "💭 thinking...\n" + row.text
+          } else {
+            let lines : Array[String] = []
+            for line in row.text.split("\n") {
+              lines.push(line.to_owned())
+            }
+            let start = if lines.length() > 3 { lines.length() - 3 } else { 0 }
+            let preview : Array[String] = []
+            for index in start..<lines.length() {
+              preview.push(lines[index])
+            }
+            "💭 thinking..." +
+              (if preview.is_empty() { "" } else { "\n" + preview.join("\n") })
+          }
+        }
+        TranscriptAssistant => row.text
+        TranscriptTool => {
+          assistant_only = false
+          "● " + row.text
+        }
+        TranscriptUser => {
+          assistant_only = false
+          "> " + row.text
+        }
+        TranscriptQueuedUser => {
+          assistant_only = false
+          "> " + row.text + " · queued"
+        }
+        TranscriptSystem => {
+          assistant_only = false
+          "· " + row.text
+        }
+        TranscriptError => {
+          assistant_only = false
+          "● " + row.text
+        }
+      }
+      lines.push(rendered)
+    }
+  }
+  if !lines.is_empty() {
+    let bytes = @utf8.encode(lines[:].join("\n"))
+    if assistant_only {
+      builder.markdown(x, y, width, height, bytes)
+    } else {
+      builder.text(x, y, width, height, bytes)
+    }
+  }
+}
+
+///|
 pub fn TranscriptModel::append_live_scene(
   self : TranscriptModel,
   builder : SceneBuilder,
@@ -372,11 +468,28 @@ pub fn TranscriptModel::append_live_scene(
   y : UInt,
   width : UInt,
 ) -> UInt {
+  self.append_live_scene_with_thinking(builder, x, y, width, false)
+}
+
+///|
+pub fn TranscriptModel::append_live_scene_with_thinking(
+  self : TranscriptModel,
+  builder : SceneBuilder,
+  x : UInt,
+  y : UInt,
+  width : UInt,
+  thinking_expanded : Bool,
+) -> UInt {
   let mut row_y = y
   for row in self.rows {
     if !row.finalized {
       let rendered = match row.kind {
-        TranscriptThinking => "💭 " + row.text
+        TranscriptThinking =>
+          if thinking_expanded {
+            "💭 thinking... " + row.text
+          } else {
+            "💭 thinking..."
+          }
         TranscriptAssistant => row.text
         TranscriptTool => "● " + row.text
         TranscriptUser => "> " + row.text
@@ -444,7 +557,7 @@ pub fn transcript_validation_marker() -> Int {
   let live_scene = builder.finish()
   if next_y != 3U ||
     live_scene.words.length() != 8 ||
-    live_scene.text != @utf8.encode("💭 streaming") {
+    live_scene.text != @utf8.encode("💭 thinking...") {
     return 0
   }
 

@@ -7,12 +7,30 @@
 ///|
 pub(all) enum UiRequestPanelKind {
   UiPanelInput
+  UiPanelSecretInput
   UiPanelConfirm
   UiPanelSelect
 } derive(Eq)
 
 ///|
 pub extend UiRequestPanelKind with Eq::{equal, not_equal}
+
+///|
+let native_secret_prompt_prefix = "\u{001f}cetas-secret:"
+
+///|
+fn native_secret_prompt(message : String) -> String {
+  native_secret_prompt_prefix + message
+}
+
+///|
+fn decode_native_secret_prompt(prompt : String) -> String? {
+  if prompt.has_prefix(native_secret_prompt_prefix) {
+    Some(prompt[native_secret_prompt_prefix.length():].to_owned())
+  } else {
+    None
+  }
+}
 
 ///|
 pub struct UiRequestPanelModel {
@@ -42,11 +60,19 @@ pub fn UiRequestPanelModel::new(
         Some(text) => editor.set_text(text)
         None => ()
       }
-      {
-        kind: UiPanelInput,
-        prompt,
-        editor,
-        list: @ui.SelectListModel::new([]),
+      match decode_native_secret_prompt(prompt) {
+        Some(clean) => {
+          kind: UiPanelSecretInput,
+          prompt: clean,
+          editor,
+          list: @ui.SelectListModel::new([]),
+        }
+        None => {
+          kind: UiPanelInput,
+          prompt,
+          editor,
+          list: @ui.SelectListModel::new([]),
+        }
       }
     }
     @posoco.UiRequest::Confirm(prompt~) =>
@@ -85,6 +111,20 @@ pub fn UiRequestPanelModel::input_text(self : UiRequestPanelModel) -> String {
 }
 
 ///|
+pub fn UiRequestPanelModel::display_input_text(
+  self : UiRequestPanelModel,
+) -> String {
+  if self.kind != UiPanelSecretInput {
+    return self.editor.text()
+  }
+  let masked = StringBuilder()
+  for _ in 0..<self.editor.text().length() {
+    masked.write_string("•")
+  }
+  masked.to_string()
+}
+
+///|
 pub fn UiRequestPanelModel::selected_index(self : UiRequestPanelModel) -> Int {
   self.list.selected_index()
 }
@@ -92,7 +132,7 @@ pub fn UiRequestPanelModel::selected_index(self : UiRequestPanelModel) -> Int {
 ///|
 pub fn UiRequestPanelModel::option_count(self : UiRequestPanelModel) -> Int {
   match self.kind {
-    UiPanelInput => 0
+    UiPanelInput | UiPanelSecretInput => 0
     UiPanelConfirm | UiPanelSelect => self.list.item_count()
   }
 }
@@ -103,7 +143,7 @@ pub fn UiRequestPanelModel::option_label(
   index : Int,
 ) -> String? {
   match self.kind {
-    UiPanelInput => None
+    UiPanelInput | UiPanelSecretInput => None
     UiPanelConfirm | UiPanelSelect =>
       match self.list.item(index) {
         Some(item) => Some(item.label)
@@ -117,7 +157,7 @@ pub fn UiRequestPanelModel::handle_paste(
   self : UiRequestPanelModel,
   text : String,
 ) -> Unit {
-  if self.kind == UiPanelInput {
+  if self.kind == UiPanelInput || self.kind == UiPanelSecretInput {
     self.editor.insert_text(text)
   }
 }
@@ -157,7 +197,7 @@ pub fn UiRequestPanelModel::handle_key(
   }
 
   match self.kind {
-    UiPanelInput => {
+    UiPanelInput | UiPanelSecretInput => {
       if event.matches_key(@ui.KeyEnter, 0U) {
         return Some(@posoco.UiResponse::Text(self.editor.text()))
       }

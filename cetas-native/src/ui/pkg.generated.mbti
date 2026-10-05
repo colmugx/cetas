@@ -199,6 +199,7 @@ pub struct RewindPickerModel {
   mut points : Array[RewindPoint]
   mut list : SelectListModel
 }
+pub fn RewindPickerModel::append_scene(Self, SceneBuilder, UInt, UInt, UInt, UInt) -> Unit
 pub fn RewindPickerModel::close(Self) -> Unit
 pub fn RewindPickerModel::handle_key(Self, TerminalEvent) -> RewindPickerAction
 pub fn RewindPickerModel::is_active(Self) -> Bool
@@ -231,6 +232,7 @@ pub fn SceneBuilder::clear(Self, UInt, UInt, UInt, UInt) -> Unit
 pub fn SceneBuilder::cursor(Self, UInt, UInt) -> Unit
 pub fn SceneBuilder::finish(Self) -> Scene
 pub fn SceneBuilder::new() -> Self
+pub fn SceneBuilder::select_list(Self, UInt, UInt, UInt, UInt, Array[String], Int) -> Unit
 pub fn SceneBuilder::text(Self, UInt, UInt, UInt, UInt, Bytes) -> Unit
 pub fn SceneBuilder::text_styled(Self, UInt, UInt, UInt, UInt, Bytes, TextStyle) -> Unit
 
@@ -244,6 +246,7 @@ pub struct SelectListModel {
   items : Array[SelectItem]
   mut selected : Int
 }
+pub fn SelectListModel::append_scene(Self, SceneBuilder, UInt, UInt, UInt, UInt) -> Unit
 pub fn SelectListModel::end(Self) -> Unit
 pub fn SelectListModel::home(Self) -> Unit
 pub fn SelectListModel::is_empty(Self) -> Bool
@@ -262,6 +265,7 @@ pub struct Terminal {
 pub fn Terminal::close(Self) -> Unit
 pub fn Terminal::event_text(Self) -> Bytes?
 pub fn Terminal::insert_before(Self, String) -> Int
+pub fn Terminal::insert_before_markdown(Self, String) -> Int
 pub fn Terminal::is_open(Self) -> Bool
 pub fn Terminal::open_inline(UInt) -> Self?
 pub fn Terminal::poll(Self, UInt64) -> (Int, TerminalEvent?)
@@ -339,7 +343,10 @@ pub struct TranscriptModel {
 }
 pub fn TranscriptModel::append_finalized(Self, TranscriptRowKind, String) -> Int
 pub fn TranscriptModel::append_live(Self, TranscriptRowKind, String) -> Int
+pub fn TranscriptModel::append_live_block_scene(Self, SceneBuilder, UInt, UInt, UInt, UInt) -> Unit
+pub fn TranscriptModel::append_live_block_scene_with_thinking(Self, SceneBuilder, UInt, UInt, UInt, UInt, Bool) -> Unit
 pub fn TranscriptModel::append_live_scene(Self, SceneBuilder, UInt, UInt, UInt) -> UInt
+pub fn TranscriptModel::append_live_scene_with_thinking(Self, SceneBuilder, UInt, UInt, UInt, Bool) -> UInt
 pub fn TranscriptModel::append_queued_user(Self, String) -> Int
 pub fn TranscriptModel::append_reasoning(Self, String) -> Unit
 pub fn TranscriptModel::append_text(Self, String) -> Unit

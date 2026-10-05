@@ -130,6 +130,8 @@ Command kinds currently defined:
 - 2 clear
 - 3 cursor
 - 4 bordered block
+- 5 stateful selection list (`word[7] = selected_index + 1`, zero = no selection)
+- 6 Markdown paragraph (rendered through `tui-markdown` into Ratatui `Text`; `word[7]` must be zero)
 
 Coordinates and dimensions must fit `u16`. Text ranges must be in bounds and
 valid UTF-8. Unknown command kinds are rejected.
@@ -178,7 +180,7 @@ transcript output is inserted before the viewport with
 `ctui_insert_before_text`, which allows normal terminal scrollback to own
 history while the live editor/status/streaming region remains redrawable.
 
-Only finalized rows should cross the insert-before boundary. `ctui_insert_before_text` treats `\n` as the row boundary and allocates exactly that many scrollback rows. The native layer does not auto-wrap transcript text; MoonBit must lower/wrap finalized rich content to explicit terminal lines before insertion.
+Only finalized rows should cross the insert-before boundary. `ctui_insert_before_text` wraps plain text to the current terminal width before allocating scrollback rows. Finalized assistant Markdown may use `ctui_insert_before_markdown`, which converts Markdown to styled Ratatui `Text` and applies the same width-aware insertion. MoonBit keeps the original semantic text and chooses the presentation path per transcript row kind.
 
 ## Compatibility rules
 

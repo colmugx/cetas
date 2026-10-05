@@ -44,7 +44,8 @@ enum CetasTuiCommandKind {
   CETAS_TUI_COMMAND_TEXT = 1,
   CETAS_TUI_COMMAND_CLEAR = 2,
   CETAS_TUI_COMMAND_CURSOR = 3,
-  CETAS_TUI_COMMAND_BORDER = 4
+  CETAS_TUI_COMMAND_BORDER = 4,
+  CETAS_TUI_COMMAND_LIST = 5
 };
 
 typedef struct CetasTuiEvent {
@@ -116,6 +117,11 @@ int32_t ctui_render_scene(
     uint32_t text_len);
 
 int32_t ctui_insert_before_text(
+    CetasTui *tui,
+    const uint8_t *text,
+    uint32_t text_len);
+
+int32_t ctui_insert_before_markdown(
     CetasTui *tui,
     const uint8_t *text,
     uint32_t text_len);
