@@ -8,6 +8,9 @@
 extern "C" fn exit(code : Int) = "exit"
 
 ///|
+const CETAS_NATIVE_VERSION = "0.7.0"
+
+///|
 fn mint_login_device_id() -> String raise @posoco.CommandError {
   let bytes = match @env.rand(16) {
     Some(value) if value.length() == 16 => value
@@ -69,7 +72,7 @@ fn startup_banner(
     Some(value) if !value.is_empty() => " · effort " + value
     _ => ""
   }
-  "Cetas 0.7.0 · model " +
+  "Cetas " + CETAS_NATIVE_VERSION + " · model " +
   active_model +
   active_effort +
   " · session " +
@@ -78,6 +81,10 @@ fn startup_banner(
 
 ///|
 async fn main {
+  if @env.args().contains("--version") {
+    println("cetas \{CETAS_NATIVE_VERSION}")
+    return
+  }
   let home = @cetas_core.cetas_home()
   let cwd = match @env.current_dir() {
     Some(dir) => dir

@@ -35,9 +35,11 @@ SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
 MOON_READ = re.compile(r'(?m)^version\s*=\s*"([^"]+)"')
 ACP_READ = re.compile(r'const\s+CETAS_ACP_VERSION\s*=\s*"([^"]+)"')
 RUN_READ = re.compile(r'const\s+CETAS_RUN_VERSION\s*=\s*"([^"]+)"')
+NATIVE_READ = re.compile(r'const\s+CETAS_NATIVE_VERSION\s*=\s*"([^"]+)"')
 MOON_SUB = re.compile(r'(?m)^(version\s*=\s*)"[^"]+"')
 ACP_SUB = re.compile(r'(?m)^(const\s+CETAS_ACP_VERSION\s*=\s*)"[^"]+"')
 RUN_SUB = re.compile(r'(?m)^(const\s+CETAS_RUN_VERSION\s*=\s*)"[^"]+"')
+NATIVE_SUB = re.compile(r'(?m)^(const\s+CETAS_NATIVE_VERSION\s*=\s*)"[^"]+"')
 META = re.compile(r"(?m)^([0-9a-f]{40})\x1f")
 TYPE = re.compile(r"^([a-z]+)(?:\([^)]*\))?!?:")
 FEAT = re.compile(r"^feat(\(|!|:)")
@@ -59,6 +61,7 @@ SYNC = [
     ("cetas-run/moon.mod", MOON_READ, MOON_SUB),
     ("cetas-run/main/main.mbt", RUN_READ, RUN_SUB),
     ("cetas-native/moon.mod", MOON_READ, MOON_SUB),
+    ("cetas-native/src/cetas/main.mbt", NATIVE_READ, NATIVE_SUB),
 ]
 NOTES_HEADER = (
     "<!-- 此文件内容将作为发布说明（写入 CHANGELOG.md 小节）。"

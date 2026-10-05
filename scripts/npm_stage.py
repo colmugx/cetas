@@ -4,8 +4,8 @@
 Usage:
   npm_stage.py --staging DIR --out DIR --version X.Y.Z
 
-Input: the flattened release artifacts (cetas-bun-<target>.tar.gz for unix
-targets, cetas-bun-windows-x64.zip for Windows). Output: one publishable
+Input: the flattened release artifacts (cetas-<target>.tar.gz for unix
+targets, cetas-windows-x64.zip for Windows). Output: one publishable
 directory per platform payload package plus the cetas meta package whose
 bin shim execs the installed platform binary. The version comes from the
 release tag; publishing is manual via .github/workflows/npm-publish.yml
@@ -21,31 +21,31 @@ import zipfile
 from pathlib import Path
 
 SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
-DESCRIPTION = "Bun-runtime host for cetas — provider-neutral posoco agent with pi-tui"
+DESCRIPTION = "Native Cetas terminal host — provider-neutral Posoco agent with Ratatui"
 REPO_URL = "git+https://github.com/colmugx/cetas.git"
 REPO_HOME = "https://github.com/colmugx/cetas"
 
 # Keep in sync with the build matrix in .github/workflows/release.yml.
-# Archive and binary names are release/product names (cetas-bun). npm payload
+# Archive and binary names are native release/product names. npm payload
 # package names live under the @posoco scope to avoid claiming global names.
 TARGETS = {
     "darwin-arm64": {
         "os": "darwin",
         "cpu": "arm64",
-        "archive": "cetas-bun-darwin-arm64.tar.gz",
-        "binary": "cetas-bun",
+        "archive": "cetas-darwin-arm64.tar.gz",
+        "binary": "cetas",
     },
     "linux-x64": {
         "os": "linux",
         "cpu": "x64",
-        "archive": "cetas-bun-linux-x64.tar.gz",
-        "binary": "cetas-bun",
+        "archive": "cetas-linux-x64.tar.gz",
+        "binary": "cetas",
     },
     "windows-x64": {
         "os": "win32",
         "cpu": "x64",
-        "archive": "cetas-bun-windows-x64.zip",
-        "binary": "cetas-bun.exe",
+        "archive": "cetas-windows-x64.zip",
+        "binary": "cetas.exe",
     },
 }
 
@@ -63,7 +63,7 @@ install target of @posoco/cetas's optionalDependencies. Install the
 
 META_README = f"""# cetas
 
-Bun-runtime host for cetas — a provider-neutral posoco agent with a pi-tui
+Native Cetas terminal host — a provider-neutral Posoco agent with a Ratatui
 terminal UI, distributed as a prebuilt native binary ({REPO_HOME}).
 
 ## Install
@@ -77,7 +77,7 @@ under Node.js (esbuild-style); the agent binary it execs is self-contained.
 """
 
 SHIM = """#!/usr/bin/env node
-// cetas launcher: exec the cetas-bun binary for this platform from the
+// cetas launcher: exec the cetas binary for this platform from the
 // matching @posoco/cetas-<os>-<arch> payload package. Runs under Node.js.
 const { spawnSync } = require("node:child_process");
 
@@ -96,7 +96,7 @@ if (!supported.includes(target)) {
 const pkg = `@posoco/cetas-${target}`;
 let bin;
 try {
-  bin = require.resolve(`${pkg}/cetas-bun${process.platform === "win32" ? ".exe" : ""}`);
+  bin = require.resolve(`${pkg}/cetas${process.platform === "win32" ? ".exe" : ""}`);
 } catch {
   console.error(
     `cetas: payload package ${pkg} is missing ` +
