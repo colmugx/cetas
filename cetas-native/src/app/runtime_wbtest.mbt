@@ -30,7 +30,9 @@ test "runtime scene renders focused UiRequest and only live transcript" {
     editor,
     rewind,
     AutocompletePopupModel::new(),
-    40U, 8U)
+    40U,
+    8U,
+  )
   let text = @utf8.decode(scene.text)
 
   // Finalized user text belongs to scrollback and must not be repainted.
@@ -58,7 +60,9 @@ test "runtime scene lowers idle status without transcript duplication" {
     editor,
     rewind,
     AutocompletePopupModel::new(),
-    40U, 3U)
+    40U,
+    3U,
+  )
   assert_eq(scene.words.length(), 32)
   let text = @utf8.decode(scene.text)
   assert_true(text.contains("> "))
@@ -86,7 +90,9 @@ test "runtime scene gives active rewind picker editor precedence" {
     editor,
     rewind,
     AutocompletePopupModel::new(),
-    40U, 6U)
+    40U,
+    6U,
+  )
   let text = @utf8.decode(scene.text)
   assert_true(text.contains("Rewind to:"))
   assert_true(text.contains("first prompt  message #1"))
@@ -96,7 +102,6 @@ test "runtime scene gives active rewind picker editor precedence" {
   assert_eq(scene.words[16], 5U)
   assert_eq(scene.words[23], 1U)
 }
-
 
 ///|
 test "normal query answer layout reserves bottom rows for editor and status" {
@@ -117,7 +122,9 @@ test "normal query answer layout reserves bottom rows for editor and status" {
     editor,
     rewind,
     AutocompletePopupModel::new(),
-    20U, 8U)
+    20U,
+    8U,
+  )
   let text = @utf8.decode(scene.text)
   assert_true(text.contains("a long streaming answer"))
   assert_true(text.contains("> next question"))
@@ -134,7 +141,6 @@ test "normal query answer layout reserves bottom rows for editor and status" {
   assert_eq(scene.words[34], 7U)
 }
 
-
 ///|
 test "runtime scene reserves a Ratatui List above the editor for autocomplete" {
   let shell = NativeShell::new()
@@ -147,13 +153,10 @@ test "runtime scene reserves a Ratatui List above the editor for autocomplete" {
   let rewind = @ui.RewindPickerModel::new()
   let popup = AutocompletePopupModel::new()
   assert_true(
-    popup.open(
-      "/he",
-      [
-        { value: "/help", label: "/help", description: "Help", },
-        { value: "/handoff", label: "/handoff", description: "Handoff", },
-      ],
-    ),
+    popup.open("/he", [
+      { value: "/help", label: "/help", description: "Help", },
+      { value: "/handoff", label: "/handoff", description: "Handoff", },
+    ]),
   )
 
   let scene = build_runtime_scene(shell, router, editor, rewind, popup, 32U, 8U)

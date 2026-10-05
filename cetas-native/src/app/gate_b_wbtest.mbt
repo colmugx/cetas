@@ -96,9 +96,7 @@ test "gate B tool and thinking presentation are user controllable" {
   shell.begin_turn()
   shell.append_reasoning("line one\nline two\nline three\nline four")
   shell.tool_call_started(
-    "call-1",
-    "bash",
-    "{\"command\":\"moon test\",\"description\":\"run native tests\"}",
+    "call-1", "bash", "{\"command\":\"moon test\",\"description\":\"run native tests\"}",
   )
 
   let tool_row = shell.transcript().row(1)
@@ -114,11 +112,7 @@ test "gate B tool and thinking presentation are user controllable" {
   assert_true(shell.tool_output_expanded())
   assert_true(shell.transcript().row(1).text.has_prefix("● bash\n"))
 
-  shell.tool_call_completed(
-    "call-1",
-    "first\nsecond\nthird\nfourth",
-    false,
-  )
+  shell.tool_call_completed("call-1", "first\nsecond\nthird\nfourth", false)
   let result_row = shell.transcript().row(1)
   assert_true(result_row.finalized)
   assert_true(result_row.text.has_prefix("✓ bash\n"))
@@ -128,13 +122,7 @@ test "gate B tool and thinking presentation are user controllable" {
 ///|
 async test "gate B file mentions rank and insert workspace paths" {
   let ranked = rank_file_mention_items(
-    [
-      "src/",
-      "src/main.mbt",
-      "src/app/runtime.mbt",
-      "docs/main.md",
-      "README.md",
-    ],
+    ["src/", "src/main.mbt", "src/app/runtime.mbt", "docs/main.md", "README.md"],
     "main",
   )
   assert_eq(ranked.length(), 2)
@@ -170,7 +158,6 @@ async test "gate B file mentions rank and insert workspace paths" {
   host.shutdown()
 }
 
-
 ///|
 async test "gate B normal-session slash routes stay local and executable" {
   let local_items = native_local_command_items("")
@@ -197,17 +184,16 @@ async test "gate B normal-session slash routes stay local and executable" {
   )
   let root = @fs.tmpdir(prefix="cetas-native-gate-b-sessions-")
   let current = "cetas-current"
-  @xfs.write_string_to_file(
-    @fs_session.jsonl_session_path(root, current),
-    "",
-  ) catch {
-    @xfs.IOError::IOError(detail) => fail("failed to seed current session: " + detail)
+  @xfs.write_string_to_file(@fs_session.jsonl_session_path(root, current), "") catch {
+    @xfs.IOError::IOError(detail) =>
+      fail("failed to seed current session: " + detail)
   }
   @xfs.write_string_to_file(
     @fs_session.jsonl_session_path(root, "cetas-older"),
     "",
   ) catch {
-    @xfs.IOError::IOError(detail) => fail("failed to seed older session: " + detail)
+    @xfs.IOError::IOError(detail) =>
+      fail("failed to seed older session: " + detail)
   }
   let host = NativeHost::from_parts(
     agent,

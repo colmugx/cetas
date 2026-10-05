@@ -51,9 +51,8 @@ fn ui_body_lines(body : @posoco.UiBody) -> Array[String] {
       }
       lines
     }
-    @posoco.UiBody::Progress(value) => [
-      "progress " + (value * 100.0).to_string() + "%",
-    ]
+    @posoco.UiBody::Progress(value) =>
+      ["progress " + (value * 100.0).to_string() + "%"]
     @posoco.UiBody::Markdown(text) => {
       let lines : Array[String] = []
       for line in text.split("\n") {
@@ -71,7 +70,7 @@ pub fn NativeUiRenderModel::apply(
 ) -> Unit {
   let lines = ui_body_lines(intent.body)
   let titled = match intent.title {
-    Some(title) if !title.is_empty() => {
+    Some(title) if !title.is_empty() =>
       if lines.is_empty() {
         [title]
       } else {
@@ -79,12 +78,15 @@ pub fn NativeUiRenderModel::apply(
         out.append(lines)
         out
       }
-    }
     _ => lines
   }
   for index, mount in self.mounts {
     if mount.slot == intent.slot && mount.key == intent.key {
-      self.mounts[index] = { slot: intent.slot, key: intent.key, lines: titled, }
+      self.mounts[index] = {
+        slot: intent.slot,
+        key: intent.key,
+        lines: titled,
+      }
       return
     }
   }
@@ -128,37 +130,31 @@ pub fn NativeUiRenderModel::line(
 ///|
 test "native UiRender mounts replace by slot and key" {
   let model = NativeUiRenderModel::new()
-  model.apply(
-    @posoco.UiRender::{
-      slot: @posoco.UiSlot::Status,
-      key: "provider",
-      title: None,
-      body: @posoco.UiBody::Text("connecting"),
-      ttl_ms: None,
-    },
-  )
+  model.apply(@posoco.UiRender::{
+    slot: @posoco.UiSlot::Status,
+    key: "provider",
+    title: None,
+    body: @posoco.UiBody::Text("connecting"),
+    ttl_ms: None,
+  })
   assert_eq(model.line_count(), 1)
   assert_eq(model.line(0), Some("· connecting"))
-  model.apply(
-    @posoco.UiRender::{
-      slot: @posoco.UiSlot::Status,
-      key: "provider",
-      title: None,
-      body: @posoco.UiBody::Text("ready"),
-      ttl_ms: None,
-    },
-  )
+  model.apply(@posoco.UiRender::{
+    slot: @posoco.UiSlot::Status,
+    key: "provider",
+    title: None,
+    body: @posoco.UiBody::Text("ready"),
+    ttl_ms: None,
+  })
   assert_eq(model.line_count(), 1)
   assert_eq(model.line(0), Some("· ready"))
-  model.apply(
-    @posoco.UiRender::{
-      slot: @posoco.UiSlot::Widget,
-      key: "quota",
-      title: Some("Quota"),
-      body: @posoco.UiBody::KeyValue([("5h", "82% left")]),
-      ttl_ms: None,
-    },
-  )
+  model.apply(@posoco.UiRender::{
+    slot: @posoco.UiSlot::Widget,
+    key: "quota",
+    title: Some("Quota"),
+    body: @posoco.UiBody::KeyValue([("5h", "82% left")]),
+    ttl_ms: None,
+  })
   assert_eq(model.line_count(), 3)
   assert_eq(model.line(1), Some("◇ Quota"))
   assert_eq(model.line(2), Some("◇ 5h: 82% left"))

@@ -219,9 +219,7 @@ fn NativeAppLoop::runtime_state(self : NativeAppLoop) -> RuntimeInputState {
 ///|
 fn NativeAppLoop::refresh_autocomplete(self : NativeAppLoop) -> Bool {
   match
-    self.driver
-    .host()
-    .command_autocomplete(self.editor.text_before_cursor()) {
+    self.driver.host().command_autocomplete(self.editor.text_before_cursor()) {
     Some((prefix, items)) => self.runtime.open_autocomplete(prefix, items)
     None => {
       self.runtime.close_autocomplete()
@@ -272,11 +270,7 @@ fn model_catalog_items(value : Json) -> Array[@ui.SelectItem] {
       _ => ()
     }
     if efforts.is_empty() {
-      items.push({
-        value: "/model " + id,
-        label: head,
-        description: id,
-      })
+      items.push({ value: "/model " + id, label: head, description: id, })
     } else {
       for effort in efforts {
         items.push({
@@ -333,7 +327,11 @@ fn session_catalog_items(value : Json) -> Array[@ui.SelectItem] {
     items.push({
       value: "/resume " + id,
       label: (if current { "* " } else { "  " }) + id,
-      description: if current { "current" } else { "" },
+      description: if current {
+        "current"
+      } else {
+        ""
+      },
     })
   }
   items
@@ -425,10 +423,7 @@ fn NativeAppLoop::start_skill_mention(
   self.command_name = Some(trimmed)
   let host = self.driver.host()
   self.command_task = Some(
-    group.spawn(
-      () => host.invoke_skill_mention(name),
-      allow_failure=true,
-    ),
+    group.spawn(() => host.invoke_skill_mention(name), allow_failure=true),
   )
 }
 
@@ -459,10 +454,7 @@ fn NativeAppLoop::start_command(
   self.command_name = Some(trimmed)
   let host = self.driver.host()
   self.command_task = Some(
-    group.spawn(
-      () => host.invoke_slash_command(trimmed),
-      allow_failure=true,
-    ),
+    group.spawn(() => host.invoke_slash_command(trimmed), allow_failure=true),
   )
 }
 
@@ -494,26 +486,36 @@ fn NativeAppLoop::poll_command_settle(
                 self.driver
                 .host()
                 .shell()
-                .append_error(input + " could not start while another turn is active"),
+                .append_error(
+                  input + " could not start while another turn is active",
+                ),
               )
             }
           }
           Err(reason) => {
-            ignore(self.driver.host().shell().append_error(input + ": " + reason))
+            ignore(
+              self.driver.host().shell().append_error(input + ": " + reason),
+            )
             ignore(self.release_command())
           }
         }
       } else {
-        let is_catalog_command =
-          input == "/model" || input == "/skills" || input == "/sessions"
-        let opened_picker =
-          is_catalog_command && self.open_catalog_picker(input, outcome)
+        let is_catalog_command = input == "/model" ||
+          input == "/skills" ||
+          input == "/sessions"
+        let opened_picker = is_catalog_command &&
+          self.open_catalog_picker(input, outcome)
         if !opened_picker {
           if is_catalog_command {
             match outcome {
               @posoco.CommandOutcome::Success(feedback~, ..) =>
                 if !feedback.is_empty() {
-                  ignore(self.driver.host().shell().append_notice(command + ": " + feedback))
+                  ignore(
+                    self.driver
+                    .host()
+                    .shell()
+                    .append_notice(command + ": " + feedback),
+                  )
                 }
               _ => self.render_command_outcome(command, outcome)
             }

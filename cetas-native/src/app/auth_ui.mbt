@@ -28,15 +28,13 @@ fn auth_notice(
   title : String,
   lines : Array[String],
 ) -> Unit {
-  ui.render(
-    @posoco.UiRender::{
-      slot: @posoco.UiSlot::Notice,
-      key,
-      title: Some(title),
-      body: @posoco.UiBody::Lines(lines),
-      ttl_ms: None,
-    },
-  )
+  ui.render(@posoco.UiRender::{
+    slot: @posoco.UiSlot::Notice,
+    key,
+    title: Some(title),
+    body: @posoco.UiBody::Lines(lines),
+    ttl_ms: None,
+  })
 }
 
 ///|
@@ -49,29 +47,23 @@ pub impl @oauth.AuthInteraction for NativeAuthUi with fn notify(
   }
   match message {
     @oauth.AuthMessage::AuthUrl(url) =>
-      auth_notice(
-        self.ui,
-        "oauth",
-        "OAuth",
-        ["Open this URL to authenticate:", url],
-      )
+      auth_notice(self.ui, "oauth", "OAuth", [
+        "Open this URL to authenticate:", url,
+      ])
     @oauth.AuthMessage::DeviceCode(uri, code) =>
-      auth_notice(
-        self.ui,
-        "oauth",
-        "OAuth device login",
-        ["Open:", uri, "Code: " + code],
-      )
+      auth_notice(self.ui, "oauth", "OAuth device login", [
+        "Open:",
+        uri,
+        "Code: " + code,
+      ])
     @oauth.AuthMessage::Progress(message) =>
-      self.ui.render(
-        @posoco.UiRender::{
-          slot: @posoco.UiSlot::Status,
-          key: "oauth",
-          title: None,
-          body: @posoco.UiBody::Text(message),
-          ttl_ms: None,
-        },
-      )
+      self.ui.render(@posoco.UiRender::{
+        slot: @posoco.UiSlot::Status,
+        key: "oauth",
+        title: None,
+        body: @posoco.UiBody::Text(message),
+        ttl_ms: None,
+      })
   }
 }
 
@@ -114,8 +106,7 @@ pub impl @oauth.AuthPromptInteraction for NativeAuthUi with fn prompt(
       let labels : Array[String] = []
       for option in options {
         let suffix = match option.description {
-          Some(description) if !description.is_empty() =>
-            " — " + description
+          Some(description) if !description.is_empty() => " — " + description
           _ => ""
         }
         labels.push(option.label + suffix)
@@ -130,8 +121,8 @@ pub impl @oauth.AuthPromptInteraction for NativeAuthUi with fn prompt(
         _ => raise @oauth.OAuthError::Cancelled
       }
       match response {
-        @posoco.UiResponse::Selected(index) if index >= 0 && index < options.length() =>
-          options[index].id
+        @posoco.UiResponse::Selected(index) if index >= 0 &&
+          index < options.length() => options[index].id
         _ => raise @oauth.OAuthError::Cancelled
       }
     }

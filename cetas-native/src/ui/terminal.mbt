@@ -81,10 +81,7 @@ pub fn Terminal::insert_before(self : Terminal, text : String) -> Int {
 }
 
 ///|
-pub fn Terminal::insert_before_markdown(
-  self : Terminal,
-  text : String,
-) -> Int {
+pub fn Terminal::insert_before_markdown(self : Terminal, text : String) -> Int {
   let bytes = @utf8.encode(text)
   match self.raw {
     Some(raw) =>

@@ -89,11 +89,7 @@ fn setup_completion_items(prefix : String) -> Array[@ui.SelectItem] {
   let items : Array[@ui.SelectItem] = []
   for entry in commands {
     if entry.0.has_prefix(prefix) {
-      items.push({
-        value: entry.0,
-        label: entry.0,
-        description: entry.1,
-      })
+      items.push({ value: entry.0, label: entry.0, description: entry.1, })
     }
   }
   items
@@ -137,7 +133,10 @@ fn setup_login_provider(input : String) -> Result[String, String] {
 }
 
 ///|
-fn NativeSetupLoop::submit(self : NativeSetupLoop, input : String) -> NativeSetupSignal {
+fn NativeSetupLoop::submit(
+  self : NativeSetupLoop,
+  input : String,
+) -> NativeSetupSignal {
   let trimmed = input.trim().to_owned()
   if trimmed.is_empty() {
     return SetupContinue

@@ -300,7 +300,11 @@ fn NativeHost::session_catalog(self : NativeHost) -> @posoco.CommandOutcome {
     if !name.has_suffix(".jsonl") || name.length() <= 6 {
       continue
     }
-    let path = if root.has_suffix("/") { root + name } else { root + "/" + name }
+    let path = if root.has_suffix("/") {
+      root + name
+    } else {
+      root + "/" + name
+    }
     let is_file = @xfs.is_file(path) catch { _ => false }
     if !is_file {
       continue
@@ -364,10 +368,12 @@ fn native_trim_mention_token(token : String) -> String {
   let mut start = 0
   let mut end = token.length()
   while start < end &&
-    (token[start] == '(' ||
-    token[start] == '"' ||
-    token[start] == '\'' ||
-    token[start] == '{') {
+        (
+          token[start] == '(' ||
+          token[start] == '"' ||
+          token[start] == '\'' ||
+          token[start] == '{'
+        ) {
     start += 1
   }
   while end > start {
@@ -392,10 +398,7 @@ fn native_trim_mention_token(token : String) -> String {
 }
 
 ///|
-fn NativeHost::workspace_has_file(
-  self : NativeHost,
-  path : String,
-) -> Bool {
+fn NativeHost::workspace_has_file(self : NativeHost, path : String) -> Bool {
   for item in self.workspace_files {
     if item == path {
       return true
@@ -443,10 +446,7 @@ fn NativeHost::user_message(
       continue
     }
     content.push(
-      @posoco.Content::Image(
-        media_type~,
-        data=@base64.encode(bytes[:]),
-      ),
+      @posoco.Content::Image(media_type~, data=@base64.encode(bytes[:])),
     )
   }
   @posoco.Message::UserMessage(content~)

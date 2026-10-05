@@ -61,18 +61,20 @@ pub fn UiRequestPanelModel::new(
         None => ()
       }
       match decode_native_secret_prompt(prompt) {
-        Some(clean) => {
-          kind: UiPanelSecretInput,
-          prompt: clean,
-          editor,
-          list: @ui.SelectListModel::new([]),
-        }
-        None => {
-          kind: UiPanelInput,
-          prompt,
-          editor,
-          list: @ui.SelectListModel::new([]),
-        }
+        Some(clean) =>
+          {
+            kind: UiPanelSecretInput,
+            prompt: clean,
+            editor,
+            list: @ui.SelectListModel::new([]),
+          }
+        None =>
+          {
+            kind: UiPanelInput,
+            prompt,
+            editor,
+            list: @ui.SelectListModel::new([]),
+          }
       }
     }
     @posoco.UiRequest::Confirm(prompt~) =>

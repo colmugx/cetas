@@ -73,9 +73,7 @@ pub fn NativeInputRouter::ui_option_label(
 }
 
 ///|
-pub fn NativeInputRouter::render_line_count(
-  self : NativeInputRouter,
-) -> Int {
+pub fn NativeInputRouter::render_line_count(self : NativeInputRouter) -> Int {
   self.ui.render_line_count()
 }
 

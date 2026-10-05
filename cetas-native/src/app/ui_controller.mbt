@@ -131,9 +131,7 @@ pub fn NativeUiController::active_option_count(
 }
 
 ///|
-pub fn NativeUiController::render_line_count(
-  self : NativeUiController,
-) -> Int {
+pub fn NativeUiController::render_line_count(self : NativeUiController) -> Int {
   self.renders.line_count()
 }
 

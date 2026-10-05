@@ -72,7 +72,9 @@ fn startup_banner(
     Some(value) if !value.is_empty() => " · effort " + value
     _ => ""
   }
-  "Cetas " + CETAS_NATIVE_VERSION + " · model " +
+  "Cetas " +
+  CETAS_NATIVE_VERSION +
+  " · model " +
   active_model +
   active_effort +
   " · session " +
@@ -80,6 +82,7 @@ fn startup_banner(
 }
 
 ///|
+
 ///|
 /// Keep Posoco's managed Tasks scope active for the whole interactive host
 /// lifetime. Background subagents submitted by any turn therefore outlive
@@ -90,13 +93,16 @@ async fn start_native_agent_scope(
 ) -> @async.Task[Unit] {
   let ready = Ref(false)
   let task = group.spawn(
-    () =>
-      host.agent().run_scoped(async fn(_agent) {
+    () => {
+      host
+      .agent()
+      .run_scoped(async fn(_agent) {
         ready.val = true
         while true {
           @async.sleep(60000)
         }
-      }),
+      })
+    },
     allow_failure=true,
   )
   while !ready.val {
@@ -115,6 +121,7 @@ async fn stop_native_agent_scope(task : @async.Task[Unit]) -> Unit {
   }
 }
 
+///|
 async fn main {
   if @env.args().contains("--version") {
     println("cetas \{CETAS_NATIVE_VERSION}")
@@ -190,7 +197,7 @@ async fn main {
                 let auth = setup.auth_ui()
                 setup.set_command_busy(true)
                 let login_task = group.spawn(
-                  () =>
+                  () => {
                     @cetas_core.run_provider_login_flow(
                       home~,
                       provider~,
@@ -205,7 +212,8 @@ async fn main {
                           ignore(setup.append_notice(trimmed))
                         }
                       },
-                    ),
+                    )
+                  },
                   allow_failure=true,
                 )
                 let mut auth_running = true
@@ -250,7 +258,9 @@ async fn main {
                             ")\n",
                           )
                           exit(1)
-                          abort("cetas: unreachable after setup auth terminal failure")
+                          abort(
+                            "cetas: unreachable after setup auth terminal failure",
+                          )
                         }
                         _ => ()
                       }
@@ -321,9 +331,7 @@ async fn main {
             app.open_rewind() catch {
               error => {
                 ignore(
-                  app.append_error(
-                    "rewind points failed: " + error.to_string(),
-                  ),
+                  app.append_error("rewind points failed: " + error.to_string()),
                 )
                 false
               }
@@ -332,20 +340,17 @@ async fn main {
         @app.LoopApplyRewind(message_index) =>
           app.apply_rewind(message_index) catch {
             error =>
-              ignore(
-                app.append_error("rewind failed: " + error.to_string()),
-              )
+              ignore(app.append_error("rewind failed: " + error.to_string()))
           }
         @app.LoopAutocomplete
         | @app.LoopToggleThinking
-        | @app.LoopToggleToolOutput =>
-          ()
+        | @app.LoopToggleToolOutput => ()
         @app.LoopLogin(provider) => {
           let auth_app = app
           let auth = auth_app.auth_ui()
           auth_app.acquire_command("authenticating provider")
           let login_task = group.spawn(
-            () =>
+            () => {
               @cetas_core.run_provider_login_flow(
                 home~,
                 provider~,
@@ -360,7 +365,8 @@ async fn main {
                     ignore(auth_app.append_notice(trimmed))
                   }
                 },
-              ),
+              )
+            },
             allow_failure=true,
           )
           let mut auth_running = true

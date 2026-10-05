@@ -18,28 +18,23 @@ test "gate C setup shell exposes only recovery commands" {
 ///|
 test "gate C extension render mount preserves keyed replacement" {
   let model = NativeUiRenderModel::new()
-  model.apply(
-    @posoco.UiRender::{
-      slot: @posoco.UiSlot::Notice,
-      key: "oauth",
-      title: Some("OAuth"),
-      body: @posoco.UiBody::Lines([
-        "Open https://example.invalid/device",
-        "Code ABCD-EFGH",
-      ]),
-      ttl_ms: None,
-    },
-  )
+  model.apply(@posoco.UiRender::{
+    slot: @posoco.UiSlot::Notice,
+    key: "oauth",
+    title: Some("OAuth"),
+    body: @posoco.UiBody::Lines([
+      "Open https://example.invalid/device", "Code ABCD-EFGH",
+    ]),
+    ttl_ms: None,
+  })
   assert_eq(model.line_count(), 3)
-  model.apply(
-    @posoco.UiRender::{
-      slot: @posoco.UiSlot::Notice,
-      key: "oauth",
-      title: Some("OAuth"),
-      body: @posoco.UiBody::Text("Waiting for authorization"),
-      ttl_ms: None,
-    },
-  )
+  model.apply(@posoco.UiRender::{
+    slot: @posoco.UiSlot::Notice,
+    key: "oauth",
+    title: Some("OAuth"),
+    body: @posoco.UiBody::Text("Waiting for authorization"),
+    ttl_ms: None,
+  })
   assert_eq(model.line_count(), 2)
   assert_eq(model.line(0), Some("! OAuth"))
   assert_eq(model.line(1), Some("! Waiting for authorization"))
@@ -50,28 +45,27 @@ async test "gate C native UiPort renders and requests through one controller" {
   @async.with_task_group() <| group => {
     let ui = NativeUiPort::new()
     let controller = NativeUiController::new(ui)
-    ui.render(
-      @posoco.UiRender::{
-        slot: @posoco.UiSlot::Status,
-        key: "setup",
-        title: None,
-        body: @posoco.UiBody::Text("setup required"),
-        ttl_ms: None,
-      },
-    )
+    ui.render(@posoco.UiRender::{
+      slot: @posoco.UiSlot::Status,
+      key: "setup",
+      title: None,
+      body: @posoco.UiBody::Text("setup required"),
+      ttl_ms: None,
+    })
     assert_false(controller.pump())
     assert_eq(controller.render_line_count(), 1)
     assert_eq(controller.render_line(0), Some("· setup required"))
 
     let waiter = group.spawn(
-      () =>
+      () => {
         (ui as &@posoco.UiPort).request(
           @posoco.UiRequest::Select(
             prompt="Choose provider",
             options=["OpenAI", "Kimi"],
             default=Some(0),
           ),
-        ),
+        )
+      },
       allow_failure=true,
     )
     @async.sleep(0)
@@ -85,7 +79,6 @@ async test "gate C native UiPort renders and requests through one controller" {
     controller.close()
   }
 }
-
 
 ///|
 test "gate C secret prompts mask display without corrupting submitted value" {
@@ -112,15 +105,11 @@ test "gate C OAuth interaction projects URL device code and progress into mounts
   auth.notify(@oauth.AuthMessage::AuthUrl("https://example.invalid/auth"))
   assert_false(controller.pump())
   assert_eq(controller.render_line(0), Some("! OAuth"))
-  assert_eq(
-    controller.render_line(2),
-    Some("! https://example.invalid/auth"),
-  )
+  assert_eq(controller.render_line(2), Some("! https://example.invalid/auth"))
 
   auth.notify(
     @oauth.AuthMessage::DeviceCode(
-      "https://example.invalid/device",
-      "ABCD-EFGH",
+      "https://example.invalid/device", "ABCD-EFGH",
     ),
   )
   assert_false(controller.pump())
@@ -153,18 +142,13 @@ test "gate C subagent events project useful activity states" {
     child_session: "subagent-1",
     kind: "coder",
     parent_call: "call-1",
-    event: @posoco.TurnEvent::ToolCallPending(
-      @posoco.ToolCall::{
-        call_id: @posoco.CallId::unchecked("child-call"),
-        name: @posoco.ToolName::unchecked("read"),
-        arguments: Json::object(Map::from_array([])),
-      },
-    ),
+    event: @posoco.TurnEvent::ToolCallPending(@posoco.ToolCall::{
+      call_id: @posoco.CallId::unchecked("child-call"),
+      name: @posoco.ToolName::unchecked("read"),
+      arguments: Json::object(Map::from_array([])),
+    }),
   }
-  assert_eq(
-    native_subagent_event_detail(pending),
-    Some("running · read"),
-  )
+  assert_eq(native_subagent_event_detail(pending), Some("running · read"))
 
   let terminal : @subagent_kit.SubagentEvent = {
     child_session: "subagent-1",
@@ -173,9 +157,7 @@ test "gate C subagent events project useful activity states" {
     event: @posoco.TurnEvent::Custom(
       source="posoco_ext_subagent",
       label="background_terminal",
-      data=Json::object(
-        Map::from_array([("state", Json::string("completed"))]),
-      ),
+      data=Json::object(Map::from_array([("state", Json::string("completed"))])),
     ),
   }
   assert_eq(

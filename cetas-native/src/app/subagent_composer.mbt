@@ -14,7 +14,11 @@ fn native_cetas_tool_names() -> Array[String] {
   for capability in @cetas_core.cetas_reconstructable_capabilities() {
     names.push(
       if capability == "shell" {
-        if shell_platform_is_windows() { "ps1" } else { "bash" }
+        if shell_platform_is_windows() {
+          "ps1"
+        } else {
+          "bash"
+        }
       } else {
         capability
       },
@@ -359,7 +363,6 @@ async fn load_cetas_subagent_settings(
   subagent_settings_from_json(text)
 }
 
-
 ///|
 fn native_subagent_event_detail(event : @subagent_kit.SubagentEvent) -> String? {
   match event.event {
@@ -406,9 +409,7 @@ fn render_native_subagent_event(
     slot: @posoco.UiSlot::Widget,
     key: "subagent:" + event.child_session,
     title: Some("agent(" + event.kind + ")"),
-    body: @posoco.UiBody::Text(
-      event.child_session + " · " + detail,
-    ),
+    body: @posoco.UiBody::Text(event.child_session + " · " + detail),
     ttl_ms: None,
   })
 }

@@ -222,6 +222,7 @@ pub fn SceneBuilder::border(
 }
 
 ///|
+
 ///|
 /// Render Markdown through the same tui-markdown -> Ratatui Text path used
 /// by finalized assistant scrollback. MoonBit continues to own transcript

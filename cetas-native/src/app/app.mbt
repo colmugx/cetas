@@ -310,9 +310,9 @@ fn preview_lines(text : String, max_lines : Int) -> String {
     kept.push(lines[index])
   }
   kept.join("\n") +
-    "\n… (+" +
-    (lines.length() - max_lines).to_string() +
-    " lines)"
+  "\n… (+" +
+  (lines.length() - max_lines).to_string() +
+  " lines)"
 }
 
 ///|
@@ -425,11 +425,7 @@ pub fn NativeShell::tool_call_started(
     None =>
       self.transcript.append_live(
         @ui.TranscriptTool,
-        tool_call_view(
-          tool_name,
-          authoritative_args,
-          self.tool_output_expanded,
-        ),
+        tool_call_view(tool_name, authoritative_args, self.tool_output_expanded),
       )
   }
 
@@ -564,10 +560,10 @@ pub fn NativeShell::scrollback_text(
     }
     let lines = row.text.split("\n").fold(init=0, fn(count, _) { count + 1 })
     "💭 thought · " +
-      lines.to_string() +
-      " lines · ctrl+t " +
-      (if self.thinking_expanded { "收起" } else { "展开" }) +
-      (if body.is_empty() { "" } else { "\n" + body })
+    lines.to_string() +
+    " lines · ctrl+t " +
+    (if self.thinking_expanded { "收起" } else { "展开" }) +
+    (if body.is_empty() { "" } else { "\n" + body })
   } else {
     row.scrollback_text()
   }

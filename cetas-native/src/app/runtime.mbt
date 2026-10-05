@@ -256,12 +256,7 @@ fn build_runtime_scene(
     if render_rows > 0U {
       ignore(
         append_extension_render_lines(
-          builder,
-          input,
-          render_y,
-          width,
-          popup_y,
-          render_rows,
+          builder, input, render_y, width, popup_y, render_rows,
         ),
       )
     }
@@ -269,14 +264,7 @@ fn build_runtime_scene(
       autocomplete.append_scene(builder, 0U, popup_y, width, popup_rows)
     }
     ignore(
-      append_editor_scene(
-        builder,
-        editor,
-        editor_y,
-        width,
-        status_y,
-        true,
-      ),
+      append_editor_scene(builder, editor, editor_y, width, status_y, true),
     )
     let status = match shell.status() {
       ShellIdle => "idle"
@@ -289,14 +277,7 @@ fn build_runtime_scene(
 
   let mut y = shell.append_live_scene(builder, 0U, 0U, width)
   if input.render_line_count() > 0 && y < height {
-    y = append_extension_render_lines(
-      builder,
-      input,
-      y,
-      width,
-      height,
-      4U,
-    )
+    y = append_extension_render_lines(builder, input, y, width, height, 4U)
   }
   if input.ui_active() {
     guard input.ui_prompt() is Some(prompt) else { return builder.finish() }
@@ -462,14 +443,14 @@ pub fn NativeRuntime::poll_once(
           AutocompleteUnhandled =>
             match
               self.input.route_key(
-            value,
-            state.now_ms,
-            state.editor_has_text,
-            state.in_turn,
-            state.compact_pending,
-            state.command_busy,
-            state.dismissible_overlay_visible,
-          ) {
+                value,
+                state.now_ms,
+                state.editor_has_text,
+                state.in_turn,
+                state.compact_pending,
+                state.command_busy,
+                state.dismissible_overlay_visible,
+              ) {
               RouteUiActive => RuntimeUiUpdated
               RouteUiSettled => RuntimeUiSettled
               RouteShell(InputPass) => RuntimeEditorKey(value)

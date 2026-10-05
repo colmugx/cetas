@@ -365,6 +365,7 @@ pub fn TranscriptRowSnapshot::scrollback_text(
 ///
 /// Finalized rows are intentionally omitted: after finalization they belong to
 /// the scrollback handoff path and must never be painted in both regions.
+
 ///|
 /// Lower the mutable/live transcript into one bounded Ratatui Paragraph.
 ///
@@ -380,12 +381,7 @@ pub fn TranscriptModel::append_live_block_scene(
   height : UInt,
 ) -> Unit {
   self.append_live_block_scene_with_thinking(
-    builder,
-    x,
-    y,
-    width,
-    height,
-    false,
+    builder, x, y, width, height, false,
   )
 }
 
@@ -422,7 +418,7 @@ pub fn TranscriptModel::append_live_block_scene_with_thinking(
               preview.push(lines[index])
             }
             "💭 thinking..." +
-              (if preview.is_empty() { "" } else { "\n" + preview.join("\n") })
+            (if preview.is_empty() { "" } else { "\n" + preview.join("\n") })
           }
         }
         TranscriptAssistant => row.text

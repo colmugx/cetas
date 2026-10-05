@@ -54,7 +54,11 @@ fn AutocompletePopupModel::open(
 
 ///|
 fn AutocompletePopupModel::item_count(self : AutocompletePopupModel) -> Int {
-  if self.active { self.list.item_count() } else { 0 }
+  if self.active {
+    self.list.item_count()
+  } else {
+    0
+  }
 }
 
 ///|
@@ -91,8 +95,7 @@ fn AutocompletePopupModel::handle_key(
     self.close()
     return AutocompleteCancelled
   }
-  if event.matches_key(@ui.KeyTab, 0U) ||
-    event.matches_key(@ui.KeyEnter, 0U) {
+  if event.matches_key(@ui.KeyTab, 0U) || event.matches_key(@ui.KeyEnter, 0U) {
     guard self.list.selected_item() is Some(item) else {
       self.close()
       return AutocompleteCancelled
@@ -117,6 +120,7 @@ fn native_reserved_local_command(id : String) -> Bool {
   id == "exit"
 }
 
+///|
 priv struct FileMentionRank {
   path : String
   score : Int
@@ -175,8 +179,11 @@ fn rank_file_mention_items(
     let mut at = ranked.length()
     for index, existing in ranked {
       if candidate.score > existing.score ||
-        (candidate.score == existing.score &&
-          candidate.is_dir && !existing.is_dir) {
+        (
+          candidate.score == existing.score &&
+          candidate.is_dir &&
+          !existing.is_dir
+        ) {
         at = index
         break
       }
@@ -233,10 +240,9 @@ async fn NativeHost::refresh_skill_completion_cache(
   for port in self.agent.commands() {
     for def in port.commands() {
       if def.id == "skills" {
-        let outcome = port.invoke(
-          "skills",
-          Json::object(Map::from_array([])),
-        ) catch { _ => return }
+        let outcome = port.invoke("skills", Json::object(Map::from_array([]))) catch {
+          _ => return
+        }
         self.skill_completion_items = skill_items_from_outcome(outcome)
         return
       }
@@ -271,7 +277,9 @@ fn NativeHost::sync_model_state(
 }
 
 ///|
-fn NativeHost::command_definitions(self : NativeHost) -> Array[@posoco.CommandDef] {
+fn NativeHost::command_definitions(
+  self : NativeHost,
+) -> Array[@posoco.CommandDef] {
   let defs : Array[@posoco.CommandDef] = []
   for port in self.agent.commands() {
     for def in port.commands() {
@@ -301,7 +309,11 @@ fn command_query_parts(query : String) -> (String, String) {
 
 ///|
 fn command_detail(def : @posoco.CommandDef) -> String {
-  if def.description.is_empty() { def.label } else { def.description }
+  if def.description.is_empty() {
+    def.label
+  } else {
+    def.description
+  }
 }
 
 ///|
@@ -332,14 +344,11 @@ fn NativeHost::command_autocomplete(
   self : NativeHost,
   text_before_cursor : String,
 ) -> (String, Array[@ui.SelectItem])? {
-  let matches = @ui.active_autocomplete_matches(
-    text_before_cursor,
-    [
-      { trigger: "/", span_spaces: true, },
-      { trigger: "$", span_spaces: false, },
-      { trigger: "@", span_spaces: false, },
-    ],
-  )
+  let matches = @ui.active_autocomplete_matches(text_before_cursor, [
+    { trigger: "/", span_spaces: true, },
+    { trigger: "$", span_spaces: false, },
+    { trigger: "@", span_spaces: false, },
+  ])
   guard matches.length() == 1 else { return None }
   let match_ = matches[0]
 
@@ -362,9 +371,17 @@ fn NativeHost::command_autocomplete(
     for path in rank_file_mention_items(self.workspace_files, match_.query) {
       let is_dir = path.has_suffix("/")
       items.push({
-        value: if is_dir { "@" + path } else { "@" + path + " " },
+        value: if is_dir {
+          "@" + path
+        } else {
+          "@" + path + " "
+        },
         label: path,
-        description: if is_dir { "directory" } else { "" },
+        description: if is_dir {
+          "directory"
+        } else {
+          ""
+        },
       })
     }
     return if items.is_empty() {
@@ -388,7 +405,11 @@ fn NativeHost::command_autocomplete(
                   items.push({
                     value: "/" + def.id + " " + choice,
                     label: choice,
-                    description: def.id + " " + param.name + " — " + param.description,
+                    description: def.id +
+                    " " +
+                    param.name +
+                    " — " +
+                    param.description,
                   })
                 }
               }
@@ -483,7 +504,11 @@ fn slash_input_parts(input : String) -> (String, String)? {
   }
   let body = trimmed[1:].to_owned()
   let (id, args) = command_query_parts(body)
-  if id.is_empty() { None } else { Some((id, args.trim().to_owned())) }
+  if id.is_empty() {
+    None
+  } else {
+    Some((id, args.trim().to_owned()))
+  }
 }
 
 ///|
@@ -619,8 +644,7 @@ async fn NativeHost::invoke_slash_command(
           structured=None,
           ui_hint=None,
         )
-      Err(reason) =>
-        return @posoco.CommandOutcome::Failure(reason=reason)
+      Err(reason) => return @posoco.CommandOutcome::Failure(reason~)
     }
   }
 
@@ -639,8 +663,7 @@ async fn NativeHost::invoke_slash_command(
       Ok(outcome) => {
         ignore(self.session.switch_to(outcome.final_session_id))
         return @posoco.CommandOutcome::Success(
-          feedback=
-            "context compacted (" +
+          feedback="context compacted (" +
             outcome.mode +
             ", " +
             outcome.messages_after.to_string() +
@@ -680,19 +703,14 @@ async fn NativeHost::invoke_slash_command(
 ///|
 fn autocomplete_validation_marker() -> Int {
   let popup = AutocompletePopupModel::new()
-  if popup.is_active() ||
-    popup.open("/", []) ||
-    popup.is_active() {
+  if popup.is_active() || popup.open("/", []) || popup.is_active() {
     return 0
   }
 
-  if !popup.open(
-      "/h",
-      [
-        { value: "/help", label: "/help", description: "Help", },
-        { value: "/handoff", label: "/handoff", description: "Handoff", },
-      ],
-    ) ||
+  if !popup.open("/h", [
+      { value: "/help", label: "/help", description: "Help", },
+      { value: "/handoff", label: "/handoff", description: "Handoff", },
+    ]) ||
     popup.item_count() != 2 {
     return 0
   }
@@ -702,14 +720,16 @@ fn autocomplete_validation_marker() -> Int {
     _ => return 0
   }
   match popup.handle_key(validation_key(2U, 0U, 0U, 1U)) {
-    AutocompleteAccepted(prefix, replacement) if prefix == "/h" && replacement == "/handoff" => ()
+    AutocompleteAccepted(prefix, replacement) if prefix == "/h" &&
+      replacement == "/handoff" => ()
     _ => return 0
   }
   if popup.is_active() {
     return 0
   }
 
-  guard parse_skill_mention("$cetas-usage explain config") is Some((skill, tail)) else {
+  guard parse_skill_mention("$cetas-usage explain config")
+    is Some((skill, tail)) else {
     return 0
   }
   if skill != "cetas-usage" || tail != "explain config" {
