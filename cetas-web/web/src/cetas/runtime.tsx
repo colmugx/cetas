@@ -11,10 +11,14 @@ import type { JSX } from "@solidjs/web";
 import {
   probeHealth,
   probeRuntime,
-  websocketUrl,
   type Health,
   type RuntimeSnapshot,
 } from "./client";
+import {
+  createRealtimeClient,
+  type RealtimeClient,
+  type ServerEvent,
+} from "./socket";
 
 export type ConnectionState = "checking" | "online" | "offline";
 
@@ -22,9 +26,11 @@ type RuntimeContextValue = {
   health: Accessor<Health | null>;
   runtime: Accessor<RuntimeSnapshot | null>;
   http: Accessor<ConnectionState>;
-  socket: Accessor<ConnectionState>;
+  socket: Accessor<"connecting" | "online" | "offline">;
   core: Accessor<"checking" | "ready" | "needs_setup" | "offline">;
+  realtime: RealtimeClient;
   refresh: () => Promise<void>;
+  onEvent: (handler: (event: ServerEvent) => void) => () => void;
 };
 
 const RuntimeContext = createContext<RuntimeContextValue>();
@@ -33,7 +39,7 @@ export function RuntimeProvider(props: { children: JSX.Element }) {
   const [health, setHealth] = createSignal<Health | null>(null);
   const [runtime, setRuntime] = createSignal<RuntimeSnapshot | null>(null);
   const [http, setHttp] = createSignal<ConnectionState>("checking");
-  const [socket, setSocket] = createSignal<ConnectionState>("checking");
+  const realtime = createRealtimeClient();
 
   const core = createMemo<"checking" | "ready" | "needs_setup" | "offline">(
     () => {
@@ -62,18 +68,39 @@ export function RuntimeProvider(props: { children: JSX.Element }) {
 
   onMount(() => {
     void refresh();
-
-    const ws = new WebSocket(websocketUrl());
-    ws.addEventListener("open", () => setSocket("online"));
-    ws.addEventListener("close", () => setSocket("offline"));
-    ws.addEventListener("error", () => setSocket("offline"));
-
-    onCleanup(() => ws.close());
+    const dispose = realtime.onEvent((event) => {
+      if (event.type !== "session.snapshot") return;
+      setRuntime((current) => ({
+        status: "ready",
+        session_id:
+          typeof event.session_id === "string"
+            ? event.session_id
+            : current?.session_id ?? "",
+        model:
+          typeof event.model === "string" ? event.model : current?.model ?? "",
+        effort:
+          typeof event.effort === "string"
+            ? event.effort
+            : current?.effort ?? "",
+        cwd: typeof event.cwd === "string" ? event.cwd : current?.cwd ?? "",
+        detail: "",
+      }));
+    });
+    onCleanup(dispose);
   });
 
   return (
     <RuntimeContext
-      value={{ health, runtime, http, socket, core, refresh }}
+      value={{
+        health,
+        runtime,
+        http,
+        socket: realtime.state,
+        core,
+        realtime,
+        refresh,
+        onEvent: realtime.onEvent,
+      }}
     >
       {props.children}
     </RuntimeContext>
