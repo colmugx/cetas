@@ -15,7 +15,7 @@ async fn compose_web_runtime(
 ) -> WebRuntime raise @posoco.CompositionError {
   let fs_impl = @workspace.NativeWorkspaceFs()
   let fs : &@workspace.WorkspaceFs = fs_impl
-  let warn = async fn(text : String) noraise {
+  let warn = fn(text : String) noraise {
     println("cetas-web: " + text)
   }
   let platform = @cetas_core.build_cetas_platform(
