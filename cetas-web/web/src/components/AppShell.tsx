@@ -2,14 +2,23 @@ import {
   Activity,
   FolderTree,
   MessageSquare,
+  Monitor,
+  Moon,
   Plus,
   Settings,
+  Sun,
   Waves,
 } from "@lucide/solid";
 import { useLocation } from "@solidjs/router";
-import { createEffect, Show } from "solid-js";
+import { For, Show, createEffect, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
+import {
+  listSessions,
+  switchSession,
+  type SessionSummary,
+} from "../cetas/client";
 import { useCetasRuntime } from "../cetas/runtime";
+import { useTheme, type ThemeChoice } from "../theme";
 
 const navItems = [
   { path: "/", label: "Chat", icon: MessageSquare },
@@ -69,9 +78,12 @@ function ValueRow(props: { label: string; value: string }) {
   );
 }
 
+const themeOrder: ThemeChoice[] = ["system", "light", "dark"];
+
 export default function AppShell(props: { children: JSX.Element }) {
   const location = useLocation();
   const runtime = useCetasRuntime();
+  const theme = useTheme();
   const snapshot = () => runtime.runtime();
 
   const pageTitle = () =>
@@ -81,6 +93,58 @@ export default function AppShell(props: { children: JSX.Element }) {
     return model.length > 0 ? (model.split("/").pop() ?? model) : "";
   };
   const effort = () => snapshot()?.effort ?? "";
+
+  const cycleTheme = () => {
+    const next =
+      themeOrder[(themeOrder.indexOf(theme.choice()) + 1) % themeOrder.length];
+    theme.setChoice(next);
+  };
+
+  const themeIcon = () =>
+    theme.choice() === "dark" ? (
+      <Moon size={14} />
+    ) : theme.choice() === "light" ? (
+      <Sun size={14} />
+    ) : (
+      <Monitor size={14} />
+    );
+
+  const [sessions, setSessions] = createSignal<SessionSummary[]>([]);
+  const [sessionError, setSessionError] = createSignal("");
+  const activeSessionId = () => snapshot()?.session_id ?? "";
+
+  let errorTimer: ReturnType<typeof setTimeout> | undefined;
+  const flashSessionError = (message: string) => {
+    setSessionError(message);
+    if (errorTimer) clearTimeout(errorTimer);
+    errorTimer = setTimeout(() => setSessionError(""), 6000);
+  };
+
+  const loadSessions = async () => {
+    try {
+      const data = await listSessions();
+      setSessions(data.sessions);
+    } catch {
+      // Keep the last known list while the API is unreachable.
+    }
+  };
+
+  createEffect(
+    () => activeSessionId(),
+    (sessionId, previous) => {
+      if (previous !== undefined && sessionId !== previous) {
+        void loadSessions();
+      }
+    },
+  );
+
+  const pickSession = async (id?: string) => {
+    try {
+      await switchSession(id);
+    } catch (error) {
+      flashSessionError(error instanceof Error ? error.message : String(error));
+    }
+  };
 
   createEffect(
     () => location.pathname,
@@ -106,18 +170,7 @@ export default function AppShell(props: { children: JSX.Element }) {
           </div>
         </div>
 
-        <div class="px-3">
-          <button
-            disabled
-            title="Session creation lands with the realtime protocol"
-            class="flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-line-strong text-xs font-medium text-fg-faint"
-          >
-            <Plus size={14} />
-            New session
-          </button>
-        </div>
-
-        <nav class="mt-4 space-y-0.5 px-3">
+        <nav class="space-y-0.5 px-3">
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = location.pathname === item.path;
@@ -140,7 +193,56 @@ export default function AppShell(props: { children: JSX.Element }) {
           })}
         </nav>
 
-        <div class="mt-auto p-3">
+        <div class="mt-4 flex min-h-0 flex-1 flex-col px-3">
+          <div class="flex items-center justify-between px-2">
+            <span class="text-[10px] font-semibold uppercase tracking-[0.14em] text-fg-faint">
+              Sessions
+            </span>
+            <button
+              onClick={() => void pickSession()}
+              class="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-fg-muted transition-colors hover:bg-raised hover:text-fg"
+              title="Start a new session"
+            >
+              <Plus size={13} />
+              New
+            </button>
+          </div>
+          <Show when={sessionError()}>
+            <p class="mt-1.5 rounded-lg border border-bad/25 bg-bad/10 px-2 py-1.5 text-[10.5px] leading-4 text-bad">
+              {sessionError()}
+            </p>
+          </Show>
+          <div class="scroll-slim mt-1.5 min-h-0 flex-1 space-y-0.5 overflow-y-auto">
+            <For each={sessions()}>
+              {(session) => {
+                const isActive = session.id === activeSessionId();
+                return (
+                  <button
+                    onClick={() => void pickSession(session.id)}
+                    class={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors ${
+                      isActive
+                        ? "bg-raised text-fg"
+                        : "text-fg-muted hover:bg-raised/50 hover:text-fg"
+                    }`}
+                    title={session.id}
+                  >
+                    <span
+                      class={`size-1.5 shrink-0 rounded-full ${isActive ? "bg-accent" : "bg-line-strong"}`}
+                    />
+                    <span class="min-w-0 flex-1 truncate">{session.title}</span>
+                  </button>
+                );
+              }}
+            </For>
+            <Show when={sessions().length === 0}>
+              <p class="px-2.5 py-2 text-[11px] text-fg-faint">
+                No persisted sessions yet.
+              </p>
+            </Show>
+          </div>
+        </div>
+
+        <div class="shrink-0 p-3">
           <div class="rounded-xl border border-line bg-raised/40 p-3">
             <div class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-fg-faint">
               <Activity size={11} />
@@ -192,6 +294,13 @@ export default function AppShell(props: { children: JSX.Element }) {
               <StatusDot state={runtime.socket()} />
               ws
             </span>
+            <button
+              onClick={cycleTheme}
+              class="grid size-7 place-items-center rounded-lg border border-line bg-raised/60 text-fg-muted transition-colors hover:text-fg"
+              title={`Theme: ${theme.choice()} (click to cycle)`}
+            >
+              {themeIcon()}
+            </button>
           </div>
         </header>
 

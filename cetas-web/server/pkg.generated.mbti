@@ -6,6 +6,8 @@ package "colmugx/cetas-web/server"
 // Errors
 
 // Types and methods
+type ActiveSession
+
 type WebClientMessage
 
 type WebObserver

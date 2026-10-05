@@ -113,12 +113,14 @@ fn WebObserver::emit_snapshot(
   effort : String,
   cwd : String,
   busy : Bool,
+  permission : String,
 ) -> Unit {
   self.emit("session.snapshot", extra=[
     ("model", Json::string(model)),
     ("effort", Json::string(effort)),
     ("cwd", Json::string(cwd)),
     ("busy", Json::boolean(busy)),
+    ("permission", Json::string(permission)),
     ("protocol", Json::string("cetas-web/0.1")),
   ])
 }

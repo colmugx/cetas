@@ -78,6 +78,10 @@ export function RuntimeProvider(props: { children: JSX.Element }) {
       effort:
         typeof event.effort === "string" ? event.effort : current?.effort ?? "",
       cwd: typeof event.cwd === "string" ? event.cwd : current?.cwd ?? "",
+      permission:
+        typeof event.permission === "string"
+          ? event.permission
+          : current?.permission ?? "",
       detail: "",
     }));
   });

@@ -38,4 +38,6 @@ import {
   "colmugx/posoco-ext-handoff@0.1.0",
   "colmugx/posoco-ext-lazytools@0.1.0",
   // recipe-deps:end
+  "posoco/ext-llm@0.2.0",
+  "colmugx/posoco-ext-fs-session@0.4.0",
 }

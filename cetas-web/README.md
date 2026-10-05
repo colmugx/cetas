@@ -111,10 +111,21 @@ The day-1 shell has Chat, Workspace, and Settings routes. Chat shows the real co
 ## HTTP bootstrap
 
 ```text
-GET /api/health
-GET /api/runtime
-GET /ws
+GET  /api/health
+GET  /api/runtime          ready state incl. active model, effort, permission
+GET  /api/sessions         persisted sessions for this cwd bucket
+POST /api/session          {id?} switch to id, or mint a new session
+GET  /api/models           router slot catalog with per-slot efforts
+POST /api/model            {slot_id} switch model (persists to settings.json)
+POST /api/effort           {effort} select reasoning effort (persists)
+POST /api/permission       {mode} readonly | workspace_write | yolo
+GET  /ws                   realtime turn protocol
 ```
+
+Session switching recomposes the agent over the shared platform; the browser
+receives a fresh `session.snapshot`. Transcript history replay on switch is
+future work. `interactive`/`auto` permission modes need the approval surface,
+which is not wired yet.
 
 `/ws` still sends a connection envelope and echoes frames. It is not yet the final Cetas turn protocol.
 

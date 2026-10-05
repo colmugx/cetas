@@ -2,18 +2,30 @@ import {
   Cpu,
   GitBranch,
   Layers,
+  Monitor,
+  Moon,
+  Palette,
   Settings,
   Sparkles,
+  Sun,
   Workflow,
   Zap,
 } from "@lucide/solid";
-import { Show } from "solid-js";
+import { For, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { useCetasRuntime } from "../cetas/runtime";
+import { useTheme, type ThemeChoice } from "../theme";
 import { StatusPill } from "../ui/StatusPill";
+
+const themeOptions: Array<{ value: ThemeChoice; label: string; icon: JSX.Element }> = [
+  { value: "system", label: "System", icon: <Monitor size={13} /> },
+  { value: "light", label: "Light", icon: <Sun size={13} /> },
+  { value: "dark", label: "Dark", icon: <Moon size={13} /> },
+];
 
 export default function SettingsPage() {
   const runtime = useCetasRuntime();
+  const theme = useTheme();
   const snapshot = () => runtime.runtime();
 
   return (
@@ -33,6 +45,12 @@ export default function SettingsPage() {
       </div>
 
       <div class="mt-7 space-y-2.5">
+        <Row
+          icon={<Palette size={15} />}
+          title="Appearance"
+          detail="Theme follows the system by default"
+          right={<ThemeSwitch value={theme.choice()} onChange={theme.setChoice} />}
+        />
         <Row
           icon={<Cpu size={15} />}
           title="cetas-core"
@@ -97,6 +115,32 @@ export default function SettingsPage() {
           right={<StatusPill>pinned</StatusPill>}
         />
       </div>
+    </div>
+  );
+}
+
+function ThemeSwitch(props: {
+  value: ThemeChoice;
+  onChange: (choice: ThemeChoice) => void;
+}) {
+  return (
+    <div class="flex items-center gap-0.5 rounded-lg border border-line bg-panel p-0.5">
+      <For each={themeOptions}>
+        {(option) => (
+          <button
+            onClick={() => props.onChange(option.value)}
+            class={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+              props.value === option.value
+                ? "bg-raised text-fg shadow-sm"
+                : "text-fg-muted hover:text-fg"
+            }`}
+            title={`${option.label} theme`}
+          >
+            {option.icon}
+            <span class="hidden sm:inline">{option.label}</span>
+          </button>
+        )}
+      </For>
     </div>
   );
 }

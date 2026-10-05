@@ -18,8 +18,22 @@ import {
   onCleanup,
 } from "solid-js";
 import type { JSX } from "@solidjs/web";
+import {
+  listModels,
+  setEffort,
+  setModel,
+  setPermission,
+  type ModelCatalog,
+} from "../cetas/client";
 import { useCetasRuntime } from "../cetas/runtime";
 import type { ServerEvent } from "../cetas/socket";
+import { Picker, type PickerOption } from "../ui/Picker";
+
+const permissionOptions: PickerOption[] = [
+  { value: "readonly", label: "Read only" },
+  { value: "workspace_write", label: "Workspace write" },
+  { value: "yolo", label: "Yolo · no approvals" },
+];
 
 type TranscriptItem =
   | { kind: "user"; turnId: string; text: string }
@@ -225,6 +239,81 @@ export default function ChatPage() {
   const dispose = runtime.onEvent(onEvent);
   onCleanup(dispose);
 
+  // A new session means a fresh transcript; history replay is future work.
+  // Compare values inside apply: effects re-run on every runtime write even
+  // when the session id is unchanged.
+  createEffect(
+    () => snapshot()?.session_id ?? "",
+    (sessionId, previous) => {
+      if (previous !== undefined && sessionId !== previous) {
+        setItems([]);
+        setBusy(false);
+      }
+    },
+  );
+
+  const [catalog, setCatalog] = createSignal<ModelCatalog | null>(null);
+  const [configError, setConfigError] = createSignal("");
+  let configErrorTimer: ReturnType<typeof setTimeout> | undefined;
+  const flashConfigError = (message: string) => {
+    setConfigError(message);
+    if (configErrorTimer) clearTimeout(configErrorTimer);
+    configErrorTimer = setTimeout(() => setConfigError(""), 6000);
+  };
+
+  const loadCatalog = async () => {
+    try {
+      setCatalog(await listModels());
+    } catch {
+      // The picker falls back to the current runtime values.
+    }
+  };
+
+  createEffect(
+    () => runtime.core(),
+    (core, previous) => {
+      if (core === "ready" && core !== previous) void loadCatalog();
+    },
+  );
+
+  const applyConfig = async (action: () => Promise<unknown>) => {
+    try {
+      await action();
+      await loadCatalog();
+    } catch (error) {
+      flashConfigError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const modelOptions = (): PickerOption[] =>
+    (catalog()?.slots ?? []).map((slot) => ({
+      value: slot.id,
+      label: slot.label || slot.id,
+      hint: slot.provider,
+      active: slot.id === (snapshot()?.model ?? ""),
+    }));
+
+  const effortOptions = (): PickerOption[] => {
+    const activeSlot = catalog()?.slots.find(
+      (slot) => slot.id === (snapshot()?.model ?? ""),
+    );
+    const efforts = activeSlot?.efforts ?? [];
+    const current = snapshot()?.effort ?? "default";
+    if (efforts.length === 0) {
+      return [{ value: current, label: current, active: true }];
+    }
+    return efforts.map((effort) => ({
+      value: effort,
+      label: effort,
+      active: effort === current,
+    }));
+  };
+
+  const shortModel = () => {
+    const model = snapshot()?.model ?? "";
+    return model.length > 0 ? (model.split("/").pop() ?? model) : "—";
+  };
+
   const textVolume = () =>
     items().reduce(
       (total, item) =>
@@ -311,7 +400,7 @@ export default function ChatPage() {
 
       <div class="shrink-0 border-t border-line bg-panel/50 backdrop-blur">
         <div class="mx-auto w-full max-w-3xl px-5 pb-4 pt-3">
-          <div class="rounded-2xl border border-line-strong bg-raised shadow-lg shadow-black/25 transition-colors focus-within:border-accent/40">
+          <div class="rounded-2xl border border-line-strong bg-raised shadow-[0_12px_40px_-12px_var(--shadow-color)] transition-colors focus-within:border-accent/40">
             <textarea
               ref={composerRef}
               value={prompt()}
@@ -327,11 +416,42 @@ export default function ChatPage() {
               class="scroll-slim block max-h-52 w-full resize-none bg-transparent px-4 py-3.5 text-sm leading-6 text-fg outline-none placeholder:text-fg-faint disabled:opacity-50"
             />
             <div class="flex items-center justify-between gap-3 px-3 pb-2.5">
-              <span class="font-mono text-[11px] text-fg-faint">
-                {busy()
-                  ? "turn running · streamed from the MoonBit host"
-                  : "Enter to send · Shift+Enter for newline"}
-              </span>
+              <div class="flex min-w-0 items-center gap-1.5">
+                <Picker
+                  label="model"
+                  value={shortModel()}
+                  options={modelOptions()}
+                  disabled={busy() || runtime.core() !== "ready"}
+                  onSelect={(value) => void applyConfig(() => setModel(value))}
+                />
+                <Picker
+                  label="effort"
+                  value={snapshot()?.effort || "default"}
+                  options={effortOptions()}
+                  disabled={busy() || runtime.core() !== "ready"}
+                  onSelect={(value) => void applyConfig(() => setEffort(value))}
+                />
+                <Picker
+                  label="permission"
+                  value={snapshot()?.permission || "readonly"}
+                  options={permissionOptions}
+                  disabled={busy() || runtime.core() !== "ready"}
+                  onSelect={(value) =>
+                    void applyConfig(() => setPermission(value))
+                  }
+                />
+                <Show when={configError()} fallback={
+                  <Show when={busy()}>
+                    <span class="hidden font-mono text-[11px] text-fg-faint md:inline">
+                      turn running
+                    </span>
+                  </Show>
+                }>
+                  <span class="hidden min-w-0 truncate text-[11px] text-bad md:inline">
+                    {configError()}
+                  </span>
+                </Show>
+              </div>
               <Show
                 when={busy()}
                 fallback={
@@ -342,7 +462,7 @@ export default function ChatPage() {
                       runtime.core() !== "ready" ||
                       runtime.socket() !== "online"
                     }
-                    class="grid size-8 place-items-center rounded-xl bg-accent text-canvas transition hover:bg-accent-strong disabled:opacity-30"
+                    class="grid size-8 shrink-0 place-items-center rounded-xl bg-accent text-canvas transition hover:bg-accent-strong disabled:opacity-30"
                     title="Send"
                   >
                     <Send size={15} />
@@ -351,7 +471,7 @@ export default function ChatPage() {
               >
                 <button
                   onClick={abort}
-                  class="grid size-8 place-items-center rounded-xl border border-bad/30 bg-bad/10 text-bad transition hover:bg-bad/20"
+                  class="grid size-8 shrink-0 place-items-center rounded-xl border border-bad/30 bg-bad/10 text-bad transition hover:bg-bad/20"
                   title="Abort turn"
                 >
                   <Square size={12} fill="currentColor" />

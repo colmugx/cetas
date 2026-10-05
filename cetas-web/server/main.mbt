@@ -15,11 +15,25 @@ async fn drain_web_events(
 }
 
 ///|
+fn error_json(message : String) -> Json {
+  Json::object(Map::from_array([("error", Json::string(message))]))
+}
+
+///|
+async fn request_string_field(req : @moonback.Request, key : String) -> String? {
+  let body = req.body.json() catch { _ => return None }
+  guard body is Json::Object(fields) else { return None }
+  match fields.get(key) {
+    Some(Json::String(value)) => Some(value)
+    _ => None
+  }
+}
+
+///|
 async fn serve_websocket(
   req : @moonback.Request,
   res : @moonback.Responder,
   boot : Result[WebRuntime, String],
-  app_group : @async.TaskGroup[Unit],
 ) -> Unit {
   let ws = res.upgrade(req)
   let client_ip = req.ip().unwrap_or("unknown")
@@ -64,7 +78,7 @@ async fn serve_websocket(
                   Err(message) => runtime.observer.emit_protocol_error(message)
                   Ok(SessionAttach) => runtime.emit_snapshot()
                   Ok(TurnStart(prompt)) =>
-                    match runtime.start_turn(app_group, prompt) {
+                    match runtime.start_turn(prompt) {
                       Ok(_) => ()
                       Err(message) =>
                         runtime.observer.emit_protocol_error(message)
@@ -117,15 +131,7 @@ async fn main {
       })
       ctx.get("/runtime", (_req, res) => {
         match boot {
-          Ok(runtime) =>
-            res.send_json({
-              "status": "ready",
-              "session_id": runtime.session_id,
-              "model": runtime.model,
-              "effort": runtime.effort,
-              "cwd": runtime.cwd,
-              "detail": "",
-            })
+          Ok(runtime) => res.send_json(runtime.runtime_json())
           Err(detail) =>
             res.send_json({
               "status": "needs_setup",
@@ -133,8 +139,93 @@ async fn main {
               "model": "",
               "effort": "",
               "cwd": cwd,
+              "permission": "",
               "detail": detail,
             })
+        }
+      })
+      ctx.get("/sessions", (_req, res) => {
+        match boot {
+          Ok(runtime) => {
+            let payload : Json = runtime.sessions_json() catch {
+              error => error_json(error.to_string())
+            }
+            res.send_json(payload)
+          }
+          Err(detail) => res.send_json(error_json(detail), status=503)
+        }
+      })
+      ctx.post("/session", (req, res) => {
+        match boot {
+          Ok(runtime) => {
+            let requested = request_string_field(req, "id")
+            let outcome : Result[String, String] = match requested {
+              Some(id) => runtime.switch_session(id)
+              None => runtime.new_session()
+            }
+            match outcome {
+              Ok(session_id) => res.send_json({ "session_id": session_id })
+              Err(message) => res.send_json(error_json(message), status=409)
+            }
+          }
+          Err(detail) => res.send_json(error_json(detail), status=503)
+        }
+      })
+      ctx.get("/models", (_req, res) => {
+        match boot {
+          Ok(runtime) => res.send_json(runtime.model_slots_json())
+          Err(detail) => res.send_json(error_json(detail), status=503)
+        }
+      })
+      ctx.post("/model", (req, res) => {
+        match boot {
+          Ok(runtime) =>
+            match request_string_field(req, "slot_id") {
+              Some(slot_id) =>
+                match runtime.switch_model(slot_id) {
+                  Ok(_) => res.send_json(runtime.runtime_json())
+                  Err(message) => res.send_json(error_json(message), status=409)
+                }
+              None =>
+                res.send_json(
+                  error_json("body must include slot_id"),
+                  status=400,
+                )
+            }
+          Err(detail) => res.send_json(error_json(detail), status=503)
+        }
+      })
+      ctx.post("/effort", (req, res) => {
+        match boot {
+          Ok(runtime) =>
+            match request_string_field(req, "effort") {
+              Some(effort) =>
+                match runtime.select_effort(effort) {
+                  Ok(_) => res.send_json(runtime.runtime_json())
+                  Err(message) => res.send_json(error_json(message), status=409)
+                }
+              None =>
+                res.send_json(
+                  error_json("body must include effort"),
+                  status=400,
+                )
+            }
+          Err(detail) => res.send_json(error_json(detail), status=503)
+        }
+      })
+      ctx.post("/permission", (req, res) => {
+        match boot {
+          Ok(runtime) =>
+            match request_string_field(req, "mode") {
+              Some(mode) =>
+                match runtime.set_permission(mode) {
+                  Ok(_) => res.send_json(runtime.runtime_json())
+                  Err(message) => res.send_json(error_json(message), status=409)
+                }
+              None =>
+                res.send_json(error_json("body must include mode"), status=400)
+            }
+          Err(detail) => res.send_json(error_json(detail), status=503)
         }
       })
     })
@@ -142,7 +233,7 @@ async fn main {
     let app = @moonback.App(ctx => {
       ctx.add_middleware(static_files)
       ctx.mount("/api", api)
-      ctx.get("/ws", (req, res) => serve_websocket(req, res, boot, group))
+      ctx.get("/ws", (req, res) => serve_websocket(req, res, boot))
     })
     defer app.close()
 
@@ -151,7 +242,7 @@ async fn main {
     match boot {
       Ok(runtime) =>
         println(
-          "cetas-web: core ready session=\{runtime.session_id} model=\{runtime.model}",
+          "cetas-web: core ready session=\{runtime.active.session_id} model=\{runtime.active.model}",
         )
       Err(detail) => println("cetas-web: core needs setup: \{detail}")
     }
@@ -160,7 +251,7 @@ async fn main {
     app.serve(@moonback.listen(host~, port=port.to_uint16(), reuse_addr=true))
 
     match boot {
-      Ok(runtime) => runtime.agent.shutdown()
+      Ok(runtime) => runtime.active.agent.shutdown()
       Err(_) => ()
     }
   })
