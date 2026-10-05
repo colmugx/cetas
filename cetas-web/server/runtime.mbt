@@ -2,7 +2,7 @@
 struct WebRuntime {
   agent : @posoco.Agent
   observer : WebObserver
-  mut session_id : String
+  session_id : String
   model : String
   effort : String
   cwd : String
