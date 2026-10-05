@@ -148,6 +148,7 @@ pub struct NativeHost {
 }
 pub fn NativeHost::active_effort(Self) -> String?
 pub fn NativeHost::active_model(Self) -> String
+pub fn NativeHost::agent(Self) -> @posoco.Agent
 pub async fn NativeHost::compose(home~ : String, cwd~ : String, mode~ : @posoco-ext-permission.PermissionMode, approval? : &@posoco-ext-permission.ApprovalSource?, ui? : &@port.UiPort?, tail_exts? : Array[&@port.Extension], session_id? : String, fs? : &@posoco-ext-workspace.WorkspaceFs?, mcp_group? : @async.TaskGroup[Unit]?, warn? : async (String) -> Unit noraise) -> Self raise @error.CompositionError
 pub async fn NativeHost::compose_interactive(home~ : String, cwd~ : String, mode~ : @posoco-ext-permission.PermissionMode, session_id? : String, fs? : &@posoco-ext-workspace.WorkspaceFs?, mcp_group? : @async.TaskGroup[Unit]?, warn? : async (String) -> Unit noraise) -> (Self, NativeUiPort) raise @error.CompositionError
 pub fn NativeHost::interrupt_active(Self) -> @runtime.EnqueueOutcome

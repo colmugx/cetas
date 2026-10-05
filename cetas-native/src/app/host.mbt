@@ -240,6 +240,14 @@ pub fn NativeHost::shell(self : NativeHost) -> NativeShell {
 }
 
 ///|
+/// Raw Agent handle for the executable's app-lifetime run_scoped owner.
+/// Application turns still enter through NativeHost; this seam exists only
+/// so the process can keep Posoco Tasks active for background subagents.
+pub fn NativeHost::agent(self : NativeHost) -> @posoco.Agent {
+  self.agent
+}
+
+///|
 pub fn NativeHost::session_id(self : NativeHost) -> String {
   self.session.session_id()
 }
