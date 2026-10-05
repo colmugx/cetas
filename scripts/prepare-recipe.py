@@ -10,10 +10,12 @@ HOSTS = {
     "run": ROOT / "cetas-run",
     "js": ROOT / "cetas-js",
     "native": ROOT / "cetas-native",
+    "web": ROOT / "cetas-web",
 }
 
 HOST_PACKAGE_DIRS = {
     "native": pathlib.Path("src/app"),
+    "web": pathlib.Path("server"),
 }
 
 RECIPE_MOD_BEGIN = "  // recipe-deps:begin"

@@ -1,8 +1,10 @@
-import { defineConfig } from "vite";
 import solid from "@solidjs/vite-plugin";
+import tailwindcss from "@tailwindcss/vite";
+import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [
+    tailwindcss(),
     solid({
       start: true,
     }),
