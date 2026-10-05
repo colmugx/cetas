@@ -480,6 +480,52 @@ describe("SubagentActivityStore", () => {
   });
 });
 
+describe("SubagentActivityStore outcome receipts", () => {
+  it("counts ready-but-undelivered receipts per owner session", () => {
+    const store = new SubagentActivityStore();
+    spawned(store, "bg", "background", { background: true });
+    label(store, "bg", "background_spawned", { task_id: "task_1" });
+    expect(store.resultsWaiting("s1")).toBe(0);
+
+    expect(store.noteOutcomeReady("task_1", "s1")).toBe(true);
+    expect(store.resultsWaiting("s1")).toBe(1);
+    // Duplicate receipts are no-ops.
+    expect(store.noteOutcomeReady("task_1", "s1")).toBe(false);
+    expect(store.resultsWaiting("s1")).toBe(1);
+    // Session scoping: another session sees nothing waiting.
+    expect(store.resultsWaiting("s2")).toBe(0);
+  });
+
+  it("the authoritative terminal delivers the receipt; an exit alone does not", () => {
+    const store = new SubagentActivityStore();
+    spawned(store, "bg", "background", { background: true });
+    label(store, "bg", "background_spawned", { task_id: "task_1" });
+    store.noteOutcomeReady("task_1", "s1");
+    label(store, "bg", "background_exited", { state: "completed" });
+    expect(store.resultsWaiting("s1")).toBe(1);
+    label(store, "bg", "background_terminal", { state: "completed", summary: "done" });
+    expect(store.resultsWaiting("s1")).toBe(0);
+  });
+
+  it("receipts for unobserved tasks keep waiting", () => {
+    const store = new SubagentActivityStore();
+    store.noteOutcomeReady("lost_task", "s1");
+    expect(store.resultsWaiting("s1")).toBe(1);
+  });
+
+  it("flags the matching record and bumps its version once", () => {
+    const store = new SubagentActivityStore();
+    spawned(store, "bg", "background", { background: true });
+    label(store, "bg", "background_spawned", { task_id: "task_1" });
+    const before = store.get("bg")!.version;
+    store.noteOutcomeReady("task_1", "s1");
+    expect(store.get("bg")!.outcome_ready).toBe(true);
+    expect(store.get("bg")!.version).toBe(before + 1);
+    store.noteOutcomeReady("task_1", "s1");
+    expect(store.get("bg")!.version).toBe(before + 1);
+  });
+});
+
 describe("SubagentActivityStore snapshot shape", () => {
   it("exposes the fields the header and shell project", () => {
     const store = new SubagentActivityStore();

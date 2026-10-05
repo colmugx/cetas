@@ -91,4 +91,28 @@ describe("OperationCoordinator", () => {
     expect(coordinator.requestCancellation(turn)).toBe(false);
     coordinator.finish(turn);
   });
+
+  test("a projected core operation bypasses the compact reservation but not shutdown", () => {
+    const coordinator = new OperationCoordinator();
+    const reservation = coordinator.beginCompactRequest();
+    expect(reservation).toBeDefined();
+
+    const wakeup = coordinator.begin("wakeup", {
+      projected: true,
+      session: "session-1",
+    });
+    expect(wakeup).toBeDefined();
+    expect(coordinator.snapshot()).toMatchObject({
+      busy: true,
+      kind: "wakeup",
+      session: "session-1",
+    });
+    // Host-initiated operations still queue behind the reservation.
+    expect(coordinator.begin("turn", { session: "session-1" })).toBeUndefined();
+
+    coordinator.markShuttingDown();
+    expect(
+      coordinator.begin("wakeup", { projected: true, session: "session-1" }),
+    ).toBeUndefined();
+  });
 });

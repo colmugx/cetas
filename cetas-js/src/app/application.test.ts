@@ -31,11 +31,29 @@ function command(id: string): CommandDescriptor {
   };
 }
 
+/** A setup snapshot with one configured provider, so start() composes an Agent. */
+function agentComposingSetup(): ProviderSetupSnapshot {
+  return {
+    providers: [
+      {
+        id: "deepseek/chat",
+        label: "DeepSeek Chat",
+        provider: "deepseek",
+        model: "deepseek-chat",
+        active: true,
+        efforts: [],
+        oauth: false,
+      },
+    ],
+    oauthProviders: [],
+    activeModelId: "deepseek/chat",
+  };
+}
+
 function bridgeFor(
   setup: ProviderSetupSnapshot,
   counters: { created: number; runs: number; shutdowns: number },
-): CetasAgentBridge<{ id: string }> {
-  return {
+): CetasAgentBridge<{ id: string }> {  return {
     describeSetup: async () => setup,
     createAgent: async () => {
       counters.created += 1;
@@ -1866,6 +1884,48 @@ describe("CetasApplication", () => {
     expect(app.operationSnapshot.phase).toBe("idle");
   });
 
+  test("shutdown stays bounded when the Agent shutdown never settles", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const app = new CetasApplication({
+      bridge: {
+        ...bridgeFor(agentComposingSetup(), counters),
+        shutdown: () => new Promise<void>(() => {}),
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+      shutdownSettleTimeoutMs: 40,
+    });
+    await app.start();
+    expect(counters.created).toBe(1);
+    await expect(app.shutdown()).rejects.toThrow(/agent shutdown/);
+  });
+
+  test("shutdown aborts and bounds a stalled live catalog refresh", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    let refreshSignal: AbortSignal | undefined;
+    const app = new CetasApplication({
+      bridge: {
+        ...bridgeFor(agentComposingSetup(), counters),
+        refreshModelListsLive: (_config, _providerIdsJson, signal?: AbortSignal) => {
+          refreshSignal = signal;
+          // A refresh whose network work ignores the abort entirely.
+          return new Promise<string>(() => {});
+        },
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+      shutdownSettleTimeoutMs: 40,
+    });
+    await app.start();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(refreshSignal).toBeInstanceOf(AbortSignal);
+    await expect(app.shutdown()).rejects.toThrow(/live model catalog refresh/);
+    expect(refreshSignal?.aborted).toBe(true);
+    expect(counters.shutdowns).toBe(1);
+  });
+
 });
 
 describe("resumeTurn", () => {
@@ -1944,6 +2004,302 @@ describe("resumeTurn", () => {
     await expect(app.resumeTurn()).rejects.toBeInstanceOf(CetasApplicationError);
     releaseTurn?.();
     await pending;
+    await app.shutdown();
+  });
+});
+
+/**
+ * Core operation projection (frozen `posoco.operation` customs). These
+ * tests use the NEW protocol: the bridge's observer callback emits
+ * operation_started/operation_settled and the application must treat them
+ * as the authoritative busy truth.
+ */
+describe("core operation projection", () => {
+  function operationEvent(
+    label: "operation_started" | "operation_settled",
+    data: Record<string, unknown>,
+  ): string {
+    return JSON.stringify({
+      type: "custom",
+      source: "posoco.operation",
+      label,
+      data,
+    });
+  }
+
+  /** Bridge whose created Agent exposes its observer callback to the test. */
+  function observableBridge(overrides: Partial<CetasAgentBridge<{ id: string }>> = {}): {
+    bridge: CetasAgentBridge<{ id: string }>;
+    observer: () => (eventJson: string) => void;
+    followUps: string[];
+  } {
+    let live: AgentCallbacks | undefined;
+    const followUps: string[] = [];
+    const bridge: CetasAgentBridge<{ id: string }> = {
+      ...bridgeFor(agentComposingSetup(), { created: 0, runs: 0, shutdowns: 0 }),
+      createAgent: async (_config, agentCallbacks) => {
+        live = agentCallbacks;
+        return { id: "agent" };
+      },
+      abortTurn: () => "Accepted(operation=turn)",
+      enqueueFollowUp: (_agent, prompt) => {
+        followUps.push(prompt);
+        return "Accepted(run_id=w1)";
+      },
+      ...overrides,
+    };
+    return {
+      bridge,
+      observer: () => {
+        if (live === undefined) throw new Error("Agent was not created");
+        return live.observerCallback;
+      },
+      followUps,
+    };
+  }
+
+  test("a core wakeup operation projects busy without the recovery guess and settles only at operation_settled", async () => {
+    const fixture = observableBridge();
+    const app = new CetasApplication({
+      bridge: fixture.bridge,
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+    await app.start();
+
+    fixture.observer()(
+      operationEvent("operation_started", {
+        operation_id: "agent_wakeup_w1",
+        session: "session-1",
+        origin: "wakeup",
+      }),
+    );
+    expect(app.appState).toBe("running");
+    expect(app.operationSnapshot).toMatchObject({ busy: true, kind: "wakeup" });
+
+    // Same-session input during the wakeup run is a legitimate follow-up.
+    const submission = await app.submitUserInput("check the build", "session-1");
+    expect(submission.kind).toBe("queued");
+    expect(fixture.followUps).toEqual(["check the build"]);
+
+    // An intermediate TurnCompleted must not unlock the operation.
+    fixture.observer()(JSON.stringify({ type: "turn_completed" }));
+    expect(app.appState).toBe("running");
+    expect(app.operationSnapshot.busy).toBe(true);
+
+    fixture.observer()(
+      operationEvent("operation_settled", {
+        operation_id: "agent_wakeup_w1",
+        session: "session-1",
+        origin: "wakeup",
+        outcome: "completed",
+      }),
+    );
+    expect(app.appState).toBe("ready");
+    expect(app.operationSnapshot.busy).toBe(false);
+    await app.shutdown();
+  });
+
+  test("an operation on another session keeps the agent busy without enqueueing cross-session input", async () => {
+    const fixture = observableBridge();
+    let releaseRun!: () => void;
+    const released = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    fixture.bridge.runTurn = async (_agent, prompt) => {
+      await released;
+      return `reply:${prompt}`;
+    };
+    const app = new CetasApplication({
+      bridge: fixture.bridge,
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+    await app.start();
+
+    fixture.observer()(
+      operationEvent("operation_started", {
+        operation_id: "agent_wakeup_w9",
+        session: "session-9",
+        origin: "wakeup",
+      }),
+    );
+    expect(app.appState).toBe("running");
+
+    let settled = false;
+    const submission = app.submitUserInput("mine", "session-1").then((value) => {
+      settled = true;
+      return value;
+    });
+    await Bun.sleep(1);
+    expect(settled).toBe(false);
+    expect(fixture.followUps).toEqual([]);
+
+    fixture.observer()(
+      operationEvent("operation_settled", {
+        operation_id: "agent_wakeup_w9",
+        session: "session-9",
+        origin: "wakeup",
+        outcome: "cancelled",
+      }),
+    );
+    const started = await submission;
+    expect(started.kind).toBe("started");
+    if (started.kind !== "started") throw new Error("expected a fresh turn");
+    releaseRun();
+    await expect(started.completion).resolves.toBe("reply:mine");
+    expect(fixture.followUps).toEqual([]);
+    await app.shutdown();
+  });
+
+  test("after operation events the idle turn_started recovery guess is retired", async () => {
+    const fixture = observableBridge();
+    const app = new CetasApplication({
+      bridge: fixture.bridge,
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+    await app.start();
+
+    // One full core operation cycle teaches the app the new protocol.
+    fixture.observer()(
+      operationEvent("operation_started", {
+        operation_id: "agent_wakeup_w1",
+        session: "session-1",
+        origin: "wakeup",
+      }),
+    );
+    fixture.observer()(
+      operationEvent("operation_settled", {
+        operation_id: "agent_wakeup_w1",
+        session: "session-1",
+        origin: "wakeup",
+        outcome: "completed",
+      }),
+    );
+    expect(app.appState).toBe("ready");
+
+    // A bare autonomous turn event is no longer guessed as recovery.
+    fixture.observer()(JSON.stringify({ type: "turn_started" }));
+    expect(app.appState).toBe("ready");
+    expect(app.operationSnapshot.busy).toBe(false);
+    await app.shutdown();
+  });
+
+  test("a host-hosted turn associates its core operation and a late settled is a no-op", async () => {
+    const fixture = observableBridge();
+    let releaseRun!: () => void;
+    const released = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    fixture.bridge.runTurn = async () => {
+      await released;
+      return "reply";
+    };
+    const app = new CetasApplication({
+      bridge: fixture.bridge,
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+    await app.start();
+
+    const turn = app.runTurn("hello", "session-1");
+    await Bun.sleep(1);
+    const leaseId = app.operationSnapshot.id;
+    fixture.observer()(
+      operationEvent("operation_started", {
+        operation_id: "agent_run_turn_1",
+        session: "session-1",
+        origin: "turn",
+      }),
+    );
+    // The core operation joins the existing host lease — no second owner.
+    expect(app.operationSnapshot.id).toBe(leaseId);
+    expect(app.operationSnapshot).toMatchObject({ busy: true, kind: "turn" });
+
+    releaseRun();
+    await expect(turn).resolves.toBe("reply");
+    expect(app.appState).toBe("ready");
+
+    // The core settles after the host's own finalize; no double release.
+    fixture.observer()(
+      operationEvent("operation_settled", {
+        operation_id: "agent_run_turn_1",
+        session: "session-1",
+        origin: "turn",
+        outcome: "completed",
+      }),
+    );
+    expect(app.appState).toBe("ready");
+    expect(app.operationSnapshot.busy).toBe(false);
+    await app.shutdown();
+  });
+
+  test("the compact reservation never masks a real core operation", async () => {
+    const fixture = observableBridge();
+    // The compact never reaches the bridge in this scenario; a hanging
+    // bridge keeps the test honest if the race outcome ever changes.
+    (fixture.bridge as unknown as Record<string, unknown>).compactSession = () =>
+      new Promise<string>(() => {});
+    const app = new CetasApplication({
+      bridge: fixture.bridge,
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+    await app.start();
+
+    // A running wakeup turn, then the /compact switch interrupts it.
+    fixture.observer()(
+      operationEvent("operation_started", {
+        operation_id: "agent_wakeup_w1",
+        session: "session-1",
+        origin: "wakeup",
+      }),
+    );
+    const compactPromise = app.compactSession("session-1");
+    await Bun.sleep(1);
+    expect(app.operationSnapshot.phase).toBe("cancelling");
+
+    // The interrupted wakeup settles; the compact owns the reservation.
+    fixture.observer()(
+      operationEvent("operation_settled", {
+        operation_id: "agent_wakeup_w1",
+        session: "session-1",
+        origin: "wakeup",
+        outcome: "cancelled",
+      }),
+    );
+    // Synchronously — before the compact's finalize continuation can claim
+    // its lease — the core admits the next wakeup inside the reservation
+    // window. The projection must not hide it behind an idle snapshot, and
+    // the compact loses the race with the already-admitted core operation.
+    fixture.observer()(
+      operationEvent("operation_started", {
+        operation_id: "agent_wakeup_w2",
+        session: "session-1",
+        origin: "wakeup",
+      }),
+    );
+    expect(app.operationSnapshot).toMatchObject({ busy: true, kind: "wakeup" });
+    await expect(compactPromise).rejects.toThrow(
+      "another Agent operation is already running",
+    );
+    expect(app.operationSnapshot).toMatchObject({ busy: true, kind: "wakeup" });
+
+    fixture.observer()(
+      operationEvent("operation_settled", {
+        operation_id: "agent_wakeup_w2",
+        session: "session-1",
+        origin: "wakeup",
+        outcome: "completed",
+      }),
+    );
+    expect(app.appState).toBe("ready");
     await app.shutdown();
   });
 });

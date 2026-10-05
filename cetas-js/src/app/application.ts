@@ -21,6 +21,13 @@ import {
   OperationCoordinator,
   type OperationLease,
 } from "./operation-coordinator.ts";
+import {
+  parseCoreCustom,
+  type CoreOperationOrigin,
+  type CoreOperationSettled,
+  type CoreOperationStarted,
+} from "../core-events.ts";
+import { AgentBusyError } from "./agent-busy.ts";
 
 /**
  * Commands invocable while a turn is running. Membership requires that the
@@ -55,6 +62,8 @@ export interface CetasApplicationOptions<AgentHandle = unknown> {
    * setOnCatalogRefresh instead.
    */
   onCatalogRefresh?: (summary: CatalogRefreshSummary) => void;
+  /** Per-stage deadline for shutdown drains; tests inject small values. */
+  shutdownSettleTimeoutMs?: number;
 }
 
 class ApplicationCancellation implements CancellationToken {
@@ -122,6 +131,48 @@ export class CetasApplication<AgentHandle = unknown> {
   private readonly cancellation = new ApplicationCancellation();
   private shutdownPromise: Promise<void> | undefined;
   private piPackages: PiPackagesSummary | undefined;
+  /**
+   * Core operation projection (frozen `posoco.operation` customs). Once the
+   * bridge's core has emitted any operation event, started/settled are the
+   * authoritative busy truth: core-initiated operations (wakeup, resumed
+   * recovery) project leases of their own, settles unlock only at
+   * operation_settled (never an intermediate TurnCompleted), and the legacy
+   * turn_started-as-recovery guess is retired for the process lifetime.
+   */
+  private coreOperationsSeen = false;
+  /** operation_id → the host lease carrying that core operation. */
+  private readonly operationLeases = new Map<string, OperationLease>();
+  /** Lease ids begun from a core projection (settled only, never TurnCompleted). */
+  private readonly projectedLeases = new Set<number>();
+  /**
+   * Origin of each observed core operation (frozen `operation_started`).
+   * Kept per operation id so a Busy loser can re-project the incumbent with
+   * its real kind — a wakeup stays a wakeup in the ownership display, a
+   * foreground turn stays a turn — after the loser's own lease is gone.
+   */
+  private readonly coreOperationOrigins = new Map<string, CoreOperationOrigin>();
+  /**
+   * Settled core operation ids, bounded and insertion-ordered. A Busy loser
+   * can observe the rejection only after the incumbent's `operation_settled`
+   * has already been projected (settle-before-wait race); this journal is
+   * what makes that wait resolve immediately instead of parking forever.
+   */
+  private readonly settledCoreOperations = new Set<string>();
+  /**
+   * Settle waiters for core operations whose projected lease has not been
+   * observed (yet). Flushed by the `operation_settled` projection; purely
+   * event-driven, never polled.
+   */
+  private readonly coreOperationWaiters = new Map<string, Array<() => void>>();
+  /** Set by the shutdownBegun initializer below. */
+  private signalShutdownBegun: () => void = () => undefined;
+  /**
+   * Resolves once shutdown has begun. Busy re-admission waits race against
+   * it so retained input never outlives the application.
+   */
+  private readonly shutdownBegun = new Promise<void>((resolve) => {
+    this.signalShutdownBegun = resolve;
+  });
 
   constructor(private readonly options: CetasApplicationOptions<AgentHandle>) {
     if (options.initialSessionId.length === 0) {
@@ -185,7 +236,11 @@ export class CetasApplication<AgentHandle = unknown> {
 
   private beginAgentOperation(
     kind: OperationKind,
-    options: { abort?: AbortController; interruptible?: boolean } = {},
+    options: {
+      abort?: AbortController;
+      interruptible?: boolean;
+      session?: string;
+    } = {},
   ): OperationLease {
     const lease = this.operations.begin(kind, options);
     if (lease === undefined) {
@@ -462,6 +517,7 @@ export class CetasApplication<AgentHandle = unknown> {
         bridge.refreshModelListsLive!(
           this.options.config,
           JSON.stringify(configuredProviders),
+          controller.signal,
         ),
       )
       .then(
@@ -658,6 +714,7 @@ export class CetasApplication<AgentHandle = unknown> {
     const lease = this.beginAgentOperation("turn", {
       abort,
       interruptible: true,
+      session: sessionId,
     });
     this.options.bridge.cancelPendingRateLimit(agent);
     try {
@@ -685,7 +742,16 @@ export class CetasApplication<AgentHandle = unknown> {
     return this.options.bridge.activeModelSupportsImages(this.agent);
   }
 
-  /** Execute one turn through the single long-lived Agent handle. */
+  /**
+   * Execute one turn through the single long-lived Agent handle.
+   *
+   * A lost core admission is not a failed turn: the prompt never reached the
+   * model, so it stays retained here. The loser waits for the incumbent core
+   * operation's `operation_settled` boundary (event-driven — the wait races
+   * shutdown, never polls), then re-attempts admission. Nothing core already
+   * admitted is ever re-executed: only a prompt core rejected with Busy is
+   * ever sent twice.
+   */
   async runTurn(
     prompt: string,
     sessionId = this.currentSessionId,
@@ -728,11 +794,53 @@ export class CetasApplication<AgentHandle = unknown> {
     }
 
     this.currentSessionId = sessionId;
-    const agent = this.agent;
+    while (true) {
+      if ((this.state as AppState) === "shutting_down") {
+        throw new CetasApplicationError(
+          "shutting_down",
+          "cannot run a turn after shutdown has begun",
+        );
+      }
+      if ((this.state as AppState) === "needs_setup" || this.agent === undefined) {
+        throw new CetasApplicationError(
+          "not_ready",
+          "no model provider is configured; use /model or /login [provider] [method] to complete setup",
+        );
+      }
+      if (this.operations.busy || this.operations.compactPending) {
+        // Retained, never dropped: wait for the current owner (host
+        // operation, projected core operation, or compact switch) to settle,
+        // then re-attempt admission.
+        await this.operations.waitUntilAvailable();
+        continue;
+      }
+      const attempt = await this.attemptTurnAdmission(prompt, sessionId, images);
+      if ("transcript" in attempt) return attempt.transcript;
+      // Lost admission. Correlate the reservation with the incumbent so busy
+      // truth and the wakeup-vs-foreground ownership display follow the real
+      // owner, wait for THAT operation's settled boundary, and re-admit.
+      this.projectBusyIncumbent(attempt);
+      await this.waitForCoreOperationOrShutdown(attempt.operationId);
+    }
+  }
+
+  /**
+   * One admission attempt for a retained prompt. Resolves the transcript
+   * when the turn ran; resolves the typed Busy envelope when core admitted
+   * another operation first (nothing ran in that case). Every other error
+   * records `lastError` and rejects.
+   */
+  private async attemptTurnAdmission(
+    prompt: string,
+    sessionId: string,
+    images: readonly ImageAttachment[] | undefined,
+  ): Promise<{ transcript: string } | AgentBusyError> {
+    const agent = this.agent as AgentHandle;
     const abort = new AbortController();
     const lease = this.beginAgentOperation("turn", {
       abort,
       interruptible: true,
+      session: sessionId,
     });
     this.options.bridge.cancelPendingRateLimit(agent);
     try {
@@ -740,14 +848,21 @@ export class CetasApplication<AgentHandle = unknown> {
       // re-enter the host. The microtask preserves that ordering for bridge
       // implementations that synchronously publish observer events.
       await Promise.resolve();
-      return await this.options.bridge.runTurn(
-        agent,
-        prompt,
-        sessionId,
-        abort.signal,
-        images,
-      );
+      return {
+        transcript: await this.options.bridge.runTurn(
+          agent,
+          prompt,
+          sessionId,
+          abort.signal,
+          images,
+        ),
+      };
     } catch (error: unknown) {
+      if (error instanceof AgentBusyError) {
+        // Admission was lost before anything ran; the caller retains the
+        // prompt and waits for the incumbent's settled boundary.
+        return error;
+      }
       this.lastError = errorMessage(error);
       this.publish();
       throw error;
@@ -755,6 +870,85 @@ export class CetasApplication<AgentHandle = unknown> {
       this.operations.markFinalizing(lease);
       this.clearAbortWatchdog();
       this.finishAgentOperation(lease);
+    }
+  }
+
+  /**
+   * Adopt the incumbent core operation that won admission against this
+   * host's lost turn. Its `operation_started` usually arrived while the
+   * losing lease was still active, so the projection can point at a lease
+   * that is already finished — re-project it from the recorded origin so
+   * busy truth and the wakeup-vs-foreground ownership display follow the
+   * real owner until its settled boundary. No-op when a live lease already
+   * carries the operation, when it has already settled (settle-before-wait
+   * race), when another operation owns the coordinator, or when its started
+   * event has not been observed yet (that event will project it with the
+   * real origin).
+   */
+  private projectBusyIncumbent(busy: AgentBusyError): void {
+    if ((this.state as AppState) === "shutting_down") return;
+    if (this.settledCoreOperations.has(busy.operationId)) return;
+    if (this.operations.busy || this.operations.compactPending) return;
+    const associated = this.operationLeases.get(busy.operationId);
+    if (
+      associated !== undefined &&
+      this.operations.activeLease?.id === associated.id
+    ) {
+      return;
+    }
+    const origin = this.coreOperationOrigins.get(busy.operationId);
+    if (origin === undefined) return;
+    if (associated !== undefined) this.operationLeases.delete(busy.operationId);
+    const lease = this.operations.begin(kindForOrigin(origin), {
+      projected: true,
+      interruptible: this.options.bridge.abortTurn !== undefined,
+      session: busy.session,
+    });
+    if (lease === undefined) return;
+    this.operationLeases.set(busy.operationId, lease);
+    this.projectedLeases.add(lease.id);
+    if (this.state === "ready") this.transition("running");
+  }
+
+  /**
+   * Resolve once the core operation has passed its settled boundary. The
+   * settle notification is the frozen `operation_settled` projection — the
+   * wait is purely event-driven, and a settle that already happened resolves
+   * immediately instead of parking (settle-before-wait race).
+   */
+  private async waitForCoreOperationSettled(operationId: string): Promise<void> {
+    if (this.settledCoreOperations.has(operationId)) return;
+    const lease = this.operationLeases.get(operationId);
+    if (lease !== undefined) {
+      await lease.settled;
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      const waiters = this.coreOperationWaiters.get(operationId);
+      if (waiters === undefined) {
+        this.coreOperationWaiters.set(operationId, [resolve]);
+      } else {
+        waiters.push(resolve);
+      }
+    });
+  }
+
+  /**
+   * Wait for one core operation's settled boundary, racing shutdown so
+   * retained input never outlives the application.
+   */
+  private async waitForCoreOperationOrShutdown(operationId: string): Promise<void> {
+    const outcome = await Promise.race([
+      this.waitForCoreOperationSettled(operationId).then(
+        () => "settled" as const,
+      ),
+      this.shutdownBegun.then(() => "shutdown" as const),
+    ]);
+    if (outcome === "shutdown") {
+      throw new CetasApplicationError(
+        "shutting_down",
+        "cannot re-admit input after shutdown has begun",
+      );
     }
   }
 
@@ -806,10 +1000,20 @@ export class CetasApplication<AgentHandle = unknown> {
         }
         const operation = this.operations.snapshot();
         if (operation.busy) {
+          // A follow-up is legitimate only for a running ordinary run of the
+          // SAME session (host turn/recovery or a projected core wakeup).
+          // Anything else — a compact switch, a cancelling/finalizing phase,
+          // or an operation on another session — waits for that operation's
+          // settled boundary (projected leases settle at operation_settled,
+          // after the full core drain) and retries admission; the input is
+          // never dropped and never resubmitted once admitted.
           if (
+            operation.session === sessionId &&
             !operation.compactPending &&
             operation.phase === "running" &&
-            (operation.kind === "turn" || operation.kind === "recovery")
+            (operation.kind === "turn" ||
+              operation.kind === "recovery" ||
+              operation.kind === "wakeup")
           ) {
             const queued = this.queueFollowUp(prompt, images);
             if (queued === "accepted") return { kind: "queued" };
@@ -846,7 +1050,7 @@ export class CetasApplication<AgentHandle = unknown> {
     }
     const activeKind = this.operations.activeKind;
     if (
-      (activeKind !== "turn" && activeKind !== "recovery") ||
+      (activeKind !== "turn" && activeKind !== "recovery" && activeKind !== "wakeup") ||
       this.agent === undefined
     ) {
       throw new CetasApplicationError("invalid_state", "no turn is active; use runTurn");
@@ -969,6 +1173,7 @@ export class CetasApplication<AgentHandle = unknown> {
       const lease = this.beginAgentOperation("compact", {
         abort: request.controller,
         interruptible: true,
+        session: sessionId,
       });
       try {
         this.options.bridge.cancelPendingRateLimit(agent);
@@ -1315,9 +1520,11 @@ export class CetasApplication<AgentHandle = unknown> {
 
   /**
    * Shutdown is idempotent and terminal. Active Agent work is cancelled
-   * before it is drained, and the drain is bounded so Ctrl+C cannot hang on
-   * a host promise that never settles. Agent shutdown remains the final
-   * lifecycle barrier.
+   * before it is drained, and every drain stage is bounded — live refresh,
+   * in-flight setup/command promises, and the Agent barrier alike — so
+   * Ctrl+C can never hang on a host promise that never settles. Agent
+   * shutdown remains the final lifecycle barrier; its own timeout is a
+   * `shutting_down` failure, not a skip.
    */
   shutdown(): Promise<void> {
     if (this.shutdownPromise !== undefined) return this.shutdownPromise;
@@ -1327,42 +1534,95 @@ export class CetasApplication<AgentHandle = unknown> {
 
     this.operations.markShuttingDown();
     this.transition("shutting_down");
+    // Busy re-admission waits race against this signal: retained input is
+    // dropped (as a typed shutting_down error) the moment shutdown begins.
+    this.signalShutdownBegun();
     this.interruptActiveTurn();
 
     this.shutdownPromise = (async () => {
+      const timeoutMs = this.options.shutdownSettleTimeoutMs ?? 5000;
+      const shutdownTimeout = (stage: string) =>
+        new CetasApplicationError(
+          "shutting_down",
+          `shutdown timed out waiting for the ${stage} to settle`,
+        );
       let pendingError: unknown;
       if (this.agent !== undefined) {
         this.options.bridge.cancelPendingRateLimit(this.agent);
       }
-      await this.stopLiveCatalogRefresh();
+      const live = await this.settleWithin(
+        this.stopLiveCatalogRefresh(),
+        timeoutMs,
+      );
+      if (!live.settled) {
+        pendingError ??= shutdownTimeout("live model catalog refresh");
+      } else if (live.failed) {
+        pendingError ??= live.error;
+      }
 
       try {
-        await this.waitForActiveOperationFinalize();
+        await this.waitForActiveOperationFinalize(timeoutMs);
       } catch (error: unknown) {
-        pendingError = error;
+        pendingError ??= error;
       }
 
       for (const pending of [pendingSetup, pendingCommand]) {
         if (pending === undefined) continue;
-        try {
-          await pending;
-        } catch (error: unknown) {
-          if (pendingError === undefined) pendingError = error;
+        const outcome = await this.settleWithin(pending, timeoutMs);
+        if (!outcome.settled) {
+          pendingError ??= shutdownTimeout("pending application operation");
+        } else if (outcome.failed) {
+          pendingError ??= outcome.error;
         }
       }
       if (this.agent !== undefined) {
         const agent = this.agent;
         this.agent = undefined;
-        try {
-          await this.options.bridge.shutdown(agent);
-        } catch (error: unknown) {
+        const outcome = await this.settleWithin(
+          this.options.bridge.shutdown(agent),
+          timeoutMs,
+        );
+        if (!outcome.settled) {
+          // The Agent barrier refusing to settle is itself a lifecycle
+          // failure — report it instead of hanging the host.
+          throw shutdownTimeout("agent shutdown");
+        }
+        if (outcome.failed) {
           // Agent shutdown is the stronger lifecycle failure.
-          throw error;
+          throw outcome.error;
         }
       }
       if (pendingError !== undefined) throw pendingError;
     })();
     return this.shutdownPromise;
+  }
+
+  /**
+   * Race a shutdown-stage promise against a deadline. The result records
+   * whether the promise settled and, when it failed, its error; a promise
+   * that settles late (after the deadline won) stays handled so it can
+   * never surface as an unhandled rejection during teardown.
+   */
+  private async settleWithin(
+    pending: Promise<unknown>,
+    timeoutMs: number,
+  ): Promise<{ settled: boolean; failed: boolean; error?: unknown }> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        Promise.resolve(pending).then(
+          () => ({ settled: true, failed: false }) as const,
+          (error: unknown) =>
+            ({ settled: true, failed: true, error }) as const,
+        ),
+        new Promise<{ settled: false; failed: false }>((resolve) => {
+          timer = setTimeout(() => resolve({ settled: false, failed: false }), timeoutMs);
+          timer.unref?.();
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   private transition(next: AppState): void {
@@ -1397,26 +1657,126 @@ export class CetasApplication<AgentHandle = unknown> {
     };
   }
 
+  /**
+   * Project one frozen `posoco.operation` started event. When a host lease
+   * already owns the run, the core operation associates with it; otherwise
+   * the operation is core-initiated (wakeup, runtime-owned resume) and gets
+   * a projected lease so busy truth survives without a host promise. The
+   * origin maps directly — only the legacy protocol (no operation events)
+   * guesses "recovery".
+   */
+  private projectCoreOperationStarted(started: CoreOperationStarted): void {
+    this.coreOperationsSeen = true;
+    this.coreOperationOrigins.set(started.operation_id, started.origin);
+    const active = this.operations.activeLease;
+    if (active !== undefined) {
+      this.operationLeases.set(started.operation_id, active);
+      return;
+    }
+    if ((this.state as AppState) === "shutting_down") return;
+    const lease = this.operations.begin(kindForOrigin(started.origin), {
+      projected: true,
+      interruptible: this.options.bridge.abortTurn !== undefined,
+      session: started.session,
+    });
+    if (lease === undefined) return;
+    this.operationLeases.set(started.operation_id, lease);
+    this.projectedLeases.add(lease.id);
+    if (this.state === "ready") this.transition("running");
+  }
+
+  /**
+   * Settle the lease carrying `settled.operation_id`. The settled boundary
+   * is the core's full drain + cleanup; until it arrives the projected lease
+   * stays busy, whatever intermediate turn events fire. A lease the host
+   * already finalized through its own promise resolution is left alone.
+   *
+   * The settle is journaled and every waiter for the operation is flushed
+   * BEFORE the lease bookkeeping: Busy losers may register their wait after
+   * this projection ran (settle-before-wait), and lease-less settles (the
+   * started projection was never observed) must still unlock them.
+   */
+  private projectCoreOperationSettled(settled: CoreOperationSettled): void {
+    this.coreOperationsSeen = true;
+    this.coreOperationOrigins.delete(settled.operation_id);
+    this.settledCoreOperations.delete(settled.operation_id);
+    this.settledCoreOperations.add(settled.operation_id);
+    while (this.settledCoreOperations.size > 32) {
+      const oldest = this.settledCoreOperations.values().next();
+      if (oldest.done) break;
+      this.settledCoreOperations.delete(oldest.value);
+    }
+    const waiters = this.coreOperationWaiters.get(settled.operation_id);
+    if (waiters !== undefined) {
+      this.coreOperationWaiters.delete(settled.operation_id);
+      for (const waiter of waiters) waiter();
+    }
+    const lease = this.operationLeases.get(settled.operation_id);
+    if (lease === undefined) return;
+    this.operationLeases.delete(settled.operation_id);
+    const active = this.operations.activeLease;
+    if (active === undefined || active.id !== lease.id) return;
+    this.operations.markFinalizing(lease);
+    this.clearAbortWatchdog();
+    this.finishAgentOperation(lease);
+  }
+
   private handleAgentObserverEvent(eventJson: string): void {
     let type: unknown;
+    let coreCustom: { source: string; label: string; data: unknown } | undefined;
     try {
       const event: unknown = JSON.parse(eventJson);
       if (typeof event === "object" && event !== null && !Array.isArray(event)) {
-        type = (event as Record<string, unknown>).type;
+        const record = event as Record<string, unknown>;
+        type = record.type;
+        if (
+          record.type === "custom" &&
+          typeof record.source === "string" &&
+          typeof record.label === "string"
+        ) {
+          coreCustom = {
+            source: record.source,
+            label: record.label,
+            data: record.data,
+          };
+        }
       }
     } catch {
       // The renderer owns strict event diagnostics. Lifecycle tracking only
       // classifies known boundaries and forwards all bytes unchanged below.
     }
 
+    if (coreCustom !== undefined) {
+      const core = parseCoreCustom(
+        coreCustom.source,
+        coreCustom.label,
+        coreCustom.data,
+      );
+      if (core.kind === "operation") {
+        if (core.event.phase === "started") {
+          this.projectCoreOperationStarted(core.event);
+        } else {
+          this.projectCoreOperationSettled(core.event);
+        }
+      }
+      // wakeup/tasks/decision customs are display projections: the observer
+      // callback below forwards them to the renderer unchanged.
+    }
+
+    // Legacy protocol only (no operation events observed): an idle
+    // turn_started used to be the only signal of a runtime-owned recovery.
+    // Under the operation protocol every admission announces itself, so
+    // autonomous turns must never be guessed as recovery.
     if (
       type === "turn_started" &&
+      !this.coreOperationsSeen &&
       !this.operations.busy &&
       !this.operations.compactPending &&
       this.state === "ready"
     ) {
       const lease = this.operations.begin("recovery", {
         interruptible: this.options.bridge.abortTurn !== undefined,
+        session: this.currentSessionId,
       });
       if (lease !== undefined) {
         this.transition("running");
@@ -1440,12 +1800,14 @@ export class CetasApplication<AgentHandle = unknown> {
         this.operations.activeKind === "recovery" &&
         (type === "turn_completed" || type === "turn_failed")
       ) {
-        if (
-          type === "turn_failed" ||
-          this.operations.recoveryFollowUpsQueued === 0
-        ) {
-          const lease = this.operations.activeLease;
-          if (lease !== undefined) {
+        const lease = this.operations.activeLease;
+        // A core-projected recovery ends at operation_settled — the full
+        // follow-up drain and cleanup — never at the first TurnCompleted.
+        if (lease !== undefined && !this.projectedLeases.has(lease.id)) {
+          if (
+            type === "turn_failed" ||
+            this.operations.recoveryFollowUpsQueued === 0
+          ) {
             this.operations.clearRecoveryFollowUps();
             this.operations.markFinalizing(lease);
             this.finishAgentOperation(lease);
@@ -1465,6 +1827,25 @@ export class CetasApplication<AgentHandle = unknown> {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Core origin → host lease vocabulary. `resume` maps to the host's
+ * recovery kind (runtime-owned resumed turn, rate-limit retries included);
+ * a wakeup keeps its own kind so autonomous environment turns are never
+ * mislabeled as recovery.
+ */
+function kindForOrigin(origin: CoreOperationOrigin): OperationKind {
+  switch (origin) {
+    case "resume":
+      return "recovery";
+    case "wakeup":
+      return "wakeup";
+    case "compact":
+      return "compact";
+    case "turn":
+      return "turn";
+  }
 }
 
 /**

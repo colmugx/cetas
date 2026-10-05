@@ -142,6 +142,8 @@ export interface SubagentActivity {
   child_turn_state?: "completed" | "failed";
   /** Actual exit observed (`background_exited`) — no longer running. */
   exited?: boolean;
+  /** A core `background_outcome_ready` receipt arrived for this run's task. */
+  outcome_ready?: boolean;
 }
 
 /** Snapshot handed to the shell for the one-shot terminal notification. */
@@ -220,6 +222,15 @@ export class SubagentActivityStore {
   private readonly records = new Map<string, SubagentActivity>();
   /** child_session → nickname; allocation is monotonic and never recycled. */
   private readonly names = new Map<string, string>();
+  /**
+   * Ready outcome receipts (task_id → owning session) not yet known to be
+   * delivered. Delivery is the subagent run's authoritative
+   * `background_terminal` — an exit alone never clears a receipt. The
+   * "N results waiting" indicator counts these receipts, never wakeup
+   * tickets: a merged ticket may carry several results, and a ticket being
+   * executed does not mean every result has been injected.
+   */
+  private readonly readyReceipts = new Map<string, string | undefined>();
   private nameCounter = 0;
   private seqCounter = 0;
   private ownerSession: string | undefined;
@@ -283,9 +294,49 @@ export class SubagentActivityStore {
     );
   }
 
+  /**
+   * Record a core `background_outcome_ready` receipt for one task. The
+   * receipt is counted as waiting until the matching run's authoritative
+   * terminal is folded; duplicates are no-ops. Returns whether it changed.
+   */
+  noteOutcomeReady(taskId: string, ownerSession?: string): boolean {
+    if (taskId.length === 0 || this.readyReceipts.has(taskId)) return false;
+    this.readyReceipts.set(taskId, ownerSession);
+    const record = this.recordForTask(taskId);
+    if (record !== undefined && record.outcome_ready !== true) {
+      record.outcome_ready = true;
+      record.version += 1;
+    }
+    return true;
+  }
+
+  /**
+   * Ready-but-not-yet-delivered receipt count for a session. Receipts whose
+   * run was never observed stay waiting (the store may have been cleared);
+   * the authoritative terminal clears the matching receipt.
+   */
+  resultsWaiting(ownerSession?: string): number {
+    let count = 0;
+    for (const [taskId, owner] of this.readyReceipts) {
+      if (ownerSession !== undefined && owner !== ownerSession) continue;
+      const record = this.recordForTask(taskId);
+      if (record !== undefined && record.terminal_received === true) continue;
+      count += 1;
+    }
+    return count;
+  }
+
+  private recordForTask(taskId: string): SubagentActivity | undefined {
+    for (const record of this.records.values()) {
+      if (record.task_id === taskId) return record;
+    }
+    return undefined;
+  }
+
   clear(): void {
     this.records.clear();
     this.names.clear();
+    this.readyReceipts.clear();
     this.nameCounter = 0;
     this.seqCounter = 0;
   }

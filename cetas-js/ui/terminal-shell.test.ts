@@ -940,3 +940,258 @@ describe("surfaceHostFault", () => {
     expect((shell as any).transcript.children.length).toBe(before);
   });
 });
+
+describe("requestShutdown escalation", () => {
+  /** Shell whose attached app never finishes shutting down. */
+  function makeHangingShell(forceExitDelayMs: number): {
+    shell: TerminalShell;
+    exits: number[];
+  } {
+    const terminal = {
+      write: () => {},
+      hideCursor: () => {},
+      showCursor: () => {},
+      clearScreen: () => {},
+      cursorTo: () => {},
+      getRows: () => 40,
+      getColumns: () => 120,
+    };
+    const tui = new TuiMainScreen(terminal as never);
+    const sessionsDir = mkdtempSync(join(tmpdir(), "cetas-shell-test-"));
+    const exits: number[] = [];
+    const shell = new TerminalShell({
+      tui,
+      cwd: "/tmp",
+      sessionsDir,
+      maxToolRounds: 8,
+      initialSessionId: "2026-09-01T00-00-00-000Z_deadbeef",
+      onExit: (code) => exits.push(code),
+      forceExitDelayMs,
+    });
+    (shell as any).attachApplication({
+      listCommands: () => [],
+      cancelCurrentOperation: () => {},
+      shutdown: () => new Promise<void>(() => {}),
+    });
+    return { shell, exits };
+  }
+
+  /** Swap console.error for a recorder; call restore() when done. */
+  function captureError(): { errors: string[]; restore(): void } {
+    const errors: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => {
+      errors.push(args.map((item) => String(item)).join(" "));
+    };
+    return {
+      errors,
+      restore: () => {
+        console.error = original;
+      },
+    };
+  }
+
+  test("a second request while the drain is pending forces the exit", () => {
+    const { shell, exits } = makeHangingShell(60_000);
+    const captured = captureError();
+    try {
+      shell.requestShutdown(0);
+      expect(exits).toEqual([]);
+      shell.requestShutdown(0);
+      expect(exits).toEqual([0]);
+      expect(captured.errors.join("\n")).toContain("forced by repeated interrupt");
+    } finally {
+      captured.restore();
+    }
+  });
+
+  test("the watchdog forces the exit when the graceful drain stalls", async () => {
+    const { shell, exits } = makeHangingShell(20);
+    const captured = captureError();
+    try {
+      shell.requestShutdown(0);
+      expect(exits).toEqual([]);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(exits).toEqual([0]);
+      expect(captured.errors.join("\n")).toContain("shutdown timed out");
+    } finally {
+      captured.restore();
+    }
+  });
+});
+
+/**
+ * Core projection customs (frozen posoco.operation/wakeup/tasks/decision)
+ * route to their dedicated surfaces and never fall into the generic
+ * `· source/label` transcript notice.
+ */
+describe("core projection events", () => {
+  /** Drive one observer event through the shell's lenient parse. */
+  function feed(shell: TerminalShell, event: Record<string, unknown>): void {
+    (shell as unknown as {
+      handleObserverEvent(eventJson: string): void;
+    }).handleObserverEvent(JSON.stringify(event));
+  }
+
+  function custom(
+    source: string,
+    label: string,
+    data: Record<string, unknown>,
+  ): Record<string, unknown> {
+    return { type: "custom", source, label, data };
+  }
+
+  test("executing wakeups render as an ambient line, never as a transcript notice", () => {
+    const { shell } = makeShell();
+    feed(
+      shell,
+      custom("posoco.wakeup", "wakeup_executing", {
+        ticket_id: "t1",
+        session: "2026-09-01T00-00-00-000Z_deadbeef",
+        tag: "build-watch",
+        extension_id: "posoco_ext_subagent",
+        ticket_enqueued_at: 1,
+        envelope: "[posoco-wakeup tag=build-watch] build failed",
+      }),
+    );
+    const transcript = (shell as any).transcript.render(200).join("\n");
+    expect(transcript).toContain("wakeup envelope — environment signal");
+    expect(transcript).toContain("[posoco-wakeup tag=build-watch] build failed");
+    expect(transcript).not.toContain("posoco.wakeup/wakeup_executing");
+    // The ambient header (state-driven, so it restores after rebuilds).
+    const header = (shell as any).wakeupHeader.render(120).join("\n");
+    expect(header).toContain("wakeup build-watch · running (environment)");
+    // A repeated executing event neither duplicates the notice nor changes state.
+    feed(
+      shell,
+      custom("posoco.wakeup", "wakeup_executing", {
+        ticket_id: "t1",
+        session: "2026-09-01T00-00-00-000Z_deadbeef",
+        tag: "build-watch",
+        extension_id: "posoco_ext_subagent",
+        ticket_enqueued_at: 1,
+      }),
+    );
+    const after = (shell as any).transcript.render(200).join("\n");
+    expect(after.match(/wakeup envelope — environment signal/g)).toHaveLength(1);
+  });
+
+  test("outcome receipts raise the results-waiting line without transcript noise", () => {
+    const { shell } = makeShell();
+    feed(
+      shell,
+      custom("posoco.tasks", "background_outcome_ready", {
+        task_id: "task_1",
+        session: "2026-09-01T00-00-00-000Z_deadbeef",
+        extension_id: "posoco_ext_subagent",
+        label: "explore",
+        status: "completed",
+      }),
+    );
+    const transcript = (shell as any).transcript.render(200).join("\n");
+    expect(transcript).not.toContain("posoco.tasks/background_outcome_ready");
+    const header = (shell as any).wakeupHeader.render(120).join("\n");
+    expect(header).toContain("⧗ 1 result waiting");
+  });
+
+  test("only decision failures render, bounded and payload-free", () => {
+    const { shell } = makeShell();
+    feed(
+      shell,
+      custom("posoco.decision", "decision_failed", {
+        call_id: "d1",
+        consumer: "posoco_ext_permission",
+        provider: "auto_allow",
+        purpose: "tool_gate",
+        failure_mode: "fail_closed",
+        state: "SECRET-REQUEST-BODY",
+      }),
+    );
+    const transcript = (shell as any).transcript.render(200).join("\n");
+    expect(transcript).toContain("decision failed");
+    expect(transcript).toContain("posoco_ext_permission→auto_allow");
+    expect(transcript).toContain("purpose tool_gate");
+    expect(transcript).not.toContain("SECRET-REQUEST-BODY");
+    expect(transcript).not.toContain("posoco.decision/decision_failed");
+
+    const before = (shell as any).transcript.children.length;
+    feed(
+      shell,
+      custom("posoco.decision", "decision_completed", {
+        call_id: "d2",
+        consumer: "posoco_ext_permission",
+      }),
+    );
+    expect((shell as any).transcript.children.length).toBe(before);
+  });
+
+  test("posoco.operation events stay silent — the application layer owns them", () => {
+    const { shell } = makeShell();
+    const before = (shell as any).transcript.children.length;
+    feed(
+      shell,
+      custom("posoco.operation", "operation_started", {
+        operation_id: "agent_wakeup_w1",
+        session: "2026-09-01T00-00-00-000Z_deadbeef",
+        origin: "wakeup",
+      }),
+    );
+    expect((shell as any).transcript.children.length).toBe(before);
+    expect((shell as any).transcript.render(200)).not.toContain("posoco.operation");
+  });
+
+  test("a malformed core projection payload degrades visibly instead of guessing", () => {
+    const { shell } = makeShell();
+    feed(
+      shell,
+      custom("posoco.wakeup", "wakeup_executing", {
+        session: "s1",
+        tag: "no-ticket",
+        extension_id: "e",
+      }),
+    );
+    const transcript = (shell as any).transcript.render(200).join("\n");
+    expect(transcript).toContain("degraded UI event");
+    expect(transcript).toContain("ticket_id");
+  });
+
+  test("foreign customs keep the generic notice", () => {
+    const { shell } = makeShell();
+    feed(shell, custom("posoco.oauth", "progress", { message: "waiting" }));
+    const transcript = (shell as any).transcript.render(200).join("\n");
+    expect(transcript).toContain("· posoco.oauth/progress");
+  });
+});
+
+describe("wakeup envelope restore", () => {
+  test("a replayed wakeup turn shows the envelope as an environment signal, not user input", () => {
+    const { shell } = makeShell();
+    // resumeSession repoints the app; a duck-typed double is enough here.
+    (shell as any).attachApplication({
+      listCommands: () => [],
+      setSession: () => {},
+    });
+    const target = "2026-09-02T00-00-00-000Z_deadbeef";
+    writeFileSync(
+      join(
+        (shell as unknown as { sessionsDir: string }).sessionsDir,
+        `${target}.jsonl`,
+      ),
+      [
+        JSON.stringify({ version: 1 }),
+        JSON.stringify({
+          role: "user",
+          content: [{ type: "text", text: "[posoco-wakeup tag=build-watch] build failed" }],
+        }),
+        JSON.stringify({
+          role: "assistant",
+          content: [{ type: "text", text: "rebuilt; tests pass." }],
+        }),
+      ].join("\n") + "\n",
+    );
+    (shell as unknown as { resumeSession(id: string): void }).resumeSession(target);
+    const transcript = (shell as any).transcript.render(200).join("\n");
+    expect(transcript).toContain("◌ wakeup envelope");
+    expect(transcript).toContain("[posoco-wakeup tag=build-watch] build failed");
+  });
+});

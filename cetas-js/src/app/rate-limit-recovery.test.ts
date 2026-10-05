@@ -63,6 +63,17 @@ const callbacks: AgentCallbacks = {
   requestCallback: async () => "",
 };
 
+/**
+ * OLD PROTOCOL fixtures: these tests drive the legacy bridge surface with
+ * bare turn_started/turn_completed observer events and NO
+ * `posoco.operation` customs. That is exactly the compat window the
+ * application keeps for bridges whose core does not emit operation
+ * started/settled — the idle turn_started recovery guess and the
+ * turn_completed settle path stay authoritative here. Under the operation
+ * protocol those guesses are retired (operation_started projects busy and
+ * only operation_settled unlocks); no assertion here may be weakened to
+ * hide that difference.
+ */
 describe("rate-limit recovery host lifecycle", () => {
   test("an idle runtime-owned recovery owns the application busy state", async () => {
     const fixture = bridgeWithRecovery();

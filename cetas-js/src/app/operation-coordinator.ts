@@ -21,6 +21,9 @@ interface ActiveOperation {
   phase: Exclude<OperationPhase, "idle">;
   interruptible: boolean;
   abort?: AbortController;
+  session?: string;
+  /** Core-projected lease: admitted by the Agent without a host promise. */
+  projected: boolean;
   followUpsQueued: number;
   settled: Promise<void>;
   resolveSettled: () => void;
@@ -88,6 +91,7 @@ export class OperationCoordinator {
         : {
             id: active.id,
             kind: active.kind,
+            ...(active.session === undefined ? {} : { session: active.session }),
           }),
       interruptible: active?.interruptible ?? false,
       followUpsQueued:
@@ -105,12 +109,26 @@ export class OperationCoordinator {
 
   begin(
     kind: OperationKind,
-    options: { abort?: AbortController; interruptible?: boolean } = {},
+    options: {
+      abort?: AbortController;
+      interruptible?: boolean;
+      session?: string;
+      projected?: boolean;
+    } = {},
   ): OperationLease | undefined {
     if (this.shutdownRequested || this.active !== undefined) return undefined;
     // A compact request reserves the next Agent operation while it interrupts
-    // and drains the previous owner. No fresh turn may jump ahead of it.
-    if (this.compactRequest !== undefined && kind !== "compact") return undefined;
+    // and drains the previous owner. No fresh host turn may jump ahead of it
+    // (the compact itself claims the reservation). A projected core
+    // operation bypasses the reservation: the Agent already admitted it, so
+    // hiding it behind a host reservation would mask the real busy truth.
+    if (
+      this.compactRequest !== undefined &&
+      kind !== "compact" &&
+      options.projected !== true
+    ) {
+      return undefined;
+    }
 
     let resolveSettled!: () => void;
     const settled = new Promise<void>((resolve) => {
@@ -122,6 +140,8 @@ export class OperationCoordinator {
       phase: "running",
       interruptible: options.interruptible ?? options.abort !== undefined,
       ...(options.abort === undefined ? {} : { abort: options.abort }),
+      ...(options.session === undefined ? {} : { session: options.session }),
+      projected: options.projected ?? false,
       followUpsQueued: 0,
       settled,
       resolveSettled,

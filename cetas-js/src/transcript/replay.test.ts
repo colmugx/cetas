@@ -181,5 +181,29 @@ describe("session replay parser", () => {
     expect(isSyntheticUserText("<context-node>not the envelope convention</context-node>")).toBe(false);
     expect(isSyntheticUserText("<permission-contextd attr=\"x\">prefix must end at -context</permission-contextd>")).toBe(false);
     expect(isSyntheticUserText("plain question")).toBe(false);
+    // The wakeup envelope is machine-injected too — never a rewind point or
+    // a hand-typed prompt — but replay surfaces it as the environment signal.
+    expect(isSyntheticUserText("[posoco-wakeup tag=build-watch] build failed")).toBe(true);
+  });
+
+  test("wakeup envelopes replay as the environment signal, not user speech", () => {
+    const lines = [
+      JSON.stringify({
+        role: "user",
+        content: [{ type: "text", text: "[posoco-wakeup tag=build-watch] build failed" }],
+      }),
+      JSON.stringify({ role: "user", content: [{ type: "text", text: "thanks, checking" }] }),
+      // Without the envelope's leading bracket it is ordinary speech.
+      JSON.stringify({
+        role: "user",
+        content: [{ type: "text", text: "posoco-wakeup is the envelope prefix, right?" }],
+      }),
+    ].join("\n");
+    const items = parseSessionReplay(lines);
+    expect(items.map((i) => i.kind)).toEqual(["wakeup", "user", "user"]);
+    expect(items[0]).toEqual({
+      kind: "wakeup",
+      text: "[posoco-wakeup tag=build-watch] build failed",
+    });
   });
 });

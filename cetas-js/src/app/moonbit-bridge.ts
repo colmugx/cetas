@@ -1,6 +1,8 @@
 import * as moonbit from "mbt:colmugx/cetas-js/lib";
 import { join } from "node:path";
 import { scanAndLoadPiPackages, type PiPackagesSummary } from "./pi-packages.ts";
+import { decodeAgentRunTurnResult, AgentBusyError } from "./agent-busy.ts";
+import type { AgentRunTurnResultWire } from "./agent-busy.ts";
 import type {
   AgentCallbacks,
   CetasAgentBridge,
@@ -83,14 +85,25 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
 
   /**
    * Live `/models` catalog refresh (compose-first startup). Unlike
-   * `refreshModelCatalogs` this never evicts a provider and never rejects:
-   * the MoonBit side updates its process/disk caches and hot-swaps the
-   * composed agent's router before resolving the summary JSON
+   * `refreshModelCatalogs` this never evicts a provider; the MoonBit side
+   * updates its process/disk caches and hot-swaps the composed agent's
+   * router before resolving the summary JSON
    * `{"results":[{"provider","status","slots"?,"reason"?}]}`. An empty
-   * selector refreshes all refreshable providers.
+   * selector refreshes all refreshable providers. Aborting `signal`
+   * cancels the refresh coroutine — the only rejection path.
    */
-  refreshModelListsLive(_config: CetasHostConfig, providerIdsJson: string): Promise<string> {
-    return moonbit.cetas_js_runtime_refresh_model_lists_live(this.runtimeValue, providerIdsJson);
+  refreshModelListsLive(
+    _config: CetasHostConfig,
+    providerIdsJson: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    // The MoonBit export takes the signal positionally; a fresh never-aborted
+    // controller keeps signal-less callers (tests, smoke) on the same path.
+    return moonbit.cetas_js_runtime_refresh_model_lists_live(
+      this.runtimeValue,
+      providerIdsJson,
+      signal ?? new AbortController().signal,
+    );
   }
 
   /**
@@ -164,15 +177,46 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
     signal?: AbortSignal,
     images?: readonly ImageAttachment[],
   ): Promise<string> {
+    // Structured Busy boundary: the host-facing shape stays Promise<string>,
+    // but the wire is the dedicated `cetas_js_run_turn_result` envelope —
+    // `kind` discriminates structurally, so a legitimate assistant JSON
+    // transcript can never be misread as a lost core admission. A Busy
+    // envelope surfaces as the typed AgentBusyError rejection that keeps the
+    // incumbent operation identity; every non-Busy error still rejects.
+    return this.runTurnResult(agent, prompt, sessionId, signal, images).then(
+      (result) => {
+        if (result.kind === "busy") {
+          throw new AgentBusyError(result.operation_id, result.session);
+        }
+        return result.transcript;
+      },
+    );
+  }
+
+  /**
+   * Dedicated run-turn boundary: resolves the structurally discriminated
+   * envelope instead of mixing raw transcript bytes with a Busy marker. The
+   * envelope is decoded exactly once here; callers never re-parse the
+   * transcript body.
+   */
+  runTurnResult(
+    agent: unknown,
+    prompt: string,
+    sessionId: string,
+    signal?: AbortSignal,
+    images?: readonly ImageAttachment[],
+  ): Promise<AgentRunTurnResultWire> {
     // The MoonBit export takes the signal positionally; a fresh never-aborted
     // controller keeps signal-less callers (tests, smoke) on the same path.
-    return moonbit.cetas_js_run_turn(
-      agent as moonbit.CetasJsAgent,
-      prompt,
-      imagesJsonFor(images),
-      sessionId,
-      signal ?? new AbortController().signal,
-    );
+    return moonbit
+      .cetas_js_run_turn_result(
+        agent as moonbit.CetasJsAgent,
+        prompt,
+        imagesJsonFor(images),
+        sessionId,
+        signal ?? new AbortController().signal,
+      )
+      .then(decodeAgentRunTurnResult);
   }
 
   cancelPendingRateLimit(agent: unknown): void {

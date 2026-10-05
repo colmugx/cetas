@@ -8,7 +8,12 @@ import type { PiPackagesSummary } from "./pi-packages.ts";
 
 export type AppState = "needs_setup" | "ready" | "running" | "shutting_down";
 
-export type OperationKind = "turn" | "recovery" | "compact";
+/**
+ * Host vocabulary for the operation owning busy state. `wakeup` is a core
+ * projection: an extension-requested ordinary turn admitted without a host
+ * promise (operation_started origin=wakeup), never a host-recovery guess.
+ */
+export type OperationKind = "turn" | "recovery" | "compact" | "wakeup";
 export type OperationPhase = "idle" | "running" | "cancelling" | "finalizing";
 
 export interface OperationSnapshot {
@@ -16,6 +21,8 @@ export interface OperationSnapshot {
   readonly phase: OperationPhase;
   readonly id?: number;
   readonly kind?: OperationKind;
+  /** Session the operation runs on; host and core operations both carry it. */
+  readonly session?: string;
   readonly interruptible: boolean;
   readonly followUpsQueued: number;
   readonly compactPending: boolean;
@@ -160,10 +167,15 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
    * router slots, then resolves the summary JSON
    * `{"results":[{"provider","status","slots"?,"reason"?}]}`. An empty
    * `providerIdsJson` selects all refreshable providers. Never rejects:
-   * failures ride the summary. Optional — bridges without the live-refresh
-   * export skip the background task entirely.
+   * failures ride the summary; the only rejection path is aborting
+   * `signal` (shutdown cancels a stalled refresh). Optional — bridges
+   * without the live-refresh export skip the background task entirely.
    */
-  refreshModelListsLive?(config: CetasHostConfig, providerIdsJson: string): Promise<string>;
+  refreshModelListsLive?(
+    config: CetasHostConfig,
+    providerIdsJson: string,
+    signal?: AbortSignal,
+  ): Promise<string>;
   describeSetup(config: CetasHostConfig): Promise<ProviderSetupSnapshot>;
   /**
    * Last pi-package load summary, updated whenever the bridge (re)loads
@@ -191,9 +203,20 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
     method?: string,
   ): Promise<string>;
   /**
-   * Inline image attachments for the turn, in the MoonBit bridge's wire form
-   * (`media_type` + base64 `data`). Appended after the prompt text block;
+   * Run one user turn on the long-lived Agent handle.
+   *
+   * Inline image attachments ride the MoonBit bridge's wire form
+   * (`media_type` + base64 `data`), appended after the prompt text block;
    * the prompt's `@path` mentions stay for provenance.
+   *
+   * Busy contract: when core admits another operation (e.g. a wakeup turn)
+   * first, nothing has run and the bridge rejects with `AgentBusyError`
+   * (src/app/agent-busy.ts) carrying the incumbent `operation_id`/`session`
+   * — never an error string to match on. The MoonBit wire behind this is the
+   * dedicated `cetas_js_run_turn_result` envelope (`kind: "transcript" |
+   * "busy"`), so a legitimate assistant JSON transcript can never be
+   * misread as a lost admission; callers retain the input and re-attempt
+   * after the incumbent's settled boundary.
    */
   runTurn(
     agent: AgentHandle,

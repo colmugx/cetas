@@ -2052,28 +2052,20 @@ pub fn cetas_js_runtime_refresh_model_catalogs(
 
 ///|
 /// Background-safe live model-catalog refresh. Unlike the blocking
-/// login-flow refresh above, this never evicts a provider on failure and
-/// never rejects across the boundary: success updates the process and disk
-/// caches and hot-swaps the composed agent's router slots in place (the
-/// router preserves the active selection); failure keeps the current slots
-/// and records a warning surfaced by `describe_setup`. Every outcome rides
-/// the returned summary JSON `{"results":[{"provider","status","slots"?,"reason"?}]}`.
-pub fn cetas_js_refresh_model_lists_live(
-  config : CetasJsConfig,
-  provider_ids_json : String,
-) -> @js_async.Promise[String] {
-  cetas_js_runtime_refresh_model_lists_live(
-    CetasJsRuntime(config),
-    provider_ids_json,
-  )
-}
-
-///|
+/// login-flow refresh above, this never evicts a provider on failure:
+/// success updates the process and disk caches and hot-swaps the composed
+/// agent's router slots in place (the router preserves the active
+/// selection); failure keeps the current slots and records a warning
+/// surfaced by `describe_setup`. Every non-cancelled outcome rides the
+/// returned summary JSON `{"results":[{"provider","status","slots"?,"reason"?}]}`.
+/// The caller's AbortSignal cancels the refresh coroutine — shutdown uses it
+/// so a stalled provider fetch cannot outlive the host's exit drain.
 pub fn cetas_js_runtime_refresh_model_lists_live(
   runtime : CetasJsRuntime,
   provider_ids_json : String,
+  signal : @js_async.AbortSignal,
 ) -> @js_async.Promise[String] {
-  @js_async.Promise::from_async() <| () => {
+  @js_async.Promise::from_async(abort_signal=signal) <| () => {
     refresh_model_lists_live(runtime, provider_ids_json)
   }
 }
@@ -2200,6 +2192,82 @@ pub fn cetas_js_active_model_supports_images(handle : CetasJsAgent) -> String {
 }
 
 ///|
+/// Discriminated outcome of one Agent turn at the JS boundary. `Busy` carries
+/// the incumbent operation identity so a losing caller can wait for that exact
+/// operation's settled boundary and re-attempt admission — nothing core
+/// already admitted is ever rerun.
+priv enum RunTurnOutcome {
+  Transcript(String)
+  Busy(String, String)
+}
+
+///|
+/// Shared body of both run-turn exports (see `cetas_js_run_turn` for the
+/// Promise/abort shape rationale). Session/pi bookkeeping runs before the
+/// Agent entry exactly as before. A Busy admission loss leaves the pi display
+/// of the incumbent operation untouched (no reset_agent_run) and reports who
+/// holds the agent instead of raising a stringified error.
+async fn run_turn_outcome(
+  handle : CetasJsAgent,
+  prompt : String,
+  images_json : String,
+  session_id : String,
+) -> RunTurnOutcome raise {
+  let images = parse_image_attachments(images_json)
+  handle.plan.set_session_name(session_id)
+  // Pi session_start fires once per session id: the first turn that names
+  // a session emits it (fire-and-forget, never awaited), later turns skip.
+  // pi's reason: a fresh session is "new", a switch away from a previously
+  // started session is "resume"; previousSessionFile has no cetas
+  // equivalent and stays omitted.
+  let pi_new_session = match handle.pi_session {
+    Some(id) => id != session_id
+    None => true
+  }
+  if pi_new_session {
+    let reason = match handle.pi_session {
+      Some(_) => "resume"
+      None => "new"
+    }
+    // Restore persisted pi custom entries before handlers see session_start
+    // so package state (e.g. pi-web-access search caches) survives restarts.
+    seed_pi_custom_entries(handle, session_id)
+    emit_pi_session_start(handle, session_id, reason)
+    handle.pi_session = Some(session_id)
+  }
+  let result : Result[String, Error] = Ok(
+    @cetas_core.run_prompt(handle.agent, prompt, session_id, images~),
+  ) catch {
+    err => Err(err)
+  }
+  match result {
+    Ok(text) => {
+      // Persist pi custom entries appended during the turn(s) before the
+      // agent boundary (agent_end handlers may still appendEntry; those
+      // ride the next turn's save).
+      persist_pi_custom_entries(handle, session_id)
+      // Pi agent boundary: agent_end/agent_settled fire only when no
+      // queued follow-up will continue the run (pi loop-drain semantics).
+      if handle.agent.control().pending_follow_ups() == 0 {
+        handle.pi.events.emit_agent_boundary()
+      }
+      Transcript(text)
+    }
+    // Structured busy boundary: from_async rejects with err.to_string(),
+    // which would erase the operation identity. A Busy admission loss is
+    // reported to the TS bridge as the incumbent's operation identity, and
+    // the in-flight core operation (e.g. a wakeup turn) keeps its own pi
+    // display untouched.
+    Err(@posoco.AgentError::Busy(operation_id~, session~)) =>
+      Busy(operation_id, session)
+    Err(err) => {
+      handle.pi.events.reset_agent_run()
+      raise err
+    }
+  }
+}
+
+///|
 pub fn cetas_js_run_turn(
   handle : CetasJsAgent,
   prompt : String,
@@ -2207,51 +2275,22 @@ pub fn cetas_js_run_turn(
   session_id : String,
   signal : @js_async.AbortSignal,
 ) -> @js_async.Promise[String] {
-  let images = parse_image_attachments(images_json)
   let promise = @js_async.Promise::from_async(abort_signal=signal) <| () => {
-    handle.plan.set_session_name(session_id)
-    // Pi session_start fires once per session id: the first turn that names
-    // a session emits it (fire-and-forget, never awaited), later turns skip.
-    // pi's reason: a fresh session is "new", a switch away from a previously
-    // started session is "resume"; previousSessionFile has no cetas
-    // equivalent and stays omitted.
-    let pi_new_session = match handle.pi_session {
-      Some(id) => id != session_id
-      None => true
-    }
-    if pi_new_session {
-      let reason = match handle.pi_session {
-        Some(_) => "resume"
-        None => "new"
-      }
-      // Restore persisted pi custom entries before handlers see session_start
-      // so package state (e.g. pi-web-access search caches) survives restarts.
-      seed_pi_custom_entries(handle, session_id)
-      emit_pi_session_start(handle, session_id, reason)
-      handle.pi_session = Some(session_id)
-    }
-    let result : Result[String, Error] = Ok(
-      @cetas_core.run_prompt(handle.agent, prompt, session_id, images~),
-    ) catch {
-      err => Err(err)
-    }
-    match result {
-      Ok(text) => {
-        // Persist pi custom entries appended during the turn(s) before the
-        // agent boundary (agent_end handlers may still appendEntry; those
-        // ride the next turn's save).
-        persist_pi_custom_entries(handle, session_id)
-        // Pi agent boundary: agent_end/agent_settled fire only when no
-        // queued follow-up will continue the run (pi loop-drain semantics).
-        if handle.agent.control().pending_follow_ups() == 0 {
-          handle.pi.events.emit_agent_boundary()
-        }
-        text
-      }
-      Err(err) => {
-        handle.pi.events.reset_agent_run()
-        raise err
-      }
+    match run_turn_outcome(handle, prompt, images_json, session_id) {
+      Transcript(text) => text
+      // Legacy raw wire, kept for compatibility: the transcript resolves
+      // raw, while a Busy admission loss resolves this discriminated JSON
+      // envelope. The marker is inherently ambiguous with assistant JSON,
+      // so new hosts must use `cetas_js_run_turn_result`, whose dedicated
+      // envelope cannot be confused with a transcript.
+      Busy(operation_id, session) =>
+        Json::object(
+          Map::from_array([
+            ("posoco_busy", Json::boolean(true)),
+            ("operation_id", Json::string(operation_id)),
+            ("session", Json::string(session)),
+          ]),
+        ).stringify()
     }
   }
   // from_async's own signal listener cancels the turn coroutine but does not
@@ -2260,6 +2299,50 @@ pub fn cetas_js_run_turn(
   // This second listener forces a reschedule round; spawning (and instantly
   // completing) a no-op coroutine is the public reschedule trigger. Listener
   // order matters: cancel runs first, the pump second.
+  js_signal_on_abort(signal, fn() {
+    ignore(@js_async.Promise::from_async() <| () => {  })
+  })
+  promise
+}
+
+///|
+/// Structurally discriminated run-turn boundary for the TS host. Same
+/// admission/abort behaviour as `cetas_js_run_turn`, but the Promise resolves
+/// exactly one JSON envelope instead of mixing raw transcript bytes with a
+/// marker: `{"kind":"transcript","transcript":...}` for an admitted run (the
+/// transcript rides as a JSON string, so the host decodes the envelope once
+/// and never re-parses assistant output) and
+/// `{"kind":"busy","operation_id":...,"session":...}` when core admitted
+/// another operation first. The `kind` field is the only discriminator and
+/// lives on the envelope — never on transcript bytes — so legitimate
+/// assistant JSON can never be misread as Busy.
+pub fn cetas_js_run_turn_result(
+  handle : CetasJsAgent,
+  prompt : String,
+  images_json : String,
+  session_id : String,
+  signal : @js_async.AbortSignal,
+) -> @js_async.Promise[String] {
+  let promise = @js_async.Promise::from_async(abort_signal=signal) <| () => {
+    match run_turn_outcome(handle, prompt, images_json, session_id) {
+      Transcript(text) =>
+        Json::object(
+          Map::from_array([
+            ("kind", Json::string("transcript")),
+            ("transcript", Json::string(text)),
+          ]),
+        ).stringify()
+      Busy(operation_id, session) =>
+        Json::object(
+          Map::from_array([
+            ("kind", Json::string("busy")),
+            ("operation_id", Json::string(operation_id)),
+            ("session", Json::string(session)),
+          ]),
+        ).stringify()
+    }
+  }
+  // Same abort pump as cetas_js_run_turn (see the comment there).
   js_signal_on_abort(signal, fn() {
     ignore(@js_async.Promise::from_async() <| () => {  })
   })

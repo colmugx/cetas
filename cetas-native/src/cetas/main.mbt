@@ -82,7 +82,7 @@ async fn main {
       None => ()
     }
 
-    let composed : Result[( @app.NativeHost, @app.NativeUiPort ), Error] = Ok(
+    let composed : Result[(@app.NativeHost, @app.NativeUiPort), Error] = Ok(
       @app.NativeHost::compose_interactive(
         home~,
         cwd~,
@@ -146,9 +146,7 @@ async fn main {
             app.open_rewind() catch {
               error => {
                 ignore(
-                  app.append_error(
-                    "rewind points failed: " + error.to_string(),
-                  ),
+                  app.append_error("rewind points failed: " + error.to_string()),
                 )
                 false
               }
@@ -157,9 +155,7 @@ async fn main {
         @app.LoopApplyRewind(message_index) =>
           app.apply_rewind(message_index) catch {
             error =>
-              ignore(
-                app.append_error("rewind failed: " + error.to_string()),
-              )
+              ignore(app.append_error("rewind failed: " + error.to_string()))
           }
         @app.LoopAutocomplete
         | @app.LoopToggleThinking

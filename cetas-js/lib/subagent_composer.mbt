@@ -377,6 +377,12 @@ async fn build_cetas_subagents(
       (parent_router.active_slot_id(), parent_router.active_effort())
     }),
     observers~,
+    // Wakeup-port §10 policy: this host integrated the operation lifecycle
+    // (operation_settled projection, structured Busy retention), so a
+    // background receipt requests one ordinary turn instead of waiting for
+    // lazy delivery. Children never compose subagent tools (depth 1), so
+    // this opt-in belongs to the host's parent agent only.
+    auto_wakeup=true,
   )
   tools as &@posoco.Extension
 }

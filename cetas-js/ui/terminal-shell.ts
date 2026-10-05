@@ -57,12 +57,22 @@ import {
 } from "../src/app/image-attachments.ts";
 import { EventRouter } from "../src/controllers/event-router.ts";
 import { SubagentActivityStore } from "../src/controllers/subagent-activity.ts";
+import { WakeupActivityStore } from "../src/controllers/wakeup-activity.ts";
+import {
+  parseCoreCustom,
+  decisionFailureDiagnostic,
+  type CoreCustomParse,
+} from "../src/core-events.ts";
 import {
   SubagentHeader,
   projectSubagentHeader,
   renderSubagentHeader,
   type SubagentHeaderSource,
 } from "./subagent-header.ts";
+import {
+  WakeupHeader,
+  type WakeupHeaderSource,
+} from "./wakeup-header.ts";
 import {
   errorNotice,
   systemNotice,
@@ -149,6 +159,11 @@ export interface TerminalShellOptions {
   toolLabels?: ReadonlyMap<string, string>;
   /** Host-owned process exit hook; tests can leave it undefined. */
   onExit?: (code: number) => void;
+  /**
+   * Graceful-shutdown watchdog: when it fires (or a second shutdown request
+   * arrives first) the shell forces the exit hook. Default 10s.
+   */
+  forceExitDelayMs?: number;
 }
 
 /** `posoco_ext_nowledge_mem` → `nowledge-mem`; foreign ids pass through. */
@@ -244,8 +259,13 @@ export class TerminalShell {
   private readonly statusBarMount: Container;
   private readonly router: EventRouter;
   private readonly subagents = new SubagentActivityStore();
+  /** Folded `posoco.wakeup` projection for the ambient header. */
+  private readonly wakeups = new WakeupActivityStore();
+  /** Envelope notices already rendered, once per ticket. */
+  private readonly wakeupEnvelopesShown = new Set<string>();
   /** Background activity above the editor, separate from transcript history. */
   private readonly agentSwarm: Container;
+  private readonly wakeupHeader: WakeupHeader;
   private readonly subagentHeader: SubagentHeader;
   private readonly askRegion: Container;
   private swarmLines: string[] = [];
@@ -302,6 +322,11 @@ export class TerminalShell {
   private setupNoticeShown = false;
   private setupErrorShown?: string;
   private shutdownPromise?: Promise<void>;
+  /** Graceful-shutdown watchdog; fires forceExit when the drain stalls. */
+  private forceExitTimer?: ReturnType<typeof setTimeout>;
+  /** Force exit runs once; the graceful chain defers to it afterwards. */
+  private exitDelivered = false;
+  private readonly forceExitDelayMs: number;
   /** Last application state rendered; edge detection only, never authority. */
   private renderedAppState?: AppState;
   /**
@@ -335,6 +360,7 @@ export class TerminalShell {
     });
     this.sessionId = options.initialSessionId;
     this.onExit = options.onExit ?? (() => {});
+    this.forceExitDelayMs = options.forceExitDelayMs ?? 10_000;
     this.callbacks = {
       observerCallback: (eventJson) => this.handleObserverEvent(eventJson),
       renderCallback: (eventJson) => this.handleUiRender(eventJson),
@@ -358,7 +384,9 @@ export class TerminalShell {
     this.setupStatus = new Container();
     this.extensionStatus = new Container();
     this.agentSwarm = new Container();
+    this.wakeupHeader = new WakeupHeader(() => this.wakeupHeaderSource());
     this.subagentHeader = new SubagentHeader(() => this.subagentHeaderSource());
+    this.agentSwarm.addChild(this.wakeupHeader);
     this.agentSwarm.addChild(this.subagentHeader);
     const statusRegion = new Container();
     statusRegion.addChild(this.statusWrapper);
@@ -666,14 +694,71 @@ export class TerminalShell {
     }
   }
 
+  /**
+   * Begin (or escalate) process shutdown. The first request drains
+   * gracefully under a watchdog; while that drain is still pending, any
+   * further request — a second Ctrl+C, another `/exit` — exits immediately.
+   * A shutdown whose promises never settle must still end the process.
+   */
   requestShutdown(code = 0): void {
-    void this.shutdown().then(
-      () => this.onExit(code),
-      (error: unknown) => {
-        console.error("cetas-js shutdown failed", error);
-        this.onExit(1);
-      },
-    );
+    if (this.shutdownPromise === undefined) {
+      this.armForceExitWatchdog(code);
+      void this.shutdown().then(
+        () => this.deliverExit(code),
+        (error: unknown) => {
+          console.error("cetas-js shutdown failed", error);
+          this.deliverExit(1);
+        },
+      );
+      return;
+    }
+    this.forceExit(code, "forced by repeated interrupt");
+  }
+
+  private armForceExitWatchdog(code: number): void {
+    this.forceExitTimer = setTimeout(() => {
+      this.forceExitTimer = undefined;
+      this.forceExit(code, "shutdown timed out");
+    }, this.forceExitDelayMs);
+    this.forceExitTimer.unref?.();
+  }
+
+  private clearForceExitWatchdog(): void {
+    if (this.forceExitTimer !== undefined) {
+      clearTimeout(this.forceExitTimer);
+      this.forceExitTimer = undefined;
+    }
+  }
+
+  /** Best-effort teardown followed by the exit hook; runs at most once. */
+  private forceExit(code: number, reason: string): void {
+    this.clearForceExitWatchdog();
+    if (this.exitDelivered) return;
+    this.exitDelivered = true;
+    const bestEffort = (step: () => void) => {
+      try {
+        step();
+      } catch {
+        // A broken surface must not block the exit it is delaying.
+      }
+    };
+    bestEffort(() => this.uiRequestBar.cancel());
+    bestEffort(() => this.modelPicker.hide());
+    bestEffort(() => this.oauthOverlay.hide());
+    bestEffort(() => this.authPromptOverlay.hide());
+    bestEffort(() => this.skillsOverlay.hide());
+    bestEffort(() => this.rewindOverlay.hide());
+    bestEffort(() => this.providerPickerHandle?.hide());
+    bestEffort(() => this.uiRenderHost.dispose());
+    if (this.started) bestEffort(() => this.tui.stop());
+    console.error(`cetas: ${reason} — exiting now`);
+    this.onExit(code);
+  }
+
+  private deliverExit(code: number): void {
+    if (this.exitDelivered) return;
+    this.exitDelivered = true;
+    this.onExit(code);
   }
 
   /**
@@ -705,10 +790,15 @@ export class TerminalShell {
         this.stopSwarmTicker();
         this.statusLoader.stop();
         this.subagents.clear();
+        this.wakeups.clear();
+        this.wakeupEnvelopesShown.clear();
         this.agentSwarm.clear();
         this.replayedToolRows.clear();
         this.uiRenderHost.dispose();
         if (this.started) this.tui.stop();
+        // The graceful drain finished; the force-exit watchdog is no longer
+        // wanted (requestShutdown armed it before starting this drain).
+        this.clearForceExitWatchdog();
       }
     })();
     return this.shutdownPromise;
@@ -885,6 +975,21 @@ export class TerminalShell {
       this.skippedEventsNoticed = false;
       this.promoteQueuedPrompt();
     }
+    if (event.type === "custom") {
+      const core = parseCoreCustom(event.source, event.label, event.data);
+      if (core.kind === "malformed") {
+        // A matched core source with a contract-violating payload is a
+        // version-skew fact, not a foreign custom: degrade visibly.
+        this.noteDegradedEvent(core.reason);
+        return;
+      }
+      if (core.kind !== "foreign") {
+        // Core projection events are bookkeeping with dedicated surfaces;
+        // the generic `· source/label` notice would only spam the transcript.
+        this.handleCoreCustom(core);
+        return;
+      }
+    }
     if (event.type === "custom" && this.commandBusy) {
       this.oauthOverlay.notify(event);
     }
@@ -901,6 +1006,60 @@ export class TerminalShell {
   }
 
   private swarmTicker: ReturnType<typeof setInterval> | undefined;
+
+  /**
+   * One frozen core projection custom (operation/wakeup/tasks/decision).
+   * `posoco.operation` is the application layer's authority — the shell
+   * renders nothing for it. Wakeup tickets drive the ambient header plus a
+   * single environment notice per executing envelope; task receipts feed
+   * the results-waiting count; only decision failures render (successes
+   * never spam the transcript).
+   */
+  private handleCoreCustom(core: CoreCustomParse): void {
+    switch (core.kind) {
+      case "operation":
+        return;
+      case "wakeup": {
+        if (!this.wakeups.apply(core.event)) return;
+        if (
+          core.event.state === "executing" &&
+          core.event.envelope !== undefined &&
+          !this.wakeupEnvelopesShown.has(core.event.ticket_id)
+        ) {
+          this.wakeupEnvelopesShown.add(core.event.ticket_id);
+          this.addTranscriptChild(
+            systemNotice(
+              `◌ wakeup envelope — environment signal · ${oneLineBound(core.event.envelope)}`,
+            ),
+          );
+        }
+        this.tui.requestRender();
+        return;
+      }
+      case "task":
+        // Attribution uses the receipt's own session (frozen schema), never
+        // the shell's current session: a receipt for another session must
+        // not leak into this session's waiting count.
+        if (this.subagents.noteOutcomeReady(core.event.task_id, core.event.session)) {
+          this.tui.requestRender();
+        }
+        return;
+      case "decision":
+        if (core.event.label === "failed") {
+          this.addTranscriptChild(
+            errorNotice(`⚠ decision failed (${decisionFailureDiagnostic(core.event)})`),
+          );
+        }
+        return;
+    }
+  }
+
+  private wakeupHeaderSource(): WakeupHeaderSource | undefined {
+    const executing = this.wakeups.executing(this.sessionId);
+    const resultsWaiting = this.subagents.resultsWaiting(this.sessionId);
+    if (executing.length === 0 && resultsWaiting === 0) return undefined;
+    return { executing, resultsWaiting };
+  }
 
   private handleSubagentEvent(ev: CetasEvent & { type: "subagent_event" }): void {
     if (!this.subagents.apply(ev, this.sessionId)) return;
@@ -1780,6 +1939,11 @@ export class TerminalShell {
           components.push(new UserMessage(text + suffix));
           break;
         }
+        case "wakeup":
+          // Restored environment signal — visually distinct from a user
+          // message so a replayed wakeup turn never looks hand-typed.
+          components.push(systemNotice(`◌ wakeup envelope · ${item.text}`));
+          break;
         case "reasoning":
           components.push(new ThinkingComponent(item.text, "finalized"));
           break;
@@ -2394,6 +2558,12 @@ function errorMessage(error: unknown): string {
 /** Bound free-form bridge payloads for console logs (~200 chars). */
 function boundedJson(value: string, max = 200): string {
   return value.length <= max ? value : `${value.slice(0, max)}…`;
+}
+
+/** Single-line, bounded rendering of a core envelope payload. */
+function oneLineBound(text: string, max = 200): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length <= max ? line : `${line.slice(0, max)}…`;
 }
 
 /** The wire `type` tag of a parsed payload, bounded for short skip reasons. */
