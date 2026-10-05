@@ -1,0 +1,12 @@
+import {
+  "moonbitlang/core/debug",
+  "moonbitlang/core/env",
+  "moonbitlang/async",
+  "moonbitlang/async/websocket",
+  "moonbitlang/moonback",
+  "moonbitlang/moonback/middlewares/unstable_static",
+}
+
+supported_targets = "native"
+
+pkgtype(kind: "executable")
