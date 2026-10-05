@@ -336,6 +336,118 @@ fn NativeHost::session_catalog(self : NativeHost) -> @posoco.CommandOutcome {
 }
 
 ///|
+fn native_image_mime(path : String) -> String? {
+  let lower = path.to_lower()
+  if lower.has_suffix(".png") {
+    Some("image/png")
+  } else if lower.has_suffix(".jpg") || lower.has_suffix(".jpeg") {
+    Some("image/jpeg")
+  } else if lower.has_suffix(".gif") {
+    Some("image/gif")
+  } else if lower.has_suffix(".webp") {
+    Some("image/webp")
+  } else {
+    None
+  }
+}
+
+///|
+fn native_trim_mention_token(token : String) -> String {
+  let mut start = 0
+  let mut end = token.length()
+  while start < end &&
+    (token[start] == '(' ||
+    token[start] == '"' ||
+    token[start] == '\'' ||
+    token[start] == '{') {
+    start += 1
+  }
+  while end > start {
+    let ch = token[end - 1]
+    if ch == ')' ||
+      ch == '"' ||
+      ch == '\'' ||
+      ch == ']' ||
+      ch == '}' ||
+      ch == ',' ||
+      ch == '.' ||
+      ch == ':' ||
+      ch == ';' ||
+      ch == '!' ||
+      ch == '?' {
+      end -= 1
+    } else {
+      break
+    }
+  }
+  token[start:end].to_owned()
+}
+
+///|
+fn NativeHost::workspace_has_file(
+  self : NativeHost,
+  path : String,
+) -> Bool {
+  for item in self.workspace_files {
+    if item == path {
+      return true
+    }
+  }
+  false
+}
+
+///|
+/// Preserve the textual @path mention and append image blocks for workspace
+/// image files. Like cetas-js, attachment failures are non-fatal: the prompt
+/// still reaches the model and a transcript notice explains what was skipped.
+fn NativeHost::user_message(
+  self : NativeHost,
+  prompt : String,
+) -> @posoco.Message {
+  let content : Array[@posoco.Content] = [@posoco.Content::Text(prompt)]
+  let seen : Set[String] = Set([])
+  for raw in prompt.split(" ") {
+    if raw.length() <= 1 || raw[0] != '@' {
+      continue
+    }
+    let path = native_trim_mention_token(raw[1:].to_owned())
+    if path.is_empty() || seen.contains(path) || !self.workspace_has_file(path) {
+      continue
+    }
+    guard native_image_mime(path) is Some(media_type) else { continue }
+    seen.add(path)
+    let bytes = @xfs.read_file_to_bytes(path) catch {
+      error => {
+        ignore(
+          self.shell.append_notice(
+            "image attachment skipped @" +
+            path +
+            ": " +
+            error.to_string(),
+          ),
+        )
+        continue
+      }
+    }
+    if bytes.length() > 5 * 1024 * 1024 {
+      ignore(
+        self.shell.append_notice(
+          "image attachment skipped @" + path + ": file exceeds 5 MiB",
+        ),
+      )
+      continue
+    }
+    content.push(
+      @posoco.Content::Image(
+        media_type~,
+        data=@base64.encode(bytes[:]),
+      ),
+    )
+  }
+  @posoco.Message::UserMessage(content~)
+}
+
+///|
 /// Start one fresh user turn. The user echo is committed before Posoco emits
 /// TurnStarted; all later assistant/tool state arrives through the typed
 /// NativeShellObserver installed during composition.
@@ -353,10 +465,7 @@ pub async fn NativeHost::run_text_turn_with_echo(
   display_prompt : String,
 ) -> @posoco.TurnResult raise @posoco.AgentError {
   ignore(self.shell.append_user(display_prompt))
-  self.agent.run_turn(
-    @posoco.Message::UserMessage(content=[@posoco.Content::Text(prompt)]),
-    self.session.session_id(),
-  )
+  self.agent.run_turn(self.user_message(prompt), self.session.session_id())
 }
 
 ///|
@@ -370,9 +479,7 @@ pub fn NativeHost::queue_follow_up(
 ) -> @runtime.EnqueueOutcome {
   let outcome = self.agent
     .control()
-    .enqueue_follow_up(
-      @posoco.Message::UserMessage(content=[@posoco.Content::Text(prompt)]),
-    )
+    .enqueue_follow_up(self.user_message(prompt))
   match outcome {
     @runtime.Accepted(..) => ignore(self.shell.queue_follow_up(prompt))
     _ => ()
