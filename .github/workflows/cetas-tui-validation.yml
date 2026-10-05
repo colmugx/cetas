@@ -106,3 +106,105 @@ jobs:
       - name: Build and run FFI + PTY inline smoke test
         working-directory: cetas-native
         run: python3 scripts/pty_smoke.py
+
+  cross-platform-native:
+    name: native runtime (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, target: darwin-arm64, platform: unix }
+          - { os: windows-latest, target: windows-x64, platform: windows }
+
+    steps:
+      - name: disable auto CRLF (Windows)
+        if: matrix.platform == 'windows'
+        run: git config --global core.autocrlf false
+
+      - name: checkout cetas
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: install moon (Unix)
+        if: matrix.platform == 'unix'
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: install moon (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+          irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          "$HOME\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: tool versions
+        run: |
+          moon version --all
+          rustc --version
+          cargo --version
+          node --version
+
+      - name: Rust tests
+        working-directory: cetas-native/native/cetas-tui
+        run: cargo test --release
+
+      - name: package cetas-tui static library
+        run: node cetas-native/scripts/package_staticlib.js --out ".cetas-tui-prebuilt" --target "${{ matrix.target }}"
+
+      - name: prepare native recipe (Unix)
+        if: matrix.platform == 'unix'
+        run: python3 scripts/prepare-recipe.py --flavor public --frontend native --platform unix
+
+      - name: prepare native recipe (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: python scripts/prepare-recipe.py --flavor public --frontend native --platform windows
+
+      - name: resolve workspace dependencies
+        run: moon update
+
+      - name: MoonBit native check
+        env:
+          CETAS_TUI_PREBUILT_DIR: ${{ github.workspace }}/.cetas-tui-prebuilt
+          CETAS_TUI_FORCE_PREBUILT: "1"
+        run: |
+          moon check -p cetas-native/src/native --target native --deny-warn
+          moon check -p cetas-native/src/ui --target native --deny-warn
+          moon check -p cetas-native/src/app --target native --deny-warn
+          moon check -p cetas-native/src/cetas --target native --deny-warn
+          moon check -p cetas-native/src/validation --target native --deny-warn
+
+      - name: MoonBit native tests
+        env:
+          CETAS_TUI_PREBUILT_DIR: ${{ github.workspace }}/.cetas-tui-prebuilt
+          CETAS_TUI_FORCE_PREBUILT: "1"
+        run: |
+          moon test -p cetas-native/src/app --target native
+          moon test -p cetas-native/src/cetas --target native
+
+      - name: build native Cetas
+        env:
+          CETAS_TUI_PREBUILT_DIR: ${{ github.workspace }}/.cetas-tui-prebuilt
+          CETAS_TUI_FORCE_PREBUILT: "1"
+        run: moon build cetas-native/src/cetas --target native --release
+
+      - name: version smoke (Unix)
+        if: matrix.platform == 'unix'
+        run: |
+          product="_build/native/release/build/colmugx/cetas-native/src/cetas/cetas.exe"
+          test -f "$product"
+          test "$("$product" --version)" = "cetas 0.7.0"
+
+      - name: version smoke (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $product = "_build\native\release\build\colmugx\cetas-native\src\cetas\cetas.exe"
+          if (-not (Test-Path $product)) { throw "native Cetas executable missing" }
+          $out = (& $product --version) -join ' '
+          if ($out.Trim() -ne "cetas 0.7.0") { throw "--version mismatch: $out" }

@@ -48,8 +48,9 @@ jobs:
         run: |
           gh release download "${GITHUB_REF_NAME}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --pattern 'cetas-bun-*.tar.gz' \
-            --pattern 'cetas-bun-*.zip' \
+            --pattern 'cetas-darwin-arm64.tar.gz' \
+            --pattern 'cetas-linux-x64.tar.gz' \
+            --pattern 'cetas-windows-x64.zip' \
             --dir staging
 
       - name: setup node

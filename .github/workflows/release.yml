@@ -1,5 +1,5 @@
 # Release pipeline for the cetas submodule (repo github.com/colmugx/cetas).
-# Tag builds publish cetas-acp, cetas-run, and cetas-bun binaries plus
+# Tag builds publish cetas-acp, cetas-run, and the native cetas binary plus
 # a GitHub release. npm publishing (@posoco/cetas + @posoco/cetas-<target> payload packages)
 # is manual: dispatch .github/workflows/npm-publish.yml on the release tag.
 #
@@ -351,42 +351,68 @@ jobs:
             }
           }
 
-      - name: setup bun
-        uses: oven-sh/setup-bun@v2
+      - name: package cetas-tui static library
+        working-directory: posoco/external/cetas
+        run: node cetas-native/scripts/package_staticlib.js --out "stage/cetas-tui-prebuilt-${{ matrix.target }}" --target "${{ matrix.target }}"
 
-      - name: bun install
-        working-directory: posoco/external/cetas/cetas-js
-        run: bun install
-
-      - name: prepare public js recipe (unix)
+      - name: prepare public native recipe (unix)
         if: matrix.os != 'windows-latest'
         working-directory: posoco/external/cetas
-        run: python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
+        run: python3 scripts/prepare-recipe.py --flavor public --frontend native --platform unix
 
-      - name: prepare public js recipe (Windows)
+      - name: prepare public native recipe (Windows)
         if: matrix.os == 'windows-latest'
         working-directory: posoco/external/cetas
         shell: pwsh
-        run: python scripts/prepare-recipe.py --flavor public --frontend all --platform windows
+        run: python scripts/prepare-recipe.py --flavor public --frontend native --platform windows
 
-      - name: moon update (cetas-js)
-        working-directory: posoco/external/cetas/cetas-js
+      - name: moon update (cetas-native)
+        working-directory: posoco/external/cetas
         run: moon update
 
-      - name: build cetas-bun (native target)
-        working-directory: posoco/external/cetas/cetas-js
-        run: bun build.ts ${{ matrix.target }}
+      - name: build native Cetas terminal host
+        working-directory: posoco/external/cetas
+        env:
+          CETAS_TUI_PREBUILT_DIR: ${{ github.workspace }}/posoco/external/cetas/stage/cetas-tui-prebuilt-${{ matrix.target }}
+          CETAS_TUI_FORCE_PREBUILT: "1"
+        run: moon build cetas-native/src/cetas --target native --release
 
-      - name: collect cetas-bun (unix)
+      - name: collect native Cetas (unix)
         if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas/cetas-js
-        run: cp "dist/cetas-bun-${{ matrix.target }}" "../stage/cetas-bun"
+        working-directory: posoco/external/cetas
+        run: cp "_build/native/release/build/colmugx/cetas-native/src/cetas/cetas.exe" "stage/cetas"
 
-      - name: collect cetas-bun (Windows)
+      - name: collect native Cetas (Windows)
         if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas/cetas-js
+        working-directory: posoco/external/cetas
         shell: pwsh
-        run: Copy-Item "dist\cetas-bun-${{ matrix.target }}.exe" -Destination "..\stage\cetas-bun.exe"
+        run: Copy-Item "_build\native\release\build\colmugx\cetas-native\src\cetas\cetas.exe" -Destination "stage\cetas.exe"
+
+      - name: version smoke native Cetas (unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: posoco/external/cetas/stage
+        run: |
+          out="$(./cetas --version)"
+          echo "$out"
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            expected="cetas ${GITHUB_REF_NAME#cetas-v}"
+            [[ "$out" == "$expected" ]] || { echo "::error::--version mismatch: got '$out', want '$expected'"; exit 1; }
+          fi
+
+      - name: version smoke native Cetas (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: posoco/external/cetas/stage
+        shell: pwsh
+        run: |
+          $out = (& ".\cetas.exe" --version) -join ' '
+          $out
+          if ($env:GITHUB_EVENT_NAME -eq 'push') {
+            $expected = "cetas " + ($env:GITHUB_REF_NAME -replace '^cetas-v', '')
+            if ($out.Trim() -ne $expected) {
+              Write-Host "::error::--version mismatch: got '$out', want '$expected'"
+              exit 1
+            }
+          }
 
       # Release body = the CHANGELOG section for this version. Section end is
       # the next VERSION heading (`## X.Y.Z (` or `## Unreleased`) — notes
@@ -403,7 +429,8 @@ jobs:
         if: matrix.os != 'windows-latest'
         working-directory: posoco/external/cetas/stage
         run: |
-          tar -czf "cetas-bun-${{ matrix.target }}.tar.gz" cetas-bun
+          tar -czf "cetas-${{ matrix.target }}.tar.gz" cetas
+          tar -czf "cetas-tui-staticlib-${{ matrix.target }}.tar.gz" -C "cetas-tui-prebuilt-${{ matrix.target }}" .
           tar -czf "cetas-acp-${{ matrix.target }}.tar.gz" cetas-acp
           tar -czf "cetas-run-${{ matrix.target }}.tar.gz" cetas-run
 
@@ -412,7 +439,8 @@ jobs:
         working-directory: posoco/external/cetas/stage
         shell: pwsh
         run: |
-          Compress-Archive -Path "cetas-bun.exe" -DestinationPath "cetas-bun-windows-x64.zip" -Force
+          Compress-Archive -Path "cetas.exe" -DestinationPath "cetas-windows-x64.zip" -Force
+          Compress-Archive -Path "cetas-tui-prebuilt-windows-x64\*" -DestinationPath "cetas-tui-staticlib-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-acp.exe" -DestinationPath "cetas-acp-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-run.exe" -DestinationPath "cetas-run-windows-x64.zip" -Force
 
