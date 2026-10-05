@@ -2212,7 +2212,7 @@ async fn run_turn_outcome(
   prompt : String,
   images_json : String,
   session_id : String,
-) -> RunTurnOutcome raise {
+) -> RunTurnOutcome {
   let images = parse_image_attachments(images_json)
   handle.plan.set_session_name(session_id)
   // Pi session_start fires once per session id: the first turn that names
