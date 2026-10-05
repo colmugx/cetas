@@ -80,6 +80,41 @@ fn startup_banner(
 }
 
 ///|
+///|
+/// Keep Posoco's managed Tasks scope active for the whole interactive host
+/// lifetime. Background subagents submitted by any turn therefore outlive
+/// that parent turn and settle before the app scope is cancelled.
+async fn start_native_agent_scope(
+  host : @app.NativeHost,
+  group : @async.TaskGroup[Unit],
+) -> @async.Task[Unit] {
+  let ready = Ref(false)
+  let task = group.spawn(
+    () =>
+      host.agent().run_scoped(async fn(_agent) {
+        ready.val = true
+        while true {
+          @async.sleep(60000)
+        }
+      }),
+    allow_failure=true,
+  )
+  while !ready.val {
+    @async.sleep(1)
+  }
+  task
+}
+
+///|
+async fn stop_native_agent_scope(task : @async.Task[Unit]) -> Unit {
+  task.cancel()
+  try {
+    let _ = task.wait()
+  } catch {
+    _ => ()
+  }
+}
+
 async fn main {
   if @env.args().contains("--version") {
     println("cetas \{CETAS_NATIVE_VERSION}")
@@ -271,6 +306,7 @@ async fn main {
       ),
     )
 
+    let mut scope_task = start_native_agent_scope(host, group)
     let mut app = @app.NativeAppLoop::new(host, native_ui, terminal)
     let mut running = true
     let mut terminal_failure : Int? = None
@@ -365,6 +401,8 @@ async fn main {
                       ),
                     )
                     auth_app.shutdown_for_recompose()
+                    stop_native_agent_scope(scope_task)
+                    scope_task = start_native_agent_scope(next_host, group)
                     app = @app.NativeAppLoop::new(next_host, next_ui, terminal)
                   }
                   Err(compose_error) => {
@@ -431,6 +469,7 @@ async fn main {
     }
 
     app.shutdown()
+    stop_native_agent_scope(scope_task)
     match terminal_failure {
       Some(status) => {
         @stdio.stderr.write(
