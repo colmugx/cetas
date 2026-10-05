@@ -6,6 +6,11 @@ package "colmugx/cetas-web/server"
 // Errors
 
 // Types and methods
+type WebClientMessage
+
+type WebObserver
+
+type WebRuntime
 
 // Type aliases
 

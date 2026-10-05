@@ -1,4 +1,4 @@
-import { FolderTree, Search, TerminalSquare } from "@lucide/solid";
+import { FolderTree, Search, SquareTerminal } from "@lucide/solid";
 import type { JSX } from "@solidjs/web";
 import { useCetasRuntime } from "../cetas/runtime";
 
@@ -6,28 +6,30 @@ export default function WorkspacePage() {
   const runtime = useCetasRuntime();
 
   return (
-    <div class="mx-auto w-full max-w-6xl px-4 py-6 md:px-6">
-      <div class="flex items-start justify-between gap-5">
+    <div class="mx-auto w-full max-w-3xl px-5 py-8">
+      <div class="flex items-center gap-2.5">
+        <span class="grid size-8 place-items-center rounded-lg border border-line bg-raised text-fg-muted">
+          <FolderTree size={15} />
+        </span>
         <div>
-          <div class="flex items-center gap-2 text-sm font-medium text-zinc-200">
-            <FolderTree size={17} />
+          <h1 class="text-base font-semibold tracking-tight text-fg">
             Workspace
-          </div>
-          <p class="mt-2 text-sm text-zinc-500">
-            Files, search, diffs, and tool artifacts will live here.
+          </h1>
+          <p class="mt-0.5 text-xs text-fg-muted">
+            Files, search, diffs, and tool artifacts will mount here.
           </p>
         </div>
       </div>
 
-      <div class="mt-6 grid gap-3 md:grid-cols-2">
+      <div class="mt-7 grid gap-3 md:grid-cols-2">
         <Placeholder
-          icon={<Search size={17} />}
+          icon={<Search size={15} />}
           title="File explorer"
           detail="Waiting for the workspace HTTP surface."
         />
         <Placeholder
-          icon={<TerminalSquare size={17} />}
-          title="Current working directory"
+          icon={<SquareTerminal size={15} />}
+          title="Working directory"
           detail={runtime.runtime()?.cwd || "Runtime not ready"}
           mono
         />
@@ -43,13 +45,15 @@ function Placeholder(props: {
   mono?: boolean;
 }) {
   return (
-    <section class="rounded-2xl border border-zinc-800 bg-zinc-900/30 p-5">
-      <div class="flex items-center gap-2 text-sm font-medium text-zinc-300">
-        {props.icon}
-        {props.title}
+    <section class="rounded-xl border border-dashed border-line-strong/70 bg-panel/40 p-5">
+      <div class="flex items-center gap-3">
+        <span class="grid size-8 place-items-center rounded-lg border border-line bg-raised text-fg-faint">
+          {props.icon}
+        </span>
+        <div class="text-sm font-medium text-fg">{props.title}</div>
       </div>
       <p
-        class={`mt-8 text-sm text-zinc-500 ${props.mono ? "font-mono text-xs" : ""}`}
+        class={`mt-4 text-xs leading-5 text-fg-muted ${props.mono ? "break-words font-mono" : ""}`}
       >
         {props.detail}
       </p>

@@ -42,7 +42,7 @@ solid-js              2.0.0-rc.13
 @solidjs/web           2.0.0-rc.13
 @solidjs/vite-plugin   3.0.0-next.47
 @solidjs/router        2.0.0-next.35
-@lucide/solid          0.0.1
+@lucide/solid          1.52.0
 Tailwind CSS           4.3.3
 Vite                   8.3.2
 ```
@@ -95,8 +95,8 @@ Then start Solid:
 
 ```sh
 cd cetas-web/web
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 Vite serves the frontend on port 5173 and proxies:
@@ -122,7 +122,7 @@ GET /ws
 
 ```sh
 cd cetas-web/web
-npm run build
+bun run build
 ```
 
 Solid 2 start mode emits the static client build under:

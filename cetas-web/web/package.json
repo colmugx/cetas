@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@lucide/solid": "0.0.1",
+    "@lucide/solid": "1.52.0",
     "@solidjs/router": "2.0.0-next.35",
     "@solidjs/web": "2.0.0-rc.13",
     "solid-js": "2.0.0-rc.13"

@@ -1,9 +1,9 @@
 import {
   createContext,
+  createEffect,
   createMemo,
   createSignal,
   onCleanup,
-  onMount,
   useContext,
   type Accessor,
 } from "solid-js";
@@ -66,28 +66,28 @@ export function RuntimeProvider(props: { children: JSX.Element }) {
     }
   };
 
-  onMount(() => {
-    void refresh();
-    const dispose = realtime.onEvent((event) => {
-      if (event.type !== "session.snapshot") return;
-      setRuntime((current) => ({
-        status: "ready",
-        session_id:
-          typeof event.session_id === "string"
-            ? event.session_id
-            : current?.session_id ?? "",
-        model:
-          typeof event.model === "string" ? event.model : current?.model ?? "",
-        effort:
-          typeof event.effort === "string"
-            ? event.effort
-            : current?.effort ?? "",
-        cwd: typeof event.cwd === "string" ? event.cwd : current?.cwd ?? "",
-        detail: "",
-      }));
-    });
-    onCleanup(dispose);
+  const dispose = realtime.onEvent((event) => {
+    if (event.type !== "session.snapshot") return;
+    setRuntime((current) => ({
+      status: "ready",
+      session_id:
+        typeof event.session_id === "string"
+          ? event.session_id
+          : current?.session_id ?? "",
+      model: typeof event.model === "string" ? event.model : current?.model ?? "",
+      effort:
+        typeof event.effort === "string" ? event.effort : current?.effort ?? "",
+      cwd: typeof event.cwd === "string" ? event.cwd : current?.cwd ?? "",
+      detail: "",
+    }));
   });
+  onCleanup(dispose);
+  createEffect(
+    () => null,
+    () => {
+      void refresh();
+    },
+  );
 
   return (
     <RuntimeContext

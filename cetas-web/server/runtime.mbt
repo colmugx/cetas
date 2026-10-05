@@ -12,12 +12,7 @@ struct WebRuntime {
 
 ///|
 fn WebRuntime::emit_snapshot(self : WebRuntime) -> Unit {
-  self.observer.emit_snapshot(
-    self.model,
-    self.effort,
-    self.cwd,
-    self.busy,
-  )
+  self.observer.emit_snapshot(self.model, self.effort, self.cwd, self.busy)
 }
 
 ///|
@@ -97,9 +92,7 @@ async fn compose_web_runtime(
   )
   let session_id = @cetas_core.mint_session_id()
   let observer = WebObserver::new(session_id)
-  let tail_exts : Array[&@posoco.Extension] = [
-    observer as &@posoco.Extension,
-  ]
+  let tail_exts : Array[&@posoco.Extension] = [observer as &@posoco.Extension]
   let agent = @cetas_core.compose_cetas_agent(
     session~,
     tail_exts~,

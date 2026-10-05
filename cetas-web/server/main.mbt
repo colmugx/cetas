@@ -1,3 +1,4 @@
+///|
 const WEB_EVENT_QUEUE_CAPACITY : Int = 4096
 
 ///|
@@ -6,9 +7,7 @@ async fn drain_web_events(
   ws : @websocket.Conn,
 ) -> Unit noraise {
   while true {
-    let event = queue.get() catch {
-      _ => break
-    }
+    let event = queue.get() catch { _ => break }
     ws.send_text(event) catch {
       _ => break
     }
@@ -49,14 +48,11 @@ async fn serve_websocket(
         defer runtime.observer.detach(connection_id)
         defer queue.close(clear=true)
 
-        connection_group.spawn_bg(async fn() {
-          drain_web_events(queue, ws)
-        })
+        connection_group.spawn_bg(async fn() { drain_web_events(queue, ws) })
 
-        runtime.observer.emit(
-          "connection.ready",
-          extra=[("protocol", Json::string("cetas-web/0.1"))],
-        )
+        runtime.observer.emit("connection.ready", extra=[
+          ("protocol", Json::string("cetas-web/0.1")),
+        ])
 
         try {
           for ;; {
@@ -70,7 +66,8 @@ async fn serve_websocket(
                   Ok(TurnStart(prompt)) =>
                     match runtime.start_turn(app_group, prompt) {
                       Ok(_) => ()
-                      Err(message) => runtime.observer.emit_protocol_error(message)
+                      Err(message) =>
+                        runtime.observer.emit_protocol_error(message)
                     }
                   Ok(TurnAbort) => runtime.abort_turn()
                 }
@@ -86,8 +83,7 @@ async fn serve_websocket(
             println(
               "cetas-web websocket closed from \{client_ip}: \{@debug.to_string(code)}, reason=\{@debug.to_string(reason)}",
             )
-          err =>
-            println("cetas-web websocket error from \{client_ip}: \{err}")
+          err => println("cetas-web websocket error from \{client_ip}: \{err}")
         }
       })
   }
@@ -100,34 +96,24 @@ async fn main {
     "cetas-web/web/dist/client",
   )
   let static_files = if assets.is_empty() {
-    @unstable_static.new(
-      root=dist,
-      history_fallback=Some("/index.html"),
-    )
+    @unstable_static.new(root=dist, history_fallback=Some("/index.html"))
   } else {
-    @unstable_static.from_assets(
-      assets,
-      history_fallback=Some("/index.html"),
-    )
+    @unstable_static.from_assets(assets, history_fallback=Some("/index.html"))
   }
 
   let home = @cetas_core.cetas_home()
   let cwd = @env.current_dir().unwrap_or(".")
 
   @async.with_task_group(group => {
-    let boot : Result[WebRuntime, String] = try {
-      Ok(compose_web_runtime(home, cwd, group))
-    } catch {
+    let boot : Result[WebRuntime, String] = Ok(
+      compose_web_runtime(home, cwd, group),
+    ) catch {
       error => Err(error.to_string())
     }
 
     let api = @moonback.App(ctx => {
       ctx.get("/health", (_req, res) => {
-        res.send_json({
-          "status": "ok",
-          "host": "cetas-web",
-          "protocol": "0.1",
-        })
+        res.send_json({ "status": "ok", "host": "cetas-web", "protocol": "0.1" })
       })
       ctx.get("/runtime", (_req, res) => {
         match boot {
@@ -167,8 +153,7 @@ async fn main {
         println(
           "cetas-web: core ready session=\{runtime.session_id} model=\{runtime.model}",
         )
-      Err(detail) =>
-        println("cetas-web: core needs setup: \{detail}")
+      Err(detail) => println("cetas-web: core needs setup: \{detail}")
     }
     println("cetas-web: http://\{host}:\{port}")
     println("cetas-web: websocket ws://\{host}:\{port}/ws")

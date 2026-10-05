@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, onCleanup } from "solid-js";
 import { websocketUrl } from "./client";
 
 export type ServerEvent = {
@@ -46,10 +46,10 @@ export function createRealtimeClient(): RealtimeClient {
     socket.addEventListener("error", () => setState("offline"));
   };
 
-  onMount(connect);
+  createEffect(() => null, () => connect());
   onCleanup(() => socket?.close());
 
-  return {
+  const api: RealtimeClient = {
     state,
     send(message) {
       if (!socket || socket.readyState !== WebSocket.OPEN) return false;
@@ -61,4 +61,6 @@ export function createRealtimeClient(): RealtimeClient {
       return () => handlers.delete(handler);
     },
   };
+
+  return api;
 }
