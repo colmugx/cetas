@@ -21,6 +21,7 @@
     "@sveltejs/kit": "3.0.0",
     "@sveltejs/vite-plugin-svelte": "7.3.1",
     "@tailwindcss/vite": "4.3.3",
+    "@typescript/native-preview": "^7.0.0-dev.20260707.2",
     "svelte": "5.57.1",
     "svelte-check": "4.4.0",
     "tailwindcss": "4.3.3",
@@ -28,8 +29,6 @@
     "vite": "8.3.2"
   },
   "dependencies": {
-    "dompurify": "^3.4.16",
-    "marked": "^18.0.14",
-    "shiki": "^4.5.0"
+    "markstream-svelte": "^2.0.16"
   }
 }

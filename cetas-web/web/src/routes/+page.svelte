@@ -19,6 +19,9 @@
   import MarkdownStream from "#lib/components/MarkdownStream.svelte";
   import Picker, { type PickerOption } from "#lib/components/Picker.svelte";
   import ToolCard from "#lib/components/ToolCard.svelte";
+  import {
+    useSmoothMarkdownStream,
+  } from "markstream-svelte";
 
   type TranscriptItem =
     | { kind: "user"; turnId: string; text: string }
@@ -60,6 +63,17 @@
 
   const snapshot = $derived(runtimeStore.runtime);
   const ready = $derived(runtimeStore.core === "ready");
+
+  // Streaming text lives in a smooth-reveal controller instead of the items
+  // array: deltas never copy the transcript, and reveal is paced per frame.
+  const live = useSmoothMarkdownStream({
+    minCharsPerSecond: 30,
+    maxCharsPerSecond: 2400,
+    maxCommitFps: 30,
+  });
+  let liveTurnId = $state("");
+
+  const liveVolume = $derived(live.visible.length);
 
   const currentTurn = $derived.by(() => {
     const active = items.findLast(
@@ -123,6 +137,8 @@
     if (previousSessionId !== undefined && id !== previousSessionId) {
       items = [];
       busy = false;
+      liveTurnId = "";
+      live.reset();
     }
     previousSessionId = id;
   });
@@ -132,6 +148,10 @@
   });
 
   $effect(() => {
+    // Track both committed items and the live reveal so autoscroll follows
+    // the paced stream, not just turn boundaries.
+    void textVolume;
+    void liveVolume;
     if (atBottom && scrollEl) {
       scrollEl.scrollTo({ top: scrollEl.scrollHeight });
     }
@@ -156,6 +176,8 @@
       case "turn.accepted":
         if (!turnId) return;
         busy = true;
+        liveTurnId = turnId;
+        live.reset();
         items = [
           ...items,
           {
@@ -168,17 +190,13 @@
         return;
 
       case "assistant.text_delta":
-        if (!turnId || typeof event.delta !== "string") return;
-        items = items.map((item) =>
-          item.kind === "assistant" && item.turnId === turnId
-            ? { ...item, text: item.text + event.delta }
-            : item,
-        );
+        if (typeof event.delta !== "string") return;
+        live.enqueue(event.delta);
         return;
 
       case "assistant.reasoning_delta":
         if (!turnId || typeof event.delta !== "string") return;
-        patchReasoning(turnId, event.delta);
+        enqueueReasoning(turnId, event.delta);
         return;
 
       case "tool.started":
@@ -224,6 +242,10 @@
       case "turn.completed":
         if (!turnId) return;
         busy = false;
+        if (turnId === liveTurnId) {
+          live.finish();
+          liveTurnId = "";
+        }
         items = items.map((item) =>
           item.kind === "assistant" && item.turnId === turnId
             ? {
@@ -239,6 +261,10 @@
 
       case "turn.failed":
         busy = false;
+        if (turnId === liveTurnId) {
+          live.finish();
+          liveTurnId = "";
+        }
         items = [
           ...items.map((item) =>
             item.kind === "assistant" && item.turnId === turnId
@@ -270,7 +296,28 @@
     }
   }
 
-  function patchReasoning(turnId: string, delta: string) {
+  // Reasoning deltas are coalesced per animation frame: one reactive write
+  // per frame instead of one per network token.
+  let pendingReasoningText = "";
+  let pendingReasoningTurn = "";
+  let reasoningFlushScheduled = false;
+
+  function enqueueReasoning(turnId: string, delta: string) {
+    pendingReasoningTurn = turnId;
+    pendingReasoningText += delta;
+    if (reasoningFlushScheduled) return;
+    reasoningFlushScheduled = true;
+    requestAnimationFrame(() => {
+      reasoningFlushScheduled = false;
+      flushReasoning();
+    });
+  }
+
+  function flushReasoning() {
+    const turnId = pendingReasoningTurn;
+    const delta = pendingReasoningText;
+    pendingReasoningText = "";
+    if (!turnId || !delta) return;
     const index = items.findIndex(
       (item) => item.kind === "reasoning" && item.turnId === turnId,
     );
@@ -278,11 +325,10 @@
       items = [...items, { kind: "reasoning", turnId, text: delta }];
       return;
     }
-    items = items.map((item, itemIndex) =>
-      itemIndex === index && item.kind === "reasoning"
-        ? { ...item, text: item.text + delta }
-        : item,
-    );
+    const item = items[index];
+    if (item.kind === "reasoning") {
+      items[index] = { ...item, text: item.text + delta };
+    }
   }
 
   async function loadCatalog() {
@@ -362,7 +408,15 @@
                   </div>
                 </div>
               {:else if item.kind === "assistant"}
-                <MarkdownStream text={item.text} streaming={item.streaming} />
+                {#if liveTurnId === item.turnId}
+                  <MarkdownStream
+                    content={live.visible}
+                    final={live.final}
+                    streaming={!live.done}
+                  />
+                {:else}
+                  <MarkdownStream content={item.text} />
+                {/if}
               {:else if item.kind === "reasoning"}
                 <details class="group rounded-xl border border-line bg-panel/60">
                   <summary

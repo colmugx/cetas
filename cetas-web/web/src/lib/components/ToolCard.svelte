@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { synthesizeDiff } from "#lib/markdown";
+  import { synthesizeDiff } from "#lib/diff";
   import { Wrench } from "@lucide/svelte";
 
   export type ToolStatus = "running" | "done" | "error";
