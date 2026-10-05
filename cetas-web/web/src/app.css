@@ -184,4 +184,99 @@
   .scroll-slim::-webkit-scrollbar-track {
     background: transparent;
   }
+
+  /* Assistant markdown prose */
+  .md-stream > * + * {
+    margin-top: 0.9rem;
+  }
+
+  .md-stream h1,
+  .md-stream h2,
+  .md-stream h3,
+  .md-stream h4 {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--color-fg);
+  }
+
+  .md-stream h1 {
+    font-size: 1.15rem;
+  }
+
+  .md-stream h2 {
+    font-size: 1.05rem;
+  }
+
+  .md-stream h3 {
+    font-size: 0.95rem;
+  }
+
+  .md-stream ul,
+  .md-stream ol {
+    padding-left: 1.4rem;
+  }
+
+  .md-stream ul {
+    list-style: disc;
+  }
+
+  .md-stream ol {
+    list-style: decimal;
+  }
+
+  .md-stream li + li {
+    margin-top: 0.25rem;
+  }
+
+  .md-stream a {
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .md-stream blockquote {
+    border-left: 2px solid var(--color-line-strong);
+    padding-left: 0.9rem;
+    color: var(--color-fg-muted);
+  }
+
+  .md-stream :not(pre) > code {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    background: var(--color-raised);
+    border: 1px solid var(--color-line);
+    border-radius: 6px;
+    padding: 0.1em 0.35em;
+  }
+
+  .md-stream pre {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.65;
+    border: 1px solid var(--color-line);
+    border-radius: 12px;
+    padding: 12px 16px;
+    overflow-x: auto;
+  }
+
+  .md-stream pre code {
+    font-family: inherit;
+  }
+
+  /* Shiki dual themes: pick the dark palette under `.dark` */
+  .dark .shiki,
+  .dark .shiki span {
+    color: var(--shiki-dark) !important;
+    background-color: transparent !important;
+    font-style: var(--shiki-dark-font-style) !important;
+    font-weight: var(--shiki-dark-font-weight) !important;
+  }
+
+  .dark .shiki {
+    background-color: var(--color-raised) !important;
+  }
+
+  .md-stream .shiki {
+    background-color: var(--color-raised) !important;
+  }
 }

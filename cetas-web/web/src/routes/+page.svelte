@@ -6,7 +6,6 @@
     Square,
     TriangleAlert,
     Waves,
-    Wrench,
   } from "@lucide/svelte";
   import {
     listModels,
@@ -17,7 +16,9 @@
   } from "#lib/api";
   import { runtimeStore } from "#lib/runtime.svelte";
   import type { ServerEvent } from "#lib/socket";
+  import MarkdownStream from "#lib/components/MarkdownStream.svelte";
   import Picker, { type PickerOption } from "#lib/components/Picker.svelte";
+  import ToolCard from "#lib/components/ToolCard.svelte";
 
   type TranscriptItem =
     | { kind: "user"; turnId: string; text: string }
@@ -29,7 +30,8 @@
         callId: string;
         name: string;
         status: "running" | "done" | "error";
-        detail: string;
+        args: Record<string, unknown>;
+        result: string;
       }
     | { kind: "error"; turnId: string; text: string };
 
@@ -71,7 +73,7 @@
       (total, item) =>
         total +
         ("text" in item ? item.text.length : 0) +
-        ("detail" in item ? item.detail.length : 0),
+        ("result" in item ? item.result.length : 0),
       0,
     ),
   );
@@ -194,10 +196,13 @@
             callId: event.tool_call_id,
             name: event.tool_name,
             status: "running",
-            detail:
-              event.arguments === undefined
-                ? ""
-                : JSON.stringify(event.arguments, null, 2),
+            args:
+              event.arguments !== undefined &&
+              typeof event.arguments === "object" &&
+              event.arguments !== null
+                ? (event.arguments as Record<string, unknown>)
+                : {},
+            result: "",
           },
         ];
         return;
@@ -209,8 +214,8 @@
             ? {
                 ...item,
                 status: event.is_error ? "error" : "done",
-                detail:
-                  typeof event.result === "string" ? event.result : item.detail,
+                result:
+                  typeof event.result === "string" ? event.result : item.result,
               }
             : item,
         );
@@ -357,11 +362,7 @@
                   </div>
                 </div>
               {:else if item.kind === "assistant"}
-                <div class="max-w-3xl whitespace-pre-wrap text-[15px] leading-7 text-fg">
-                  {item.text}{#if item.streaming}<span
-                      class="ml-1 inline-block h-4 w-[3px] translate-y-0.5 animate-caret rounded-full bg-accent align-middle"
-                    ></span>{/if}
-                </div>
+                <MarkdownStream text={item.text} streaming={item.streaming} />
               {:else if item.kind === "reasoning"}
                 <details class="group rounded-xl border border-line bg-panel/60">
                   <summary
@@ -381,41 +382,12 @@
                   </div>
                 </details>
               {:else if item.kind === "tool"}
-                <div class="overflow-hidden rounded-xl border border-line bg-panel/60">
-                  <div
-                    class="flex items-center gap-2.5 border-b border-line px-3.5 py-2.5"
-                  >
-                    <span
-                      class="grid size-6 shrink-0 place-items-center rounded-md bg-raised text-fg-muted"
-                    >
-                      <Wrench size={12} />
-                    </span>
-                    <span class="min-w-0 truncate font-mono text-xs text-fg">
-                      {item.name}
-                    </span>
-                    <span
-                      class="ml-auto flex shrink-0 items-center gap-1.5 text-[11px] font-medium {item.status ===
-                      'done'
-                        ? 'text-accent'
-                        : item.status === 'error'
-                          ? 'text-bad'
-                          : 'text-fg-muted'}"
-                    >
-                      <span
-                        class="size-1.5 rounded-full bg-current {item.status ===
-                        'running'
-                          ? 'animate-breathe'
-                          : 'opacity-80'}"
-                      ></span>
-                      {item.status}
-                    </span>
-                  </div>
-                  <pre
-                    class="scroll-slim max-h-56 overflow-auto whitespace-pre-wrap px-3.5 py-3 font-mono text-[11px] leading-5 text-fg-muted"
-                  >
-                    {item.detail || "waiting for result…"}</pre
-                  >
-                </div>
+                <ToolCard
+                  name={item.name}
+                  args={item.args}
+                  result={item.result}
+                  status={item.status}
+                />
               {:else}
                 <div
                   class="flex items-start gap-2.5 rounded-xl border border-bad/25 bg-bad/10 px-4 py-3 text-xs leading-5 text-bad"
