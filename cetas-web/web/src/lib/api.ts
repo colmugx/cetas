@@ -38,6 +38,12 @@ export type ModelSlot = {
   context_window: number | null;
 };
 
+import type { TranscriptItem } from "./transcript";
+
+export type TranscriptReplay = {
+  items: TranscriptItem[];
+};
+
 export type ModelCatalog = {
   active: string;
   effort: string;
@@ -101,6 +107,21 @@ export function listSessions(): Promise<SessionList> {
 
 export function switchSession(id?: string): Promise<{ session_id: string }> {
   return postJson("/api/session", id === undefined ? {} : { id }, "session switch");
+}
+
+export function fetchTranscript(id: string): Promise<TranscriptReplay> {
+  return readJson<TranscriptReplay>(
+    `/api/sessions/${encodeURIComponent(id)}/transcript`,
+    "transcript replay",
+  );
+}
+
+export function renameSession(id: string, name: string): Promise<unknown> {
+  return postJson(
+    `/api/sessions/${encodeURIComponent(id)}/rename`,
+    { name },
+    "session rename",
+  );
 }
 
 export function listModels(): Promise<ModelCatalog> {

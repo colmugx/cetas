@@ -5,13 +5,19 @@
     MessageSquare,
     Monitor,
     Moon,
+    Pencil,
     Plus,
     Settings,
     Sun,
     Waves,
   } from "@lucide/svelte";
   import { page } from "$app/state";
-  import { listSessions, switchSession, type SessionSummary } from "#lib/api";
+  import {
+    listSessions,
+    renameSession,
+    switchSession,
+    type SessionSummary,
+  } from "#lib/api";
   import { runtimeStore } from "#lib/runtime.svelte";
   import { themeStore } from "#lib/theme.svelte";
 
@@ -76,6 +82,25 @@
     }
     previousSessionId = id;
   });
+
+  let editingId = $state("");
+  let editingDraft = $state("");
+
+  function focusOnMount(node: HTMLElement) {
+    node.focus();
+  }
+
+  async function commitRename(id: string) {
+    const name = editingDraft.trim();
+    editingId = "";
+    if (!name) return;
+    try {
+      await renameSession(id, name);
+      await loadSessions();
+    } catch (error) {
+      flashSessionError(error instanceof Error ? error.message : String(error));
+    }
+  }
 
   async function pickSession(id?: string) {
     try {
@@ -148,20 +173,49 @@
       <div class="scroll-slim mt-1.5 min-h-0 flex-1 space-y-0.5 overflow-y-auto">
         {#each sessions as session (session.id)}
           {@const isActive = session.id === activeSessionId}
-          <button
-            onclick={() => void pickSession(session.id)}
-            class="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors {isActive
-              ? 'bg-raised text-fg'
-              : 'text-fg-muted hover:bg-raised/50 hover:text-fg'}"
-            title={session.id}
-          >
-            <span
-              class="size-1.5 shrink-0 rounded-full {isActive
-                ? 'bg-accent'
-                : 'bg-line-strong'}"
-            ></span>
-            <span class="min-w-0 flex-1 truncate">{session.title}</span>
-          </button>
+          {#if editingId === session.id}
+            <input
+              use:focusOnMount
+              bind:value={editingDraft}
+              onkeydown={(event) => {
+                if (event.key === "Enter") void commitRename(session.id);
+                if (event.key === "Escape") (editingId = "");
+              }}
+              onblur={() => (editingId = "")}
+              class="w-full rounded-lg border border-accent/40 bg-panel px-2.5 py-1.5 text-xs text-fg outline-none"
+              spellcheck="false"
+            />
+          {:else}
+            <div class="group relative">
+              <button
+                onclick={() => void pickSession(session.id)}
+                class="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors {isActive
+                  ? 'bg-raised text-fg'
+                  : 'text-fg-muted hover:bg-raised/50 hover:text-fg'}"
+                title={session.id}
+              >
+                <span
+                  class="size-1.5 shrink-0 rounded-full {isActive
+                    ? 'bg-accent'
+                    : 'bg-line-strong'}"
+                ></span>
+                <span class="min-w-0 flex-1 truncate pr-5"
+                  >{session.title}</span
+                >
+              </button>
+              <button
+                onclick={(event) => {
+                  event.stopPropagation();
+                  editingId = session.id;
+                  editingDraft = session.title;
+                }}
+                class="absolute top-1/2 right-1.5 hidden -translate-y-1/2 rounded-md p-1 text-fg-faint transition-colors hover:bg-raised hover:text-fg group-hover:block"
+                title="Rename session"
+              >
+                <Pencil size={11} />
+              </button>
+            </div>
+          {/if}
         {/each}
         {#if sessions.length === 0}
           <p class="px-2.5 py-2 text-[11px] text-fg-faint">

@@ -173,6 +173,62 @@ async fn main {
           Err(detail) => res.send_json(error_json(detail), status=503)
         }
       })
+      ctx.get("/sessions/:id/transcript", (req, res) => {
+        match boot {
+          Ok(runtime) =>
+            match req.params.get("id") {
+              Some(id) => {
+                let session_id = id.to_owned()
+                // A freshly minted session has no transcript file yet; an
+                // unreadable one replays as empty, not as an error.
+                let payload : Json = match
+                  runtime.catalog.check_id(session_id) {
+                  Err(_) => transcript_empty_json()
+                  Ok(_) =>
+                    try {
+                      let session = runtime.catalog.load(session_id)
+                      transcript_json(session)
+                    } catch {
+                      _ => transcript_empty_json()
+                    }
+                }
+                res.send_json(payload)
+              }
+              None => res.send_json(error_json("missing id"), status=400)
+            }
+          Err(detail) => res.send_json(error_json(detail), status=503)
+        }
+      })
+      ctx.post("/sessions/:id/rename", (req, res) => {
+        match boot {
+          Ok(runtime) =>
+            match req.params.get("id") {
+              Some(id) =>
+                match request_string_field(req, "name") {
+                  Some(name) => {
+                    let outcome : Result[Unit, String] = try {
+                      runtime.catalog.set_name(id.to_owned(), name)
+                      Ok(())
+                    } catch {
+                      error => Err(error.to_string())
+                    }
+                    match outcome {
+                      Ok(_) => res.send_json({ "ok": true })
+                      Err(message) =>
+                        res.send_json(error_json(message), status=409)
+                    }
+                  }
+                  None =>
+                    res.send_json(
+                      error_json("body must include name"),
+                      status=400,
+                    )
+                }
+              None => res.send_json(error_json("missing id"), status=400)
+            }
+          Err(detail) => res.send_json(error_json(detail), status=503)
+        }
+      })
       ctx.post("/session", (req, res) => {
         match boot {
           Ok(runtime) => {

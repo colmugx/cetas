@@ -1,12 +1,22 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "colmugx/cetas-web/server"
 
+import {
+  "colmugx/posoco/types",
+}
+
 // Values
 
 // Errors
 
 // Types and methods
 type ActiveSession
+
+type FsSessionCatalog
+
+type ReplayTool
+
+type SessionCatalogEntry
 
 type WebClientMessage
 
@@ -17,3 +27,10 @@ type WebRuntime
 // Type aliases
 
 // Traits
+pub(open) trait SessionCatalog {
+  fn check_id(Self, String) -> Result[Unit, String]
+  async fn list_ids(Self) -> Array[String]
+  async fn entry(Self, String) -> SessionCatalogEntry
+  async fn set_name(Self, String, String) -> Unit
+  async fn load(Self, String) -> @types.Session
+}

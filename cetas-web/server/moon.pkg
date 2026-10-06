@@ -20,6 +20,8 @@ import {
   // recipe-imports:end
   "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-workspace" @workspace,
+  "colmugx/posoco/kernel",
+  "colmugx/posoco/types" @posoco_types,
   "posoco/ext-llm" @ext_llm,
   "colmugx/posoco-ext-fs-session" @fs_session,
   "moonbitlang/core/debug",

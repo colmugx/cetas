@@ -115,6 +115,8 @@ GET  /api/health
 GET  /api/versions        posoco / cetas / web versions
 GET  /api/runtime          ready state incl. active model, effort, permission
 GET  /api/sessions         persisted sessions for this cwd bucket
+GET  /api/sessions/:id/transcript   replay projected into transcript items
+POST /api/sessions/:id/rename     {name} persist a display name
 POST /api/session          {id?} switch to id, or mint a new session
 GET  /api/models           router slot catalog with per-slot efforts
 POST /api/model            {slot_id} switch model (persists to settings.json)
@@ -124,9 +126,12 @@ GET  /ws                   realtime turn protocol
 ```
 
 Session switching recomposes the agent over the shared platform; the browser
-receives a fresh `session.snapshot`. Transcript history replay on switch is
-future work. `interactive`/`auto` permission modes need the approval surface,
-which is not wired yet.
+receives a fresh `session.snapshot` and replays the persisted transcript
+through the same rendering path as live turns. Store access beyond the
+kernel's `@port.SessionStore` (list/entry/name) goes through the server-local
+`SessionCatalog` seam (`server/catalog.mbt`); swap store implementations by
+writing one adapter. `interactive`/`auto` permission modes need the approval
+surface, which is not wired yet.
 
 `/ws` still sends a connection envelope and echoes frames. It is not yet the final Cetas turn protocol.
 

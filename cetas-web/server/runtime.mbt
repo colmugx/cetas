@@ -15,6 +15,7 @@ struct WebRuntime {
   cwd : String
   group : @async.TaskGroup[Unit]
   platform : @cetas_core.CetasPlatform
+  catalog : &SessionCatalog
   observer : WebObserver
   mut active : ActiveSession
   mut busy : Bool
@@ -163,7 +164,7 @@ async fn WebRuntime::switch_session(
   if self.busy {
     return Err("a turn is already running")
   }
-  match @fs_session.validate_session_id(session_id) {
+  match self.catalog.check_id(session_id) {
     Err(reason) => return Err(reason)
     Ok(_) => ()
   }
@@ -324,21 +325,18 @@ fn WebRuntime::model_slots_json(self : WebRuntime) -> Json {
 
 ///|
 async fn WebRuntime::sessions_json(self : WebRuntime) -> Json {
-  let store = self.platform.session_store
   let active_id = self.active.session_id
   let sessions : Array[Json] = []
-  let ids = store.list_ids()
+  let ids = self.catalog.list_ids()
   for index in 0..<ids.length() {
     let id = ids[ids.length() - 1 - index]
-    let summary : @fs_session.SessionSummary = store.summary(id) catch {
-      _ => continue
-    }
+    let entry = self.catalog.entry(id) catch { _ => continue }
     sessions.push(
       Json::object(
         Map::from_array([
-          ("id", Json::string(summary.id)),
-          ("title", Json::string(@fs_session.display_title(summary))),
-          ("active", Json::boolean(summary.id == active_id)),
+          ("id", Json::string(entry.id)),
+          ("title", Json::string(entry.title)),
+          ("active", Json::boolean(entry.id == active_id)),
         ]),
       ),
     )
@@ -389,12 +387,14 @@ async fn compose_web_runtime(
     first_session_id,
   )
   observer.session_id = active.session_id
+  let catalog : &SessionCatalog = FsSessionCatalog::new(platform.session_store)
   {
     fs,
     home,
     cwd,
     group,
     platform,
+    catalog,
     observer,
     active,
     busy: false,

@@ -8,12 +8,14 @@
     Waves,
   } from "@lucide/svelte";
   import {
+    fetchTranscript,
     listModels,
     setEffort,
     setModel,
     setPermission,
     type ModelCatalog,
   } from "#lib/api";
+  import type { TranscriptItem } from "#lib/transcript";
   import { runtimeStore } from "#lib/runtime.svelte";
   import type { ServerEvent } from "#lib/socket";
   import MarkdownStream from "#lib/components/MarkdownStream.svelte";
@@ -22,21 +24,6 @@
   import {
     useSmoothMarkdownStream,
   } from "markstream-svelte";
-
-  type TranscriptItem =
-    | { kind: "user"; turnId: string; text: string }
-    | { kind: "assistant"; turnId: string; text: string; streaming: boolean }
-    | { kind: "reasoning"; turnId: string; text: string }
-    | {
-        kind: "tool";
-        turnId: string;
-        callId: string;
-        name: string;
-        status: "running" | "done" | "error";
-        args: Record<string, unknown>;
-        result: string;
-      }
-    | { kind: "error"; turnId: string; text: string };
 
   const suggestions = [
     "Map this workspace and summarize what it does",
@@ -130,17 +117,27 @@
     return dispose;
   });
 
-  // A new session means a fresh transcript; history replay is future work.
+  // Session changes (including first load) replay the persisted transcript.
+  // Live streaming still starts empty: replay is history, not a resubscribe.
   let previousSessionId: string | undefined;
+  let replaySeq = 0;
   $effect(() => {
     const id = snapshot?.session_id ?? "";
-    if (previousSessionId !== undefined && id !== previousSessionId) {
-      items = [];
-      busy = false;
-      liveTurnId = "";
-      live.reset();
-    }
+    const changed = previousSessionId !== id;
     previousSessionId = id;
+    if (!changed || !id) return;
+    items = [];
+    busy = false;
+    liveTurnId = "";
+    live.reset();
+    const seq = ++replaySeq;
+    void fetchTranscript(id)
+      .then((replay) => {
+        if (seq === replaySeq) items = replay.items;
+      })
+      .catch(() => {
+        // Keep the cleared transcript when the session has no history yet.
+      });
   });
 
   $effect(() => {
