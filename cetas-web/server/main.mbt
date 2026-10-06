@@ -100,6 +100,8 @@ async fn serve_websocket(
                         ])
                     }
                   Ok(TurnAbort(session_id)) => runtime.abort_turn(session_id)
+                  Ok(UiResponse(request_id)) =>
+                    runtime.ui_registry.resolve(request_id, raw)
                 }
               }
               Binary =>

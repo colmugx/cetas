@@ -26,6 +26,7 @@
   const permissionOptions: PickerOption[] = [
     { value: "readonly", label: "Read only" },
     { value: "workspace_write", label: "Workspace write" },
+    { value: "interactive", label: "Interactive · ask for tools" },
     { value: "yolo", label: "Yolo · no approvals" },
   ];
 
@@ -34,6 +35,11 @@
   let scrollEl: HTMLDivElement | undefined = $state();
   let composerEl: HTMLTextAreaElement | undefined = $state();
   let configError = $state("");
+  let uiInputDraft = $state("");
+
+  function focusOnMount(node: HTMLElement, focus: boolean) {
+    if (focus) node.focus();
+  }
   let configErrorTimer: ReturnType<typeof setTimeout> | undefined;
 
   const view = $derived(runtimeStore.activeSession());
@@ -270,7 +276,81 @@
       <div
         class="rounded-2xl border border-line-strong bg-raised shadow-[0_12px_40px_-12px_var(--shadow-color)] transition-colors focus-within:border-accent/40"
       >
-        {#if view?.queue.length}
+        {#if view?.uiRequest}
+          {@const req = view.uiRequest}
+          <div class="border-t border-accent/30 bg-accent-dim/60 px-4 py-3.5">
+            <div class="flex items-center justify-between gap-3">
+              <span
+                class="text-[10px] font-semibold uppercase tracking-[0.14em] text-accent"
+              >
+                {req.kind === "select"
+                  ? "Approval requested"
+                  : req.kind === "confirm"
+                    ? "Confirmation requested"
+                    : "Input requested"}
+              </span>
+              <span class="font-mono text-[10px] text-fg-faint"
+                >Enter allow · Esc deny</span
+              >
+            </div>
+            <p class="mt-2 whitespace-pre-wrap text-xs leading-5 text-fg">
+              {req.prompt}
+            </p>
+            {#if req.kind === "select"}
+              <div class="mt-3 flex flex-wrap gap-1.5">
+                {#each req.options as option, index (option + index)}
+                  <button
+                    onclick={() =>
+                      runtimeStore.respondUi(
+                        view.id,
+                        req.requestId,
+                        { selected: index },
+                      )}
+                    use:focusOnMount={index === (req.defaultIndex ?? 0)}
+                    class="rounded-lg border border-line-strong bg-raised px-3 py-1.5 text-xs font-medium text-fg transition-colors hover:border-accent/50 hover:text-accent {index ===
+                    (req.defaultIndex ?? 0)
+                      ? 'border-accent/50'
+                      : ''}"
+                  >
+                    {option}
+                  </button>
+                {/each}
+              </div>
+            {:else if req.kind === "confirm"}
+              <div class="mt-3 flex gap-1.5">
+                <button
+                  onclick={() =>
+                    runtimeStore.respondUi(view.id, req.requestId, { yes: true })}
+                  class="rounded-lg border border-accent/50 bg-raised px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent-dim"
+                >
+                  Yes
+                </button>
+                <button
+                  onclick={() =>
+                    runtimeStore.respondUi(view.id, req.requestId, { no: true })}
+                  class="rounded-lg border border-line-strong bg-raised px-3 py-1.5 text-xs font-medium text-fg transition-colors hover:bg-panel"
+                >
+                  No
+                </button>
+              </div>
+            {:else}
+              <input
+                bind:value={uiInputDraft}
+                onkeydown={(event) => {
+                  if (event.key === "Enter") {
+                    runtimeStore.respondUi(view.id, req.requestId, {
+                      text: uiInputDraft,
+                    });
+                    uiInputDraft = "";
+                  }
+                }}
+                placeholder={req.defaultText ?? "Type your answer…"}
+                class="mt-3 w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-xs text-fg outline-none placeholder:text-fg-faint"
+                spellcheck="false"
+              />
+            {/if}
+          </div>
+        {:else if view?.queue.length}
           <div class="flex flex-wrap gap-1.5 px-3 pt-3">
             {#each view.queue as queued, index (index + queued)}
               <span
@@ -298,7 +378,7 @@
           oninput={onInput}
           onkeydown={onKeyDown}
           rows="1"
-          disabled={!ready}
+          disabled={!ready || view?.uiRequest !== null && view?.uiRequest !== undefined}
           placeholder={ready
             ? "Ask Cetas to change something…"
             : "Finish Cetas setup before starting a turn…"}

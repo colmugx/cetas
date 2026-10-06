@@ -9,6 +9,7 @@ enum WebClientMessage {
   SessionAttach
   TurnStart(String, String?)
   TurnAbort(String?)
+  UiResponse(String)
 }
 
 ///|
@@ -45,6 +46,13 @@ fn decode_web_client_message(raw : String) -> Result[WebClientMessage, String] {
       }
     }
     "turn.abort" => Ok(TurnAbort(optional_session_id(fields)))
+    "ui.response" => {
+      let request_id = match fields.get("request_id") {
+        Some(Json::String(value)) => value
+        _ => return Err("ui.response.request_id must be a string")
+      }
+      Ok(UiResponse(request_id))
+    }
     other => Err("unsupported message type: " + other)
   }
 }

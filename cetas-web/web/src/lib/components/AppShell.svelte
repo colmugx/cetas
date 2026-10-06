@@ -104,6 +104,12 @@
         return;
       }
       const state = runtimeStore.session(runtimeStore.activeSessionId);
+      if (state?.uiRequest) {
+        runtimeStore.respondUi(state.id, state.uiRequest.requestId, {
+          cancelled: true,
+        });
+        return;
+      }
       if (state?.busy) {
         runtimeStore.realtime.send({
           type: "turn.abort",

@@ -55,6 +55,15 @@ export class SessionState {
   liveTurnId = $state("");
   /** Prompts queued while a turn runs; dispatched in order on completion. */
   queue = $state<string[]>([]);
+  /** Pending UiPort request awaiting a browser decision. */
+  uiRequest = $state<{
+    requestId: string;
+    kind: "input" | "confirm" | "select";
+    prompt: string;
+    options: string[];
+    defaultIndex: number | null;
+    defaultText: string | null;
+  } | null>(null);
   /** Not reactive itself; LiveReveal's own fields drive the view. */
   live: LiveReveal | null = null;
   replaySeq = 0;
@@ -406,6 +415,32 @@ class RuntimeStore {
         return;
       }
 
+      case "ui.request": {
+        if (!sessionId) return;
+        const state = this.ensureSession(sessionId);
+        const kind =
+          typeof event.kind === "string"
+            ? (event.kind as "input" | "confirm" | "select")
+            : "select";
+        const options =
+          Array.isArray(event.options) &&
+          event.options.every((option) => typeof option === "string")
+            ? (event.options as string[])
+            : [];
+        state.uiRequest = {
+          requestId:
+            typeof event.request_id === "string" ? event.request_id : "",
+          kind,
+          prompt: typeof event.prompt === "string" ? event.prompt : "",
+          options,
+          defaultIndex:
+            typeof event.default === "number" ? event.default : null,
+          defaultText:
+            typeof event.default === "string" ? event.default : null,
+        };
+        return;
+      }
+
       case "protocol.error": {
         if (!this.activeSessionId) return;
         const state = this.ensureSession(this.activeSessionId);
@@ -449,6 +484,18 @@ class RuntimeStore {
       session_id: sessionId,
     });
     if (!sent) state.queue = [next, ...state.queue];
+  }
+
+  respondUi(
+    sessionId: string,
+    requestId: string,
+    response: Record<string, unknown>,
+  ) {
+    const state = this.session(sessionId);
+    if (state && state.uiRequest?.requestId === requestId) {
+      state.uiRequest = null;
+    }
+    this.realtime.send({ type: "ui.response", request_id: requestId, ...response });
   }
 
   async addOrSwitchWorkspace(cwd: string) {

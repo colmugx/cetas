@@ -33,6 +33,7 @@ struct WebRuntime {
   home : String
   group : @async.TaskGroup[Unit]
   hub : EventHub
+  ui_registry : UiRegistry
   workspaces : Map[String, WorkspaceRuntime]
   /// Registry cwds not yet composed; combined lazily on first switch.
   mut registry : Array[String]
@@ -160,6 +161,7 @@ async fn WebRuntime::compose_handle(
     self.group,
     workspace.platform,
     self.hub,
+    self.ui_registry,
     workspace.permission_mode,
     session_id,
   ) catch {
@@ -242,6 +244,7 @@ async fn compose_session_agent(
   group : @async.TaskGroup[Unit],
   platform : @cetas_core.CetasPlatform,
   hub : EventHub,
+  ui_registry : UiRegistry,
   permission_mode : @permission.PermissionMode,
   session_id : String,
 ) -> SessionHandle {
@@ -254,10 +257,16 @@ async fn compose_session_agent(
     ctx={ fs, cwd, home, },
     nmem_group=Some(group),
   )
+  let ui_port : &@posoco.UiPort = WsUiPort::new(hub, ui_registry, session_id)
+  let approval : &@permission.ApprovalSource = UiBlockingApprovalSource::new(
+    ui_port,
+  )
   let session = @cetas_core.build_cetas_session(
     platform~,
     cwd~,
     feature_exts~,
+    ui=Some(ui_port),
+    approval=Some(approval),
     label="cetas-web",
     warn~,
   )
@@ -332,6 +341,7 @@ async fn WebRuntime::switch_workspace(
     normalized,
     self.group,
     self.hub,
+    self.ui_registry,
     @permission.PermissionMode::WorkspaceWrite,
   ) catch {
     error => return Err(error.to_string())
@@ -477,9 +487,10 @@ fn WebRuntime::set_permission(
     "readonly" => @permission.PermissionMode::ReadOnly
     "workspace_write" => @permission.PermissionMode::WorkspaceWrite
     "yolo" => @permission.PermissionMode::Yolo
-    "interactive" | "auto" =>
+    "interactive" => @permission.PermissionMode::Interactive
+    "auto" =>
       return Err(
-        "permission mode '\{mode_name}' needs the approval surface, which cetas-web has not wired yet",
+        "permission mode 'auto' needs a DecisionPort, which cetas-web has not composed",
       )
     other => return Err("unknown permission mode: \{other}")
   }
@@ -589,6 +600,7 @@ async fn build_workspace(
   cwd : String,
   group : @async.TaskGroup[Unit],
   hub : EventHub,
+  ui_registry : UiRegistry,
   permission_mode : @permission.PermissionMode,
 ) -> WorkspaceRuntime {
   let warn = async fn(text : String) noraise {
@@ -607,6 +619,12 @@ async fn build_workspace(
   )
   let first_session_id = @cetas_core.mint_session_id()
   let observer = WebObserver::new(hub, first_session_id)
+  let ui_port : &@posoco.UiPort = WsUiPort::new(
+    hub, ui_registry, first_session_id,
+  )
+  let approval : &@permission.ApprovalSource = UiBlockingApprovalSource::new(
+    ui_port,
+  )
   let feature_exts = build_compiled_recipe_features(
     ctx={ fs, cwd, home, },
     nmem_group=Some(group),
@@ -615,6 +633,8 @@ async fn build_workspace(
     platform~,
     cwd~,
     feature_exts~,
+    ui=Some(ui_port),
+    approval=Some(approval),
     label="cetas-web",
     warn~,
   )
@@ -662,12 +682,14 @@ async fn compose_web_runtime(
   let fs_impl = @workspace.NativeWorkspaceFs()
   let fs : &@workspace.WorkspaceFs = fs_impl
   let hub = EventHub::new()
+  let ui_registry = UiRegistry::new()
   let first = build_workspace(
     fs,
     home,
     cwd,
     group,
     hub,
+    ui_registry,
     @permission.PermissionMode::WorkspaceWrite,
   )
   let workspaces : Map[String, WorkspaceRuntime] = Map::from_array([
@@ -675,5 +697,5 @@ async fn compose_web_runtime(
   ])
   let registry : Array[String] = load_registry(home) catch { _ => [] }
   let registry = registry.filter(registered => registered != cwd)
-  { fs, home, group, hub, workspaces, registry, active_cwd: cwd, }
+  { fs, home, group, hub, ui_registry, workspaces, registry, active_cwd: cwd, }
 }
