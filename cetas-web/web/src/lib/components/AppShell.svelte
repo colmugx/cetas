@@ -11,11 +11,14 @@
     Sun,
     Waves,
     X,
+    Keyboard,
   } from "@lucide/svelte";
   import { page } from "$app/state";
   import { listSessions, renameSession, type SessionSummary } from "#lib/api";
   import { runtimeStore } from "#lib/runtime.svelte";
+  import { toast } from "#lib/toast.svelte";
   import { themeStore } from "#lib/theme.svelte";
+  import { bindShortcuts, modKey } from "#lib/shortcuts";
 
   let { children } = $props();
 
@@ -55,6 +58,7 @@
   const activeSessionId = $derived(runtimeStore.activeSessionId);
 
   function flashSessionError(message: string) {
+    toast("error", message);
     sessionError = message;
     if (errorTimer) clearTimeout(errorTimer);
     errorTimer = setTimeout(() => (sessionError = ""), 6000);
@@ -86,6 +90,29 @@
     }
   }
 
+  const shortcuts = [
+    { keys: "Mod+Shift+o", label: "New session", run: () => void runtimeStore.newSession() },
+    { keys: "Mod+b", label: "Toggle sidebar", run: () => (sidebarCollapsed = !sidebarCollapsed) },
+    { keys: "?", label: "Keyboard shortcuts", run: () => (helpOpen = !helpOpen) },
+  ];
+
+  $effect(() => {
+    return bindShortcuts(shortcuts, (event) => {
+      if (event.key !== "Escape") return;
+      if (helpOpen) {
+        helpOpen = false;
+        return;
+      }
+      const state = runtimeStore.session(runtimeStore.activeSessionId);
+      if (state?.busy) {
+        runtimeStore.realtime.send({
+          type: "turn.abort",
+          session_id: runtimeStore.activeSessionId,
+        });
+      }
+    });
+  });
+
   let editingId = $state("");
   let editingDraft = $state("");
 
@@ -100,10 +127,16 @@
     try {
       await renameSession(id, name);
       await loadSessions();
+      toast("success", "Session renamed");
     } catch (error) {
-      flashSessionError(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      flashSessionError(message);
+      toast("error", message);
     }
   }
+
+  let sidebarCollapsed = $state(false);
+  let helpOpen = $state(false);
 
   let addingWorkspace = $state(false);
   let workspaceDraft = $state("");
@@ -115,8 +148,11 @@
     if (!cwd) return;
     try {
       await runtimeStore.addOrSwitchWorkspace(cwd);
+      toast("success", "Workspace added: " + cwd.split("/").pop());
     } catch (error) {
-      flashSessionError(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      flashSessionError(message);
+      toast("error", message);
     }
   }
 
@@ -133,7 +169,9 @@
 
 <div class="flex h-svh overflow-hidden bg-canvas text-fg">
   <aside
-    class="hidden w-[248px] shrink-0 flex-col border-r border-line bg-panel lg:flex"
+    class="hidden shrink-0 flex-col overflow-hidden border-r border-line bg-panel transition-[width] duration-200 lg:flex {sidebarCollapsed
+      ? 'w-0 border-r-0'
+      : 'w-[248px]'}"
   >
     <div class="flex items-center gap-2.5 px-4 pb-4 pt-5">
       <div
@@ -392,6 +430,13 @@
           ws
         </span>
         <button
+          onclick={() => (helpOpen = true)}
+          class="hidden size-7 place-items-center rounded-lg border border-line bg-raised/60 text-fg-muted transition-colors hover:text-fg sm:grid"
+          title="Keyboard shortcuts (?)"
+        >
+          <Keyboard size={13} />
+        </button>
+        <button
           onclick={() => themeStore.cycle()}
           class="grid size-7 place-items-center rounded-lg border border-line bg-raised/60 text-fg-muted transition-colors hover:text-fg"
           title="Theme: {themeStore.choice} (click to cycle)"
@@ -447,4 +492,42 @@
 
     <main class="min-h-0 flex-1">{@render children()}</main>
   </div>
+
+  {#if helpOpen}
+    <div
+      class="fixed inset-0 z-40 grid place-items-center bg-black/50 backdrop-blur-sm"
+      role="presentation"
+      onclick={(event) => {
+        if (event.target === event.currentTarget) helpOpen = false;
+      }}
+    >
+      <div
+        class="w-[380px] rounded-2xl border border-line-strong bg-raised p-5 shadow-[0_12px_40px_-12px_var(--shadow-color)]"
+        role="dialog"
+        aria-label="Keyboard shortcuts"
+      >
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-semibold text-fg">Keyboard shortcuts</h2>
+          <button
+            onclick={() => (helpOpen = false)}
+            class="rounded-md p-1 text-fg-faint transition-colors hover:bg-panel hover:text-fg"
+            title="Close"
+          >
+            <X size={13} />
+          </button>
+        </div>
+        <div class="mt-4 space-y-2.5">
+          {#each [["?" , "Toggle this help"], [modKey() === "metaKey" ? "Cmd+Shift+O" : "Ctrl+Shift+O", "New session"], [modKey() === "metaKey" ? "Cmd+B" : "Ctrl+B", "Toggle sidebar"], ["Enter", "Send prompt"], ["Shift+Enter", "Newline"], ["Esc", "Abort the running turn"]] as [keys, label] (keys + label)}
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-fg-muted">{label}</span>
+              <kbd
+                class="rounded-md border border-line bg-panel px-2 py-0.5 font-mono text-[11px] text-fg"
+                >{keys}</kbd
+              >
+            </div>
+          {/each}
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>

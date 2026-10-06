@@ -1,6 +1,7 @@
 <script lang="ts">
   import "../app.css";
   import AppShell from "#lib/components/AppShell.svelte";
+  import Toasts from "#lib/components/Toasts.svelte";
   import { themeStore } from "#lib/theme.svelte";
   import { page } from "$app/state";
   import { fade } from "svelte/transition";
@@ -14,8 +15,9 @@
 
 <AppShell>
   {#key page.url.pathname}
-    <main class="h-full" in:fade={{ duration: 130 }}>
+    <div class="h-full" in:fade={{ duration: 130 }}>
       {@render children()}
-    </main>
+    </div>
   {/key}
 </AppShell>
+<Toasts />

@@ -138,6 +138,11 @@ kernel's `@port.SessionStore` (list/entry/name) goes through the server-local
 writing one adapter. `interactive`/`auto` permission modes need the approval
 surface, which is not wired yet.
 
+Prompts typed while a turn runs queue on the session and dispatch
+automatically when it settles (steering-compatible; mid-turn injection
+awaits core support). Keyboard: Esc aborts, Cmd/Ctrl+Shift+O opens a new
+session, Cmd/Ctrl+B folds the sidebar, ? shows the shortcut sheet.
+
 `/ws` still sends a connection envelope and echoes frames. It is not yet the final Cetas turn protocol.
 
 ## Static production build

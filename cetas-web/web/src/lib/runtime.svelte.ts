@@ -53,6 +53,8 @@ export class SessionState {
   permission = $state("");
   cwd = $state("");
   liveTurnId = $state("");
+  /** Prompts queued while a turn runs; dispatched in order on completion. */
+  queue = $state<string[]>([]);
   /** Not reactive itself; LiveReveal's own fields drive the view. */
   live: LiveReveal | null = null;
   replaySeq = 0;
@@ -400,6 +402,7 @@ class RuntimeStore {
             },
           ];
         }
+        this.#dispatchQueue(sessionId);
         return;
       }
 
@@ -425,6 +428,29 @@ class RuntimeStore {
     }
   }
 
+  enqueuePrompt(sessionId: string, prompt: string) {
+    const state = this.ensureSession(sessionId);
+    state.queue = [...state.queue, prompt];
+  }
+
+  removeQueued(sessionId: string, index: number) {
+    const state = this.ensureSession(sessionId);
+    state.queue = state.queue.filter((_, i) => i !== index);
+  }
+
+  #dispatchQueue(sessionId: string) {
+    const state = this.session(sessionId);
+    if (!state || state.busy || state.queue.length === 0) return;
+    const next = state.queue[0];
+    state.queue = state.queue.slice(1);
+    const sent = this.realtime.send({
+      type: "turn.start",
+      prompt: next,
+      session_id: sessionId,
+    });
+    if (!sent) state.queue = [next, ...state.queue];
+  }
+
   async addOrSwitchWorkspace(cwd: string) {
     const list = await addWorkspace(cwd);
     this.workspaces = list.workspaces;
@@ -434,6 +460,11 @@ class RuntimeStore {
     if (info?.active_session) {
       await this.switchSession(info.active_session);
     }
+  }
+
+  async newSession() {
+    const created = await apiSwitchSession();
+    await this.switchSession(created.session_id);
   }
 
   async switchSession(id: string) {

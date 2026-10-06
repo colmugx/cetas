@@ -2,10 +2,12 @@
   import {
     Brain,
     ChevronDown,
+    ListPlus,
     Send,
     Square,
     TriangleAlert,
     Waves,
+    X,
   } from "@lucide/svelte";
   import type { PickerOption } from "#lib/components/Picker.svelte";
   import MarkdownStream from "#lib/components/MarkdownStream.svelte";
@@ -13,6 +15,7 @@
   import ToolCard from "#lib/components/ToolCard.svelte";
   import { setEffort, setModel, setPermission } from "#lib/api";
   import { runtimeStore } from "#lib/runtime.svelte";
+  import { toast } from "#lib/toast.svelte";
 
   const suggestions = [
     "Map this workspace and summarize what it does",
@@ -107,11 +110,21 @@
 
   function send() {
     const text = prompt.trim();
-    if (!text || busy || !ready) return;
+    if (!text || !ready) return;
+    const sessionId = runtimeStore.activeSessionId;
+    if (!sessionId) return;
+    if (busy) {
+      // Steering-compatible queue: dispatch happens when the turn settles.
+      runtimeStore.enqueuePrompt(sessionId, text);
+      prompt = "";
+      if (composerEl) composerEl.style.height = "auto";
+      toast("info", "Queued — dispatches when the turn settles");
+      return;
+    }
     const sent = runtimeStore.realtime.send({
       type: "turn.start",
       prompt: text,
-      session_id: runtimeStore.activeSessionId,
+      session_id: sessionId,
     });
     if (sent) {
       prompt = "";
@@ -257,6 +270,28 @@
       <div
         class="rounded-2xl border border-line-strong bg-raised shadow-[0_12px_40px_-12px_var(--shadow-color)] transition-colors focus-within:border-accent/40"
       >
+        {#if view?.queue.length}
+          <div class="flex flex-wrap gap-1.5 px-3 pt-3">
+            {#each view.queue as queued, index (index + queued)}
+              <span
+                class="flex max-w-full items-center gap-1.5 rounded-full border border-line bg-panel px-2.5 py-1 text-[11px] text-fg-muted"
+                title={queued}
+              >
+                <span class="font-mono text-[10px] text-fg-faint"
+                  >{index + 1}</span
+                >
+                <span class="min-w-0 max-w-[280px] truncate">{queued}</span>
+                <button
+                  onclick={() => runtimeStore.removeQueued(view.id, index)}
+                  class="rounded p-0.5 text-fg-faint transition-colors hover:text-fg"
+                  title="Remove from queue"
+                >
+                  <X size={10} />
+                </button>
+              </span>
+            {/each}
+          </div>
+        {/if}
         <textarea
           bind:this={composerEl}
           bind:value={prompt}
@@ -311,9 +346,17 @@
             <button
               onclick={abort}
               class="grid size-8 shrink-0 place-items-center rounded-xl border border-bad/30 bg-bad/10 text-bad transition hover:bg-bad/20"
-              title="Abort turn"
+              title="Abort turn (Esc)"
             >
               <Square size={12} fill="currentColor" />
+            </button>
+            <button
+              onclick={send}
+              disabled={!prompt.trim()}
+              class="grid size-8 shrink-0 place-items-center rounded-xl border border-accent/30 bg-accent-dim text-accent transition hover:bg-accent/20 disabled:opacity-30"
+              title="Queue prompt (dispatches when the turn settles)"
+            >
+              <ListPlus size={15} />
             </button>
           {:else}
             <button
