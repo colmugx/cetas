@@ -10,7 +10,7 @@ import {
 // Errors
 
 // Types and methods
-type ActiveSession
+type EventHub
 
 type FsSessionCatalog
 
@@ -18,11 +18,15 @@ type ReplayTool
 
 type SessionCatalogEntry
 
+type SessionHandle
+
 type WebClientMessage
 
 type WebObserver
 
 type WebRuntime
+
+type WorkspaceRuntime
 
 // Type aliases
 

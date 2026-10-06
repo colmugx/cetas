@@ -29,6 +29,7 @@ import {
   "moonbitlang/core/json",
   "moonbitlang/async",
   "moonbitlang/async/aqueue",
+  "moonbitlang/async/fs",
   "moonbitlang/async/stdio",
   "moonbitlang/async/websocket",
   "moonbitlang/moonback",

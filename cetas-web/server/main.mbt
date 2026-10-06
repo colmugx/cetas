@@ -67,15 +67,15 @@ async fn serve_websocket(
         let queue : @aqueue.Queue[String] = Queue(
           kind=Blocking(WEB_EVENT_QUEUE_CAPACITY),
         )
-        let connection_id = runtime.observer.attach(fn(event : String) {
+        runtime.hub.attach(fn(event : String) {
           ignore(queue.try_put(event) catch { _ => false })
         })
-        defer runtime.observer.detach(connection_id)
+        defer runtime.hub.detach()
         defer queue.close(clear=true)
 
         connection_group.spawn_bg(async fn() { drain_web_events(queue, ws) })
 
-        runtime.observer.emit("connection.ready", extra=[
+        runtime.hub.emit("", "", "connection.ready", extra=[
           ("protocol", Json::string("cetas-web/0.1")),
         ])
 
@@ -86,21 +86,29 @@ async fn serve_websocket(
               Text => {
                 let raw = msg.read_all().text()
                 match decode_web_client_message(raw) {
-                  Err(message) => runtime.observer.emit_protocol_error(message)
-                  Ok(SessionAttach) => runtime.emit_snapshot()
-                  Ok(TurnStart(prompt)) =>
-                    match runtime.start_turn(prompt) {
+                  Err(message) =>
+                    runtime.hub.emit("", "", "protocol.error", extra=[
+                      ("message", Json::string(message)),
+                    ])
+                  Ok(SessionAttach) => runtime.emit_active_snapshot()
+                  Ok(TurnStart(prompt, session_id)) =>
+                    match runtime.start_turn(prompt, session_id) {
                       Ok(_) => ()
                       Err(message) =>
-                        runtime.observer.emit_protocol_error(message)
+                        runtime.hub.emit("", "", "protocol.error", extra=[
+                          ("message", Json::string(message)),
+                        ])
                     }
-                  Ok(TurnAbort) => runtime.abort_turn()
+                  Ok(TurnAbort(session_id)) => runtime.abort_turn(session_id)
                 }
               }
               Binary =>
-                runtime.observer.emit_protocol_error(
-                  "binary websocket messages are not supported",
-                )
+                runtime.hub.emit("", "", "protocol.error", extra=[
+                  (
+                    "message",
+                    Json::string("binary websocket messages are not supported"),
+                  ),
+                ])
             }
           }
         } catch {
@@ -182,11 +190,11 @@ async fn main {
                 // A freshly minted session has no transcript file yet; an
                 // unreadable one replays as empty, not as an error.
                 let payload : Json = match
-                  runtime.catalog.check_id(session_id) {
+                  runtime.active().catalog.check_id(session_id) {
                   Err(_) => transcript_empty_json()
                   Ok(_) =>
                     try {
-                      let session = runtime.catalog.load(session_id)
+                      let session = runtime.active().catalog.load(session_id)
                       transcript_json(session)
                     } catch {
                       _ => transcript_empty_json()
@@ -207,7 +215,7 @@ async fn main {
                 match request_string_field(req, "name") {
                   Some(name) => {
                     let outcome : Result[Unit, String] = try {
-                      runtime.catalog.set_name(id.to_owned(), name)
+                      runtime.active().catalog.set_name(id.to_owned(), name)
                       Ok(())
                     } catch {
                       error => Err(error.to_string())
@@ -225,6 +233,27 @@ async fn main {
                     )
                 }
               None => res.send_json(error_json("missing id"), status=400)
+            }
+          Err(detail) => res.send_json(error_json(detail), status=503)
+        }
+      })
+      ctx.get("/workspaces", (_req, res) => {
+        match boot {
+          Ok(runtime) => res.send_json(runtime.workspaces_json())
+          Err(detail) => res.send_json(error_json(detail), status=503)
+        }
+      })
+      ctx.post("/workspaces", (req, res) => {
+        match boot {
+          Ok(runtime) =>
+            match request_string_field(req, "cwd") {
+              Some(cwd) =>
+                match runtime.switch_workspace(cwd) {
+                  Ok(_) => res.send_json(runtime.workspaces_json())
+                  Err(message) => res.send_json(error_json(message), status=409)
+                }
+              None =>
+                res.send_json(error_json("body must include cwd"), status=400)
             }
           Err(detail) => res.send_json(error_json(detail), status=503)
         }
@@ -247,7 +276,7 @@ async fn main {
       })
       ctx.get("/models", (_req, res) => {
         match boot {
-          Ok(runtime) => res.send_json(runtime.model_slots_json())
+          Ok(runtime) => res.send_json(runtime.model_slots_json(None))
           Err(detail) => res.send_json(error_json(detail), status=503)
         }
       })
@@ -255,11 +284,13 @@ async fn main {
         match boot {
           Ok(runtime) =>
             match request_string_field(req, "slot_id") {
-              Some(slot_id) =>
-                match runtime.switch_model(slot_id) {
+              Some(slot_id) => {
+                let session_id = request_string_field(req, "session_id")
+                match runtime.switch_model(slot_id, session_id) {
                   Ok(_) => res.send_json(runtime.runtime_json())
                   Err(message) => res.send_json(error_json(message), status=409)
                 }
+              }
               None =>
                 res.send_json(
                   error_json("body must include slot_id"),
@@ -274,7 +305,7 @@ async fn main {
           Ok(runtime) =>
             match request_string_field(req, "effort") {
               Some(effort) =>
-                match runtime.select_effort(effort) {
+                match runtime.select_effort(effort, None) {
                   Ok(_) => res.send_json(runtime.runtime_json())
                   Err(message) => res.send_json(error_json(message), status=409)
                 }
@@ -316,7 +347,7 @@ async fn main {
     match boot {
       Ok(runtime) =>
         println(
-          "cetas-web: core ready session=\{runtime.active.session_id} model=\{runtime.active.model}",
+          "cetas-web: core ready workspace=\{runtime.active_cwd} session=\{runtime.active().active_id}",
         )
       Err(detail) => println("cetas-web: core needs setup: \{detail}")
     }
@@ -325,7 +356,12 @@ async fn main {
     app.serve(@moonback.listen(host~, port=port.to_uint16(), reuse_addr=true))
 
     match boot {
-      Ok(runtime) => runtime.active.agent.shutdown()
+      Ok(runtime) =>
+        for _, workspace in runtime.workspaces {
+          for _, handle in workspace.handles {
+            handle.agent.shutdown()
+          }
+        }
       Err(_) => ()
     }
   })

@@ -2,7 +2,7 @@
   import { FolderTree, Search, SquareTerminal } from "@lucide/svelte";
   import { runtimeStore } from "#lib/runtime.svelte";
 
-  const cwd = $derived(runtimeStore.runtime?.cwd || "Runtime not ready");
+  const cwd = $derived(runtimeStore.activeWorkspace || "No workspace");
 </script>
 
 <div class="mx-auto w-full max-w-3xl px-5 py-8">

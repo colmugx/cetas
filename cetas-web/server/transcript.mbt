@@ -6,6 +6,7 @@ struct ReplayTool {
   call_id : String
   name : String
   args : Json
+  item_index : Int
   mut status : String
   mut result : String
 }
@@ -77,6 +78,22 @@ fn transcript_json(session : @posoco_types.Session) -> Json {
         }
       }
       @kernel.Message::AssistantMessage(content~, tool_calls~, reasoning~, ..) => {
+        match reasoning {
+          Some(reasoning) =>
+            if reasoning.content != "" {
+              items.push(
+                Json::object(
+                  Map::from_array([
+                    ("kind", Json::string("reasoning")),
+                    ("turnId", Json::string(turn_id)),
+                    ("text", Json::string(reasoning.content)),
+                    ("streaming", Json::boolean(false)),
+                  ]),
+                ),
+              )
+            }
+          None => ()
+        }
         let text = content_text(content)
         if text != "" {
           items.push(
@@ -90,32 +107,20 @@ fn transcript_json(session : @posoco_types.Session) -> Json {
             ),
           )
         }
-        match reasoning {
-          Some(reasoning) =>
-            if reasoning.content != "" {
-              items.push(
-                Json::object(
-                  Map::from_array([
-                    ("kind", Json::string("reasoning")),
-                    ("turnId", Json::string(turn_id)),
-                    ("text", Json::string(reasoning.content)),
-                  ]),
-                ),
-              )
-            }
-          None => ()
-        }
         for call in tool_calls {
           let call_id = call.call_id.to_string()
           tool_index[call_id] = tools.length()
-          tools.push({
+          let tool : ReplayTool = {
             turn_id,
             call_id,
             name: call.name.to_string(),
             args: call.arguments,
+            item_index: items.length(),
             status: "running",
             result: "",
-          })
+          }
+          tools.push(tool)
+          items.push(replay_tool_json(tool))
         }
       }
       @kernel.Message::ToolMessage(call_id~, outcome~, ..) =>
@@ -144,14 +149,12 @@ fn transcript_json(session : @posoco_types.Session) -> Json {
                 tool.result = "not executed: \{@debug.to_string(reason)}"
               }
             }
+            items[tool.item_index] = replay_tool_json(tool)
           }
           None => ()
         }
     }
     message_index += 1
-  }
-  for tool in tools {
-    items.push(replay_tool_json(tool))
   }
   Json::object(Map::from_array([("items", Json::array(items))]))
 }

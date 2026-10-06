@@ -3,11 +3,20 @@
 ///
 /// Client messages are intentionally small commands. Server messages are
 /// semantic events with a monotonically increasing `seq` plus stable
-/// `event_id`, `session_id`, and `turn_id` attribution.
+/// `event_id`, `session_id`, and `turn_id` attribution, so one broadcast
+/// stream serves every concurrent session.
 enum WebClientMessage {
   SessionAttach
-  TurnStart(String)
-  TurnAbort
+  TurnStart(String, String?)
+  TurnAbort(String?)
+}
+
+///|
+fn optional_session_id(fields : Map[String, Json]) -> String? {
+  match fields.get("session_id") {
+    Some(Json::String(value)) => Some(value)
+    _ => None
+  }
 }
 
 ///|
@@ -32,60 +41,42 @@ fn decode_web_client_message(raw : String) -> Result[WebClientMessage, String] {
       if prompt.is_empty() {
         Err("turn.start.prompt must not be empty")
       } else {
-        Ok(TurnStart(prompt))
+        Ok(TurnStart(prompt, optional_session_id(fields)))
       }
     }
-    "turn.abort" => Ok(TurnAbort)
+    "turn.abort" => Ok(TurnAbort(optional_session_id(fields)))
     other => Err("unsupported message type: " + other)
   }
 }
 
 ///|
-struct WebObserver {
+/// Shared event channel: one sink per WebSocket connection and one global
+/// sequence, so events from concurrent sessions interleave coherently.
+struct EventHub {
   mut sink : ((String) -> Unit)?
-  mut connection_id : Int
-  mut next_connection_id : Int
   mut seq : Int
-  mut session_id : String
-  mut turn_id : String
 }
 
 ///|
-fn WebObserver::new(session_id : String) -> WebObserver {
-  {
-    sink: None,
-    connection_id: 0,
-    next_connection_id: 1,
-    seq: 0,
-    session_id,
-    turn_id: "",
-  }
+fn EventHub::new() -> EventHub {
+  { sink: None, seq: 0, }
 }
 
 ///|
-fn WebObserver::attach(self : WebObserver, sink : (String) -> Unit) -> Int {
-  let id = self.next_connection_id
-  self.next_connection_id += 1
-  self.connection_id = id
+fn EventHub::attach(self : EventHub, sink : (String) -> Unit) -> Unit {
   self.sink = Some(sink)
-  id
 }
 
 ///|
-fn WebObserver::detach(self : WebObserver, connection_id : Int) -> Unit {
-  if self.connection_id == connection_id {
-    self.sink = None
-  }
+fn EventHub::detach(self : EventHub) -> Unit {
+  self.sink = None
 }
 
 ///|
-fn WebObserver::begin_turn(self : WebObserver, turn_id : String) -> Unit {
-  self.turn_id = turn_id
-}
-
-///|
-fn WebObserver::emit(
-  self : WebObserver,
+fn EventHub::emit(
+  self : EventHub,
+  session_id : String,
+  turn_id : String,
   event_type : String,
   extra? : Array[(String, Json)] = [],
 ) -> Unit {
@@ -94,8 +85,8 @@ fn WebObserver::emit(
     ("type", Json::string(event_type)),
     ("seq", Json::number(self.seq.to_double())),
     ("event_id", Json::string("e-" + self.seq.to_string())),
-    ("session_id", Json::string(self.session_id)),
-    ("turn_id", Json::string(self.turn_id)),
+    ("session_id", Json::string(session_id)),
+    ("turn_id", Json::string(turn_id)),
   ]
   for field in extra {
     fields.push(field)
@@ -104,6 +95,34 @@ fn WebObserver::emit(
     Some(sink) => sink(Json::object(Map::from_array(fields)).stringify())
     None => ()
   }
+}
+
+///|
+/// Per-session observer: translates posoco turn events into protocol events
+/// attributed to its own session and turn. One instance per composed agent.
+struct WebObserver {
+  hub : EventHub
+  session_id : String
+  mut turn_id : String
+}
+
+///|
+fn WebObserver::new(hub : EventHub, session_id : String) -> WebObserver {
+  { hub, session_id, turn_id: "", }
+}
+
+///|
+fn WebObserver::emit(
+  self : WebObserver,
+  event_type : String,
+  extra? : Array[(String, Json)] = [],
+) -> Unit {
+  self.hub.emit(self.session_id, self.turn_id, event_type, extra~)
+}
+
+///|
+fn WebObserver::begin_turn(self : WebObserver, turn_id : String) -> Unit {
+  self.turn_id = turn_id
 }
 
 ///|
@@ -123,14 +142,6 @@ fn WebObserver::emit_snapshot(
     ("permission", Json::string(permission)),
     ("protocol", Json::string("cetas-web/0.1")),
   ])
-}
-
-///|
-fn WebObserver::emit_protocol_error(
-  self : WebObserver,
-  message : String,
-) -> Unit {
-  self.emit("protocol.error", extra=[("message", Json::string(message))])
 }
 
 ///|
@@ -211,13 +222,11 @@ impl @posoco.Observer for WebObserver with fn on_event(
         ("result", Json::string(reason)),
         ("is_error", Json::boolean(true)),
       ])
-    @posoco.TurnEvent::SessionRedirect(from~, to~, ..) => {
-      self.session_id = to
+    @posoco.TurnEvent::SessionRedirect(from~, to~, ..) =>
       self.emit("session.redirect", extra=[
         ("from", Json::string(from)),
         ("to", Json::string(to)),
       ])
-    }
     _ => ()
   }
 }

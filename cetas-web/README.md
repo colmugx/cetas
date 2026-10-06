@@ -114,7 +114,9 @@ The day-1 shell has Chat, Workspace, and Settings routes. Chat shows the real co
 GET  /api/health
 GET  /api/versions        posoco / cetas / web versions
 GET  /api/runtime          ready state incl. active model, effort, permission
-GET  /api/sessions         persisted sessions for this cwd bucket
+GET  /api/workspaces       registered workspaces (cwd-scoped cetas instances)
+POST /api/workspaces       {cwd} register/switch; composes lazily on first touch
+GET  /api/sessions         persisted sessions for the active workspace
 GET  /api/sessions/:id/transcript   replay projected into transcript items
 POST /api/sessions/:id/rename     {name} persist a display name
 POST /api/session          {id?} switch to id, or mint a new session
@@ -125,9 +127,12 @@ POST /api/permission       {mode} readonly | workspace_write | yolo
 GET  /ws                   realtime turn protocol
 ```
 
-Session switching recomposes the agent over the shared platform; the browser
-receives a fresh `session.snapshot` and replays the persisted transcript
-through the same rendering path as live turns. Store access beyond the
+Each workspace is an independent Cetas (platform + session bucket per cwd,
+composed lazily on first touch); sessions within a workspace run concurrently
+through per-session handles sharing one broadcast EventHub. Switching a
+session recomposes its agent; the browser receives a fresh `session.snapshot`
+and replays the persisted transcript through the same rendering path as live
+turns. Store access beyond the
 kernel's `@port.SessionStore` (list/entry/name) goes through the server-local
 `SessionCatalog` seam (`server/catalog.mbt`); swap store implementations by
 writing one adapter. `interactive`/`auto` permission modes need the approval

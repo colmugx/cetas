@@ -7,23 +7,12 @@
     TriangleAlert,
     Waves,
   } from "@lucide/svelte";
-  import {
-    fetchTranscript,
-    listModels,
-    setEffort,
-    setModel,
-    setPermission,
-    type ModelCatalog,
-  } from "#lib/api";
-  import type { TranscriptItem } from "#lib/transcript";
-  import { runtimeStore } from "#lib/runtime.svelte";
-  import type { ServerEvent } from "#lib/socket";
+  import type { PickerOption } from "#lib/components/Picker.svelte";
   import MarkdownStream from "#lib/components/MarkdownStream.svelte";
-  import Picker, { type PickerOption } from "#lib/components/Picker.svelte";
+  import Picker from "#lib/components/Picker.svelte";
   import ToolCard from "#lib/components/ToolCard.svelte";
-  import {
-    useSmoothMarkdownStream,
-  } from "markstream-svelte";
+  import { setEffort, setModel, setPermission } from "#lib/api";
+  import { runtimeStore } from "#lib/runtime.svelte";
 
   const suggestions = [
     "Map this workspace and summarize what it does",
@@ -38,38 +27,19 @@
   ];
 
   let prompt = $state("");
-  let items = $state<TranscriptItem[]>([]);
-  let busy = $state(false);
-  let lastSeq = $state(0);
   let atBottom = $state(true);
   let scrollEl: HTMLDivElement | undefined = $state();
   let composerEl: HTMLTextAreaElement | undefined = $state();
-  let catalog = $state<ModelCatalog | null>(null);
   let configError = $state("");
   let configErrorTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const snapshot = $derived(runtimeStore.runtime);
+  const view = $derived(runtimeStore.activeSession());
+  const items = $derived(view?.items ?? []);
+  const busy = $derived(view?.busy ?? false);
   const ready = $derived(runtimeStore.core === "ready");
 
-  // Streaming text lives in a smooth-reveal controller instead of the items
-  // array: deltas never copy the transcript, and reveal is paced per frame.
-  const live = useSmoothMarkdownStream({
-    minCharsPerSecond: 30,
-    maxCharsPerSecond: 2400,
-    maxCommitFps: 30,
-  });
-  let liveTurnId = $state("");
-
-  const liveVolume = $derived(live.visible.length);
-
-  const currentTurn = $derived.by(() => {
-    const active = items.findLast(
-      (item) => item.kind === "assistant" && item.streaming,
-    );
-    return active?.turnId ?? "";
-  });
-
-  const textVolume = $derived.by(() =>
+  const liveVolume = $derived(view?.live?.visible.length ?? 0);
+  const itemVolume = $derived.by(() =>
     items.reduce(
       (total, item) =>
         total +
@@ -80,23 +50,23 @@
   );
 
   const modelOptions = $derived.by<PickerOption[]>(() =>
-    (catalog?.slots ?? []).map((slot) => ({
+    (runtimeStore.catalog?.slots ?? []).map((slot) => ({
       value: slot.id,
       label: slot.label || slot.id,
       hint: slot.context_window
         ? `${Math.round(slot.context_window / 1000)}k`
         : undefined,
       group: slot.provider,
-      active: slot.id === (snapshot?.model ?? ""),
+      active: slot.id === (view?.model ?? ""),
     })),
   );
 
   const effortOptions = $derived.by<PickerOption[]>(() => {
-    const activeSlot = catalog?.slots.find(
-      (slot) => slot.id === (snapshot?.model ?? ""),
-    );
-    const efforts = activeSlot?.efforts ?? [];
-    const current = snapshot?.effort ?? "default";
+    const efforts =
+      runtimeStore.catalog?.slots.find(
+        (slot) => slot.id === (view?.model ?? ""),
+      )?.efforts ?? [];
+    const current = view?.effort || "default";
     if (efforts.length === 0) {
       return [{ value: current, label: current, active: true }];
     }
@@ -108,233 +78,17 @@
   });
 
   const shortModel = $derived.by(() => {
-    const model = snapshot?.model ?? "";
+    const model = view?.model ?? "";
     return model.length > 0 ? (model.split("/").pop() ?? model) : "—";
   });
 
   $effect(() => {
-    const dispose = runtimeStore.realtime.onEvent(onEvent);
-    return dispose;
-  });
-
-  // Session changes (including first load) replay the persisted transcript.
-  // Live streaming still starts empty: replay is history, not a resubscribe.
-  let previousSessionId: string | undefined;
-  let replaySeq = 0;
-  $effect(() => {
-    const id = snapshot?.session_id ?? "";
-    const changed = previousSessionId !== id;
-    previousSessionId = id;
-    if (!changed || !id) return;
-    items = [];
-    busy = false;
-    liveTurnId = "";
-    live.reset();
-    const seq = ++replaySeq;
-    void fetchTranscript(id)
-      .then((replay) => {
-        if (seq === replaySeq) items = replay.items;
-      })
-      .catch(() => {
-        // Keep the cleared transcript when the session has no history yet.
-      });
-  });
-
-  $effect(() => {
-    if (ready) void loadCatalog();
-  });
-
-  $effect(() => {
-    // Track both committed items and the live reveal so autoscroll follows
-    // the paced stream, not just turn boundaries.
-    void textVolume;
+    void itemVolume;
     void liveVolume;
     if (atBottom && scrollEl) {
       scrollEl.scrollTo({ top: scrollEl.scrollHeight });
     }
   });
-
-  function onEvent(event: ServerEvent) {
-    if (typeof event.seq === "number") {
-      if (event.seq <= lastSeq) return;
-      lastSeq = event.seq;
-    }
-
-    const turnId =
-      typeof event.turn_id === "string" && event.turn_id.length > 0
-        ? event.turn_id
-        : currentTurn;
-
-    switch (event.type) {
-      case "session.snapshot":
-        busy = Boolean(event.busy);
-        return;
-
-      case "turn.accepted":
-        if (!turnId) return;
-        busy = true;
-        liveTurnId = turnId;
-        live.reset();
-        items = [
-          ...items,
-          {
-            kind: "user",
-            turnId,
-            text: typeof event.prompt === "string" ? event.prompt : "",
-          },
-          { kind: "assistant", turnId, text: "", streaming: true },
-        ];
-        return;
-
-      case "assistant.text_delta":
-        if (typeof event.delta !== "string") return;
-        live.enqueue(event.delta);
-        return;
-
-      case "assistant.reasoning_delta":
-        if (!turnId || typeof event.delta !== "string") return;
-        enqueueReasoning(turnId, event.delta);
-        return;
-
-      case "tool.started":
-        if (
-          !turnId ||
-          typeof event.tool_call_id !== "string" ||
-          typeof event.tool_name !== "string"
-        )
-          return;
-        items = [
-          ...items,
-          {
-            kind: "tool",
-            turnId,
-            callId: event.tool_call_id,
-            name: event.tool_name,
-            status: "running",
-            args:
-              event.arguments !== undefined &&
-              typeof event.arguments === "object" &&
-              event.arguments !== null
-                ? (event.arguments as Record<string, unknown>)
-                : {},
-            result: "",
-          },
-        ];
-        return;
-
-      case "tool.completed":
-        if (typeof event.tool_call_id !== "string") return;
-        items = items.map((item) =>
-          item.kind === "tool" && item.callId === event.tool_call_id
-            ? {
-                ...item,
-                status: event.is_error ? "error" : "done",
-                result:
-                  typeof event.result === "string" ? event.result : item.result,
-              }
-            : item,
-        );
-        return;
-
-      case "turn.completed":
-        if (!turnId) return;
-        busy = false;
-        if (turnId === liveTurnId) {
-          live.finish();
-          liveTurnId = "";
-        }
-        items = items.map((item) =>
-          item.kind === "assistant" && item.turnId === turnId
-            ? {
-                ...item,
-                text:
-                  item.text ||
-                  (typeof event.text === "string" ? event.text : ""),
-                streaming: false,
-              }
-            : item,
-        );
-        return;
-
-      case "turn.failed":
-        busy = false;
-        if (turnId === liveTurnId) {
-          live.finish();
-          liveTurnId = "";
-        }
-        items = [
-          ...items.map((item) =>
-            item.kind === "assistant" && item.turnId === turnId
-              ? { ...item, streaming: false }
-              : item,
-          ),
-          {
-            kind: "error",
-            turnId,
-            text:
-              typeof event.message === "string" ? event.message : "Turn failed",
-          },
-        ];
-        return;
-
-      case "protocol.error":
-        items = [
-          ...items,
-          {
-            kind: "error",
-            turnId,
-            text:
-              typeof event.message === "string"
-                ? event.message
-                : "Protocol error",
-          },
-        ];
-        return;
-    }
-  }
-
-  // Reasoning deltas are coalesced per animation frame: one reactive write
-  // per frame instead of one per network token.
-  let pendingReasoningText = "";
-  let pendingReasoningTurn = "";
-  let reasoningFlushScheduled = false;
-
-  function enqueueReasoning(turnId: string, delta: string) {
-    pendingReasoningTurn = turnId;
-    pendingReasoningText += delta;
-    if (reasoningFlushScheduled) return;
-    reasoningFlushScheduled = true;
-    requestAnimationFrame(() => {
-      reasoningFlushScheduled = false;
-      flushReasoning();
-    });
-  }
-
-  function flushReasoning() {
-    const turnId = pendingReasoningTurn;
-    const delta = pendingReasoningText;
-    pendingReasoningText = "";
-    if (!turnId || !delta) return;
-    const index = items.findIndex(
-      (item) => item.kind === "reasoning" && item.turnId === turnId,
-    );
-    if (index < 0) {
-      items = [...items, { kind: "reasoning", turnId, text: delta }];
-      return;
-    }
-    const item = items[index];
-    if (item.kind === "reasoning") {
-      items[index] = { ...item, text: item.text + delta };
-    }
-  }
-
-  async function loadCatalog() {
-    try {
-      catalog = await listModels();
-    } catch {
-      // The picker falls back to the current runtime values.
-    }
-  }
 
   function flashConfigError(message: string) {
     configError = message;
@@ -345,7 +99,7 @@
   async function applyConfig(action: () => Promise<unknown>) {
     try {
       await action();
-      await loadCatalog();
+      await runtimeStore.loadCatalog();
     } catch (error) {
       flashConfigError(error instanceof Error ? error.message : String(error));
     }
@@ -353,8 +107,12 @@
 
   function send() {
     const text = prompt.trim();
-    if (!text || busy || runtimeStore.core !== "ready") return;
-    const sent = runtimeStore.realtime.send({ type: "turn.start", prompt: text });
+    if (!text || busy || !ready) return;
+    const sent = runtimeStore.realtime.send({
+      type: "turn.start",
+      prompt: text,
+      session_id: runtimeStore.activeSessionId,
+    });
     if (sent) {
       prompt = "";
       if (composerEl) composerEl.style.height = "auto";
@@ -362,7 +120,10 @@
   }
 
   function abort() {
-    runtimeStore.realtime.send({ type: "turn.abort" });
+    runtimeStore.realtime.send({
+      type: "turn.abort",
+      session_id: runtimeStore.activeSessionId,
+    });
   }
 
   function onInput(event: Event) {
@@ -405,17 +166,17 @@
                   </div>
                 </div>
               {:else if item.kind === "assistant"}
-                {#if liveTurnId === item.turnId}
+                {#if view?.liveTurnId === item.turnId && view?.live}
                   <MarkdownStream
-                    content={live.visible}
-                    final={live.final}
-                    streaming={!live.done}
+                    content={view.live.visible}
+                    final={view.live.final}
+                    streaming={!view.live.done}
                   />
                 {:else}
                   <MarkdownStream content={item.text} />
                 {/if}
               {:else if item.kind === "reasoning"}
-                <details class="group rounded-xl border border-line bg-panel/60">
+                <details open={item.streaming} class="group rounded-xl border border-line bg-panel/60">
                   <summary
                     class="flex cursor-pointer select-none items-center gap-2 px-3.5 py-2.5 text-xs font-medium text-fg-muted [&::-webkit-details-marker]:hidden"
                   >
@@ -451,7 +212,9 @@
           {/each}
         </div>
       {:else}
-        <div class="flex min-h-[52vh] flex-col items-center justify-center text-center">
+        <div
+          class="flex min-h-[52vh] flex-col items-center justify-center text-center"
+        >
           <div
             class="grid size-12 place-items-center rounded-2xl border border-accent/20 bg-accent-dim text-accent"
           >
@@ -518,24 +281,28 @@
             />
             <Picker
               label="effort"
-              value={snapshot?.effort || "default"}
+              value={view?.effort || "default"}
               options={effortOptions}
               disabled={busy || !ready}
               onSelect={(value) => void applyConfig(() => setEffort(value))}
             />
             <Picker
               label="permission"
-              value={snapshot?.permission || "readonly"}
+              value={view?.permission || "readonly"}
               options={permissionOptions}
               disabled={busy || !ready}
               onSelect={(value) => void applyConfig(() => setPermission(value))}
             />
             {#if configError}
-              <span class="hidden min-w-0 truncate text-[11px] text-bad md:inline">
+              <span
+                class="hidden min-w-0 truncate text-[11px] text-bad md:inline"
+              >
                 {configError}
               </span>
             {:else if busy}
-              <span class="hidden font-mono text-[11px] text-fg-faint md:inline">
+              <span
+                class="hidden font-mono text-[11px] text-fg-faint md:inline"
+              >
                 turn running
               </span>
             {/if}

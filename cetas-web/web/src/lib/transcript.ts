@@ -5,7 +5,7 @@
 export type TranscriptItem =
   | { kind: "user"; turnId: string; text: string }
   | { kind: "assistant"; turnId: string; text: string; streaming: boolean }
-  | { kind: "reasoning"; turnId: string; text: string }
+  | { kind: "reasoning"; turnId: string; text: string; streaming: boolean }
   | {
       kind: "tool";
       turnId: string;

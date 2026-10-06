@@ -26,6 +26,18 @@ export type SessionList = {
   sessions: SessionSummary[];
 };
 
+export type WorkspaceInfo = {
+  cwd: string;
+  name: string;
+  active: boolean;
+  active_session: string;
+};
+
+export type WorkspaceList = {
+  active: string;
+  workspaces: WorkspaceInfo[];
+};
+
 export type ModelSlot = {
   id: string;
   label: string;
@@ -103,6 +115,14 @@ export function probeRuntime(signal?: AbortSignal): Promise<RuntimeSnapshot> {
 
 export function listSessions(): Promise<SessionList> {
   return readJson<SessionList>("/api/sessions", "session list");
+}
+
+export function listWorkspaces(): Promise<WorkspaceList> {
+  return readJson<WorkspaceList>("/api/workspaces", "workspace list");
+}
+
+export function addWorkspace(cwd: string): Promise<WorkspaceList> {
+  return postJson("/api/workspaces", { cwd }, "workspace add");
 }
 
 export function switchSession(id?: string): Promise<{ session_id: string }> {
