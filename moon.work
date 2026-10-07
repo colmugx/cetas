@@ -64,6 +64,6 @@ members = [
   "./extension/posoco-kit-paseo",
   "./extension/posoco-kit-responses",
   "./extension/posoco-kit-subagent",
-  "./extension/posoco-ext-zcode",,
+  "./extension/posoco-ext-zcode",
   "./cetas-gpui/moon",
 ]
