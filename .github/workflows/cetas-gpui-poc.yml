@@ -1,0 +1,73 @@
+name: cetas gpui poc
+
+on:
+  push:
+    branches: [cetas-gpui-poc]
+    paths:
+      - "cetas-gpui/**"
+      - "cetas-core/**"
+      - "moon.work"
+      - ".github/workflows/cetas-gpui-poc.yml"
+  pull_request:
+    paths:
+      - "cetas-gpui/**"
+      - "cetas-core/**"
+      - "moon.work"
+      - ".github/workflows/cetas-gpui-poc.yml"
+
+jobs:
+  macos-arm64:
+    runs-on: macos-14
+    timeout-minutes: 30
+    env:
+      CETAS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout posoco parent
+        uses: actions/checkout@v4
+        with:
+          repository: colmugx/posoco
+          ref: main
+          path: posoco
+          submodules: recursive
+
+      - name: Switch cetas submodule to event commit
+        working-directory: posoco/external/cetas
+        run: |
+          git fetch --depth=1 origin "${CETAS_SHA}"
+          git checkout "${CETAS_SHA}"
+          git submodule update --init --recursive
+
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Build integrated Cetas GPUI app
+        working-directory: posoco/external/cetas
+        run: python3 cetas-gpui/tools/build.py --target aarch64-apple-darwin
+
+      - name: Verify artifact architecture
+        working-directory: posoco/external/cetas
+        run: |
+          BIN="cetas-gpui/target/aarch64-apple-darwin/release/cetas-gpui"
+          test -x "$BIN"
+          file "$BIN"
+          file "$BIN" | grep -q "arm64"
+
+      - name: Package
+        working-directory: posoco/external/cetas
+        run: |
+          mkdir -p cetas-gpui/dist
+          cp cetas-gpui/target/aarch64-apple-darwin/release/cetas-gpui cetas-gpui/dist/cetas-gpui-macos-arm64
+
+      - name: Upload macOS ARM64 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: cetas-gpui-macos-arm64
+          path: posoco/external/cetas/cetas-gpui/dist/cetas-gpui-macos-arm64
+          if-no-files-found: error

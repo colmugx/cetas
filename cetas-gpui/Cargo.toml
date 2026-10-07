@@ -1,0 +1,12 @@
+[package]
+name = "cetas-gpui"
+version = "0.0.1"
+edition = "2021"
+build = "build.rs"
+
+[dependencies]
+gpui-kit = "0.7"
+serde_json = "1"
+
+[build-dependencies]
+cc = "1"

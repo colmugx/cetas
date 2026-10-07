@@ -1,0 +1,23 @@
+import {
+  "colmugx/cetas-core/lib" @cetas_core,
+  "colmugx/posoco",
+  "colmugx/posoco-ext-permission" @permission,
+  "colmugx/posoco-ext-workspace" @workspace,
+  "moonbitlang/async",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/core/encoding/utf8",
+}
+
+supported_targets = "native"
+
+pkgtype(kind: "executable")
+
+options(
+  "native-stub": [ "bridge_stub.c" ],
+  link: {
+    "native": {
+      "cc": "__CETAS_GPUI_CC__",
+    },
+  },
+)
