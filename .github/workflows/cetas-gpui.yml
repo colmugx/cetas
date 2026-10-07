@@ -19,6 +19,10 @@ on:
       - ".github/workflows/cetas-gpui.yml"
   workflow_dispatch:
 
+concurrency:
+  group: cetas-gpui-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: macos-15
