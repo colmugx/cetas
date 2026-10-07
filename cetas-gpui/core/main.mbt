@@ -1,5 +1,3 @@
-#warnings("-unused_async")
-
 ///|
 /// Native GPUI host observer. It projects the same semantic stream that
 /// cetas-web consumes, but sends it through the in-process C queue.
@@ -121,8 +119,7 @@ async fn run_desktop(
     warn~,
   )
   let session_id = @cetas_core.mint_session_id()
-  // POC deliberately uses cetas-core directly. The compiled desktop recipe
-  // can be layered in after the host/runtime boundary has proven sound.
+  // Reuse the same generated public/native recipe as the existing Cetas hosts.
   let feature_exts = build_compiled_recipe_features(
     ctx={ fs, cwd, home, },
     nmem_group=Some(group),
