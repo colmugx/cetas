@@ -4,7 +4,8 @@
 extern "C" fn bridge_next_command_raw() -> Bytes = "cetas_gpui_bridge_next_command"
 
 ///|
-#borrow(payload)\nextern "C" fn bridge_emit_raw(payload : Bytes, len : Int) -> Unit = "cetas_gpui_bridge_emit"
+#borrow(payload)
+extern "C" fn bridge_emit_raw(payload : Bytes, len : Int) -> Unit = "cetas_gpui_bridge_emit"
 
 ///|
 fn bridge_next_command() -> String {
