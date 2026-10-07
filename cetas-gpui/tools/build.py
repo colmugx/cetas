@@ -52,6 +52,11 @@ def main():
     env["MOONBIT_NEW_NATIVE"] = "0"
     env["CETAS_MOON_CAPTURE_DIR"] = str(CAPTURE)
     try:
+        run(
+            ["python3", "../scripts/prepare-recipe.py", "--flavor", "public", "--frontend", "all", "--platform", "unix"],
+            APP,
+            env,
+        )
         run(["moon", "update"], APP, env)
         run(["moon", "build", "--target", "native", "--release"], APP, env)
     finally:
