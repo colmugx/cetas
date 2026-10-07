@@ -58,6 +58,14 @@ fn main() {
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let moon_dir = manifest_dir.join("moon");
+    let repo_root = manifest_dir.parent().expect("cetas-gpui must live in the Cetas repository");
+    let recipe_status = Command::new("python3")
+        .args(["scripts/prepare-recipe.py", "--flavor", "public", "--frontend", "all", "--platform", "unix"])
+        .current_dir(repo_root)
+        .status()
+        .expect("failed to prepare Cetas recipe graph");
+    assert!(recipe_status.success(), "Cetas recipe preparation failed");
+
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let capture_dir = out_dir.join("moon-capture");
 
