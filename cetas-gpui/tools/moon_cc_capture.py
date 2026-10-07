@@ -2,7 +2,7 @@
 """Capture every C input Moon would give its final native compiler.
 
 The resulting source set is compiled by Cargo into the GPUI executable.
-Moon's own executable output is only a build-graph placeholder.
+Moon's own object/link outputs and depfiles are only build-graph placeholders.
 """
 
 import fcntl
@@ -14,7 +14,7 @@ import shutil
 import sys
 
 
-def expand(args, cwd, seen=None):
+def expand(args, cwd, response_files, seen=None):
     seen = set() if seen is None else seen
     out = []
     for arg in args:
@@ -25,34 +25,49 @@ def expand(args, cwd, seen=None):
         if path in seen:
             raise RuntimeError(f"recursive response file: {path}")
         seen.add(path)
-        out.extend(expand(shlex.split(path.read_text()), cwd, seen))
+        response_files.append(str(path))
+        out.extend(expand(shlex.split(path.read_text()), cwd, response_files, seen))
         seen.remove(path)
     return out
+
+
+def parse(args):
+    sources = []
+    output = None
+    depfile = None
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in ("-o", "-MF") and i + 1 < len(args):
+            if arg == "-o":
+                output = args[i + 1]
+            else:
+                depfile = args[i + 1]
+            i += 2
+            continue
+        if arg.startswith("-o") and len(arg) > 2:
+            output = arg[2:]
+        elif arg.startswith("-MF") and len(arg) > 3:
+            depfile = arg[3:]
+        elif arg.endswith(".c"):
+            sources.append(arg)
+        i += 1
+    return sources, output, depfile
 
 
 def main():
     cwd = Path.cwd().resolve()
     dest = Path(os.environ["CETAS_MOON_CAPTURE_DIR"]).resolve()
     dest.mkdir(parents=True, exist_ok=True)
-    args = expand(sys.argv[1:], cwd)
-    output = None
-    sources = []
-    i = 0
-    while i < len(args):
-        if args[i] == "-o" and i + 1 < len(args):
-            output = args[i + 1]
-            i += 2
-            continue
-        if args[i].endswith(".c"):
-            sources.append(args[i])
-        i += 1
+    response_files = []
+    args = expand(sys.argv[1:], cwd, response_files)
+    sources, output, depfile = parse(args)
     if not sources:
         raise RuntimeError("Moon compiler invocation contained no C sources")
 
     copied = []
     for source_arg in sources:
         source = (cwd / source_arg).resolve()
-        # Preserve paths below _build; source stubs get a stable source/ prefix.
         try:
             relative = source.relative_to(cwd / "_build")
         except ValueError:
@@ -69,12 +84,24 @@ def main():
         known.update(copied)
         manifest.write_text("\n".join(sorted(known)) + "\n")
         with (dest / "capture.jsonl").open("a") as trace:
-            trace.write(json.dumps({"cwd": str(cwd), "argv": sys.argv[1:], "expanded": args}) + "\n")
+            trace.write(json.dumps({
+                "cwd": str(cwd),
+                "argv": sys.argv[1:],
+                "expanded": args,
+                "response_files": response_files,
+                "sources": sources,
+                "output": output,
+                "depfile": depfile,
+            }, sort_keys=True) + "\n")
 
     if output:
         p = (cwd / output).resolve()
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(b"")
+    if depfile:
+        p = (cwd / depfile).resolve()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(f"{output or 'moon_cc_capture'}: {' '.join(sources)}\n")
     return 0
 
 
