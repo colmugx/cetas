@@ -58,6 +58,7 @@ jobs:
         working-directory: posoco/external/cetas/cetas-gpui/moon
         run: |
           export PATH="$HOME/.moon/bin:$PATH"
+          moon update
           moon check --target native --deny-warn --output-json
 
       - name: Build native Cetas GPUI
