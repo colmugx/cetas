@@ -1,0 +1,37 @@
+import {
+  "colmugx/cetas-core/lib" @cetas_core,
+  "colmugx/posoco",
+  "posoco/devkit",
+  "colmugx/cetas-ext-forme/lib" @forme,
+  "colmugx/posoco-ext-read" @read,
+  "colmugx/posoco-ext-write" @write,
+  "colmugx/posoco-ext-edit" @edit,
+  "colmugx/posoco-ext-glob" @glob,
+  "colmugx/posoco-ext-grep" @grep,
+  "colmugx/posoco-ext-astgrep" @astgrep,
+  "colmugx/posoco-ext-webfetch" @webfetch,
+  "colmugx/posoco-ext-bash" @bash,
+  "colmugx/posoco-ext-ps1" @ps1,
+  "colmugx/posoco-ext-skills" @skills,
+  "colmugx/posoco-ext-askquestion" @askquestion,
+  "colmugx/posoco-ext-handoff" @handoff,
+  "colmugx/posoco-ext-lazytools" @lazytools,
+  "colmugx/posoco-ext-permission" @permission,
+  "colmugx/posoco-ext-workspace" @workspace,
+  "posoco/ext-llm" @ext_llm,
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/async",
+}
+
+supported_targets = "native"
+pkgtype(kind: "executable")
+
+options(
+  link: {
+    "native": {
+      "cc": "../tools/moon_cc_capture.py",
+    },
+  },
+)
