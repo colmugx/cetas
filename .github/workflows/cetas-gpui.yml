@@ -1,0 +1,105 @@
+name: cetas gpui macos arm64
+
+on:
+  push:
+    branches:
+      - cetas-gpui
+    paths:
+      - "cetas-gpui/**"
+      - "cetas-core/**"
+      - "extension/**"
+      - "moon.work"
+      - ".github/workflows/cetas-gpui.yml"
+  pull_request:
+    paths:
+      - "cetas-gpui/**"
+      - "cetas-core/**"
+      - "extension/**"
+      - "moon.work"
+      - ".github/workflows/cetas-gpui.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - name: Checkout Posoco workspace
+        uses: actions/checkout@v4
+        with:
+          repository: colmugx/posoco
+          ref: main
+          path: posoco
+          submodules: recursive
+
+      - name: Switch Cetas submodule to branch head
+        shell: bash
+        working-directory: posoco/external/cetas
+        run: |
+          git fetch --depth=1 origin "${GITHUB_SHA}"
+          git checkout "${GITHUB_SHA}"
+          git submodule update --init --recursive
+
+      - name: Verify Apple Silicon runner
+        run: |
+          test "$(uname -m)" = "arm64"
+          clang --version
+          rustc --version
+
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: MoonBit version
+        run: "$HOME/.moon/bin/moon version --all"
+
+      - name: Build native Cetas GPUI
+        working-directory: posoco/external/cetas
+        run: |
+          export PATH="$HOME/.moon/bin:$PATH"
+          cargo build \
+            --manifest-path cetas-gpui/Cargo.toml \
+            --release \
+            --target aarch64-apple-darwin
+
+      - name: Verify final binary
+        working-directory: posoco/external/cetas
+        run: |
+          BIN="cetas-gpui/target/aarch64-apple-darwin/release/cetas-gpui"
+          test -x "$BIN"
+          file "$BIN"
+          test "$(lipo -archs "$BIN")" = "arm64"
+          nm "$BIN" | grep -q "cetas_mbt_core_main"
+
+      - name: Stage macOS app bundle
+        working-directory: posoco/external/cetas
+        run: |
+          APP="dist/Cetas GPUI.app"
+          mkdir -p "$APP/Contents/MacOS"
+          cp "cetas-gpui/target/aarch64-apple-darwin/release/cetas-gpui" "$APP/Contents/MacOS/cetas-gpui"
+          cat > "$APP/Contents/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key><string>cetas-gpui</string>
+            <key>CFBundleIdentifier</key><string>com.cetas.gpui-poc</string>
+            <key>CFBundleName</key><string>Cetas GPUI</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleVersion</key><string>1</string>
+            <key>CFBundleShortVersionString</key><string>0.0.1</string>
+            <key>LSMinimumSystemVersion</key><string>14.0</string>
+          </dict>
+          </plist>
+          PLIST
+          ditto -c -k --keepParent "$APP" "dist/cetas-gpui-macos-arm64.zip"
+
+      - name: Upload macOS arm64 POC
+        uses: actions/upload-artifact@v4
+        with:
+          name: cetas-gpui-macos-arm64
+          path: |
+            posoco/external/cetas/dist/cetas-gpui-macos-arm64.zip
+            posoco/external/cetas/cetas-gpui/target/aarch64-apple-darwin/release/cetas-gpui
+          if-no-files-found: error
