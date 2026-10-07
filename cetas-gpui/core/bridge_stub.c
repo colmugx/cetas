@@ -1,6 +1,5 @@
 #include <moonbit.h>
 #include <stdint.h>
-#include <string.h>
 
 extern int32_t cetas_gpui_command_len(void);
 extern int32_t cetas_gpui_command_copy(uint8_t *out, int32_t cap);
@@ -19,7 +18,7 @@ moonbit_bytes_t cetas_gpui_bridge_next_command(void) {
 }
 
 MOONBIT_FFI_EXPORT
-void cetas_gpui_bridge_emit(moonbit_bytes_t payload) {
-  if (!payload) return;
-  cetas_gpui_event_push(payload, (int32_t)strlen((const char *)payload));
+void cetas_gpui_bridge_emit(moonbit_bytes_t payload, int32_t len) {
+  if (!payload || len <= 0) return;
+  cetas_gpui_event_push(payload, len);
 }
