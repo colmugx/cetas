@@ -1,4 +1,4 @@
-///|
+#warnings("-unused_async")\n\n///|
 /// Native GPUI host observer. It projects the same semantic stream that
 /// cetas-web consumes, but sends it through the in-process C queue.
 struct DesktopObserver {
