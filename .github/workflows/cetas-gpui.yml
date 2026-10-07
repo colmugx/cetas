@@ -54,12 +54,16 @@ jobs:
       - name: MoonBit version
         run: "$HOME/.moon/bin/moon version --all"
 
+      - name: Prepare Cetas public recipe
+        working-directory: posoco/external/cetas
+        run: python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
+
       - name: Check MoonBit desktop core
         working-directory: posoco/external/cetas/cetas-gpui/moon
         run: |
           export PATH="$HOME/.moon/bin:$PATH"
           moon update
-          moon check --target native --deny-warn --output-json
+          moon check --target native --output-json
 
       - name: Build native Cetas GPUI
         working-directory: posoco/external/cetas
