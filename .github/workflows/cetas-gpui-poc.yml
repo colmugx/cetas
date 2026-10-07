@@ -1,5 +1,9 @@
 name: cetas gpui poc
 
+concurrency:
+  group: cetas-gpui-poc-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [cetas-gpui-poc]
