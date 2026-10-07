@@ -10,6 +10,7 @@ use gpui_kit::component::{
     v_flex,
 };
 use gpui_kit::*;
+use gpui_kit::prelude::FluentBuilder;
 use serde_json::{json, Value};
 use std::{rc::Rc, time::Duration};
 
@@ -276,7 +277,7 @@ impl CetasDesktop {
                 .child(
                     div()
                         .text_xs()
-                        .font_semibold()
+                        .font_bold()
                         .text_color(cx.theme().muted_foreground)
                         .child("REASONING"),
                 )
@@ -303,7 +304,7 @@ impl CetasDesktop {
                         .py_2()
                         .bg(cx.theme().muted)
                         .text_xs()
-                        .font_semibold()
+                        .font_bold()
                         .child(name),
                 )
                 .child(
@@ -367,10 +368,10 @@ impl Render for CetasDesktop {
                                     .flex()
                                     .items_center()
                                     .justify_center()
-                                    .font_semibold()
+                                    .font_bold()
                                     .child("C"),
                             )
-                            .child(div().font_semibold().child("Cetas")),
+                            .child(div().font_bold().child("Cetas")),
                     )
                     .child(
                         v_flex()
@@ -430,7 +431,7 @@ impl Render for CetasDesktop {
                             .border_color(cx.theme().border)
                             .child(
                                 v_flex()
-                                    .child(div().text_sm().font_semibold().child("Cetas Desktop"))
+                                    .child(div().text_sm().font_bold().child("Cetas Desktop"))
                                     .child(
                                         div()
                                             .text_xs()
