@@ -1,4 +1,4 @@
-import { addWorkspace, fetchTranscript, listSessions, listWorkspaces, listModels, probeHealth, probeRuntime, switchSession as apiSwitchSession, type Health, type ModelCatalog, type RuntimeSnapshot, type SessionSummary, type WorkspaceInfo } from "./api";
+import { addWorkspace, fetchTrace, fetchTranscript, listExts, listSessions, listWorkspaces, listModels, probeHealth, probeRuntime, switchSession as apiSwitchSession, type ExtInfo, type Health, type ModelCatalog, type RuntimeSnapshot, type SessionSummary, type WorkspaceInfo } from "./api";
 import { createRealtimeClient, type RealtimeClient, type RealtimeState, type ServerEvent } from "./socket";
 import type { TranscriptItem } from "./transcript";
 import { createSmoothMarkdownStream } from "markstream-core";
@@ -55,6 +55,32 @@ export class SessionState {
   liveTurnId = $state("");
   /** Prompts queued while a turn runs; dispatched in order on completion. */
   queue = $state<string[]>([]);
+  /** Wall-clock per turn, from hub-stamped event ts (ms epoch). */
+  turnTimes = $state<Record<string, { sentAt?: number; completedAt?: number }>>(
+    {},
+  );
+  usage = $state({ input: 0, output: 0, total: 0, cached: 0, requests: 0 });
+  /** Composer-dock stats (dsh StatsPills shape), recomputed from the
+   * server's per-turn ledgers so reloads cannot lose them. */
+  dockStats = $state<{
+    turns: number;
+    steps: number;
+    ttftMs: number;
+    tokPerSec: number;
+    tokens: number;
+    cacheHitPct: number | null;
+  } | null>(null);
+  context = $state<{
+    measured: number | null;
+    window: number | null;
+    threshold: number;
+    messages: number;
+  } | null>(null);
+  /** Ext ids active in the latest traced turn (drives the float window). */
+  activeExts = $state<Set<string> | null>(null);
+  /** Statusbar segments from the hub (key=value pairs rendered under the
+   * input box) — the posoco-ext-statusbar aggregation. */
+  statusSegments = $state<{ key: string; value: string; color: string | null }[]>([]);
   /** Pending UiPort request awaiting a browser decision. */
   uiRequest = $state<{
     requestId: string;
@@ -216,6 +242,8 @@ class RuntimeStore {
       await Promise.all([
         this.replay(this.activeSessionId),
         this.loadCatalog(),
+        this.loadExts(),
+        this.refreshActiveExts(this.activeSessionId),
       ]);
       this.openSession(this.activeSessionId);
     }
@@ -243,6 +271,169 @@ class RuntimeStore {
       this.sessionsByWorkspace[list.cwd] = list.sessions;
     } catch {
       // Keep the last known list while the API is unreachable.
+    }
+  }
+
+  exts = $state<ExtInfo[] | null>(null);
+
+  async loadExts() {
+    try {
+      const zoo = await listExts();
+      this.exts = zoo.extensions;
+    } catch {
+      // The float window simply stays idle without the zoo.
+    }
+  }
+
+  /** Map trace signals of a session onto the exts that did the work, and
+   * recompute cumulative usage/context from the server's turn ledgers (the
+   * authoritative source — in-memory counters die on reload). */
+  async refreshActiveExts(sessionId: string) {
+    try {
+      const page = await fetchTrace({ session: sessionId, limit: 400 });
+      const active = new Set<string>();
+      const num = (event: Record<string, unknown>, key: string) =>
+        typeof event[key] === "number" ? (event[key] as number) : 0;
+      const eventTs = (
+        events: { type: string; ts?: number }[],
+        type: string,
+      ): number | null => {
+        for (const event of events) {
+          if (event.type === type && typeof event.ts === "number") {
+            return event.ts;
+          }
+        }
+        return null;
+      };
+      const usage = { input: 0, output: 0, total: 0, cached: 0, requests: 0 };
+      let context: SessionState["context"] = null;
+      // Composer-dock stats folded from the ledgers (dsh StatsPills shape):
+      // turns/steps counts, mean TTFT, decode speed, token totals.
+      let turns = 0;
+      let steps = 0;
+      let ttftTotal = 0;
+      let ttftRounds = 0;
+      let decodeMs = 0;
+      let decodeTokens = 0;
+      let tokens = 0;
+      let cachedIn = 0;
+      for (const turn of [...page.turns].reverse()) {
+        const startedTs = eventTs(turn.events, "turn.started");
+        const firstDeltaTs = eventTs(turn.events, "assistant.text_delta");
+        if (firstDeltaTs !== null && startedTs !== null) {
+          ttftTotal += firstDeltaTs - startedTs;
+          ttftRounds += 1;
+        }
+        const completedTs = eventTs(turn.events, "turn.completed");
+        if (firstDeltaTs !== null && completedTs !== null) {
+          decodeMs += completedTs - firstDeltaTs;
+        }
+        for (const event of turn.events) {
+          if (event.type === "tool.started") steps += 1;
+          if (event.type === "turn.completed") turns += 1;
+          if (event.type === "usage.delta") {
+            decodeTokens += num(event, "output_tokens");
+            tokens += num(event, "total_tokens");
+            cachedIn += num(event, "cached_input_tokens");
+          }
+        }
+      }
+      const tokPerSec = decodeMs > 0 ? decodeTokens / (decodeMs / 1000) : 0;
+      const dock = turns > 0 ? {
+        turns,
+        steps,
+        ttftMs: ttftRounds > 0 ? Math.round(ttftTotal / ttftRounds) : 0,
+        tokPerSec: Math.round(tokPerSec * 10) / 10,
+        tokens,
+        cacheHitPct: usage.input > 0 ? Math.round((cachedIn / usage.input) * 100) : null,
+      } : null;
+      for (const turn of [...page.turns].reverse()) {
+        for (const event of turn.events) {
+          if (event.type === "usage.delta") {
+            const num = (key: string) =>
+              typeof event[key] === "number" ? (event[key] as number) : 0;
+            usage.input += num("input_tokens");
+            usage.output += num("output_tokens");
+            usage.total += num("total_tokens");
+            usage.cached += num("cached_input_tokens");
+            usage.requests += 1;
+          } else if (event.type === "context.state") {
+            context = {
+              measured:
+                typeof event.measured_tokens === "number"
+                  ? event.measured_tokens
+                  : null,
+              window:
+                typeof event.window_tokens === "number"
+                  ? event.window_tokens
+                  : null,
+              threshold:
+                typeof event.compact_threshold === "number"
+                  ? event.compact_threshold
+                  : 0.88,
+              messages:
+                typeof event.reading_message_count === "number"
+                  ? event.reading_message_count
+                  : 0,
+            };
+          }
+        }
+      }
+      const exts = this.exts ?? [];
+      const providerOf = (toolName: string): string | null => {
+        for (const ext of exts) {
+          for (const role of ext.roles) {
+            if (role.role === "tools") {
+              if (role.items.some((item) => item.label === toolName)) {
+                return ext.id;
+              }
+            }
+          }
+        }
+        return null;
+      };
+      for (const turn of page.turns) {
+        for (const event of turn.events) {
+          switch (event.type) {
+            case "tool.started":
+            case "tool.completed":
+            case "tool.approved":
+              if (typeof event.tool_name === "string") {
+                const owner = providerOf(event.tool_name);
+                if (owner) active.add(owner);
+              }
+              break;
+            case "ui.request":
+              active.add("cetas-web_ui");
+              active.add("posoco_ext_permission");
+              break;
+            case "usage.delta":
+            case "turn.accepted":
+            case "turn.started":
+            case "turn.completed":
+            case "turn.failed":
+            case "assistant.text_delta":
+            case "assistant.reasoning_delta":
+              active.add("posoco_ext_llm");
+              break;
+            case "session.snapshot":
+            case "session.redirect":
+              active.add("posoco_ext_fs_session");
+              break;
+            default:
+              break;
+          }
+        }
+      }
+      const state = this.session(sessionId);
+      if (state) {
+        state.activeExts = active;
+        if (usage.requests > 0) state.usage = usage;
+        if (context) state.context = context;
+        if (dock) state.dockStats = dock;
+      }
+    } catch {
+      // Keep the previous indicators while the trace is unreachable.
     }
   }
 
@@ -288,6 +479,9 @@ class RuntimeStore {
         const turnId = typeof event.turn_id === "string" ? event.turn_id : "";
         state.busy = true;
         state.liveTurnId = turnId;
+        state.turnTimes[turnId] = {
+          sentAt: typeof event.ts === "number" ? event.ts : undefined,
+        };
         state.ensureLive().reset();
         state.items = [
           ...state.items,
@@ -378,6 +572,12 @@ class RuntimeStore {
         const state = this.ensureSession(sessionId);
         const turnId = typeof event.turn_id === "string" ? event.turn_id : "";
         state.busy = false;
+        if (turnId) {
+          const times = state.turnTimes[turnId] ?? {};
+          times.completedAt =
+            typeof event.ts === "number" ? event.ts : Date.now();
+          state.turnTimes[turnId] = times;
+        }
         if (state.liveTurnId === turnId && state.live) {
           state.live.finish();
           state.liveTurnId = "";
@@ -415,6 +615,45 @@ class RuntimeStore {
         return;
       }
 
+      case "usage.delta": {
+        if (!sessionId) return;
+        const state = this.ensureSession(sessionId);
+        const num = (key: string) =>
+          typeof event[key] === "number" ? (event[key] as number) : 0;
+        state.usage = {
+          input: state.usage.input + num("input_tokens"),
+          output: state.usage.output + num("output_tokens"),
+          total: state.usage.total + num("total_tokens"),
+          cached: state.usage.cached + num("cached_input_tokens"),
+          requests: state.usage.requests + 1,
+        };
+        return;
+      }
+
+      case "context.state": {
+        if (!sessionId) return;
+        const state = this.ensureSession(sessionId);
+        state.context = {
+          measured:
+            typeof event.measured_tokens === "number"
+              ? event.measured_tokens
+              : null,
+          window:
+            typeof event.window_tokens === "number"
+              ? event.window_tokens
+              : null,
+          threshold:
+            typeof event.compact_threshold === "number"
+              ? event.compact_threshold
+              : 0.88,
+          messages:
+            typeof event.reading_message_count === "number"
+              ? event.reading_message_count
+              : 0,
+        };
+        return;
+      }
+
       case "ui.request": {
         if (!sessionId) return;
         const state = this.ensureSession(sessionId);
@@ -437,6 +676,69 @@ class RuntimeStore {
             typeof event.default === "number" ? event.default : null,
           defaultText:
             typeof event.default === "string" ? event.default : null,
+        };
+        return;
+      }
+
+      case "ui.render": {
+        if (
+          !sessionId ||
+          event.key !== "statusbar" ||
+          !Array.isArray(event.entries)
+        )
+          return;
+        const state = this.ensureSession(sessionId);
+        state.statusSegments = event.entries
+          .filter(
+            (entry): entry is { key: string; value: string; color?: string } =>
+              typeof entry === "object" &&
+              entry !== null &&
+              typeof (entry as { key?: unknown }).key === "string" &&
+              typeof (entry as { value?: unknown }).value === "string",
+          )
+          .map((entry) => ({
+            key: entry.key,
+            value: entry.value as string,
+            color: typeof entry.color === "string" ? entry.color : null,
+          }));
+        return;
+      }
+
+      case "usage.delta": {
+        if (!sessionId) return;
+        const state = this.ensureSession(sessionId);
+        const num = (key: string) =>
+          typeof event[key] === "number" ? (event[key] as number) : 0;
+        state.usage = {
+          input: state.usage.input + num("input_tokens"),
+          output: state.usage.output + num("output_tokens"),
+          total: state.usage.total + num("total_tokens"),
+          cached: state.usage.cached + num("cached_input_tokens"),
+          requests: state.usage.requests + 1,
+        };
+        return;
+      }
+
+      case "context.state": {
+        if (!sessionId) return;
+        const state = this.ensureSession(sessionId);
+        state.context = {
+          measured:
+            typeof event.measured_tokens === "number"
+              ? event.measured_tokens
+              : null,
+          window:
+            typeof event.window_tokens === "number"
+              ? event.window_tokens
+              : null,
+          threshold:
+            typeof event.compact_threshold === "number"
+              ? event.compact_threshold
+              : 0.88,
+          messages:
+            typeof event.reading_message_count === "number"
+              ? event.reading_message_count
+              : 0,
         };
         return;
       }
@@ -526,7 +828,27 @@ class RuntimeStore {
     const seq = ++state.replaySeq;
     try {
       const replay = await fetchTranscript(id);
-      if (seq === state.replaySeq) state.items = replay.items;
+      if (seq === state.replaySeq) {
+        state.items = replay.items;
+        const raw = replay.context;
+        if (raw && typeof raw === "object") {
+          const record = raw as Record<string, unknown>;
+          const num = (key: string): number | null =>
+            typeof record[key] === "number" ? (record[key] as number) : null;
+          state.context = {
+            measured: num("last_measured_tokens"),
+            window: num("window_tokens"),
+            threshold:
+              typeof record.compact_threshold === "number"
+                ? record.compact_threshold
+                : 0.88,
+            messages:
+              typeof record.reading_message_count === "number"
+                ? record.reading_message_count
+                : 0,
+          };
+        }
+      }
     } catch {
       // Fresh sessions have no transcript; keep whatever is live.
     }
@@ -534,3 +856,4 @@ class RuntimeStore {
 }
 
 export const runtimeStore = new RuntimeStore();
+

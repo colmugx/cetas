@@ -34,6 +34,7 @@ struct WebRuntime {
   home : String
   group : @async.TaskGroup[Unit]
   hub : EventHub
+  bus : @devkit.EventBus
   ui_registry : UiRegistry
   workspaces : Map[String, WorkspaceRuntime]
   /// Registry cwds not yet composed; combined lazily on first switch.
@@ -163,6 +164,7 @@ async fn WebRuntime::compose_handle(
     workspace.platform,
     self.hub,
     self.ui_registry,
+    self.bus,
     workspace.permission_mode,
     session_id,
   ) catch {
@@ -263,6 +265,7 @@ async fn compose_session_agent(
   platform : @cetas_core.CetasPlatform,
   hub : EventHub,
   ui_registry : UiRegistry,
+  bus : @devkit.EventBus,
   permission_mode : @permission.PermissionMode,
   session_id : String,
 ) -> SessionHandle {
@@ -291,16 +294,8 @@ async fn compose_session_agent(
   session.permission.mode = permission_mode
   let router = session.router
   let policy = session.permission
-  let session_bus = session.event_bus
-  let observer = WebObserver::new(hub, session_bus, session_id)
-  let speed_metrics = @stats.Stats(bus=Some(session_bus))
-  let statusbar = @statusbar.StatusBar(bus=Some(session_bus))
-  seed_status(session_bus)
-  let tail_exts : Array[&@posoco.Extension] = [
-    observer as &@posoco.Extension,
-    speed_metrics,
-    statusbar,
-  ]
+  let observer = WebObserver::new(hub, session_id)
+  let tail_exts : Array[&@posoco.Extension] = [observer as &@posoco.Extension]
   let agent = @cetas_core.compose_cetas_agent(
     session~,
     tail_exts~,
@@ -368,6 +363,7 @@ async fn WebRuntime::switch_workspace(
     self.group,
     self.hub,
     self.ui_registry,
+    self.bus,
     @permission.PermissionMode::WorkspaceWrite,
   ) catch {
     error => return Err(error.to_string())
@@ -590,16 +586,6 @@ async fn WebRuntime::model_slots_json(
 }
 
 ///|
-/// Re-push the active session's counters after a sink attaches: the
-/// statusbar renders every valued segment on any segment op, so one update
-/// delivers the full strip to the new connection.
-fn WebRuntime::republish_status(self : WebRuntime) -> Unit {
-  let handle = self.active().active()
-  handle.observer.publish_turn_count()
-  handle.observer.publish_step_count()
-}
-
-///|
 fn WebRuntime::zoo_json(self : WebRuntime) -> Json {
   self.active().zoo
 }
@@ -642,6 +628,7 @@ async fn build_workspace(
   group : @async.TaskGroup[Unit],
   hub : EventHub,
   ui_registry : UiRegistry,
+  bus : @devkit.EventBus,
   permission_mode : @permission.PermissionMode,
 ) -> WorkspaceRuntime {
   let warn = async fn(text : String) noraise {
@@ -659,6 +646,7 @@ async fn build_workspace(
     warn~,
   )
   let first_session_id = @cetas_core.mint_session_id()
+  let observer = WebObserver::new(hub, first_session_id)
   let ui_port : &@posoco.UiPort = WsUiPort::new(
     hub, ui_registry, first_session_id,
   )
@@ -679,18 +667,9 @@ async fn build_workspace(
     warn~,
   )
   session.permission.mode = permission_mode
-  let session_bus = session.event_bus
-  let observer = WebObserver::new(hub, session_bus, first_session_id)
   let router = session.router
   let policy = session.permission
-  let speed_metrics = @stats.Stats(bus=Some(session_bus))
-  let statusbar = @statusbar.StatusBar(bus=Some(session_bus))
-  seed_status(session_bus)
-  let tail_exts : Array[&@posoco.Extension] = [
-    observer as &@posoco.Extension,
-    speed_metrics,
-    statusbar,
-  ]
+  let tail_exts : Array[&@posoco.Extension] = [observer as &@posoco.Extension]
   let agent = @cetas_core.compose_cetas_agent(
     session~,
     tail_exts~,
@@ -733,6 +712,7 @@ async fn compose_web_runtime(
   let fs_impl = @workspace.NativeWorkspaceFs()
   let fs : &@workspace.WorkspaceFs = fs_impl
   let hub = EventHub::new()
+  let bus = @devkit.EventBus::EventBus()
   let ui_registry = UiRegistry::new()
   let first = build_workspace(
     fs,
@@ -741,6 +721,7 @@ async fn compose_web_runtime(
     group,
     hub,
     ui_registry,
+    bus,
     @permission.PermissionMode::WorkspaceWrite,
   )
   let workspaces : Map[String, WorkspaceRuntime] = Map::from_array([
@@ -748,5 +729,5 @@ async fn compose_web_runtime(
   ])
   let registry : Array[String] = load_registry(home) catch { _ => [] }
   let registry = registry.filter(registered => registered != cwd)
-  { fs, home, group, hub, ui_registry, workspaces, registry, active_cwd: cwd, }
+  { fs, home, group, hub, bus, ui_registry, workspaces, registry, active_cwd: cwd, }
 }

@@ -52,8 +52,16 @@ export type ModelSlot = {
 
 import type { TranscriptItem } from "./transcript";
 
+export type ContextState = {
+  measured: number | null;
+  window: number | null;
+  threshold: number;
+  messages: number;
+};
+
 export type TranscriptReplay = {
   items: TranscriptItem[];
+  context: ContextState | null;
 };
 
 export type ModelCatalog = {
@@ -61,6 +69,47 @@ export type ModelCatalog = {
   effort: string;
   permission: string;
   slots: ModelSlot[];
+};
+
+export type ExtRoleItem = {
+  label: string;
+  detail: string | null;
+};
+
+export type ExtRole = {
+  role: string;
+  count: number;
+  items: ExtRoleItem[];
+};
+
+export type ExtInfo = {
+  id: string;
+  roles: ExtRole[];
+};
+
+export type ExtZoo = {
+  extensions: ExtInfo[];
+};
+
+export type TraceEvent = {
+  type: string;
+  seq: number;
+  event_id: string;
+  ts?: number;
+  session_id?: string;
+  turn_id?: string;
+  [key: string]: unknown;
+};
+
+export type TraceTurn = {
+  turn_id: string;
+  session_id: string;
+  events: TraceEvent[];
+};
+
+export type TracePage = {
+  turns: TraceTurn[];
+  orphans: TraceEvent[];
 };
 
 export type Versions = {
@@ -103,6 +152,27 @@ async function postJson<T>(
 
 export function probeHealth(signal?: AbortSignal): Promise<Health> {
   return readJson<Health>("/api/health", "health probe", signal);
+}
+
+export function listExts(): Promise<ExtZoo> {
+  return readJson<ExtZoo>("/api/exts", "ext zoo");
+}
+
+export function fetchTrace(
+  filters: {
+    type?: string;
+    session?: string;
+    turn?: string;
+    limit?: number;
+  } = {},
+): Promise<TracePage> {
+  const params = new URLSearchParams();
+  if (filters.type) params.set("type", filters.type);
+  if (filters.session) params.set("session", filters.session);
+  if (filters.turn) params.set("turn", filters.turn);
+  if (filters.limit) params.set("limit", String(filters.limit));
+  const qs = params.toString();
+  return readJson<TracePage>(`/api/trace${qs ? `?${qs}` : ""}`, "trace");
 }
 
 export function probeVersions(): Promise<Versions> {

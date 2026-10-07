@@ -1,6 +1,7 @@
 import {
   "colmugx/cetas-core/lib" @cetas_core,
   "colmugx/posoco",
+  "colmugx/posoco/port",
   "posoco/devkit",
   // recipe-imports:begin
   "colmugx/cetas-ext-forme/lib" @forme,
@@ -19,6 +20,8 @@ import {
   "colmugx/posoco-ext-lazytools" @lazytools,
   // recipe-imports:end
   "colmugx/posoco-ext-permission" @permission,
+  "colmugx/posoco-ext-statusbar" @statusbar,
+  "colmugx/posoco-ext-stats" @stats,
   "colmugx/posoco-ext-workspace" @workspace,
   "colmugx/posoco/kernel",
   "colmugx/posoco/types" @posoco_types,

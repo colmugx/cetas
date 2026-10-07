@@ -20,6 +20,10 @@ type SessionCatalogEntry
 
 type SessionHandle
 
+type UiBlockingApprovalSource
+
+type UiRegistry
+
 type WebClientMessage
 
 type WebObserver
@@ -27,6 +31,8 @@ type WebObserver
 type WebRuntime
 
 type WorkspaceRuntime
+
+type WsUiPort
 
 // Type aliases
 

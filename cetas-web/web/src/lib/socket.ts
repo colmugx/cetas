@@ -30,11 +30,15 @@ export function createRealtimeClient(
     onStateChange(next);
   };
 
+  let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let attempts = 0;
+
   const connect = () => {
     setState("connecting");
     socket = new WebSocket(websocketUrl());
 
     socket.addEventListener("open", () => {
+      attempts = 0;
       setState("online");
       socket?.send(JSON.stringify({ type: "session.attach" }));
     });
@@ -48,8 +52,14 @@ export function createRealtimeClient(
       }
     });
 
-    socket.addEventListener("close", () => setState("offline"));
-    socket.addEventListener("error", () => setState("offline"));
+    const scheduleReconnect = () => {
+      setState("offline");
+      const delay = Math.min(500 * 2 ** attempts, 8000);
+      attempts += 1;
+      reconnectTimer = setTimeout(connect, delay);
+    };
+    socket.addEventListener("close", scheduleReconnect);
+    socket.addEventListener("error", scheduleReconnect);
   };
 
   connect();

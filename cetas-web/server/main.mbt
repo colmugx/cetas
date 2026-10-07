@@ -90,7 +90,10 @@ async fn serve_websocket(
                     runtime.hub.emit("", "", "protocol.error", extra=[
                       ("message", Json::string(message)),
                     ])
-                  Ok(SessionAttach) => runtime.emit_active_snapshot()
+                  Ok(SessionAttach) => {
+                    runtime.emit_active_snapshot()
+                    runtime.republish_status()
+                  }
                   Ok(TurnStart(prompt, session_id)) =>
                     match runtime.start_turn(prompt, session_id) {
                       Ok(_) => ()
@@ -236,6 +239,88 @@ async fn main {
                 }
               None => res.send_json(error_json("missing id"), status=400)
             }
+          Err(detail) => res.send_json(error_json(detail), status=503)
+        }
+      })
+      ctx.get("/exts", (_req, res) => {
+        match boot {
+          Ok(runtime) => res.send_json(runtime.zoo_json())
+          Err(detail) => res.send_json(error_json(detail), status=503)
+        }
+      })
+      ctx.get("/trace", (req, res) => {
+        match boot {
+          Ok(runtime) => {
+            let session_filter = req.query().get("session")
+            let turn_filter = req.query().get("turn")
+            // A turn ledger keyed "session/turn"; request-side grouping keeps
+            // the trace a path of each answer instead of one wire dump.
+            let turn_keys : Array[String] = match session_filter {
+              Some(session) =>
+                match runtime.hub.turn_order.get(session) {
+                  Some(order) => order
+                  None => []
+                }
+              None => {
+                let all : Array[String] = []
+                for _, order in runtime.hub.turn_order {
+                  for key in order {
+                    all.push(key)
+                  }
+                }
+                all
+              }
+            }
+            let turns : Array[Json] = []
+            let orphans : Array[Json] = []
+            for index in 0..<turn_keys.length() {
+              let key = turn_keys[turn_keys.length() - 1 - index]
+              match runtime.hub.turn_traces.get(key) {
+                Some(ledger) => {
+                  // key layout: "<session_id>/<turn_id>"; session ids never
+                  // contain '/' (validated), so the first '/' is the divider.
+                  let divider = key.find("/")
+                  let sid = match divider {
+                    Some(at) => key[:at].to_owned()
+                    None => key
+                  }
+                  let turn_part = match divider {
+                    Some(at) => key[at + 1:].to_owned()
+                    None => ""
+                  }
+                  if turn_part == "" {
+                    for event in ledger {
+                      orphans.push(event)
+                    }
+                  } else if session_filter is Some(want) && sid != want {
+                    continue
+                  } else if turn_filter is Some(want_turn) &&
+                    turn_part != want_turn {
+                    continue
+                  } else {
+                    turns.push(
+                      Json::object(
+                        Map::from_array([
+                          ("turn_id", Json::string(turn_part)),
+                          ("session_id", Json::string(sid)),
+                          ("events", Json::array(ledger.copy())),
+                        ]),
+                      ),
+                    )
+                  }
+                }
+                None => ()
+              }
+            }
+            res.send_json(
+              Json::object(
+                Map::from_array([
+                  ("turns", Json::array(turns)),
+                  ("orphans", Json::array(orphans)),
+                ]),
+              ),
+            )
+          }
           Err(detail) => res.send_json(error_json(detail), status=503)
         }
       })

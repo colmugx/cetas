@@ -48,7 +48,9 @@ fn replay_tool_json(tool : ReplayTool) -> Json {
 
 ///|
 fn transcript_empty_json() -> Json {
-  Json::object(Map::from_array([("items", Json::array([]))]))
+  Json::object(
+    Map::from_array([("items", Json::array([])), ("context", Json::null())]),
+  )
 }
 
 ///|
@@ -156,5 +158,17 @@ fn transcript_json(session : @posoco_types.Session) -> Json {
     }
     message_index += 1
   }
-  Json::object(Map::from_array([("items", Json::array(items))]))
+  let context = session.metadata.get("posoco.context_state")
+  Json::object(
+    Map::from_array([
+      ("items", Json::array(items)),
+      (
+        "context",
+        match context {
+          Some(value) => value
+          None => Json::null()
+        },
+      ),
+    ]),
+  )
 }

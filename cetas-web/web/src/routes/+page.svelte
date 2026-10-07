@@ -2,14 +2,18 @@
   import {
     Brain,
     ChevronDown,
+    Copy,
     ListPlus,
+    Radio,
     Send,
     Square,
     TriangleAlert,
     Waves,
     X,
   } from "@lucide/svelte";
+  import { fetchTrace, type TraceEvent } from "#lib/api";
   import type { PickerOption } from "#lib/components/Picker.svelte";
+  import FloatExtWindow from "#lib/components/FloatExtWindow.svelte";
   import MarkdownStream from "#lib/components/MarkdownStream.svelte";
   import Picker from "#lib/components/Picker.svelte";
   import ToolCard from "#lib/components/ToolCard.svelte";
@@ -36,6 +40,31 @@
   let composerEl: HTMLTextAreaElement | undefined = $state();
   let configError = $state("");
   let uiInputDraft = $state("");
+  let traceTurnId = $state<string | null>(null);
+  let traceEvents = $state<TraceEvent[] | null>(null);
+
+  const fmtTime = (ts?: number): string | null =>
+    ts
+      ? new Date(ts).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : null;
+
+  function openTrace(turnId: string) {
+    traceTurnId = turnId;
+    traceEvents = null;
+    const session = runtimeStore.activeSessionId;
+    if (!session) return;
+    void fetchTrace({ session, turn: turnId, limit: 400 }).then((page) => {
+      traceEvents = page.turns[0]?.events ?? [];
+    });
+  }
+
+  function copyText(text: string) {
+    void navigator.clipboard.writeText(text);
+    toast("success", "Copied");
+  }
 
   function focusOnMount(node: HTMLElement, focus: boolean) {
     if (focus) node.focus();
@@ -165,35 +194,88 @@
   }
 </script>
 
-<div class="flex h-full min-h-0 flex-col">
+<div class="relative flex h-full min-h-0 flex-col">
   <div
     bind:this={scrollEl}
     onscroll={onScroll}
     class="scroll-slim min-h-0 flex-1 overflow-y-auto"
   >
-    <div class="mx-auto w-full max-w-3xl px-5 py-6">
+    <div class="relative mx-auto h-full w-full">
+      <FloatExtWindow sessionId={runtimeStore.activeSessionId} />
+      <div class="mx-auto w-full max-w-3xl px-5 py-6">
       {#if items.length > 0}
         <div class="space-y-4 pb-2">
           {#each items as item (item)}
             <div class="animate-rise">
               {#if item.kind === "user"}
-                <div class="flex justify-end">
+                {@const times = view?.turnTimes[item.turnId]}
+                <div class="flex flex-col items-end gap-1">
+                  <!-- header slot: attachments land here -->
                   <div
                     class="max-w-[82%] rounded-2xl rounded-br-md border border-line bg-raised px-4 py-2.5 text-sm leading-6 text-fg"
                   >
                     {item.text}
                   </div>
+                  <div
+                    class="flex w-full max-w-[82%] items-center justify-between text-[10px]"
+                  >
+                    <button
+                      onclick={() => copyText(item.text)}
+                      class="flex items-center gap-1 rounded px-1 py-0.5 text-fg-faint transition-colors hover:text-fg"
+                      title="Copy prompt"
+                    >
+                      <Copy size={10} />
+                      copy
+                    </button>
+                    <span class="font-mono text-fg-faint"
+                      >{fmtTime(times?.sentAt)}</span
+                    >
+                  </div>
                 </div>
               {:else if item.kind === "assistant"}
-                {#if view?.liveTurnId === item.turnId && view?.live}
-                  <MarkdownStream
-                    content={view.live.visible}
-                    final={view.live.final}
-                    streaming={!view.live.done}
-                  />
-                {:else}
-                  <MarkdownStream content={item.text} />
-                {/if}
+                {@const times = view?.turnTimes[item.turnId]}
+                {@const isLive = view?.liveTurnId === item.turnId && view?.live}
+                <div class="flex flex-col gap-1">
+                  <!-- header slot: attachments land here -->
+                  {#if isLive && view?.live}
+                    <MarkdownStream
+                      content={view.live.visible}
+                      final={view.live.final}
+                      streaming={!view.live.done}
+                    />
+                  {:else}
+                    <MarkdownStream content={item.text} />
+                  {/if}
+                  {#if !isLive}
+                    <div
+                      class="flex items-center justify-between text-[10px]"
+                    >
+                      <div class="flex items-center gap-2">
+                        <button
+                          onclick={() => openTrace(item.turnId)}
+                          class="flex items-center gap-1 rounded px-1 py-0.5 text-fg-faint transition-colors hover:text-fg"
+                          title="Open the trace of this answer"
+                        >
+                          <Radio size={10} />
+                          trace
+                        </button>
+                        <button
+                          onclick={() => copyText(item.text)}
+                          class="flex items-center gap-1 rounded px-1 py-0.5 text-fg-faint transition-colors hover:text-fg"
+                          title="Copy answer"
+                        >
+                          <Copy size={10} />
+                          copy
+                        </button>
+                      </div>
+                      <span class="font-mono text-fg-faint">
+                        {fmtTime(times?.completedAt)
+                          ? `done ${fmtTime(times?.completedAt)}`
+                          : ""}
+                      </span>
+                    </div>
+                  {/if}
+                </div>
               {:else if item.kind === "reasoning"}
                 <details open={item.streaming} class="group rounded-xl border border-line bg-panel/60">
                   <summary
@@ -268,14 +350,112 @@
           </p>
         </div>
       {/if}
+      </div>
     </div>
   </div>
+
+  {#if traceTurnId}
+    <div
+      class="absolute top-14 right-5 z-30 flex max-h-[70vh] w-[420px] flex-col overflow-hidden rounded-xl border border-line-strong bg-raised/95 shadow-[0_12px_40px_-12px_var(--shadow-color)] backdrop-blur"
+    >
+      <div
+        class="flex shrink-0 items-center justify-between border-b border-line px-3.5 py-2.5"
+      >
+        <div class="flex items-center gap-2">
+          <Radio size={12} class="text-accent" />
+          <span class="text-xs font-medium text-fg"
+            >Trace · {traceTurnId}</span
+          >
+        </div>
+        <button
+          onclick={() => (traceTurnId = null)}
+          class="rounded p-0.5 text-fg-faint transition-colors hover:text-fg"
+          title="Close trace"
+        >
+          <X size={12} />
+        </button>
+      </div>
+      <div class="scroll-slim min-h-0 flex-1 overflow-y-auto">
+        {#if traceEvents === null}
+          <p class="px-3.5 py-3 text-[11px] text-fg-faint">Loading…</p>
+        {:else if traceEvents.length === 0}
+          <p class="px-3.5 py-3 text-[11px] text-fg-faint">
+            No events recorded for this turn.
+          </p>
+        {:else}
+          {#each traceEvents as event (event.event_id)}
+            <div class="border-b border-line/50 last:border-b-0">
+              <div
+                class="flex items-center gap-2.5 px-3.5 py-1.5 text-[10.5px]"
+              >
+                <span
+                  class="w-10 shrink-0 font-mono text-fg-faint">#{event.seq}</span
+                >
+                <span class="w-40 shrink-0 truncate font-mono text-fg"
+                  >{event.type}</span
+                >
+                <span class="min-w-0 flex-1 truncate text-fg-faint">
+                  {typeof event.delta === "string"
+                    ? event.delta.slice(0, 50)
+                    : typeof event.tool_name === "string"
+                      ? event.tool_name
+                      : ""}
+                </span>
+                <span
+                  class="shrink-0 font-mono text-[9.5px] text-fg-faint"
+                >
+                  {event.ts
+                    ? new Date(event.ts).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      })
+                    : ""}
+                </span>
+              </div>
+            </div>
+          {/each}
+        {/if}
+      </div>
+    </div>
+  {/if}
 
   <div class="shrink-0 border-t border-line bg-panel/50 backdrop-blur">
     <div class="mx-auto w-full max-w-3xl px-5 pb-4 pt-3">
       <div
         class="rounded-2xl border border-line-strong bg-raised shadow-[0_12px_40px_-12px_var(--shadow-color)] transition-colors focus-within:border-accent/40"
       >
+        {#if view?.context && view.context.measured &&
+        !view.statusSegments.some((segment) => segment.key === "ctx")}
+          {@const measured = view.context.measured}
+          {@const window = view.context.window}
+          {@const percent = window
+            ? Math.min(100, Math.round((measured / window) * 100))
+            : null}
+          <div class="flex items-center gap-2 px-4 pt-2.5">
+            {#if percent !== null}
+              <div
+                class="relative h-1 flex-1 overflow-hidden rounded-full bg-canvas"
+              >
+                <div
+                  class="h-full rounded-full {percent >=
+                  Math.round(view.context.threshold * 100)
+                    ? 'bg-warn'
+                    : 'bg-accent/70'}"
+                  style="width: {percent}%"
+                ></div>
+              </div>
+              <span class="font-mono text-[9.5px] text-fg-faint"
+                >ctx {percent}%</span
+              >
+            {:else}
+              <span class="font-mono text-[9.5px] text-fg-faint"
+                >ctx {(measured / 1000).toFixed(1)}k tok · {view.context.messages}
+                msgs</span
+              >
+            {/if}
+          </div>
+        {/if}
         {#if view?.uiRequest}
           {@const req = view.uiRequest}
           <div class="border-t border-accent/30 bg-accent-dim/60 px-4 py-3.5">
@@ -388,19 +568,30 @@
           <div class="flex min-w-0 items-center gap-1.5">
             <Picker
               label="model"
-              value={shortModel}
+              value="{shortModel} · {view?.effort || "default"}"
               options={modelOptions}
               disabled={busy || !ready}
               searchable
               onSelect={(value) => void applyConfig(() => setModel(value))}
-            />
-            <Picker
-              label="effort"
-              value={view?.effort || "default"}
-              options={effortOptions}
-              disabled={busy || !ready}
-              onSelect={(value) => void applyConfig(() => setEffort(value))}
-            />
+            >
+              {#snippet pinned()}
+                  <div class="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-fg-faint">
+                    effort
+                  </div>
+                  <div class="flex flex-wrap gap-1">
+                    {#each effortOptions as effort (effort.value)}
+                      <button
+                        onclick={() => void applyConfig(() => setEffort(effort.value))}
+                        class="rounded-md border px-2 py-1 text-[11px] transition-colors {effort.active
+                          ? 'border-accent/50 bg-accent-dim text-accent'
+                          : 'border-line bg-raised text-fg-muted hover:text-fg'}"
+                      >
+                        {effort.label}
+                      </button>
+                    {/each}
+                  </div>
+              {/snippet}
+            </Picker>
             <Picker
               label="permission"
               value={view?.permission || "readonly"}
@@ -450,6 +641,50 @@
           {/if}
         </div>
       </div>
+
+      <!-- composer dock: session stats pills + leftover statusbar segments,
+           docked below the whole input box -->
+      {#if view && (view.dockStats || view.statusSegments.length > 0)}
+        <div
+          class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 px-2 text-[11px] text-fg-faint"
+        >
+          {#if view.dockStats}
+            {@const dock = view.dockStats}
+            <span class="flex items-center gap-1" title="{dock.ttftMs} ms avg ttft">
+              <span class="font-mono">
+                {dock.turns} {dock.turns === 1 ? "turn" : "turns"} · {dock.steps}
+                {dock.steps === 1 ? "step" : "steps"}
+              </span>
+              {#if dock.tokPerSec > 0}
+                <span class="font-mono">{dock.tokPerSec} tok/s</span>
+              {/if}
+            </span>
+          {/if}
+          {#if view.dockStats && view.dockStats.tokens > 0}
+            <span class="flex items-center gap-1 font-mono">
+              <span>{(view.dockStats.tokens / 1000).toFixed(1)}k tokens</span>
+              {#if view.dockStats.cacheHitPct !== null}
+                <span>{view.dockStats.cacheHitPct}% cached</span>
+              {/if}
+            </span>
+          {/if}
+          {#each view.statusSegments as segment (segment.key)}
+            {#if !["turns", "steps", "ttft", "tps", "avg", "cache", "ctx", "permission", "model", "time_limit", "5h"].includes(
+                segment.key.toLowerCase(),
+              )}
+              <span class="flex items-center gap-1">
+                <span class="text-fg-muted">{segment.key}</span>
+                <span
+                  class="font-mono"
+                  style={segment.color ? `color: ${segment.color}` : ""}
+                >
+                  {segment.value}
+                </span>
+              </span>
+            {/if}
+          {/each}
+        </div>
+      {/if}
     </div>
   </div>
 </div>

@@ -1,12 +1,13 @@
 <script lang="ts">
   import {
-    Activity,
     FolderOpen,
+    Layers,
     MessageSquare,
     Monitor,
     Moon,
     Pencil,
     Plus,
+    Radio,
     Settings,
     Sun,
     Waves,
@@ -17,6 +18,7 @@
   import { listSessions, renameSession, type SessionSummary } from "#lib/api";
   import { runtimeStore } from "#lib/runtime.svelte";
   import { toast } from "#lib/toast.svelte";
+  import StatusWindow from "#lib/components/StatusWindow.svelte";
   import { themeStore } from "#lib/theme.svelte";
   import { bindShortcuts, modKey } from "#lib/shortcuts";
 
@@ -25,6 +27,8 @@
   const navItems = [
     { path: "/", label: "Chat", icon: MessageSquare },
     { path: "/workspace", label: "Workspace", icon: FolderOpen },
+    { path: "/extensions", label: "Extensions", icon: Layers },
+    { path: "/trace", label: "Trace", icon: Radio },
     { path: "/settings", label: "Settings", icon: Settings },
   ];
 
@@ -35,22 +39,6 @@
   $effect(() => {
     document.title = `Cetas · ${pageTitle}`;
   });
-
-  const dotTone = (state: string) => {
-    switch (state) {
-      case "online":
-      case "ready":
-        return "bg-accent";
-      case "checking":
-      case "connecting":
-      case "needs_setup":
-        return "bg-warn animate-breathe";
-      case "offline":
-        return "bg-bad";
-      default:
-        return "bg-line-strong";
-    }
-  };
 
   let sessions = $state<SessionSummary[]>([]);
   let sessionError = $state("");
@@ -330,63 +318,7 @@
       </div>
     </div>
 
-    <div class="shrink-0 p-3">
-      <div class="rounded-xl border border-line bg-raised/40 p-3">
-        <div
-          class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-fg-faint"
-        >
-          <Activity size={11} />
-          Runtime
-        </div>
-        <div class="mt-2.5 space-y-1.5">
-          <div class="flex items-center gap-2 text-[11px]">
-            <span
-              class="w-9 shrink-0 font-mono uppercase tracking-wide text-fg-faint"
-            >
-              core
-            </span>
-            <span
-              class="inline-block size-1.5 shrink-0 rounded-full {dotTone(
-                runtimeStore.core,
-              )}"
-            ></span>
-            <span class="min-w-0 flex-1 truncate text-fg-muted">
-              {runtimeStore.core}
-            </span>
-          </div>
-          <div class="flex items-center gap-2 text-[11px]">
-            <span
-              class="w-9 shrink-0 font-mono uppercase tracking-wide text-fg-faint"
-            >
-              ws
-            </span>
-            <span
-              class="inline-block size-1.5 shrink-0 rounded-full {dotTone(
-                runtimeStore.socketState,
-              )}"
-            ></span>
-            <span class="min-w-0 flex-1 truncate text-fg-muted">
-              {runtimeStore.socketState}
-            </span>
-          </div>
-          <div class="flex items-center gap-2 text-[11px]">
-            <span
-              class="w-9 shrink-0 font-mono uppercase tracking-wide text-fg-faint"
-            >
-              http
-            </span>
-            <span
-              class="inline-block size-1.5 shrink-0 rounded-full {dotTone(
-                runtimeStore.http,
-              )}"
-            ></span>
-            <span class="min-w-0 flex-1 truncate text-fg-muted">
-              {runtimeStore.http}
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
+    <StatusWindow />
   </aside>
 
   <div class="flex min-w-0 flex-1 flex-col">
@@ -413,28 +345,6 @@
       </div>
 
       <div class="flex items-center gap-2.5">
-        <span
-          class="flex items-center gap-1.5 text-[11px] text-fg-muted"
-          title="api {runtimeStore.http}"
-        >
-          <span
-            class="inline-block size-1.5 shrink-0 rounded-full {dotTone(
-              runtimeStore.http,
-            )}"
-          ></span>
-          api
-        </span>
-        <span
-          class="flex items-center gap-1.5 text-[11px] text-fg-muted"
-          title="realtime {runtimeStore.socketState}"
-        >
-          <span
-            class="inline-block size-1.5 shrink-0 rounded-full {dotTone(
-              runtimeStore.socketState,
-            )}"
-          ></span>
-          ws
-        </span>
         <button
           onclick={() => (helpOpen = true)}
           class="hidden size-7 place-items-center rounded-lg border border-line bg-raised/60 text-fg-muted transition-colors hover:text-fg sm:grid"

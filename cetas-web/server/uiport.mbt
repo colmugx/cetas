@@ -61,10 +61,38 @@ impl @posoco.UiPort for WsUiPort with fn ui_descriptor(_self : WsUiPort) -> @pos
 
 ///|
 impl @posoco.UiPort for WsUiPort with fn render(
-  _self : WsUiPort,
-  _render : @posoco.UiRender,
+  self : WsUiPort,
+  render : @posoco.UiRender,
 ) -> Unit {
-  ()
+  let entries : Array[Json] = match render.body {
+    @posoco.UiBody::Entries(items) => {
+      let list : Array[Json] = []
+      for item in items {
+        list.push(
+          Json::object(
+            Map::from_array([
+              ("key", Json::string(item.key)),
+              ("value", Json::string(item.value)),
+              (
+                "color",
+                match item.color {
+                  Some(color) => Json::string(color)
+                  None => Json::null()
+                },
+              ),
+            ]),
+          ),
+        )
+      }
+      list
+    }
+    _ => []
+  }
+  self.hub.emit(self.session_id, "", "ui.render", extra=[
+    ("key", Json::string(render.key)),
+    ("slot", Json::string(@debug.to_string(render.slot))),
+    ("entries", Json::array(entries)),
+  ])
 }
 
 ///|
@@ -139,4 +167,26 @@ impl @posoco.UiPort for WsUiPort with fn request(
     return @posoco.UiResponse::No
   }
   @posoco.UiResponse::Cancelled
+}
+
+///|
+/// Seed the harness counters so the statusbar shows them from the start;
+/// the observer publishes updates as turns run.
+fn seed_status(bus : @devkit.EventBus) -> Unit {
+  @devkit.publish_status_register(
+    bus,
+    source="cetas-web",
+    segment="turns",
+    label="turns",
+    priority=30,
+    value="0",
+  )
+  @devkit.publish_status_register(
+    bus,
+    source="cetas-web",
+    segment="steps",
+    label="steps",
+    priority=31,
+    value="0",
+  )
 }

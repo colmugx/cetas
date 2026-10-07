@@ -40,4 +40,6 @@ import {
   // recipe-deps:end
   "posoco/ext-llm@0.2.0",
   "colmugx/posoco-ext-fs-session@0.4.0",
+  "colmugx/posoco-ext-statusbar@0.3.0",
+  "colmugx/posoco-ext-stats@0.1.0",
 }

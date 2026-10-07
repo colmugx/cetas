@@ -9,6 +9,8 @@
     active?: boolean;
   };
 
+  import type { Snippet } from "svelte";
+
   let {
     label,
     value,
@@ -16,6 +18,7 @@
     disabled = false,
     searchable = false,
     onSelect,
+    pinned,
   }: {
     label: string;
     value: string;
@@ -23,6 +26,7 @@
     disabled?: boolean;
     searchable?: boolean;
     onSelect: (value: string) => void;
+    pinned?: Snippet;
   } = $props();
 
   let open = $state(false);
@@ -120,6 +124,11 @@
       class="animate-pop absolute bottom-full left-0 z-30 mb-1.5 w-[300px] overflow-hidden rounded-xl border border-line-strong bg-raised shadow-[0_12px_40px_-12px_var(--shadow-color)]"
       role="listbox"
     >
+      {#if pinned}
+        <div class="border-b border-line px-2 py-2">
+          {@render pinned()}
+        </div>
+      {/if}
       {#if searchable}
         <div class="flex items-center gap-2 border-b border-line px-3 py-2">
           <Search size={12} class="shrink-0 text-fg-faint" />
