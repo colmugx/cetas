@@ -1,0 +1,31 @@
+[package]
+name = "cetas-gpui"
+version = "0.0.1"
+edition = "2024"
+publish = false
+description = "Native GPUI desktop proof-of-concept for Cetas"
+
+[dependencies]
+gpui-kit = "0.7.1"
+serde_json = "1"
+
+[build-dependencies]
+cc = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.dev.package]
+gpui-pre = { opt-level = 3 }
+gpui-component = { opt-level = 3 }
+gpui-kit = { opt-level = 3 }
+gpui-kit-assets = { opt-level = 3 }
+gpui-pre-macros = { opt-level = 3 }
+gpui-pre-platform = { opt-level = 3 }
+rustybuzz = { opt-level = 3 }
+taffy = { opt-level = 3 }
+ttf-parser = { opt-level = 3 }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
