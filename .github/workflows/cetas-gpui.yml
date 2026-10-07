@@ -54,6 +54,12 @@ jobs:
       - name: MoonBit version
         run: "$HOME/.moon/bin/moon version --all"
 
+      - name: Check MoonBit desktop core
+        working-directory: posoco/external/cetas/cetas-gpui/moon
+        run: |
+          export PATH="$HOME/.moon/bin:$PATH"
+          moon check --target native --deny-warn --output-json
+
       - name: Build native Cetas GPUI
         working-directory: posoco/external/cetas
         run: |
