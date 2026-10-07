@@ -54,6 +54,12 @@ jobs:
       - name: MoonBit version
         run: "$HOME/.moon/bin/moon version --all"
 
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: posoco/external/cetas/cetas-gpui
+          key: macos-arm64-gpui
+
       - name: Prepare Cetas public recipe
         working-directory: posoco/external/cetas
         run: python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
