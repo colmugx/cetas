@@ -13,7 +13,7 @@ CAPTURE_CC = APP / "tools" / "moon_cc_capture.py"
 
 
 def run(cmd, cwd, env):
-    print("+", " ".join(map(str, cmd)))
+    print("+", " ".join(map(str, cmd)), flush=True)
     subprocess.run(list(map(str, cmd)), cwd=cwd, env=env, check=True)
 
 
@@ -36,6 +36,7 @@ def main():
     env["MOONBIT_NEW_NATIVE"] = "0"
     env["CETAS_MOON_CAPTURE_DIR"] = str(CAPTURE)
     try:
+        run(["moon", "update"], APP, env)
         run(["moon", "build", "--target", "native", "--release"], APP, env)
     finally:
         PKG.write_text(original)
