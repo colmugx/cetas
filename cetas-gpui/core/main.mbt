@@ -121,9 +121,14 @@ async fn run_desktop(
   let session_id = @cetas_core.mint_session_id()
   // POC deliberately uses cetas-core directly. The compiled desktop recipe
   // can be layered in after the host/runtime boundary has proven sound.
+  let feature_exts = build_compiled_recipe_features(
+    ctx={ fs, cwd, home, },
+    nmem_group=Some(group),
+  )
   let session = @cetas_core.build_cetas_session(
     platform~,
     cwd~,
+    feature_exts~,
     label="cetas-gpui",
     warn~,
   )

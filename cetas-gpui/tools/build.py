@@ -57,6 +57,7 @@ def main():
             APP,
             env,
         )
+        shutil.copy2(ROOT / "cetas-web" / "server" / "recipe.generated.mbt", APP / "core" / "recipe.generated.mbt")
         run(["moon", "update"], APP, env)
         run(["moon", "build", "--target", "native", "--release"], APP, env)
     finally:
