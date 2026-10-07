@@ -9,12 +9,27 @@ ROOT = Path(__file__).resolve().parents[2]
 APP = ROOT / "cetas-gpui"
 PKG = APP / "core" / "moon.pkg"
 CAPTURE = APP / "generated" / "moonbit"
-CAPTURE_CC = APP / "tools" / "moon_cc_capture.py"
+TOOLCHAIN = APP / "generated" / "toolchain"
+CAPTURE_SOURCE = APP / "tools" / "moon_cc_capture.py"
 
 
 def run(cmd, cwd, env):
     print("+", " ".join(map(str, cmd)), flush=True)
     subprocess.run(list(map(str, cmd)), cwd=cwd, env=env, check=True)
+
+
+def prepare_capture_toolchain():
+    if TOOLCHAIN.exists():
+        shutil.rmtree(TOOLCHAIN)
+    TOOLCHAIN.mkdir(parents=True)
+    cc = TOOLCHAIN / "cc"
+    shutil.copy2(CAPTURE_SOURCE, cc)
+    cc.chmod(0o755)
+    ar = shutil.which("ar")
+    if not ar:
+        raise SystemExit("system archiver 'ar' is required")
+    (TOOLCHAIN / "ar").symlink_to(Path(ar).resolve())
+    return cc
 
 
 def main():
@@ -25,9 +40,10 @@ def main():
     if CAPTURE.exists():
         shutil.rmtree(CAPTURE)
     CAPTURE.mkdir(parents=True)
+    capture_cc = prepare_capture_toolchain()
 
     original = PKG.read_text()
-    patched = original.replace("__CETAS_GPUI_CC__", str(CAPTURE_CC))
+    patched = original.replace("__CETAS_GPUI_CC__", str(capture_cc))
     if patched == original:
         raise SystemExit("capture compiler placeholder missing")
     PKG.write_text(patched)
