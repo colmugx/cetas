@@ -1,8 +1,10 @@
-#warnings("-unused_async")\n\n///|
+#warnings("-unused_async")
+
+///|
 /// Native GPUI host observer. It projects the same semantic stream that
 /// cetas-web consumes, but sends it through the in-process C queue.
 struct DesktopObserver {
-  mut session_id : String
+  session_id : String
   mut turn_id : String
   mut turn_no : Int
 }
