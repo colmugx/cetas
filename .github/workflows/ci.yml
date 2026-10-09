@@ -76,13 +76,6 @@ jobs:
           moon update
           moon check --deny-warn --output-json
 
-      - name: moon test
-        id: test
-        working-directory: posoco/external/cetas/cetas-acp
-        run: |
-          python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
-          moon test --target native --output-json
-
       - name: moon fmt
         working-directory: posoco/external/cetas/cetas-acp
         run: |
@@ -98,6 +91,13 @@ jobs:
           python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
           moon info
           git diff --exit-code -- . ../cetas-js ../cetas-core ../cetas-run ../cetas-acp ../cetas-ext-forme
+
+      - name: moon test
+        id: test
+        working-directory: posoco/external/cetas/cetas-acp
+        run: |
+          python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
+          moon test --target native --output-json
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
