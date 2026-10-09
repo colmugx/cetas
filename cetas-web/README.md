@@ -75,25 +75,31 @@ Requirements:
 
 - MoonBit toolchain
 - Node.js 22.12 or newer
+- npm on `PATH`
 
-Prepare the public Web recipe when working on composition code:
+From the repository root, one command prepares the Web recipe and frontend
+dependencies, then starts Moonback and Vite together:
 
 ```sh
-python3 scripts/prepare-recipe.py \
-  --flavor public \
-  --frontend web \
-  --platform unix
+moon run ./cetas-web/dev
 ```
 
-Start Moonback from the repository root:
+Open:
+
+```text
+http://127.0.0.1:5173
+```
+
+The dev runner owns both child processes. Stopping it stops both Moonback and
+Vite. It also selects the correct recipe platform on Unix/macOS vs Windows.
+
+For debugging the two processes independently, the equivalent manual commands
+are:
 
 ```sh
+python3 scripts/prepare-recipe.py --flavor public --frontend web --platform unix
 moon run ./cetas-web/server
-```
 
-Then start Solid:
-
-```sh
 cd cetas-web/web
 bun install
 bun run dev
