@@ -1,0 +1,75 @@
+name: cetas gpui macos arm64
+
+on:
+  push:
+    branches: [feat/cetas-gpui-poc]
+    paths:
+      - "cetas-gpui/**"
+      - "cetas-core/**"
+      - "cetas-web/server/**"
+      - ".github/workflows/cetas-gpui-macos.yml"
+  pull_request:
+    paths:
+      - "cetas-gpui/**"
+      - "cetas-core/**"
+      - "cetas-web/server/**"
+      - ".github/workflows/cetas-gpui-macos.yml"
+  workflow_dispatch:
+
+jobs:
+  native-macos-arm64:
+    runs-on: macos-15-arm64
+    timeout-minutes: 45
+    env:
+      CETAS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout POSOCO parent + Cetas modules
+        uses: actions/checkout@v4
+        with:
+          repository: colmugx/posoco
+          ref: main
+          path: posoco
+          submodules: recursive
+      - name: Use Cetas branch commit
+        working-directory: posoco/external/cetas
+        run: |
+          git fetch --depth=1 origin "${CETAS_SHA}"
+          git checkout "${CETAS_SHA}"
+          git submodule update --init --recursive
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+      - name: Report versions
+        run: |
+          moon version --all
+          rustc -Vv
+          xcodebuild -version
+      - name: Prepare production MoonBit dependency graph
+        working-directory: posoco/external/cetas/cetas-web
+        run: |
+          python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
+          moon update
+          moon check --target native --deny-warn
+      - name: Build embedded MoonBit + GPUI app
+        working-directory: posoco/external/cetas
+        run: bash cetas-gpui/scripts/build-macos.sh
+      - name: Verify binary architecture and capture
+        working-directory: posoco/external/cetas
+        run: |
+          file cetas-gpui/dist/Cetas.app/Contents/MacOS/Cetas
+          lipo -archs cetas-gpui/dist/Cetas.app/Contents/MacOS/Cetas | grep -w arm64
+          test -s cetas-gpui/generated/sources.txt
+          test "$(find cetas-gpui/generated -name '*.c' | wc -l | tr -d ' ')" -gt 0
+          codesign --verify --deep cetas-gpui/dist/Cetas.app
+      - name: Zip app
+        working-directory: posoco/external/cetas/cetas-gpui/dist
+        run: ditto -c -k --sequesterRsrc --keepParent Cetas.app Cetas-macos-arm64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cetas-macos-arm64
+          path: posoco/external/cetas/cetas-gpui/dist/Cetas-macos-arm64.zip
+          if-no-files-found: error
