@@ -159,7 +159,7 @@ pub async fn build_cetas_session(
   }
   // Records quota verdicts per session and re-runs the interrupted session
   // at the provider-stated reset time; one guard per session agent.
-  let ratelimit = @ratelimit.RateLimitGuard()
+  let ratelimit = @ratelimit.RateLimitGuard(bus=Some(event_bus))
   exts.push(ratelimit as &@posoco.Extension)
   let session_fs = match session_fs {
     Some(fs) => fs

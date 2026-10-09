@@ -446,6 +446,10 @@ export class CetasApplication<AgentHandle = unknown> {
           this.cancellation,
         );
         this.piPackages = this.options.bridge.piPackages;
+        // Bind before anything can run: the freshly composed Agent starts
+        // with no window, so wakeup admission is rejected until the host's
+        // initial session is the bound one.
+        this.bindActiveSession();
       }
       if ((this.state as AppState) !== "shutting_down") {
         this.transition("ready");
@@ -599,6 +603,9 @@ export class CetasApplication<AgentHandle = unknown> {
     }
     this.invalidateRateLimitContext();
     this.currentSessionId = sessionId;
+    // Bind now, not at the next turn: a real switch retires the previous
+    // window's pending wakeup tickets while the app is idle.
+    this.bindActiveSession();
     this.publish();
   }
 
@@ -625,6 +632,10 @@ export class CetasApplication<AgentHandle = unknown> {
       );
     }
     this.currentSessionId = to;
+    // Mid-turn redirect: rebind so pending wakeup tickets of the thread the
+    // runtime just moved away from are dropped; an admitted operation is
+    // untouched and settles through its own lifecycle.
+    this.bindActiveSession();
     this.publish();
   }
 
@@ -709,6 +720,7 @@ export class CetasApplication<AgentHandle = unknown> {
     }
 
     this.currentSessionId = sessionId;
+    this.bindActiveSession();
     const agent = this.agent;
     const abort = new AbortController();
     const lease = this.beginAgentOperation("turn", {
@@ -794,6 +806,7 @@ export class CetasApplication<AgentHandle = unknown> {
     }
 
     this.currentSessionId = sessionId;
+    this.bindActiveSession();
     while (true) {
       if ((this.state as AppState) === "shutting_down") {
         throw new CetasApplicationError(
@@ -1124,6 +1137,7 @@ export class CetasApplication<AgentHandle = unknown> {
     }
     const agent = this.agent;
     this.currentSessionId = sessionId;
+    this.bindActiveSession();
     const compactPromise = Promise.resolve().then(() =>
       this.runCompactLocked(bridge, agent, sessionId),
     );
@@ -1488,6 +1502,7 @@ export class CetasApplication<AgentHandle = unknown> {
       const requested = compactSessionArgument(argsJson);
       const sessionId = requested ?? this.currentSessionId;
       if (requested === undefined) this.currentSessionId = sessionId;
+      this.bindActiveSession();
       const bridge = this.options.bridge as CompactCapableBridge<AgentHandle>;
       if (bridge.compactSession === undefined) {
         throw new CetasApplicationError(
@@ -1549,6 +1564,9 @@ export class CetasApplication<AgentHandle = unknown> {
       let pendingError: unknown;
       if (this.agent !== undefined) {
         this.options.bridge.cancelPendingRateLimit(this.agent);
+        // Process-end semantics: clear the window so no late admission can
+        // target a session the user can no longer reach.
+        this.bindActiveSession(undefined);
       }
       const live = await this.settleWithin(
         this.stopLiveCatalogRefresh(),
@@ -1822,6 +1840,17 @@ export class CetasApplication<AgentHandle = unknown> {
     if (this.agent !== undefined) {
       this.options.bridge.cancelPendingRateLimit(this.agent);
     }
+  }
+
+  /**
+   * Bind the core Wakeup admission window to the host's active session (or
+   * clear it with `undefined`). Synchronous — called whenever the binding
+   * changes, so admission follows the active window even while idle. A no-op
+   * before an Agent exists.
+   */
+  private bindActiveSession(sessionId: string | undefined = this.currentSessionId): void {
+    if (this.agent === undefined) return;
+    this.options.bridge.setActiveSession?.(this.agent, sessionId);
   }
 }
 

@@ -72,6 +72,8 @@ pub fn cetas_js_session_titles(String) -> @js_async.Promise[String]
 
 pub fn cetas_js_sessions_dir(String, String) -> String
 
+pub fn cetas_js_set_active_session(CetasJsAgent, String) -> Unit
+
 pub fn cetas_js_shutdown(CetasJsAgent) -> @js_async.Promise[Unit]
 
 pub fn cetas_js_tool_catalog(CetasJsAgent) -> String

@@ -2406,6 +2406,26 @@ pub fn cetas_js_cancel_pending_ratelimit(handle : CetasJsAgent) -> Unit {
 }
 
 ///|
+/// Bind the host's active window session for Wakeup admission (the empty
+/// string clears). Synchronous and safe while idle: never raises, never
+/// cancels an admitted operation, and a real change drops the previous
+/// window's pending tickets. The host binds at Agent creation — before any
+/// pump turn can run — on every session switch and redirect, and clears at
+/// teardown.
+pub fn cetas_js_set_active_session(
+  handle : CetasJsAgent,
+  session_id : String,
+) -> Unit {
+  handle.agent.set_active_session(
+    if session_id == "" {
+      None
+    } else {
+      Some(session_id)
+    },
+  )
+}
+
+///|
 /// Shut down the long-lived agent. Cleanup failures reject the returned
 /// Promise and remain visible to the JS host.
 pub fn cetas_js_shutdown(handle : CetasJsAgent) -> @js_async.Promise[Unit] {

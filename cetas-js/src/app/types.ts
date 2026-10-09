@@ -228,6 +228,14 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
   /** Permanently invalidate every recovery recorded before a context change. */
   cancelPendingRateLimit(agent: AgentHandle): void;
   /**
+   * Bind the host's active window session for core Wakeup admission;
+   * `undefined` clears. Synchronous and safe while idle: a real change drops
+   * the previous window's pending wakeup tickets and never cancels an
+   * already admitted operation. Optional — bridges without the export leave
+   * the core unbound, so wakeup admission is rejected until one is composed.
+   */
+  setActiveSession?(agent: AgentHandle, sessionId: string | undefined): void;
+  /**
    * Whether the active model slot advertises the `image_in` capability.
    * Used as the attach-time gate: `false` means send no images and warn
    * (switch model via /model). Absent on older bridges — callers treat that

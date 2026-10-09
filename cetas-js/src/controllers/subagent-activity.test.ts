@@ -496,14 +496,34 @@ describe("SubagentActivityStore outcome receipts", () => {
     expect(store.resultsWaiting("s2")).toBe(0);
   });
 
-  it("the authoritative terminal delivers the receipt; an exit alone does not", () => {
+  it("only the background_delivered ack delivers the receipt", () => {
     const store = new SubagentActivityStore();
     spawned(store, "bg", "background", { background: true });
     label(store, "bg", "background_spawned", { task_id: "task_1" });
     store.noteOutcomeReady("task_1", "s1");
+    // An exit alone never delivers: the outcome is queued, not injected.
     label(store, "bg", "background_exited", { state: "completed" });
     expect(store.resultsWaiting("s1")).toBe(1);
+    // Nor does the authoritative terminal: injection is what closes it.
     label(store, "bg", "background_terminal", { state: "completed", summary: "done" });
+    expect(store.resultsWaiting("s1")).toBe(1);
+    // The extension's `background_delivered` ack carries the task id.
+    label(store, "bg", "background_delivered", { task_id: "task_1" });
+    expect(store.resultsWaiting("s1")).toBe(0);
+  });
+
+  it("an ack before the receipt keeps a late duplicate receipt cleared", () => {
+    const store = new SubagentActivityStore();
+    spawned(store, "bg", "background", { background: true });
+    label(store, "bg", "background_spawned", { task_id: "task_1" });
+    // Out-of-order: the ack lands before the core receipt (replayed log).
+    expect(label(store, "bg", "background_delivered", { task_id: "task_1" })).toBe(true);
+    expect(store.noteOutcomeReady("task_1", "s1")).toBe(false);
+    expect(store.resultsWaiting("s1")).toBe(0);
+    // Duplicate acks are no-ops.
+    expect(label(store, "bg", "background_delivered", { task_id: "task_1" })).toBe(false);
+    // An ack for an unknown task neither creates state nor throws.
+    expect(label(store, "bg", "background_delivered", { task_id: "ghost" })).toBe(true);
     expect(store.resultsWaiting("s1")).toBe(0);
   });
 

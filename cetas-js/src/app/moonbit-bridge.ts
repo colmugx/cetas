@@ -223,6 +223,15 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
     rateLimitExports.cetas_js_cancel_pending_ratelimit(agent as moonbit.CetasJsAgent);
   }
 
+  /**
+   * Bind the core Wakeup admission window (the host's active session).
+   * Synchronous: `undefined` clears, and an empty string never crosses the
+   * FFI — the MoonBit export follows the bridge's empty-string convention.
+   */
+  setActiveSession(agent: unknown, sessionId?: string): void {
+    moonbit.cetas_js_set_active_session(agent as moonbit.CetasJsAgent, sessionId ?? "");
+  }
+
   /** Interrupted-turn recovery through the Agent's resume_turn entry. */
   resumeTurn(
     agent: unknown,

@@ -25,7 +25,7 @@ preferred_target = "js"
 supported_targets = "js"
 
 import {
-  "colmugx/posoco@0.21.0",
+  "colmugx/posoco@0.21.1",
   "colmugx/cetas-core@0.2.0",
   "posoco/devkit@0.4.1",
   "colmugx/posoco-ext-context@0.2.0",

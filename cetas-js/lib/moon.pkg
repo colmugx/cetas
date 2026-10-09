@@ -70,6 +70,7 @@ options(
         "cetas_js_resume_turn",
         "cetas_js_compact_session",
         "cetas_js_cancel_pending_ratelimit",
+        "cetas_js_set_active_session",
         "cetas_js_abort_turn",
         "cetas_js_enqueue_follow_up",
         "cetas_js_rewind",

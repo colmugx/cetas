@@ -22,6 +22,11 @@ let compiled_recipe_packages : Map[String, String] = Map::from_array([
   ("askquestion", "colmugx/posoco-ext-askquestion"),
   ("handoff", "colmugx/posoco-ext-handoff"),
   ("lazytools", "colmugx/posoco-ext-lazytools"),
+  ("stats", "colmugx/posoco-ext-stats"),
+  ("statusbar", "colmugx/posoco-ext-statusbar"),
+  ("subagent", "colmugx/posoco-ext-subagent"),
+  ("kind", "colmugx/posoco-ext-kind"),
+  ("subagent_kit", "colmugx/posoco-kit-subagent"),
 ])
 
 ///|

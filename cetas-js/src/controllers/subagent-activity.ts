@@ -218,19 +218,33 @@ const CREATABLE_TYPES = new Set([
   "custom",
 ]);
 
+/**
+ * One ready-but-undelivered outcome receipt. `child_session` is the record
+ * binding captured when the receipt arrived; closure is by task id via the
+ * extension's `background_delivered` ack.
+ */
+interface ReadyReceipt {
+  /** Owning parent session from the core receipt (frozen schema). */
+  readonly owner: string | undefined;
+  /** `child_session` of the observed run, fixed at receipt time. */
+  readonly child_session: string | undefined;
+}
+
 export class SubagentActivityStore {
   private readonly records = new Map<string, SubagentActivity>();
   /** child_session → nickname; allocation is monotonic and never recycled. */
   private readonly names = new Map<string, string>();
   /**
-   * Ready outcome receipts (task_id → owning session) not yet known to be
-   * delivered. Delivery is the subagent run's authoritative
-   * `background_terminal` — an exit alone never clears a receipt. The
-   * "N results waiting" indicator counts these receipts, never wakeup
-   * tickets: a merged ticket may carry several results, and a ticket being
-   * executed does not mean every result has been injected.
+   * Ready receipts (task_id → owner + child binding) not yet known to be
+   * delivered. Delivery is the extension's `background_delivered` ack,
+   * which clears the matching receipt by task id. The "N background
+   * results pending delivery" indicator counts these receipts, never
+   * wakeup tickets: a merged ticket may carry several results, and a
+   * ticket being executed does not mean every result has been injected.
    */
-  private readonly readyReceipts = new Map<string, string | undefined>();
+  private readonly readyReceipts = new Map<string, ReadyReceipt>();
+  /** Task ids the extension has acked as delivered (`background_delivered`). */
+  private readonly deliveredTaskIds = new Set<string>();
   private nameCounter = 0;
   private seqCounter = 0;
   private ownerSession: string | undefined;
@@ -296,13 +310,23 @@ export class SubagentActivityStore {
 
   /**
    * Record a core `background_outcome_ready` receipt for one task. The
-   * receipt is counted as waiting until the matching run's authoritative
-   * terminal is folded; duplicates are no-ops. Returns whether it changed.
+   * receipt is counted as waiting until the extension's
+   * `background_delivered` ack arrives; duplicates and already-delivered
+   * tasks are no-ops. Returns whether it changed.
    */
   noteOutcomeReady(taskId: string, ownerSession?: string): boolean {
-    if (taskId.length === 0 || this.readyReceipts.has(taskId)) return false;
-    this.readyReceipts.set(taskId, ownerSession);
+    if (
+      taskId.length === 0 ||
+      this.readyReceipts.has(taskId) ||
+      this.deliveredTaskIds.has(taskId)
+    ) {
+      return false;
+    }
     const record = this.recordForTask(taskId);
+    this.readyReceipts.set(taskId, {
+      owner: ownerSession,
+      child_session: record?.child_session,
+    });
     if (record !== undefined && record.outcome_ready !== true) {
       record.outcome_ready = true;
       record.version += 1;
@@ -313,14 +337,12 @@ export class SubagentActivityStore {
   /**
    * Ready-but-not-yet-delivered receipt count for a session. Receipts whose
    * run was never observed stay waiting (the store may have been cleared);
-   * the authoritative terminal clears the matching receipt.
+   * the `background_delivered` ack clears the matching receipt by task id.
    */
   resultsWaiting(ownerSession?: string): number {
     let count = 0;
-    for (const [taskId, owner] of this.readyReceipts) {
-      if (ownerSession !== undefined && owner !== ownerSession) continue;
-      const record = this.recordForTask(taskId);
-      if (record !== undefined && record.terminal_received === true) continue;
+    for (const receipt of this.readyReceipts.values()) {
+      if (ownerSession !== undefined && receipt.owner !== ownerSession) continue;
       count += 1;
     }
     return count;
@@ -337,6 +359,7 @@ export class SubagentActivityStore {
     this.records.clear();
     this.names.clear();
     this.readyReceipts.clear();
+    this.deliveredTaskIds.clear();
     this.nameCounter = 0;
     this.seqCounter = 0;
   }
@@ -379,6 +402,24 @@ export class SubagentActivityStore {
    */
   apply(event: CetasEvent, ownerSession?: string): boolean {
     if (event.type !== "subagent_event") return false;
+    // The extension's `background_delivered` ack carries only a task id —
+    // it closes the matching ready receipt and never creates a record.
+    if (
+      event.ev.type === "custom" &&
+      event.ev.source === "posoco_ext_subagent" &&
+      event.ev.label === "background_delivered"
+    ) {
+      const data =
+        typeof event.ev.data === "object" && event.ev.data !== null
+          ? (event.ev.data as Record<string, unknown>)
+          : {};
+      const taskId = typeof data.task_id === "string" ? data.task_id : "";
+      if (taskId.length === 0) return false;
+      const changed = !this.deliveredTaskIds.has(taskId);
+      this.deliveredTaskIds.add(taskId);
+      this.readyReceipts.delete(taskId);
+      return changed;
+    }
     const existing = this.records.get(event.child_session);
     if (existing !== undefined) return this.fold(existing, event);
     if (!CREATABLE_TYPES.has(event.ev.type)) return false;
