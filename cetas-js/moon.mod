@@ -62,8 +62,5 @@ import {
   "colmugx/posoco-ext-subagent@0.1.3",
   "colmugx/posoco-ext-kind@0.1.0",
   "colmugx/posoco-kit-subagent@0.1.1",
-  "colmugx/posoco-ext-nowledge-mem@0.2.0",
-  "colmugx/posoco-ext-obsidian@0.1.0",
-  "colmugx/posoco-ext-zcode@0.1.0",
   // recipe-deps:end
 }
