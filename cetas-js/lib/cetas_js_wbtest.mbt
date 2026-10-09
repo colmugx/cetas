@@ -476,6 +476,18 @@ test "turn_event_to_json skips UserRequest presence events (null sentinel)" {
 }
 
 ///|
+test "turn_event_to_json maps ModelRequestStarted onto the wire tag" {
+  let json = @json.parse(turn_event_to_json(ModelRequestStarted).stringify())
+  match json {
+    Json::Object(fields) => {
+      assert_eq(fields["type"], Json::string("model_request_started"))
+      assert_eq(fields.length(), 1)
+    }
+    _ => fail("event must be an object")
+  }
+}
+
+///|
 fn tk_js_call(name~ : String, call_id~ : String) -> @posoco.ToolCall {
   {
     call_id: @posoco.CallId::unchecked(call_id),

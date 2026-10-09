@@ -150,6 +150,10 @@ fn usage_to_json(usage : @posoco.Usage?) -> Json {
 ///
 /// Tag mapping (posoco → cetas-js wire protocol, see src/events.ts):
 ///   TurnStarted            → turn_started
+///   ModelRequestStarted    → model_request_started (per-step request
+///                            anchor; carries no payload — timing hosts
+///                            stamp arrival, the router treats it as a
+///                            no-op until a consumer opts in)
 ///   TurnCompleted          → turn_completed
 ///   TurnFailed(msg)        → turn_failed { error_message }
 ///   ToolCallPending        → tool_call_started { tool_call_id, tool_name, args }
@@ -187,6 +191,10 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
   let json : Json = match event {
     @posoco.TurnEvent::TurnStarted =>
       Json::object(Map::from_array([("type", Json::string("turn_started"))]))
+    @posoco.TurnEvent::ModelRequestStarted =>
+      Json::object(
+        Map::from_array([("type", Json::string("model_request_started"))]),
+      )
     @posoco.TurnEvent::TurnCompleted =>
       Json::object(Map::from_array([("type", Json::string("turn_completed"))]))
     @posoco.TurnEvent::TurnFailed(msg) =>

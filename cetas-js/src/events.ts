@@ -60,6 +60,7 @@ export interface ToolResultImage {
 
 export type CetasEvent =
   | { type: "turn_started" }
+  | { type: "model_request_started" }
   | { type: "turn_completed" }
   | {
       type: "turn_failed";
@@ -298,6 +299,7 @@ export function parseCetasEvent(raw: unknown): CetasEvent | null {
   }
   switch (ev.type) {
     case "turn_started":
+    case "model_request_started":
     case "turn_completed":
       return { type: ev.type };
     case "turn_failed":

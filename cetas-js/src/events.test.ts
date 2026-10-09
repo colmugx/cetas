@@ -9,6 +9,12 @@ describe("parseCetasEvent", () => {
     });
   });
 
+  test("parses the per-step model request anchor", () => {
+    expect(parseCetasEvent({ type: "model_request_started" })).toEqual({
+      type: "model_request_started",
+    });
+  });
+
   test("rejects a malformed known event instead of coercing fields", () => {
     expect(() =>
       parseCetasEvent({
