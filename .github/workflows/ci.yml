@@ -70,22 +70,22 @@ jobs:
         run: python3 -m unittest scripts/test_npm_stage.py
 
       - name: moon check (public)
-        working-directory: posoco/external/cetas/cetas-acp
+        working-directory: posoco/external/cetas
         run: |
           python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
           moon update
           moon check --deny-warn --output-json
 
       - name: moon fmt
-        working-directory: posoco/external/cetas/cetas-acp
+        working-directory: posoco/external/cetas
         run: |
           python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
-          moon fmt
+          moon fmt --check
 
       # drift gate scoped to the cetas dirs; the posoco root is at main and
       # not ours to gate
       - name: moon info + interface drift gate
-        working-directory: posoco/external/cetas/cetas-acp
+        working-directory: posoco/external/cetas
         run: |
           # Interface drift is checked against the public graph.
           python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
@@ -94,7 +94,7 @@ jobs:
 
       - name: moon test
         id: test
-        working-directory: posoco/external/cetas/cetas-acp
+        working-directory: posoco/external/cetas
         run: |
           python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
           moon test --target native --output-json
