@@ -1012,7 +1012,7 @@ export class TerminalShell {
    * `posoco.operation` is the application layer's authority — the shell
    * renders nothing for it. Wakeup tickets drive the ambient header plus a
    * single environment notice per executing envelope; task receipts feed
-   * the results-waiting count; only decision failures render (successes
+   * the pending-delivery count; only decision failures render (successes
    * never spam the transcript).
    */
   private handleCoreCustom(core: CoreCustomParse): void {

@@ -1076,7 +1076,7 @@ describe("core projection events", () => {
     expect(after.match(/wakeup envelope — environment signal/g)).toHaveLength(1);
   });
 
-  test("outcome receipts raise the results-waiting line without transcript noise", () => {
+  test("outcome receipts raise the pending-delivery line without transcript noise", () => {
     const { shell } = makeShell();
     feed(
       shell,
@@ -1091,7 +1091,7 @@ describe("core projection events", () => {
     const transcript = (shell as any).transcript.render(200).join("\n");
     expect(transcript).not.toContain("posoco.tasks/background_outcome_ready");
     const header = (shell as any).wakeupHeader.render(120).join("\n");
-    expect(header).toContain("⧗ 1 result waiting");
+    expect(header).toContain("⧗ 1 background result pending delivery");
   });
 
   test("only decision failures render, bounded and payload-free", () => {

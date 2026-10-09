@@ -3,16 +3,17 @@
  * above the input next to the subagent header (never inside the transcript
  * body, never styled as user-typed input):
  *
- *     ⧗ 2 results waiting
+ *     ⧗ 2 background results pending delivery
  *     ◌ wakeup build-watch · running (environment)
  *
- * `results waiting` counts ready-but-undelivered subagent receipts (from
- * `posoco.tasks`), not wakeup tickets — one merged ticket can carry several
- * results and an executing ticket does not mean every result was injected.
- * Wakeup lines come from the executing tickets of the frozen `posoco.wakeup`
- * projection. The component re-reads its source on every render, so the
- * signal restores itself after transcript rebuilds without replay support.
- * Bounded: at most three wakeup lines plus one overflow aggregate.
+ * `background results pending delivery` counts ready-but-undelivered
+ * subagent receipts (from `posoco.tasks`), not wakeup tickets — one merged
+ * ticket can carry several results and an executing ticket does not mean
+ * every result was injected. Wakeup lines come from the executing tickets
+ * of the frozen `posoco.wakeup` projection. The component re-reads its
+ * source on every render, so the signal restores itself after transcript
+ * rebuilds without replay support. Bounded: at most three wakeup lines plus
+ * one overflow aggregate.
  */
 
 import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
@@ -32,7 +33,7 @@ export function wakeupHeaderLines(source: WakeupHeaderSource): string[] {
   const lines: string[] = [];
   if (source.resultsWaiting > 0) {
     lines.push(
-      `⧗ ${source.resultsWaiting} result${source.resultsWaiting === 1 ? "" : "s"} waiting`,
+      `⧗ ${source.resultsWaiting} background result${source.resultsWaiting === 1 ? "" : "s"} pending delivery`,
     );
   }
   for (const ticket of source.executing.slice(0, MAX_WAKEUP_LINES)) {
