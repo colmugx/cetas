@@ -17,6 +17,19 @@
   import MarkdownStream from "#lib/components/MarkdownStream.svelte";
   import Picker from "#lib/components/Picker.svelte";
   import ToolCard from "#lib/components/ToolCard.svelte";
+  import ComposerAutocomplete from "#lib/composer/ComposerAutocomplete.svelte";
+  import {
+    commandItems,
+    fetchFileSuggestions,
+    fetchSkillSuggestions,
+    setModelCatalog,
+    type SuggestionItem,
+  } from "#lib/composer/providers";
+  import {
+    applyInsert,
+    detectTrigger,
+    type ActiveTrigger,
+  } from "#lib/composer/trigger";
   import { setEffort, setModel, setPermission } from "#lib/api";
   import { runtimeStore } from "#lib/runtime.svelte";
   import { toast } from "#lib/toast.svelte";
@@ -96,24 +109,15 @@
         : undefined,
       group: slot.provider,
       active: slot.id === (view?.model ?? ""),
+      // Same-page cascade: this model's own efforts fan out on hover.
+      follow: slot.efforts.map((effort) => ({
+        value: effort,
+        label: effort,
+        active:
+          effort === (view?.effort ?? "") && slot.id === (view?.model ?? ""),
+      })),
     })),
   );
-
-  const effortOptions = $derived.by<PickerOption[]>(() => {
-    const efforts =
-      runtimeStore.catalog?.slots.find(
-        (slot) => slot.id === (view?.model ?? ""),
-      )?.efforts ?? [];
-    const current = view?.effort || "default";
-    if (efforts.length === 0) {
-      return [{ value: current, label: current, active: true }];
-    }
-    return efforts.map((effort) => ({
-      value: effort,
-      label: effort,
-      active: effort === current,
-    }));
-  });
 
   const shortModel = $derived.by(() => {
     const model = view?.model ?? "";
@@ -148,6 +152,11 @@
     if (!text || !ready) return;
     const sessionId = runtimeStore.activeSessionId;
     if (!sessionId) return;
+    if (text.startsWith("/") && routeSlashCommand(text)) {
+      prompt = "";
+      if (composerEl) composerEl.style.height = "auto";
+      return;
+    }
     if (busy) {
       // Steering-compatible queue: dispatch happens when the turn settles.
       runtimeStore.enqueuePrompt(sessionId, text);
@@ -167,6 +176,134 @@
     }
   }
 
+  /** Web adaptor for the composer command registry: ids to actions. */
+  const slashHandlers: Record<string, (args: string) => void> = {
+    new: () => void runtimeStore.newSession(),
+    compact: () => {
+      runtimeStore.realtime.send({
+        type: "session.compact",
+        session_id: runtimeStore.activeSessionId,
+      });
+      toast("info", "Compaction started");
+    },
+    model: (args) => {
+      const [slotId, effort] = args.split(/\s+/);
+      if (!slotId) {
+        toast("info", "Usage: /model <slot_id> <effort>");
+        return;
+      }
+      void (async () => {
+        try {
+          await setModel(slotId);
+          if (effort) await setEffort(effort);
+          await runtimeStore.loadCatalog();
+          toast("success", `Model → ${slotId}${effort ? ` · ${effort}` : ""}`);
+        } catch (error) {
+          flashConfigError(error instanceof Error ? error.message : String(error));
+        }
+      })();
+    },
+    sessions: () => {
+      document.dispatchEvent(new CustomEvent("cetas:focus-sessions"));
+      toast("info", "Pick a session from the sidebar");
+    },
+    skills: () => {
+      prompt = "$";
+      composerEl?.focus();
+      updateAutocomplete();
+    },
+  };
+
+  function routeSlashCommand(text: string): boolean {
+    const space = text.indexOf(" ");
+    const id = space === -1 ? text.slice(1) : text.slice(1, space);
+    const args = space === -1 ? "" : text.slice(space + 1).trim();
+    const handler = slashHandlers[id];
+    if (!handler) {
+      toast("error", `Unknown command: /${id}`);
+      return true;
+    }
+    handler(args);
+    return true;
+  }
+
+  // --- composer autocomplete (@ files, / commands, $ skills) ---
+
+  let ac: {
+    trigger: ActiveTrigger;
+    items: SuggestionItem[];
+    selected: number;
+  } | null = $state(null);
+  let acAnchor = $state({ left: 24, bottom: 96 });
+  let acAbort: AbortController | undefined;
+  let acGeneration = 0;
+
+  function closeAutocomplete() {
+    acAbort?.abort();
+    acAbort = undefined;
+    ac = null;
+  }
+
+  function updateAutocomplete() {
+    if (!composerEl) {
+      closeAutocomplete();
+      return;
+    }
+    const caret = composerEl.selectionStart ?? 0;
+    const trigger = detectTrigger(prompt, caret);
+    if (!trigger) {
+      closeAutocomplete();
+      return;
+    }
+    const rect = composerEl.getBoundingClientRect();
+    acAnchor = { left: rect.left + 16, bottom: window.innerHeight - rect.top + 8 };
+    const generation = ++acGeneration;
+    const deliver = (items: SuggestionItem[]) => {
+      if (acGeneration !== generation) return;
+      ac = { trigger, items, selected: 0 };
+    };
+    if (trigger.kind === "command") {
+      deliver(commandItems(trigger.query));
+      return;
+    }
+    acAbort?.abort();
+    acAbort = new AbortController();
+    const signal = acAbort.signal;
+    if (trigger.kind === "file") {
+      // Debounce: the file search hits the host index.
+      window.setTimeout(() => {
+        if (signal.aborted) return;
+        void fetchFileSuggestions(trigger.query, signal).then(deliver, () => {});
+      }, 150);
+      return;
+    }
+    void fetchSkillSuggestions(signal).then(deliver, () => {});
+  }
+
+  function applySuggestion(item: SuggestionItem) {
+    if (!ac || !composerEl) return;
+    const result = applyInsert(prompt, ac.trigger, item.insertText);
+    prompt = result.text;
+    composerEl.style.height = "auto";
+    composerEl.style.height = `${Math.min(composerEl.scrollHeight, 208)}px`;
+    composerEl.setSelectionRange(result.caret, result.caret);
+    // Applied suggestions close the popup (cetas-js semantics) — the next
+    // keystroke reopens it naturally.
+    closeAutocomplete();
+    composerEl.focus();
+  }
+
+  /** Command model-args completion reads the live catalog. */
+  $effect(() => {
+    setModelCatalog(
+      (runtimeStore.catalog?.slots ?? []).map((slot) => ({
+        id: slot.id,
+        label: slot.label || slot.id,
+        efforts: slot.efforts,
+      })),
+    );
+  });
+
   function abort() {
     runtimeStore.realtime.send({
       type: "turn.abort",
@@ -179,9 +316,37 @@
     prompt = el.value;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 208)}px`;
+    updateAutocomplete();
   }
 
   function onKeyDown(event: KeyboardEvent) {
+    if (ac) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        ac = { ...ac, selected: (ac.selected + 1) % ac.items.length };
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        ac = {
+          ...ac,
+          selected: (ac.selected - 1 + ac.items.length) % ac.items.length,
+        };
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        event.stopPropagation();
+        applySuggestion(ac.items[ac.selected]);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeAutocomplete();
+        return;
+      }
+    }
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
     send();
@@ -202,6 +367,15 @@
   >
     <div class="relative mx-auto h-full w-full">
       <FloatExtWindow sessionId={runtimeStore.activeSessionId} />
+  {#if ac}
+    <ComposerAutocomplete
+      anchor={acAnchor}
+      items={ac.items}
+      selected={ac.selected}
+      onpick={applySuggestion}
+      onclose={closeAutocomplete}
+    />
+  {/if}
       <div class="mx-auto w-full max-w-3xl px-5 py-6">
       {#if items.length > 0}
         <div class="space-y-4 pb-2">
@@ -573,25 +747,12 @@
               disabled={busy || !ready}
               searchable
               onSelect={(value) => void applyConfig(() => setModel(value))}
-            >
-              {#snippet pinned()}
-                  <div class="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-fg-faint">
-                    effort
-                  </div>
-                  <div class="flex flex-wrap gap-1">
-                    {#each effortOptions as effort (effort.value)}
-                      <button
-                        onclick={() => void applyConfig(() => setEffort(effort.value))}
-                        class="rounded-md border px-2 py-1 text-[11px] transition-colors {effort.active
-                          ? 'border-accent/50 bg-accent-dim text-accent'
-                          : 'border-line bg-raised text-fg-muted hover:text-fg'}"
-                      >
-                        {effort.label}
-                      </button>
-                    {/each}
-                  </div>
-              {/snippet}
-            </Picker>
+              onFollowSelect={(modelId, effort) =>
+                void applyConfig(async () => {
+                  await setModel(modelId);
+                  await setEffort(effort);
+                })}
+            />
             <Picker
               label="permission"
               value={view?.permission || "readonly"}

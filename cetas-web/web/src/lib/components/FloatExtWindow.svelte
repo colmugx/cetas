@@ -35,7 +35,7 @@
 
 {#if visible && runtimeStore.exts && runtimeStore.exts.length > 0}
   <div
-    class="absolute top-4 right-5 z-20 w-52 overflow-hidden rounded-xl border border-line-strong bg-raised/90 shadow-[0_12px_40px_-12px_var(--shadow-color)] backdrop-blur"
+    class="fixed top-16 right-5 z-20 w-52 overflow-hidden rounded-xl border border-line-strong bg-raised/90 shadow-[0_12px_40px_-12px_var(--shadow-color)] backdrop-blur"
   >
     <button
       onclick={() => (collapsed = !collapsed)}

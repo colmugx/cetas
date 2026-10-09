@@ -18,18 +18,19 @@
   import { listSessions, renameSession, type SessionSummary } from "#lib/api";
   import { runtimeStore } from "#lib/runtime.svelte";
   import { toast } from "#lib/toast.svelte";
+  import SettingsDialog from "#lib/components/SettingsDialog.svelte";
   import StatusWindow from "#lib/components/StatusWindow.svelte";
   import { themeStore } from "#lib/theme.svelte";
   import { bindShortcuts, modKey } from "#lib/shortcuts";
 
   let { children } = $props();
 
+  // Settings is a dialog, not a route — it overlays whatever is on screen.
   const navItems = [
     { path: "/", label: "Chat", icon: MessageSquare },
     { path: "/workspace", label: "Workspace", icon: FolderOpen },
     { path: "/extensions", label: "Extensions", icon: Layers },
     { path: "/trace", label: "Trace", icon: Radio },
-    { path: "/settings", label: "Settings", icon: Settings },
   ];
 
   const pageTitle = $derived(
@@ -91,6 +92,10 @@
         helpOpen = false;
         return;
       }
+      if (settingsOpen) {
+        settingsOpen = false;
+        return;
+      }
       const state = runtimeStore.session(runtimeStore.activeSessionId);
       if (state?.uiRequest) {
         runtimeStore.respondUi(state.id, state.uiRequest.requestId, {
@@ -131,6 +136,7 @@
 
   let sidebarCollapsed = $state(false);
   let helpOpen = $state(false);
+  let settingsOpen = $state(false);
 
   let addingWorkspace = $state(false);
   let workspaceDraft = $state("");
@@ -197,6 +203,13 @@
           {item.label}
         </a>
       {/each}
+      <button
+        onclick={() => (settingsOpen = true)}
+        class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] text-fg-muted transition-colors hover:bg-raised/50 hover:text-fg"
+      >
+        <Settings size={15} class="text-fg-faint" />
+        Settings
+      </button>
     </nav>
 
     <div class="mt-4 flex min-h-0 flex-1 flex-col px-3">
@@ -408,6 +421,10 @@
 
     <main class="min-h-0 flex-1">{@render children()}</main>
   </div>
+
+  {#if settingsOpen}
+    <SettingsDialog onclose={() => (settingsOpen = false)} />
+  {/if}
 
   {#if helpOpen}
     <div

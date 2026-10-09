@@ -39,6 +39,9 @@ struct WebRuntime {
   /// Registry cwds not yet composed; combined lazily on first switch.
   mut registry : Array[String]
   mut active_cwd : String
+  /// TTL-cached `@`-mention index for the active workspace: (built_at_ms,
+  /// relative paths; directories carry a trailing `/`).
+  mut file_index_cache : (Int64, Array[String])?
 }
 
 ///|
@@ -748,5 +751,32 @@ async fn compose_web_runtime(
   ])
   let registry : Array[String] = load_registry(home) catch { _ => [] }
   let registry = registry.filter(registered => registered != cwd)
-  { fs, home, group, hub, ui_registry, workspaces, registry, active_cwd: cwd, }
+  {
+    fs,
+    home,
+    group,
+    hub,
+    ui_registry,
+    workspaces,
+    registry,
+    active_cwd: cwd,
+    file_index_cache: None,
+  }
+}
+
+///|
+/// `session.compact` — trigger the kernel compaction for the ACTIVE
+/// session. Compaction is a long LLM call, so it runs in the runtime's
+/// task group (the WS loop stays free for aborts) and its progress rides
+/// the observer's `compact.started` / `compact.finished` events.
+async fn WebRuntime::compact_active_session(self : WebRuntime) -> Unit {
+  let handle = self.active().active()
+  try {
+    let outcome = handle.agent.compact_session(handle.session_id)
+    println(
+      "cetas-web: compact finished final_session=\{outcome.final_session_id} messages_after=\{outcome.messages_after}",
+    )
+  } catch {
+    error => println("cetas-web: compact failed: \{@debug.to_string(error)}")
+  }
 }

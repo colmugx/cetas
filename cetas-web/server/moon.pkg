@@ -21,6 +21,7 @@ import {
   // recipe-imports:end
   "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-statusbar" @statusbar,
+  "bobzhang/fuzzyscore",
   "colmugx/posoco-ext-stats" @stats,
   "colmugx/posoco-ext-workspace" @workspace,
   "colmugx/posoco/kernel",

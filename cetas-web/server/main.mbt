@@ -103,6 +103,28 @@ async fn serve_websocket(
                         ])
                     }
                   Ok(TurnAbort(session_id)) => runtime.abort_turn(session_id)
+                  Ok(SessionCompact) => runtime.compact_active_session()
+                  Ok(StatusRefresh(session_id)) => {
+                    // /status-style pull: live-read the active provider's
+                    // quota source and push readings to the strip/window,
+                    // then the all-providers map for the expanded view.
+                    let payload : Json = runtime.quota_json() catch {
+                      error => error_json(error.to_string())
+                    }
+                    let sid = match session_id {
+                      Some(id) => id
+                      None => runtime.active().active_id
+                    }
+                    runtime.hub.emit(sid, "", "statusbar.quota", extra=[
+                      ("payload", payload),
+                    ])
+                    let all_payload : Json = runtime.quota_all_json() catch {
+                      error => error_json(error.to_string())
+                    }
+                    runtime.hub.emit(sid, "", "statusbar.quota_all", extra=[
+                      ("payload", all_payload),
+                    ])
+                  }
                   Ok(UiResponse(request_id)) =>
                     runtime.ui_registry.resolve(request_id, raw)
                 }
@@ -245,6 +267,32 @@ async fn main {
       ctx.get("/exts", (_req, res) => {
         match boot {
           Ok(runtime) => res.send_json(runtime.zoo_json())
+          Err(detail) => res.send_json(error_json(detail), status=503)
+        }
+      })
+      ctx.get("/files/search", (req, res) => {
+        match boot {
+          Ok(runtime) => {
+            let query = match req.query().get("q") {
+              Some(q) => q
+              None => ""
+            }
+            let payload : Json = runtime.file_suggestions_json(query, 50) catch {
+              error => error_json(error.to_string())
+            }
+            res.send_json(payload)
+          }
+          Err(detail) => res.send_json(error_json(detail), status=503)
+        }
+      })
+      ctx.get("/skills", (_req, res) => {
+        match boot {
+          Ok(runtime) => {
+            let payload : Json = runtime.skills_json() catch {
+              error => error_json(error.to_string())
+            }
+            res.send_json(payload)
+          }
           Err(detail) => res.send_json(error_json(detail), status=503)
         }
       })

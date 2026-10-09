@@ -81,6 +81,15 @@ export class SessionState {
   /** Statusbar segments from the hub (key=value pairs rendered under the
    * input box) — the posoco-ext-statusbar aggregation. */
   statusSegments = $state<{ key: string; value: string; color: string | null }[]>([]);
+  /** Quota readings pulled live from the active provider (windows with
+   * used-percent, or balance amounts — shaped by the pushed data). */
+  quota = $state<{
+    provider: string;
+    readings: QuotaReading[];
+  } | null>(null);
+  /** Every provider with a registered quota source — powers the expanded
+   * multi-provider view of the status window. */
+  quotaAll = $state<ProviderQuota[]>([]);
   /** Pending UiPort request awaiting a browser decision. */
   uiRequest = $state<{
     requestId: string;
@@ -140,6 +149,16 @@ export class SessionState {
     }
   }
 }
+
+export type QuotaReading = {
+  window: string;
+  used_percent: number | null;
+  amount: { value: string; currency: string } | null;
+  available: boolean | null;
+  fetched_at_ms: number | null;
+};
+
+export type ProviderQuota = { provider: string; readings: QuotaReading[] };
 
 class RuntimeStore {
   http = $state<ConnectionState>("checking");
@@ -437,6 +456,13 @@ class RuntimeStore {
     }
   }
 
+  refreshQuota(sessionId?: string) {
+    const target = sessionId ?? this.activeSessionId;
+    if (target) {
+      this.realtime.send({ type: "status.refresh", session_id: target });
+    }
+  }
+
   async loadCatalog() {
     try {
       this.catalog = await listModels();
@@ -701,6 +727,31 @@ class RuntimeStore {
             value: entry.value as string,
             color: typeof entry.color === "string" ? entry.color : null,
           }));
+        return;
+      }
+
+      case "statusbar.quota": {
+        if (!this.activeSessionId) return;
+        const payload = event.payload as
+          | { provider?: string; readings?: QuotaReading[] }
+          | undefined;
+        if (!payload || !Array.isArray(payload.readings)) return;
+        const state = this.ensureSession(this.activeSessionId);
+        state.quota = {
+          provider: payload.provider ?? "",
+          readings: payload.readings,
+        };
+        return;
+      }
+
+      case "statusbar.quota_all": {
+        if (!this.activeSessionId) return;
+        const payload = event.payload as
+          | { providers?: ProviderQuota[] }
+          | undefined;
+        if (!payload || !Array.isArray(payload.providers)) return;
+        const state = this.ensureSession(this.activeSessionId);
+        state.quotaAll = payload.providers;
         return;
       }
 

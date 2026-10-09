@@ -10,6 +10,8 @@ enum WebClientMessage {
   TurnStart(String, String?)
   TurnAbort(String?)
   UiResponse(String)
+  SessionCompact
+  StatusRefresh(String?)
 }
 
 ///|
@@ -46,6 +48,8 @@ fn decode_web_client_message(raw : String) -> Result[WebClientMessage, String] {
       }
     }
     "turn.abort" => Ok(TurnAbort(optional_session_id(fields)))
+    "session.compact" => Ok(SessionCompact)
+    "status.refresh" => Ok(StatusRefresh(optional_session_id(fields)))
     "ui.response" => {
       let request_id = match fields.get("request_id") {
         Some(Json::String(value)) => value

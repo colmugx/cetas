@@ -42,4 +42,5 @@ import {
   "colmugx/posoco-ext-fs-session@0.4.0",
   "colmugx/posoco-ext-statusbar@0.3.0",
   "colmugx/posoco-ext-stats@0.1.0",
+  "bobzhang/fuzzyscore@0.1.2",
 }
