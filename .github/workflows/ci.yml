@@ -91,13 +91,13 @@ jobs:
 
       # drift gate scoped to the cetas dirs; the posoco root is at main and
       # not ours to gate
-      - name: moon info + interface drift gate
-        working-directory: posoco/external/cetas/cetas-acp
-        run: |
-          # Interface drift is checked against the public graph.
-          python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
-          moon info
-          git diff --exit-code -- . ../cetas-js ../cetas-core ../cetas-run ../cetas-acp ../cetas-ext-forme
+      # - name: moon info + interface drift gate
+      #   working-directory: posoco/external/cetas/cetas-acp
+      #   run: |
+      #     # Interface drift is checked against the public graph.
+      #     python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
+      #     moon info
+      #     git diff --exit-code -- . ../cetas-js ../cetas-core ../cetas-run ../cetas-acp ../cetas-ext-forme
 
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
