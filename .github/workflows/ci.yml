@@ -1,12 +1,3 @@
-# cetas CI — push to main + pull requests.
-#
-# Every job checks out colmugx/posoco@main recursively and pins the embedded
-# external/cetas submodule to the commit under test. This stays correct
-# whatever the committed state of cetas' moon.work turns out to be: with no
-# moon.work (or one without "../..") each module resolves deps from its
-# moon.mod pins and the parent checkout is harmless; with "../.." the
-# workspace resolves against the checked-out parent.
-
 name: cetas ci
 
 on:
@@ -72,14 +63,14 @@ jobs:
       - name: moon check (public)
         working-directory: posoco/external/cetas
         run: |
-          python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
+          python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
           moon update
           moon check --deny-warn --output-json
 
       - name: moon fmt
         working-directory: posoco/external/cetas
         run: |
-          python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
+          python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
           moon fmt --check
 
       # drift gate scoped to the cetas dirs; the posoco root is at main and
@@ -88,15 +79,15 @@ jobs:
         working-directory: posoco/external/cetas
         run: |
           # Interface drift is checked against the public graph.
-          python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
+          python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
           moon info
-          git diff --exit-code -- . ../cetas-js ../cetas-core ../cetas-run ../cetas-acp ../cetas-ext-forme
+          git diff --exit-code -- . ./cetas-js ./cetas-core ./cetas-run ./cetas-acp ./cetas-ext-forme
 
       - name: moon test
         id: test
         working-directory: posoco/external/cetas
         run: |
-          python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
+          python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
           moon test --target native --output-json
 
       - name: Setup bun
