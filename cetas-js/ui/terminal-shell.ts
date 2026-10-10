@@ -114,6 +114,7 @@ import {
 import { RewindOverlay } from "./rewind-overlay.ts";
 import { ModalVeilHost } from "./modal-mask.ts";
 import { theme } from "./theme.ts";
+import { WelcomeHeader } from "./welcome-header.ts";
 
 const identity = (value: string): string => value;
 
@@ -142,7 +143,7 @@ const selectListTheme: SelectListTheme = {
 };
 
 const editorTheme: EditorTheme = {
-  borderColor: theme.accent,
+  borderColor: theme.brand,
   selectList: selectListTheme,
 };
 
@@ -250,6 +251,8 @@ export class TerminalShell {
   private readonly onExit: (code: number) => void;
 
   private readonly transcript: Container;
+  private readonly welcomeHeader: WelcomeHeader;
+  private welcomeSnapshot?: AppSnapshot;
   private readonly statusLoader: Loader;
   private readonly statusWrapper: Container;
   private readonly setupStatus: Container;
@@ -369,7 +372,19 @@ export class TerminalShell {
 
     registerBuiltinToolRenderers();
     this.tui.setClearOnShrink(false);
-    this.tui.addChild(new Text(theme.brandBold(" Welcome to Cetas"), 1, 0));
+    this.welcomeHeader = new WelcomeHeader(() => {
+      const setup = this.welcomeSnapshot?.setup;
+      const active = setup?.providers.find((provider) => provider.id === setup.activeModelId)
+        ?? setup?.providers.find((provider) => provider.active);
+      return {
+        cwd: this.cwd,
+        home: options.home ?? homedir(),
+        state: this.welcomeSnapshot?.state,
+        model: active?.label ?? setup?.activeModelId,
+        rows: this.tui.terminal.rows,
+      };
+    });
+    this.tui.addChild(this.welcomeHeader);
 
     this.transcript = new Container();
     this.tui.addChild(this.transcript);
@@ -663,6 +678,7 @@ export class TerminalShell {
       );
       return;
     }
+    this.welcomeHeader.compact = true;
     if (submission.kind === "queued") {
       const bubble = new QueuedUserMessage(displayPrompt);
       this.queuedPrompts.push(bubble);
@@ -805,6 +821,7 @@ export class TerminalShell {
   }
 
   handleSnapshot(snapshot: AppSnapshot): void {
+    this.welcomeSnapshot = snapshot;
     const previousState = this.renderedAppState;
     this.renderedAppState = snapshot.state;
     if (
@@ -821,7 +838,7 @@ export class TerminalShell {
       this.setTurnStatus("idle");
     }
     this.setupStatus.clear();
-    if (snapshot.state === "needs_setup") {
+    if (snapshot.state === "needs_setup" && this.welcomeHeader.compact) {
       this.setupStatus.addChild(
         new Text(
             theme.warning("⚠ setup required") +
@@ -830,6 +847,10 @@ export class TerminalShell {
           0,
         ),
       );
+      this.ensureSetupNotice(snapshot.error);
+    } else if (snapshot.state === "needs_setup" && snapshot.error !== undefined) {
+      // The welcome card owns the first-run guidance; genuine failures still
+      // belong in the transcript rather than disappearing behind branding.
       this.ensureSetupNotice(snapshot.error);
     }
     // Extension command shortcuts only exist after app.start() composed the
@@ -1522,9 +1543,7 @@ export class TerminalShell {
     this.requireApp().setSession(nextSession);
     this.sessionId = nextSession;
     this.transcript.clear();
-    for (const component of banner("cetas-js", "new session started")) {
-      this.transcript.addChild(component);
-    }
+    this.welcomeHeader.compact = false;
     this.tui.terminal.clearScreen();
     this.tui.requestRender(true);
   }
@@ -1898,6 +1917,7 @@ export class TerminalShell {
       this.requireApp().setSession(sessionId);
       this.sessionId = sessionId;
       this.transcript.clear();
+      this.welcomeHeader.compact = true;
       for (const component of banner("cetas-js", `resumed session ${sessionId}`)) {
         this.transcript.addChild(component);
       }

@@ -50,8 +50,8 @@ export interface CetasTheme {
 }
 
 export const theme: CetasTheme = {
-  brand: chalk.cyan,
-  brandBold: chalk.bold.cyan,
+  brand: chalk.hex("#92CDB5"),
+  brandBold: chalk.bold.hex("#92CDB5"),
   user: chalk.white,
   userBg: chalk.bgCyan,
   // User-message tint (#343541 dark) — subtle so the Box reads as

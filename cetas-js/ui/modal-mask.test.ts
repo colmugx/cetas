@@ -1,5 +1,13 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import chalk from "chalk";
+
+// Color-sensitive tests must not leave a process-global Chalk level behind.
+let detectedColorLevel = chalk.level;
+beforeEach(() => {
+  detectedColorLevel = chalk.level;
+  chalk.level = 3;
+});
+afterEach(() => { chalk.level = detectedColorLevel; });
 
 import {
   ModalVeilHost,
@@ -56,7 +64,6 @@ function panel(): Component {
 
 describe("dimLine", () => {
   test("flattens ANSI/OSC escapes into faint gray text", () => {
-    chalk.level = 3;
     const dimmed = dimLine("\u001b[31mred\u001b[0m plain \u001b]8;;http://x\u0007link\u001b]8;;\u0007");
     expect(dimmed).toContain("red plain link");
     expect(dimmed).not.toContain("31");

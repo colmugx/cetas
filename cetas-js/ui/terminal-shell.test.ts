@@ -1195,3 +1195,39 @@ describe("wakeup envelope restore", () => {
     expect(transcript).toContain("[posoco-wakeup tag=build-watch] build failed");
   });
 });
+
+describe("welcome screen lifecycle", () => {
+  test("initial setup is shown in the header and model changes are reflected", () => {
+    const { shell } = makeShell();
+    const setup = { providers: [], oauthProviders: [] };
+    shell.handleSnapshot({ state: "needs_setup", setup, sessionId: "test" });
+    expect((shell as any).welcomeHeader.render(88).join("\n")).toContain("/login");
+    expect((shell as any).setupStatus.children).toHaveLength(0);
+    expect((shell as any).transcript.children).toHaveLength(0);
+    shell.handleSnapshot({ state: "ready", sessionId: "test", setup: {
+      ...setup, activeModelId: "test-model", providers: [{
+        id: "test-model", label: "Chosen model", provider: "test", model: "model",
+        active: true, efforts: [], oauth: false,
+      }],
+    } });
+    expect((shell as any).welcomeHeader.render(88).join("\n")).toContain("Chosen model");
+  });
+
+  test("only accepted prompts collapse the welcome; a new session restores it", async () => {
+    const { shell } = makeShell();
+    const ui = shell as any;
+    const echo = { render: () => [], invalidate: () => {} };
+    await ui.submitApplicationInput({ submitUserInput: async () => { throw new Error("not configured"); } }, "hi", "hi", echo);
+    expect(ui.welcomeHeader.compact).toBe(false);
+    await ui.submitApplicationInput({ submitUserInput: async () => ({ kind: "full" }) }, "hi", "hi", echo);
+    expect(ui.welcomeHeader.compact).toBe(false);
+    await ui.submitApplicationInput({ submitUserInput: async () => ({ kind: "started", completion: Promise.resolve("") }) }, "hi", "hi", echo);
+    expect(ui.welcomeHeader.compact).toBe(true);
+    let next = "";
+    ui.attachApplication({ listCommands: () => [], setSession: (id: string) => { next = id; } });
+    await ui.startNewSession();
+    expect(next).not.toBe("");
+    expect(ui.transcript.children).toHaveLength(0);
+    expect(ui.welcomeHeader.compact).toBe(false);
+  });
+});

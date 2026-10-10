@@ -1,133 +1,135 @@
-# Cetas
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/cetas-symbol-dark.svg">
+    <img src="docs/assets/cetas-symbol.svg" alt="Cetas" width="112" height="112">
+  </picture>
+  <h1>Cetas</h1>
+  <p><strong>One agent. Every surface.</strong></p>
+  <p>A coding agent for your terminal, editor, and scripts.<br>Built with MoonBit. Powered by <a href="https://github.com/colmugx/posoco">Posoco</a>.</p>
+  <p>
+    <a href="https://github.com/colmugx/cetas/actions/workflows/ci.yml"><img src="https://github.com/colmugx/cetas/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-256C63" alt="Apache 2.0"></a>
+    <a href="https://www.moonbitlang.com"><img src="https://img.shields.io/badge/built%20with-MoonBit-256C63" alt="Built with MoonBit"></a>
+  </p>
+  <p><a href="https://github.com/colmugx/cetas/releases/tag/cetas-v0.7.0">Download</a> · <a href="#quick-start">Quick start</a> · <a href="#documentation">Documentation</a> · <a href="README-zh.md">简体中文</a></p>
+</div>
 
-**Cetas** is a coding agent built on [Posoco](https://github.com/colmugx/posoco),
-a protocol-first LLM agent framework for MoonBit.
+![Cetas interactive terminal welcome screen](docs/assets/cetas-terminal.png)
 
-> Wherever you access Cetas, Cetas is there.
-> However you access Cetas, it is the same Cetas.
+<p align="center"><sub>The <code>cetas-js</code> welcome screen on main. Release binaries may have an earlier UI.</sub></p>
 
-### Repository layout
+Cetas reads your code, makes edits, runs commands, and streams its work as it goes. Start in the terminal, connect it to an editor through ACP, or give it a single task from a script.
 
-Every surface composes the same `cetas-core` assembly and the same Posoco
-`Agent`; none contains agent-loop logic of its own, and none defines its own
-identity. A new surface is a new way in — not a new Cetas.
-Which extensions each outlet ships, and the build knobs: see
+The product lives in **`cetas-core`**. Its hosts compose the same agent identity, prompts, and lifecycle on [Posoco](https://github.com/colmugx/posoco), with adapters for each surface. Provider settings, credentials, and session storage use a shared Cetas home.
 
-### Prerequisites
+## Why Cetas
 
-- The [MoonBit toolchain](https://docs.moonbitlang.com) (`moon`).
-- [Bun](https://bun.sh) — only for `cetas-js`.
-- This repo lives at `external/cetas` in the Posoco workspace and builds inside that workspace (`external/cetas/moon.work`). MoonBit dependencies resolve through the workspace / mooncakes.io.
+- **Work with the repository.** Read, write, and edit files; search by path, text, or syntax; run Bash or PowerShell commands.
+- **Choose your model.** Provider extensions include OpenAI, OpenAI-compatible endpoints, DeepSeek, Kimi, OpenRouter, Z.ai, and OpenCode Zen. Use `/login` and `/model` in the interactive terminal.
+- **Extend the workflow.** Load skills and connect MCP tools in the interactive terminal and ACP host. Capability composition is explicit and recipe-driven.
+- **Keep the conversation useful.** Stream responses and tool activity, queue follow-ups, browse sessions, and rewind in `cetas-js`.
+- **Use the right entrance.** An interactive TUI for day-to-day work, ACP for editors, and a one-turn runner for automation.
 
-### cetas-js — interactive terminal UI
+## Quick start
 
-```bash
-cd cetas-js
-bun run build
-```
+### 1. Download the interactive terminal
 
-<!-- Build-time composition is recipe-driven. `composition/recipes.csv` is the capability roster; `scripts/prepare-recipe.py` projects flavor + frontend + platform into each host's static module/package graph before Moon runs. `cetas-core` itself is recipe-invariant. -->
+The published **Cetas v0.7.0** terminal executable is named `cetas-bun`. It includes the Bun runtime; you do not need to install Bun or MoonBit to use the binary.
 
-Provider configuration lives in `.cetas/settings.json` under your home directory. The settings object is passed opaquely to the selected provider extension — Cetas itself never parses endpoints or credentials.
+| Platform | Download |
+| --- | --- |
+| macOS · Apple Silicon | [cetas-bun-darwin-arm64.tar.gz](https://github.com/colmugx/cetas/releases/download/cetas-v0.7.0/cetas-bun-darwin-arm64.tar.gz) |
+| Linux · x64 | [cetas-bun-linux-x64.tar.gz](https://github.com/colmugx/cetas/releases/download/cetas-v0.7.0/cetas-bun-linux-x64.tar.gz) |
+| Windows · x64 | [cetas-bun-windows-x64.zip](https://github.com/colmugx/cetas/releases/download/cetas-v0.7.0/cetas-bun-windows-x64.zip) |
 
-### cetas-acp — drive Cetas from an editor (Zed)
-
-```bash
-cd cetas-acp
-moon build --target native --release
-# binary lands at _build/native/release/build/colmugx/cetas-acp/main/main.exe
-```
-
-Launch it from the project root — tools run in the process working directory, matching how Zed spawns ACP agents.
-
-Register the binary in Zed's settings (see [Zed's external-agents docs](https://zed.dev/docs/ai/external-agents) for the current schema):
-
-```json
-{
-  "agent": {
-    "acp_agents": {
-      "cetas": {
-        "command": "/absolute/path/to/cetas/_build/native/release/build/colmugx/cetas-acp/main/main.exe",
-        "args": []
-      }
-    }
-  }
-}
-```
-
-Notes:
-
-- A model provider must already be configured (`~/.cetas/settings.json` or a previous Cetas login) — an agent without a model cannot serve prompts, so startup fails loudly on stderr and exits.
-- Model/effort selection arrives through ACP config options (`session/set_config_option`). Selection is process-global and is persisted back to `~/.cetas/settings.json`.
-- `CETAS_HOME` overrides the Cetas home directory (settings, credentials, sessions); `HOME` is the default.
-- MCP servers declared in `<cwd>/.mcp.json` (overriding `~/.cetas/mcp.json`) connect lazily at the first turn by default; set `CETAS_MCP_MODE=eager` to connect them all at startup.
-
-### cetas-run — one-shot automation / MoonX
+Extract the archive, then launch the executable **from the project you want to work on**. For example:
 
 ```bash
-moonx colmugx/cetas-run -- --yolo -- "fix the failing tests"
+cd /path/to/your/project
+/path/to/extracted/cetas-bun
 ```
 
-`cetas-run` executes exactly one Cetas turn per invocation and is intended for scripts, CI, agent swarms, and sandboxed MoonX execution. Use `--jsonl` for machine-readable output and `--session <id>` to continue a previous run.
+On Windows, use the extracted `cetas-bun.exe`. The [release page](https://github.com/colmugx/cetas/releases/tag/cetas-v0.7.0) also includes ACP and runner binaries, plus checksums. Memoh has its own release series; use the Cetas-tagged release for these hosts.
 
-### Public extension holdings
+### 2. Connect a model
 
-This table describes the **public** flavor shipped by default. Public builds never include `posoco-ext-nowledge-mem`.
-Rows are extensions, columns are outlets — add a column when a new outlet ships.
-✓ = installed, — = not held.
+In the terminal, run:
 
-| Ext | cetas-bun | cetas-acp | cetas-run |
-|---|---|---|---|
-| **Tools** | | | |
-| `posoco-ext-read` / `-write` / `-edit` | ✓ | ✓ | ✓ |
-| `posoco-ext-glob` / `-grep` | ✓ | ✓ | ✓ |
-| `posoco-ext-astgrep` (structural code search via ast-grep) | ✓ | ✓ | ✓ |
-| `posoco-ext-bash` / `-ps1` | ✓ | ✓ | ✓ |
-| `posoco-ext-webfetch` | ✓ | ✓ | ✓ |
-| `posoco-ext-askquestion` | ✓ | ✓ | ✓ |
-| `posoco-ext-skills` | ✓ | ✓ | ✓ |
-| `posoco-ext-handoff` | ✓ | ✓ | ✓ |
-| `cetas-ext-forme` | ✓ | ✓ | ✓ |
-| `posoco-ext-lazytools` | ✓ | ✓ | ✓ |
-| **Model ports** | | | |
-| `posoco-ext-deepseek` / `-kimi` / `-openai` / `-openai-compatible` / `-opencode-zen` / `-zai` / `-zai-coding-plan` / `-openrouter` | ✓ | ✓ | ✓ |
-| `posoco-kit-chat-completions` / `-responses` / `-compact-evict` / `-compact-summary` | ✓ (transitive) | ✓ (transitive) | ✓ (transitive) |
-| **Infrastructure** | | | |
-| `posoco-ext-llm` | ✓ | ✓ | ✓ |
-| `posoco-ext-oauth` | ✓ | ✓ | ✓ |
-| `posoco-ext-credentials` | ✓ | ✓ | ✓ |
-| `posoco-ext-context` | ✓ | ✓ | ✓ |
-| `posoco-ext-workspace` | ✓ | ✓ | ✓ |
-| `posoco-ext-fs-session` | ✓ | ✓ | ✓ |
-| `posoco-ext-permission` | ✓ | ✓ | ✓ |
-| `posoco-ext-ratelimit` | ✓ | ✓ | ✓ |
-| `posoco-devkit` | ✓ | ✓ | ✓ |
-| **Preference-tied** (public flavor) | | | |
-| `posoco-ext-nowledge-mem` | — | — | — |
-| `posoco-ext-obsidian` | — | — | — |
-| `posoco-ext-zcode` | — | — | — |
-| **Outlet-specific** | | | |
-| `posoco-ext-herdr` | ✓ (presence + `herdr_delegate`) | — | ✓ (presence only) |
-| `posoco-ext-mcp` | ✓ | ✓ | — |
-| `posoco-ext-plan` | ✓ | ✓ | — |
-| `posoco-ext-goal` | — | — | — |
-| `posoco-ext-statusbar` / `-stats` | ✓ | — | — |
-| `posoco-ext-pi-adaptor` | ✓ | — | — |
-| `posoco-ext-zcode` | — | — | — |
-| `posoco-ext-acp` | — | ✓ | — |
-| `posoco-kit-lody` / `-paseo` | — | ✓ | — |
-| `posoco-kit-delegation` | — | ✓ (transitive) | — |
+```text
+/login
+/model
+```
 
-> `posoco-ext-herdr`: cetas-run reports presence only and never gets
-> `herdr_delegate` — headless is a depth-1 leaf, so a delegated child cannot
-> delegate further; pane delegation composes in cetas-bun only.
+Choose a provider, complete its authentication flow, then select a model. Settings and credentials are stored under `~/.cetas/` and reused by the other Cetas hosts.
 
-### Shared state — what "the same Cetas" means today
+### 3. Give Cetas a task
 
-All surfaces read and write the same Cetas home (default `~/.cetas/`):
-`settings.json` (provider config + active model/effort), credential files,
-`mcp.json`, and JSONL session transcripts under `sessions/`. That shared
-home is what makes the definition literal today: log in once, and every
-surface is signed in; pick a model once, and every surface uses it.
-Continuing one conversation across surfaces (cross-host session resume) is
-the next piece of the definition.
+```text
+Explain how authentication works in this repository.
+```
+
+```text
+Fix the failing tests and show me what changed.
+```
+
+Use `@path` to include a file reference. `/help` lists commands and keyboard shortcuts. To select a permission mode, use `/permission readonly`, `/permission workspace_write`, `/permission interactive`, or `/permission yolo`; see the [configuration guide](docs/configuration.md) for their behavior.
+
+## Every surface
+
+| Surface | Best for | Entry point |
+| --- | --- | --- |
+| **Interactive terminal** · `cetas-js` | Streaming conversations, model/login pickers, sessions and rewind | `cetas-bun` · [Build from source](docs/development.md#interactive-terminal) |
+| **Editor** · `cetas-acp` | Editors with Agent Client Protocol support | `cetas-acp` · [Setup](docs/configuration.md#editor--acp) |
+| **Automation** · `cetas-run` | One task per invocation, scripts and JSONL output | `cetas-run` · [Guide](cetas-run/README.mbt.md) |
+| **Native terminal** · `cetas-native` | MoonBit + Rust terminal host under development | [Status and build instructions](cetas-native/README.md) |
+| **Web** · `cetas-web` | Browser host under development | [Local development](cetas-web/README.md) |
+
+Host capabilities differ; the [composition roster](composition/recipes.csv) is the source of truth. Sharing the Cetas home does not imply every host has the same UI or cross-host conversation-resume support.
+
+<details>
+<summary><strong>Run one task from a script</strong></summary>
+
+After configuring a provider, use the runner binary from the Cetas release:
+
+```bash
+cetas-run -- "explain this repository"
+cetas-run --jsonl --stream -- "summarize the changes"
+cetas-run --session <id> -- "continue"
+```
+
+The normal answer goes to stdout; diagnostics and lifecycle information go to stderr. With [MoonX](https://github.com/moonbitlang/moon), you can also run the Mooncakes module:
+
+```bash
+moonx colmugx/cetas-run -- -- "explain this repository"
+```
+
+See the [runner guide](cetas-run/README.mbt.md) for the native and sandboxed Wasm targets.
+
+</details>
+
+## Built on Posoco
+
+Cetas began as a way to put [Posoco](https://github.com/colmugx/posoco) into people's hands: a useful coding agent that demonstrates what a protocol-first framework can do in everyday work.
+
+Posoco provides the agent foundation and extension ports. Cetas owns the product behavior. Each host supplies its transport and UI. That separation lets the product grow across surfaces while keeping one core identity.
+
+## Documentation
+
+| Guide | What you will find |
+| --- | --- |
+| [Configuration](docs/configuration.md) | Providers, permissions, shared state, MCP and ACP setup |
+| [Development](docs/development.md) | Workspace checkout, dependencies, builds and checks |
+| [Architecture](docs/architecture.md) | Product ownership, repository layout and extension composition |
+| [Composition](composition/README.md) | Recipe vocabulary and generator workflow |
+| [Changelog](CHANGELOG.md) | Cetas core release history |
+| [Memoh integration](cetas-memoh/README.mbt.md) | The separately versioned Memoh runtime and its own state directory |
+
+## Contributing
+
+Bug reports, focused improvements, and new host integrations are welcome. [Open an issue](https://github.com/colmugx/cetas/issues) with the host, version, platform, and steps to reproduce, or send a pull request with the relevant checks from the [development guide](docs/development.md).
+
+For capability changes, update the composition roster; for product behavior, start in `cetas-core`.
+
+## License
+
+[Apache 2.0](LICENSE).
