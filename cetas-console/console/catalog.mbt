@@ -21,7 +21,7 @@ struct SessionCatalogEntry {
 
 ///|
 /// Adapter over the compiled-in fs-session store.
-struct FsSessionCatalog {
+priv struct FsSessionCatalog {
   store : @fs_session.JsonlSessionStore
 }
 

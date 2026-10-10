@@ -1,7 +1,7 @@
 ///|
 /// One replayed tool call whose result is patched in when its ToolMessage
 /// arrives later in the transcript.
-struct ReplayTool {
+priv struct ReplayTool {
   turn_id : String
   call_id : String
   name : String
@@ -47,7 +47,7 @@ fn replay_tool_json(tool : ReplayTool) -> Json {
 }
 
 ///|
-fn transcript_empty_json() -> Json {
+pub fn transcript_empty_json() -> Json {
   Json::object(
     Map::from_array([("items", Json::array([])), ("context", Json::null())]),
   )

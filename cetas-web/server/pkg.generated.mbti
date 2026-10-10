@@ -1,46 +1,13 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "colmugx/cetas-web/server"
 
-import {
-  "colmugx/posoco/types",
-}
-
 // Values
 
 // Errors
 
 // Types and methods
-type EventHub
-
-type FsSessionCatalog
-
-type ReplayTool
-
-type SessionCatalogEntry
-
-type SessionHandle
-
-type UiBlockingApprovalSource
-
-type UiRegistry
-
 type WebClientMessage
-
-type WebObserver
-
-type WebRuntime
-
-type WorkspaceRuntime
-
-type WsUiPort
 
 // Type aliases
 
 // Traits
-pub(open) trait SessionCatalog {
-  fn check_id(Self, String) -> Result[Unit, String]
-  async fn list_ids(Self) -> Array[String]
-  async fn entry(Self, String) -> SessionCatalogEntry
-  async fn set_name(Self, String, String) -> Unit
-  async fn load(Self, String) -> @types.Session
-}

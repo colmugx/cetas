@@ -76,12 +76,13 @@ Requirements:
 - MoonBit toolchain
 - Node.js 22.12 or newer
 
-Prepare the public Web recipe when working on composition code:
+Prepare the public console recipe when working on composition code (the
+recipe now lives in the shared `cetas-console` core, not in this host):
 
 ```sh
 python3 scripts/prepare-recipe.py \
   --flavor public \
-  --frontend web \
+  --frontend console \
   --platform unix
 ```
 
@@ -135,8 +136,48 @@ and replays the persisted transcript through the same rendering path as live
 turns. Store access beyond the
 kernel's `@port.SessionStore` (list/entry/name) goes through the server-local
 `SessionCatalog` seam (`server/catalog.mbt`); swap store implementations by
-writing one adapter. `interactive`/`auto` permission modes need the approval
-surface, which is not wired yet.
+writing one adapter.
+
+The approval surface is wired: composing a session bridges a `WsUiPort`
+(`server/uiport.mbt`) into `UiBlockingApprovalSource` (`server/approval.mbt`),
+so `interactive` mode routes tool asks to a composer takeover card over the
+`ui.request`/`ui.response` protocol. Denials fold back into the turn as
+`NotExecuted` results — non-terminal steering, matching the cetas-js bridge.
+`auto` still requires a `DecisionPort` and stays refused.
+
+Observability: `GET /api/exts` projects the live extension manifests of the
+active workspace (tools, commands, port roles — the "zoo", rendered as
+expandable blinds — each blind body lists every port role the manifest
+fills (h2 per role, h3 per capability; tool/command/prompt/ui details come
+only from port contracts)), and `GET /api/trace` serves **per-turn ledgers** —
+the path each answer took, one event list per turn. The Trace page is a turn
+browser (ledger sidebar + typed event rows + raw payload expansion), and each
+answer's footer opens the same ledger as a float window. Every wire event
+carries a `ts` stamp; message headers/footers show sender, model/turn, and
+completion time. The chat header gains a float window on persisted sessions
+listing every posoco-ext with a participation dot (green = contributed this
+session), driven by the trace. Usage & provider status: `ModelResponseReceived` usage deltas and
+`ContextStateUpdated` drive a Settings "Context & usage" section and a slim
+composer meter, recomputed from the turn ledgers so they survive reloads.
+The bottom-left Status Window is fully data-driven: it renders whatever
+segments the active provider's publishers push onto the session bus
+(ratelimit windows render as progress bars; a provider balance renders as a
+plain row) — the title comes from the active slot's label prefix, with no
+provider-specific client branches. Connection state (api/ws/core) lives in
+Settings.
+
+Composer controls: model and effort are one cascading picker (effort chips
+pin to the top of the model menu, scoped to the highlighted model); the
+statusbar dock excludes keys the composer already shows. The
+statusbar pipeline is composed end-to-end: `posoco-ext-stats` derives
+ttft/tps/avg/cache from turn events, the web host publishes turns/steps
+counters, `posoco-ext-statusbar` aggregates them on the event bus and pushes
+`ui.render(key="statusbar")` through the host UiPort — rendered as
+composer-dock pills under the input box (activity: turns/steps/tok-per-sec;
+usage: tokens/cache-hit; plus leftover segments like rate-limit windows),
+recomputed from the turn ledgers so they survive reloads. The socket
+auto-reconnects with backoff and re-attaches on server restarts. Message headers are reserved for attachments;
+footers carry the quick menu (trace/copy) and completion time.
 
 Prompts typed while a turn runs queue on the session and dispatch
 automatically when it settles (steering-compatible; mid-turn injection

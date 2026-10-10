@@ -3,7 +3,7 @@
 /// workspace: `$name`-mention candidates with their descriptions. Uses the
 /// skills extension's public discovery (the same walk the session's skills
 /// extension performs), so results match what the agent can activate.
-async fn WebRuntime::skills_json(self : WebRuntime) -> Json {
+pub async fn ConsoleRuntime::skills_json(self : ConsoleRuntime) -> Json {
   let handle = self.active().active()
   let discovery = @skills.SkillDiscovery(
     self.fs,

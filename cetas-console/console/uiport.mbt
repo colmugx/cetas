@@ -39,29 +39,29 @@ fn UiRegistry::resolve(
 /// The web host's UiPort: renders nothing itself, bridges `UiRequest` to the
 /// browser over the event hub and suspends the ask-coroutine on a one-shot
 /// queue until the WS response lands.
-struct WsUiPort {
+priv struct HubUiPort {
   hub : EventHub
   session_id : String
   registry : UiRegistry
 }
 
 ///|
-fn WsUiPort::new(
+fn HubUiPort::new(
   hub : EventHub,
   registry : UiRegistry,
   session_id : String,
-) -> WsUiPort {
+) -> HubUiPort {
   { hub, session_id, registry, }
 }
 
 ///|
-impl @posoco.UiPort for WsUiPort with fn ui_descriptor(_self : WsUiPort) -> @posoco.UiDescriptor {
+impl @posoco.UiPort for HubUiPort with fn ui_descriptor(_self : HubUiPort) -> @posoco.UiDescriptor {
   @posoco.UiDescriptor::empty()
 }
 
 ///|
-impl @posoco.UiPort for WsUiPort with fn render(
-  self : WsUiPort,
+impl @posoco.UiPort for HubUiPort with fn render(
+  self : HubUiPort,
   render : @posoco.UiRender,
 ) -> Unit {
   let entries : Array[Json] = match render.body {
@@ -96,8 +96,8 @@ impl @posoco.UiPort for WsUiPort with fn render(
 }
 
 ///|
-impl @posoco.UiPort for WsUiPort with fn request(
-  self : WsUiPort,
+impl @posoco.UiPort for HubUiPort with fn request(
+  self : HubUiPort,
   request : @posoco.UiRequest,
 ) -> @posoco.UiResponse raise {
   let (request_id, queue) = self.registry.register()
@@ -172,10 +172,10 @@ impl @posoco.UiPort for WsUiPort with fn request(
 ///|
 /// Seed the harness counters so the statusbar shows them from the start;
 /// the observer publishes updates as turns run.
-fn seed_status(bus : @devkit.EventBus) -> Unit {
+fn seed_status(bus : @devkit.EventBus, label : String) -> Unit {
   @devkit.publish_status_register(
     bus,
-    source="cetas-web",
+    source=label,
     segment="turns",
     label="turns",
     priority=30,
@@ -183,7 +183,7 @@ fn seed_status(bus : @devkit.EventBus) -> Unit {
   )
   @devkit.publish_status_register(
     bus,
-    source="cetas-web",
+    source=label,
     segment="steps",
     label="steps",
     priority=31,

@@ -11,7 +11,7 @@ const APPROVAL_OPTION_SESSION = "Allow for this session"
 const APPROVAL_OPTION_DENY = "Deny"
 
 ///|
-struct UiBlockingApprovalSource {
+priv struct UiBlockingApprovalSource {
   ui : &@posoco.UiPort
 }
 

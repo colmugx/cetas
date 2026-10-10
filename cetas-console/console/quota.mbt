@@ -41,7 +41,7 @@ fn readings_json(readings : Array[@devkit.QuotaReading]) -> Array[Json] {
 /// at request time and read the source live. No provider branches here:
 /// readings are shaped entirely by the pushed data (windows carry
 /// used_percent, balance-style sources carry amount+currency).
-async fn WebRuntime::quota_json(self : WebRuntime) -> Json {
+pub async fn ConsoleRuntime::quota_json(self : ConsoleRuntime) -> Json {
   let handle = self.active().active()
   let provider_id = handle.router.current_provider_id()
   let readings : Array[Json] = match
@@ -66,7 +66,7 @@ async fn WebRuntime::quota_json(self : WebRuntime) -> Json {
 /// Every distinct slot provider with a registered quota source, read live —
 /// powers the expanded multi-provider view. Slow sources only delay this
 /// payload; the active-provider event goes out first.
-async fn WebRuntime::quota_all_json(self : WebRuntime) -> Json {
+pub async fn ConsoleRuntime::quota_all_json(self : ConsoleRuntime) -> Json {
   let handle = self.active().active()
   let seen : Map[String, Bool] = Map::from_array([])
   let providers : Array[Json] = []

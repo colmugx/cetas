@@ -69,7 +69,9 @@ async fn probe_dir(path : String) -> Bool {
 /// is probed with `readdir` — success means directory (recorded with a
 /// trailing `/` and expanded), failure means file. Errors on single dirs
 /// are swallowed; the index stays best-effort by design.
-async fn WebRuntime::workspace_file_index(self : WebRuntime) -> Array[String] {
+pub async fn ConsoleRuntime::workspace_file_index(
+  self : ConsoleRuntime,
+) -> Array[String] {
   let now = @async.now()
   match self.file_index_cache {
     Some((built_at, entries)) if now - built_at < FILE_INDEX_TTL_MS =>
@@ -195,8 +197,8 @@ fn rank_file_entries(
 /// `GET /api/files/search` — ranked `@`-mention candidates for the active
 /// workspace. Transport shape stays minimal so the desktop adaptor can
 /// serve the identical payload over IPC.
-async fn WebRuntime::file_suggestions_json(
-  self : WebRuntime,
+pub async fn ConsoleRuntime::file_suggestions_json(
+  self : ConsoleRuntime,
   query : String,
   limit : Int,
 ) -> Json {

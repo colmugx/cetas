@@ -1,10 +1,15 @@
 ///|
+/// cetas-web transport adaptor: HTTP routes plus one WebSocket broadcast
+/// stream over the shared cetas-console core. Business logic lives in the
+/// console; this package only translates between HTTP/WS and its calls.
+
+///|
 const WEB_EVENT_QUEUE_CAPACITY : Int = 4096
 
 // Keep in sync with moon.mod pins: colmugx/posoco, colmugx/cetas-core, colmugx/cetas-web.
 
 ///|
-const POSOCO_VERSION : String = "0.21.1"
+const POSOCO_VERSION : String = "0.22.0"
 
 ///|
 const CETAS_VERSION : String = "0.2.0"
@@ -44,7 +49,7 @@ async fn request_string_field(req : @moonback.Request, key : String) -> String? 
 async fn serve_websocket(
   req : @moonback.Request,
   res : @moonback.Responder,
-  boot : Result[WebRuntime, String],
+  boot : Result[@console.ConsoleRuntime, String],
 ) -> Unit {
   let ws = res.upgrade(req)
   let client_ip = req.ip().unwrap_or("unknown")
@@ -67,15 +72,15 @@ async fn serve_websocket(
         let queue : @aqueue.Queue[String] = Queue(
           kind=Blocking(WEB_EVENT_QUEUE_CAPACITY),
         )
-        runtime.hub.attach(fn(event : String) {
+        runtime.attach_sink(fn(event : String) {
           ignore(queue.try_put(event) catch { _ => false })
         })
-        defer runtime.hub.detach()
+        defer runtime.detach_sink()
         defer queue.close(clear=true)
 
         connection_group.spawn_bg(async fn() { drain_web_events(queue, ws) })
 
-        runtime.hub.emit("", "", "connection.ready", extra=[
+        runtime.emit_event("", "", "connection.ready", extra=[
           ("protocol", Json::string("cetas-web/0.1")),
         ])
 
@@ -87,7 +92,7 @@ async fn serve_websocket(
                 let raw = msg.read_all().text()
                 match decode_web_client_message(raw) {
                   Err(message) =>
-                    runtime.hub.emit("", "", "protocol.error", extra=[
+                    runtime.emit_event("", "", "protocol.error", extra=[
                       ("message", Json::string(message)),
                     ])
                   Ok(SessionAttach) => {
@@ -98,7 +103,7 @@ async fn serve_websocket(
                     match runtime.start_turn(prompt, session_id) {
                       Ok(_) => ()
                       Err(message) =>
-                        runtime.hub.emit("", "", "protocol.error", extra=[
+                        runtime.emit_event("", "", "protocol.error", extra=[
                           ("message", Json::string(message)),
                         ])
                     }
@@ -113,24 +118,24 @@ async fn serve_websocket(
                     }
                     let sid = match session_id {
                       Some(id) => id
-                      None => runtime.active().active_id
+                      None => runtime.active_session_id()
                     }
-                    runtime.hub.emit(sid, "", "statusbar.quota", extra=[
+                    runtime.emit_event(sid, "", "statusbar.quota", extra=[
                       ("payload", payload),
                     ])
                     let all_payload : Json = runtime.quota_all_json() catch {
                       error => error_json(error.to_string())
                     }
-                    runtime.hub.emit(sid, "", "statusbar.quota_all", extra=[
+                    runtime.emit_event(sid, "", "statusbar.quota_all", extra=[
                       ("payload", all_payload),
                     ])
                   }
                   Ok(UiResponse(request_id)) =>
-                    runtime.ui_registry.resolve(request_id, raw)
+                    runtime.resolve_ui(request_id, raw)
                 }
               }
               Binary =>
-                runtime.hub.emit("", "", "protocol.error", extra=[
+                runtime.emit_event("", "", "protocol.error", extra=[
                   (
                     "message",
                     Json::string("binary websocket messages are not supported"),
@@ -163,10 +168,13 @@ async fn main {
 
   let home = @cetas_core.cetas_home()
   let cwd = @env.current_dir().unwrap_or(".")
+  let fs_impl = @workspace.NativeWorkspaceFs()
+  let fs : &@workspace.WorkspaceFs = fs_impl
+  let config = @console.console_config(fs, home, "cetas-web", "cetas-web/0.1")
 
   @async.with_task_group(group => {
-    let boot : Result[WebRuntime, String] = Ok(
-      compose_web_runtime(home, cwd, group),
+    let boot : Result[@console.ConsoleRuntime, String] = Ok(
+      @console.compose_console_runtime(config, cwd, group),
     ) catch {
       error => Err(error.to_string())
     }
@@ -213,19 +221,8 @@ async fn main {
           Ok(runtime) =>
             match req.params.get("id") {
               Some(id) => {
-                let session_id = id.to_owned()
-                // A freshly minted session has no transcript file yet; an
-                // unreadable one replays as empty, not as an error.
-                let payload : Json = match
-                  runtime.active().catalog.check_id(session_id) {
-                  Err(_) => transcript_empty_json()
-                  Ok(_) =>
-                    try {
-                      let session = runtime.active().catalog.load(session_id)
-                      transcript_json(session)
-                    } catch {
-                      _ => transcript_empty_json()
-                    }
+                let payload : Json = runtime.transcript_json(id.to_owned()) catch {
+                  _ => @console.transcript_empty_json()
                 }
                 res.send_json(payload)
               }
@@ -240,19 +237,12 @@ async fn main {
             match req.params.get("id") {
               Some(id) =>
                 match request_string_field(req, "name") {
-                  Some(name) => {
-                    let outcome : Result[Unit, String] = try {
-                      runtime.active().catalog.set_name(id.to_owned(), name)
-                      Ok(())
-                    } catch {
-                      error => Err(error.to_string())
-                    }
-                    match outcome {
+                  Some(name) =>
+                    match runtime.rename_session(id.to_owned(), name) {
                       Ok(_) => res.send_json({ "ok": true })
                       Err(message) =>
                         res.send_json(error_json(message), status=409)
                     }
-                  }
                   None =>
                     res.send_json(
                       error_json("body must include name"),
@@ -299,75 +289,11 @@ async fn main {
       ctx.get("/trace", (req, res) => {
         match boot {
           Ok(runtime) => {
-            let session_filter = req.query().get("session")
-            let turn_filter = req.query().get("turn")
-            // A turn ledger keyed "session/turn"; request-side grouping keeps
-            // the trace a path of each answer instead of one wire dump.
-            let turn_keys : Array[String] = match session_filter {
-              Some(session) =>
-                match runtime.hub.turn_order.get(session) {
-                  Some(order) => order
-                  None => []
-                }
-              None => {
-                let all : Array[String] = []
-                for _, order in runtime.hub.turn_order {
-                  for key in order {
-                    all.push(key)
-                  }
-                }
-                all
-              }
-            }
-            let turns : Array[Json] = []
-            let orphans : Array[Json] = []
-            for index in 0..<turn_keys.length() {
-              let key = turn_keys[turn_keys.length() - 1 - index]
-              match runtime.hub.turn_traces.get(key) {
-                Some(ledger) => {
-                  // key layout: "<session_id>/<turn_id>"; session ids never
-                  // contain '/' (validated), so the first '/' is the divider.
-                  let divider = key.find("/")
-                  let sid = match divider {
-                    Some(at) => key[:at].to_owned()
-                    None => key
-                  }
-                  let turn_part = match divider {
-                    Some(at) => key[at + 1:].to_owned()
-                    None => ""
-                  }
-                  if turn_part == "" {
-                    for event in ledger {
-                      orphans.push(event)
-                    }
-                  } else if session_filter is Some(want) && sid != want {
-                    continue
-                  } else if turn_filter is Some(want_turn) &&
-                    turn_part != want_turn {
-                    continue
-                  } else {
-                    turns.push(
-                      Json::object(
-                        Map::from_array([
-                          ("turn_id", Json::string(turn_part)),
-                          ("session_id", Json::string(sid)),
-                          ("events", Json::array(ledger.copy())),
-                        ]),
-                      ),
-                    )
-                  }
-                }
-                None => ()
-              }
-            }
-            res.send_json(
-              Json::object(
-                Map::from_array([
-                  ("turns", Json::array(turns)),
-                  ("orphans", Json::array(orphans)),
-                ]),
-              ),
+            let payload : Json = runtime.trace_json(
+              req.query().get("session"),
+              req.query().get("turn"),
             )
+            res.send_json(payload)
           }
           Err(detail) => res.send_json(error_json(detail), status=503)
         }
@@ -482,7 +408,7 @@ async fn main {
     match boot {
       Ok(runtime) =>
         println(
-          "cetas-web: core ready workspace=\{runtime.active_cwd} session=\{runtime.active().active_id}",
+          "cetas-web: core ready workspace=\{runtime.active_workspace()} session=\{runtime.active_session_id()}",
         )
       Err(detail) => println("cetas-web: core needs setup: \{detail}")
     }
@@ -491,12 +417,7 @@ async fn main {
     app.serve(@moonback.listen(host~, port=port.to_uint16(), reuse_addr=true))
 
     match boot {
-      Ok(runtime) =>
-        for _, workspace in runtime.workspaces {
-          for _, handle in workspace.handles {
-            handle.agent.shutdown()
-          }
-        }
+      Ok(runtime) => runtime.shutdown_all()
       Err(_) => ()
     }
   })

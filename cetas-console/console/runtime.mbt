@@ -1,12 +1,33 @@
 ///|
+/// Host identity handed to the console core by whichever adaptor composes
+/// it: filesystem, cetas home, and the tags that attribute logs, status
+/// registrations, and snapshot frames to the host.
+pub struct ConsoleConfig {
+  fs : &@workspace.WorkspaceFs
+  home : String
+  label : String
+  protocol : String
+}
+
+///|
+pub fn console_config(
+  fs : &@workspace.WorkspaceFs,
+  home : String,
+  label : String,
+  protocol : String,
+) -> ConsoleConfig {
+  { fs, home, label, protocol, }
+}
+
+///|
 /// One running session: a composed agent plus its live turn state. Handles
 /// run concurrently within a workspace; each owns its observer for event
 /// attribution.
-struct SessionHandle {
+priv struct SessionHandle {
   agent : @posoco.Agent
   session_id : String
   cwd : String
-  observer : WebObserver
+  observer : ConsoleObserver
   router : @ext_llm.RouterModelPort
   policy : @permission.PermissionPolicy
   mut model : String
@@ -29,9 +50,11 @@ struct WorkspaceRuntime {
 }
 
 ///|
-struct WebRuntime {
+pub struct ConsoleRuntime {
   fs : &@workspace.WorkspaceFs
   home : String
+  label : String
+  protocol : String
   group : @async.TaskGroup[Unit]
   hub : EventHub
   ui_registry : UiRegistry
@@ -59,7 +82,7 @@ fn permission_mode_name(mode : @permission.PermissionMode) -> String {
 fn WorkspaceRuntime::active(self : WorkspaceRuntime) -> SessionHandle {
   match self.handles.get(self.active_id) {
     Some(handle) => handle
-    None => abort("cetas-web: active session handle missing")
+    None => abort("cetas-console: active session handle missing")
   }
 }
 
@@ -67,7 +90,7 @@ fn WorkspaceRuntime::active(self : WorkspaceRuntime) -> SessionHandle {
 fn unwrap_workspace(workspace : WorkspaceRuntime?) -> WorkspaceRuntime {
   match workspace {
     Some(found) => found
-    None => abort("cetas-web: workspace handle missing")
+    None => abort("cetas-console: workspace handle missing")
   }
 }
 
@@ -86,10 +109,10 @@ fn emit_workspace_snapshot(
 }
 
 ///|
-fn WebRuntime::active(self : WebRuntime) -> WorkspaceRuntime {
+fn ConsoleRuntime::active(self : ConsoleRuntime) -> WorkspaceRuntime {
   match self.workspaces.get(self.active_cwd) {
     Some(workspace) => workspace
-    None => abort("cetas-web: active workspace missing")
+    None => abort("cetas-console: active workspace missing")
   }
 }
 
@@ -108,13 +131,13 @@ fn emit_handle_snapshot(
 }
 
 ///|
-fn WebRuntime::emit_active_snapshot(self : WebRuntime) -> Unit {
+pub fn ConsoleRuntime::emit_active_snapshot(self : ConsoleRuntime) -> Unit {
   let workspace = self.active()
   emit_handle_snapshot(workspace, workspace.active())
 }
 
 ///|
-fn WebRuntime::runtime_json(self : WebRuntime) -> Json {
+pub fn ConsoleRuntime::runtime_json(self : ConsoleRuntime) -> Json {
   let workspace = self.active()
   let handle = workspace.active()
   Json::object(
@@ -133,8 +156,8 @@ fn WebRuntime::runtime_json(self : WebRuntime) -> Json {
 ///|
 /// Resolve the target session: an explicit id composes a handle on demand in
 /// the active workspace; without one, the workspace's active session runs.
-async fn WebRuntime::resolve_handle(
-  self : WebRuntime,
+async fn ConsoleRuntime::resolve_handle(
+  self : ConsoleRuntime,
   session_id : String?,
 ) -> Result[SessionHandle, String] noraise {
   let workspace = self.active()
@@ -149,8 +172,8 @@ async fn WebRuntime::resolve_handle(
 }
 
 ///|
-async fn WebRuntime::compose_handle(
-  self : WebRuntime,
+async fn ConsoleRuntime::compose_handle(
+  self : ConsoleRuntime,
   workspace : WorkspaceRuntime,
   session_id : String,
 ) -> Result[SessionHandle, String] noraise {
@@ -167,6 +190,8 @@ async fn WebRuntime::compose_handle(
     self.hub,
     self.ui_registry,
     workspace.permission_mode,
+    self.label,
+    self.protocol,
     session_id,
   ) catch {
     error => return Err(error.to_string())
@@ -193,8 +218,8 @@ fn collect_zoo(
 }
 
 ///|
-async fn WebRuntime::start_turn(
-  self : WebRuntime,
+pub async fn ConsoleRuntime::start_turn(
+  self : ConsoleRuntime,
   prompt : String,
   session_id : String?,
 ) -> Result[String, String] noraise {
@@ -237,8 +262,8 @@ async fn WebRuntime::start_turn(
 }
 
 ///|
-async fn WebRuntime::abort_turn(
-  self : WebRuntime,
+pub async fn ConsoleRuntime::abort_turn(
+  self : ConsoleRuntime,
   session_id : String?,
 ) -> Unit noraise {
   let handle = match self.resolve_handle(session_id) {
@@ -267,10 +292,12 @@ async fn compose_session_agent(
   hub : EventHub,
   ui_registry : UiRegistry,
   permission_mode : @permission.PermissionMode,
+  label : String,
+  protocol : String,
   session_id : String,
 ) -> SessionHandle {
   let warn = async fn(text : String) noraise {
-    @stdio.stderr.write("cetas-web: " + text) catch {
+    @stdio.stderr.write(label + ": " + text) catch {
       _ => ()
     }
   }
@@ -278,7 +305,7 @@ async fn compose_session_agent(
     ctx={ fs, cwd, home, },
     nmem_group=Some(group),
   )
-  let ui_port : &@posoco.UiPort = WsUiPort::new(hub, ui_registry, session_id)
+  let ui_port : &@posoco.UiPort = HubUiPort::new(hub, ui_registry, session_id)
   let approval : &@permission.ApprovalSource = UiBlockingApprovalSource::new(
     ui_port,
   )
@@ -288,17 +315,19 @@ async fn compose_session_agent(
     feature_exts~,
     ui=Some(ui_port),
     approval=Some(approval),
-    label="cetas-web",
+    label~,
     warn~,
   )
   session.permission.mode = permission_mode
   let router = session.router
   let policy = session.permission
   let session_bus = session.event_bus
-  let observer = WebObserver::new(hub, session_bus, session_id)
+  let observer = ConsoleObserver::new(
+    hub, session_bus, session_id, label, protocol,
+  )
   let speed_metrics = @stats.Stats(bus=Some(session_bus))
   let statusbar = @statusbar.StatusBar(bus=Some(session_bus))
-  seed_status(session_bus)
+  seed_status(session_bus, label)
   let tail_exts : Array[&@posoco.Extension] = [
     observer as &@posoco.Extension,
     speed_metrics,
@@ -324,8 +353,8 @@ async fn compose_session_agent(
 }
 
 ///|
-async fn WebRuntime::switch_session(
-  self : WebRuntime,
+pub async fn ConsoleRuntime::switch_session(
+  self : ConsoleRuntime,
   session_id : String,
 ) -> Result[String, String] noraise {
   let workspace = self.active()
@@ -344,8 +373,8 @@ async fn WebRuntime::switch_session(
 }
 
 ///|
-async fn WebRuntime::new_session(
-  self : WebRuntime,
+pub async fn ConsoleRuntime::new_session(
+  self : ConsoleRuntime,
 ) -> Result[String, String] noraise {
   let session_id = @cetas_core.mint_session_id()
   self.switch_session(session_id)
@@ -354,8 +383,8 @@ async fn WebRuntime::new_session(
 ///|
 /// Switch the active workspace, composing its platform and first session on
 /// first touch. Composition failures (bad cwd, broken recipe) surface as 409.
-async fn WebRuntime::switch_workspace(
-  self : WebRuntime,
+pub async fn ConsoleRuntime::switch_workspace(
+  self : ConsoleRuntime,
   cwd : String,
 ) -> Result[String, String] noraise {
   let normalized = @fs_session.normalize_cwd(cwd)
@@ -372,6 +401,8 @@ async fn WebRuntime::switch_workspace(
     self.hub,
     self.ui_registry,
     @permission.PermissionMode::WorkspaceWrite,
+    self.label,
+    self.protocol,
   ) catch {
     error => return Err(error.to_string())
   }
@@ -384,7 +415,7 @@ async fn WebRuntime::switch_workspace(
 }
 
 ///|
-async fn WebRuntime::sync_registry(self : WebRuntime) -> Unit noraise {
+async fn ConsoleRuntime::sync_registry(self : ConsoleRuntime) -> Unit noraise {
   let cwds = self.registry.copy()
   for cwd, _ in self.workspaces {
     if !cwds.contains(cwd) {
@@ -393,14 +424,14 @@ async fn WebRuntime::sync_registry(self : WebRuntime) -> Unit noraise {
   }
   save_registry(self.home, cwds) catch {
     error =>
-      @stdio.stderr.write("cetas-web: registry write failed: \{error}") catch {
+      @stdio.stderr.write(self.label + ": registry write failed: \{error}") catch {
         _ => ()
       }
   }
 }
 
 ///|
-fn WebRuntime::workspaces_json(self : WebRuntime) -> Json {
+pub fn ConsoleRuntime::workspaces_json(self : ConsoleRuntime) -> Json {
   let workspaces : Array[Json] = []
   for cwd in self.registry {
     if self.workspaces.contains(cwd) {
@@ -446,8 +477,8 @@ fn WebRuntime::workspaces_json(self : WebRuntime) -> Json {
 }
 
 ///|
-async fn WebRuntime::persist_model_selection(
-  self : WebRuntime,
+async fn ConsoleRuntime::persist_model_selection(
+  self : ConsoleRuntime,
   handle : SessionHandle,
 ) -> Unit noraise {
   let selection = @cetas_core.ActiveModelSelection::from_current(
@@ -456,15 +487,17 @@ async fn WebRuntime::persist_model_selection(
   )
   @cetas_core.write_active_model_selection(self.fs, home=self.home, selection) catch {
     error =>
-      @stdio.stderr.write("cetas-web: persist model selection failed: \{error}") catch {
+      @stdio.stderr.write(
+        self.label + ": persist model selection failed: \{error}",
+      ) catch {
         _ => ()
       }
   }
 }
 
 ///|
-async fn WebRuntime::switch_model(
-  self : WebRuntime,
+pub async fn ConsoleRuntime::switch_model(
+  self : ConsoleRuntime,
   slot_id : String,
   session_id : String?,
 ) -> Result[Unit, String] noraise {
@@ -486,8 +519,8 @@ async fn WebRuntime::switch_model(
 }
 
 ///|
-async fn WebRuntime::select_effort(
-  self : WebRuntime,
+pub async fn ConsoleRuntime::select_effort(
+  self : ConsoleRuntime,
   effort : String,
   session_id : String?,
 ) -> Result[Unit, String] noraise {
@@ -508,8 +541,8 @@ async fn WebRuntime::select_effort(
 }
 
 ///|
-fn WebRuntime::set_permission(
-  self : WebRuntime,
+pub fn ConsoleRuntime::set_permission(
+  self : ConsoleRuntime,
   mode_name : String,
 ) -> Result[Unit, String] {
   let mode = match mode_name {
@@ -519,7 +552,7 @@ fn WebRuntime::set_permission(
     "interactive" => @permission.PermissionMode::Interactive
     "auto" =>
       return Err(
-        "permission mode 'auto' needs a DecisionPort, which cetas-web has not composed",
+        "permission mode 'auto' needs a DecisionPort, which this console host has not composed",
       )
     other => return Err("unknown permission mode: \{other}")
   }
@@ -533,8 +566,8 @@ fn WebRuntime::set_permission(
 }
 
 ///|
-async fn WebRuntime::model_slots_json(
-  self : WebRuntime,
+pub async fn ConsoleRuntime::model_slots_json(
+  self : ConsoleRuntime,
   session_id : String?,
 ) -> Json noraise {
   let handle = match self.resolve_handle(session_id) {
@@ -596,19 +629,19 @@ async fn WebRuntime::model_slots_json(
 /// Re-push the active session's counters after a sink attaches: the
 /// statusbar renders every valued segment on any segment op, so one update
 /// delivers the full strip to the new connection.
-fn WebRuntime::republish_status(self : WebRuntime) -> Unit {
+pub fn ConsoleRuntime::republish_status(self : ConsoleRuntime) -> Unit {
   let handle = self.active().active()
   handle.observer.publish_turn_count()
   handle.observer.publish_step_count()
 }
 
 ///|
-fn WebRuntime::zoo_json(self : WebRuntime) -> Json {
+pub fn ConsoleRuntime::zoo_json(self : ConsoleRuntime) -> Json {
   self.active().zoo
 }
 
 ///|
-async fn WebRuntime::sessions_json(self : WebRuntime) -> Json {
+pub async fn ConsoleRuntime::sessions_json(self : ConsoleRuntime) -> Json {
   let workspace = self.active()
   let active_id = workspace.active_id
   let sessions : Array[Json] = []
@@ -646,9 +679,11 @@ async fn build_workspace(
   hub : EventHub,
   ui_registry : UiRegistry,
   permission_mode : @permission.PermissionMode,
+  label : String,
+  protocol : String,
 ) -> WorkspaceRuntime {
   let warn = async fn(text : String) noraise {
-    @stdio.stderr.write("cetas-web: " + text) catch {
+    @stdio.stderr.write(label + ": " + text) catch {
       _ => ()
     }
   }
@@ -658,11 +693,11 @@ async fn build_workspace(
     fs,
     permission_mode=@permission.PermissionMode::ReadOnly,
     mcp_group=Some(group),
-    label="cetas-web",
+    label~,
     warn~,
   )
   let first_session_id = @cetas_core.mint_session_id()
-  let ui_port : &@posoco.UiPort = WsUiPort::new(
+  let ui_port : &@posoco.UiPort = HubUiPort::new(
     hub, ui_registry, first_session_id,
   )
   let approval : &@permission.ApprovalSource = UiBlockingApprovalSource::new(
@@ -678,17 +713,19 @@ async fn build_workspace(
     feature_exts~,
     ui=Some(ui_port),
     approval=Some(approval),
-    label="cetas-web",
+    label~,
     warn~,
   )
   session.permission.mode = permission_mode
   let session_bus = session.event_bus
-  let observer = WebObserver::new(hub, session_bus, first_session_id)
+  let observer = ConsoleObserver::new(
+    hub, session_bus, first_session_id, label, protocol,
+  )
   let router = session.router
   let policy = session.permission
   let speed_metrics = @stats.Stats(bus=Some(session_bus))
   let statusbar = @statusbar.StatusBar(bus=Some(session_bus))
-  seed_status(session_bus)
+  seed_status(session_bus, label)
   let tail_exts : Array[&@posoco.Extension] = [
     observer as &@posoco.Extension,
     speed_metrics,
@@ -728,32 +765,36 @@ async fn build_workspace(
 }
 
 ///|
-async fn compose_web_runtime(
-  home : String,
+pub async fn compose_console_runtime(
+  config : ConsoleConfig,
   cwd : String,
   group : @async.TaskGroup[Unit],
-) -> WebRuntime {
-  let fs_impl = @workspace.NativeWorkspaceFs()
-  let fs : &@workspace.WorkspaceFs = fs_impl
+) -> ConsoleRuntime {
   let hub = EventHub::new()
   let ui_registry = UiRegistry::new()
   let first = build_workspace(
-    fs,
-    home,
+    config.fs,
+    config.home,
     cwd,
     group,
     hub,
     ui_registry,
     @permission.PermissionMode::WorkspaceWrite,
+    config.label,
+    config.protocol,
   )
   let workspaces : Map[String, WorkspaceRuntime] = Map::from_array([
     (cwd, first),
   ])
-  let registry : Array[String] = load_registry(home) catch { _ => [] }
+  let registry : Array[String] = load_registry_with_legacy(config.home) catch {
+    _ => []
+  }
   let registry = registry.filter(registered => registered != cwd)
   {
-    fs,
-    home,
+    fs: config.fs,
+    home: config.home,
+    label: config.label,
+    protocol: config.protocol,
     group,
     hub,
     ui_registry,
@@ -769,14 +810,179 @@ async fn compose_web_runtime(
 /// session. Compaction is a long LLM call, so it runs in the runtime's
 /// task group (the WS loop stays free for aborts) and its progress rides
 /// the observer's `compact.started` / `compact.finished` events.
-async fn WebRuntime::compact_active_session(self : WebRuntime) -> Unit {
+pub async fn ConsoleRuntime::compact_active_session(
+  self : ConsoleRuntime,
+) -> Unit {
   let handle = self.active().active()
   try {
     let outcome = handle.agent.compact_session(handle.session_id)
     println(
-      "cetas-web: compact finished final_session=\{outcome.final_session_id} messages_after=\{outcome.messages_after}",
+      self.label +
+      ": compact finished final_session=\{outcome.final_session_id} messages_after=\{outcome.messages_after}",
     )
   } catch {
-    error => println("cetas-web: compact failed: \{@debug.to_string(error)}")
+    error =>
+      println(self.label + ": compact failed: \{@debug.to_string(error)}")
+  }
+}
+
+///|
+/// Trace page for the console UI: per-turn ledgers grouped request-side so
+/// the trace stays a path of each answer instead of one wire dump.
+pub fn ConsoleRuntime::trace_json(
+  self : ConsoleRuntime,
+  session_filter : String?,
+  turn_filter : String?,
+) -> Json {
+  let turn_keys : Array[String] = match session_filter {
+    Some(session) =>
+      match self.hub.turn_order.get(session) {
+        Some(order) => order
+        None => []
+      }
+    None => {
+      let all : Array[String] = []
+      for _, order in self.hub.turn_order {
+        for key in order {
+          all.push(key)
+        }
+      }
+      all
+    }
+  }
+  let turns : Array[Json] = []
+  let orphans : Array[Json] = []
+  for index in 0..<turn_keys.length() {
+    let key = turn_keys[turn_keys.length() - 1 - index]
+    match self.hub.turn_traces.get(key) {
+      Some(ledger) => {
+        // key layout: "<session_id>/<turn_id>"; session ids never contain '/'
+        // (validated), so the first '/' is the divider.
+        let divider = key.find("/")
+        let sid = match divider {
+          Some(at) => key[:at].to_owned()
+          None => key
+        }
+        let turn_part = match divider {
+          Some(at) => key[at + 1:].to_owned()
+          None => ""
+        }
+        if turn_part == "" {
+          for event in ledger {
+            orphans.push(event)
+          }
+        } else if session_filter is Some(want) && sid != want {
+          continue
+        } else if turn_filter is Some(want_turn) && turn_part != want_turn {
+          continue
+        } else {
+          turns.push(
+            Json::object(
+              Map::from_array([
+                ("turn_id", Json::string(turn_part)),
+                ("session_id", Json::string(sid)),
+                ("events", Json::array(ledger.copy())),
+              ]),
+            ),
+          )
+        }
+      }
+      None => ()
+    }
+  }
+  Json::object(
+    Map::from_array([
+      ("turns", Json::array(turns)),
+      ("orphans", Json::array(orphans)),
+    ]),
+  )
+}
+
+///|
+/// Transcript replay for one session. A freshly minted session has no
+/// transcript file yet; an unreadable one replays as empty, not as an error.
+pub async fn ConsoleRuntime::transcript_json(
+  self : ConsoleRuntime,
+  session_id : String,
+) -> Json {
+  match self.active().catalog.check_id(session_id) {
+    Err(_) => transcript_empty_json()
+    Ok(_) =>
+      try {
+        let session = self.active().catalog.load(session_id)
+        transcript_json(session)
+      } catch {
+        _ => transcript_empty_json()
+      }
+  }
+}
+
+///|
+/// Rename one session in the active workspace catalog.
+pub async fn ConsoleRuntime::rename_session(
+  self : ConsoleRuntime,
+  session_id : String,
+  name : String,
+) -> Result[Unit, String] {
+  try {
+    self.active().catalog.set_name(session_id, name)
+    Ok(())
+  } catch {
+    error => Err(error.to_string())
+  }
+}
+
+///|
+/// Adaptor surface: one broadcast sink (the web keeps one WebSocket, the
+/// desktop keeps one window emitter), event emission, UI-response resolve,
+/// identity reads, and full shutdown.
+pub fn ConsoleRuntime::attach_sink(
+  self : ConsoleRuntime,
+  sink : (String) -> Unit,
+) -> Unit {
+  self.hub.attach(sink)
+}
+
+///|
+pub fn ConsoleRuntime::detach_sink(self : ConsoleRuntime) -> Unit {
+  self.hub.detach()
+}
+
+///|
+pub fn ConsoleRuntime::emit_event(
+  self : ConsoleRuntime,
+  session_id : String,
+  turn_id : String,
+  event_type : String,
+  extra? : Array[(String, Json)] = [],
+) -> Unit {
+  self.hub.emit(session_id, turn_id, event_type, extra~)
+}
+
+///|
+pub fn ConsoleRuntime::resolve_ui(
+  self : ConsoleRuntime,
+  request_id : String,
+  response : String,
+) -> Unit {
+  self.ui_registry.resolve(request_id, response)
+}
+
+///|
+pub fn ConsoleRuntime::active_session_id(self : ConsoleRuntime) -> String {
+  self.active().active_id
+}
+
+///|
+pub fn ConsoleRuntime::active_workspace(self : ConsoleRuntime) -> String {
+  self.active_cwd
+}
+
+///|
+pub async fn ConsoleRuntime::shutdown_all(self : ConsoleRuntime) -> Unit {
+  for _, workspace in self.workspaces {
+    for _, handle in workspace.handles {
+      handle.agent.shutdown()
+    }
   }
 }

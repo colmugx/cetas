@@ -1,3 +1,6 @@
+import { consoleCommand } from "./transport";
+import type { TranscriptItem } from "./transcript";
+
 export type Health = {
   status: string;
   host: string;
@@ -49,8 +52,6 @@ export type ModelSlot = {
   group: string | null;
   context_window: number | null;
 };
-
-import type { TranscriptItem } from "./transcript";
 
 export type ContextState = {
   measured: number | null;
@@ -151,11 +152,15 @@ async function postJson<T>(
 }
 
 export function probeHealth(signal?: AbortSignal): Promise<Health> {
-  return readJson<Health>("/api/health", "health probe", signal);
+  return consoleCommand("health", {}, () =>
+    readJson<Health>("/api/health", "health probe", signal),
+  );
 }
 
 export function listExts(): Promise<ExtZoo> {
-  return readJson<ExtZoo>("/api/exts", "ext zoo");
+  return consoleCommand("extensions", {}, () =>
+    readJson<ExtZoo>("/api/exts", "ext zoo"),
+  );
 }
 
 export function fetchTrace(
@@ -166,68 +171,97 @@ export function fetchTrace(
     limit?: number;
   } = {},
 ): Promise<TracePage> {
-  const params = new URLSearchParams();
-  if (filters.type) params.set("type", filters.type);
-  if (filters.session) params.set("session", filters.session);
-  if (filters.turn) params.set("turn", filters.turn);
-  if (filters.limit) params.set("limit", String(filters.limit));
-  const qs = params.toString();
-  return readJson<TracePage>(`/api/trace${qs ? `?${qs}` : ""}`, "trace");
+  const args: Record<string, unknown> = {};
+  if (filters.session) args.session = filters.session;
+  if (filters.turn) args.turn = filters.turn;
+  return consoleCommand("trace", args, () => {
+    const params = new URLSearchParams();
+    if (filters.session) params.set("session", filters.session);
+    if (filters.turn) params.set("turn", filters.turn);
+    const qs = params.toString();
+    return readJson<TracePage>(`/api/trace${qs ? `?${qs}` : ""}`, "trace");
+  });
 }
 
 export function probeVersions(): Promise<Versions> {
-  return readJson<Versions>("/api/versions", "version probe");
+  return consoleCommand("versions", {}, () =>
+    readJson<Versions>("/api/versions", "version probe"),
+  );
 }
 
 export function probeRuntime(signal?: AbortSignal): Promise<RuntimeSnapshot> {
-  return readJson<RuntimeSnapshot>("/api/runtime", "runtime probe", signal);
+  return consoleCommand("runtime_state", {}, () =>
+    readJson<RuntimeSnapshot>("/api/runtime", "runtime probe", signal),
+  );
 }
 
 export function listSessions(): Promise<SessionList> {
-  return readJson<SessionList>("/api/sessions", "session list");
+  return consoleCommand("sessions", {}, () =>
+    readJson<SessionList>("/api/sessions", "session list"),
+  );
 }
 
 export function listWorkspaces(): Promise<WorkspaceList> {
-  return readJson<WorkspaceList>("/api/workspaces", "workspace list");
+  return consoleCommand("workspaces", {}, () =>
+    readJson<WorkspaceList>("/api/workspaces", "workspace list"),
+  );
 }
 
 export function addWorkspace(cwd: string): Promise<WorkspaceList> {
-  return postJson("/api/workspaces", { cwd }, "workspace add");
+  return consoleCommand("switch_workspace", { cwd }, () =>
+    postJson<WorkspaceList>("/api/workspaces", { cwd }, "workspace add"),
+  );
 }
 
 export function switchSession(id?: string): Promise<{ session_id: string }> {
-  return postJson("/api/session", id === undefined ? {} : { id }, "session switch");
+  return consoleCommand(
+    "switch_session",
+    id === undefined ? {} : { id },
+    () => postJson("/api/session", id === undefined ? {} : { id }, "session switch"),
+  );
 }
 
 export function fetchTranscript(id: string): Promise<TranscriptReplay> {
-  return readJson<TranscriptReplay>(
-    `/api/sessions/${encodeURIComponent(id)}/transcript`,
-    "transcript replay",
+  return consoleCommand("session_transcript", { id }, () =>
+    readJson<TranscriptReplay>(
+      `/api/sessions/${encodeURIComponent(id)}/transcript`,
+      "transcript replay",
+    ),
   );
 }
 
 export function renameSession(id: string, name: string): Promise<unknown> {
-  return postJson(
-    `/api/sessions/${encodeURIComponent(id)}/rename`,
-    { name },
-    "session rename",
+  return consoleCommand("session_rename", { id, name }, () =>
+    postJson(
+      `/api/sessions/${encodeURIComponent(id)}/rename`,
+      { name },
+      "session rename",
+    ),
   );
 }
 
 export function listModels(): Promise<ModelCatalog> {
-  return readJson<ModelCatalog>("/api/models", "model catalog");
+  return consoleCommand("models", {}, () =>
+    readJson<ModelCatalog>("/api/models", "model catalog"),
+  );
 }
 
 export function setModel(slotId: string): Promise<RuntimeSnapshot> {
-  return postJson("/api/model", { slot_id: slotId }, "model switch");
+  return consoleCommand("switch_model", { slot_id: slotId }, () =>
+    postJson<RuntimeSnapshot>("/api/model", { slot_id: slotId }, "model switch"),
+  );
 }
 
 export function setEffort(effort: string): Promise<RuntimeSnapshot> {
-  return postJson("/api/effort", { effort }, "effort switch");
+  return consoleCommand("select_effort", { effort }, () =>
+    postJson<RuntimeSnapshot>("/api/effort", { effort }, "effort switch"),
+  );
 }
 
 export function setPermission(mode: string): Promise<RuntimeSnapshot> {
-  return postJson("/api/permission", { mode }, "permission switch");
+  return consoleCommand("set_permission", { mode }, () =>
+    postJson<RuntimeSnapshot>("/api/permission", { mode }, "permission switch"),
+  );
 }
 
 export function websocketUrl(path = "/ws"): string {
