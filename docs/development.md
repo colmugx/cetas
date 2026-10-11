@@ -47,7 +47,7 @@ To use the executable on a different repository, launch it from that project's d
 
 ## Editor and runner
 
-From the Cetas repository root, after preparing the recipe:
+From the Cetas repository root:
 
 ```bash
 moon build cetas-acp/main --target native --release
@@ -97,6 +97,6 @@ This tests terminal rendering and headless shell behavior; it does not validate 
 - Keep identity, prompts, lifecycle, and product policy in `cetas-core`.
 - Keep transport, terminal mechanics, and UI rendering in the corresponding host.
 - Update the host `recipe.mbt` and its explicit Moon dependencies for capability changes.
-- Keep public builds free of private recipe overlays and user credentials.
+- Keep public builds free of private extension dependencies and user credentials. See [the JS private extension seam](../cetas-js/PRIVATE_EXTENSIONS.md).
 
 See the [CI workflow](../.github/workflows/ci.yml) for the complete validation sequence.

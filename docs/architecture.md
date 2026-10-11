@@ -15,7 +15,7 @@ Cetas is a product built on Posoco's protocol-first agent framework. Product sem
 | `cetas-native/` | Native terminal host; MoonBit application state, Rust terminal mechanics |
 | `cetas-web/` | Browser host and web presentation |
 | `cetas-ext-forme/` | Cetas identity/help extension |
-| `composition/` | Human-edited capability roster and composition documentation |
+| `composition/` | Static composition ownership and extension documentation |
 | `*/**/recipe.mbt` | Checked-in public host composition roots |
 | `extension/` | Posoco extension submodule |
 | `cetas-memoh/` | Separately versioned Memoh runtime, with its own product semantics and state |
@@ -24,7 +24,7 @@ The Cetas hosts assemble `cetas-core` and Posoco's `Agent` rather than implement
 
 ## Capabilities
 
-[`composition/recipes.csv`](../composition/recipes.csv) is the capability inventory. It describes shared infrastructure, recipe-constructed core capabilities, and host-specific integrations. Each host now declares its public concrete packages statically.
+Each host's committed `recipe.mbt` and Moon manifests define its available concrete extensions; `cetas-core` owns shared product capability semantics.
 
 Shared entries include:
 
@@ -32,9 +32,7 @@ Shared entries include:
 - Read/write/edit tools, glob/grep/ast-grep search, web fetch, Bash or PowerShell, skills, questions, handoff, and lazy tools.
 - Provider extensions for OpenAI, OpenAI-compatible endpoints, DeepSeek, Kimi, OpenRouter, Z.ai, Z.ai Coding Plan, and OpenCode Zen.
 
-Host integrations include MCP and planning in JS/ACP, ACP transport and editor adapters, and terminal-specific presentation or delegation extensions. Consult the roster for the exact host entries; do not maintain a second handwritten extension matrix.
-
-The generator binds packages and constructors. It does not define product policy, and `cetas-core` remains recipe-invariant. A missing selected capability is a build error rather than a silent fallback.
+Host integrations include MCP and planning in JS/ACP, ACP transport and editor adapters, and terminal-specific presentation or delegation extensions. Consult each host's `recipe.mbt` and manifests for its actual implementation and dependencies. The JS host's [private extension hooks](../cetas-js/PRIVATE_EXTENSIONS.md) are no-ops in public builds. A missing declared package is a build error rather than a silent fallback.
 
 ## Shared identity and state
 

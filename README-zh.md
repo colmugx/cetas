@@ -84,7 +84,7 @@ Windows 使用解压后的 `cetas-bun.exe`。[发布页](https://github.com/colm
 | **原生终端** · `cetas-native` | 正在开发的 MoonBit + Rust 终端入口 | [当前状态与构建说明](cetas-native/README.md) |
 | **Web** · `cetas-web` | 正在开发的浏览器入口 | [本地开发](cetas-web/README.md) |
 
-各入口的能力有所不同，[composition roster](composition/recipes.csv) 是功能组合的准确信息源。共享 Cetas 主目录不代表所有入口具有相同的界面，或都支持跨入口继续同一段会话。
+各入口的能力有所不同，[各 Host 的静态 Composition](composition/README.md) 是功能组合的准确信息源。共享 Cetas 主目录不代表所有入口具有相同的界面，或都支持跨入口继续同一段会话。
 
 <details>
 <summary><strong>从脚本执行单次任务</strong></summary>
@@ -120,7 +120,7 @@ Posoco 提供 Agent 基础和扩展端口，Cetas 定义产品行为，各入口
 | [配置](docs/configuration.md) | Provider、权限、共享状态、MCP 与 ACP 接入 |
 | [开发](docs/development.md) | 工作区检出、依赖、构建与检查 |
 | [架构](docs/architecture.md) | 产品职责、仓库结构与扩展组合 |
-| [Composition](composition/README.md) | Recipe 定义与生成流程 |
+| [Composition](composition/README.md) | 静态 Recipe 与 JS 私有扩展入口 |
 | [更新日志](CHANGELOG.md) | Cetas 核心版本历史 |
 | [Memoh 集成](cetas-memoh/README.mbt.md) | 独立版本的 Memoh runtime 及其状态目录 |
 
@@ -128,7 +128,7 @@ Posoco 提供 Agent 基础和扩展端口，Cetas 定义产品行为，各入口
 
 欢迎问题报告、聚焦的改进和新入口集成。[提交 issue](https://github.com/colmugx/cetas/issues) 时请附上入口、版本、平台和复现步骤；提交 PR 时请运行[开发指南](docs/development.md)中与改动相关的检查。
 
-扩展能力请从 composition roster 入手，产品行为请从 `cetas-core` 入手。
+扩展能力请修改对应 Host 的 `recipe.mbt` 和 Moon 依赖；产品行为请从 `cetas-core` 入手。
 
 ## 许可证
 

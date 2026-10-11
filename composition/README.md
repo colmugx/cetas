@@ -1,48 +1,33 @@
-# Cetas composition roster
+# Cetas composition
 
-`recipes.csv` documents the historical public capability roster; executable
-public composition is now checked in as `recipe.mbt` in each host.
+Each host's committed `recipe.mbt` is executable composition source.
+`moon.mod` and `moon.pkg` explicitly declare the dependencies and aliases
+used by that host. There is no CSV-to-MoonBit generation step.
 
 ## Ownership
 
-- **cetas-core** owns Cetas product semantics: identity, session/agent
-  lifecycle, prompts, routing, policy and product ordering.
-- **hosts** (`cetas-run`, `cetas-acp`, `cetas-js`) are composition roots.
-  They bind concrete extensions and platform/protocol adapters.
-- **this roster** is the single human-edited inventory from which host
-  dependency/import/constructor projections are generated.
-- **the generator is infrastructure only**: it binds logical capabilities to
-  concrete packages/constructors. Product behavior and capability policy stay
-  in `cetas-core` and are consumed by generated host code.
+- **`cetas-core`** owns identity, product ordering, lifecycle, prompts,
+  routing, and policy.
+- **Hosts** (`cetas-run`, `cetas-acp`, `cetas-js`, `cetas-native`,
+  and `cetas-console`) are composition roots: they bind concrete extension
+  constructors and platform or transport adapters.
+- **Moon manifests** own the exact build-time package graph.
 
-## Vocabulary
+To change a public capability, edit the corresponding host's `recipe.mbt`
+and its `moon.mod` / `moon.pkg` imports. Do not generate or rewrite source
+files in CI.
 
-- `section=general`: a standard Cetas capability shared by every host.
-- `section=special`: a capability or adapter specific to one host/flavor.
-- `scope=base`: stable infrastructure already owned by the application
-  layer; listed for inventory only.
-- `scope=core`: a concrete capability constructed by the generated host
-  recipe.
-- `scope=host`: a host integration constructed by handwritten host code but
-  retained in the roster/dependency projection.
-
-`runtime_key` lets several concrete packages represent one product
-capability. For example Bash and PowerShell both project to the logical
-`shell` capability; platform binding selects the concrete implementation.
-
-## Developer workflow
-
-Public hosts compile their checked-in `recipe.mbt` directly:
+## Development
 
 ```sh
 moon update
 moon check --deny-warn
+moon fmt --check
 ```
 
-The Python generator is retained temporarily for historical/private migration,
-but must not be run in the public build: it creates duplicate recipe sources.
-Private flavors require a separate composition-root migration.
-
-Do not add dependency fallbacks for missing modules. A selected capability
-whose module/target is unavailable is intentionally a Moon build-plan or
-compile error.
+The JS host has optional **private** no-op hooks in
+[`cetas-js/lib/private_recipe.mbt`](../cetas-js/lib/private_recipe.mbt).
+Use the [JS private extension guide](../cetas-js/PRIVATE_EXTENSIONS.md)
+to fill them in on your own private branch. Public CI never imports private
+packages; unavailable explicit private dependencies must fail a Moon build,
+not silently fall back.

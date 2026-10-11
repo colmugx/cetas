@@ -196,26 +196,12 @@ async fn build_cetas_skills(
 }
 
 ///|
-
-///|
-fn build_compiled_zcode_ext(
-  env~ : (String) -> String?,
-  exists~ : async (String) -> Bool,
-) -> &@posoco.Extension? {
-  let _ = env
-  let _ = exists
-  None
-}
-
-///|
 async fn build_compiled_recipe_features(
   ctx~ : @cetas_core.HostContext,
   nmem_group? : @async.TaskGroup[Unit]? = None,
   host_help_note? : String? = None,
   obsidian_vault? : String? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
-  let _ = nmem_group
-  let _ = obsidian_vault
   let exts : Array[&@posoco.Extension] = []
   let episodic : Array[&@posoco.Extension] = []
   let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
@@ -283,6 +269,16 @@ async fn build_compiled_recipe_features(
         )
     }
   }
+
+  // Local/private extensions are contributed before the episodic LazyTools
+  // gateway is assembled, so private memories and vault tools stay deferred.
+  append_private_recipe_features(
+    ctx~,
+    nmem_group,
+    obsidian_vault,
+    exts,
+    episodic,
+  )
 
   match compiled_recipe_packages.get("lazytools") {
     Some(_) =>

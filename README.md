@@ -84,7 +84,7 @@ Use `@path` to include a file reference. `/help` lists commands and keyboard sho
 | **Native terminal** · `cetas-native` | MoonBit + Rust terminal host under development | [Status and build instructions](cetas-native/README.md) |
 | **Web** · `cetas-web` | Browser host under development | [Local development](cetas-web/README.md) |
 
-Host capabilities differ; the [composition roster](composition/recipes.csv) is the source of truth. Sharing the Cetas home does not imply every host has the same UI or cross-host conversation-resume support.
+Host capabilities differ; the [per-host static compositions](composition/README.md) are the source of truth. Sharing the Cetas home does not imply every host has the same UI or cross-host conversation-resume support.
 
 <details>
 <summary><strong>Run one task from a script</strong></summary>
@@ -120,7 +120,7 @@ Posoco provides the agent foundation and extension ports. Cetas owns the product
 | [Configuration](docs/configuration.md) | Providers, permissions, shared state, MCP and ACP setup |
 | [Development](docs/development.md) | Workspace checkout, dependencies, builds and checks |
 | [Architecture](docs/architecture.md) | Product ownership, repository layout and extension composition |
-| [Composition](composition/README.md) | Recipe vocabulary and generator workflow |
+| [Composition](composition/README.md) | Static host compositions and optional private JS extension hooks |
 | [Changelog](CHANGELOG.md) | Cetas core release history |
 | [Memoh integration](cetas-memoh/README.mbt.md) | The separately versioned Memoh runtime and its own state directory |
 
@@ -128,7 +128,7 @@ Posoco provides the agent foundation and extension ports. Cetas owns the product
 
 Bug reports, focused improvements, and new host integrations are welcome. [Open an issue](https://github.com/colmugx/cetas/issues) with the host, version, platform, and steps to reproduce, or send a pull request with the relevant checks from the [development guide](docs/development.md).
 
-For capability changes, update the composition roster; for product behavior, start in `cetas-core`.
+For capability changes, update the host's `recipe.mbt` and Moon dependencies; for product behavior, start in `cetas-core`.
 
 ## License
 

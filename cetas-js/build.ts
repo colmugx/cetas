@@ -4,8 +4,7 @@
 //   bun run build              # all targets
 //   bun run build:macos        # single target (see package.json scripts)
 //   bun build.ts darwin-arm64 windows-x64 linux-x64   # several targets, one run
-//   CETAS_FLAVOR=<overlay-flavor> bun run build:macos
-//     # local/private recipe overlays may add extra extensions
+//   # Private JS extensions are wired in lib/private_recipe.mbt (private branch).
 //
 //   bun build.ts darwin-arm64 --executable <path>   # supply a local Bun
 //   binary for the target platform; skips Bun's runtime download (useful
@@ -42,10 +41,6 @@ const requested = new Set(positional.filter((a) => !a.startsWith("--")));
 
 const osFor = (name: string) => (name.startsWith("windows") ? "windows" : "unix");
 const CORE_ROOT = join(import.meta.dir, "../cetas-core");
-const flavorBake = process.env.CETAS_FLAVOR?.trim() || "public";
-if (flavorBake !== "public") {
-  throw new Error("Private recipe builds require a separate composition root; the public recipe is static.");
-}
 const selected = (Object.keys(TARGETS) as (keyof typeof TARGETS)[]).filter(
   (name) => requested.size === 0 || requested.has(name),
 );
@@ -87,7 +82,7 @@ if (dtsOnly) {
   process.exit(0);
 }
 
-console.log(`platform: per-target  flavor: ${flavorBake}${flavorBake === "public" ? "" : ` (CETAS_FLAVOR=${flavorBake})`}`);
+console.log("platform: per-target  composition: checked-in MoonBit sources");
 
 // npm channel: one platform-independent JS bundle. The bash/ps1 swap detects
 // the platform at runtime (recipe-generated), node:child_process/node:http
@@ -134,14 +129,12 @@ if (nodeBundle) {
 
 const group = process.env.CETAS_BUILD_GROUP ?? "";
 if (group === "") {
-  // Parent pass: one child per OS group, each with the group's env in its
-  // real environment so every moon grandchild (dev_build rule included)
-  // bakes the same flavor.
+  // Parent pass: one child per OS group, preserving each target's environment.
   for (const os of [...new Set(selected.map(osFor))]) {
     const child = Bun.spawnSync(
       [process.execPath, import.meta.path, ...positional],
       {
-        env: { ...process.env, CETAS_FLAVOR: flavorBake, CETAS_PLATFORM: os, CETAS_BUILD_GROUP: os },
+        env: { ...process.env, CETAS_PLATFORM: os, CETAS_BUILD_GROUP: os },
         stdio: ["inherit", "inherit", "inherit"],
       },
     );
