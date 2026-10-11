@@ -215,6 +215,13 @@ def module_for_package(
     return matches[0]
 
 
+def write_if_changed(path: pathlib.Path, content: str) -> None:
+    """Preserve file mtimes when recipe projections are unchanged."""
+    if path.is_file() and path.read_text(encoding="utf-8") == content:
+        return
+    path.write_text(content, encoding="utf-8")
+
+
 def replace_marked(
     path: pathlib.Path,
     begin: str,
@@ -230,7 +237,7 @@ def replace_marked(
         )
     finish += len(end)
     replacement = "\n".join([begin, *body, end])
-    path.write_text(text[:start] + replacement + text[finish:], encoding="utf-8")
+    write_if_changed(path, text[:start] + replacement + text[finish:])
 
 
 def select_rows(
@@ -679,9 +686,9 @@ def main() -> int:
             RECIPE_PKG_END,
             package_imports,
         )
-        (package_dir / "recipe.generated.mbt").write_text(
+        write_if_changed(
+            package_dir / "recipe.generated.mbt",
             generated_mbt(args.flavor, frontend, args.platform, selected),
-            encoding="utf-8",
         )
 
         print(f"recipe: {args.flavor}/{frontend}/{args.platform}")
