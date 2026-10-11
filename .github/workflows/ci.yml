@@ -116,5 +116,5 @@ jobs:
         working-directory: posoco/external/cetas/cetas-web/web
         run: |
           npm install --no-audit --no-fund
-          npm run typecheck
+          npm run check
           npm run build
