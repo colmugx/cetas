@@ -1,7 +1,9 @@
 # Release pipeline for the cetas submodule (repo github.com/colmugx/cetas).
-# Tag builds publish cetas-acp, cetas-run, and the native cetas binary plus
-# a GitHub release. npm publishing (@posoco/cetas + @posoco/cetas-<target> payload packages)
-# is manual: dispatch .github/workflows/npm-publish.yml on the release tag.
+# Tag builds publish cetas-acp, cetas-run, the native cetas binary, the
+# cetas-bun single-file JS host, and the platform-independent cetas-js node
+# bundle (cetas-js-dist.tar.gz) plus a GitHub release. npm publishing
+# (@posoco/cetas, a single JS-only package staged from cetas-js-dist) is
+# manual: dispatch .github/workflows/npm-publish.yml on the release tag.
 #
 # A single Ubuntu preflight runs version sync, staging tests, moon check/test,
 # and TypeScript typecheck before any platform build starts. Only after it
@@ -129,6 +131,12 @@ jobs:
           bun install
           bun build.ts --dts-only
           bunx tsc --noEmit
+
+      # Full cetas-js suite as a release gate: hermetic by construction
+      # (fake homes, stubbed model endpoints) — no network or credentials.
+      - name: cetas-js test suite
+        working-directory: posoco/external/cetas/cetas-js
+        run: bun test --preload ./moonbit-preload.ts
 
       - name: upload bun install cache
         uses: actions/upload-artifact@v6
@@ -368,6 +376,53 @@ jobs:
             }
           }
 
+      # cetas-js (bun-compiled single-file) — the GitHub-Release channel of
+      # the JS host, alongside cetas-acp/cetas-run. The npm channel ships the
+      # platform-independent node bundle instead (cetas-js-dist job below).
+      - name: setup bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: bun install
+        working-directory: posoco/external/cetas/cetas-js
+        run: bun install
+
+      - name: prepare public js recipe (unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: posoco/external/cetas
+        run: python3 scripts/prepare-recipe.py --flavor public --frontend js --platform unix
+
+      - name: prepare public js recipe (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: posoco/external/cetas
+        shell: pwsh
+        run: python scripts/prepare-recipe.py --flavor public --frontend js --platform windows
+
+      - name: moon update (cetas-js)
+        working-directory: posoco/external/cetas/cetas-js
+        run: moon update
+
+      - name: build cetas-bun
+        working-directory: posoco/external/cetas/cetas-js
+        run: bun build.ts ${{ matrix.target }}
+
+      - name: collect cetas-bun + pi-tui native prebuilds (unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: posoco/external/cetas/cetas-js
+        run: |
+          cp "dist/cetas-bun-${{ matrix.target }}" "../stage/cetas-bun"
+          # pi-tui's standalone-binary fallback resolves `native/` next to the
+          # executable: ship the prebuilds so win32-console-mode / darwin
+          # modifiers work from the extracted archive too.
+          cp -R node_modules/@earendil-works/pi-tui/native "../stage/native"
+
+      - name: collect cetas-bun + pi-tui native prebuilds (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: posoco/external/cetas/cetas-js
+        shell: pwsh
+        run: |
+          Copy-Item "dist\cetas-bun-${{ matrix.target }}.exe" -Destination "..\stage\cetas-bun.exe"
+          Copy-Item -Recurse -Force "node_modules\@earendil-works\pi-tui\native" -Destination "..\stage\native"
+
       # Release body = the CHANGELOG section for this version. Section end is
       # the next VERSION heading (`## X.Y.Z (` or `## Unreleased`) — notes
       # bodies carry their own `## Ver.` headings and must not end the scan.
@@ -387,6 +442,7 @@ jobs:
           tar -czf "cetas-tui-staticlib-${{ matrix.target }}.tar.gz" -C "cetas-tui-prebuilt-${{ matrix.target }}" .
           tar -czf "cetas-acp-${{ matrix.target }}.tar.gz" cetas-acp
           tar -czf "cetas-run-${{ matrix.target }}.tar.gz" cetas-run
+          tar -czf "cetas-bun-${{ matrix.target }}.tar.gz" cetas-bun native
 
       - name: package (Windows)
         if: matrix.os == 'windows-latest'
@@ -397,6 +453,7 @@ jobs:
           Compress-Archive -Path "cetas-tui-prebuilt-windows-x64\*" -DestinationPath "cetas-tui-staticlib-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-acp.exe" -DestinationPath "cetas-acp-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-run.exe" -DestinationPath "cetas-run-windows-x64.zip" -Force
+          Compress-Archive -Path "cetas-bun.exe", "native" -DestinationPath "cetas-bun-windows-x64.zip" -Force
 
       - name: upload binaries
         uses: actions/upload-artifact@v6
@@ -445,9 +502,110 @@ jobs:
         env:
           SECRET: ${{ secrets.MOONCAKES_TOKEN }}
 
+  cetas-js-dist:
+    name: build cetas-js npm dist (node bundle)
+    needs: [preflight]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: checkout posoco workspace
+        uses: actions/checkout@v4
+        with:
+          repository: colmugx/posoco
+          ref: ${{ env.POSOCO_REF }}
+          path: posoco
+          submodules: recursive
+
+      - name: switch embedded cetas to the release tag
+        if: github.event_name == 'push'
+        working-directory: posoco/external/cetas
+        shell: bash
+        run: |
+          git fetch --depth=1 origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          git checkout "${GITHUB_REF_NAME}"
+
+      - name: init nested submodules
+        working-directory: posoco/external/cetas
+        shell: bash
+        run: git submodule update --init --recursive
+
+      - name: install moon
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: moon version
+        run: moon version --all
+
+      - name: download moon registry cache
+        uses: actions/download-artifact@v7
+        with:
+          name: moon-registry
+          path: ~/.moon/registry
+
+      - name: download bun install cache
+        uses: actions/download-artifact@v7
+        with:
+          name: bun-cache
+          path: ~/.bun/install/cache
+
+      - name: setup bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: setup node (smoke runtime)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: bun install
+        working-directory: posoco/external/cetas/cetas-js
+        run: bun install
+
+      - name: prepare public js recipe
+        working-directory: posoco/external/cetas
+        run: python3 scripts/prepare-recipe.py --flavor public --frontend js --platform unix
+
+      - name: moon update (cetas-js)
+        working-directory: posoco/external/cetas/cetas-js
+        run: moon update
+
+      # Platform-independent JS bundle: no per-platform matrix, one artifact
+      # feeds the npm staging (manual dispatch of npm-publish.yml).
+      - name: build node bundle
+        working-directory: posoco/external/cetas/cetas-js
+        run: bun build.ts --node-bundle
+
+      - name: smoke the bundle under node
+        working-directory: posoco/external/cetas/cetas-js
+        run: |
+          set -euo pipefail
+          # No sourcemap may ship; the shebang must be line one.
+          [[ ! -e dist/cetas.js.map ]] || { echo "::error::dist/cetas.js.map exists"; exit 1; }
+          head -c 23 dist/cetas.js | grep -q '^#!/usr/bin/env node$' \
+            || { echo "::error::shebang missing"; exit 1; }
+          node --check dist/cetas.js
+          # Boot smoke: the TUI must come up far enough to render the welcome
+          # banner; the timeout kill (exit 124) is the expected end state.
+          set +e
+          timeout 15 node dist/cetas.js </dev/null >boot.log 2>&1
+          status=$?
+          set -e
+          [[ "$status" == "124" ]] || { echo "::error::bundle exited early with $status"; cat boot.log; exit 1; }
+          grep -q "cetas" boot.log || { echo "::error::welcome banner missing"; cat boot.log; exit 1; }
+
+      - name: package dist
+        working-directory: posoco/external/cetas/cetas-js
+        run: tar -czf cetas-js-dist.tar.gz -C dist cetas.js
+
+      - name: upload dist
+        uses: actions/upload-artifact@v6
+        with:
+          name: cetas-js-dist
+          path: posoco/external/cetas/cetas-js/cetas-js-dist.tar.gz
+
   release:
     name: publish GitHub release
-    needs: [build]
+    needs: [build, cetas-js-dist]
     if: startsWith(github.ref, 'refs/tags/cetas-v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -470,6 +628,12 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: binaries-windows-x64
+          path: staging
+
+      - name: download cetas-js dist
+        uses: actions/download-artifact@v7
+        with:
+          name: cetas-js-dist
           path: staging
 
       # Drop the body file when missing or empty; the empty output then omits

@@ -1,6 +1,7 @@
 gen
 node_modules
 dist
+output
 .cetas
 
 .DS_Store
@@ -8,3 +9,4 @@ _build/
 .mooncakes/
 .moonagent/
 .personal/
+*.generated.mbt
