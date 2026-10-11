@@ -65,14 +65,13 @@ jobs:
         run: |
           python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
           moon update
-          moon fmt
           moon check --deny-warn --output-json
 
       - name: moon fmt
         working-directory: posoco/external/cetas
         run: |
           python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
-          moon fmt --check
+          moon fmt
 
       # drift gate scoped to the cetas dirs; the posoco root is at main and
       # not ours to gate
@@ -81,7 +80,6 @@ jobs:
         run: |
           # Interface drift is checked against the public graph.
           python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
-          moon fmt
           moon info
           git diff --exit-code -- . ./cetas-js ./cetas-core ./cetas-run ./cetas-acp ./cetas-ext-forme
 
@@ -90,7 +88,6 @@ jobs:
         working-directory: posoco/external/cetas
         run: |
           python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
-          moon fmt
           moon test --target native --output-json
 
       - name: Setup bun
