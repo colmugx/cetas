@@ -14,7 +14,9 @@
     "build:linux-arm64": "bun build.ts linux-arm64",
     "build:node": "bun build.ts --node-bundle",
     "typecheck": "tsc --noEmit",
-    "test": "bun test --preload ./moonbit-preload.ts"
+    "test": "bun test --preload ./moonbit-preload.ts",
+    "test:unit": "bun test-channels.ts unit",
+    "test:e2e": "bun test-channels.ts e2e"
   },
   "license": "Apache-2.0",
   "devDependencies": {
