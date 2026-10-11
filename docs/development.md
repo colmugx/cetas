@@ -17,14 +17,13 @@ git submodule update --init --recursive
 
 Install the [MoonBit toolchain](https://docs.moonbitlang.com), Python 3, and [Bun](https://bun.sh) for the JS host. The native terminal additionally needs Rust/Cargo. Stay in the **Cetas repository root** for workspace-wide Moon commands: `moon.work` assembles the Cetas modules and extensions.
 
-Prepare the public recipe before building or checking:
+Public recipes are tracked MoonBit sources, so no preparation step is required:
 
 ```bash
-python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
 moon update
 ```
 
-Use `--platform windows` on Windows. Recipe generation writes an ignored `recipe.generated.mbt` and updates marked dependency/import regions. See [composition](../composition/README.md) before changing capabilities.
+See [composition](../composition/README.md) before changing capabilities.
 
 ## Interactive terminal
 
@@ -68,7 +67,6 @@ Choose checks that cover the changed area. CI includes:
 
 ```bash
 # From the Cetas repository root:
-python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
 moon check --deny-warn --output-json
 moon fmt --check
 moon info
@@ -98,7 +96,7 @@ This tests terminal rendering and headless shell behavior; it does not validate 
 
 - Keep identity, prompts, lifecycle, and product policy in `cetas-core`.
 - Keep transport, terminal mechanics, and UI rendering in the corresponding host.
-- Update `composition/recipes.csv` for capability inventory changes, then regenerate.
+- Update the host `recipe.mbt` and its explicit Moon dependencies for capability changes.
 - Keep public builds free of private recipe overlays and user credentials.
 
 See the [CI workflow](../.github/workflows/ci.yml) for the complete validation sequence.

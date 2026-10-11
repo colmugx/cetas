@@ -80,52 +80,39 @@ jobs:
       - name: moon check (ACP public recipe, native)
         working-directory: posoco/external/cetas/cetas-acp
         run: |
-          python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
           moon update
           moon check --target native --deny-warn --output-json
 
       - name: moon check (Run public recipe, native)
         working-directory: posoco/external/cetas/cetas-run
-        run: |
-          python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
-          moon check --target native --deny-warn --output-json
+        run: moon check --target native --deny-warn --output-json
 
       - name: moon check (Run public recipe, wasm)
         working-directory: posoco/external/cetas/cetas-run
-        run: |
-          python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
-          moon check --target wasm --deny-warn --output-json
+        run: moon check --target wasm --deny-warn --output-json
 
       - name: moon check (JS public recipe)
         working-directory: posoco/external/cetas/cetas-js
-        run: |
-          python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
-          moon check --target js --deny-warn --output-json
+        run: moon check --target js --deny-warn --output-json
 
       - name: moon test (native)
         id: test
         working-directory: posoco/external/cetas/cetas-acp
-        run: |
-          python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
-          moon test --target native --output-json
+        run: moon test --target native --output-json
 
       # Keep release gating aligned with CI's one-shot retry for the known
       # async-ordering flaky test.
       - name: moon test (native, flake rerun)
         if: failure() && steps.test.outcome == 'failure'
         working-directory: posoco/external/cetas/cetas-acp
-        run: |
-          python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
-          moon test --target native --output-json
+        run: moon test --target native --output-json
 
       - name: setup bun
         uses: oven-sh/setup-bun@v2
 
       - name: moon update (cetas-js)
         working-directory: posoco/external/cetas/cetas-js
-        run: |
-          python3 ../scripts/prepare-recipe.py --flavor public --frontend all --platform unix
-          moon update
+        run: moon update
 
       # Upload half of the same-run handoff; build needs: [preflight], so the
       # matrix jobs download these instead of re-fetching over the network.
@@ -227,17 +214,6 @@ jobs:
           name: bun-cache
           path: ${{ matrix.os == 'windows-latest' && 'C:\Users\runneradmin\.bun\install\cache' || '~/.bun/install/cache' }}
 
-      - name: prepare public acp recipe (unix)
-        if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas
-        run: python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
-
-      - name: prepare public acp recipe (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas
-        shell: pwsh
-        run: python scripts/prepare-recipe.py --flavor public --frontend all --platform windows
-
       - name: moon update (cetas-acp)
         working-directory: posoco/external/cetas/cetas-acp
         run: moon update
@@ -289,17 +265,6 @@ jobs:
               exit 1
             }
           }
-
-      - name: prepare public run recipe (unix)
-        if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas
-        run: python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
-
-      - name: prepare public run recipe (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas
-        shell: pwsh
-        run: python scripts/prepare-recipe.py --flavor public --frontend all --platform windows
 
       - name: moon update (cetas-run)
         working-directory: posoco/external/cetas/cetas-run
@@ -354,17 +319,6 @@ jobs:
       - name: package cetas-tui static library
         working-directory: posoco/external/cetas
         run: node cetas-native/scripts/package_staticlib.js --out "stage/cetas-tui-prebuilt-${{ matrix.target }}" --target "${{ matrix.target }}"
-
-      - name: prepare public native recipe (unix)
-        if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas
-        run: python3 scripts/prepare-recipe.py --flavor public --frontend native --platform unix
-
-      - name: prepare public native recipe (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas
-        shell: pwsh
-        run: python scripts/prepare-recipe.py --flavor public --frontend native --platform windows
 
       - name: moon update (cetas-native)
         working-directory: posoco/external/cetas
@@ -473,9 +427,6 @@ jobs:
 
       - name: moon version
         run: moon version --all
-
-      - name: prepare public run recipe
-        run: python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
 
       - name: moon update
         working-directory: cetas-run

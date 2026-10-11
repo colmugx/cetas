@@ -60,12 +60,6 @@ jobs:
         working-directory: posoco/external/cetas
         run: python3 -m unittest scripts/test_npm_stage.py
 
-      # Prepare once: re-running the generator after moon fmt rewrites
-      # formatted tracked MoonBit files and breaks the interface drift gate.
-      - name: Prepare public recipe
-        working-directory: posoco/external/cetas
-        run: python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
-
       - name: moon check (public)
         working-directory: posoco/external/cetas
         run: |

@@ -18,7 +18,6 @@ From the **repository root** (workspace mode is required):
 # it removes stale _build artifacts such as main.exe/src.exe.
 moon clean
 
-python3 scripts/prepare-recipe.py --flavor public --frontend native --platform unix
 moon update
 moon run cetas-native/src/cetas --target native --release
 ```

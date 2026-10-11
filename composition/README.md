@@ -1,8 +1,7 @@
 # Cetas composition roster
 
-`recipes.csv` is the build-time composition model for Cetas hosts. It is
-infrastructure configuration, not part of the `cetas-core` domain/application
-package.
+`recipes.csv` documents the historical public capability roster; executable
+public composition is now checked in as `recipe.mbt` in each host.
 
 ## Ownership
 
@@ -33,17 +32,16 @@ capability. For example Bash and PowerShell both project to the logical
 
 ## Developer workflow
 
-Prepare all host composition roots before a workspace-wide Moon command:
+Public hosts compile their checked-in `recipe.mbt` directly:
 
 ```sh
-python3 scripts/prepare-recipe.py \
-  --flavor public \
-  --frontend all \
-  --platform unix
+moon update
+moon check --deny-warn
 ```
 
-The generator projects the roster into each host's marked `moon.mod` and
-host package `moon.pkg` regions and writes an ignored `lib/recipe.generated.mbt`.
+The Python generator is retained temporarily for historical/private migration,
+but must not be run in the public build: it creates duplicate recipe sources.
+Private flavors require a separate composition-root migration.
 
 Do not add dependency fallbacks for missing modules. A selected capability
 whose module/target is unavailable is intentionally a Moon build-plan or
