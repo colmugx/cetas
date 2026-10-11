@@ -418,6 +418,12 @@ let compiled_recipe_packages : Map[String, String] = Map::from_array([
 {package_items}
 ])
 
+///|
+#cfg(not(target="js"))
+fn compiled_target_os() -> String {{
+  "{platform}"
+}}
+
 {platform_check_block}///|
 fn canonical_cetas_tool_name(name : String) -> String {{
   if shell_platform_is_windows() && name == "bash" {{

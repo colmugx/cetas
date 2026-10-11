@@ -30,6 +30,7 @@ let compiled_recipe_packages : Map[String, String] = Map::from_array([
 ])
 
 ///|
+#cfg(not(target="js"))
 fn compiled_target_os() -> String {
   "unix"
 }
