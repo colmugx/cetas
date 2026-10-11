@@ -76,15 +76,8 @@ Requirements:
 - MoonBit toolchain
 - Node.js 22.12 or newer
 
-Prepare the public console recipe when working on composition code (the
-recipe now lives in the shared `cetas-console` core, not in this host):
-
-```sh
-python3 scripts/prepare-recipe.py \
-  --flavor public \
-  --frontend console \
-  --platform unix
-```
+Public console composition is checked in at `cetas-console/console/recipe.mbt`.
+No recipe preparation is necessary.
 
 Start Moonback from the repository root:
 

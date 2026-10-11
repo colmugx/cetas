@@ -166,7 +166,6 @@ git switch cetas-tui
 # Required once after the old src/main package layout:
 moon clean
 
-python3 scripts/prepare-recipe.py --flavor public --frontend native --platform unix
 moon update
 
 moon run cetas-native/src/cetas --target native --release

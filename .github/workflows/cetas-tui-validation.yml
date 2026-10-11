@@ -41,9 +41,6 @@ jobs:
           cargo --version
           node --version
 
-      - name: Prepare native public recipe
-        run: python3 scripts/prepare-recipe.py --flavor public --frontend native --platform unix
-
       - name: Resolve MoonBit workspace dependencies
         run: moon update
 
@@ -76,9 +73,6 @@ jobs:
           test -f "$product"
           test -z "$(find _build/native/release/build/colmugx/cetas-native -type f \( -name 'src.exe' -o -name 'main.exe' \) -print)"
 
-
-      - name: Prepare all host recipes for workspace interfaces
-        run: python3 scripts/prepare-recipe.py --flavor public --frontend all --platform unix
 
       - name: Generate MoonBit interfaces
         run: moon info
@@ -155,15 +149,6 @@ jobs:
 
       - name: package cetas-tui static library
         run: node cetas-native/scripts/package_staticlib.js --out ".cetas-tui-prebuilt" --target "${{ matrix.target }}"
-
-      - name: prepare native recipe (Unix)
-        if: matrix.platform == 'unix'
-        run: python3 scripts/prepare-recipe.py --flavor public --frontend native --platform unix
-
-      - name: prepare native recipe (Windows)
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: python scripts/prepare-recipe.py --flavor public --frontend native --platform windows
 
       - name: resolve workspace dependencies
         run: moon update

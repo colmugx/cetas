@@ -15,9 +15,8 @@
 //
 //   bun build.ts --dts-only   # regenerate gen/mbt.d.ts only (no binaries)
 //
-// cetas-core resolves recipes.csv into generated Moon package/source files
-// before each Moon build. CETAS_FLAVOR defaults to public; each OS group
-// re-execs so the generated recipe carries the target platform explicitly.
+// Public composition is checked in as MoonBit source; building does not
+// mutate the package graph or generate recipe sources.
 import { join } from "node:path";
 import { moonbit } from "bun-plugin-moonbit";
 
@@ -43,9 +42,10 @@ const requested = new Set(positional.filter((a) => !a.startsWith("--")));
 
 const osFor = (name: string) => (name.startsWith("windows") ? "windows" : "unix");
 const CORE_ROOT = join(import.meta.dir, "../cetas-core");
-const PREPARE_RECIPE = join(import.meta.dir, "../scripts/prepare-recipe.py");
-const PYTHON = process.platform === "win32" ? "python" : "python3";
 const flavorBake = process.env.CETAS_FLAVOR?.trim() || "public";
+if (flavorBake !== "public") {
+  throw new Error("Private recipe builds require a separate composition root; the public recipe is static.");
+}
 const selected = (Object.keys(TARGETS) as (keyof typeof TARGETS)[]).filter(
   (name) => requested.size === 0 || requested.has(name),
 );
@@ -69,15 +69,8 @@ const MOONBIT_DTS = {
   },
 };
 
-// The d.ts describes the JS public surface. Prepare that static recipe first
-// so Moon resolves exactly the same package graph used by public JS builds.
+// Generate d.ts from the checked-in public composition.
 if (dtsOnly) {
-  const os = process.platform === "win32" ? "windows" : "unix";
-  const prep = Bun.spawnSync(
-    [PYTHON, PREPARE_RECIPE, "--flavor", "public", "--frontend", "js", "--platform", os],
-    { cwd: join(import.meta.dir, ".."), stdout: "inherit", stderr: "inherit" },
-  );
-  if (prep.exitCode !== 0) process.exit(prep.exitCode ?? 2);
   const result = await Bun.build({
     entrypoints: ["host.ts"],
     // bun target like the compile passes; browser (the default) rejects
@@ -102,16 +95,6 @@ console.log(`platform: per-target  flavor: ${flavorBake}${flavorBake === "public
 // .node addons resolve from node_modules. No sourcemap is generated
 // (Bun.build defaults to "none").
 if (nodeBundle) {
-  const prep = Bun.spawnSync(
-    [PYTHON, PREPARE_RECIPE, "--flavor", flavorBake, "--frontend", "js", "--platform", "unix"],
-    {
-      cwd: join(import.meta.dir, ".."),
-      env: process.env,
-      stdout: "inherit",
-      stderr: "inherit",
-    },
-  );
-  if (prep.exitCode !== 0) process.exit(prep.exitCode ?? 2);
   const moonBuild = Bun.spawnSync(["moon", "build", "--target", "js", "--release"], {
     cwd: import.meta.dir,
     env: process.env,
@@ -169,17 +152,7 @@ if (group === "") {
 
 const os = group as ReturnType<typeof osFor>;
 for (const name of selected.filter((n) => osFor(n) === os)) {
-  // Resolve the static JS recipe before Moon calculates the package graph.
-  const prep = Bun.spawnSync(
-    [PYTHON, PREPARE_RECIPE, "--flavor", flavorBake, "--frontend", "js", "--platform", os],
-    {
-      cwd: join(import.meta.dir, ".."),
-      env: process.env,
-      stdout: "inherit",
-      stderr: "inherit",
-    },
-  );
-  if (prep.exitCode !== 0) process.exit(prep.exitCode ?? 2);
+  // Build from the checked-in public composition.
   const moonBuild = Bun.spawnSync(["moon", "build", "--target", "js", "--release"], {
     cwd: import.meta.dir,
     env: process.env,

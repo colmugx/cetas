@@ -16,7 +16,7 @@ Cetas is a product built on Posoco's protocol-first agent framework. Product sem
 | `cetas-web/` | Browser host and web presentation |
 | `cetas-ext-forme/` | Cetas identity/help extension |
 | `composition/` | Human-edited capability roster and composition documentation |
-| `scripts/prepare-recipe.py` | Build-time projection of flavor, frontend, and platform |
+| `*/**/recipe.mbt` | Checked-in public host composition roots |
 | `extension/` | Posoco extension submodule |
 | `cetas-memoh/` | Separately versioned Memoh runtime, with its own product semantics and state |
 
@@ -24,7 +24,7 @@ The Cetas hosts assemble `cetas-core` and Posoco's `Agent` rather than implement
 
 ## Capabilities
 
-[`composition/recipes.csv`](../composition/recipes.csv) is the capability inventory. It describes shared infrastructure, recipe-constructed core capabilities, and host-specific integrations. The frontend and platform determine which concrete packages are selected.
+[`composition/recipes.csv`](../composition/recipes.csv) is the capability inventory. It describes shared infrastructure, recipe-constructed core capabilities, and host-specific integrations. Each host now declares its public concrete packages statically.
 
 Shared entries include:
 

@@ -8,6 +8,3 @@ _build/
 .mooncakes/
 .moonagent/
 .personal/
-cetas-run/lib/recipe.generated.mbt
-cetas-acp/lib/recipe.generated.mbt
-cetas-js/lib/recipe.generated.mbt
