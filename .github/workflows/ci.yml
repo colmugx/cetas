@@ -100,15 +100,12 @@ jobs:
           bun build.ts --dts-only
           bunx tsc --noEmit
 
-      - name: cetas-js lifecycle tests
+      # Full cetas-js suite: unit + integration + the self-spawning pi
+      # adaptor scenarios. Running everything (not a subset) is the point —
+      # subset-only CI is how tests rotted unnoticed before.
+      - name: cetas-js test suite
         working-directory: posoco/external/cetas/cetas-js
-        run: |
-          bun test --preload ./moonbit-preload.ts \
-            src/app/operation-coordinator.test.ts \
-            src/app/application.test.ts \
-            src/app/rate-limit-recovery.test.ts \
-            src/controllers/event-router.test.ts \
-            ui/terminal-shell.test.ts
+        run: bun test --preload ./moonbit-preload.ts
 
       - name: Setup Node for cetas-web
         uses: actions/setup-node@v4

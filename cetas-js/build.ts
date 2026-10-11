@@ -38,6 +38,7 @@ const executable = executableIdx >= 0 ? args[executableIdx + 1] : undefined;
 const positional =
   executableIdx >= 0 ? [...args.slice(0, executableIdx), ...args.slice(executableIdx + 2)] : args;
 const dtsOnly = positional.includes("--dts-only");
+const nodeBundle = positional.includes("--node-bundle");
 const requested = new Set(positional.filter((a) => !a.startsWith("--")));
 
 const osFor = (name: string) => (name.startsWith("windows") ? "windows" : "unix");
@@ -94,6 +95,59 @@ if (dtsOnly) {
 }
 
 console.log(`platform: per-target  flavor: ${flavorBake}${flavorBake === "public" ? "" : ` (CETAS_FLAVOR=${flavorBake})`}`);
+
+// npm channel: one platform-independent JS bundle. The bash/ps1 swap detects
+// the platform at runtime (recipe-generated), node:child_process/node:http
+// run under both bun and node, and pi-tui stays external so its native
+// .node addons resolve from node_modules. No sourcemap is generated
+// (Bun.build defaults to "none").
+if (nodeBundle) {
+  const prep = Bun.spawnSync(
+    [PYTHON, PREPARE_RECIPE, "--flavor", flavorBake, "--frontend", "js", "--platform", "unix"],
+    {
+      cwd: join(import.meta.dir, ".."),
+      env: process.env,
+      stdout: "inherit",
+      stderr: "inherit",
+    },
+  );
+  if (prep.exitCode !== 0) process.exit(prep.exitCode ?? 2);
+  const moonBuild = Bun.spawnSync(["moon", "build", "--target", "js", "--release"], {
+    cwd: import.meta.dir,
+    env: process.env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (moonBuild.exitCode !== 0) {
+    console.error(`moon build failed for the node bundle:\n${moonBuild.stderr.toString().trim()}`);
+    process.exit(2);
+  }
+  const result = await Bun.build({
+    entrypoints: ["host.ts"],
+    target: "node",
+    minify: true,
+    external: ["@earendil-works/pi-tui"],
+    plugins: [
+      moonbit({
+        root: import.meta.dir,
+        mode: "release",
+        dts: MOONBIT_DTS,
+      }),
+    ],
+  });
+  if (!result.success) {
+    console.error("✗ node bundle");
+    for (const log of result.logs) console.error(log);
+    throw new Error("Bun.build failed for --node-bundle");
+  }
+  // Bun.build's JS API silently ignores a top-level outfile — write the
+  // single output blob by hand, shebang first so npm bin shims exec node.
+  const [out] = result.outputs;
+  await Bun.write("dist/cetas.js", `#!/usr/bin/env node\n${await out.text()}`);
+  const stat = await Bun.file("dist/cetas.js").stat();
+  console.log(`✓ node bundle  dist/cetas.js  ${(stat.size / 1024 / 1024).toFixed(1)} MB`);
+  process.exit(0);
+}
 
 const group = process.env.CETAS_BUILD_GROUP ?? "";
 if (group === "") {

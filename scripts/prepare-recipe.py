@@ -10,12 +10,12 @@ HOSTS = {
     "run": ROOT / "cetas-run",
     "js": ROOT / "cetas-js",
     "native": ROOT / "cetas-native",
-    "web": ROOT / "cetas-web",
+    "console": ROOT / "cetas-console",
 }
 
 HOST_PACKAGE_DIRS = {
     "native": pathlib.Path("src/app"),
-    "web": pathlib.Path("server"),
+    "console": pathlib.Path("console"),
 }
 
 RECIPE_MOD_BEGIN = "  // recipe-deps:begin"
@@ -365,6 +365,28 @@ def generated_mbt(
     zcode_builder = ""
     if frontend in ("acp", "js"):
         zcode_builder = render_zcode_builder(selected)
+    # js builds ship as platform-independent JS (bun-compiled binaries and
+    # the npm bundle share the code), so the bash/ps1 swap must detect the
+    # platform at runtime; other frontends are per-platform builds and keep
+    # the compile-time bake.
+    if frontend == "js":
+        platform_check_block = '''///|
+extern "js" fn js_process_platform_is_windows() -> Bool =
+  #| () => process.platform === "win32"
+
+///|
+fn shell_platform_is_windows() -> Bool {
+  js_process_platform_is_windows()
+}
+
+'''
+    else:
+        platform_check_block = '''///|
+fn shell_platform_is_windows() -> Bool {
+  compiled_target_os() == "windows"
+}
+
+'''
     tool_names_block = ""
     if frontend == "js":
         tool_names_block = '''///|
@@ -401,12 +423,7 @@ fn compiled_target_os() -> String {{
   "{platform}"
 }}
 
-///|
-fn shell_platform_is_windows() -> Bool {{
-  compiled_target_os() == "windows"
-}}
-
-///|
+{platform_check_block}///|
 fn canonical_cetas_tool_name(name : String) -> String {{
   if shell_platform_is_windows() && name == "bash" {{
     "ps1"

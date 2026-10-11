@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for npm staging package naming and launcher wiring."""
+"""Tests for npm staging: single JS-only package shape and dist wiring."""
 
 import importlib.util
 import io
@@ -7,7 +7,6 @@ import json
 import tarfile
 import tempfile
 import unittest
-import zipfile
 from pathlib import Path
 
 
@@ -17,54 +16,50 @@ npm_stage = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(npm_stage)
 
+BUNDLE = b"#!/usr/bin/env node\nconsole.log('cetas');\n"
+
 
 class NpmStageTest(unittest.TestCase):
-    def _write_release_artifacts(self, staging):
-        payload = b"fake-cetas-binary\n"
-        for meta in npm_stage.TARGETS.values():
-            archive = staging / meta["archive"]
-            if archive.suffix == ".zip":
-                with zipfile.ZipFile(archive, "w") as zf:
-                    zf.writestr(meta["binary"], payload)
-            else:
-                with tarfile.open(archive, "w:gz") as tf:
-                    info = tarfile.TarInfo(meta["binary"])
-                    info.mode = 0o755
-                    info.size = len(payload)
-                    tf.addfile(info, io.BytesIO(payload))
+    def _write_dist_artifact(self, staging):
+        with tarfile.open(staging / npm_stage.DIST_ARTIFACT, "w:gz") as tf:
+            info = tarfile.TarInfo("dist/cetas.js")
+            info.mode = 0o755
+            info.size = len(BUNDLE)
+            tf.addfile(info, io.BytesIO(BUNDLE))
 
-    def test_platform_packages_are_scoped_and_meta_links_them(self):
+    def test_single_js_package_shape(self):
         version = "1.2.3"
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             staging = root / "staging"
             out = root / "out"
             staging.mkdir()
-            out.mkdir()
-            self._write_release_artifacts(staging)
+            self._write_dist_artifact(staging)
 
-            expected_optional = {}
-            for target, platform in npm_stage.TARGETS.items():
-                pkg_dir = npm_stage.stage_platform(out, staging, target, platform, version)
-                manifest = json.loads((pkg_dir / "package.json").read_text())
+            pkg_dir = npm_stage.stage(out, staging, version)
 
-                expected_name = f"@posoco/cetas-{target}"
-                expected_optional[expected_name] = version
-                self.assertEqual(manifest["name"], expected_name)
-                self.assertEqual(manifest["version"], version)
-                self.assertEqual(manifest["os"], [platform["os"]])
-                self.assertEqual(manifest["cpu"], [platform["cpu"]])
-                self.assertEqual(manifest["publishConfig"], {"access": "public"})
+            manifest = json.loads((pkg_dir / "package.json").read_text())
+            self.assertEqual(manifest["name"], "@posoco/cetas")
+            self.assertEqual(manifest["version"], version)
+            self.assertEqual(manifest["publishConfig"], {"access": "public"})
+            self.assertEqual(manifest["type"], "module")
+            # The bin is the bundle itself: no launcher shim, no payloads.
+            self.assertEqual(manifest["bin"], {"cetas": "dist/cetas.js"})
+            self.assertEqual(manifest["files"], ["dist"])
+            self.assertEqual(manifest["engines"], {"node": ">=24"})
+            self.assertIn("@earendil-works/pi-tui", manifest["dependencies"])
+            self.assertNotIn("optionalDependencies", manifest)
 
-            meta_dir = npm_stage.stage_meta(out, version)
-            meta = json.loads((meta_dir / "package.json").read_text())
-            self.assertEqual(meta["name"], "@posoco/cetas")
-            self.assertEqual(meta["optionalDependencies"], expected_optional)
-            self.assertEqual(meta["publishConfig"], {"access": "public"})
+            bundle = pkg_dir / "dist" / "cetas.js"
+            self.assertEqual(bundle.read_bytes(), BUNDLE)
+            self.assertTrue(bundle.read_bytes().startswith(b"#!/usr/bin/env node\n"))
+            self.assertEqual(bundle.stat().st_mode & 0o111, 0o111)
 
-            shim = (meta_dir / "bin" / "cetas.js").read_text()
-            self.assertIn("const pkg = `@posoco/cetas-${target}`;", shim)
-            self.assertNotIn("const pkg = `cetas-${target}`;", shim)
+    def test_missing_artifact_dies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with self.assertRaises(SystemExit):
+                npm_stage.stage(root / "out", root, "1.2.3")
 
 
 if __name__ == "__main__":

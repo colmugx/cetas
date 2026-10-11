@@ -27,11 +27,11 @@ describe("welcome header", () => {
 
   test("first-run guidance asks for login; ready state suggests starting work", () => {
     const setup = plain(renderWelcomeHeader({ ...source, state: "needs_setup", model: undefined }, 88));
-    expect(setup).toContain("Not selected");
+    expect(setup).not.toContain("Not selected");
     expect(setup).toContain("/login");
     expect(setup).not.toContain("Describe a task");
     const ready = plain(renderWelcomeHeader(source, 88));
-    expect(ready).toContain("Example model");
+    expect(ready).not.toContain("Example model");
     expect(ready).toContain("Describe a task");
     expect(ready).toContain("/sessions");
     expect(ready).not.toContain("/login");
@@ -56,9 +56,9 @@ describe("welcome header", () => {
   test("render reads the latest safe snapshot and can collapse without rebuilding", () => {
     let current = { ...source };
     const component = new WelcomeHeader(() => current);
-    expect(plain(component.render(88))).toContain("Example model");
-    current = { ...current, model: "Another model" };
-    expect(plain(component.render(88))).toContain("Another model");
+    expect(plain(component.render(88))).toContain("~/projects/cetas");
+    current = { ...current, cwd: "/home/dev/another-workspace" };
+    expect(plain(component.render(88))).toContain("~/another-workspace");
     component.compact = true;
     expect(component.render(88)).toHaveLength(1);
   });

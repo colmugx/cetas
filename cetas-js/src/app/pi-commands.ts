@@ -25,15 +25,44 @@ export type PiCommandRunner = (
   cwd: string,
 ) => Promise<{ code: number; output: string }>;
 
-/** Default runner: argv-spawn without a shell, stdout+stderr captured. */
+/** Default runner: argv-spawn without a shell, stdout+stderr captured.
+ * Runs on node:child_process (works under both bun and node). On Windows,
+ * npm-installed package managers are `.cmd` shims, which Node refuses to
+ * spawn directly (CVE-2024-27980) — route those through cmd.exe. */
 export function defaultPiCommandRunner(): PiCommandRunner {
   return async (command, args, cwd) => {
-    const proc = Bun.spawn([command, ...args], { cwd, stdout: "pipe", stderr: "pipe" });
-    const [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
+    const { spawn } = await import("node:child_process");
+    const winShellShim =
+      process.platform === "win32" && !/\.(exe|com)$/i.test(command);
+    const proc = winShellShim
+      ? spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", command, ...args], {
+          cwd,
+          stdio: ["ignore", "pipe", "pipe"],
+        })
+      : spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const drain = (stream: NodeJS.ReadableStream | null) =>
+      stream
+        ? new Promise<string>((resolve) => {
+            let text = "";
+            const finish = () => resolve(text);
+            stream.setEncoding("utf8");
+            stream.on("data", (chunk: string) => {
+              text += chunk;
+            });
+            stream.on("end", finish);
+            stream.on("close", finish);
+            stream.on("error", finish);
+          })
+        : Promise.resolve("");
+    const [code, stdout, stderr] = await Promise.all([
+      new Promise<number>((resolve) => {
+        proc.on("close", (exitCode) => resolve(exitCode ?? -1));
+        proc.on("error", () => resolve(-1));
+      }),
+      drain(proc.stdout),
+      drain(proc.stderr),
     ]);
-    return { code: await proc.exited, output: `${stdout}${stderr}`.trim() };
+    return { code, output: `${stdout}${stderr}`.trim() };
   };
 }
 

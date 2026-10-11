@@ -51,7 +51,6 @@ export function renderWelcomeHeader(
   if (width <= 0) return [];
   const columns = Math.floor(width);
   const workspace = welcomeWorkspace(source.cwd, source.home);
-  const model = singleLine(source.model ?? "") || "Not selected";
   const needsSetup = source.state === "needs_setup";
   const starting = source.state === undefined;
   const fit = (value: string, max = columns): string => truncateToWidth(value, max, "…");
@@ -79,9 +78,9 @@ export function renderWelcomeHeader(
     title,
     theme.muted("One agent. Every surface."),
     "",
-    theme.muted("Model      ") + theme.bold(model),
     theme.muted("Workspace  ") + workspace,
     theme.muted("Built on Posoco"),
+    "",
   ];
   const body = columns >= 64
     ? context.map((value, i) => row(theme.brand(WAKEFUL[i]) + "   " + value))

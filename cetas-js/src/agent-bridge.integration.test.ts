@@ -739,7 +739,12 @@ const isCompactRequest = (body: string): boolean => {
     expect(request.stream).toBe(true);
     expect(request.input.filter((item: { type?: string }) => item.type === "compaction_trigger")).toHaveLength(1);
     expect(request.tools.length).toBeGreaterThan(0);
-    expect(typeof request.instructions).toBe("string");
+    // The ext omits `instructions` entirely when the session has no base
+    // system prompt; when present it must be a non-empty string.
+    if (request.instructions !== undefined) {
+      expect(typeof request.instructions).toBe("string");
+      expect(request.instructions.length).toBeGreaterThan(0);
+    }
   }
   return compact;
 };

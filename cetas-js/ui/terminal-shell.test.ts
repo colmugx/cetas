@@ -1197,7 +1197,7 @@ describe("wakeup envelope restore", () => {
 });
 
 describe("welcome screen lifecycle", () => {
-  test("initial setup is shown in the header and model changes are reflected", () => {
+  test("initial setup is shown in the header and readiness swaps the guidance", () => {
     const { shell } = makeShell();
     const setup = { providers: [], oauthProviders: [] };
     shell.handleSnapshot({ state: "needs_setup", setup, sessionId: "test" });
@@ -1210,7 +1210,11 @@ describe("welcome screen lifecycle", () => {
         active: true, efforts: [], oauth: false,
       }],
     } });
-    expect((shell as any).welcomeHeader.render(88).join("\n")).toContain("Chosen model");
+    // The identity refresh dropped the model row from the welcome card;
+    // readiness now swaps the guidance line instead.
+    const ready = (shell as any).welcomeHeader.render(88).join("\n");
+    expect(ready).toContain("Describe a task to begin.");
+    expect(ready).not.toContain("/login");
   });
 
   test("only accepted prompts collapse the welcome; a new session restores it", async () => {

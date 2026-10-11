@@ -1,10 +1,12 @@
-// Compiled Bun binaries (`bun build --compile`) perform no node_modules
+// Compiled binaries (`bun build --compile`) perform no node_modules
 // resolution for externally dynamic-imported files, so a pi package cannot
 // resolve its own dependency graph at runtime. This loader mirrors an entry's
 // statically discoverable import closure into one flat per-boot directory,
 // rewriting every non-builtin specifier to an absolute file URL (require()
 // gets an absolute path). Unresolvable specifiers stay untouched and are
 // reported as warnings: load failures and validation authority are unchanged.
+// The import scanner is runtime-independent (no Bun APIs) so the same mirror
+// serves the bun-compiled release channel and the node npm bundle.
 
 import { createHash } from "node:crypto";
 import {
@@ -89,6 +91,14 @@ export class PiModuleMirror {
     }
 
     const isJson = sourcePath.endsWith(".json");
+    // tsx/jsx compiles only under bun; warn early under node instead of
+    // letting the import fail with an opaque syntax error later.
+    const sourceExt = extname(sourcePath);
+    if ((sourceExt === ".tsx" || sourceExt === ".jsx") && typeof Bun === "undefined") {
+      warnings.push(
+        `${sourcePath}: tsx/jsx entries need the bun runtime and will not load under node`,
+      );
+    }
     // `import x from "...json" with { type: "json" }` makes the loader parse
     // the module itself as JSON, so those targets are mirrored raw instead of
     // wrapped in `export default`.
@@ -142,19 +152,8 @@ export class PiModuleMirror {
     return outPath;
   }
 
-  private scannedImports(content: string, sourcePath: string, warnings: string[]): ScannedImport[] {
-    const extension = extname(sourcePath);
-    const loader = extension === ".tsx" || extension === ".jsx"
-      ? "tsx"
-      : TS_EXTENSIONS.includes(extension as (typeof TS_EXTENSIONS)[number])
-        ? "ts"
-        : "js";
-    try {
-      return new Bun.Transpiler({ loader }).scanImports(content) as ScannedImport[];
-    } catch (error) {
-      warnings.push(`import scan failed: ${sourcePath}: ${describeError(error)}`);
-      return [];
-    }
+  private scannedImports(content: string, _sourcePath: string, _warnings: string[]): ScannedImport[] {
+    return scanSourceImports(content);
   }
 
   private mirrorPathFor(sourcePath: string, content: string, isJson: boolean, rawJson: boolean): string {
@@ -251,6 +250,44 @@ export function sharedPiModuleMirror(): PiModuleMirror {
 export function mirrorPiEntry(entryAbsPath: string): MirrorOutcome {
   return sharedPiModuleMirror().mirrorEntry(entryAbsPath);
 }
+
+/**
+ * Runtime-independent replacement for `Bun.Transpiler.scanImports` so the
+ * mirror works identically under bun and node. Statement-level regexes over
+ * the raw source: false positives (strings or comments shaped like imports)
+ * can only add one mirror warning or mirror one extra file; a missed
+ * specifier keeps the original text, which is the documented
+ * unresolvable-import fallback. `kind` distinguishes require-call (rewritten
+ * to an absolute path) from import forms (rewritten to a file URL).
+ */
+function scanSourceImports(content: string): ScannedImport[] {
+  const found: ScannedImport[] = [];
+  const seen = new Set<string>();
+  for (const [kind, pattern] of SCAN_PATTERNS) {
+    pattern.lastIndex = 0;
+    for (let match = pattern.exec(content); match !== null; match = pattern.exec(content)) {
+      const path = match[1];
+      if (path === undefined || path === "") continue;
+      const key = `${kind}\u{0}${path}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        found.push({ kind, path });
+      }
+    }
+  }
+  return found;
+}
+
+/** Static import/export … from "spec" (multiline clauses allowed, side-effect
+ *  imports included), dynamic import("spec"), and require("spec"). */
+const SCAN_PATTERNS: ReadonlyArray<readonly [string, RegExp]> = [
+  [
+    "import-statement",
+    /(?:^|[;{}\s])(?:import|export)\s+(?:[^;'"()]*?\bfrom\s*)?["'`]([^"'`\n]+)["'`]/g,
+  ],
+  ["dynamic-import", /\bimport\s*\(\s*["'`]([^"'`\n]+)["'`]\s*\)/g],
+  ["require-call", /\brequire\s*\(\s*["'`]([^"'`\n]+)["'`]\s*\)/g],
+];
 
 function skipRewrite(spec: string): boolean {
   if (spec.startsWith("node:") || spec.startsWith("bun:")) return true;
