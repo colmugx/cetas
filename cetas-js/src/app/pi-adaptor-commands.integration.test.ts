@@ -1,27 +1,9 @@
-// Integration test for the pi adaptor command face (formerly the
-// smoke-pi-commands hermetic smoke): a DIRECT-DIR synthetic pi package under
-// a fake home (`<home>/.cetas/pi-packages/pi-commands-fixture/`) registers
-// two commands (`cmd_check`, `cmd_boom`) and one shortcut (`ctrl+shift+f9`).
-//
-// The adaptor projects them as `pi:`-namespaced CommandDefs (commands visible,
-// shortcut invisible with a `shortcut` field), so cetas_js_list_commands must
-// surface them and cetas_js_invoke_command must route `pi:<name>` /
-// `pi:#<key>` ids onto the pi handlers with the positional args and ctx.
-//
-// The scenario runs in its own bun SUBPROCESS (child mode via
-// --pi-scenario=run): Bun's dynamic-import runtime inside the bundled lib.js
-// refuses to load a second external mirrored pi entry within one process
-// (resolution is cached negatively after the first module import), so each
-// pi-package composition needs its own process. This file doubles as the
-// child entry: spawning it with --pi-scenario=run executes the scenario and
-// prints a SCENARIO_RESULT line instead of registering tests.
-//
-// The terminal-shell dispatch is not reachable headless (it needs the pi-tui
-// screen), so the slash-tokenization facts are pinned at unit level via the
-// exported matchLocalSlash / parsePositionalArgs helpers.
-//
-// Hermetic by construction: fake home, stubbed model endpoint at
-// http://cetas.test/ (composition only — no model turns), no network.
+// Integration test for the pi adaptor command face: a synthetic DIRECT-DIR pi
+// package under a fake home registers two commands and a shortcut; asserts the
+// projected `pi:` defs, the `pi:<name>`/`pi:#<key>` invoke routing, and the
+// slash tokenization helpers (terminal dispatch is unreachable headless).
+// Hermetic: fake home, stubbed model endpoint at http://cetas.test/ (composition only, no model turns), no network.
+// Runs as a bun subprocess via --pi-scenario= because bun's dynamic import caches mirrored pi-package resolution negatively — only one pi-package composition per process; --pi-scenario=run is the child entry.
 
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

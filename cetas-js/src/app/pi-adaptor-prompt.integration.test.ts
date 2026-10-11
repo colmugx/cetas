@@ -1,21 +1,9 @@
-// Integration test for the pi adaptor prompt-snippet injection (formerly the
-// smoke-pi-prompt hermetic smoke): a DIRECT-DIR synthetic pi package under a
-// fake home registers a tool with (scenario "with") or without (scenario
-// "without") promptSnippet/promptGuidelines. The adaptor's PiHook.before_model
-// must inject one delimited <pi-tools> block into the system message of the
-// model request — and leave the request untouched when no tool self-describes.
-//
-// Each scenario runs in its own bun SUBPROCESS (child mode via --scenario=):
-// Bun's dynamic-import runtime inside the bundled lib.js refuses to load a
-// second external mirrored pi entry within one process (resolution is cached
-// negatively after the first module import), so two compositions per process
-// would report a bogus package-load failure. This file doubles as the child
-// entry: spawning it with --scenario=<with|without> runs the scenario and
-// prints a SCENARIO_RESULT line instead of registering tests.
-//
-// No real pi package and no network: globalThis.fetch answers ONLY the
-// scripted model endpoint, and every chat request body is captured so the
-// wire-level system message can be asserted.
+// Integration test for the pi adaptor prompt-snippet injection: a synthetic DIRECT-DIR
+// pi package registers a tool with/without promptSnippet and promptGuidelines; asserts
+// one delimited <pi-tools> block injected into the system message — and no injection
+// when no tool self-describes.
+// Hermetic: fake home, globalThis.fetch answers only http://cetas.test/, no network.
+// Each scenario runs as a bun subprocess via --pi-scenario= because bun's dynamic import caches mirrored pi-package resolution negatively — only one pi-package composition per process; --pi-scenario=<with|without> is the child entry.
 
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

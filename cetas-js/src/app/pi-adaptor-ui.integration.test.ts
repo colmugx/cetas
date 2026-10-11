@@ -1,23 +1,9 @@
-// Integration test for the pi adaptor UI reverse-bridge (formerly the
-// smoke-pi-ui hermetic smoke): a DIRECT-DIR synthetic pi package under a
-// fake home registers `ask_user` (a confirm/select/input triple via ctx.ui,
-// plus notify / setStatus / setWidget) and a `read` shadow probe whose marker
-// description must never reach the model catalog (base wins over same-name
-// pi tools). The adaptor's ctx.ui rides the same TS callback pair JsUiPort
-// uses, so the ask sequence crossing the bridge proves the whole reverse
-// path: pi tool → MoonBit JsUiPort → TS requestCallback → correlated
-// ui_response → resolved tool result.
-//
-// The scenario runs in its own bun SUBPROCESS (child mode via
-// --pi-scenario=run): Bun's dynamic-import runtime inside the bundled lib.js
-// refuses to load a second external mirrored pi entry within one process
-// (resolution is cached negatively after the first module import), so each
-// pi-package composition needs its own process. This file doubles as the
-// child entry: spawning it with --pi-scenario=run executes the scenario and
-// prints a SCENARIO_RESULT line instead of registering tests.
-//
-// Hermetic by construction: fake home, stubbed model endpoint at
-// http://cetas.test/ — no network, no credentials.
+// Integration test for the pi adaptor UI reverse-bridge: a synthetic DIRECT-DIR pi
+// package under a fake home registers an ask_user tool (ctx.ui confirm/select/input
+// plus notify/setStatus/setWidget) and a same-name `read` shadow probe that must never
+// reach the model catalog (base wins).
+// Hermetic: fake home, stubbed model endpoint at http://cetas.test/, no network or credentials.
+// Runs as a bun subprocess via --pi-scenario= because bun's dynamic import caches mirrored pi-package resolution negatively — only one pi-package composition per process; --pi-scenario=run is the child entry.
 
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -270,8 +256,7 @@ async function runScenario(): Promise<ScenarioOutcome> {
         // Body inspection is diagnostics only.
       }
       chatRequestCount += 1;
-      // Turn 1 = tool_calls; the follow-up and any extra requests (title
-      // generation, host evolution) get a plain text reply.
+      // Turn 1 = tool_calls; the follow-up and extra requests (title generation) get plain text.
       const body = chatRequestCount === 1 ? toolCallStream() : textStream("ask_user reported: yes / alpha / hi.");
       return new Response(body, { headers: { "content-type": "text/event-stream" } });
     }) as typeof fetch;
@@ -445,8 +430,7 @@ if (scenarioArg !== undefined) {
       expect(outcome.errors).toHaveLength(0);
     }, 120_000);
 
-    // Shadow-hide (base wins): the model catalog must declare the pi ask_user,
-    // keep exactly one `read` (the base tool), and never see the probe marker.
+    // Shadow-hide (base wins): one `read` (the base tool) in the catalog, never the probe marker.
     test("shadow-hidden pi 'read' never reaches the model catalog (base wins)", () => {
       const outcome = outcomeOrFail();
       expect(outcome.catalogDeclaredAskUser).toBe(true);
@@ -463,8 +447,6 @@ if (scenarioArg !== undefined) {
       expect(outcome.inputPlaceholder).toBe("type here");
     }, 120_000);
 
-    // The tool result reflects the stubbed answers and a Notice render carried
-    // the notify() text.
     test("tool result reflects yes/alpha/hi and a Notice render was observed", () => {
       const outcome = outcomeOrFail();
       expect(outcome.answered).toBe(true);

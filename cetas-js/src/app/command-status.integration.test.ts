@@ -167,9 +167,7 @@ describe("mid-turn /permission over the real bridge", () => {
     async () => {
       const harness = await startHarness();
       try {
-        // The turn parks on the approval ask and is cancelled by the shutdown in
-        // the finally block — detach the rejection so it cannot surface as an
-        // unhandled rejection and fail this test.
+        // The shutdown in finally cancels this parked turn; detach the expected rejection.
         const turn = harness.app.runTurn("command-status: run a mutating shell command");
         turn.catch(() => undefined);
         await waitFor(
@@ -204,9 +202,7 @@ describe("mid-turn /permission over the real bridge", () => {
     async () => {
       const harness = await startHarness();
       try {
-        // The turn parks on the approval ask and is cancelled by the shutdown in
-        // the finally block — detach the rejection so it cannot surface as an
-        // unhandled rejection and fail this test.
+        // The shutdown in finally cancels this parked turn; detach the expected rejection.
         const turn = harness.app.runTurn("command-status: run a mutating shell command");
         turn.catch(() => undefined);
         await waitFor(

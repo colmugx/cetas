@@ -1,24 +1,9 @@
-// Integration test for the pi adaptor event bridge (formerly the
-// smoke-pi-events hermetic smoke): a DIRECT-DIR synthetic pi package under a
-// fake home registers the full pi on(...) family plus one tool and logs every
-// payload as a JSON line (PI_EVENTS_LOG). A scripted provider drives one
-// tool-call turn, and the tests assert the projected event sequence and
-// payload shapes:
-//   session_start → agent_start → turn_start → message_end(toolCall)
-//   → tool_execution_start/update/end → message_start → message_update
-//   → turn_end → agent_end → agent_settled (final message_end rides with
-//   turn_end delivery).
-//
-// The scenario runs in its own bun SUBPROCESS (child mode via
-// --pi-scenario=run): Bun's dynamic-import runtime inside the bundled lib.js
-// refuses to load a second external mirrored pi entry within one process
-// (resolution is cached negatively after the first module import), so each
-// pi-package composition needs its own process. This file doubles as the
-// child entry: spawning it with --pi-scenario=run executes the scenario and
-// prints a SCENARIO_RESULT line instead of registering tests.
-//
-// Hermetic by construction: fake home, stubbed model endpoint at
-// http://cetas.test/ — no network, no credentials.
+// Integration test for the pi adaptor event bridge: a synthetic DIRECT-DIR pi
+// package under a fake home registers the full pi on(...) family plus one tool,
+// and a scripted one-turn tool call asserts the projected event sequence and
+// payload shapes.
+// Hermetic: fake home, stubbed model endpoint at http://cetas.test/, no network or credentials.
+// Runs as a bun subprocess via --pi-scenario= because bun's dynamic import caches mirrored pi-package resolution negatively — only one pi-package composition per process; --pi-scenario=run is the child entry.
 
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -158,8 +143,7 @@ async function runScenario(): Promise<ScenarioOutcome> {
         );
       }
       chatRequestCount += 1;
-      // Turn 1 = tool_calls, turn 2 = plain text; any further requests (title
-      // generation, host evolution) get a plain text reply as well.
+      // Turn 1 = tool_calls; later requests (title generation, host evolution) get plain text.
       const body = chatRequestCount === 1 ? toolCallStream() : textStream("probe ping replied pong.");
       return new Response(body, { headers: { "content-type": "text/event-stream" } });
     }) as typeof fetch;
@@ -215,8 +199,7 @@ async function runScenario(): Promise<ScenarioOutcome> {
       callbacks: {
         observerCallback: (): void => {},
         renderCallback: (): void => {},
-        // Auto-approve every UI request; the response must echo the pending
-        // request_id for the JsUiPort protocol to resolve.
+        // Auto-approve every UI request; the response must echo the pending request_id.
         requestCallback: async (json: string): Promise<string> => {
           const request = JSON.parse(json) as { request_id?: string; request?: { type?: string } };
           let response: Record<string, unknown>;
@@ -357,10 +340,8 @@ if (scenarioArg !== undefined) {
       expect(outcome.reply.trim().length).toBeGreaterThan(0);
     }, 120_000);
 
-    // Full family present, skeleton in pi order. Note posoco's chunk
-    // dispatcher may deliver a response's stream chunks after its
-    // ModelResponseReceived, so message_start/update only need to precede
-    // turn_end, not the final message_end.
+    // Full family present, skeleton in pi order; the chunk dispatcher may deliver a
+    // response's stream chunks after its ModelResponseReceived, so only turn_end is pinned.
     test("event family delivered in pi order", () => {
       const { events } = outcomeOrFail();
       const allTypes = [
