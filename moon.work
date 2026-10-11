@@ -1,6 +1,7 @@
 members = [
   "./cetas-acp",
   "./cetas-core",
+  "./cetas-console",
   "./cetas-web",
   "./cetas-run",
   "./cetas-memoh",
