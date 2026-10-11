@@ -32,7 +32,6 @@ let compiled_recipe_packages : Map[String, String] = Map::from_array([
   ("subagent_kit", "colmugx/posoco-kit-subagent"),
 ])
 
-
 ///|
 extern "js" fn js_process_platform_is_windows() -> Bool =
   #| () => process.platform === "win32"
@@ -57,7 +56,11 @@ fn cetas_tool_names() -> Array[String] {
   for capability in @cetas_core.cetas_reconstructable_capabilities() {
     names.push(
       if capability == "shell" {
-        if shell_platform_is_windows() { "ps1" } else { "bash" }
+        if shell_platform_is_windows() {
+          "ps1"
+        } else {
+          "bash"
+        }
       } else {
         capability
       },
