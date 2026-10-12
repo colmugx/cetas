@@ -1,0 +1,63 @@
+---
+title: Automation
+description: Run one Cetas turn per process from scripts and CI with cetas-run.
+sidebar:
+  order: 60
+---
+
+`cetas-run` is the one-shot, non-interactive host: one process invocation runs exactly one user turn. It reuses `cetas-core`; the package is a host shell rather than a second agent implementation.
+
+## Command shape
+
+```text
+cetas-run [--model <provider/model>] [--effort <level>] [--session <id>]
+          [--yolo | --permission <readonly|workspace_write|interactive|auto>]
+          [--stream] [--verbose] [--show-thinking] [--jsonl]
+          [-- "<task>"]
+```
+
+Pass the task after `--`. If argv carries no task, Cetas reads exactly one line from stdin.
+
+Two further forms:
+
+```text
+cetas-run --login [provider]
+cetas-run --help | -h | --version
+```
+
+Help and version do not write config, read stdin, or contact providers.
+
+## Output contract
+
+In text modes stdout is answer-only. `--stream` emits answer deltas as they arrive. `--verbose` logs events and `--show-thinking` prints reasoning — both to stderr. `--jsonl` turns stdout into the structured event stream and takes precedence over the text modes. Session metadata, approval prompts, and lifecycle markers also go to stderr.
+
+## Sessions
+
+Without `--session`, each invocation creates a fresh session id and reports it on stderr. Re-run with `--session <id>` to continue that session. This same-host resume does not imply cross-host resume — see [Sessions](/concepts/sessions/).
+
+## Permissions
+
+`--permission` accepts `readonly`, `workspace_write`, `interactive`, or `auto`. `--yolo` is the unattended mode and cannot be combined with `--permission`. `--model` and `--effort` are run-scoped overrides and are not persisted.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | The turn completed |
+| `1` | The turn ran but failed |
+| `2` | Startup, usage, or login failure |
+
+## Running from Mooncakes
+
+```bash
+moonx colmugx/cetas-run -- -- "fix the failing tests"
+moonx colmugx/cetas-run -- --session <id> -- "continue"
+```
+
+## Configuration
+
+Cetas reads provider configuration and credentials from the shared Cetas home, normally `~/.cetas/`. `CETAS_HOME` overrides the platform user home — not the `.cetas` directory itself. Credentials are shared with the other hosts: if you are already logged in, just retry your task here. Otherwise, native builds can run `cetas-run --login`; under MoonX, log in through the terminal host with the same home.
+
+<Aside type="note" title="cetas-headless">
+The repository also contains `cetas-headless`, an older one-shot stdio host with a similar shape. It is not packaged by any release and not registered by any composition recipe, so treat `cetas-run` as the automation entrance.
+</Aside>

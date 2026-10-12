@@ -1,0 +1,39 @@
+---
+title: CLI
+description: Use the interactive terminal host, cetas-js.
+sidebar:
+  order: 40
+---
+
+`cetas-js` is the interactive terminal host, published as the `cetas-bun` binary and as the `cetas` command from npm. It constructs the Cetas application and a terminal shell around the shared agent bridge.
+
+## Slash commands
+
+| Command | Purpose |
+| --- | --- |
+| `/login` | Provider authentication — API key or OAuth, depending on the provider |
+| `/model` | Choose the active model; also exposes effort where the model supports it |
+| `/effort` | Choose the reasoning effort for the active model |
+| `/permission` | Set the permission posture for the session |
+| `/help` | List commands and key bindings |
+
+## Permission modes
+
+`/permission` accepts:
+
+| Mode | Behavior |
+| --- | --- |
+| `readonly` | Read tools are allowed; non-read tools are rejected |
+| `workspace_write` | Reads are allowed; writes, shell commands, and unknown tools go through UI confirmation |
+| `interactive` | Side-effecting tools require confirmation |
+| `yolo` | Tools are pre-approved without confirmation — the JS host's current default |
+
+Permission policy belongs to `cetas-core`; each host supplies its own approval UI, which is why the exact mode list can differ between hosts.
+
+## Persisted state
+
+Successful `/model` and `/effort` changes are persisted to `~/.cetas/settings.json`, so a later launch reuses the same selection.
+
+Provider discovery, `/model`, and `/login` are all built from the same registered provider factory set. The terminal can therefore only offer providers Cetas is actually able to compose — see [Providers](/configuration/providers/).
+
+For a single non-interactive turn, use [Automation](/using-cetas/automation/) rather than scripting terminal output.

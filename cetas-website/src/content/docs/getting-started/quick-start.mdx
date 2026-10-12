@@ -1,0 +1,52 @@
+---
+title: Quick Start
+description: Configure a provider and hand Cetas its first task.
+sidebar:
+  order: 30
+---
+
+## 1. Get a host running
+
+Pick a released archive or the npm package — see [Installation](/getting-started/installation/) — and launch it **from the project you want to work on**:
+
+```bash
+cd /path/to/your/project
+/path/to/extracted/cetas-bun        # or: cetas, if you installed @posoco/cetas
+```
+
+## 2. Configure a provider
+
+A model provider must be configured before Cetas can serve prompts. The interactive terminal is the easiest place to do it:
+
+```text
+/login
+/model
+```
+
+`/login` presents the authentication methods the chosen provider owns — API keys, or OAuth where the provider supports it. `/model` selects the active model and, where the model advertises them, a reasoning effort.
+
+Provider configuration is stored in `~/.cetas/settings.json`. Cetas passes provider-specific settings to the selected extension instead of imposing one endpoint or credential schema, which is why the `/login` and `/model` flows are preferable to hand-writing provider JSON. See [Providers](/configuration/providers/) and [Models](/configuration/models/).
+
+## 3. Give it a task
+
+```text
+Explain how authentication works in this repository.
+```
+
+Functions worth knowing straight away:
+
+- `@path` includes a file reference in your prompt.
+- `/help` lists commands and key bindings.
+- `/permission` sets the session's permission posture — see [CLI](/using-cetas/cli/) for the modes.
+
+## Working from a checkout
+
+If you would rather run the terminal host directly from source, resolve MoonBit (plus Bun for `cetas-js`) and start it:
+
+```bash
+cd cetas-js
+bun install
+bun run start
+```
+
+Next steps: [CLI](/using-cetas/cli/) for the terminal host, [ACP / Zed](/using-cetas/acp/) for an editor, or [Automation](/using-cetas/automation/) for one-shot scripted turns.

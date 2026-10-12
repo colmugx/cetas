@@ -1,0 +1,149 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Header from "../components/Header.astro";
+import { Code } from "@/components/ui/code";
+import { config } from "virtual:nimbus/config";
+import { getIndexedEntries, withBase } from "@cloudflare/nimbus-docs/runtime";
+
+// Link through each page's entry: its `url` follows the site's
+// `trailingSlash`, and a card whose page is gone drops out instead of 404ing.
+const cards = [
+  {
+    id: "introduction",
+    label: "Introduction",
+    blurb: "What Cetas is, and what every host shares.",
+  },
+  {
+    id: "getting-started/installation",
+    label: "Installation",
+    blurb: "Released builds, npm, MoonX, or source.",
+  },
+  {
+    id: "getting-started/quick-start",
+    label: "Quick Start",
+    blurb: "Configure a provider, then hand it a task.",
+  },
+  {
+    id: "using-cetas/cli",
+    label: "CLI",
+    blurb: "The interactive terminal host.",
+  },
+  {
+    id: "using-cetas/automation",
+    label: "Automation",
+    blurb: "One Cetas turn per process, for scripts.",
+  },
+  {
+    id: "configuration/overview",
+    label: "Configuration",
+    blurb: "Settings, providers, and shared state.",
+  },
+];
+const entries = await getIndexedEntries();
+const links = cards.flatMap((card) => {
+  const entry = entries.find((e) => e.collection === "docs" && e.entry.id === card.id);
+  return entry ? [{ ...card, href: withBase(entry.url, import.meta.env.BASE_URL) }] : [];
+});
+const hrefFor = (id: string) => links.find((link) => link.id === id)?.href;
+
+const install = "npm install -g @posoco/cetas";
+
+const reasons = [
+  {
+    lead: "Work with the repository.",
+    body: "Read, write, and edit files; search by path, text, or syntax; run Bash or PowerShell commands.",
+  },
+  {
+    lead: "Choose your model.",
+    body: "Provider extensions cover OpenAI and OpenAI-compatible endpoints, DeepSeek, Kimi, OpenRouter, Z.ai, and OpenCode Zen — driven by /login and /model.",
+  },
+  {
+    lead: "Extend the workflow.",
+    body: "Load skills and connect MCP tools. Capability composition is explicit and driven by the repository's recipe roster.",
+  },
+  {
+    lead: "One agent, every surface.",
+    body: "A terminal, an ACP host for editors, and a one-shot runner for scripts — all composing the same cetas-core over one shared ~/.cetas/ home.",
+  },
+];
+---
+
+<BaseLayout title={config.title} description={config.description}>
+  <div class="flex flex-col min-h-screen">
+    <Header />
+    <main id="main-content" tabindex="-1" class="flex-1 mx-auto max-w-4xl w-full px-6 py-20">
+      <section class="max-w-2xl">
+        <h1
+          class="text-foreground leading-tight"
+          style="font-size: var(--nb-h1-size); font-weight: var(--nb-h1-weight); letter-spacing: var(--nb-h1-tracking);"
+        >
+          {config.title}
+        </h1>
+        <p class="mt-2 text-[1.0625rem] text-muted-foreground leading-relaxed">
+          {config.description}
+        </p>
+        <p class="mt-4 text-[1.0625rem] text-muted-foreground leading-relaxed">
+          One agent, every surface. The terminal, your editor, and a scripted one-shot all compose the
+          same core and the same durable state — so configuration you set once is there wherever you
+          enter.
+        </p>
+      </section>
+
+      <section class="mt-8 max-w-2xl">
+        <Code code={install} lang="bash" />
+        <p class="mt-3 text-sm text-muted-foreground leading-relaxed">
+          Requires Node.js 24 or newer. Prefer a self-contained binary? Use a
+          {hrefFor("getting-started/installation") ? (
+            <a class="underline underline-offset-2 hover:text-foreground" href={hrefFor("getting-started/installation")}>
+              released build
+            </a>
+          ) : (
+            "released build"
+          )}. Agents can start from{" "}
+          <a class="underline underline-offset-2 hover:text-foreground" href={withBase("/llms.txt", import.meta.env.BASE_URL)}>
+            /llms.txt
+          </a>.
+        </p>
+      </section>
+
+      <section class="mt-16">
+        <h2
+          class="text-foreground leading-tight"
+          style="font-size: var(--nb-h2-size); font-weight: var(--nb-h2-weight); letter-spacing: var(--nb-h2-tracking);"
+        >
+          Why Cetas
+        </h2>
+        <ul class="mt-5 list-none space-y-4 p-0">
+          {reasons.map((reason) => (
+            <li class="text-muted-foreground leading-relaxed">
+              <strong class="font-medium text-foreground">{reason.lead}</strong>{" "}
+              {reason.body}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {links.length > 0 && (
+        <section class="mt-16">
+          <h2
+            class="text-foreground leading-tight"
+            style="font-size: var(--nb-h2-size); font-weight: var(--nb-h2-weight); letter-spacing: var(--nb-h2-tracking);"
+          >
+            Where to go next
+          </h2>
+          <div class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {links.map((link) => (
+              <a
+                href={link.href}
+                class="block rounded-lg border border-border p-4 transition-colors hover:border-border-strong no-underline"
+              >
+                <div class="font-medium text-foreground">{link.label}</div>
+                <div class="mt-0.5 text-sm text-muted-foreground">{link.blurb}</div>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
+    </main>
+  </div>
+</BaseLayout>
