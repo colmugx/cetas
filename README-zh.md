@@ -11,7 +11,7 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-256C63" alt="Apache 2.0"></a>
     <a href="https://www.moonbitlang.com"><img src="https://img.shields.io/badge/built%20with-MoonBit-256C63" alt="Built with MoonBit"></a>
   </p>
-  <p><a href="https://github.com/colmugx/cetas/releases/tag/cetas-v0.8.0">下载</a> · <a href="#快速开始">快速开始</a> · <a href="#文档">文档</a> · <a href="README.md">English</a></p>
+  <p><a href="https://github.com/colmugx/cetas/releases/tag/cetas-v0.8.0">下载</a> · <a href="https://www.colmugx.top/cetas/">文档站</a> · <a href="#快速开始">快速开始</a> · <a href="#文档">文档</a> · <a href="README.md">English</a></p>
 </div>
 
 ![Cetas 交互式终端开屏](docs/assets/cetas-terminal.png)
@@ -122,6 +122,8 @@ Cetas 的诞生，是为了让 [Posoco](https://github.com/colmugx/posoco) 走�
 Posoco 提供 Agent 基础和扩展端口，Cetas 定义产品行为，各入口负责界面和传输协议。这样的分工让产品可以扩展到不同场景，同时保持同一个核心身份。
 
 ## 文档
+
+文档站已发布：**[www.colmugx.top/cetas](https://www.colmugx.top/cetas/)** —— 按任务组织的指南，支持搜索，并提供面向 Agent 的 [`llms.txt`](https://www.colmugx.top/cetas/llms.txt) 索引。下方仓库内的指南仍是实现细节的来源。
 
 | 指南 | 内容 |
 | --- | --- |
