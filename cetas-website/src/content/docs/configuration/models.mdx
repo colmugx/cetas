@@ -1,0 +1,34 @@
+---
+title: Models
+description: Model slots and the shared active model selection.
+sidebar:
+  order: 90
+---
+
+Cetas identifies a model slot with a `provider/model` id.
+
+The shared active selection is persisted as top-level keys in `~/.cetas/settings.json`, alongside `providers`:
+
+```json
+{
+  "providers": {},
+  "model": "provider/model",
+  "reasoning_effort": "high"
+}
+```
+
+`reasoning_effort` is optional. When it is absent, the active model's advertised default applies.
+
+Cetas preserves unrelated settings keys when it updates the selection. If a previously selected model is no longer available because provider configuration changed, Cetas falls back to the router's available default instead of refusing to compose purely because the old selection drifted away.
+
+## Who persists what
+
+| Host | Behavior |
+| --- | --- |
+| Terminal (`cetas-js`) | Successful `/model` and `/effort` changes are persisted |
+| Editor (`cetas-acp`) | Successful `model` / `effort` config-option changes are persisted |
+| Automation (`cetas-run`) | `--model` and `--effort` are run-scoped overrides and are **not** persisted |
+
+## Model lists
+
+Discovered model catalogs are cached in `~/.cetas/model_lists.json`, one record array per provider. Model and effort pickers therefore keep working from a warm cache, and a provider's cached list is refreshed when it is re-discovered.

@@ -1,0 +1,21 @@
+---
+title: MCP
+description: Configure MCP servers for Cetas.
+sidebar:
+  order: 110
+---
+
+Cetas reads MCP server configuration from two locations:
+
+```text
+~/.cetas/mcp.json     # user level
+<cwd>/.mcp.json       # project level
+```
+
+Project entries take precedence for matching server names.
+
+The interactive terminal and the ACP host compose the MCP extension. In ACP, locally configured servers connect lazily on the first turn by default; set `CETAS_MCP_MODE=eager` to connect them at startup instead. An editor can additionally supply MCP server definitions over ACP, in which case the editor owns those servers.
+
+<Aside type="caution">
+This page intentionally does not define an MCP JSON schema. Server fields are interpreted by the MCP extension and, for editor-supplied servers, by your editor.
+</Aside>

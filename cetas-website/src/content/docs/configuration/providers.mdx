@@ -1,0 +1,32 @@
+---
+title: Providers
+description: How provider extensions participate in Cetas composition.
+sidebar:
+  order: 80
+---
+
+Provider configuration lives under `providers` in `~/.cetas/settings.json`. Cetas supplies the settings and credential sources; each provider extension owns its own defaults, endpoints, protocol details, model capabilities, and login behavior.
+
+## Registered providers
+
+The core registers provider factories for:
+
+- DeepSeek
+- Kimi
+- OpenAI
+- OpenCode Zen
+- Z.ai
+- Z.ai Coding Plan
+- OpenRouter
+
+Additional settings keys can participate through the OpenAI-compatible provider adapter, provided their provider ids are valid and do not collide with a statically registered provider. OpenCode Zen claims the `opencode` id, so a `providers.opencode` entry resolves to the Zen factory rather than falling through to the compatible adapter.
+
+Provider ids are restricted to letters, digits, `_`, and `-`, because they are also used in settings, credential filenames, and login targets.
+
+## Login
+
+`/login` in the terminal host presents the authentication methods the provider owns. DeepSeek, for example, exposes only API-key login, so the method selector is skipped for it; providers that support OAuth offer that too.
+
+## On schemas
+
+There is no single generic JSON schema covering every provider, and this page does not invent provider-specific keys. Prefer the `/login` and `/model` flows, and treat the settings file as the extension's business.

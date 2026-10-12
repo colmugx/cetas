@@ -1,0 +1,24 @@
+---
+title: Surfaces
+description: The ways to access the same Cetas agent, and what is shared between them.
+sidebar:
+  order: 130
+---
+
+| Host | Package | Interaction model | Status |
+| --- | --- | --- | --- |
+| Terminal | `cetas-js` | Interactive terminal UI, shipped as `cetas-bun` / `cetas` | Released |
+| Editor | `cetas-acp` | Agent Client Protocol host | Released |
+| Automation | `cetas-run` | One user turn per process over argv/stdin | Released |
+| Native terminal | `cetas-native` | MoonBit + Rust terminal | Under development |
+| Web | `cetas-web` | Browser host | Under development |
+
+Every released host composes the same `cetas-core` assembly and participates in the same Cetas identity and durable-state conventions.
+
+## What is shared today
+
+Provider configuration, credentials, MCP configuration, persisted model and effort selection, and session storage all live under the shared Cetas home — see [Cetas Home](/configuration/cetas-home/).
+
+## What is not claimed yet
+
+The repository explicitly distinguishes shared durable state from continuing one conversation seamlessly across different hosts. Cross-host session resume is the next piece of the product definition, not a capability to advertise today. [Sessions](/concepts/sessions/) states the current boundary.

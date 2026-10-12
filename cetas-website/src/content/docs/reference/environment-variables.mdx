@@ -1,0 +1,18 @@
+---
+title: Environment Variables
+description: The environment variables Cetas hosts read, and their scope.
+sidebar:
+  order: 170
+---
+
+| Variable | Scope | Behavior |
+| --- | --- | --- |
+| `CETAS_HOME` | Native, ACP, and runner hosts | Overrides the platform user home — the **parent** of `.cetas`, not the `.cetas` directory itself. The JS terminal host currently uses the platform home. |
+| `CETAS_PERMISSION_MODE` | ACP and native terminal | Startup posture: `readonly`, `workspace_write`, `interactive`, `auto`, or `yolo`. Unset means `yolo`. An unrecognized value warns once and falls back to `workspace_write`, so a typo never widens the posture. |
+| `CETAS_MCP_MODE` | ACP | `eager` connects configured MCP servers at startup instead of the default lazy first-turn connection. |
+| `CETAS_DELEGATE_FS` | ACP | `host` delegates the tool-facing filesystem to the editor instead of the local one. |
+| `CETAS_DEBUG_WIRE` | ACP | `1` writes a per-session `<session-id>-wire.jsonl` under `~/.cetas/debug/`. |
+| `CETAS_DEBUG_MCP_CATALOG` | ACP | `1` writes a per-session `<session-id>-catalog.json` under `~/.cetas/debug/`. |
+| `CETAS_MEMOH_HOME` | Memoh runtime | Relocates the separately versioned Memoh runtime's state directory. |
+
+The automation host expresses model, effort, permission, and unattended behavior through command-line flags rather than these environment variables — see [Automation](/using-cetas/automation/).

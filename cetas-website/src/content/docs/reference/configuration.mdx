@@ -1,0 +1,33 @@
+---
+title: Configuration Reference
+description: Shared configuration keys and durable paths used by Cetas.
+sidebar:
+  order: 160
+---
+
+## `settings.json`
+
+Path: `<home>/.cetas/settings.json`.
+
+Known top-level responsibilities in the current core:
+
+| Key | Purpose |
+| --- | --- |
+| `providers` | Provider-extension configuration. Provider-specific values are interpreted by the extension, not by core. |
+| `model` | Persisted active router slot id, in `provider/model` form. |
+| `reasoning_effort` | Optional persisted effort for the selected model. |
+
+Cetas preserves unrelated settings keys when it updates the active model selection.
+
+Normal startup creates a missing `.cetas/settings.json` with an empty `providers` object for the native and runner hosts; an existing file is never overwritten by that bootstrap.
+
+## Other durable paths
+
+| Path | Purpose |
+| --- | --- |
+| `<home>/.cetas/credentials/` | Provider credential storage |
+| `<home>/.cetas/model_lists.json` | Discovered model catalogs, one record array per provider |
+| `<home>/.cetas/mcp.json` | User-level MCP server configuration |
+| `<home>/.cetas/sessions/` | Session transcripts and companions |
+| `<home>/.cetas/debug/` | Debug taps — `<session-id>-wire.jsonl`, `<session-id>-catalog.json` |
+| `<cwd>/.mcp.json` | Project-local MCP configuration, overriding the user-level file for matching server names |

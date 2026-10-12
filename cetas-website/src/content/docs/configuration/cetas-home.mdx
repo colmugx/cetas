@@ -1,0 +1,28 @@
+---
+title: Cetas Home
+description: Durable state shared by the terminal, editor, and automation hosts.
+sidebar:
+  order: 100
+---
+
+Cetas resolves one home directory for durable state. A non-empty `CETAS_HOME` overrides the platform user home; otherwise Cetas uses the platform home (`USERPROFILE`, then `HOMEDRIVE`+`HOMEPATH` on Windows; `HOME` elsewhere) and falls back to the current directory only when no home can be resolved.
+
+The durable-state root is `<home>/.cetas`:
+
+```text
+~/.cetas/
+├── settings.json
+├── credentials/
+├── model_lists.json
+├── mcp.json
+├── sessions/
+└── debug/
+```
+
+<Aside type="note" title="Override granularity">
+`CETAS_HOME` replaces the **parent** home, not the `.cetas` directory. `CETAS_HOME=/tmp/cetas-user` puts state in `/tmp/cetas-user/.cetas/`.
+</Aside>
+
+The native, ACP, and runner hosts honor `CETAS_HOME`. The JS terminal host currently resolves the platform home through its host configuration.
+
+Because this directory is shared, model selection, credentials, MCP configuration, and stored sessions are part of the same Cetas identity across hosts. Individual hosts can also use project-local configuration where documented — for example `<cwd>/.mcp.json` overriding the user-level MCP file.
