@@ -73,7 +73,7 @@ The Nimbus config block drives everything URL-shaped:
 
 | Field | Current value | Drives |
 | --- | --- | --- |
-| `site` | `"https://colmugx.github.io"` — the Pages **origin** | canonical URLs, absolute OG URLs, `robots.txt`'s `Sitemap:` line, the sitemap, and every link in `llms.txt` / `llms-full.txt` |
+| `site` | `"https://www.colmugx.top"` — the **origin**, i.e. the Pages custom domain | canonical URLs, absolute OG URLs, `robots.txt`'s `Sitemap:` line, the sitemap, and every link in `llms.txt` / `llms-full.txt` |
 | `title` | `"Cetas"` | `<title>`, the home H1, OG cards, `llms.txt` heading |
 | `description` | `"A coding agent for your terminal, editor, and scripts."` | meta description, OG cards, `llms.txt` blurb |
 | `locale` | `"en"` | `<html lang>` |
@@ -112,11 +112,11 @@ The mark fill colour is hard-coded (`fill="#256C63"`, the Cetas brand green), so
 
 ### `site` is the origin; the path prefix comes from Astro's `base`
 
-The Nimbus config has **no `base` field** — its schema is strict. A GitHub Pages *project* page is served under `/<repo>/`, so the prefix has to come from Astro's top-level `base`, and the two must be set together:
+The Nimbus config has **no `base` field** — its schema is strict. The site keeps its `/cetas/` prefix on the custom domain too (a project page is still served under its repository path), so the prefix has to come from Astro's top-level `base`, and the two must be set together:
 
 ```ts
 const nimbusConfig = defineNimbusConfig({
-  site: "https://colmugx.github.io",   // origin only
+  site: "https://www.colmugx.top",   // origin only
   …
 });
 
@@ -126,23 +126,23 @@ export default defineConfig({
 });
 ```
 
-Do not put the path in `site`. `site` is resolved against absolute paths: `new URL("/sitemap-index.xml", "https://colmugx.github.io/cetas")` yields `https://colmugx.github.io/sitemap-index.xml` — the prefix silently disappears.
+Do not put the path in `site`. `site` is resolved against absolute paths: `new URL("/sitemap-index.xml", "https://www.colmugx.top/cetas")` yields `https://www.colmugx.top/sitemap-index.xml` — the prefix silently disappears.
 
 Verified on a build that Nimbus prefixes **everything**, including links authored in MDX:
 
 | Surface | Built value |
 | --- | --- |
-| canonical | `https://colmugx.github.io/cetas/using-cetas/cli/` |
-| `robots.txt` | `Sitemap: https://colmugx.github.io/cetas/sitemap-index.xml` |
-| sitemap | `https://colmugx.github.io/cetas/concepts/architecture/` |
-| `llms.txt` | `https://colmugx.github.io/cetas/llms-full.txt` |
-| `og:image` | `https://colmugx.github.io/cetas/og/using-cetas/cli.png` |
+| canonical | `https://www.colmugx.top/cetas/using-cetas/cli/` |
+| `robots.txt` | `Sitemap: https://www.colmugx.top/cetas/sitemap-index.xml` |
+| sitemap | `https://www.colmugx.top/cetas/concepts/architecture/` |
+| `llms.txt` | `https://www.colmugx.top/cetas/llms-full.txt` |
+| `og:image` | `https://www.colmugx.top/cetas/og/using-cetas/cli.png` |
 | authored MDX link | `/using-cetas/automation/` in source → `href="/cetas/using-cetas/automation/"` |
 | home cards | `/cetas/getting-started/installation/` |
 
 The starter's use of `withBase(entry.url, import.meta.env.BASE_URL)` is what makes this work; hardcoded `href`s in `.astro` files are the one thing Astro will *not* rewrite for you.
 
-`dist/` still contains no nested `cetas/` directory — `base` is a URL prefix, and GitHub Pages serves the artifact under the repository path. Renaming the repository, moving it to an organisation, or adding a custom domain means updating `site` and `base` together.
+`dist/` still contains no nested `cetas/` directory — `base` is a URL prefix, and Pages serves the artifact under that path. Adding a **custom domain** changes `site` only; renaming the repository or moving it to an organisation changes `base`.
 
 ### Deployment: GitHub Pages
 
@@ -156,7 +156,7 @@ The starter's use of `withBase(entry.url, import.meta.env.BASE_URL)` is what mak
 
 All steps run with `working-directory: cetas-website`, and the Pages artifact path is `cetas-website/dist`.
 
-**Required one-time setup**, which this repository does not do for you: *Settings → Pages → Build and deployment → Source: **GitHub Actions***. Without it the build job fails in `configure pages` with a "Get Pages site failed" error. GitHub Pages was **not enabled** at the time this was written, so the site is not live yet and the URL above does not resolve until it is enabled and the workflow has run once.
+**One-time setup** — *Settings → Pages → Build and deployment → Source: **GitHub Actions***. This is now done: the site is live and the workflow has run green (chapter 9). Without it the build job stops at `configure pages` with a "Get Pages site failed" error.
 
 `public/.nojekyll` is committed so the `_astro/` and `_nimbus/` directories survive. The artifact-based deploy does not run Jekyll, but the branch-based alternative does, and it would silently drop every asset directory with a leading underscore.
 
@@ -289,8 +289,8 @@ The non-types scopes are still useful. Post-build, `check` reports `readiness=bu
 
 ## 9. Open items
 
-1. **GitHub Pages is not enabled yet.** `site` and `base` are set (chapter 3), but the repository has `has_pages: false`, so `https://colmugx.github.io/cetas/` does not resolve. Enable *Settings → Pages → Source: GitHub Actions*, then let `site.yml` run once. The settings are not something the workflow can do for you without `enablement: true` on `configure-pages`.
-2. **The Pages workflow has never executed.** `site.yml` was rewritten from a dead stub that targeted a `site/` directory deleted in this migration; I could not dispatch it (no Pages access) or run it on GitHub. Each of its steps was run locally in the same order and passes, but the GitHub-side pieces — `pnpm/action-setup@v4` with `version: 12.6.0`, `actions/configure-pages@v5`, the `github-pages` environment — are unverified until the first real run.
+1. **Deployment is live.** The site is served at `https://www.colmugx.top/cetas/`, the Pages custom domain. `https://colmugx.github.io/cetas/` 301s to it — which is exactly why `site` must be the custom-domain origin rather than the `<owner>.github.io` one.
+2. **The Pages workflow is confirmed working.** `cetas website` has run green twice: on the pull request, and on the push to `main` three seconds after the merge — the run that published the live site. That covers what could not be verified locally: `pnpm/action-setup@v4`, `actions/configure-pages@v5`, and the `github-pages` environment.
 3. **Registry ledger is empty.** `nimbus.json` has `"components": []` even though `src/components/ui/` holds 21 components, so `nimbus-docs outdated` cannot report upstream changes for any of them. Note `AGENT.md`'s rule: add registry components with `nimbus-docs add <slug>`, don't hand-copy them.
 4. **One component is unreferenced**: `collapsible` has no reference outside its own directory (`code` is now used by the home page). Drop it or adopt it.
 5. **`src/content/partials/` is empty.** `partialsCollection()` is still registered, which is fine — the first `<Render file="…" />` will work — but nothing uses it yet.

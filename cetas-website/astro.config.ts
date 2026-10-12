@@ -9,11 +9,15 @@ const nimbusConfig = defineNimbusConfig({
   // Canonical origin, no trailing slash. Drives canonical URLs, absolute OG
   // image URLs, robots.txt, the sitemap, and the links in /llms.txt.
   //
-  // This is the GitHub Pages **origin**, not the full site URL: a project page
-  // is served under `/<repo>/`, and that path prefix comes from Astro's `base`
-  // below. Nimbus prefixes its own routes with BASE_URL, so the two together
-  // produce `https://colmugx.github.io/cetas/...`.
-  site: "https://colmugx.github.io",
+  // Origin only — not the full site URL. The path prefix comes from Astro's
+  // `base` below, and Nimbus prefixes its own routes with BASE_URL, so the two
+  // together produce `https://www.colmugx.top/cetas/...`.
+  //
+  // This is the custom domain configured on the Pages site. The
+  // `<owner>.github.io` URL 301s here, so it must not be used as the origin:
+  // pointed at it, every canonical, sitemap entry and llms.txt link would
+  // advertise a redirect.
+  site: "https://www.colmugx.top",
   // Used for <title>, the home H1, and OG.
   title: "Cetas",
   // Used for meta + OG.
@@ -24,8 +28,9 @@ const nimbusConfig = defineNimbusConfig({
 });
 
 export default defineConfig({
-  // GitHub Pages serves this repository's site as a project page under
-  // `/<repo>/`, so every generated and authored link needs that prefix.
+  // The site is served under `/cetas/` - the project page keeps its repository
+  // path even behind the custom domain - so every generated and authored link
+  // needs that prefix. Only `site` (the origin) changes if the domain does.
   base: "/cetas/",
   // nimbus:adapter
   output: "static",
