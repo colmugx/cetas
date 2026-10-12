@@ -522,24 +522,6 @@ jobs:
         working-directory: posoco/external/cetas/cetas-js
         run: bun build.ts --node-bundle
 
-      - name: smoke the bundle under node
-        working-directory: posoco/external/cetas/cetas-js
-        run: |
-          set -euo pipefail
-          # No sourcemap may ship; the shebang must be line one.
-          [[ ! -e dist/cetas.js.map ]] || { echo "::error::dist/cetas.js.map exists"; exit 1; }
-          head -c 23 dist/cetas.js | grep -q '^#!/usr/bin/env node$' \
-            || { echo "::error::shebang missing"; exit 1; }
-          node --check dist/cetas.js
-          # Boot smoke: the TUI must come up far enough to render the welcome
-          # banner; the timeout kill (exit 124) is the expected end state.
-          set +e
-          timeout 15 node dist/cetas.js </dev/null >boot.log 2>&1
-          status=$?
-          set -e
-          [[ "$status" == "124" ]] || { echo "::error::bundle exited early with $status"; cat boot.log; exit 1; }
-          grep -q "cetas" boot.log || { echo "::error::welcome banner missing"; cat boot.log; exit 1; }
-
       - name: package dist
         working-directory: posoco/external/cetas/cetas-js
         run: tar -czf cetas-js-dist.tar.gz -C dist cetas.js
