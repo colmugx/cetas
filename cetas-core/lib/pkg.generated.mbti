@@ -92,6 +92,8 @@ pub fn parse_model_list_cache(Json) -> Map[String, Json]
 
 pub fn parse_refresh_provider_ids(String) -> Array[String]? raise @error.CompositionError
 
+pub fn parse_settings_json(String, manifest_id~ : String) -> Json raise @error.CompositionError
+
 pub fn provider_factories(@devkit.ExtContext) -> Array[&@ext-llm.ProviderFactory]
 
 pub fn provider_setup_json(Array[@ext-llm.ProviderModelCatalog], settings? : Map[String, Json], issues? : Array[CatalogBuildIssue]) -> String

@@ -163,13 +163,7 @@ pub async fn read_active_model_selection(
         detail=".cetas/settings.json read failed: " + message,
       )
     Content(text) => {
-      let json = @json.parse(text) catch {
-        _ =>
-          raise @posoco.CompositionError::ManifestSchemaError(
-            manifest_id=active_model_manifest_id,
-            detail=".cetas/settings.json is not valid JSON",
-          )
-      }
+      let json = parse_settings_json(text, manifest_id=active_model_manifest_id)
       parse_active_model_selection(json)
     }
   }
@@ -192,13 +186,7 @@ pub async fn write_active_model_selection(
         detail=".cetas/settings.json read failed: " + message,
       )
     Content(text) =>
-      @json.parse(text) catch {
-        _ =>
-          raise @posoco.CompositionError::ManifestSchemaError(
-            manifest_id=active_model_manifest_id,
-            detail=".cetas/settings.json is not valid JSON",
-          )
-      }
+      parse_settings_json(text, manifest_id=active_model_manifest_id)
   }
   let merged = merge_active_model_selection(current, selection)
   fs.write_file_atomic(path, merged.stringify(indent=2) + "\n") catch {
