@@ -11,7 +11,7 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-256C63" alt="Apache 2.0"></a>
     <a href="https://www.moonbitlang.com"><img src="https://img.shields.io/badge/built%20with-MoonBit-B92482" alt="Built with MoonBit"></a>
   </p>
-  <p><a href="https://github.com/colmugx/cetas/releases/tag/cetas-v0.8.0">Download</a> · <a href="#quick-start">Quick start</a> · <a href="#documentation">Documentation</a> · <a href="README-zh.md">简体中文</a></p>
+  <p><a href="https://github.com/colmugx/cetas/releases/tag/cetas-v0.8.0">Download</a> · <a href="https://www.colmugx.top/cetas/">Docs</a> · <a href="#quick-start">Quick start</a> · <a href="#documentation">Documentation</a> · <a href="README-zh.md">简体中文</a></p>
 </div>
 
 ![Cetas interactive terminal welcome screen](docs/assets/cetas-terminal.png)
@@ -122,6 +122,8 @@ Cetas began as a way to put [Posoco](https://github.com/colmugx/posoco) into peo
 Posoco provides the agent foundation and extension ports. Cetas owns the product behavior. Each host supplies its transport and UI. That separation lets the product grow across surfaces while keeping one core identity.
 
 ## Documentation
+
+The documentation site is published at **[www.colmugx.top/cetas](https://www.colmugx.top/cetas/)** — task-oriented guides with search, plus an [`llms.txt`](https://www.colmugx.top/cetas/llms.txt) index for agents. The repository guides below remain the source for implementation detail.
 
 | Guide | What you will find |
 | --- | --- |
