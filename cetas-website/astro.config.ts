@@ -6,21 +6,8 @@ import nimbus, {
 import { tableScroll } from "@cloudflare/nimbus-docs/markdown";
 
 const nimbusConfig = defineNimbusConfig({
-  // Canonical origin, no trailing slash. Drives canonical URLs, absolute OG
-  // image URLs, robots.txt, the sitemap, and the links in /llms.txt.
-  //
-  // Origin only — not the full site URL. The path prefix comes from Astro's
-  // `base` below, and Nimbus prefixes its own routes with BASE_URL, so the two
-  // together produce `https://www.colmugx.top/cetas/...`.
-  //
-  // This is the custom domain configured on the Pages site. The
-  // `<owner>.github.io` URL 301s here, so it must not be used as the origin:
-  // pointed at it, every canonical, sitemap entry and llms.txt link would
-  // advertise a redirect.
-  site: "https://www.colmugx.top",
-  // Used for <title>, the home H1, and OG.
+  site: "https://colmugx.github.io",
   title: "Cetas",
-  // Used for meta + OG.
   description: "A coding agent for your terminal, editor, and scripts.",
   locale: "en",
   github: "https://github.com/colmugx/cetas",
