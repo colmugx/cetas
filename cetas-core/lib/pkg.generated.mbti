@@ -184,6 +184,7 @@ pub(all) struct CetasPlatform {
   cwd : String
   fs : &@posoco-ext-workspace.WorkspaceFs
   catalogs : Array[@ext-llm.ProviderModelCatalog]
+  model_metadata : @ext-llm.ModelMetadata
   default_slot_id : String
   default_slot_pending : Bool
   persisted_effort : String?
@@ -216,6 +217,14 @@ pub(all) struct CompactRunOutcome {
 } derive(Eq)
 pub fn CompactRunOutcome::equal(Self, Self) -> Bool
 pub fn CompactRunOutcome::not_equal(Self, Self) -> Bool
+
+pub struct FileModelMetadataStore {
+  // private fields
+}
+pub fn FileModelMetadataStore::FileModelMetadataStore(&@posoco-ext-workspace.WorkspaceFs, home~ : String) -> Self
+pub async fn FileModelMetadataStore::read(Self) -> Json?
+pub async fn FileModelMetadataStore::write(Self, Json) -> Unit
+pub impl @ext-llm.ModelMetadataStore for FileModelMetadataStore
 
 pub(all) struct HostContext {
   fs : &@posoco-ext-workspace.WorkspaceFs

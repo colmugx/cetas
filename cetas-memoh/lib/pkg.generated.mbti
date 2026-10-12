@@ -35,6 +35,7 @@ pub struct MemohHost {
   version : String
   cwd : String
   catalogs : Array[@ext-llm.ProviderModelCatalog]
+  model_metadata : @ext-llm.ModelMetadata
   credential_store : @posoco-ext-credentials.FileProviderCredentialStore
   mcp_group : @async.TaskGroup[Unit]
   // private fields

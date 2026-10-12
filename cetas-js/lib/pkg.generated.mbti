@@ -117,6 +117,7 @@ pub fn CetasJsConfig::CetasJsConfig(String, Int, String, String, String, String)
 pub(all) struct CetasJsRuntime {
   config : CetasJsConfig
   catalog_cache : Map[String, @ext-llm.ProviderModelCatalog]
+  mut model_metadata : @ext-llm.ModelMetadata?
   mut catalog_issues : Array[@colmugx/cetas-core/lib.CatalogBuildIssue]
   mut pi : @posoco-ext-pi-adaptor.PiAdaptor?
   mut live_router : @ext-llm.RouterModelPort?
