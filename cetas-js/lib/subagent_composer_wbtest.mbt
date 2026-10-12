@@ -216,6 +216,34 @@ test "resolve_child_mode applies the live parent posture" {
 }
 
 ///|
+test "subagent settings accepts UTF-8 BOM and CRLF" {
+  let (config, kinds) = subagent_settings_from_json(
+    "\uFEFF{\r\n\"subagent\": {\"default_model\": \"test/model\"}\r\n}",
+  )
+  assert_eq(config.default_model, Some("test/model"))
+  assert_eq(kinds.length(), 0)
+}
+
+///|
+test "subagent settings still rejects malformed BOM JSON and invalid schemas" {
+  for
+    (text, expected) in [
+      ("\uFEFF{broken", "is not valid JSON: "),
+      ("\uFEFF[]", "must be an object"),
+      ("\uFEFF{\"subagent\":42}", "settings.subagent:"),
+    ] {
+    try subagent_settings_from_json(text) catch {
+      error => {
+        assert_true(error.to_string().contains("cetas-js.subagent"))
+        assert_true(error.to_string().contains(expected))
+      }
+    } noraise {
+      _ => fail("expected invalid subagent settings to fail")
+    }
+  }
+}
+
+///|
 test "subagent_settings_from_json_defaults_without_section" {
   let (config, kinds) = subagent_settings_from_json(
     "{\"providers\": {}, \"model\": \"zai/glm\"}",

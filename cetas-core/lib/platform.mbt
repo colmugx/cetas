@@ -184,13 +184,7 @@ pub async fn load_provider_settings(
         detail=".cetas/settings.json read failed: " + message,
       )
     Content(text) => {
-      let json = @json.parse(text) catch {
-        _ =>
-          raise @posoco.CompositionError::ManifestSchemaError(
-            manifest_id~,
-            detail=".cetas/settings.json is not valid JSON",
-          )
-      }
+      let json = parse_settings_json(text, manifest_id~)
       match json {
         Json::Object(fields) =>
           match fields.get("providers") {

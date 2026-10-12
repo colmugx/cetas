@@ -277,13 +277,10 @@ async fn CetasChildComposer::skills_extension(
 fn subagent_settings_from_json(
   text : String,
 ) -> (@subagent_kit.SubagentConfig, Array[@kind.KindSpec]) raise @posoco.CompositionError {
-  let json = @json.parse(text) catch {
-    _ =>
-      raise @posoco.CompositionError::ManifestSchemaError(
-        manifest_id="cetas-native.subagent",
-        detail=".cetas/settings.json is not valid JSON",
-      )
-  }
+  let json = @cetas_core.parse_settings_json(
+    text,
+    manifest_id="cetas-native.subagent",
+  )
   let section : Json? = match json {
     Json::Object(fields) => fields.get("subagent")
     _ =>
@@ -352,7 +349,7 @@ async fn load_cetas_subagent_settings(
 ) -> (@subagent_kit.SubagentConfig, Array[@kind.KindSpec]) raise @posoco.CompositionError {
   let settings_path = home + "/.cetas/settings.json"
   let text = match @workspace.read_file_result(fs, settings_path) {
-    Missing => ""
+    Missing => return (@subagent_kit.SubagentConfig::defaults(), [])
     Failed(message) =>
       raise @posoco.CompositionError::ManifestSchemaError(
         manifest_id="cetas-native.subagent",
