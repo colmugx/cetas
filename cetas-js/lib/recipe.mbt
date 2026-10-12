@@ -146,7 +146,7 @@ fn cetas_skills_config() -> @skills.SkillsConfig {
 ///|
 async fn build_cetas_skills(
   ctx~ : @cetas_core.HostContext,
-  requested? : Array[String]? = None,
+  requested~ : Array[String]? = None,
 ) -> &@posoco.Extension? raise @posoco.CompositionError {
   let discovered : @skills.SkillCatalog = match
     @skills.Skills::discover(
@@ -198,24 +198,20 @@ async fn build_cetas_skills(
 ///|
 
 ///|
-fn build_compiled_zcode_ext(
+async fn build_compiled_zcode_ext(
   env~ : (String) -> String?,
   exists~ : async (String) -> Bool,
 ) -> &@posoco.Extension? {
-  let _ = env
-  let _ = exists
-  None
+  zcode_ext(env~, exists~)
 }
 
 ///|
 async fn build_compiled_recipe_features(
   ctx~ : @cetas_core.HostContext,
-  nmem_group? : @async.TaskGroup[Unit]? = None,
-  host_help_note? : String? = None,
-  obsidian_vault? : String? = None,
+  nmem_group~ : @async.TaskGroup[Unit]? = None,
+  host_help_note~ : String? = None,
+  obsidian_vault~ : String? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
-  let _ = nmem_group
-  let _ = obsidian_vault
   let exts : Array[&@posoco.Extension] = []
   let episodic : Array[&@posoco.Extension] = []
   let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
@@ -284,6 +280,7 @@ async fn build_compiled_recipe_features(
     }
   }
 
+  append_my_extensions(nmem_group, obsidian_vault, episodic)
   match compiled_recipe_packages.get("lazytools") {
     Some(_) =>
       match @lazytools.LazyTools::defer_extensions(exts=episodic) {
