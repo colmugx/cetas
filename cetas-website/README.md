@@ -95,6 +95,21 @@ Add the rest (heading hierarchy, code-fence language, style…) when you want th
 
 `markdown.hastPlugins: [tableScroll()]` wraps wide tables so they scroll; the wrapper is styled by `.nb-table-scroll` in `src/styles/prose.css`.
 
+### Logo and favicon
+
+Nimbus has **no `logo` config field**. Two separate mechanisms cover branding:
+
+- **Header logo** — `src/components/Header.astro` renders the default `brand` slot as `<img src={withBase("/cetas-logo.svg", …)}>` alongside the `config.title` wordmark. No page overrides that slot, so this is the only place to change it. It must go through `withBase`, or the `/cetas/` project-page prefix goes missing.
+- **Favicon** — resolved **at build time by filename**, not by config: Nimbus looks for `public/favicon.svg`, then `favicon.ico`, then `favicon.png`, and the first that exists wins. Exactly one `<link rel="icon">` is emitted for the winner, with its type derived from the name.
+
+The consequence worth remembering: an icon under any other filename is ignored. The artwork has to be named `favicon.svg`.
+
+So `public/cetas-logo.svg` and `public/favicon.svg` are the same artwork under two names — one addressing the header, one the auto-detected favicon. If the mark changes, update both. Collapsing them to one file would mean naming the header image `favicon.svg`; pointing the icon at `cetas-logo.svg` is not an option, because only one icon link is ever emitted and its filename is fixed.
+
+`favicon.ico` was removed for that reason: with `favicon.svg` present it can never be linked, so it was 4.3 KB of dead weight shipped on every deploy. It is recoverable from git, but restoring it would still not get it linked unless `favicon.svg` is deleted first, since SVG outranks ICO.
+
+The mark fill colour is hard-coded (`fill="#256C63"`, the Cetas brand green), so it does **not** adapt to dark mode. A theme-aware mark would need the SVG inlined with `fill="currentColor"` or a CSS `mask` — both trade away the single-file convenience.
+
 ### `site` is the origin; the path prefix comes from Astro's `base`
 
 The Nimbus config has **no `base` field** — its schema is strict. A GitHub Pages *project* page is served under `/<repo>/`, so the prefix has to come from Astro's top-level `base`, and the two must be set together:
