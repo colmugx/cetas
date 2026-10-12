@@ -457,6 +457,7 @@ impl @subagent.ChildComposer for CetasChildComposer with fn compose(
   // active slot/effort selection never is.
   let router = @llm.RouterModelPort(
     slots=self.parent_router.list_slots(),
+    model_metadata=self.parent_router.model_metadata,
     default_slot_id=spec.slot,
   ) catch {
     error =>

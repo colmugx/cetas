@@ -377,8 +377,24 @@ async fn build_provider_router(
       )
     _ => ()
   }
+  if runtime.model_metadata is None {
+    runtime.model_metadata = Some(
+      @llm.ModelMetadata(
+        store=Some(
+          @cetas_core.FileModelMetadataStore(
+            @workspace.JsWorkspaceFs(),
+            home=runtime.config.home,
+          ),
+        ),
+        warn=fn(message) {
+          active_model_warning(observer, "model_metadata_warning", message)
+        },
+      ),
+    )
+  }
   let router = @llm.RouterModelPort::from_catalogs(
     catalogs,
+    model_metadata=runtime.model_metadata,
     default_slot_id=match restore {
       @cetas_core.NoSelection => ""
       @cetas_core.Selected(slot~) => slot

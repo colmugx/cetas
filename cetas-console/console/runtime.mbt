@@ -576,7 +576,9 @@ pub async fn ConsoleRuntime::model_slots_json(
   }
   let active_id = handle.model
   let slots : Array[Json] = []
+  handle.router.refresh_model_metadata()
   for slot in handle.router.list_slots() {
+    let window = handle.router.context_window_reading(slot)
     let efforts : Array[Json] = []
     for effort in slot.thinking_efforts {
       efforts.push(Json::string(effort))
@@ -604,13 +606,9 @@ pub async fn ConsoleRuntime::model_slots_json(
               None => Json::null()
             },
           ),
-          (
-            "context_window",
-            match slot.context_window {
-              Some(window) => Json::number(window.to_double())
-              None => Json::null()
-            },
-          ),
+          ("context_window", Json::number(window.tokens.to_double())),
+          ("context_window_source", Json::string(window.source)),
+          ("context_window_stale", Json::boolean(window.stale)),
         ]),
       ),
     )
