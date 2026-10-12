@@ -1,7 +1,8 @@
 # Manual npm publishing for the cetas submodule (repo github.com/colmugx/cetas).
 #
-# Dispatch this workflow with the release tag selected as the ref ("Use
-# workflow from" dropdown) — no inputs. It downloads that tag's
+# Run this workflow from main and enter the release tag (e.g. cetas-v0.8.0).
+# The latest workflow publishes the immutable release asset and uses package
+# staging scripts checked out at that tag. It downloads the tag's
 # cetas-js-dist.tar.gz release asset, stages the single JS-only
 # @posoco/cetas package (Node.js >= 24, no platform payloads), verifies it
 # on ubuntu AND windows (npm install from the packed tarball + boot smoke),
@@ -10,9 +11,8 @@
 # Re-running a failed publish is safe: a version already on the registry is
 # skipped, so no code commit is needed to retry.
 #
-# Bootstrap caveat: workflow_dispatch only lists refs that contain this
-# workflow file, so it works for tags created after this file landed on the
-# default branch — not for older tags.
+# Selecting a tag as the workflow ref also selects its historical workflow
+# source. Select main when publishing or retrying an older release.
 #
 # Needs an NPM_TOKEN secret on the cetas repo: an automation or granular
 # token with publish rights for @posoco/cetas.
@@ -20,6 +20,14 @@ name: cetas npm publish
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag (e.g. cetas-v0.8.0)"
+        type: string
+        required: false
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 permissions:
   contents: read
@@ -30,15 +38,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: require a cetas-v tag ref
+      - name: require a cetas-v release tag
         run: |
-          if [[ "${GITHUB_REF}" != refs/tags/cetas-v* ]]; then
-            echo "::error::run this workflow from a cetas-v* tag ref (got: ${GITHUB_REF})"
+          if [[ ! "${RELEASE_TAG}" =~ ^cetas-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Provide a cetas-vX.Y.Z tag. For old releases, run this workflow from main and fill the tag input (got: ${RELEASE_TAG})."
             exit 1
           fi
 
       - name: checkout cetas (scripts at the tag)
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: release check (version sync gate)
         run: python3 scripts/release.py check
@@ -47,23 +57,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download "${GITHUB_REF_NAME}" \
+          gh release download "${RELEASE_TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
             --pattern 'cetas-js-dist.tar.gz' \
             --dir staging
 
       - name: stage npm package
-        run: python3 scripts/npm_stage.py --staging staging --out npm_out --version "${GITHUB_REF_NAME#cetas-v}"
+        run: python3 scripts/npm_stage.py --staging staging --out npm_out --version "${RELEASE_TAG#cetas-v}"
 
       # npm pack is the exact content gate: only dist/cetas.js plus manifests
       # may ship, and never a sourcemap.
       - name: pack + content checks
         working-directory: npm_out/cetas
         run: |
-          npm pack --pack-destination ../..
-          version="${GITHUB_REF_NAME#cetas-v}"
-          tarball="colmugx-cetas-${version}.tgz"
-          listing=$(tar -tzf "${tarball}" | sort)
+          version="${RELEASE_TAG#cetas-v}"
+          tarball="$(npm pack --pack-destination ../.. --silent)"
+          expected="posoco-cetas-${version}.tgz"
+          if [[ "${tarball}" != "${expected}" ]]; then
+            echo "::error::npm pack produced '${tarball}', expected '${expected}'"
+            exit 1
+          fi
+          listing=$(tar -tzf "../../${tarball}" | LC_ALL=C sort)
           echo "$listing"
           diff -u <(printf '%s\n' \
             "package/LICENSE" \
@@ -76,7 +90,8 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: npm-tarball
-          path: colmugx-cetas-*.tgz
+          path: posoco-cetas-*.tgz
+          if-no-files-found: error
 
   verify-windows:
     name: install + boot smoke (windows)
@@ -101,7 +116,7 @@ jobs:
       - name: npm install + boot smoke
         shell: pwsh
         run: |
-          $tarball = (Get-ChildItem -Filter "colmugx-cetas-*.tgz").FullName
+          $tarball = (Get-ChildItem -Filter "posoco-cetas-*.tgz").FullName
           npm install -g "$tarball"
           if ($LASTEXITCODE -ne 0) { Write-Host "::error::npm install failed"; exit 1 }
           $log = Join-Path $env:RUNNER_TEMP "boot.log"
@@ -114,8 +129,11 @@ jobs:
             exit 1
           }
           Stop-Process -Id $proc.Id -Force
-          Select-String -Path "$log" -Pattern "cetas" -Quiet | Out-Null
-          if (-not $?) { Write-Host "::error::welcome banner missing"; Get-Content "$log"; exit 1 }
+          if (-not (Select-String -Path "$log" -Pattern "cetas" -Quiet)) {
+            Write-Host "::error::welcome banner missing"
+            Get-Content "$log"
+            exit 1
+          }
 
   publish:
     name: publish @posoco/cetas
@@ -125,6 +143,8 @@ jobs:
     steps:
       - name: checkout cetas (scripts at the tag)
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: release check (version sync gate)
         run: python3 scripts/release.py check
@@ -133,7 +153,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download "${GITHUB_REF_NAME}" \
+          gh release download "${RELEASE_TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
             --pattern 'cetas-js-dist.tar.gz' \
             --dir staging
@@ -145,13 +165,13 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: stage npm packages
-        run: python3 scripts/npm_stage.py --staging staging --out npm_out --version "${GITHUB_REF_NAME#cetas-v}"
+        run: python3 scripts/npm_stage.py --staging staging --out npm_out --version "${RELEASE_TAG#cetas-v}"
 
       - name: publish (skip already-published)
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          version="${GITHUB_REF_NAME#cetas-v}"
+          version="${RELEASE_TAG#cetas-v}"
           if npm view "@posoco/cetas@${version}" version >/dev/null 2>&1; then
             echo "skip @posoco/cetas@${version} (already published)"
           else
