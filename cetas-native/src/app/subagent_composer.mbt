@@ -349,7 +349,7 @@ async fn load_cetas_subagent_settings(
 ) -> (@subagent_kit.SubagentConfig, Array[@kind.KindSpec]) raise @posoco.CompositionError {
   let settings_path = home + "/.cetas/settings.json"
   let text = match @workspace.read_file_result(fs, settings_path) {
-    Missing => ""
+    Missing => return (@subagent_kit.SubagentConfig::defaults(), [])
     Failed(message) =>
       raise @posoco.CompositionError::ManifestSchemaError(
         manifest_id="cetas-native.subagent",

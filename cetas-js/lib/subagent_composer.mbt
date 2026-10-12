@@ -330,7 +330,7 @@ async fn load_cetas_subagent_settings(
   let settings_path = home + "/.cetas/settings.json"
   let text = match
     @workspace.read_file_result(@workspace.JsWorkspaceFs(), settings_path) {
-    Missing => ""
+    Missing => return (@subagent_kit.SubagentConfig::defaults(), [])
     Failed(message) =>
       raise @posoco.CompositionError::ManifestSchemaError(
         manifest_id="cetas-js.subagent",
