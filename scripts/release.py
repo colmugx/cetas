@@ -250,7 +250,7 @@ def ai_prompt(commits, ext_lines):
         "所以需要分析 extension 在这段提交历史中为 cetas 供应的功能，并作为功能点列出。禁止为 extension 单独设节。"
         "要求：1. 只输出 markdown 正文，不要代码围栏和任何解释。 2. 确认功能真实落实到某个端，才可列出。 3. 必须读提交，至少读个大概。禁止只看标题就总结。 4. 以“帮用户实现了什么功能/解决了什么问题”为导向",
         "固定四个小节，标题原样：## General、## Bun Ver.（cetas-bun）、## ACP Ver.（cetas-acp）、## Run Ver.（cetas-run）；"
-        "无内容的小节保留空标题。",
+        "无内容的小节保留空标题。只整理跟这三个端侧相关的更新信息：",
         "小节内按需使用 ### Feats / ### Fixes 子节，条目为 \"- \" 列表，"
         "请使用 English、面向用户、不含 hash；chore/internal/refactor/文档等非用户可见变更省略。",
         "归入规则：主仓库提交按改动路径对应的小节归入；extension 提交按它影响的端侧应用"

@@ -13,7 +13,7 @@ fn append_my_extensions(
 
 ///|
 // Called from the existing build_compiled_zcode_ext() in recipe.mbt.
-async fn zcode_ext(
+fn zcode_ext(
   env~ : (String) -> String?,
   exists~ : async (String) -> Bool,
 ) -> &@posoco.Extension? {
