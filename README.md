@@ -11,7 +11,7 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-256C63" alt="Apache 2.0"></a>
     <a href="https://www.moonbitlang.com"><img src="https://img.shields.io/badge/built%20with-MoonBit-B92482" alt="Built with MoonBit"></a>
   </p>
-  <p><a href="https://github.com/colmugx/cetas/releases/tag/cetas-v0.7.0">Download</a> · <a href="#quick-start">Quick start</a> · <a href="#documentation">Documentation</a> · <a href="README-zh.md">简体中文</a></p>
+  <p><a href="https://github.com/colmugx/cetas/releases/tag/cetas-v0.8.0">Download</a> · <a href="#quick-start">Quick start</a> · <a href="#documentation">Documentation</a> · <a href="README-zh.md">简体中文</a></p>
 </div>
 
 ![Cetas interactive terminal welcome screen](docs/assets/cetas-terminal.png)
@@ -34,13 +34,13 @@ The product lives in **`cetas-core`**. Its hosts compose the same agent identity
 
 ### 1. Download the interactive terminal
 
-The published **Cetas v0.7.0** terminal executable is named `cetas-bun`. It includes the Bun runtime; you do not need to install Bun or MoonBit to use the binary.
+The published **Cetas v0.8.0** terminal executable is named `cetas-bun`. It includes the Bun runtime; you do not need to install Bun or MoonBit to use the binary.
 
 | Platform | Download |
 | --- | --- |
-| macOS · Apple Silicon | [cetas-bun-darwin-arm64.tar.gz](https://github.com/colmugx/cetas/releases/download/cetas-v0.7.0/cetas-bun-darwin-arm64.tar.gz) |
-| Linux · x64 | [cetas-bun-linux-x64.tar.gz](https://github.com/colmugx/cetas/releases/download/cetas-v0.7.0/cetas-bun-linux-x64.tar.gz) |
-| Windows · x64 | [cetas-bun-windows-x64.zip](https://github.com/colmugx/cetas/releases/download/cetas-v0.7.0/cetas-bun-windows-x64.zip) |
+| macOS · Apple Silicon | [cetas-bun-darwin-arm64.tar.gz](https://github.com/colmugx/cetas/releases/download/cetas-v0.8.0/cetas-bun-darwin-arm64.tar.gz) |
+| Linux · x64 | [cetas-bun-linux-x64.tar.gz](https://github.com/colmugx/cetas/releases/download/cetas-v0.8.0/cetas-bun-linux-x64.tar.gz) |
+| Windows · x64 | [cetas-bun-windows-x64.zip](https://github.com/colmugx/cetas/releases/download/cetas-v0.8.0/cetas-bun-windows-x64.zip) |
 
 Extract the archive, then launch the executable **from the project you want to work on**. For example:
 
@@ -49,7 +49,15 @@ cd /path/to/your/project
 /path/to/extracted/cetas-bun
 ```
 
-On Windows, use the extracted `cetas-bun.exe`. The [release page](https://github.com/colmugx/cetas/releases/tag/cetas-v0.7.0) also includes ACP and runner binaries, plus checksums. Memoh has its own release series; use the Cetas-tagged release for these hosts.
+On Windows, use the extracted `cetas-bun.exe`. The [release page](https://github.com/colmugx/cetas/releases/tag/cetas-v0.8.0) also includes ACP and runner binaries, plus checksums. Memoh has its own release series; use the Cetas-tagged release for these hosts.
+
+If you already have Node.js 24 or newer, you can install the interactive terminal from npm instead:
+
+```bash
+npm install -g @posoco/cetas
+```
+
+This provides a `cetas` command that runs the same interactive terminal. The `cetas-bun` binary above bundles Bun, so it needs no Node.js install.
 
 ### 2. Connect a model
 

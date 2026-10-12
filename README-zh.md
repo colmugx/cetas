@@ -11,7 +11,7 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-256C63" alt="Apache 2.0"></a>
     <a href="https://www.moonbitlang.com"><img src="https://img.shields.io/badge/built%20with-MoonBit-256C63" alt="Built with MoonBit"></a>
   </p>
-  <p><a href="https://github.com/colmugx/cetas/releases/tag/cetas-v0.7.0">下载</a> · <a href="#快速开始">快速开始</a> · <a href="#文档">文档</a> · <a href="README.md">English</a></p>
+  <p><a href="https://github.com/colmugx/cetas/releases/tag/cetas-v0.8.0">下载</a> · <a href="#快速开始">快速开始</a> · <a href="#文档">文档</a> · <a href="README.md">English</a></p>
 </div>
 
 ![Cetas 交互式终端开屏](docs/assets/cetas-terminal.png)
@@ -34,13 +34,13 @@ Cetas 能阅读代码、修改文件、执行命令，并实时展示工作过�
 
 ### 1. 下载交互式终端
 
-已发布的 **Cetas v0.7.0** 终端程序名为 `cetas-bun`，内置 Bun 运行时。使用二进制程序不需要安装 Bun 或 MoonBit。
+已发布的 **Cetas v0.8.0** 终端程序名为 `cetas-bun`，内置 Bun 运行时。使用二进制程序不需要安装 Bun 或 MoonBit。
 
 | 平台 | 下载 |
 | --- | --- |
-| macOS · Apple Silicon | [cetas-bun-darwin-arm64.tar.gz](https://github.com/colmugx/cetas/releases/download/cetas-v0.7.0/cetas-bun-darwin-arm64.tar.gz) |
-| Linux · x64 | [cetas-bun-linux-x64.tar.gz](https://github.com/colmugx/cetas/releases/download/cetas-v0.7.0/cetas-bun-linux-x64.tar.gz) |
-| Windows · x64 | [cetas-bun-windows-x64.zip](https://github.com/colmugx/cetas/releases/download/cetas-v0.7.0/cetas-bun-windows-x64.zip) |
+| macOS · Apple Silicon | [cetas-bun-darwin-arm64.tar.gz](https://github.com/colmugx/cetas/releases/download/cetas-v0.8.0/cetas-bun-darwin-arm64.tar.gz) |
+| Linux · x64 | [cetas-bun-linux-x64.tar.gz](https://github.com/colmugx/cetas/releases/download/cetas-v0.8.0/cetas-bun-linux-x64.tar.gz) |
+| Windows · x64 | [cetas-bun-windows-x64.zip](https://github.com/colmugx/cetas/releases/download/cetas-v0.8.0/cetas-bun-windows-x64.zip) |
 
 解压后，**从需要处理的项目目录**启动程序。例如：
 
@@ -49,7 +49,15 @@ cd /path/to/your/project
 /path/to/extracted/cetas-bun
 ```
 
-Windows 使用解压后的 `cetas-bun.exe`。[发布页](https://github.com/colmugx/cetas/releases/tag/cetas-v0.7.0)还提供 ACP、runner 程序和校验文件。Memoh 使用独立的版本系列；这些入口请下载带 Cetas 标签的版本。
+Windows 使用解压后的 `cetas-bun.exe`。[发布页](https://github.com/colmugx/cetas/releases/tag/cetas-v0.8.0)还提供 ACP、runner 程序和校验文件。Memoh 使用独立的版本系列；这些入口请下载带 Cetas 标签的版本。
+
+如果已安装 Node.js 24 或更高版本，也可以通过 npm 安装交互式终端：
+
+```bash
+npm install -g @posoco/cetas
+```
+
+安装后会提供 `cetas` 命令，运行相同的交互式终端。上面的 `cetas-bun` 二进制内置 Bun，无需安装 Node.js。
 
 ### 2. 连接模型
 
