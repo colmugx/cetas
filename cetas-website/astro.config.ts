@@ -6,20 +6,27 @@ import nimbus, {
 import { tableScroll } from "@cloudflare/nimbus-docs/markdown";
 
 const nimbusConfig = defineNimbusConfig({
-  // CHANGE_ME: your site's canonical origin (no trailing slash). Drives
-  // canonical URLs, absolute OG image URLs, robots.txt, sitemap, and the
-  // links in /llms.txt — leaving the placeholder breaks all of them.
-  site: "https://example.com",
-  // CHANGE_ME: your project's name — used for <title>, the home H1, and OG.
-  title: "Nimbus",
-  // CHANGE_ME: a one-line description of your docs — used for meta + OG.
-  description: "Minimal starter consuming nimbus-docs.",
+  // Canonical origin, no trailing slash. Drives canonical URLs, absolute OG
+  // image URLs, robots.txt, the sitemap, and the links in /llms.txt.
+  //
+  // This is the GitHub Pages **origin**, not the full site URL: a project page
+  // is served under `/<repo>/`, and that path prefix comes from Astro's `base`
+  // below. Nimbus prefixes its own routes with BASE_URL, so the two together
+  // produce `https://colmugx.github.io/cetas/...`.
+  site: "https://colmugx.github.io",
+  // Used for <title>, the home H1, and OG.
+  title: "Cetas",
+  // Used for meta + OG.
+  description: "A coding agent for your terminal, editor, and scripts.",
   locale: "en",
-  github: null,
-  socialImageAlt: "Nimbus documentation preview",
+  github: "https://github.com/colmugx/cetas",
+  socialImageAlt: "Cetas documentation preview",
 });
 
 export default defineConfig({
+  // GitHub Pages serves this repository's site as a project page under
+  // `/<repo>/`, so every generated and authored link needs that prefix.
+  base: "/cetas/",
   // nimbus:adapter
   output: "static",
   // Tailwind v4 via its Vite plugin (the integration Astro recommends for

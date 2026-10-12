@@ -1,0 +1,82 @@
+---
+title: Installation
+description: Install a released Cetas build, or build a host from a source checkout.
+sidebar:
+  order: 20
+---
+
+## Released builds
+
+Tagged releases publish prebuilt archives for three hosts, each on `darwin-arm64`, `linux-x64`, and `windows-x64`:
+
+| Host | Archives |
+| --- | --- |
+| Interactive terminal (`cetas-js`) | `cetas-bun-<target>.tar.gz` · `cetas-bun-windows-x64.zip` |
+| Editor (`cetas-acp`) | `cetas-acp-<target>.tar.gz` · `cetas-acp-windows-x64.zip` |
+| Automation (`cetas-run`) | `cetas-run-<target>.tar.gz` · `cetas-run-windows-x64.zip` |
+
+Releases also publish `SHA256SUMS` covering those archives, so you can verify what you downloaded. Use the [latest GitHub Release](https://github.com/colmugx/cetas/releases/latest) to pick the artifact for your platform.
+
+The terminal archive bundles the Bun runtime and pi-tui's native prebuilds, so `cetas-bun` needs no Bun or MoonBit installation. Extract it and launch the executable **from the project you want to work on**:
+
+```bash
+cd /path/to/your/project
+/path/to/extracted/cetas-bun
+```
+
+On Windows, use the extracted `cetas-bun.exe`.
+
+## npm
+
+The terminal host is also published to npm as a platform-independent Node.js bundle:
+
+```bash
+npm install -g @posoco/cetas
+```
+
+This installs a `cetas` command and requires Node.js 24 or newer.
+
+<Aside type="note">
+The Bun-compiled `cetas-bun` archive and the npm bundle are two packagings of the same terminal host. Neither needs MoonBit.
+</Aside>
+
+## MoonX
+
+`cetas-run` is published to Mooncakes, so the automation host needs no download:
+
+```bash
+moonx colmugx/cetas-run -- -- "explain this repository"
+```
+
+## Build from source
+
+The repository expects the [MoonBit toolchain](https://docs.moonbitlang.com), and `cetas-js` additionally requires [Bun](https://bun.sh).
+
+### Interactive terminal (`cetas-js`)
+
+```bash
+cd cetas-js
+bun install
+bun run start     # run from source
+bun run build     # produce a cetas-bun binary
+```
+
+### Editor (`cetas-acp`)
+
+```bash
+cd cetas-acp
+moon build --target native --release
+```
+
+### Automation (`cetas-run`)
+
+```bash
+cd cetas-run
+moon build --target native --release
+```
+
+<Aside type="caution" title="cetas-headless is not released">
+The repository also contains `cetas-headless`, a one-shot stdio host with the same one-turn shape. No release archive packages it and no composition recipe registers it, so `cetas-run` is the supported automation entrance. Build `cetas-headless` from source only if you specifically need it.
+</Aside>
+
+Continue with the [Quick Start](/getting-started/quick-start/) to configure a provider before your first prompt.

@@ -1,0 +1,32 @@
+---
+title: Cetas
+description: One Cetas, many surfaces — the same agent in your terminal, your editor, and your scripts.
+sidebar:
+  order: 10
+  label: Introduction
+---
+
+Cetas is a coding agent built on [Posoco](https://github.com/colmugx/posoco), a protocol-first agent framework for MoonBit.
+
+> Wherever you access Cetas, Cetas is there.
+> However you access Cetas, it is the same Cetas.
+
+## One Cetas, many surfaces
+
+The repository exposes several entrances to the same Cetas assembly. The released ones are:
+
+- **Interactive terminal** through `cetas-js`, the Bun-hosted terminal UI published as `cetas-bun`.
+- **Editor** through `cetas-acp`, an Agent Client Protocol host, for editors such as Zed.
+- **Automation** through `cetas-run`, one user turn per invocation for scripts, CI, and MoonX.
+
+Two further hosts live in the repository while they are under development: `cetas-native` (MoonBit + Rust terminal) and `cetas-web` (browser).
+
+These are not separate agents. Every host composes the same `cetas-core` assembly and Posoco agent; a host owns interaction and transport, not a separate agent loop or identity. See [Surfaces](/concepts/surfaces/) and [Architecture](/concepts/architecture/).
+
+## Shared state today
+
+All hosts resolve the same Cetas home, normally `~/.cetas/`. That durable state holds provider settings, credentials, MCP configuration, model selection, and session data.
+
+Cross-host conversation resume is **not** a supported contract today. The repository distinguishes shared durable state from continuing one conversation across different hosts — see [Sessions](/concepts/sessions/).
+
+Start with [Installation](/getting-started/installation/) or go straight to the [Quick Start](/getting-started/quick-start/).

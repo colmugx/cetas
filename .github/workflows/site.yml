@@ -1,37 +1,96 @@
-name: site
+# Builds the Cetas documentation site (cetas-website/) and deploys it to
+# GitHub Pages.
+#
+# One-time setup on the GitHub repository: Settings -> Pages -> Build and
+# deployment -> Source: "GitHub Actions". Until that is set, the build job
+# fails early in `configure pages` with a "Get Pages site failed" error.
+#
+# The site is served as a *project page* under /cetas/, so astro.config.ts sets
+# `base: "/cetas/"` alongside the Nimbus `site` origin. Renaming the repository,
+# moving to an organisation, or adding a custom domain all require updating
+# those two values together — the built links derive from them.
+#
+# Typecheck and build are separate steps so a type error and a build failure are
+# distinguishable in the UI. The doc lint runs *after* the build, because its
+# internal-link rule resolves against the route map the build writes.
+name: cetas website
 
 on:
-  pull_request:
-    paths:
-      - 'site/**'
-      - '.github/workflows/site.yml'
   push:
     branches: [main]
     paths:
-      - 'site/**'
-      - '.github/workflows/site.yml'
+      - "cetas-website/**"
+      - ".github/workflows/site.yml"
+  pull_request:
+    paths:
+      - "cetas-website/**"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   build:
+    name: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
-        working-directory: site
+        working-directory: cetas-website
     steps:
-      - name: Checkout
+      - name: checkout
         uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - name: setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.6.0
 
-      - name: Install dependencies
-        run: bun install
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: cetas-website/pnpm-lock.yaml
 
-      - name: Check Astro and content
-        run: bun run check
+      - name: install
+        run: pnpm install --frozen-lockfile
 
-      - name: Build static site
-        run: bun run build
+      - name: typecheck
+        run: pnpm run typecheck
+
+      - name: build
+        run: pnpm run build
+
+      - name: lint docs
+        run: pnpm run lint:docs
+
+      - name: configure pages
+        uses: actions/configure-pages@v5
+
+      - name: upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: cetas-website/dist
+
+  deploy:
+    name: deploy
+    needs: build
+    # PRs build to prove the site compiles; only main publishes.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: deploy to github pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,34 @@
+---
+title: Architecture
+description: How Cetas hosts compose one shared core and Posoco agent.
+sidebar:
+  order: 120
+---
+
+The defining architectural rule is simple: a new Cetas host is a new way into the same agent, not a separate product identity.
+
+```text
+                 Cetas
+                   │
+       ┌───────────┼───────────┐
+       │           │           │
+    Terminal     Editor     Automation
+       │           │           │
+       └───────────┼───────────┘
+                   │
+              cetas-core
+                   │
+                Posoco
+                   │
+            model provider
+```
+
+`cetas-core` owns the shared composition concerns: provider assembly, active model selection, Cetas home paths, session assembly, and prompt/agent wiring. Each host adapts that assembly to its own environment:
+
+- `cetas-js` provides the Bun process host and the terminal UI.
+- `cetas-acp` exposes the agent over ACP for editors such as Zed.
+- `cetas-run` exposes one-turn stdio execution for scripts and CI.
+
+The hosts do not each implement an independent agent loop. Capability composition is explicit and recipe-driven; the `composition` roster in the repository is the source of truth for which extensions a given host composes.
+
+Two further hosts sit alongside these while under development: `cetas-native` (MoonBit + Rust terminal) and `cetas-web` (browser). A separate, independently versioned runtime lives in `cetas-memoh`, with its own state directory.
