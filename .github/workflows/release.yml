@@ -79,7 +79,7 @@ jobs:
         working-directory: posoco/external/cetas
         run: python3 -m unittest scripts/test_npm_stage.py
 
-      # moon.work checks all native-capable modules in one invocation.
+      # The workspace check covers ACP, Run, and all native-capable modules.
       - name: moon check (workspace native)
         working-directory: posoco/external/cetas
         run: |
@@ -219,22 +219,15 @@ jobs:
           name: bun-cache
           path: ${{ matrix.os == 'windows-latest' && 'C:\Users\runneradmin\.bun\install\cache' || '~/.bun/install/cache' }}
 
-      # Build the TUI static library first, then compile every native-capable
-      # moon.work member in one Moon invocation. This produces ACP, Run and
-      # Cetas Native binaries under the same workspace _build/ directory.
+      # One workspace build produces the ACP and Run native executables.
+      # Native TUI is still experimental: it may be built by Moon as a
+      # workspace member, but it is NOT packaged as a stable release asset.
       - name: moon update (native workspace)
         working-directory: posoco/external/cetas
         run: moon update
 
-      - name: package cetas-tui static library
-        working-directory: posoco/external/cetas
-        run: node cetas-native/scripts/package_staticlib.js --out "stage/cetas-tui-prebuilt-${{ matrix.target }}" --target "${{ matrix.target }}"
-
       - name: moon build (native workspace release)
         working-directory: posoco/external/cetas
-        env:
-          CETAS_TUI_PREBUILT_DIR: ${{ github.workspace }}/posoco/external/cetas/stage/cetas-tui-prebuilt-${{ matrix.target }}
-          CETAS_TUI_FORCE_PREBUILT: "1"
         run: moon build --target native --release
 
       # moon names the native binary main.exe on every platform; stage/ holds
@@ -321,43 +314,6 @@ jobs:
             }
           }
 
-      - name: collect native Cetas (unix)
-        if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas
-        run: cp "_build/native/release/build/colmugx/cetas-native/src/cetas/cetas.exe" "stage/cetas"
-
-      - name: collect native Cetas (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas
-        shell: pwsh
-        run: Copy-Item "_build\native\release\build\colmugx\cetas-native\src\cetas\cetas.exe" -Destination "stage\cetas.exe"
-
-      - name: version smoke native Cetas (unix)
-        if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas/stage
-        run: |
-          out="$(./cetas --version)"
-          echo "$out"
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            expected="cetas ${GITHUB_REF_NAME#cetas-v}"
-            [[ "$out" == "$expected" ]] || { echo "::error::--version mismatch: got '$out', want '$expected'"; exit 1; }
-          fi
-
-      - name: version smoke native Cetas (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas/stage
-        shell: pwsh
-        run: |
-          $out = (& ".\cetas.exe" --version) -join ' '
-          $out
-          if ($env:GITHUB_EVENT_NAME -eq 'push') {
-            $expected = "cetas " + ($env:GITHUB_REF_NAME -replace '^cetas-v', '')
-            if ($out.Trim() -ne $expected) {
-              Write-Host "::error::--version mismatch: got '$out', want '$expected'"
-              exit 1
-            }
-          }
-
       # cetas-js (bun-compiled single-file) — the GitHub-Release channel of
       # the JS host, alongside cetas-acp/cetas-run. The npm channel ships the
       # platform-independent node bundle instead (cetas-js-dist job below).
@@ -409,8 +365,6 @@ jobs:
         if: matrix.os != 'windows-latest'
         working-directory: posoco/external/cetas/stage
         run: |
-          tar -czf "cetas-${{ matrix.target }}.tar.gz" cetas
-          tar -czf "cetas-tui-staticlib-${{ matrix.target }}.tar.gz" -C "cetas-tui-prebuilt-${{ matrix.target }}" .
           tar -czf "cetas-acp-${{ matrix.target }}.tar.gz" cetas-acp
           tar -czf "cetas-run-${{ matrix.target }}.tar.gz" cetas-run
           tar -czf "cetas-bun-${{ matrix.target }}.tar.gz" cetas-bun native
@@ -420,8 +374,6 @@ jobs:
         working-directory: posoco/external/cetas/stage
         shell: pwsh
         run: |
-          Compress-Archive -Path "cetas.exe" -DestinationPath "cetas-windows-x64.zip" -Force
-          Compress-Archive -Path "cetas-tui-prebuilt-windows-x64\*" -DestinationPath "cetas-tui-staticlib-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-acp.exe" -DestinationPath "cetas-acp-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-run.exe" -DestinationPath "cetas-run-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-bun.exe", "native" -DestinationPath "cetas-bun-windows-x64.zip" -Force
