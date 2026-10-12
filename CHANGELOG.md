@@ -2,6 +2,16 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.8.0 (2026-10-12)
+
+### Added
+- [cetas-js] feat: add unit and e2e test scripts to package.json (d8da924)
+- [cetas-js] feat: add test channel runner for unit and e2e tests (19e69b6)
+- [cetas-js] feat: refresh Cetas identity, README, and terminal welcome (3eac969)
+- [cetas-js] feat: remove unused (7e0ea99)
+- [cetas-js] feat: remove unused imports from moon.pkg and update subproject commit reference (8dbeb26)
+- [cetas-js] feat: update wakeup header terminology to reflect pending delivery status (a77d306)
+
 ## 0.7.0 (2026-09-30)
 
 ## General

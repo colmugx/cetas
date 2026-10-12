@@ -8,7 +8,7 @@
 
 name = "colmugx/cetas-js"
 
-version = "0.7.0"
+version = "0.8.0"
 
 readme = "README.mbt.md"
 
@@ -38,7 +38,6 @@ import {
   "colmugx/posoco-ext-ratelimit@0.4.0",
   "colmugx/posoco-ext-workspace@0.1.0",
   "moonbitlang/async@0.22.4",
-  // recipe-deps:begin
   "colmugx/cetas-ext-forme@0.1.0",
   "colmugx/posoco-ext-read@0.2.0",
   "colmugx/posoco-ext-write@0.2.0",
@@ -53,6 +52,9 @@ import {
   "colmugx/posoco-ext-askquestion@0.1.0",
   "colmugx/posoco-ext-handoff@0.1.0",
   "colmugx/posoco-ext-lazytools@0.1.0",
+  "colmugx/posoco-ext-obsidian@0.1.0",
+  "colmugx/posoco-ext-nowledge-mem@0.1.0",
+  "colmugx/posoco-ext-zcode@0.1.0",
   "posoco/ext-herdr@0.1.0",
   "colmugx/posoco-ext-mcp@0.5.1",
   "colmugx/posoco-ext-plan@0.5.0",
@@ -62,5 +64,4 @@ import {
   "colmugx/posoco-ext-subagent@0.1.3",
   "colmugx/posoco-ext-kind@0.1.0",
   "colmugx/posoco-kit-subagent@0.1.1",
-  // recipe-deps:end
 }
