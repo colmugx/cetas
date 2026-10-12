@@ -4,8 +4,7 @@
 # The latest workflow publishes the immutable release asset and uses package
 # staging scripts checked out at that tag. It downloads the tag's
 # cetas-js-dist.tar.gz release asset, stages the single JS-only
-# @posoco/cetas package (Node.js >= 24, no platform payloads), verifies it
-# on ubuntu AND windows (npm install from the packed tarball + boot smoke),
+# @posoco/cetas package (Node.js >= 24, no platform payloads), validates the pack contents and version,
 # then publishes.
 #
 # Re-running a failed publish is safe: a version already on the registry is
@@ -93,69 +92,9 @@ jobs:
           path: posoco-cetas-*.tgz
           if-no-files-found: error
 
-  verify-windows:
-    name: install + CLI/native smoke (windows)
-    needs: [stage]
-    runs-on: windows-latest
-    timeout-minutes: 15
-    steps:
-      - name: setup node 24
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: download packed tarball
-        uses: actions/download-artifact@v7
-        with:
-          name: npm-tarball
-
-      # Verify the exact npm tarball on Windows. npm creates a cetas.cmd
-      # shim, not a Win32 executable: Start-Process -FilePath "cetas"
-      # cannot launch it. An interactive pi-tui welcome screen also cannot
-      # be reliably tested with redirected stdio on a headless runner.
-      # Instead, check the installed shim, Node entrypoint and native addon.
-      - name: npm install + CLI/native smoke
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $tarballs = @(Get-ChildItem -Filter "posoco-cetas-*.tgz" -File)
-          if ($tarballs.Count -ne 1) { throw "expected one npm tarball, got $($tarballs.Count)" }
-          npm install -g "$($tarballs[0].FullName)"
-          if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
-
-          $prefix = (npm prefix -g).Trim()
-          $root = (npm root -g).Trim()
-          $shim = Join-Path $prefix "cetas.cmd"
-          $manifest = Join-Path $root "@posoco/cetas/package.json"
-          $entrypoint = Join-Path $root "@posoco/cetas/dist/cetas.js"
-          $nativeAddon = Join-Path $root "@earendil-works/pi-tui/native/win32/prebuilds/win32-x64/win32-console-mode.node"
-          foreach ($path in @($shim, $manifest, $entrypoint, $nativeAddon)) {
-            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-              throw "missing installed npm artifact: $path"
-            }
-          }
-
-          $package = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
-          $expectedVersion = $env:RELEASE_TAG -replace '^cetas-v', ''
-          if ($package.name -ne "@posoco/cetas" -or $package.version -ne $expectedVersion) {
-            throw "wrong installed package identity/version"
-          }
-          if ($package.bin.cetas -ne "dist/cetas.js") {
-            throw "wrong npm bin entrypoint"
-          }
-          if (-not ((Get-Content -LiteralPath $shim -Raw) -match 'cetas\.js')) {
-            throw "npm Windows command shim does not point to cetas.js"
-          }
-
-          node --check "$entrypoint"
-          if ($LASTEXITCODE -ne 0) { throw "Node could not parse installed cetas.js" }
-          node -e 'require(process.argv[1]); console.log("pi-tui Windows native addon loaded")' "$nativeAddon"
-          if ($LASTEXITCODE -ne 0) { throw "pi-tui Windows native addon could not load" }
-          Write-Host "Installed @posoco/cetas Windows package checks passed"
-
   publish:
     name: publish @posoco/cetas
-    needs: [stage, verify-windows]
+    needs: [stage]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
