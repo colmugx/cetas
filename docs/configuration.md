@@ -51,7 +51,7 @@ In ACP, local configured servers connect lazily on the first turn by default. Se
 
 ## Editor — ACP
 
-1. Download and extract `cetas-acp` from the [Cetas release](https://github.com/colmugx/cetas/releases/tag/cetas-v0.7.0), or [build it](development.md#editor-and-runner).
+1. Download and extract `cetas-acp` from the [Cetas release](https://github.com/colmugx/cetas/releases/tag/cetas-v0.8.0), or [build it](development.md#editor-and-runner).
 2. Configure a provider first, for example using `/login` and `/model` in `cetas-bun`. ACP needs a configured model to serve prompts.
 3. Register the executable as a custom agent in your editor.
 
