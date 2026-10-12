@@ -79,15 +79,12 @@ jobs:
         working-directory: posoco/external/cetas
         run: python3 -m unittest scripts/test_npm_stage.py
 
-      - name: moon check (ACP public recipe, native)
-        working-directory: posoco/external/cetas/cetas-acp
+      # moon.work checks all native-capable modules in one invocation.
+      - name: moon check (workspace native)
+        working-directory: posoco/external/cetas
         run: |
           moon update
           moon check --target native --deny-warn --output-json
-
-      - name: moon check (Run public recipe, native)
-        working-directory: posoco/external/cetas/cetas-run
-        run: moon check --target native --deny-warn --output-json
 
       - name: moon check (Run public recipe, wasm)
         working-directory: posoco/external/cetas/cetas-run
@@ -222,13 +219,22 @@ jobs:
           name: bun-cache
           path: ${{ matrix.os == 'windows-latest' && 'C:\Users\runneradmin\.bun\install\cache' || '~/.bun/install/cache' }}
 
-      - name: moon update (cetas-acp)
-        working-directory: posoco/external/cetas/cetas-acp
+      # Build the TUI static library first, then compile every native-capable
+      # moon.work member in one Moon invocation. This produces ACP, Run and
+      # Cetas Native binaries under the same workspace _build/ directory.
+      - name: moon update (native workspace)
+        working-directory: posoco/external/cetas
         run: moon update
 
-      # _build lands at the cetas workspace ROOT (moon.work dir), not under cetas-acp
-      - name: moon build (native release)
-        working-directory: posoco/external/cetas/cetas-acp
+      - name: package cetas-tui static library
+        working-directory: posoco/external/cetas
+        run: node cetas-native/scripts/package_staticlib.js --out "stage/cetas-tui-prebuilt-${{ matrix.target }}" --target "${{ matrix.target }}"
+
+      - name: moon build (native workspace release)
+        working-directory: posoco/external/cetas
+        env:
+          CETAS_TUI_PREBUILT_DIR: ${{ github.workspace }}/posoco/external/cetas/stage/cetas-tui-prebuilt-${{ matrix.target }}
+          CETAS_TUI_FORCE_PREBUILT: "1"
         run: moon build --target native --release
 
       # moon names the native binary main.exe on every platform; stage/ holds
@@ -274,15 +280,6 @@ jobs:
             }
           }
 
-      - name: moon update (cetas-run)
-        working-directory: posoco/external/cetas/cetas-run
-        run: moon update
-
-      # same workspace _build root as cetas-acp (moon.work), own package dir
-      - name: moon build cetas-run (native release)
-        working-directory: posoco/external/cetas/cetas-run
-        run: moon build --target native --release
-
       - name: collect cetas-run (unix)
         if: matrix.os != 'windows-latest'
         working-directory: posoco/external/cetas/cetas-run
@@ -323,21 +320,6 @@ jobs:
               exit 1
             }
           }
-
-      - name: package cetas-tui static library
-        working-directory: posoco/external/cetas
-        run: node cetas-native/scripts/package_staticlib.js --out "stage/cetas-tui-prebuilt-${{ matrix.target }}" --target "${{ matrix.target }}"
-
-      - name: moon update (cetas-native)
-        working-directory: posoco/external/cetas
-        run: moon update
-
-      - name: build native Cetas terminal host
-        working-directory: posoco/external/cetas
-        env:
-          CETAS_TUI_PREBUILT_DIR: ${{ github.workspace }}/posoco/external/cetas/stage/cetas-tui-prebuilt-${{ matrix.target }}
-          CETAS_TUI_FORCE_PREBUILT: "1"
-        run: moon build cetas-native/src/cetas --target native --release
 
       - name: collect native Cetas (unix)
         if: matrix.os != 'windows-latest'
