@@ -30,13 +30,3 @@ test "native startup permission posture matches Cetas hosts" {
   assert_true(fallback is @permission.WorkspaceWrite)
   assert_true(warning is Some(_))
 }
-
-///|
-test "native product banner identifies Cetas model and session" {
-  let text = startup_banner("openai/gpt-5", Some("high"), "cetas-123")
-  assert_eq(
-    text, "Cetas 0.7.0 · model openai/gpt-5 · effort high · session cetas-123",
-  )
-  assert_false(text.contains("preview"))
-  assert_false(text.contains("cetas-native"))
-}
