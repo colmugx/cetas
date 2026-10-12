@@ -2,6 +2,40 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.8.1 (2026-10-12)
+
+## General
+
+### Feats
+- Cetas now knows each model's real context window instead of guessing: capacity is resolved from your own `context_window` setting, provider discovery, the on-disk provider cache, or a models.dev lookup cached to `~/.cetas/models_dev.json`. Auto-compact and context budgeting now run against the true window — previously, models whose providers didn't report a window had none — and an unverified 500k fallback is now labeled as such instead of being shown as fact.
+- DeepSeek, Z.AI, and OpenAI-compatible provider catalogs now ship context-window metadata for their models.
+
+### Fixes
+- A `settings.json` saved with a leading UTF-8 BOM no longer breaks startup or model selection.
+
+## Bun Ver.（cetas-bun）
+
+### Feats
+- `/model` and `/status` show the active model's context window together with where it came from (configured, provider, cache, or unverified fallback), and metadata refreshes automatically at startup, after login, and when you open the model picker — so newly released models get real windows without reinstalling.
+- Subagents inherit the same model metadata, so delegated swarms budget and report context against the correct window too.
+- Plan mode is smarter and safer: shell commands are judged by where they write, not by a command-name denylist. Scratch work into `/tmp` and `/dev/null` (including `tee`, `touch`, `cp`, even `rm -rf` of `/tmp` paths) runs freely while planning, workspace `.md` notes stay writable, and any command that could write outside those areas is stopped before it runs.
+
+### Fixes
+- A missing `~/.cetas/settings.json` now starts you with first-use defaults instead of failing, so fresh installs and Windows-edited settings files both load cleanly.
+- The welcome banner's logo no longer renders with misaligned rows.
+
+## ACP Ver.（cetas-acp）
+
+### Feats
+- Context usage reported to your editor is now computed from the active model's real context window (provider-reported, cached, models.dev, or your configured override), instead of only appearing when discovery happened to include one.
+- Plan mode gets the same write-destination analysis: investigation commands run freely, scratch writes to `/tmp` and `/dev/null` are allowed while planning, and anything that could modify files outside the writable areas is rejected.
+
+## Run Ver.（cetas-run）
+
+### Feats
+- One-shot runs now budget context against each model's true context window, so auto-compact engages at the right point even for models whose providers don't report capacity.
+- Known context windows survive offline restarts by being restored from the provider cache.
+
 ## 0.8.0 (2026-10-12)
 
 ### Added
