@@ -79,15 +79,12 @@ jobs:
         working-directory: posoco/external/cetas
         run: python3 -m unittest scripts/test_npm_stage.py
 
-      - name: moon check (ACP public recipe, native)
-        working-directory: posoco/external/cetas/cetas-acp
+      # The workspace check covers ACP, Run, and all native-capable modules.
+      - name: moon check (workspace native)
+        working-directory: posoco/external/cetas
         run: |
           moon update
           moon check --target native --deny-warn --output-json
-
-      - name: moon check (Run public recipe, native)
-        working-directory: posoco/external/cetas/cetas-run
-        run: moon check --target native --deny-warn --output-json
 
       - name: moon check (Run public recipe, wasm)
         working-directory: posoco/external/cetas/cetas-run
@@ -222,13 +219,15 @@ jobs:
           name: bun-cache
           path: ${{ matrix.os == 'windows-latest' && 'C:\Users\runneradmin\.bun\install\cache' || '~/.bun/install/cache' }}
 
-      - name: moon update (cetas-acp)
-        working-directory: posoco/external/cetas/cetas-acp
+      # One workspace build produces the ACP and Run native executables.
+      # Native TUI is still experimental: it may be built by Moon as a
+      # workspace member, but it is NOT packaged as a stable release asset.
+      - name: moon update (native workspace)
+        working-directory: posoco/external/cetas
         run: moon update
 
-      # _build lands at the cetas workspace ROOT (moon.work dir), not under cetas-acp
-      - name: moon build (native release)
-        working-directory: posoco/external/cetas/cetas-acp
+      - name: moon build (native workspace release)
+        working-directory: posoco/external/cetas
         run: moon build --target native --release
 
       # moon names the native binary main.exe on every platform; stage/ holds
@@ -274,15 +273,6 @@ jobs:
             }
           }
 
-      - name: moon update (cetas-run)
-        working-directory: posoco/external/cetas/cetas-run
-        run: moon update
-
-      # same workspace _build root as cetas-acp (moon.work), own package dir
-      - name: moon build cetas-run (native release)
-        working-directory: posoco/external/cetas/cetas-run
-        run: moon build --target native --release
-
       - name: collect cetas-run (unix)
         if: matrix.os != 'windows-latest'
         working-directory: posoco/external/cetas/cetas-run
@@ -318,47 +308,6 @@ jobs:
           $out
           if ($env:GITHUB_EVENT_NAME -eq 'push') {
             $expected = "cetas-run " + ($env:GITHUB_REF_NAME -replace '^cetas-v', '')
-            if ($out.Trim() -ne $expected) {
-              Write-Host "::error::--version mismatch: got '$out', want '$expected'"
-              exit 1
-            }
-          }
-
-      - name: moon update (cetas-native)
-        working-directory: posoco/external/cetas
-        run: moon update
-
-      - name: collect native Cetas (unix)
-        if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas
-        run: cp "_build/native/release/build/colmugx/cetas-native/src/cetas/cetas.exe" "stage/cetas"
-
-      - name: collect native Cetas (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas
-        shell: pwsh
-        run: Copy-Item "_build\native\release\build\colmugx\cetas-native\src\cetas\cetas.exe" -Destination "stage\cetas.exe"
-
-      - name: version smoke native Cetas (unix)
-        if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas/stage
-        run: |
-          out="$(./cetas --version)"
-          echo "$out"
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            expected="cetas ${GITHUB_REF_NAME#cetas-v}"
-            [[ "$out" == "$expected" ]] || { echo "::error::--version mismatch: got '$out', want '$expected'"; exit 1; }
-          fi
-
-      - name: version smoke native Cetas (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas/stage
-        shell: pwsh
-        run: |
-          $out = (& ".\cetas.exe" --version) -join ' '
-          $out
-          if ($env:GITHUB_EVENT_NAME -eq 'push') {
-            $expected = "cetas " + ($env:GITHUB_REF_NAME -replace '^cetas-v', '')
             if ($out.Trim() -ne $expected) {
               Write-Host "::error::--version mismatch: got '$out', want '$expected'"
               exit 1
@@ -416,7 +365,6 @@ jobs:
         if: matrix.os != 'windows-latest'
         working-directory: posoco/external/cetas/stage
         run: |
-          tar -czf "cetas-${{ matrix.target }}.tar.gz" cetas
           tar -czf "cetas-acp-${{ matrix.target }}.tar.gz" cetas-acp
           tar -czf "cetas-run-${{ matrix.target }}.tar.gz" cetas-run
           tar -czf "cetas-bun-${{ matrix.target }}.tar.gz" cetas-bun native
@@ -426,7 +374,6 @@ jobs:
         working-directory: posoco/external/cetas/stage
         shell: pwsh
         run: |
-          Compress-Archive -Path "cetas.exe" -DestinationPath "cetas-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-acp.exe" -DestinationPath "cetas-acp-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-run.exe" -DestinationPath "cetas-run-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-bun.exe", "native" -DestinationPath "cetas-bun-windows-x64.zip" -Force
