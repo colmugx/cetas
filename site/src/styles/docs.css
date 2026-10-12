@@ -1,0 +1,8 @@
+@import './tokens.css';
+
+:root {
+  --sl-font: var(--cetas-font-sans);
+  --sl-font-mono: var(--cetas-font-mono);
+  --sl-color-accent: var(--cetas-accent);
+  --sl-color-accent-low: var(--cetas-accent-soft);
+}
