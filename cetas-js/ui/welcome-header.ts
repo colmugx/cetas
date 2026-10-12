@@ -11,8 +11,8 @@ import { theme } from "./theme.ts";
 // A six-row terminal cut of the Wakeful mark, using half-block cells.
 const WAKEFUL = [
   "▄██████████▄",
-  "███▀▀███▀███",
-  "███▄▄███▄███",
+  "███▀▀███▀▀███",
+  "███▄▄███▄▄███",
   "███████▀▀▀▀▀",
   "███████▄▄▄▄ ",
   "▀█████████▀ ",
