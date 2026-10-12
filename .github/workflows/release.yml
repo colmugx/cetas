@@ -324,20 +324,9 @@ jobs:
             }
           }
 
-      - name: package cetas-tui static library
-        working-directory: posoco/external/cetas
-        run: node cetas-native/scripts/package_staticlib.js --out "stage/cetas-tui-prebuilt-${{ matrix.target }}" --target "${{ matrix.target }}"
-
       - name: moon update (cetas-native)
         working-directory: posoco/external/cetas
         run: moon update
-
-      - name: build native Cetas terminal host
-        working-directory: posoco/external/cetas
-        env:
-          CETAS_TUI_PREBUILT_DIR: ${{ github.workspace }}/posoco/external/cetas/stage/cetas-tui-prebuilt-${{ matrix.target }}
-          CETAS_TUI_FORCE_PREBUILT: "1"
-        run: moon build cetas-native/src/cetas --target native --release
 
       - name: collect native Cetas (unix)
         if: matrix.os != 'windows-latest'
@@ -428,7 +417,6 @@ jobs:
         working-directory: posoco/external/cetas/stage
         run: |
           tar -czf "cetas-${{ matrix.target }}.tar.gz" cetas
-          tar -czf "cetas-tui-staticlib-${{ matrix.target }}.tar.gz" -C "cetas-tui-prebuilt-${{ matrix.target }}" .
           tar -czf "cetas-acp-${{ matrix.target }}.tar.gz" cetas-acp
           tar -czf "cetas-run-${{ matrix.target }}.tar.gz" cetas-run
           tar -czf "cetas-bun-${{ matrix.target }}.tar.gz" cetas-bun native
@@ -439,7 +427,6 @@ jobs:
         shell: pwsh
         run: |
           Compress-Archive -Path "cetas.exe" -DestinationPath "cetas-windows-x64.zip" -Force
-          Compress-Archive -Path "cetas-tui-prebuilt-windows-x64\*" -DestinationPath "cetas-tui-staticlib-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-acp.exe" -DestinationPath "cetas-acp-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-run.exe" -DestinationPath "cetas-run-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-bun.exe", "native" -DestinationPath "cetas-bun-windows-x64.zip" -Force
