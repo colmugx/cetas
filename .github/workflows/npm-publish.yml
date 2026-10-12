@@ -94,7 +94,7 @@ jobs:
           if-no-files-found: error
 
   verify-windows:
-    name: install + boot smoke (windows)
+    name: install + CLI/native smoke (windows)
     needs: [stage]
     runs-on: windows-latest
     timeout-minutes: 15
@@ -109,31 +109,49 @@ jobs:
         with:
           name: npm-tarball
 
-      # Install from the packed tarball (exactly what the registry will
-      # serve) and boot the bin: the TUI must render the welcome banner
-      # before the timeout stop. pi-tui's win32-console-mode.node must load
-      # from its npm install during that boot.
-      - name: npm install + boot smoke
+      # Verify the exact npm tarball on Windows. npm creates a cetas.cmd
+      # shim, not a Win32 executable: Start-Process -FilePath "cetas"
+      # cannot launch it. An interactive pi-tui welcome screen also cannot
+      # be reliably tested with redirected stdio on a headless runner.
+      # Instead, check the installed shim, Node entrypoint and native addon.
+      - name: npm install + CLI/native smoke
         shell: pwsh
         run: |
-          $tarball = (Get-ChildItem -Filter "posoco-cetas-*.tgz").FullName
-          npm install -g "$tarball"
-          if ($LASTEXITCODE -ne 0) { Write-Host "::error::npm install failed"; exit 1 }
-          $log = Join-Path $env:RUNNER_TEMP "boot.log"
-          $proc = Start-Process -FilePath "cetas" -PassThru `
-            -RedirectStandardOutput "$log" -RedirectStandardError "$env:RUNNER_TEMP\boot.err"
-          Start-Sleep -Seconds 15
-          if ($proc.HasExited) {
-            Write-Host "::error::cetas exited early with $($proc.ExitCode)"
-            Get-Content "$log", "$env:RUNNER_TEMP\boot.err" -ErrorAction SilentlyContinue
-            exit 1
+          $ErrorActionPreference = "Stop"
+          $tarballs = @(Get-ChildItem -Filter "posoco-cetas-*.tgz" -File)
+          if ($tarballs.Count -ne 1) { throw "expected one npm tarball, got $($tarballs.Count)" }
+          npm install -g "$($tarballs[0].FullName)"
+          if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
+
+          $prefix = (npm prefix -g).Trim()
+          $root = (npm root -g).Trim()
+          $shim = Join-Path $prefix "cetas.cmd"
+          $manifest = Join-Path $root "@posoco/cetas/package.json"
+          $entrypoint = Join-Path $root "@posoco/cetas/dist/cetas.js"
+          $nativeAddon = Join-Path $root "@earendil-works/pi-tui/native/win32/prebuilds/win32-x64/win32-console-mode.node"
+          foreach ($path in @($shim, $manifest, $entrypoint, $nativeAddon)) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "missing installed npm artifact: $path"
+            }
           }
-          Stop-Process -Id $proc.Id -Force
-          if (-not (Select-String -Path "$log" -Pattern "cetas" -Quiet)) {
-            Write-Host "::error::welcome banner missing"
-            Get-Content "$log"
-            exit 1
+
+          $package = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+          $expectedVersion = $env:RELEASE_TAG -replace '^cetas-v', ''
+          if ($package.name -ne "@posoco/cetas" -or $package.version -ne $expectedVersion) {
+            throw "wrong installed package identity/version"
           }
+          if ($package.bin.cetas -ne "dist/cetas.js") {
+            throw "wrong npm bin entrypoint"
+          }
+          if (-not ((Get-Content -LiteralPath $shim -Raw) -match 'cetas\.js')) {
+            throw "npm Windows command shim does not point to cetas.js"
+          }
+
+          node --check "$entrypoint"
+          if ($LASTEXITCODE -ne 0) { throw "Node could not parse installed cetas.js" }
+          node -e 'require(process.argv[1]); console.log("pi-tui Windows native addon loaded")' "$nativeAddon"
+          if ($LASTEXITCODE -ne 0) { throw "pi-tui Windows native addon could not load" }
+          Write-Host "Installed @posoco/cetas Windows package checks passed"
 
   publish:
     name: publish @posoco/cetas
