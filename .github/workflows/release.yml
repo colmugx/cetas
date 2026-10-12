@@ -386,17 +386,6 @@ jobs:
         working-directory: posoco/external/cetas/cetas-js
         run: bun install
 
-      - name: prepare public js recipe (unix)
-        if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas
-        run: python3 scripts/prepare-recipe.py --flavor public --frontend js --platform unix
-
-      - name: prepare public js recipe (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas
-        shell: pwsh
-        run: python scripts/prepare-recipe.py --flavor public --frontend js --platform windows
-
       - name: moon update (cetas-js)
         working-directory: posoco/external/cetas/cetas-js
         run: moon update
@@ -464,44 +453,6 @@ jobs:
             posoco/external/cetas/stage/*.zip
             posoco/external/cetas/stage/release_body.md
 
-  mooncakes:
-    name: publish cetas-run to Mooncakes
-    needs: [preflight]
-    if: startsWith(github.ref, 'refs/tags/cetas-v')
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: checkout release tag
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref }}
-          submodules: recursive
-
-      - name: install moon
-        run: |
-          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
-          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
-
-      - name: moon version
-        run: moon version --all
-
-      - name: moon update
-        working-directory: cetas-run
-        run: moon update
-
-      - name: moon check
-        working-directory: cetas-run
-        run: moon check --target wasm --deny-warn --output-json
-
-      - name: publish cetas-run
-        working-directory: cetas-run
-        run: |
-          echo "$SECRET" > ~/.moon/credentials.json
-          moon publish
-          rm ~/.moon/credentials.json
-        env:
-          SECRET: ${{ secrets.MOONCAKES_TOKEN }}
-
   cetas-js-dist:
     name: build cetas-js npm dist (node bundle)
     needs: [preflight]
@@ -560,10 +511,6 @@ jobs:
       - name: bun install
         working-directory: posoco/external/cetas/cetas-js
         run: bun install
-
-      - name: prepare public js recipe
-        working-directory: posoco/external/cetas
-        run: python3 scripts/prepare-recipe.py --flavor public --frontend js --platform unix
 
       - name: moon update (cetas-js)
         working-directory: posoco/external/cetas/cetas-js

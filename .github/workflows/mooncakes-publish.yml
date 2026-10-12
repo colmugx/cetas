@@ -1,0 +1,85 @@
+# Manual Mooncakes publication for the cetas-run module.
+# As with npm-publish.yml, run from Actions using a cetas-v* release tag as
+# the selected ref. This does not run when a tag is pushed or a GitHub Release
+# is created. MOONCAKES_TOKEN must be configured as a repository secret.
+#
+# Publication requires the module's declared dependencies to exist on the
+# Mooncakes registry; a successful workspace check alone is not sufficient.
+name: cetas Mooncakes publish
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mooncakes-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: publish cetas-run to Mooncakes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: require a cetas-v tag ref
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" != refs/tags/cetas-v* ]]; then
+            echo "::error::Select a cetas-v* release tag in 'Run workflow' (got: ${GITHUB_REF})"
+            exit 1
+          fi
+
+      - name: checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          submodules: recursive
+
+      - name: install moon
+        shell: bash
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: moon version
+        run: moon version --all
+
+      - name: release check (version sync gate)
+        run: python3 scripts/release.py check --scope core
+
+      - name: verify cetas-run version matches selected tag
+        shell: bash
+        run: |
+          expected="${GITHUB_REF_NAME#cetas-v}"
+          actual="$(sed -nE 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' cetas-run/moon.mod | head -n 1)"
+          if [[ "${actual}" != "${expected}" ]]; then
+            echo "::error::cetas-run version '${actual}' does not match tag '${expected}'"
+            exit 1
+          fi
+
+      - name: moon update
+        working-directory: cetas-run
+        run: moon update
+
+      - name: moon check
+        working-directory: cetas-run
+        run: moon check --target wasm --deny-warn --output-json
+
+      - name: publish cetas-run
+        working-directory: cetas-run
+        shell: bash
+        env:
+          MOONCAKES_TOKEN: ${{ secrets.MOONCAKES_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${MOONCAKES_TOKEN}" ]]; then
+            echo "::error::MOONCAKES_TOKEN repository secret is missing"
+            exit 1
+          fi
+          umask 077
+          mkdir -p "$HOME/.moon"
+          trap 'rm -f "$HOME/.moon/credentials.json"' EXIT
+          printf '%s' "${MOONCAKES_TOKEN}" > "$HOME/.moon/credentials.json"
+          moon publish
