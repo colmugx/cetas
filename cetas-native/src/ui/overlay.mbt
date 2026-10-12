@@ -6,7 +6,7 @@
 
 ///|
 pub(all) struct OverlayEntry {
-  id : Int
+  id : Int32
   capturing : Bool
   hidden : Bool
   focused : Bool
@@ -15,7 +15,7 @@ pub(all) struct OverlayEntry {
 ///|
 pub struct OverlayStack {
   entries : Array[OverlayEntry]
-  mut next_id : Int
+  mut next_id : Int32
 }
 
 ///|
@@ -24,7 +24,7 @@ pub fn OverlayStack::new() -> OverlayStack {
 }
 
 ///|
-pub fn OverlayStack::active_count(self : OverlayStack) -> Int {
+pub fn OverlayStack::active_count(self : OverlayStack) -> Int32 {
   self.entries.length()
 }
 
@@ -36,12 +36,12 @@ pub fn OverlayStack::veil_visible(self : OverlayStack) -> Bool {
 }
 
 ///|
-pub fn OverlayStack::visible_count(self : OverlayStack) -> Int {
+pub fn OverlayStack::visible_count(self : OverlayStack) -> Int32 {
   self.entries.count_if(entry => !entry.hidden)
 }
 
 ///|
-pub fn OverlayStack::focused_id(self : OverlayStack) -> Int? {
+pub fn OverlayStack::focused_id(self : OverlayStack) -> Int32? {
   for entry in self.entries {
     if entry.focused {
       return Some(entry.id)
@@ -88,7 +88,10 @@ fn OverlayStack::restore_top_focus(self : OverlayStack) -> Unit {
 ///
 /// Capturing overlays take keyboard focus. Non-capturing overlays (for example
 /// a visual veil) participate in layering without stealing focus.
-pub fn OverlayStack::open(self : OverlayStack, capturing? : Bool = true) -> Int {
+pub fn OverlayStack::open(
+  self : OverlayStack,
+  capturing~ : Bool = true,
+) -> Int32 {
   let id = self.next_id
   self.next_id += 1
 
@@ -100,7 +103,7 @@ pub fn OverlayStack::open(self : OverlayStack, capturing? : Bool = true) -> Int 
 }
 
 ///|
-pub fn OverlayStack::hide(self : OverlayStack, id : Int) -> Bool {
+pub fn OverlayStack::hide(self : OverlayStack, id : Int32) -> Bool {
   for index, entry in self.entries {
     if entry.id == id {
       let removed = self.entries.remove(index)
@@ -120,7 +123,7 @@ pub fn OverlayStack::hide(self : OverlayStack, id : Int) -> Bool {
 /// capturing overlay. Unhiding does not steal focus automatically.
 pub fn OverlayStack::set_hidden(
   self : OverlayStack,
-  id : Int,
+  id : Int32,
   hidden : Bool,
 ) -> Bool {
   for index, entry in self.entries {
@@ -151,7 +154,7 @@ pub fn OverlayStack::set_hidden(
 }
 
 ///|
-pub fn OverlayStack::focus(self : OverlayStack, id : Int) -> Bool {
+pub fn OverlayStack::focus(self : OverlayStack, id : Int32) -> Bool {
   for entry in self.entries {
     if entry.id == id {
       if entry.hidden || !entry.capturing {
@@ -176,7 +179,7 @@ pub fn OverlayStack::focus(self : OverlayStack, id : Int) -> Bool {
 }
 
 ///|
-pub fn OverlayStack::is_hidden(self : OverlayStack, id : Int) -> Bool? {
+pub fn OverlayStack::is_hidden(self : OverlayStack, id : Int32) -> Bool? {
   for entry in self.entries {
     if entry.id == id {
       return Some(entry.hidden)
@@ -186,7 +189,7 @@ pub fn OverlayStack::is_hidden(self : OverlayStack, id : Int) -> Bool? {
 }
 
 ///|
-pub fn overlay_validation_marker() -> Int {
+pub fn overlay_validation_marker() -> Int32 {
   let stack = OverlayStack::new()
   let first = stack.open()
   if !stack.veil_visible() ||

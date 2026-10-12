@@ -7,7 +7,7 @@
 
 ///|
 pub(all) struct PersistedRewindPoint {
-  message_index : Int
+  message_index : Int32
   preview : String
 }
 
@@ -18,7 +18,7 @@ priv struct PersistedUserContent {
 }
 
 ///|
-const REWIND_PREVIEW_MAX : Int = 60
+const REWIND_PREVIEW_MAX : Int32 = 60
 
 ///|
 fn persisted_user_content(value : Json) -> PersistedUserContent {
@@ -168,7 +168,7 @@ pub fn list_persisted_rewind_points(
 /// out-of-range rows return None.
 pub fn read_persisted_rewind_user_message(
   jsonl : String,
-  message_index : Int,
+  message_index : Int32,
 ) -> String? {
   if message_index < 0 {
     return None

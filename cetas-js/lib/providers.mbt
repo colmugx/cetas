@@ -354,8 +354,8 @@ async fn build_provider_router(
   store : @credentials.FileProviderCredentialStore,
   auth : JsAuthInteraction,
   observer : &@posoco.Observer,
-  bus? : @devkit.EventBus? = None,
-  extra_quota_sources? : Map[String, &@devkit.QuotaSource] = Map::from_array([]),
+  bus~ : @devkit.EventBus? = None,
+  extra_quota_sources~ : Map[String, &@devkit.QuotaSource] = Map::from_array([]),
 ) -> @llm.RouterModelPort raise @posoco.CompositionError {
   let catalogs = cached_provider_catalogs(runtime)
   if catalogs.is_empty() {
@@ -535,8 +535,8 @@ extern "js" fn js_random_uuid(random_uuid : () -> String) -> String =
 fn live_refresh_entry(
   provider_id : String,
   status : String,
-  slots? : Int? = None,
-  reason? : String? = None,
+  slots~ : Int32? = None,
+  reason~ : String? = None,
 ) -> Json {
   let fields : Array[(String, Json)] = [
     ("provider", Json::string(provider_id)),

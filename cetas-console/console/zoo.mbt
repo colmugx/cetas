@@ -11,7 +11,7 @@ fn zoo_item(label : String, detail : String) -> Json {
 }
 
 ///|
-fn zoo_role(role : String, items : Array[Json], count : Int) -> Json {
+fn zoo_role(role : String, items : Array[Json], count : Int32) -> Json {
   Json::object(
     Map::from_array([
       ("role", Json::string(role)),
@@ -87,7 +87,7 @@ fn ext_zoo_entries(exts : Array[&@posoco.Extension]) -> Array[Json] {
       roles.push(zoo_role("ui", sources, manifest.ui.length()))
     }
 
-    let counted : Array[(String, Int)] = [
+    let counted : Array[(String, Int32)] = [
       ("models", manifest.models.length()),
       ("decisions", manifest.decisions.length()),
       ("logs", manifest.logs.length()),

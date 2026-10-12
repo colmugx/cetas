@@ -51,7 +51,7 @@ pub fn CommandLockModel::release(self : CommandLockModel) -> Bool {
 }
 
 ///|
-pub fn command_lock_validation_marker() -> Int {
+pub fn command_lock_validation_marker() -> Int32 {
   let lock = CommandLockModel::new()
   if lock.is_held() || lock.label() is Some(_) {
     return 0

@@ -4,7 +4,7 @@
 /// MoonBit-facing substrate links and behaves correctly under a real PTY.
 
 ///|
-extern "C" fn exit(code : Int) = "exit"
+extern "C" fn exit(code : Int32) = "exit"
 
 ///|
 fn main {

@@ -638,7 +638,7 @@ extern "js" fn JsUiRequestCallback::invoke(
 pub(all) struct JsUiPort {
   render_callback : JsUiRenderCallback
   request_callback : JsUiRequestCallback
-  mut next_request_id : Int
+  mut next_request_id : Int32
 }
 
 ///|
@@ -1018,7 +1018,7 @@ pub extend JsUiPort with @port.UiPort::{ui_descriptor, request, render}
 /// optional arguments".
 pub(all) struct CetasJsConfig {
   cwd : String
-  max_tool_rounds : Int
+  max_tool_rounds : Int32
   home : String
   permission_mode : String
   /// Root directory for session transcripts. An empty string (the bridge's
@@ -1041,7 +1041,7 @@ pub(all) struct CetasJsConfig {
 /// their own directory. An empty `host_help_note` contributes no note.
 pub fn CetasJsConfig::CetasJsConfig(
   cwd : String,
-  max_tool_rounds : Int,
+  max_tool_rounds : Int32,
   home : String,
   permission_mode : String,
   sessions_dir : String,
@@ -1504,7 +1504,7 @@ priv struct CetasLayeredCatalogSource {
 }
 
 ///|
-impl @runtime.CatalogSource for CetasLayeredCatalogSource with fn revision(self) -> Int {
+impl @runtime.CatalogSource for CetasLayeredCatalogSource with fn revision(self) -> Int32 {
   self.mcp.revision() + self.pi.revision()
 }
 
@@ -1882,7 +1882,8 @@ pub fn cetas_js_runtime_create_agent(
             let tool_catalog = build_tool_catalog(exts)
             // The JS FFI seam carries a plain Int (no optional arguments); the
             // bridge convention is `<= 0` = unbounded.
-            let max_tool_rounds : Int? = if runtime.config.max_tool_rounds <= 0 {
+            let max_tool_rounds : Int32? = if runtime.config.max_tool_rounds <=
+              0 {
               None
             } else {
               Some(runtime.config.max_tool_rounds)
@@ -2573,7 +2574,7 @@ pub fn cetas_js_enqueue_follow_up(
 pub fn cetas_js_rewind(
   handle : CetasJsAgent,
   session_id : String,
-  from_index : Int,
+  from_index : Int32,
 ) -> @js_async.Promise[String] {
   @js_async.Promise::from_async() <| () => {
     let outcome : Result[Unit, Error] = Ok(

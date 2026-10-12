@@ -2,7 +2,7 @@
 /// Registry of UI requests waiting on the browser. The WS handler resolves
 /// entries by request id; ask-coroutines block on their one-shot queue.
 struct UiRegistry {
-  mut next_id : Int
+  mut next_id : Int32
   pending : Map[String, @aqueue.Queue[String]]
 }
 

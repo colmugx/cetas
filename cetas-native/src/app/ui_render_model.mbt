@@ -94,7 +94,7 @@ pub fn NativeUiRenderModel::apply(
 }
 
 ///|
-pub fn NativeUiRenderModel::line_count(self : NativeUiRenderModel) -> Int {
+pub fn NativeUiRenderModel::line_count(self : NativeUiRenderModel) -> Int32 {
   let mut count = 0
   for mount in self.mounts {
     count += mount.lines.length()
@@ -105,7 +105,7 @@ pub fn NativeUiRenderModel::line_count(self : NativeUiRenderModel) -> Int {
 ///|
 pub fn NativeUiRenderModel::line(
   self : NativeUiRenderModel,
-  index : Int,
+  index : Int32,
 ) -> String? {
   if index < 0 {
     return None

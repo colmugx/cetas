@@ -52,7 +52,7 @@ extern "js" fn node_tmpdir() -> String = "tmpdir"
 extern "js" fn js_start_oauth_fixture(
   spawn : (String, FixedArray[String]) -> NodeChildProcess,
   port_file : String,
-) -> @js_async.Promise[Int] =
+) -> @js_async.Promise[Int32] =
   #| async (spawn, port_file) => {
   #|   return await new Promise((resolve, reject) => {
   #|     const child = spawn(process.execPath, ['../extension/posoco-ext-mcp/test_fixtures/http_oauth_server.mjs', port_file], { stdio: 'ignore' })
@@ -87,7 +87,7 @@ extern "js" fn js_write_text_file(
 
 ///|
 #cfg(target="js")
-extern "js" fn js_kill_pid(pid : Int) -> Unit =
+extern "js" fn js_kill_pid(pid : Int32) -> Unit =
   #| (pid) => {
   #|   try { process.kill(pid) } catch {}
   #| }

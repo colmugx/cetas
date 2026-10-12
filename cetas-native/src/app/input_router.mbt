@@ -55,32 +55,32 @@ pub fn NativeInputRouter::ui_input_text(self : NativeInputRouter) -> String? {
 }
 
 ///|
-pub fn NativeInputRouter::ui_selected_index(self : NativeInputRouter) -> Int? {
+pub fn NativeInputRouter::ui_selected_index(self : NativeInputRouter) -> Int32? {
   self.ui.active_selected_index()
 }
 
 ///|
-pub fn NativeInputRouter::ui_option_count(self : NativeInputRouter) -> Int {
+pub fn NativeInputRouter::ui_option_count(self : NativeInputRouter) -> Int32 {
   self.ui.active_option_count()
 }
 
 ///|
 pub fn NativeInputRouter::ui_option_label(
   self : NativeInputRouter,
-  index : Int,
+  index : Int32,
 ) -> String? {
   self.ui.active_option_label(index)
 }
 
 ///|
-pub fn NativeInputRouter::render_line_count(self : NativeInputRouter) -> Int {
+pub fn NativeInputRouter::render_line_count(self : NativeInputRouter) -> Int32 {
   self.ui.render_line_count()
 }
 
 ///|
 pub fn NativeInputRouter::render_line(
   self : NativeInputRouter,
-  index : Int,
+  index : Int32,
 ) -> String? {
   self.ui.render_line(index)
 }

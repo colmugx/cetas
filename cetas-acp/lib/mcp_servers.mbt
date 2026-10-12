@@ -109,10 +109,10 @@ fn same_server(a : @mcp.MCPServerConfig, b : @mcp.MCPServerConfig) -> Bool {
 ///|
 /// Declaration indexes of header entries the mapping cannot carry (empty
 /// header names), so the host can warn instead of silently discarding them.
-fn acp_invalid_headers(server : @acp.McpServer) -> Array[Int] {
+fn acp_invalid_headers(server : @acp.McpServer) -> Array[Int32] {
   match server {
     Http(s) => {
-      let invalid : Array[Int] = []
+      let invalid : Array[Int32] = []
       for i, header in s.headers {
         if header.name.is_empty() {
           invalid.push(i)

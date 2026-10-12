@@ -16,7 +16,7 @@ fn tk_observer_call(name~ : String, call_id~ : String) -> @posoco.ToolCall {
 }
 
 ///|
-fn tk_observer_usage(input~ : Int, output~ : Int) -> @posoco.Usage {
+fn tk_observer_usage(input~ : Int32, output~ : Int32) -> @posoco.Usage {
   {
     input_tokens: Some(input),
     output_tokens: Some(output),

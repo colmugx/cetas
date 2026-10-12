@@ -180,7 +180,7 @@ fn debug_prompt_text(prompt : Array[@acp.ContentBlock]) -> String {
 }
 
 ///|
-fn debug_join_chars(chars : Array[Char], from : Int, to : Int) -> String {
+fn debug_join_chars(chars : Array[Char], from : Int32, to : Int32) -> String {
   let buf = StringBuilder()
   for i in from..<to {
     buf.write_char(chars[i])

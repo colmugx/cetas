@@ -6,18 +6,18 @@
 
 ///|
 pub(all) struct EditorCursor {
-  line : Int
-  column : Int
+  line : Int32
+  column : Int32
 }
 
 ///|
 pub struct EditorModel {
   lines : Array[String]
-  mut cursor_line : Int
-  mut cursor_column : Int
+  mut cursor_line : Int32
+  mut cursor_column : Int32
   mut submit_disabled : Bool
   history : Array[String]
-  mut history_index : Int?
+  mut history_index : Int32?
   mut history_draft : String
 }
 
@@ -40,12 +40,12 @@ pub fn EditorModel::cursor(self : EditorModel) -> EditorCursor {
 }
 
 ///|
-pub fn EditorModel::line_count(self : EditorModel) -> Int {
+pub fn EditorModel::line_count(self : EditorModel) -> Int32 {
   self.lines.length()
 }
 
 ///|
-pub fn EditorModel::line(self : EditorModel, index : Int) -> String? {
+pub fn EditorModel::line(self : EditorModel, index : Int32) -> String? {
   if index < 0 || index >= self.lines.length() {
     None
   } else {
@@ -106,7 +106,7 @@ pub fn EditorModel::record_history(self : EditorModel, text : String) -> Unit {
 }
 
 ///|
-pub fn EditorModel::history_length(self : EditorModel) -> Int {
+pub fn EditorModel::history_length(self : EditorModel) -> Int32 {
   self.history.length()
 }
 
@@ -182,7 +182,7 @@ pub fn EditorModel::set_text(self : EditorModel, text : String) -> Unit {
 }
 
 ///|
-fn previous_column(line : String, column : Int) -> Int {
+fn previous_column(line : String, column : Int32) -> Int32 {
   if column <= 0 {
     return 0
   }
@@ -196,7 +196,7 @@ fn previous_column(line : String, column : Int) -> Int {
 }
 
 ///|
-fn next_column(line : String, column : Int) -> Int {
+fn next_column(line : String, column : Int32) -> Int32 {
   if column >= line.length() {
     return line.length()
   }
@@ -249,7 +249,7 @@ pub fn EditorModel::move_up(self : EditorModel) -> Unit {
     return
   }
   self.cursor_line -= 1
-  self.cursor_column = Int::min(
+  self.cursor_column = Int32::min(
     self.cursor_column,
     self.current_line().length(),
   )
@@ -261,7 +261,7 @@ pub fn EditorModel::move_down(self : EditorModel) -> Unit {
     return
   }
   self.cursor_line += 1
-  self.cursor_column = Int::min(
+  self.cursor_column = Int32::min(
     self.cursor_column,
     self.current_line().length(),
   )
@@ -351,8 +351,8 @@ pub fn EditorModel::delete_forward(self : EditorModel) -> Unit {
 ///|
 pub fn EditorModel::replace_current_line_range(
   self : EditorModel,
-  start : Int,
-  end : Int,
+  start : Int32,
+  end : Int32,
   replacement : String,
 ) -> Bool {
   self.leave_history_browse()
@@ -379,14 +379,14 @@ pub(all) struct AutocompleteSourceSpec {
 
 ///|
 pub(all) struct AutocompleteMatch {
-  source_index : Int
-  trigger_index : Int
+  source_index : Int32
+  trigger_index : Int32
   query : String
   replacement_prefix : String
 }
 
 ///|
-fn autocomplete_token_boundary(text : String, index : Int) -> Bool {
+fn autocomplete_token_boundary(text : String, index : Int32) -> Bool {
   if index == 0 {
     return true
   }
@@ -399,7 +399,7 @@ fn autocomplete_token_boundary(text : String, index : Int) -> Bool {
 ///|
 fn active_autocomplete_match(
   text_before_cursor : String,
-  source_index : Int,
+  source_index : Int32,
   source : AutocompleteSourceSpec,
 ) -> AutocompleteMatch? {
   guard text_before_cursor.rev_find(source.trigger) is Some(trigger_index) else {
@@ -483,7 +483,7 @@ pub fn EditorModel::apply_completion(
 }
 
 ///|
-pub fn editor_validation_marker() -> Int {
+pub fn editor_validation_marker() -> Int32 {
   let editor = EditorModel::new()
   editor.insert_text("hello")
   editor.move_left()

@@ -5,29 +5,34 @@
 
 ///|
 pub(all) struct Rect {
-  x : UInt
-  y : UInt
-  width : UInt
-  height : UInt
+  x : UInt32
+  y : UInt32
+  width : UInt32
+  height : UInt32
 }
 
 ///|
-pub fn Rect::new(x : UInt, y : UInt, width : UInt, height : UInt) -> Rect {
+pub fn Rect::new(
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
+  height : UInt32,
+) -> Rect {
   { x, y, width, height, }
 }
 
 ///|
-pub fn Rect::right(self : Rect) -> UInt {
+pub fn Rect::right(self : Rect) -> UInt32 {
   self.x + self.width
 }
 
 ///|
-pub fn Rect::bottom(self : Rect) -> UInt {
+pub fn Rect::bottom(self : Rect) -> UInt32 {
   self.y + self.height
 }
 
 ///|
-pub fn Rect::inset(self : Rect, margin : UInt) -> Rect {
+pub fn Rect::inset(self : Rect, margin : UInt32) -> Rect {
   let horizontal = margin * 2U
   let vertical = margin * 2U
   if horizontal >= self.width || vertical >= self.height {
@@ -44,8 +49,8 @@ pub fn Rect::inset(self : Rect, margin : UInt) -> Rect {
 ///|
 pub fn Rect::centered_percent(
   self : Rect,
-  width_percent : UInt,
-  height_percent : UInt,
+  width_percent : UInt32,
+  height_percent : UInt32,
 ) -> Rect {
   let wp = if width_percent > 100U { 100U } else { width_percent }
   let hp = if height_percent > 100U { 100U } else { height_percent }
@@ -60,7 +65,7 @@ pub fn Rect::centered_percent(
 }
 
 ///|
-pub fn layout_validation_marker() -> Int {
+pub fn layout_validation_marker() -> Int32 {
   let outer = Rect::new(0U, 0U, 80U, 24U)
   let centered = outer.centered_percent(76U, 70U).inset(1U)
   if centered.x == 11U &&

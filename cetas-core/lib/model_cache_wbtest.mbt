@@ -8,10 +8,10 @@
 /// A slot carrying every projection-relevant field, over the scripted port.
 fn cache_slot(
   model_id : String,
-  thinking_efforts? : Array[String] = [],
-  default_effort? : String? = None,
-  context_window? : Int? = None,
-  capabilities? : Array[String] = [],
+  thinking_efforts~ : Array[String] = [],
+  default_effort~ : String? = None,
+  context_window~ : Int32? = None,
+  capabilities~ : Array[String] = [],
 ) -> @llm.ModelSlot {
   @llm.ModelSlot::ModelSlot(
     id="test/" + model_id,

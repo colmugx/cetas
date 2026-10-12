@@ -46,7 +46,7 @@ fn json_scalar(s : String) -> String {
 /// Preview clip cap for `content` fields on the wire. Deliberately small:
 /// headless output is a rollup for drivers and one-shot bash usage, not the
 /// record (that lives in the session store).
-const PREVIEW_CAP : Int = 1024
+const PREVIEW_CAP : Int32 = 1024
 
 ///|
 /// Clip `text` to at most `PREVIEW_CAP` characters. Returns the clip and
@@ -101,12 +101,12 @@ fn JsonlObserver::push_tool_result(
 
 ///|
 pub struct JsonlObserver {
-  mut turn : Int
+  mut turn : Int32
   mut session_id : String
   /// Per-turn usage window (reset at begin_turn), BridgeObserver pattern.
-  mut turns_completed : Int
-  mut input_tokens : Int
-  mut output_tokens : Int
+  mut turns_completed : Int32
+  mut input_tokens : Int32
+  mut output_tokens : Int32
   /// Buffered event lines (no trailing newline); drained by the loop. Empty
   /// in live mode — the sink receives each line as it is built.
   mut lines : Array[String]
@@ -123,8 +123,8 @@ pub struct JsonlObserver {
 
 ///|
 pub fn JsonlObserver::JsonlObserver(
-  stream? : Bool = false,
-  id? : String = "cetas_run_jsonl",
+  stream~ : Bool = false,
+  id~ : String = "cetas_run_jsonl",
 ) -> JsonlObserver {
   {
     turn: 0,
@@ -155,7 +155,7 @@ pub fn JsonlObserver::set_live_sink(
 /// and opens a fresh usage window.
 pub fn JsonlObserver::begin_turn(
   self : JsonlObserver,
-  turn_no~ : Int,
+  turn_no~ : Int32,
   session_id~ : String,
 ) -> Unit {
   self.turn = turn_no

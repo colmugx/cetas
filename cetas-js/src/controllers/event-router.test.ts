@@ -294,3 +294,45 @@ describe("EventRouter — refreshRunningSubagents (shell 1s tick)", () => {
     expect(rendered()).toContain("step 2");
   });
 });
+
+describe("EventRouter — model metadata warnings", () => {
+  test("shows the reason once across turns instead of internal event names", () => {
+    const { router, rendered, childCount } = makeHarness();
+    const warning = ev({
+      type: "custom",
+      source: "cetas-js.bridge",
+      label: "model_metadata_warning",
+      data: { message: "Context window is unverified; using 500000 tokens." },
+    });
+    for (let i = 0; i < 5; i++) router.handleEvent(warning);
+    expect(childCount()).toBe(1);
+    expect(rendered()).toContain("Context window is unverified");
+    expect(rendered()).toContain("500000 tokens");
+    expect(rendered()).not.toContain("cetas-js.bridge/model_metadata_warning");
+    router.handleEvent(ev({ type: "turn_started" }));
+    router.handleEvent(ev({ type: "turn_completed" }));
+    router.handleEvent(warning);
+    expect(childCount()).toBe(1);
+    router.handleEvent(ev({
+      type: "custom",
+      source: "cetas-js.bridge",
+      label: "model_metadata_warning",
+      data: { message: "models.dev refresh failed: offline" },
+    }));
+    expect(childCount()).toBe(2);
+    expect(rendered()).toContain("models.dev refresh failed: offline");
+  });
+
+  test("malformed warnings stay visible and unrelated custom events retain their notice", () => {
+    const { router, rendered } = makeHarness();
+    router.handleEvent(ev({
+      type: "custom",
+      source: "cetas-js.bridge",
+      label: "model_metadata_warning",
+      data: { message: 12 },
+    }));
+    expect(rendered()).toContain("without a readable reason");
+    router.handleEvent(ev({ type: "custom", source: "other", label: "event" }));
+    expect(rendered()).toContain("other/event");
+  });
+});

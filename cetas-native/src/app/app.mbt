@@ -18,16 +18,16 @@ pub extend ShellStatus with Eq::{equal, not_equal}
 pub struct NativeShell {
   transcript : @ui.TranscriptModel
   tools : @ui.ToolStreamingModel
-  mut pending_tool_rows : Map[Int, Int]
-  mut tool_rows : Map[String, Int]
+  mut pending_tool_rows : Map[Int32, Int32]
+  mut tool_rows : Map[String, Int32]
   mut tool_names : Map[String, String]
   mut tool_args : Map[String, String]
-  queued_prompt_rows : Array[Int]
+  queued_prompt_rows : Array[Int32]
   mut interrupt_requested : Bool
   mut thinking_expanded : Bool
   mut tool_output_expanded : Bool
-  mut finalized_operations : Int
-  mut termination_notices : Int
+  mut finalized_operations : Int32
+  mut termination_notices : Int32
   mut status : ShellStatus
 }
 
@@ -83,14 +83,17 @@ pub fn NativeShell::begin_turn(self : NativeShell) -> Unit {
 ///
 /// Queue capacity/stale-race policy belongs to the application boundary. This
 /// reducer owns only the visible semantic bubble after queueFollowUp accepts it.
-pub fn NativeShell::queue_follow_up(self : NativeShell, prompt : String) -> Int {
+pub fn NativeShell::queue_follow_up(
+  self : NativeShell,
+  prompt : String,
+) -> Int32 {
   let row_id = self.transcript.append_queued_user(prompt)
   self.queued_prompt_rows.push(row_id)
   row_id
 }
 
 ///|
-pub fn NativeShell::queued_prompt_count(self : NativeShell) -> Int {
+pub fn NativeShell::queued_prompt_count(self : NativeShell) -> Int32 {
   self.queued_prompt_rows.length()
 }
 
@@ -183,17 +186,20 @@ fn NativeShell::finish_interrupted_turn(self : NativeShell) -> Unit {
 ///
 /// Queued follow-ups use `queue_follow_up` instead; their existing bubble is
 /// promoted on the next TurnStarted so the transcript never duplicates them.
-pub fn NativeShell::append_user(self : NativeShell, prompt : String) -> Int {
+pub fn NativeShell::append_user(self : NativeShell, prompt : String) -> Int32 {
   self.transcript.append_finalized(@ui.TranscriptUser, prompt)
 }
 
 ///|
-pub fn NativeShell::append_notice(self : NativeShell, message : String) -> Int {
+pub fn NativeShell::append_notice(
+  self : NativeShell,
+  message : String,
+) -> Int32 {
   self.transcript.append_finalized(@ui.TranscriptSystem, message)
 }
 
 ///|
-pub fn NativeShell::append_error(self : NativeShell, message : String) -> Int {
+pub fn NativeShell::append_error(self : NativeShell, message : String) -> Int32 {
   self.transcript.append_finalized(@ui.TranscriptError, message)
 }
 
@@ -230,7 +236,7 @@ pub fn NativeShell::compact_started(
 pub fn NativeShell::compact_finished(
   self : NativeShell,
   mode : String,
-  messages_after : Int,
+  messages_after : Int32,
 ) -> Unit {
   ignore(
     self.append_notice(
@@ -260,12 +266,12 @@ pub fn NativeShell::operation_finalized(
 }
 
 ///|
-pub fn NativeShell::finalized_operation_count(self : NativeShell) -> Int {
+pub fn NativeShell::finalized_operation_count(self : NativeShell) -> Int32 {
   self.finalized_operations
 }
 
 ///|
-pub fn NativeShell::termination_notice_count(self : NativeShell) -> Int {
+pub fn NativeShell::termination_notice_count(self : NativeShell) -> Int32 {
   self.termination_notices
 }
 
@@ -294,7 +300,7 @@ pub fn NativeShell::message_end(
 }
 
 ///|
-fn preview_lines(text : String, max_lines : Int) -> String {
+fn preview_lines(text : String, max_lines : Int32) -> String {
   if text.is_empty() {
     return ""
   }
@@ -316,7 +322,7 @@ fn preview_lines(text : String, max_lines : Int) -> String {
 }
 
 ///|
-fn one_line_preview(text : String, max_chars : Int) -> String {
+fn one_line_preview(text : String, max_chars : Int32) -> String {
   let lines : Array[String] = []
   for line in text.split("\n") {
     lines.push(line.to_owned())
@@ -361,7 +367,7 @@ fn tool_result_view(
 /// mounted on one semantic transcript row even before the wire id is known.
 pub fn NativeShell::tool_args_delta(
   self : NativeShell,
-  index : Int,
+  index : Int32,
   id : String?,
   name : String?,
   delta : String?,
@@ -515,10 +521,10 @@ pub fn NativeShell::take_scrollback_ready(
 pub fn NativeShell::append_live_scene(
   self : NativeShell,
   builder : @ui.SceneBuilder,
-  x : UInt,
-  y : UInt,
-  width : UInt,
-) -> UInt {
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
+) -> UInt32 {
   self.transcript.append_live_scene_with_thinking(
     builder,
     x,
@@ -532,10 +538,10 @@ pub fn NativeShell::append_live_scene(
 pub fn NativeShell::append_live_block_scene(
   self : NativeShell,
   builder : @ui.SceneBuilder,
-  x : UInt,
-  y : UInt,
-  width : UInt,
-  height : UInt,
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
+  height : UInt32,
 ) -> Unit {
   self.transcript.append_live_block_scene_with_thinking(
     builder,
@@ -570,7 +576,7 @@ pub fn NativeShell::scrollback_text(
 }
 
 ///|
-pub fn validation_marker() -> Int {
+pub fn validation_marker() -> Int32 {
   let shell = NativeShell::new()
   shell.begin_turn()
   shell.append_reasoning("think")

@@ -41,7 +41,7 @@ pub impl @posoco.UiPort for TerminalUiPort with fn render(
 ///|
 /// Parse a Select menu answer into a 1-based number. None when the line is
 /// not pure digits (the caller re-prompts).
-fn parse_menu_choice(line : String) -> Int? {
+fn parse_menu_choice(line : String) -> Int32? {
   let trimmed = line.trim()
   if trimmed.length() == 0 {
     return None

@@ -146,7 +146,7 @@ pub fn api_key_factories(
 /// request.
 pub fn oauth_factories(
   ctx : @devkit.ExtContext,
-  device_id? : String = "",
+  device_id~ : String = "",
 ) -> Array[&@llm.OAuthFactory] {
   let kimi = @kimi.KimiProvider(ctx~, device_id~)
   let openai = @openai.OpenAIProvider()
@@ -160,7 +160,7 @@ pub fn oauth_factories(
 /// `oauth_factories`, `device_id` is supplied by the host.
 pub fn refreshable_factories(
   ctx : @devkit.ExtContext,
-  device_id? : String = "",
+  device_id~ : String = "",
 ) -> Array[&@llm.RefreshableProviderFactory] {
   let deepseek = @deepseek.DeepSeekProvider(ctx~)
   let kimi = @kimi.KimiProvider(ctx~, device_id~)

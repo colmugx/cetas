@@ -14,7 +14,7 @@ priv struct MemohSession {
 ///|
 priv struct SessionIdState {
   mut last_ms : Int64
-  mut seq : Int
+  mut seq : Int32
 }
 
 ///|
@@ -34,7 +34,7 @@ fn mint_memoh_session_id() -> String {
 }
 
 ///|
-fn router_context_window(router : @llm.RouterModelPort) -> Int? {
+fn router_context_window(router : @llm.RouterModelPort) -> Int32? {
   router.provider_config().context_window
 }
 
@@ -66,7 +66,7 @@ pub async fn MemohHost::MemohHost(
   home~ : String,
   cwd~ : String,
   mcp_group~ : @async.TaskGroup[Unit],
-  version? : String = "0.1.0",
+  version~ : String = "0.1.0",
 ) -> MemohHost raise @posoco.CompositionError {
   let fs = @workspace.NativeWorkspaceFs()
   let platform = build_provider_platform(fs, home)

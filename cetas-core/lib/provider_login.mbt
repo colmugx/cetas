@@ -27,9 +27,9 @@ pub(all) struct ProviderCredentialSnapshot {
 
 ///|
 pub fn ProviderCredentialSnapshot::ProviderCredentialSnapshot(
-  settings? : Map[String, Json] = Map::from_array([]),
-  credentials? : Map[String, @oauth.ProviderCredential] = Map::from_array([]),
-  credential_store? : &@oauth.ProviderCredentialStore? = None,
+  settings~ : Map[String, Json] = Map::from_array([]),
+  credentials~ : Map[String, @oauth.ProviderCredential] = Map::from_array([]),
+  credential_store~ : &@oauth.ProviderCredentialStore? = None,
 ) -> ProviderCredentialSnapshot {
   { settings, credentials, credential_store, }
 }
@@ -43,7 +43,7 @@ pub fn ProviderCredentialSnapshot::ProviderCredentialSnapshot(
 pub fn source_for_factory(
   factory : &@llm.ProviderFactory,
   snapshot : ProviderCredentialSnapshot,
-  cached_models? : Json? = None,
+  cached_models~ : Json? = None,
 ) -> @llm.ProviderConfigSource {
   let provider_id = factory.provider_id()
   let provider_settings = match snapshot.settings.get(provider_id) {
@@ -70,7 +70,7 @@ pub fn source_for_factory(
 pub fn build_provider_catalog(
   factory : &@llm.ProviderFactory,
   snapshot : ProviderCredentialSnapshot,
-  cached_models? : Json? = None,
+  cached_models~ : Json? = None,
 ) -> @llm.ProviderModelCatalog? raise @posoco.CompositionError {
   let source = source_for_factory(factory, snapshot, cached_models~)
   match factory.build(source) {
@@ -99,7 +99,7 @@ pub(all) struct CatalogBuildIssue {
 pub fn try_build_provider_catalog(
   factory : &@llm.ProviderFactory,
   snapshot : ProviderCredentialSnapshot,
-  cached_models? : Json? = None,
+  cached_models~ : Json? = None,
 ) -> Result[@llm.ProviderModelCatalog?, @posoco.CompositionError] {
   Ok(build_provider_catalog(factory, snapshot, cached_models~)) catch {
     err => Err(err)
@@ -148,7 +148,7 @@ pub async fn refresh_provider_catalog(
 pub fn resolve_login_method(
   provider_id : String,
   requested : String,
-  settings? : Map[String, Json] = Map::from_array([]),
+  settings~ : Map[String, Json] = Map::from_array([]),
 ) -> String raise @posoco.CommandError {
   if requested.length() > 0 {
     return requested
@@ -207,8 +207,8 @@ pub(all) struct LoginOutcome {
 pub async fn login_provider(
   provider_id : String,
   requested : String,
-  settings? : Map[String, Json] = Map::from_array([]),
-  device_id? : String = "",
+  settings~ : Map[String, Json] = Map::from_array([]),
+  device_id~ : String = "",
   auth_interaction : &@oauth.AuthInteraction,
   auth_prompt : &@oauth.AuthPromptInteraction,
 ) -> LoginOutcome raise @posoco.CommandError {
@@ -281,8 +281,8 @@ pub async fn login_provider(
 /// `authProviders` with `["api_key"]`.
 pub fn provider_setup_json(
   catalogs : Array[@llm.ProviderModelCatalog],
-  settings? : Map[String, Json] = Map::from_array([]),
-  issues? : Array[CatalogBuildIssue] = [],
+  settings~ : Map[String, Json] = Map::from_array([]),
+  issues~ : Array[CatalogBuildIssue] = [],
 ) -> String {
   let entries : Array[Json] = []
   let mut active_model_id : String? = None
@@ -411,7 +411,7 @@ pub async fn run_provider_login_flow(
   interaction : &@oauth.AuthInteraction,
   prompt : &@oauth.AuthPromptInteraction,
   mint_device_id : () -> String raise @posoco.CommandError,
-  note? : async (String) -> Unit noraise = fn(_ : String) { () },
+  note~ : async (String) -> Unit noraise = fn(_ : String) { () },
 ) -> Unit raise @posoco.CommandError {
   let settings = load_provider_settings(fs, home~, label="cetas.login") catch {
     _ =>

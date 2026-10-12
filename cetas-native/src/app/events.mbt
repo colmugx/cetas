@@ -15,9 +15,9 @@ pub(all) enum NativeEvent {
   NativeSessionRedirect(String, String)
   NativeToolCallDeferred(String, String, String)
   NativeCompactStarted(String)
-  NativeCompactFinished(String, String, String, Int)
+  NativeCompactFinished(String, String, String, Int32)
   NativeOperationFinalized(String, String, String)
-  NativeToolArgsDelta(Int, String?, String?, String?)
+  NativeToolArgsDelta(Int32, String?, String?, String?)
   NativeToolCallStarted(String, String, String)
   NativeToolCallCompleted(String, String, Bool)
 }
@@ -59,7 +59,7 @@ fn bool_field(fields : Map[String, Json], key : String) -> Bool? {
 }
 
 ///|
-fn non_negative_int_field(fields : Map[String, Json], key : String) -> Int? {
+fn non_negative_int_field(fields : Map[String, Json], key : String) -> Int32? {
   match fields.get(key) {
     Some(Json::Number(value, ..)) => {
       let int = value.to_int()
@@ -296,7 +296,7 @@ pub fn NativeShell::handle_event_json(self : NativeShell, raw : String) -> Bool 
 }
 
 ///|
-pub fn event_wire_validation_marker() -> Int {
+pub fn event_wire_validation_marker() -> Int32 {
   let shell = NativeShell::new()
 
   if !shell.handle_event_json("{\"type\":\"turn_started\"}") ||

@@ -19,8 +19,8 @@ pub(all) struct Cetas {
 /// - `tool_contributors` (e.g. tool usage guidance) are appended in the
 ///   order they are supplied.
 pub fn Cetas::Cetas(
-  context_contributor? : &@posoco.SystemPromptContributor? = None,
-  tool_contributors? : Array[&@posoco.SystemPromptContributor] = [],
+  context_contributor~ : &@posoco.SystemPromptContributor? = None,
+  tool_contributors~ : Array[&@posoco.SystemPromptContributor] = [],
 ) -> Cetas {
   let prompt_contributors : Array[&@posoco.SystemPromptContributor] = []
   match context_contributor {
@@ -63,7 +63,7 @@ pub async fn run_prompt(
   agent : @posoco.Agent,
   prompt : String,
   session_id : String,
-  images? : Array[@posoco.Content] = [],
+  images~ : Array[@posoco.Content] = [],
 ) -> String raise @posoco.AgentError {
   let blocks : Array[@posoco.Content] = [@posoco.Content::Text(prompt)]
   for image in images {
@@ -113,7 +113,7 @@ fn assistant_text(result : @posoco.TurnResult) -> String {
 pub(all) struct CompactRunOutcome {
   final_session_id : String
   mode : String
-  messages_after : Int
+  messages_after : Int32
 } derive(Eq)
 
 ///|
@@ -168,7 +168,7 @@ pub fn cetas_reconstructable_capabilities() -> Array[String] {
 /// Product policy for the skills extension. The concrete Skills adapter lives
 /// in the host composition root; this value remains in core so every host
 /// applies the same Cetas behavior.
-pub fn cetas_skills_max_instruction_chars() -> Int {
+pub fn cetas_skills_max_instruction_chars() -> Int32 {
   65536
 }
 
@@ -180,8 +180,8 @@ pub fn cetas_skills_max_instruction_chars() -> Int {
 /// themselves). Host-owned knobs pass through: `max_tool_rounds~ : None` is
 /// unbounded.
 pub fn default_agent_config(
-  max_tool_rounds? : Int? = None,
-  system_prompt? : String? = None,
+  max_tool_rounds~ : Int32? = None,
+  system_prompt~ : String? = None,
 ) -> @posoco.AgentConfig {
   @posoco.agent_config(max_tool_rounds~, temperature=Some(0.0), system_prompt~)
 }

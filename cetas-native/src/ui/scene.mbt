@@ -16,53 +16,53 @@
 pub(all) enum TuiColor {
   ColorInherit
   ColorReset
-  ColorIndexed(UInt)
-  ColorRgb(UInt, UInt, UInt)
+  ColorIndexed(UInt32)
+  ColorRgb(UInt32, UInt32, UInt32)
 }
 
 ///|
 pub(all) struct TextStyle {
   fg : TuiColor
   bg : TuiColor
-  modifiers : UInt
+  modifiers : UInt32
 }
 
 ///|
 pub fn TextStyle::new(
-  fg? : TuiColor = ColorInherit,
-  bg? : TuiColor = ColorInherit,
-  modifiers? : UInt = 0U,
+  fg~ : TuiColor = ColorInherit,
+  bg~ : TuiColor = ColorInherit,
+  modifiers~ : UInt32 = 0U,
 ) -> TextStyle {
   { fg, bg, modifiers, }
 }
 
 ///|
-pub fn modifier_bold() -> UInt {
+pub fn modifier_bold() -> UInt32 {
   1U << 0
 }
 
 ///|
-pub fn modifier_dim() -> UInt {
+pub fn modifier_dim() -> UInt32 {
   1U << 1
 }
 
 ///|
-pub fn modifier_italic() -> UInt {
+pub fn modifier_italic() -> UInt32 {
   1U << 2
 }
 
 ///|
-pub fn modifier_underlined() -> UInt {
+pub fn modifier_underlined() -> UInt32 {
   1U << 3
 }
 
 ///|
-pub fn modifier_reversed() -> UInt {
+pub fn modifier_reversed() -> UInt32 {
   1U << 6
 }
 
 ///|
-fn TuiColor::encode(self : TuiColor) -> UInt {
+fn TuiColor::encode(self : TuiColor) -> UInt32 {
   match self {
     ColorInherit => 0U
     ColorReset => 0x10000000U
@@ -77,15 +77,15 @@ fn TuiColor::encode(self : TuiColor) -> UInt {
 
 ///|
 pub(all) struct Scene {
-  words : FixedArray[UInt]
-  styles : FixedArray[UInt]
+  words : FixedArray[UInt32]
+  styles : FixedArray[UInt32]
   text : Bytes
 }
 
 ///|
 pub struct SceneBuilder {
-  words : Array[UInt]
-  styles : Array[UInt]
+  words : Array[UInt32]
+  styles : Array[UInt32]
   text : Array[Byte]
 }
 
@@ -97,14 +97,14 @@ pub fn SceneBuilder::new() -> SceneBuilder {
 ///|
 fn SceneBuilder::push_command(
   self : SceneBuilder,
-  kind : UInt,
-  x : UInt,
-  y : UInt,
-  width : UInt,
-  height : UInt,
-  text_offset : UInt,
-  text_len : UInt,
-  style_ref : UInt,
+  kind : UInt32,
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
+  height : UInt32,
+  text_offset : UInt32,
+  text_len : UInt32,
+  style_ref : UInt32,
 ) -> Unit {
   self.words.push(kind)
   self.words.push(x)
@@ -117,7 +117,7 @@ fn SceneBuilder::push_command(
 }
 
 ///|
-fn SceneBuilder::append_text(self : SceneBuilder, text : Bytes) -> UInt {
+fn SceneBuilder::append_text(self : SceneBuilder, text : Bytes) -> UInt32 {
   let offset = self.text.length().reinterpret_as_uint()
   for i in 0..<text.length() {
     self.text.push(text[i])
@@ -126,7 +126,7 @@ fn SceneBuilder::append_text(self : SceneBuilder, text : Bytes) -> UInt {
 }
 
 ///|
-fn SceneBuilder::push_style(self : SceneBuilder, style : TextStyle) -> UInt {
+fn SceneBuilder::push_style(self : SceneBuilder, style : TextStyle) -> UInt32 {
   let style_ref = (self.styles.length() / 4).reinterpret_as_uint() + 1U
   self.styles.push(style.fg.encode())
   self.styles.push(style.bg.encode())
@@ -138,10 +138,10 @@ fn SceneBuilder::push_style(self : SceneBuilder, style : TextStyle) -> UInt {
 ///|
 pub fn SceneBuilder::text(
   self : SceneBuilder,
-  x : UInt,
-  y : UInt,
-  width : UInt,
-  height : UInt,
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
+  height : UInt32,
   text : Bytes,
 ) -> Unit {
   let offset = self.append_text(text)
@@ -160,10 +160,10 @@ pub fn SceneBuilder::text(
 ///|
 pub fn SceneBuilder::text_styled(
   self : SceneBuilder,
-  x : UInt,
-  y : UInt,
-  width : UInt,
-  height : UInt,
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
+  height : UInt32,
   text : Bytes,
   style : TextStyle,
 ) -> Unit {
@@ -184,26 +184,30 @@ pub fn SceneBuilder::text_styled(
 ///|
 pub fn SceneBuilder::clear(
   self : SceneBuilder,
-  x : UInt,
-  y : UInt,
-  width : UInt,
-  height : UInt,
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
+  height : UInt32,
 ) -> Unit {
   self.push_command(2U, x, y, width, height, 0U, 0U, 0U)
 }
 
 ///|
-pub fn SceneBuilder::cursor(self : SceneBuilder, x : UInt, y : UInt) -> Unit {
+pub fn SceneBuilder::cursor(
+  self : SceneBuilder,
+  x : UInt32,
+  y : UInt32,
+) -> Unit {
   self.push_command(3U, x, y, 0U, 0U, 0U, 0U, 0U)
 }
 
 ///|
 pub fn SceneBuilder::border(
   self : SceneBuilder,
-  x : UInt,
-  y : UInt,
-  width : UInt,
-  height : UInt,
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
+  height : UInt32,
   title : Bytes,
   style : TextStyle,
 ) -> Unit {
@@ -229,10 +233,10 @@ pub fn SceneBuilder::border(
 /// identity and lifecycle; Rust only owns presentation.
 fn SceneBuilder::markdown(
   self : SceneBuilder,
-  x : UInt,
-  y : UInt,
-  width : UInt,
-  height : UInt,
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
+  height : UInt32,
   text : Bytes,
 ) -> Unit {
   let offset = self.append_text(text)
@@ -256,12 +260,12 @@ fn SceneBuilder::markdown(
 /// and highlight presentation, not selection policy.
 pub fn SceneBuilder::select_list(
   self : SceneBuilder,
-  x : UInt,
-  y : UInt,
-  width : UInt,
-  height : UInt,
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
+  height : UInt32,
   items : Array[String],
-  selected : Int,
+  selected : Int32,
 ) -> Unit {
   if height == 0U || items.is_empty() {
     return
@@ -319,7 +323,7 @@ pub fn Scene::validation() -> Scene {
 }
 
 ///|
-pub fn validation_marker() -> Int {
+pub fn validation_marker() -> Int32 {
   if layout_validation_marker() == 1 &&
     select_list_validation_marker() == 1 &&
     event_validation_marker() == 1 &&

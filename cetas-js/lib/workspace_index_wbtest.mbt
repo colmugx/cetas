@@ -14,7 +14,7 @@ fn FakeIndexFs::make(
   dirs~ : Array[(String, Array[String])],
   file_kinds~ : Array[String],
   dir_kinds~ : Array[String],
-  unreadable? : Array[String] = [],
+  unreadable~ : Array[String] = [],
 ) -> FakeIndexFs {
   let kind_map : Map[String, @workspace.WorkspaceFileKind] = Map::from_array([])
   for path in file_kinds {

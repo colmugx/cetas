@@ -62,7 +62,7 @@ pub fn NativeShell::snapshot_json(self : NativeShell) -> Json {
 }
 
 ///|
-pub fn snapshot_validation_marker() -> Int {
+pub fn snapshot_validation_marker() -> Int32 {
   let shell = NativeShell::new()
   shell.begin_turn()
   shell.append_text("hello")

@@ -16,8 +16,8 @@ fn workspace_mention_ignore_patterns() -> Array[String] {
 async fn workspace_file_index(
   fs : &@workspace.WorkspaceFs,
   root : String,
-  ignore_patterns? : Array[String] = workspace_mention_ignore_patterns(),
-  max_entries? : Int = 20000,
+  ignore_patterns~ : Array[String] = workspace_mention_ignore_patterns(),
+  max_entries~ : Int32 = 20000,
 ) -> Array[String] noraise {
   let out : Array[String] = []
   workspace_index_walk(fs, root, "", ignore_patterns, max_entries, out, 0)
@@ -33,9 +33,9 @@ async fn workspace_index_walk(
   dir : String,
   rel_prefix : String,
   ignore_patterns : Array[String],
-  max_entries : Int,
+  max_entries : Int32,
   out : Array[String],
-  depth : Int,
+  depth : Int32,
 ) -> Unit noraise {
   if out.length() >= max_entries || depth > 32 {
     return

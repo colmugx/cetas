@@ -46,7 +46,7 @@ fn native_login_available() -> Bool {
 }
 
 ///|
-async fn startup_failure(message : String, usage? : Bool = false) -> Unit {
+async fn startup_failure(message : String, usage~ : Bool = false) -> Unit {
   @stdio.stderr.write(@lib.turn_failed_line("startup: " + message) + "\n")
   @stdio.stderr.write("cetas-run: \{message}\n")
   if usage {

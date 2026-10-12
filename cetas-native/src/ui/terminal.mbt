@@ -9,7 +9,7 @@ pub struct Terminal {
 }
 
 ///|
-pub fn Terminal::open_inline(rows : UInt) -> Terminal? {
+pub fn Terminal::open_inline(rows : UInt32) -> Terminal? {
   let raw = @native.open_inline(rows)
   if @native.is_null(raw) != 0 {
     return None
@@ -34,7 +34,7 @@ pub fn Terminal::close(self : Terminal) -> Unit {
 }
 
 ///|
-pub fn Terminal::suspend(self : Terminal) -> Int {
+pub fn Terminal::suspend(self : Terminal) -> Int32 {
   match self.raw {
     Some(raw) => @native.suspend(raw)
     None => 2
@@ -42,7 +42,7 @@ pub fn Terminal::suspend(self : Terminal) -> Int {
 }
 
 ///|
-pub fn Terminal::resume_terminal(self : Terminal) -> Int {
+pub fn Terminal::resume_terminal(self : Terminal) -> Int32 {
   match self.raw {
     Some(raw) => @native.resume_terminal(raw)
     None => 2
@@ -50,7 +50,7 @@ pub fn Terminal::resume_terminal(self : Terminal) -> Int {
 }
 
 ///|
-pub fn Terminal::render(self : Terminal, scene : Scene) -> Int {
+pub fn Terminal::render(self : Terminal, scene : Scene) -> Int32 {
   match self.raw {
     Some(raw) =>
       @native.render_scene(
@@ -67,7 +67,7 @@ pub fn Terminal::render(self : Terminal, scene : Scene) -> Int {
 }
 
 ///|
-pub fn Terminal::insert_before(self : Terminal, text : String) -> Int {
+pub fn Terminal::insert_before(self : Terminal, text : String) -> Int32 {
   let bytes = @utf8.encode(text)
   match self.raw {
     Some(raw) =>
@@ -81,7 +81,10 @@ pub fn Terminal::insert_before(self : Terminal, text : String) -> Int {
 }
 
 ///|
-pub fn Terminal::insert_before_markdown(self : Terminal, text : String) -> Int {
+pub fn Terminal::insert_before_markdown(
+  self : Terminal,
+  text : String,
+) -> Int32 {
   let bytes = @utf8.encode(text)
   match self.raw {
     Some(raw) =>
@@ -95,8 +98,8 @@ pub fn Terminal::insert_before_markdown(self : Terminal, text : String) -> Int {
 }
 
 ///|
-pub fn Terminal::viewport_size(self : Terminal) -> (Int, FixedArray[UInt]) {
-  let out : FixedArray[UInt] = FixedArray::make(2, 0U)
+pub fn Terminal::viewport_size(self : Terminal) -> (Int32, FixedArray[UInt32]) {
+  let out : FixedArray[UInt32] = FixedArray::make(2, 0U)
   let status = match self.raw {
     Some(raw) => @native.viewport_size(raw, out, 2U)
     None => 2
@@ -108,8 +111,8 @@ pub fn Terminal::viewport_size(self : Terminal) -> (Int, FixedArray[UInt]) {
 pub fn Terminal::poll_raw(
   self : Terminal,
   timeout_ms : UInt64,
-) -> (Int, FixedArray[UInt]) {
-  let out : FixedArray[UInt] = FixedArray::make(14, 0U)
+) -> (Int32, FixedArray[UInt32]) {
+  let out : FixedArray[UInt32] = FixedArray::make(14, 0U)
   let status = match self.raw {
     Some(raw) => @native.poll_words(raw, timeout_ms, out, 14U)
     None => 2
@@ -121,7 +124,7 @@ pub fn Terminal::poll_raw(
 pub fn Terminal::poll(
   self : Terminal,
   timeout_ms : UInt64,
-) -> (Int, TerminalEvent?) {
+) -> (Int32, TerminalEvent?) {
   let (status, words) = self.poll_raw(timeout_ms)
   (status, decode_terminal_event(words))
 }

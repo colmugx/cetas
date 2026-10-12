@@ -7,7 +7,7 @@
 
 ///|
 pub(all) struct RewindPoint {
-  message_index : Int
+  message_index : Int32
   preview : String
 }
 
@@ -16,7 +16,7 @@ pub(all) enum RewindPickerAction {
   RewindUnhandled
   RewindChanged
   RewindCancelled
-  RewindPicked(Int)
+  RewindPicked(Int32)
 } derive(Eq)
 
 ///|
@@ -81,19 +81,19 @@ pub fn RewindPickerModel::is_active(self : RewindPickerModel) -> Bool {
 }
 
 ///|
-pub fn RewindPickerModel::selected_index(self : RewindPickerModel) -> Int {
+pub fn RewindPickerModel::selected_index(self : RewindPickerModel) -> Int32 {
   self.list.selected_index()
 }
 
 ///|
-pub fn RewindPickerModel::point_count(self : RewindPickerModel) -> Int {
+pub fn RewindPickerModel::point_count(self : RewindPickerModel) -> Int32 {
   self.points.length()
 }
 
 ///|
 pub fn RewindPickerModel::point(
   self : RewindPickerModel,
-  index : Int,
+  index : Int32,
 ) -> RewindPoint? {
   if index < 0 || index >= self.points.length() {
     None
@@ -124,10 +124,10 @@ pub fn RewindPickerModel::close(self : RewindPickerModel) -> Unit {
 pub fn RewindPickerModel::append_scene(
   self : RewindPickerModel,
   builder : SceneBuilder,
-  x : UInt,
-  y : UInt,
-  width : UInt,
-  height : UInt,
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
+  height : UInt32,
 ) -> Unit {
   if self.active {
     self.list.append_scene(builder, x, y, width, height)
@@ -170,7 +170,7 @@ pub fn RewindPickerModel::handle_key(
 }
 
 ///|
-fn rewind_validation_key(code : UInt) -> TerminalEvent {
+fn rewind_validation_key(code : UInt32) -> TerminalEvent {
   TerminalEvent::{
     abi_version: 2U,
     struct_size: 56U,
@@ -190,7 +190,7 @@ fn rewind_validation_key(code : UInt) -> TerminalEvent {
 }
 
 ///|
-pub fn rewind_validation_marker() -> Int {
+pub fn rewind_validation_marker() -> Int32 {
   let picker = RewindPickerModel::new()
   if picker.open([]) || picker.is_active() {
     return 0

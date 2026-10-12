@@ -29,7 +29,7 @@ pub(all) struct CetasSession {
 /// active slot's context window) call this first and inject the router.
 pub fn build_cetas_router(
   platform~ : CetasPlatform,
-  event_bus? : @devkit.EventBus? = None,
+  event_bus~ : @devkit.EventBus? = None,
 ) -> @llm.RouterModelPort raise @posoco.CompositionError {
   @llm.RouterModelPort::from_catalogs(
     platform.catalogs,
@@ -63,18 +63,18 @@ pub fn build_cetas_router(
 pub async fn build_cetas_session(
   platform~ : CetasPlatform,
   cwd~ : String,
-  router? : @llm.RouterModelPort? = None,
-  approval? : &@permission.ApprovalSource? = None,
-  ui? : &@posoco.UiPort? = None,
-  event_bus? : @devkit.EventBus? = None,
-  client_exts? : Array[&@posoco.Extension] = [],
-  policy_exts? : Array[&@posoco.Extension] = [],
-  bus_exts? : ((@devkit.EventBus) -> Array[&@posoco.Extension])? = None,
-  feature_exts? : Array[&@posoco.Extension] = [],
-  prompt_suffix? : String? = None,
-  session_fs? : &@workspace.WorkspaceFs? = None,
-  label? : String = "cetas-acp",
-  warn? : async (String) -> Unit noraise = fn(_ : String) { () },
+  router~ : @llm.RouterModelPort? = None,
+  approval~ : &@permission.ApprovalSource? = None,
+  ui~ : &@posoco.UiPort? = None,
+  event_bus~ : @devkit.EventBus? = None,
+  client_exts~ : Array[&@posoco.Extension] = [],
+  policy_exts~ : Array[&@posoco.Extension] = [],
+  bus_exts~ : ((@devkit.EventBus) -> Array[&@posoco.Extension])? = None,
+  feature_exts~ : Array[&@posoco.Extension] = [],
+  prompt_suffix~ : String? = None,
+  session_fs~ : &@workspace.WorkspaceFs? = None,
+  label~ : String = "cetas-acp",
+  warn~ : async (String) -> Unit noraise = fn(_ : String) { () },
 ) -> CetasSession raise @posoco.CompositionError {
   // Session-private so status/model/permission facts never leak into another
   // session. Construct the bus before the router so the router can publish its
@@ -215,10 +215,10 @@ pub async fn build_cetas_session(
 /// host lifetime; production hosts should always provide it.
 pub fn compose_cetas_agent(
   session~ : CetasSession,
-  tail_exts? : Array[&@posoco.Extension] = [],
-  runtime? : &@runtime.Runtime? = None,
-  catalog_source? : &@runtime.CatalogSource? = None,
-  runtime_group? : @async.TaskGroup[Unit]? = None,
+  tail_exts~ : Array[&@posoco.Extension] = [],
+  runtime~ : &@runtime.Runtime? = None,
+  catalog_source~ : &@runtime.CatalogSource? = None,
+  runtime_group~ : @async.TaskGroup[Unit]? = None,
 ) -> @posoco.Agent raise @posoco.CompositionError {
   for ext in tail_exts {
     session.exts.push(ext)

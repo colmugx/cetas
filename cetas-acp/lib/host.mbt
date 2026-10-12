@@ -106,7 +106,7 @@ fn SessionHandle::release_agent_scope(self : SessionHandle) -> Unit {
 /// Process-global (not per host) so two hosts in one process cannot mint the same id.
 priv struct DurableIdState {
   mut last_ms : Int64
-  mut last_seq : Int
+  mut last_seq : Int32
 }
 
 ///|
@@ -169,9 +169,9 @@ pub struct CetasAcpHost {
 pub async fn CetasAcpHost::CetasAcpHost(
   home~ : String,
   cwd~ : String,
-  agent_version? : String = "0.1.0",
+  agent_version~ : String = "0.1.0",
   mcp_group? : @async.TaskGroup[Unit],
-  mcp_mode? : @mcp.LoadMode = @mcp.LoadMode::Lazy,
+  mcp_mode~ : @mcp.LoadMode = @mcp.LoadMode::Lazy,
 ) -> CetasAcpHost raise @posoco.CompositionError {
   let fs = @workspace.NativeWorkspaceFs()
   let platform = build_platform(
@@ -883,7 +883,7 @@ async fn CetasAcpHost::restore_session(
   session_id : String,
   client_cwd : String,
   client_mcp : Array[@acp.McpServer],
-  store_root? : String? = None,
+  store_root~ : String? = None,
 ) -> SessionHandle raise @acp.HandlerError {
   match self.sessions.get(session_id) {
     Some(handle) => self.retire_live_session(session_id, handle)
@@ -1101,7 +1101,7 @@ async fn CetasAcpHost::push_config_option_update(
 /// the slot does not declare one. The bridge stamps it onto
 /// `UsageUpdate.size`; cetas has no `AgentConfig.model_context_window`
 /// source to prefer (default_agent_config passes nothing).
-fn active_slot_context_window(router : @llm.RouterModelPort) -> Int? {
+fn active_slot_context_window(router : @llm.RouterModelPort) -> Int32? {
   router.provider_config().context_window
 }
 
@@ -1229,8 +1229,8 @@ async fn build_platform(
   fs : &@workspace.WorkspaceFs,
   mcp_group~ : @async.TaskGroup[Unit]?,
   mcp_mode~ : @mcp.LoadMode,
-  delegation? : DelegateFsMode = DelegateFsMode::Local,
-  debug? : DebugTaps = { catalog: false, wire: false, },
+  delegation~ : DelegateFsMode = DelegateFsMode::Local,
+  debug~ : DebugTaps = { catalog: false, wire: false, },
 ) -> Platform raise @posoco.CompositionError {
   let settings = @cetas_core.load_provider_settings(fs, home~)
   let ext_ctx = @devkit.ExtContext::default()
@@ -1372,13 +1372,13 @@ async fn read_credential_snapshot(
 async fn build_session_agent(
   platform~ : Platform,
   cwd~ : String,
-  session_id? : String = "",
-  session_store? : @fs_session.JsonlSessionStore = @fs_session.JsonlSessionStore(
+  session_id~ : String = "",
+  session_store~ : @fs_session.JsonlSessionStore = @fs_session.JsonlSessionStore(
     client_sessions_dir(platform.home, "acp"),
   ),
-  mcp_servers? : Array[@acp.McpServer] = [],
-  host_kind? : HostKind = HostKind::Generic,
-  env? : (String) -> String? = read_env_var,
+  mcp_servers~ : Array[@acp.McpServer] = [],
+  host_kind~ : HostKind = HostKind::Generic,
+  env~ : (String) -> String? = read_env_var,
 ) -> SessionHandle raise @posoco.CompositionError {
   // The router is built first so the bridge can stamp the active slot's
   // context window; the assembly reuses it instead of minting another.

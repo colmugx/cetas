@@ -12,7 +12,7 @@ pub(all) enum TerminalEventKind {
   EventPaste
   EventFocusIn
   EventFocusOut
-  EventUnknown(UInt)
+  EventUnknown(UInt32)
 } derive(Eq)
 
 ///|
@@ -23,7 +23,7 @@ pub(all) enum KeyAction {
   KeyPress
   KeyRepeat
   KeyRelease
-  KeyActionUnknown(UInt)
+  KeyActionUnknown(UInt32)
 } derive(Eq)
 
 ///|
@@ -31,7 +31,7 @@ pub extend KeyAction with Eq::{equal, not_equal}
 
 ///|
 pub(all) enum KeyCode {
-  KeyChar(UInt)
+  KeyChar(UInt32)
   KeyEnter
   KeyEscape
   KeyBackspace
@@ -47,8 +47,8 @@ pub(all) enum KeyCode {
   KeyPageDown
   KeyDelete
   KeyInsert
-  KeyFunction(UInt)
-  KeyUnknown(UInt)
+  KeyFunction(UInt32)
+  KeyUnknown(UInt32)
 } derive(Eq)
 
 ///|
@@ -56,59 +56,59 @@ pub extend KeyCode with Eq::{equal, not_equal}
 
 ///|
 pub(all) struct TerminalEvent {
-  abi_version : UInt
-  struct_size : UInt
-  kind : UInt
-  key_code : UInt
-  codepoint : UInt
-  modifiers : UInt
-  key_action : UInt
-  width : UInt
-  height : UInt
-  mouse_x : UInt
-  mouse_y : UInt
-  mouse_kind : UInt
-  mouse_button : UInt
-  text_len : UInt
+  abi_version : UInt32
+  struct_size : UInt32
+  kind : UInt32
+  key_code : UInt32
+  codepoint : UInt32
+  modifiers : UInt32
+  key_action : UInt32
+  width : UInt32
+  height : UInt32
+  mouse_x : UInt32
+  mouse_y : UInt32
+  mouse_kind : UInt32
+  mouse_button : UInt32
+  text_len : UInt32
 } derive(Eq)
 
 ///|
 pub extend TerminalEvent with Eq::{equal, not_equal}
 
 ///|
-pub fn modifier_shift() -> UInt {
+pub fn modifier_shift() -> UInt32 {
   1U << 0
 }
 
 ///|
-pub fn modifier_control() -> UInt {
+pub fn modifier_control() -> UInt32 {
   1U << 1
 }
 
 ///|
-pub fn modifier_alt() -> UInt {
+pub fn modifier_alt() -> UInt32 {
   1U << 2
 }
 
 ///|
-pub fn modifier_super() -> UInt {
+pub fn modifier_super() -> UInt32 {
   1U << 3
 }
 
 ///|
-pub fn modifier_hyper() -> UInt {
+pub fn modifier_hyper() -> UInt32 {
   1U << 4
 }
 
 ///|
-pub fn modifier_meta() -> UInt {
+pub fn modifier_meta() -> UInt32 {
   1U << 5
 }
 
 ///|
 pub fn TerminalEvent::has_modifier(
   self : TerminalEvent,
-  modifier : UInt,
+  modifier : UInt32,
 ) -> Bool {
   (self.modifiers & modifier) != 0U
 }
@@ -190,7 +190,7 @@ pub fn TerminalEvent::is_key_release(self : TerminalEvent) -> Bool {
 pub fn TerminalEvent::matches_key(
   self : TerminalEvent,
   code : KeyCode,
-  modifiers : UInt,
+  modifiers : UInt32,
 ) -> Bool {
   self.is_actionable_key() &&
   self.key_code_value() == code &&
@@ -200,14 +200,14 @@ pub fn TerminalEvent::matches_key(
 ///|
 pub fn TerminalEvent::matches_char(
   self : TerminalEvent,
-  codepoint : UInt,
-  modifiers : UInt,
+  codepoint : UInt32,
+  modifiers : UInt32,
 ) -> Bool {
   self.matches_key(KeyChar(codepoint), modifiers)
 }
 
 ///|
-pub fn decode_terminal_event(words : FixedArray[UInt]) -> TerminalEvent? {
+pub fn decode_terminal_event(words : FixedArray[UInt32]) -> TerminalEvent? {
   if words.length() < 14 {
     return None
   }
@@ -230,8 +230,8 @@ pub fn decode_terminal_event(words : FixedArray[UInt]) -> TerminalEvent? {
 }
 
 ///|
-pub fn event_validation_marker() -> Int {
-  let words : FixedArray[UInt] = [
+pub fn event_validation_marker() -> Int32 {
+  let words : FixedArray[UInt32] = [
     2U, 56U, 1U, 1U, 113U, 2U, 1U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
   ]
   guard decode_terminal_event(words) is Some(event) else { return 0 }
@@ -245,7 +245,7 @@ pub fn event_validation_marker() -> Int {
     return 0
   }
 
-  let release_words : FixedArray[UInt] = [
+  let release_words : FixedArray[UInt32] = [
     2U, 56U, 1U, 1U, 113U, 2U, 3U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
   ]
   guard decode_terminal_event(release_words) is Some(release) else { return 0 }
@@ -255,7 +255,7 @@ pub fn event_validation_marker() -> Int {
     return 0
   }
 
-  let back_tab_words : FixedArray[UInt] = [
+  let back_tab_words : FixedArray[UInt32] = [
     2U, 56U, 1U, 6U, 0U, 1U, 1U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
   ]
   guard decode_terminal_event(back_tab_words) is Some(back_tab) else {

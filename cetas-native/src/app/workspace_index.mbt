@@ -13,7 +13,7 @@ fn native_workspace_mention_ignore_patterns() -> Array[String] {
 async fn native_workspace_file_index(
   fs : &@workspace.WorkspaceFs,
   root : String,
-  max_entries? : Int = 20000,
+  max_entries~ : Int32 = 20000,
 ) -> Array[String] noraise {
   let out : Array[String] = []
   native_workspace_index_walk(
@@ -34,9 +34,9 @@ async fn native_workspace_index_walk(
   dir : String,
   rel_prefix : String,
   ignore_patterns : Array[String],
-  max_entries : Int,
+  max_entries : Int32,
   out : Array[String],
-  depth : Int,
+  depth : Int32,
 ) -> Unit noraise {
   if out.length() >= max_entries || depth > 32 {
     return

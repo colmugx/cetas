@@ -182,7 +182,7 @@ async test "cetas_js_session_titles lists a missing directory as empty" {
 /// `Agent::run_scoped`; the cross-coroutine task admission it enables is
 /// covered by its own test below.
 async test "agent group session parks past composition and retires on close" {
-  let ready : @aqueue.Queue[Result[Int, Error]] = Queue(kind=Unbounded)
+  let ready : @aqueue.Queue[Result[Int32, Error]] = Queue(kind=Unbounded)
   let close : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
   let flusher_started = Ref::{ val: false, }
   let flusher_stopped = Ref::{ val: false, }

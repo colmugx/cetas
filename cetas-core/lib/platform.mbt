@@ -75,9 +75,9 @@ pub async fn build_cetas_platform(
   cwd~ : String,
   fs : &@workspace.WorkspaceFs,
   permission_mode~ : @permission.PermissionMode,
-  mcp_group? : @async.TaskGroup[Unit]? = None,
-  label? : String = "cetas-acp",
-  warn? : async (String) -> Unit noraise = fn(_ : String) { () },
+  mcp_group~ : @async.TaskGroup[Unit]? = None,
+  label~ : String = "cetas-acp",
+  warn~ : async (String) -> Unit noraise = fn(_ : String) { () },
 ) -> CetasPlatform raise @posoco.CompositionError {
   let settings = load_provider_settings(fs, home~, label~)
   let ext_ctx = @devkit.ExtContext::default()
@@ -179,7 +179,7 @@ pub async fn build_cetas_platform(
 pub async fn load_provider_settings(
   fs : &@workspace.WorkspaceFs,
   home~ : String,
-  label? : String = "cetas-acp",
+  label~ : String = "cetas-acp",
 ) -> Map[String, Json] raise @posoco.CompositionError {
   let manifest_id = label + ".providers"
   match @workspace.read_file_result(fs, settings_path(home)) {
@@ -218,7 +218,7 @@ pub async fn read_credential_snapshot(
   store : @credentials.FileProviderCredentialStore,
   factories : Array[&@llm.ProviderFactory],
   settings~ : Map[String, Json],
-  label? : String = "cetas-acp",
+  label~ : String = "cetas-acp",
 ) -> ProviderCredentialSnapshot raise @posoco.CompositionError {
   let credentials : Map[String, @oauth.ProviderCredential] = Map::from_array([])
   for factory in factories {
@@ -248,7 +248,7 @@ pub async fn read_credential_snapshot(
 /// Process-global (not per host) so two hosts in one process cannot mint the same id.
 priv struct DurableIdState {
   mut last_ms : Int64
-  mut last_seq : Int
+  mut last_seq : Int32
 }
 
 ///|
@@ -322,8 +322,8 @@ pub async fn read_session_sidecar(
   fs : &@workspace.WorkspaceFs,
   home~ : String,
   session_id~ : String,
-  label? : String = "cetas-acp",
-  warn? : async (String) -> Unit noraise = fn(_ : String) { () },
+  label~ : String = "cetas-acp",
+  warn~ : async (String) -> Unit noraise = fn(_ : String) { () },
 ) -> SessionSidecar? noraise {
   let path = match sidecar_path(home, session_id) {
     Some(path) => path
@@ -382,9 +382,9 @@ pub async fn update_session_sidecar(
   model~ : String,
   effort~ : String?,
   fresh_mcp_names~ : Array[String],
-  persist_lock? : @async.Mutex? = None,
-  label? : String = "cetas-acp",
-  warn? : async (String) -> Unit noraise = fn(_ : String) { () },
+  persist_lock~ : @async.Mutex? = None,
+  label~ : String = "cetas-acp",
+  warn~ : async (String) -> Unit noraise = fn(_ : String) { () },
 ) -> Unit noraise {
   let path = match sidecar_path(home, session_id) {
     Some(path) => path

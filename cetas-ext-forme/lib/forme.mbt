@@ -13,7 +13,7 @@ pub(all) struct Forme {
 }
 
 ///|
-pub fn Forme::Forme(host_note? : String? = None) -> Forme {
+pub fn Forme::Forme(host_note~ : String? = None) -> Forme {
   { host_note, }
 }
 

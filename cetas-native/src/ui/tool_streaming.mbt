@@ -7,18 +7,18 @@
 
 ///|
 pub(all) struct PendingToolCallSnapshot {
-  slot : Int
+  slot : Int32
   id : String?
-  index : Int
+  index : Int32
   name : String?
   raw_args : String
 }
 
 ///|
 struct PendingToolCall {
-  slot : Int
+  slot : Int32
   mut id : String?
-  index : Int
+  index : Int32
   mut name : String?
   mut raw_args : String
 }
@@ -26,7 +26,7 @@ struct PendingToolCall {
 ///|
 pub struct ToolStreamingModel {
   pending : Array[PendingToolCall]
-  mut next_slot : Int
+  mut next_slot : Int32
 }
 
 ///|
@@ -35,14 +35,14 @@ pub fn ToolStreamingModel::new() -> ToolStreamingModel {
 }
 
 ///|
-pub fn ToolStreamingModel::pending_count(self : ToolStreamingModel) -> Int {
+pub fn ToolStreamingModel::pending_count(self : ToolStreamingModel) -> Int32 {
   self.pending.length()
 }
 
 ///|
 fn ToolStreamingModel::snapshot_at(
   self : ToolStreamingModel,
-  index : Int,
+  index : Int32,
 ) -> PendingToolCallSnapshot {
   let entry = self.pending[index]
   {
@@ -57,9 +57,9 @@ fn ToolStreamingModel::snapshot_at(
 ///|
 fn ToolStreamingModel::find_pending_index(
   self : ToolStreamingModel,
-  index : Int,
+  index : Int32,
   id : String?,
-) -> Int? {
+) -> Int32? {
   match id {
     Some(wire_id) =>
       for i, entry in self.pending {
@@ -86,7 +86,7 @@ fn ToolStreamingModel::find_pending_index(
 /// row even while the wire key evolves from index-only to id-bearing.
 pub fn ToolStreamingModel::on_args_delta(
   self : ToolStreamingModel,
-  index : Int,
+  index : Int32,
   id : String?,
   name : String?,
   delta : String?,
@@ -139,7 +139,7 @@ pub fn ToolStreamingModel::on_call_started(
   tool_name : String,
   authoritative_args : String,
 ) -> PendingToolCallSnapshot? {
-  let mut found : Int? = None
+  let mut found : Int32? = None
 
   for i, entry in self.pending {
     if entry.id == Some(tool_call_id) {
@@ -170,7 +170,7 @@ pub fn ToolStreamingModel::on_call_started(
 ///|
 pub fn ToolStreamingModel::snapshot(
   self : ToolStreamingModel,
-  index : Int,
+  index : Int32,
 ) -> PendingToolCallSnapshot? {
   if index < 0 || index >= self.pending.length() {
     return None
@@ -184,7 +184,7 @@ pub fn ToolStreamingModel::end_turn(self : ToolStreamingModel) -> Unit {
 }
 
 ///|
-pub fn tool_streaming_validation_marker() -> Int {
+pub fn tool_streaming_validation_marker() -> Int32 {
   let stream = ToolStreamingModel::new()
 
   // First fragment may be index-only.

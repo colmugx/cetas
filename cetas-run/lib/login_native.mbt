@@ -209,7 +209,7 @@ async fn run_login_with_interactions(
   interaction~ : &@oauth.AuthInteraction,
   prompt~ : &@oauth.AuthPromptInteraction,
   mint_device_id~ : () -> String raise @posoco.CommandError,
-  driver? : LoginDriver = core_login_driver(),
+  driver~ : LoginDriver = core_login_driver(),
 ) -> Unit {
   let settings = @cetas_core.load_provider_settings(
     fs,

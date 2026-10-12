@@ -15,7 +15,7 @@ priv struct FakeAcpClient {
 
 ///|
 fn FakeAcpClient::FakeAcpClient(
-  reply? : @acp.RequestPermissionResponse = {
+  reply~ : @acp.RequestPermissionResponse = {
     outcome: Selected({ option_id: @ext_acp.ACP_ALLOW_ONCE, meta: Omitted, }),
     meta: Omitted,
   },
@@ -50,7 +50,7 @@ fn tk_client_info(
 ///|
 fn fake_acp_context(
   client : FakeAcpClient,
-  client_info? : () -> @acp.ProtocolNullable[@acp.Implementation] = fn() {
+  client_info~ : () -> @acp.ProtocolNullable[@acp.Implementation] = fn() {
     Omitted
   },
 ) -> @acp.AgentContext {
@@ -200,7 +200,7 @@ fn tk_router_slot(
   id : String,
   label : String,
   efforts : Array[String],
-  context_window? : Int? = None,
+  context_window~ : Int32? = None,
 ) -> @llm.ModelSlot {
   let base : @llm.ModelSlot = @llm.ModelSlot::ModelSlot(
     id~,
@@ -278,9 +278,9 @@ fn tk_spawn_session(
   model : &@posoco.ModelPort,
   tools : @posoco.RecordingToolProvider,
   process_cwd : String,
-  sessions_root? : String = "",
-  context_window? : Int? = None,
-  permission_mode? : @permission.PermissionMode = @permission.WorkspaceWrite,
+  sessions_root~ : String = "",
+  context_window~ : Int32? = None,
+  permission_mode~ : @permission.PermissionMode = @permission.WorkspaceWrite,
 ) -> async (String, @acp.NewSessionParams, String?) -> Result[
   SessionHandle,
   String,
@@ -356,17 +356,17 @@ fn tk_no_env(_key : String) -> String? {
 /// (or the caller's shared root, for cross-host restart tests).
 fn tk_host(
   steps : Array[@posoco.ScriptedModelStep],
-  tools? : @posoco.RecordingToolProvider = @posoco.RecordingToolProvider(
+  tools~ : @posoco.RecordingToolProvider = @posoco.RecordingToolProvider(
     [],
     Map::from_array([]),
   ),
-  fs? : FakeFs = FakeFs(),
-  refreshables? : Array[&@llm.RefreshableProviderFactory] = [],
-  process_cwd? : String = "/",
-  sessions_root? : String = "",
-  wire_log? : Bool = false,
-  context_window? : Int? = None,
-  permission_mode? : @permission.PermissionMode = @permission.WorkspaceWrite,
+  fs~ : FakeFs = FakeFs(),
+  refreshables~ : Array[&@llm.RefreshableProviderFactory] = [],
+  process_cwd~ : String = "/",
+  sessions_root~ : String = "",
+  wire_log~ : Bool = false,
+  context_window~ : Int32? = None,
+  permission_mode~ : @permission.PermissionMode = @permission.WorkspaceWrite,
 ) -> (CetasAcpHost, @posoco.ScriptedModel) {
   let model = @posoco.ScriptedModel(steps)
   let root = if sessions_root.length() > 0 {
@@ -591,8 +591,8 @@ impl @llm.RefreshableProviderFactory for FailingRefreshFactory with fn refresh(
 
 ///|
 fn tk_new_session_params(
-  cwd? : String = "/",
-  mcp_servers? : Array[@acp.McpServer] = [],
+  cwd~ : String = "/",
+  mcp_servers~ : Array[@acp.McpServer] = [],
 ) -> @acp.NewSessionParams {
   { cwd, additional_directories: Omitted, mcp_servers, meta: Omitted, }
 }
@@ -600,7 +600,7 @@ fn tk_new_session_params(
 ///|
 fn tk_resume_params(
   session_id : String,
-  cwd? : String = "/",
+  cwd~ : String = "/",
 ) -> @acp.ResumeSessionParams {
   {
     session_id,
@@ -731,7 +731,10 @@ async test "prompt streams the assistant message and ends the turn" {
 ///|
 /// `tk_stop_response` carries no usage; this one reports `total` tokens so
 /// the bridge's UsageUpdate path runs.
-fn tk_stop_response_used(text : String, total : Int) -> @posoco.ModelCallResult {
+fn tk_stop_response_used(
+  text : String,
+  total : Int32,
+) -> @posoco.ModelCallResult {
   {
     completion: @posoco.Completion::Completion(
       content=[@posoco.Content::Text(text)],
@@ -937,7 +940,7 @@ const TK_WORKING_INDICATOR_ID = "acp-working-indicator"
 ///|
 /// Count the placeholder thought chunks and locate the first streamed
 /// message chunk; shared by the placeholder-ordering tests.
-fn tk_sent_placeholder_stats(client : FakeAcpClient) -> (Int, Int, Int) {
+fn tk_sent_placeholder_stats(client : FakeAcpClient) -> (Int32, Int32, Int32) {
   let mut placeholder_count = 0
   let mut placeholder_index = -1
   let mut first_chunk_index = -1
@@ -2363,8 +2366,8 @@ priv struct GatedModel {
   responses : Array[String]
   gates : Array[Bool]
   log : Array[String]
-  parked : Array[Int]
-  mut next : Int
+  parked : Array[Int32]
+  mut next : Int32
 }
 
 ///|
@@ -2409,7 +2412,7 @@ impl @posoco.ModelPort for GatedModel with fn provider_config(_self) -> @posoco.
 }
 
 ///|
-async fn tk_wait_log(model : GatedModel, count : Int) -> Unit {
+async fn tk_wait_log(model : GatedModel, count : Int32) -> Unit {
   let mut spins = 0
   while model.log.length() < count && spins < 5000 {
     @async.pause()
@@ -2419,7 +2422,7 @@ async fn tk_wait_log(model : GatedModel, count : Int) -> Unit {
 }
 
 ///|
-async fn tk_wait_parked(model : GatedModel, call_index : Int) -> Unit {
+async fn tk_wait_parked(model : GatedModel, call_index : Int32) -> Unit {
   let mut spins = 0
   while !model.parked.contains(call_index) && spins < 5000 {
     @async.pause()
@@ -3952,7 +3955,7 @@ fn tk_spawn_session_plan_noreview(
 }
 
 ///|
-fn tk_mode_pushes(client : FakeAcpClient, mode_id : String) -> Int {
+fn tk_mode_pushes(client : FakeAcpClient, mode_id : String) -> Int32 {
   let mut count = 0
   for frame in client.sent {
     match frame.update {
@@ -4617,7 +4620,7 @@ test "profile detection is pure and total" {
 
 ///|
 async fn tk_mcp_platform_fs(
-  debug? : DebugTaps = { catalog: false, wire: false, },
+  debug~ : DebugTaps = { catalog: false, wire: false, },
 ) -> (Platform, FakeFs) raise @posoco.CompositionError {
   let fs = FakeFs()
   fs.files["/cetas-home/.cetas/settings.json"] = "{\"providers\":{\"opencode\":{\"api_key\":\"sk-zen-test\"}}}"
@@ -5146,11 +5149,11 @@ fn CetasAcpHost::of(
   ],
   home~ : String,
   fs~ : &@workspace.WorkspaceFs,
-  agent_version? : String = "0.1.0",
-  refreshables? : Array[&@llm.RefreshableProviderFactory] = [],
-  refresh_snapshot? : @cetas_core.ProviderCredentialSnapshot = @cetas_core.ProviderCredentialSnapshot::ProviderCredentialSnapshot(),
-  wire_log? : Bool = false,
-  native_append? : Bool = false,
+  agent_version~ : String = "0.1.0",
+  refreshables~ : Array[&@llm.RefreshableProviderFactory] = [],
+  refresh_snapshot~ : @cetas_core.ProviderCredentialSnapshot = @cetas_core.ProviderCredentialSnapshot::ProviderCredentialSnapshot(),
+  wire_log~ : Bool = false,
+  native_append~ : Bool = false,
 ) -> CetasAcpHost {
   {
     spawn_session,

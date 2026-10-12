@@ -53,7 +53,7 @@ fn AutocompletePopupModel::open(
 }
 
 ///|
-fn AutocompletePopupModel::item_count(self : AutocompletePopupModel) -> Int {
+fn AutocompletePopupModel::item_count(self : AutocompletePopupModel) -> Int32 {
   if self.active {
     self.list.item_count()
   } else {
@@ -65,10 +65,10 @@ fn AutocompletePopupModel::item_count(self : AutocompletePopupModel) -> Int {
 fn AutocompletePopupModel::append_scene(
   self : AutocompletePopupModel,
   builder : @ui.SceneBuilder,
-  x : UInt,
-  y : UInt,
-  width : UInt,
-  height : UInt,
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
+  height : UInt32,
 ) -> Unit {
   if self.active {
     self.list.append_scene(builder, x, y, width, height)
@@ -123,12 +123,12 @@ fn native_reserved_local_command(id : String) -> Bool {
 ///|
 priv struct FileMentionRank {
   path : String
-  score : Int
+  score : Int32
   is_dir : Bool
 }
 
 ///|
-fn file_mention_score(path : String, query : String) -> Int? {
+fn file_mention_score(path : String, query : String) -> Int32? {
   let is_dir = path.has_suffix("/")
   let clean = if is_dir { path[:path.length() - 1].to_owned() } else { path }
   let base = match clean.rev_find("/") {
@@ -166,7 +166,7 @@ fn file_mention_score(path : String, query : String) -> Int? {
 fn rank_file_mention_items(
   entries : Array[String],
   query : String,
-  max_items? : Int = 50,
+  max_items~ : Int32 = 50,
 ) -> Array[String] {
   let ranked : Array[FileMentionRank] = []
   for path in entries {
@@ -701,7 +701,7 @@ async fn NativeHost::invoke_slash_command(
 }
 
 ///|
-fn autocomplete_validation_marker() -> Int {
+fn autocomplete_validation_marker() -> Int32 {
   let popup = AutocompletePopupModel::new()
   if popup.is_active() || popup.open("/", []) || popup.is_active() {
     return 0

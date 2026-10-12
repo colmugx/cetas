@@ -10,13 +10,13 @@ pub(all) enum NativeLoopSignal {
   LoopContinue
   LoopExit
   LoopOpenRewind
-  LoopApplyRewind(Int)
+  LoopApplyRewind(Int32)
   LoopDismissOverlay
   LoopAutocomplete
   LoopToggleThinking
   LoopToggleToolOutput
   LoopLogin(String)
-  LoopTerminalFailed(Int)
+  LoopTerminalFailed(Int32)
 } derive(Eq)
 
 ///|
@@ -82,7 +82,7 @@ pub fn NativeAppLoop::session_id(self : NativeAppLoop) -> String {
 pub fn NativeAppLoop::append_error(
   self : NativeAppLoop,
   message : String,
-) -> Int {
+) -> Int32 {
   self.driver.host().shell().append_error(message)
 }
 
@@ -90,7 +90,7 @@ pub fn NativeAppLoop::append_error(
 pub fn NativeAppLoop::append_notice(
   self : NativeAppLoop,
   message : String,
-) -> Int {
+) -> Int32 {
   self.driver.host().shell().append_notice(message)
 }
 
@@ -184,7 +184,7 @@ pub fn NativeAppLoop::open_rewind(
 /// row itself is the first row removed by SessionStore::truncate.
 pub async fn NativeAppLoop::apply_rewind(
   self : NativeAppLoop,
-  message_index : Int,
+  message_index : Int32,
 ) -> Unit raise @posoco.SessionError {
   let host = self.driver.host()
   let refill = host.rewind_user_message(message_index)

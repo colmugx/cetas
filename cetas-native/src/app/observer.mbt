@@ -13,7 +13,7 @@ pub struct NativeShellObserver {
 ///|
 pub fn NativeShellObserver::new(
   shell : NativeShell,
-  session_state? : NativeSessionState? = None,
+  session_state~ : NativeSessionState? = None,
 ) -> NativeShellObserver {
   { shell, session_state, }
 }
@@ -128,7 +128,7 @@ pub extend NativeShellObserver with @posoco.Observer::{on_event, on_event_at}
 pub extend NativeShellObserver with @posoco.Extension::{extension_id, manifest}
 
 ///|
-pub fn typed_observer_validation_marker() -> Int {
+pub fn typed_observer_validation_marker() -> Int32 {
   let shell = NativeShell::new()
   let observer = NativeShellObserver::new(shell)
 

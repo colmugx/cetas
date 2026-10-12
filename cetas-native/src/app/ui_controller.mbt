@@ -107,7 +107,7 @@ pub fn NativeUiController::active_input_text(
 ///|
 pub fn NativeUiController::active_selected_index(
   self : NativeUiController,
-) -> Int? {
+) -> Int32? {
   match self.active {
     Some(active) =>
       if active.panel.kind() == UiPanelInput ||
@@ -123,7 +123,7 @@ pub fn NativeUiController::active_selected_index(
 ///|
 pub fn NativeUiController::active_option_count(
   self : NativeUiController,
-) -> Int {
+) -> Int32 {
   match self.active {
     Some(active) => active.panel.option_count()
     None => 0
@@ -131,14 +131,16 @@ pub fn NativeUiController::active_option_count(
 }
 
 ///|
-pub fn NativeUiController::render_line_count(self : NativeUiController) -> Int {
+pub fn NativeUiController::render_line_count(
+  self : NativeUiController,
+) -> Int32 {
   self.renders.line_count()
 }
 
 ///|
 pub fn NativeUiController::render_line(
   self : NativeUiController,
-  index : Int,
+  index : Int32,
 ) -> String? {
   self.renders.line(index)
 }
@@ -146,7 +148,7 @@ pub fn NativeUiController::render_line(
 ///|
 pub fn NativeUiController::active_option_label(
   self : NativeUiController,
-  index : Int,
+  index : Int32,
 ) -> String? {
   match self.active {
     Some(active) => active.panel.option_label(index)

@@ -4,7 +4,7 @@
 /// Output: one normalized NativeShell snapshot JSON object on stdout.
 
 ///|
-extern "C" fn exit(code : Int) = "exit"
+extern "C" fn exit(code : Int32) = "exit"
 
 ///|
 async fn main {

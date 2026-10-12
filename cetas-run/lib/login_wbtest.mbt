@@ -2,7 +2,7 @@
 priv struct LoginPrompt {
   answers : Array[String]
   requests : Array[@oauth.AuthPromptRequest]
-  mut cursor : Int
+  mut cursor : Int32
   mut cancelled : Bool
 }
 
@@ -43,9 +43,9 @@ priv struct LoginProbe {
 
 ///|
 fn LoginProbe::LoginProbe(
-  credential? : @oauth.ProviderCredential? = None,
-  fail_refresh? : Bool = false,
-  cached_models? : Json? = None,
+  credential~ : @oauth.ProviderCredential? = None,
+  fail_refresh~ : Bool = false,
+  cached_models~ : Json? = None,
 ) -> LoginProbe {
   { credential, fail_refresh, cached_models, calls: [], snapshots: [], }
 }
@@ -113,7 +113,7 @@ async fn login_fixture(
   prompt : LoginPrompt,
   probe : LoginProbe,
   notes : Array[String],
-  provider? : String = "openai",
+  provider~ : String = "openai",
 ) -> Unit {
   run_login_with_interactions(
     home="/login-home",

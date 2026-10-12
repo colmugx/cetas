@@ -89,6 +89,7 @@ export class EventRouter {
    */
   private toolStream: ToolStreamingController | null = null;
   private toolRows = new Map<string, ToolRow>();
+  private metadataWarnings = new Set<string>();
 
   constructor(private readonly cb: EventRouterCallbacks) {}
 
@@ -148,11 +149,23 @@ export class EventRouter {
         return;
       case "model_invoked":
         break;
-      case "custom":
-        this.cb.addTranscriptChild(
-          systemNotice(`· ${ev.source}/${ev.label}`),
-        );
+      case "custom": {
+        if (ev.source === "cetas-js.bridge" && ev.label === "model_metadata_warning") {
+          const data = ev.data;
+          const message = data !== null && typeof data === "object" &&
+            "message" in data && typeof data.message === "string"
+            ? data.message
+            : "Model context metadata warning received without a readable reason.";
+          if (this.metadataWarnings.has(message)) return;
+          this.metadataWarnings.add(message);
+          this.cb.addTranscriptChild(systemNotice(`⚠ ${message}`));
+        } else {
+          this.cb.addTranscriptChild(
+            systemNotice(`· ${ev.source}/${ev.label}`),
+          );
+        }
         break;
+      }
       case "config_changed":
         this.cb.addTranscriptChild(
           systemNotice(`⚙ ${ev.field}: ${ev.old} → ${ev.new}`),

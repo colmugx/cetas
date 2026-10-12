@@ -6,7 +6,7 @@ priv struct ReplayTool {
   call_id : String
   name : String
   args : Json
-  item_index : Int
+  item_index : Int32
   mut status : String
   mut result : String
 }
@@ -59,7 +59,7 @@ pub fn transcript_empty_json() -> Json {
 fn transcript_json(session : @posoco_types.Session) -> Json {
   let items : Array[Json] = []
   let tools : Array[ReplayTool] = []
-  let tool_index : Map[String, Int] = Map([])
+  let tool_index : Map[String, Int32] = Map([])
   let mut message_index = 0
   for message in session.messages {
     let turn_id = "r-" + message_index.to_string()

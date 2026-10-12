@@ -4,7 +4,7 @@
 /// console; this package only translates between HTTP/WS and its calls.
 
 ///|
-const WEB_EVENT_QUEUE_CAPACITY : Int = 4096
+const WEB_EVENT_QUEUE_CAPACITY : Int32 = 4096
 
 // Keep in sync with moon.mod pins: colmugx/posoco, colmugx/cetas-core, colmugx/cetas-web.
 

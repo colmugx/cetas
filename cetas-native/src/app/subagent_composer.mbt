@@ -31,7 +31,7 @@ fn native_cetas_tool_names() -> Array[String] {
 async fn load_cetas_subagent_catalog(
   home~ : String,
   cwd~ : String,
-  extra? : Array[@kind.KindSpec] = [],
+  extra~ : Array[@kind.KindSpec] = [],
 ) -> @kind.KindCatalog noraise {
   // On-disk overlays stay optional product configuration: an IO failure must
   // not disable the builtin delegation surface. Settings-carried kinds, by
@@ -105,7 +105,7 @@ impl @posoco.SessionStore for CetasChildSessionStore with fn save(
 impl @posoco.SessionStore for CetasChildSessionStore with fn append_messages(
   self,
   id : String,
-  _from_index : Int,
+  _from_index : Int32,
   messages : ArrayView[@posoco.Message],
 ) -> Unit {
   let session = match self.sessions.get(id) {
@@ -123,7 +123,7 @@ impl @posoco.SessionStore for CetasChildSessionStore with fn append_messages(
 impl @posoco.SessionStore for CetasChildSessionStore with fn truncate(
   self,
   id : String,
-  from_index : Int,
+  from_index : Int32,
 ) -> Unit {
   let session = match self.sessions.get(id) {
     Some(value) => child_session_snapshot(value)
@@ -205,8 +205,8 @@ priv struct CetasChildComposer {
 fn CetasChildComposer::CetasChildComposer(
   parent_router~ : @llm.RouterModelPort,
   parent_mode~ : () -> @permission.PermissionMode,
-  approval? : &@permission.ApprovalSource? = None,
-  ui? : &@posoco.UiPort? = None,
+  approval~ : &@permission.ApprovalSource? = None,
+  ui~ : &@posoco.UiPort? = None,
   context_fs~ : &@workspace.WorkspaceFs,
   feature_fs~ : &@workspace.WorkspaceFs,
   cwd~ : String,
@@ -415,9 +415,9 @@ fn render_native_subagent_event(
 async fn build_cetas_subagents(
   parent_router~ : @llm.RouterModelPort,
   parent_mode~ : () -> @permission.PermissionMode,
-  approval? : &@permission.ApprovalSource? = None,
-  ui? : &@posoco.UiPort? = None,
-  observers? : Array[(@subagent_kit.SubagentEvent) -> Unit] = [],
+  approval~ : &@permission.ApprovalSource? = None,
+  ui~ : &@posoco.UiPort? = None,
+  observers~ : Array[(@subagent_kit.SubagentEvent) -> Unit] = [],
   context_fs~ : &@workspace.WorkspaceFs,
   feature_fs~ : &@workspace.WorkspaceFs,
   cwd~ : String,

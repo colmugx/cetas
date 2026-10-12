@@ -37,7 +37,7 @@ pub impl @posoco.UiPort for FakeApprovalUi with fn request(
 pub extend FakeApprovalUi with @posoco.UiPort::{ui_descriptor, request, render}
 
 ///|
-fn fake_ui(reply~ : @port.UiResponse, fail? : Bool = false) -> FakeApprovalUi {
+fn fake_ui(reply~ : @port.UiResponse, fail~ : Bool = false) -> FakeApprovalUi {
   { asked: [], reply, fail, }
 }
 

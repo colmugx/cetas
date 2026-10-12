@@ -9,14 +9,14 @@
 
 ///|
 pub struct PendingUiRequest {
-  id : Int
+  id : Int32
   request : @posoco.UiRequest
   response : @aqueue.Queue[@posoco.UiResponse]
   mut resolved : Bool
 }
 
 ///|
-pub fn PendingUiRequest::id(self : PendingUiRequest) -> Int {
+pub fn PendingUiRequest::id(self : PendingUiRequest) -> Int32 {
   self.id
 }
 
@@ -46,7 +46,7 @@ pub fn PendingUiRequest::respond(
 pub struct NativeUiPort {
   renders : @aqueue.Queue[@posoco.UiRender]
   requests : @aqueue.Queue[PendingUiRequest]
-  mut next_request_id : Int
+  mut next_request_id : Int32
   mut closed : Bool
 }
 

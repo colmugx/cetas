@@ -3,7 +3,7 @@
 /// sequence, so events from concurrent sessions interleave coherently.
 struct EventHub {
   mut sink : ((String) -> Unit)?
-  mut seq : Int
+  mut seq : Int32
   /// Rolling wire log of broadcast events, newest last (capped).
   trace : Array[Json]
   /// Per-turn event ledgers, keyed by "session/turn"; the trace view reads
@@ -34,8 +34,8 @@ fn EventHub::emit(
   session_id : String,
   turn_id : String,
   event_type : String,
-  extra? : Array[(String, Json)] = [],
-  broadcast? : Bool = true,
+  extra~ : Array[(String, Json)] = [],
+  broadcast~ : Bool = true,
 ) -> Unit {
   self.seq += 1
   let fields : Array[(String, Json)] = [
@@ -109,8 +109,8 @@ priv struct ConsoleObserver {
   label : String
   /// Protocol tag carried on session.snapshot frames ("cetas-web/0.1").
   protocol : String
-  mut turn_count : Int
-  mut step_count : Int
+  mut turn_count : Int32
+  mut step_count : Int32
 }
 
 ///|
@@ -137,8 +137,8 @@ fn ConsoleObserver::new(
 fn ConsoleObserver::emit(
   self : ConsoleObserver,
   event_type : String,
-  extra? : Array[(String, Json)] = [],
-  broadcast? : Bool = true,
+  extra~ : Array[(String, Json)] = [],
+  broadcast~ : Bool = true,
 ) -> Unit {
   self.hub.emit(self.session_id, self.turn_id, event_type, extra~, broadcast~)
 }

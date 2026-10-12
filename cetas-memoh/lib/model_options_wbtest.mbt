@@ -51,7 +51,7 @@ pub extend MemohOptionsTestPort with @posoco.ModelPort::{
 fn memoh_test_slot(
   id : String,
   label : String,
-  context_window : Int,
+  context_window : Int32,
   efforts : Array[String],
 ) -> @llm.ModelSlot {
   let port : &@posoco.ModelPort = MemohOptionsTestPort::{

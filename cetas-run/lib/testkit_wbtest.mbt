@@ -10,7 +10,7 @@
 priv struct FakeTty {
   answers : Array[String]
   writes : Array[String]
-  mut cursor : Int
+  mut cursor : Int32
   mut closed : Bool
 }
 
@@ -169,7 +169,7 @@ async fn tk_test_home(fs : FakeFs) -> String noraise {
 /// model actually received (`received_messages`).
 async fn tk_scripted_agent(
   steps : Array[@posoco.ScriptedModelStep],
-  tail_exts? : Array[&@posoco.Extension] = [],
+  tail_exts~ : Array[&@posoco.Extension] = [],
 ) -> (@posoco.Agent, @posoco.ScriptedModel) raise @posoco.CompositionError {
   let fs = FakeFs()
   let home = tk_test_home(fs)

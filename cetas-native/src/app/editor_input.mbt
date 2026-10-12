@@ -138,7 +138,7 @@ pub fn handle_editor_paste(
 }
 
 ///|
-pub fn editor_input_validation_marker() -> Int {
+pub fn editor_input_validation_marker() -> Int32 {
   let editor = @ui.EditorModel::new()
   if handle_editor_key(editor, validation_key(1U, 104U, 0U, 1U)) !=
     EditorChanged ||

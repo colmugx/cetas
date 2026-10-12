@@ -43,17 +43,17 @@ pub async fn CetasRunHost::CetasRunHost(
   mode~ : @permission.PermissionMode,
   approval~ : &@permission.ApprovalSource?,
   ui~ : &@posoco.UiPort?,
-  model_override? : String = "",
-  effort_override? : String = "",
-  session_id? : String = "",
-  tail_exts? : Array[&@posoco.Extension] = [],
-  fs? : &@workspace.WorkspaceFs? = None,
-  mcp_group? : @async.TaskGroup[Unit]? = None,
-  label? : String = "cetas-run",
+  model_override~ : String = "",
+  effort_override~ : String = "",
+  session_id~ : String = "",
+  tail_exts~ : Array[&@posoco.Extension] = [],
+  fs~ : &@workspace.WorkspaceFs? = None,
+  mcp_group~ : @async.TaskGroup[Unit]? = None,
+  label~ : String = "cetas-run",
   /// Test-safety knob only (tests pass false so composition never shells
   /// out to the real herdr CLI); production keeps the default.
-  detect_herdr? : Bool = true,
-  warn? : async (String) -> Unit noraise = async fn(text : String) noraise {
+  detect_herdr~ : Bool = true,
+  warn~ : async (String) -> Unit noraise = async fn(text : String) noraise {
     @stdio.stderr.write(text) catch {
       _ => ()
     }

@@ -14,9 +14,9 @@
 #warnings("-unused_async")
 fn tk_reader(
   lines : Array[String],
-) -> (async () -> String? noraise, Array[Int]) {
-  let cursor : Array[Int] = [0]
-  let calls : Array[Int] = [0]
+) -> (async () -> String? noraise, Array[Int32]) {
+  let cursor : Array[Int32] = [0]
+  let calls : Array[Int32] = [0]
   let read_line = async fn() noraise {
     calls[0] = calls[0] + 1
     if cursor[0] < lines.length() {
@@ -45,8 +45,8 @@ fn tk_sink() -> (async (String) -> Unit noraise, Array[String]) {
 /// A stop response carrying provider usage — for the jsonl usage assertion.
 fn tk_usage_response(
   text : String,
-  input~ : Int,
-  output~ : Int,
+  input~ : Int32,
+  output~ : Int32,
 ) -> @posoco.ModelCallResult {
   let completion : @posoco.Completion = @posoco.Completion::Completion(
     content=[Text(text)],

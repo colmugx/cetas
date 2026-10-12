@@ -127,12 +127,12 @@ pub fn UiRequestPanelModel::display_input_text(
 }
 
 ///|
-pub fn UiRequestPanelModel::selected_index(self : UiRequestPanelModel) -> Int {
+pub fn UiRequestPanelModel::selected_index(self : UiRequestPanelModel) -> Int32 {
   self.list.selected_index()
 }
 
 ///|
-pub fn UiRequestPanelModel::option_count(self : UiRequestPanelModel) -> Int {
+pub fn UiRequestPanelModel::option_count(self : UiRequestPanelModel) -> Int32 {
   match self.kind {
     UiPanelInput | UiPanelSecretInput => 0
     UiPanelConfirm | UiPanelSelect => self.list.item_count()
@@ -142,7 +142,7 @@ pub fn UiRequestPanelModel::option_count(self : UiRequestPanelModel) -> Int {
 ///|
 pub fn UiRequestPanelModel::option_label(
   self : UiRequestPanelModel,
-  index : Int,
+  index : Int32,
 ) -> String? {
   match self.kind {
     UiPanelInput | UiPanelSecretInput => None

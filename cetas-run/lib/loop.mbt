@@ -41,7 +41,7 @@
 
 ///|
 /// The fixed per-turn completion marker line (without the trailing newline).
-pub fn turn_marker(turn_no : Int) -> String {
+pub fn turn_marker(turn_no : Int32) -> String {
   "[cetas-run] turn \{turn_no} done"
 }
 
@@ -104,7 +104,7 @@ pub async fn resolve_task(
 /// backlog here means the writer stalled; overflow drops the line (these
 /// faces are display telemetry, and the committed events carry the content
 /// anyway).
-const LIVE_QUEUE_CAPACITY : Int = 4096
+const LIVE_QUEUE_CAPACITY : Int32 = 4096
 
 ///|
 /// The pump body: drain one live queue to its channel until the queue
@@ -156,10 +156,10 @@ pub async fn run_one_turn(
   session_id~ : String,
   task~ : String,
   jsonl~ : JsonlObserver?,
-  streamer? : StreamPrinter? = None,
-  verbose? : JsonlObserver? = None,
+  streamer~ : StreamPrinter? = None,
+  verbose~ : JsonlObserver? = None,
   write_out~ : async (String) -> Unit noraise,
-  write_err? : async (String) -> Unit noraise = (_text : String) => (),
+  write_err~ : async (String) -> Unit noraise = (_text : String) => (),
 ) -> Bool noraise {
   @async.with_task_group(async fn(group) {
     let queues : Array[@aqueue.Queue[String]] = []

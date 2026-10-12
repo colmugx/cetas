@@ -45,7 +45,7 @@ pub fn ShellInputModel::last_escape_at_ms(self : ShellInputModel) -> UInt64? {
 pub fn should_open_rewind_on_escape(
   last_escape_at_ms : UInt64?,
   now_ms : UInt64,
-  window_ms? : UInt64 = 500UL,
+  window_ms~ : UInt64 = 500UL,
 ) -> Bool {
   guard last_escape_at_ms is Some(previous) else { return false }
   now_ms >= previous && now_ms - previous < window_ms
@@ -126,10 +126,10 @@ pub fn ShellInputModel::handle_global_key(
 
 ///|
 fn validation_key(
-  code : UInt,
-  codepoint : UInt,
-  modifiers : UInt,
-  action : UInt,
+  code : UInt32,
+  codepoint : UInt32,
+  modifiers : UInt32,
+  action : UInt32,
 ) -> @ui.TerminalEvent {
   @ui.TerminalEvent::{
     abi_version: 2U,
@@ -150,7 +150,7 @@ fn validation_key(
 }
 
 ///|
-pub fn input_validation_marker() -> Int {
+pub fn input_validation_marker() -> Int32 {
   let input = ShellInputModel::new()
   let escape = validation_key(3U, 0U, 0U, 1U)
   let escape_release = validation_key(3U, 0U, 0U, 3U)

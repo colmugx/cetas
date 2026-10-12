@@ -7,10 +7,10 @@
 const FILE_INDEX_TTL_MS : Int64 = 30_000
 
 ///|
-const FILE_INDEX_CAP : Int = 4000
+const FILE_INDEX_CAP : Int32 = 4000
 
 ///|
-const FILE_INDEX_MAX_DEPTH : Int = 12
+const FILE_INDEX_MAX_DEPTH : Int32 = 12
 
 ///|
 fn index_skip_dir(name : String) -> Bool {
@@ -80,7 +80,7 @@ pub async fn ConsoleRuntime::workspace_file_index(
   }
   let root = self.active_cwd
   let entries : Array[String] = []
-  let stack : Array[(String, Int)] = [("", 0)]
+  let stack : Array[(String, Int32)] = [("", 0)]
   while entries.length() < FILE_INDEX_CAP {
     let (rel, depth) = match stack.pop() {
       Some(top) => top
@@ -119,9 +119,9 @@ pub async fn ConsoleRuntime::workspace_file_index(
 fn rank_file_entries(
   entries : Array[String],
   query : String,
-  limit : Int,
+  limit : Int32,
 ) -> Array[Json] {
-  let scored : Array[(Int, Bool, String)] = []
+  let scored : Array[(Int32, Bool, String)] = []
   if query is "" {
     for entry in entries {
       let depth = file_entry_clean(entry).split("/").count()
@@ -200,7 +200,7 @@ fn rank_file_entries(
 pub async fn ConsoleRuntime::file_suggestions_json(
   self : ConsoleRuntime,
   query : String,
-  limit : Int,
+  limit : Int32,
 ) -> Json {
   let entries = self.workspace_file_index()
   Json::object(

@@ -5,7 +5,7 @@
 /// Ratatui inline terminal, streaming Agent turns, follow-up queueing,
 /// interrupts, and interactive UiPort/approval requests are live. Higher
 /// command/modal flows continue to migrate behind NativeLoopSignal.
-extern "C" fn exit(code : Int) = "exit"
+extern "C" fn exit(code : Int32) = "exit"
 
 ///|
 const CETAS_NATIVE_VERSION = "0.8.1"
@@ -319,7 +319,7 @@ async fn main {
     let mut scope_task = start_native_agent_scope(host, group)
     let mut app = @app.NativeAppLoop::new(host, native_ui, terminal)
     let mut running = true
-    let mut terminal_failure : Int? = None
+    let mut terminal_failure : Int32? = None
 
     while running {
       match app.run_until_signal(group) {

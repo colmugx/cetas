@@ -22,7 +22,7 @@ pub struct TerminalApprovalSource {
 ///|
 pub fn TerminalApprovalSource::TerminalApprovalSource(
   tty~ : TtyChannel?,
-  notice? : async (String) -> Unit noraise = fn(_ : String) { () },
+  notice~ : async (String) -> Unit noraise = fn(_ : String) { () },
 ) -> TerminalApprovalSource {
   { tty, notice, }
 }

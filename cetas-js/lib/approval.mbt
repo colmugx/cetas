@@ -73,7 +73,7 @@ pub fn BlockingApprovalSource::BlockingApprovalSource() -> BlockingApprovalSourc
 /// category gets three and reports -1 (no tool grant offered).
 fn approval_options(
   request : @permission.ApprovalRequest,
-) -> (Array[String], Int) {
+) -> (Array[String], Int32) {
   let session_label = if request.scopes.length() > 0 {
     "Allow '" + request.scopes.join(", ") + "' for this session"
   } else {

@@ -10,7 +10,7 @@
 pub async fn rewind_session(
   store : &@posoco.SessionStore,
   session_id : String,
-  from_index : Int,
+  from_index : Int32,
 ) -> Unit raise @posoco.SessionError {
   store.truncate(session_id, from_index)
 }

@@ -24,9 +24,9 @@ pub(all) enum RuntimeEvent {
   RuntimeEditorKey(@ui.TerminalEvent)
   RuntimeShellAction(ShellInputAction)
   RuntimePaste(String)
-  RuntimeResize(UInt, UInt)
+  RuntimeResize(UInt32, UInt32)
   RuntimeFocus(Bool)
-  RuntimeTerminalError(Int)
+  RuntimeTerminalError(Int32)
 } derive(Eq)
 
 ///|
@@ -104,7 +104,7 @@ pub fn NativeRuntime::auth_ui(self : NativeRuntime) -> NativeAuthUi {
 
 ///|
 /// Flush finalized rows exactly once into real terminal scrollback.
-pub fn NativeRuntime::flush_scrollback(self : NativeRuntime) -> Int {
+pub fn NativeRuntime::flush_scrollback(self : NativeRuntime) -> Int32 {
   let ready = self.shell.take_scrollback_ready()
   for row in ready {
     let status = if row.kind == @ui.TranscriptAssistant {
@@ -122,9 +122,9 @@ pub fn NativeRuntime::flush_scrollback(self : NativeRuntime) -> Int {
 ///|
 fn append_runtime_text(
   builder : @ui.SceneBuilder,
-  x : UInt,
-  y : UInt,
-  width : UInt,
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
   text : String,
 ) -> Unit {
   builder.text(x, y, width, 1U, @utf8.encode(text))
@@ -133,12 +133,12 @@ fn append_runtime_text(
 ///|
 fn append_multiline_runtime_text(
   builder : @ui.SceneBuilder,
-  x : UInt,
-  y : UInt,
-  width : UInt,
-  height : UInt,
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
+  height : UInt32,
   text : String,
-) -> UInt {
+) -> UInt32 {
   let mut row_y = y
   for line in text.split("\n") {
     if row_y >= height {
@@ -154,11 +154,11 @@ fn append_multiline_runtime_text(
 fn append_extension_render_lines(
   builder : @ui.SceneBuilder,
   input : NativeInputRouter,
-  mut_y : UInt,
-  width : UInt,
-  height : UInt,
-  max_rows : UInt,
-) -> UInt {
+  mut_y : UInt32,
+  width : UInt32,
+  height : UInt32,
+  max_rows : UInt32,
+) -> UInt32 {
   let mut y = mut_y
   let count = input.render_line_count()
   let mut shown = 0U
@@ -185,11 +185,11 @@ fn append_extension_render_lines(
 fn append_editor_scene(
   builder : @ui.SceneBuilder,
   editor : @ui.EditorModel,
-  mut_y : UInt,
-  width : UInt,
-  height : UInt,
+  mut_y : UInt32,
+  width : UInt32,
+  height : UInt32,
   focused : Bool,
-) -> UInt {
+) -> UInt32 {
   let mut y = mut_y
   let cursor = editor.cursor()
   for index in 0..<editor.line_count() {
@@ -214,8 +214,8 @@ fn build_runtime_scene(
   editor : @ui.EditorModel,
   rewind : @ui.RewindPickerModel,
   autocomplete : AutocompletePopupModel,
-  width : UInt,
-  height : UInt,
+  width : UInt32,
+  height : UInt32,
 ) -> @ui.Scene {
   let builder = @ui.SceneBuilder::new()
   builder.clear(0U, 0U, width, height)
@@ -349,7 +349,7 @@ fn build_runtime_scene(
 ///
 /// Finalized transcript rows are never painted here: they move through
 /// `flush_scrollback`, preserving one-owner rendering.
-pub fn NativeRuntime::render(self : NativeRuntime) -> Int {
+pub fn NativeRuntime::render(self : NativeRuntime) -> Int32 {
   let (size_status, size) = self.terminal.viewport_size()
   if size_status != 0 {
     return size_status
@@ -368,7 +368,7 @@ pub fn NativeRuntime::render(self : NativeRuntime) -> Int {
 }
 
 ///|
-pub fn runtime_validation_marker() -> Int {
+pub fn runtime_validation_marker() -> Int32 {
   let shell = NativeShell::new()
   let ui = NativeUiPort::new()
   let router = NativeInputRouter::new(NativeUiController::new(ui))

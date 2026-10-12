@@ -58,7 +58,7 @@ pub async fn prepare_invocation(
   argv : Array[String],
   home~ : String,
   native~ : Bool,
-  create_settings? : async (String, String) -> Bool = create_minimal_settings,
+  create_settings~ : async (String, String) -> Bool = create_minimal_settings,
   note~ : async (String) -> Unit noraise,
 ) -> Result[InvocationAction, String] {
   let action = parse_invocation(argv)

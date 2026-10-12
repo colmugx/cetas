@@ -10,7 +10,7 @@ pub(all) enum PromptSubmitOutcome {
   PromptStarted
   PromptQueued
   PromptDeferred
-  PromptQueueFull(Int)
+  PromptQueueFull(Int32)
   PromptQueueFailed(String)
 } derive(Eq)
 

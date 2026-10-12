@@ -13,7 +13,7 @@ pub(all) struct SelectItem {
 ///|
 pub struct SelectListModel {
   items : Array[SelectItem]
-  mut selected : Int
+  mut selected : Int32
 }
 
 ///|
@@ -27,14 +27,14 @@ pub fn SelectListModel::is_empty(self : SelectListModel) -> Bool {
 }
 
 ///|
-pub fn SelectListModel::item_count(self : SelectListModel) -> Int {
+pub fn SelectListModel::item_count(self : SelectListModel) -> Int32 {
   self.items.length()
 }
 
 ///|
 pub fn SelectListModel::item(
   self : SelectListModel,
-  index : Int,
+  index : Int32,
 ) -> SelectItem? {
   if index < 0 || index >= self.items.length() {
     None
@@ -44,7 +44,7 @@ pub fn SelectListModel::item(
 }
 
 ///|
-pub fn SelectListModel::selected_index(self : SelectListModel) -> Int {
+pub fn SelectListModel::selected_index(self : SelectListModel) -> Int32 {
   self.selected
 }
 
@@ -57,7 +57,7 @@ pub fn SelectListModel::selected_item(self : SelectListModel) -> SelectItem? {
 }
 
 ///|
-pub fn SelectListModel::select(self : SelectListModel, index : Int) -> Bool {
+pub fn SelectListModel::select(self : SelectListModel, index : Int32) -> Bool {
   if index < 0 || index >= self.items.length() {
     return false
   }
@@ -112,10 +112,10 @@ pub fn SelectListModel::end(self : SelectListModel) -> Unit {
 pub fn SelectListModel::append_scene(
   self : SelectListModel,
   builder : SceneBuilder,
-  x : UInt,
-  y : UInt,
-  width : UInt,
-  height : UInt,
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
+  height : UInt32,
 ) -> Unit {
   let rendered : Array[String] = []
   for item in self.items {
@@ -131,7 +131,7 @@ pub fn SelectListModel::append_scene(
 ///|
 
 ///|
-pub fn select_list_validation_marker() -> Int {
+pub fn select_list_validation_marker() -> Int32 {
   let list = SelectListModel::new([
     { value: "a", label: "A", description: "", },
     { value: "b", label: "B", description: "", },

@@ -20,7 +20,7 @@ pub extend TranscriptRowKind with Eq::{equal, not_equal}
 
 ///|
 pub(all) struct TranscriptRow {
-  id : Int
+  id : Int32
   mut kind : TranscriptRowKind
   mut text : String
   mut finalized : Bool
@@ -29,7 +29,7 @@ pub(all) struct TranscriptRow {
 
 ///|
 pub(all) struct TranscriptRowSnapshot {
-  id : Int
+  id : Int32
   kind : TranscriptRowKind
   text : String
 }
@@ -37,11 +37,11 @@ pub(all) struct TranscriptRowSnapshot {
 ///|
 pub struct TranscriptModel {
   rows : Array[TranscriptRow]
-  mut next_id : Int
+  mut next_id : Int32
   mut in_turn : Bool
   mut streamed_this_turn : Bool
-  mut thinking_id : Int?
-  mut text_id : Int?
+  mut thinking_id : Int32?
+  mut text_id : Int32?
 }
 
 ///|
@@ -57,14 +57,14 @@ pub fn TranscriptModel::new() -> TranscriptModel {
 }
 
 ///|
-pub fn TranscriptModel::row_count(self : TranscriptModel) -> Int {
+pub fn TranscriptModel::row_count(self : TranscriptModel) -> Int32 {
   self.rows.length()
 }
 
 ///|
 pub fn TranscriptModel::row(
   self : TranscriptModel,
-  index : Int,
+  index : Int32,
 ) -> TranscriptRow {
   self.rows[index]
 }
@@ -75,7 +75,7 @@ fn TranscriptModel::append_row(
   kind : TranscriptRowKind,
   text : String,
   finalized~ : Bool,
-) -> Int {
+) -> Int32 {
   let id = self.next_id
   self.next_id += 1
   self.rows.push({ id, kind, text, finalized, scrollback_committed: false, })
@@ -83,7 +83,10 @@ fn TranscriptModel::append_row(
 }
 
 ///|
-fn TranscriptModel::find_row_index(self : TranscriptModel, id : Int) -> Int? {
+fn TranscriptModel::find_row_index(
+  self : TranscriptModel,
+  id : Int32,
+) -> Int32? {
   for index, row in self.rows {
     if row.id == id {
       return Some(index)
@@ -95,7 +98,7 @@ fn TranscriptModel::find_row_index(self : TranscriptModel, id : Int) -> Int? {
 ///|
 fn TranscriptModel::append_row_text(
   self : TranscriptModel,
-  id : Int,
+  id : Int32,
   delta : String,
 ) -> Unit {
   match self.find_row_index(id) {
@@ -105,7 +108,7 @@ fn TranscriptModel::append_row_text(
 }
 
 ///|
-fn TranscriptModel::finalize_row(self : TranscriptModel, id : Int) -> Unit {
+fn TranscriptModel::finalize_row(self : TranscriptModel, id : Int32) -> Unit {
   match self.find_row_index(id) {
     Some(index) => self.rows[index].finalized = true
     None => ()
@@ -243,7 +246,7 @@ pub fn TranscriptModel::end_turn(self : TranscriptModel) -> Unit {
 pub fn TranscriptModel::append_queued_user(
   self : TranscriptModel,
   prompt : String,
-) -> Int {
+) -> Int32 {
   self.append_row(TranscriptQueuedUser, prompt, finalized=false)
 }
 
@@ -254,7 +257,7 @@ pub fn TranscriptModel::append_queued_user(
 /// and becomes eligible for the one-shot scrollback handoff.
 pub fn TranscriptModel::promote_queued_user(
   self : TranscriptModel,
-  id : Int,
+  id : Int32,
 ) -> Bool {
   match self.find_row_index(id) {
     Some(index) => {
@@ -279,14 +282,14 @@ pub fn TranscriptModel::append_live(
   self : TranscriptModel,
   kind : TranscriptRowKind,
   text : String,
-) -> Int {
+) -> Int32 {
   self.append_row(kind, text, finalized=false)
 }
 
 ///|
 pub fn TranscriptModel::update_row(
   self : TranscriptModel,
-  id : Int,
+  id : Int32,
   text : String,
 ) -> Bool {
   match self.find_row_index(id) {
@@ -302,7 +305,7 @@ pub fn TranscriptModel::update_row(
 }
 
 ///|
-pub fn TranscriptModel::finalize(self : TranscriptModel, id : Int) -> Bool {
+pub fn TranscriptModel::finalize(self : TranscriptModel, id : Int32) -> Bool {
   match self.find_row_index(id) {
     Some(index) => {
       self.rows[index].finalized = true
@@ -318,7 +321,7 @@ pub fn TranscriptModel::append_finalized(
   self : TranscriptModel,
   kind : TranscriptRowKind,
   text : String,
-) -> Int {
+) -> Int32 {
   self.append_row(kind, text, finalized=true)
 }
 
@@ -375,10 +378,10 @@ pub fn TranscriptRowSnapshot::scrollback_text(
 pub fn TranscriptModel::append_live_block_scene(
   self : TranscriptModel,
   builder : SceneBuilder,
-  x : UInt,
-  y : UInt,
-  width : UInt,
-  height : UInt,
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
+  height : UInt32,
 ) -> Unit {
   self.append_live_block_scene_with_thinking(
     builder, x, y, width, height, false,
@@ -389,10 +392,10 @@ pub fn TranscriptModel::append_live_block_scene(
 pub fn TranscriptModel::append_live_block_scene_with_thinking(
   self : TranscriptModel,
   builder : SceneBuilder,
-  x : UInt,
-  y : UInt,
-  width : UInt,
-  height : UInt,
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
+  height : UInt32,
   thinking_expanded : Bool,
 ) -> Unit {
   if height == 0U {
@@ -460,10 +463,10 @@ pub fn TranscriptModel::append_live_block_scene_with_thinking(
 pub fn TranscriptModel::append_live_scene(
   self : TranscriptModel,
   builder : SceneBuilder,
-  x : UInt,
-  y : UInt,
-  width : UInt,
-) -> UInt {
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
+) -> UInt32 {
   self.append_live_scene_with_thinking(builder, x, y, width, false)
 }
 
@@ -471,11 +474,11 @@ pub fn TranscriptModel::append_live_scene(
 pub fn TranscriptModel::append_live_scene_with_thinking(
   self : TranscriptModel,
   builder : SceneBuilder,
-  x : UInt,
-  y : UInt,
-  width : UInt,
+  x : UInt32,
+  y : UInt32,
+  width : UInt32,
   thinking_expanded : Bool,
-) -> UInt {
+) -> UInt32 {
   let mut row_y = y
   for row in self.rows {
     if !row.finalized {
@@ -502,7 +505,7 @@ pub fn TranscriptModel::append_live_scene_with_thinking(
 }
 
 ///|
-pub fn transcript_validation_marker() -> Int {
+pub fn transcript_validation_marker() -> Int32 {
   // reasoning -> text stays in one step and both rows finalize on close.
   let transcript = TranscriptModel::new()
   transcript.begin_turn()

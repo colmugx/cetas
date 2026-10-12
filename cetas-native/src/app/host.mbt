@@ -66,12 +66,12 @@ fn NativeHost::from_parts(
   shell : NativeShell,
   store : &@posoco.SessionStore,
   session_id : String,
-  session_root? : String? = None,
-  session_state? : NativeSessionState? = None,
-  workspace_files? : Array[String] = [],
-  skill_completion_items? : Array[@ui.SelectItem] = [],
-  active_model? : String = "",
-  active_effort? : String? = None,
+  session_root~ : String? = None,
+  session_state~ : NativeSessionState? = None,
+  workspace_files~ : Array[String] = [],
+  skill_completion_items~ : Array[@ui.SelectItem] = [],
+  active_model~ : String = "",
+  active_effort~ : String? = None,
 ) -> NativeHost {
   let session = match session_state {
     Some(value) => value
@@ -102,13 +102,13 @@ pub async fn NativeHost::compose(
   home~ : String,
   cwd~ : String,
   mode~ : @permission.PermissionMode,
-  approval? : &@permission.ApprovalSource? = None,
-  ui? : &@posoco.UiPort? = None,
-  tail_exts? : Array[&@posoco.Extension] = [],
-  session_id? : String = "",
-  fs? : &@workspace.WorkspaceFs? = None,
-  mcp_group? : @async.TaskGroup[Unit]? = None,
-  warn? : async (String) -> Unit noraise = fn(_ : String) { () },
+  approval~ : &@permission.ApprovalSource? = None,
+  ui~ : &@posoco.UiPort? = None,
+  tail_exts~ : Array[&@posoco.Extension] = [],
+  session_id~ : String = "",
+  fs~ : &@workspace.WorkspaceFs? = None,
+  mcp_group~ : @async.TaskGroup[Unit]? = None,
+  warn~ : async (String) -> Unit noraise = fn(_ : String) { () },
 ) -> NativeHost raise @posoco.CompositionError {
   let fs : &@workspace.WorkspaceFs = match fs {
     Some(value) => value
@@ -211,10 +211,10 @@ pub async fn NativeHost::compose_interactive(
   home~ : String,
   cwd~ : String,
   mode~ : @permission.PermissionMode,
-  session_id? : String = "",
-  fs? : &@workspace.WorkspaceFs? = None,
-  mcp_group? : @async.TaskGroup[Unit]? = None,
-  warn? : async (String) -> Unit noraise = fn(_ : String) { () },
+  session_id~ : String = "",
+  fs~ : &@workspace.WorkspaceFs? = None,
+  mcp_group~ : @async.TaskGroup[Unit]? = None,
+  warn~ : async (String) -> Unit noraise = fn(_ : String) { () },
 ) -> (NativeHost, NativeUiPort) raise @posoco.CompositionError {
   let ui = NativeUiPort::new()
   let approval = NativeApprovalSource::new()
@@ -550,7 +550,7 @@ pub fn NativeHost::rewind_points(
 /// Read the full persisted user text at one physical-line rewind address.
 pub fn NativeHost::rewind_user_message(
   self : NativeHost,
-  message_index : Int,
+  message_index : Int32,
 ) -> String? raise @posoco.SessionError {
   @cetas_core.read_persisted_rewind_user_message(
     self.read_persisted_jsonl(),
@@ -565,7 +565,7 @@ pub fn NativeHost::rewind_user_message(
 /// this method is the storage capability itself.
 pub async fn NativeHost::rewind(
   self : NativeHost,
-  from_index : Int,
+  from_index : Int32,
 ) -> Unit raise @posoco.SessionError {
   @cetas_core.rewind_session(self.store, self.session.session_id(), from_index)
 }

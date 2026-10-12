@@ -70,7 +70,7 @@ async fn mcp_login_flow(
   store : &@oauth.ProviderCredentialStore,
   transport : &@oauth.OAuthHttpTransport,
   interaction : &@oauth.AuthInteraction,
-  now_secs : Int,
+  now_secs : Int32,
 ) -> Result[String, String] noraise {
   let label = @devkit.sanitize_label(server)
   // A 401 challenge is only recorded once a connection attempt ate it. With
@@ -198,7 +198,7 @@ async fn mcp_inject_stored_tokens(
   bridge : @mcp.MCPToolBridge,
   store : &@oauth.ProviderCredentialStore,
   transport : &@oauth.OAuthHttpTransport,
-  now_secs : Int,
+  now_secs : Int32,
 ) -> Unit noraise {
   for server in bridge.servers_by_auth(@mcp.ServerAuth::OAuth) {
     inject_stored_token_one(bridge, store, transport, server, now_secs) catch {
@@ -213,7 +213,7 @@ async fn inject_stored_token_one(
   store : &@oauth.ProviderCredentialStore,
   transport : &@oauth.OAuthHttpTransport,
   server : String,
-  now_secs : Int,
+  now_secs : Int32,
 ) -> Unit {
   let credential = match store.read(mcp_provider_id(server)) {
     Some(@oauth.ProviderCredential::OAuth(credential)) => credential

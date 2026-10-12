@@ -11,7 +11,7 @@ pub(all) enum NativeSetupSignal {
   SetupLogin(String)
   SetupRetry
   SetupExit
-  SetupTerminalFailed(Int)
+  SetupTerminalFailed(Int32)
 } derive(Eq)
 
 ///|
@@ -53,7 +53,7 @@ pub fn NativeSetupLoop::new(
 pub fn NativeSetupLoop::append_notice(
   self : NativeSetupLoop,
   message : String,
-) -> Int {
+) -> Int32 {
   self.shell.append_notice(message)
 }
 
@@ -61,7 +61,7 @@ pub fn NativeSetupLoop::append_notice(
 pub fn NativeSetupLoop::append_error(
   self : NativeSetupLoop,
   message : String,
-) -> Int {
+) -> Int32 {
   self.shell.append_error(message)
 }
 

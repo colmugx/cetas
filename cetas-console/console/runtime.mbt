@@ -33,7 +33,7 @@ priv struct SessionHandle {
   mut model : String
   mut effort : String
   mut busy : Bool
-  mut turn_no : Int
+  mut turn_no : Int32
 }
 
 ///|
@@ -952,7 +952,7 @@ pub fn ConsoleRuntime::emit_event(
   session_id : String,
   turn_id : String,
   event_type : String,
-  extra? : Array[(String, Json)] = [],
+  extra~ : Array[(String, Json)] = [],
 ) -> Unit {
   self.hub.emit(session_id, turn_id, event_type, extra~)
 }
