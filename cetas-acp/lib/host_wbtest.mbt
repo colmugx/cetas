@@ -779,18 +779,27 @@ async test "prompt usage update carries the host context window as size" {
 }
 
 ///|
-async test "active slot's declared context window is the bridge's size source" {
+async test "bridge uses effective context window including labelled fallback" {
   let router = @llm.RouterModelPort(slots=[
     tk_router_slot("test/alpha", "Alpha", [], context_window=Some(128000)),
     tk_router_slot("test/beta", "Beta", []),
   ])
   assert_eq(active_slot_context_window(router), Some(128000))
-  // Following a model switch the window tracks the new active slot; a slot
-  // without a declared window yields None (bridge keeps size 0).
+  // Missing capacity follows the router's explicit fallback policy.
   router.switch_slot("test/beta") catch {
     error => fail("switch_slot must succeed: " + error.to_string())
   }
-  assert_eq(active_slot_context_window(router), None)
+  assert_eq(active_slot_context_window(router), Some(500000))
+  assert_eq(
+    router.context_window_reading(router.list_slots()[1]).source,
+    "fallback",
+  )
+  let pending = @llm.RouterModelPort(
+    slots=router.list_slots(),
+    default_slot_id="test/absent",
+    allow_missing_default=true,
+  )
+  assert_eq(active_slot_context_window(pending), None)
 }
 
 ///|

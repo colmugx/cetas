@@ -24,6 +24,7 @@ pub(all) struct CetasPlatform {
   cwd : String
   fs : &@workspace.WorkspaceFs
   catalogs : Array[@llm.ProviderModelCatalog]
+  model_metadata : @llm.ModelMetadata
   default_slot_id : String
   /// The persisted selection is absent from the startup catalogs: the id
   /// stays active and requests fail visibly instead of switching models.
@@ -150,11 +151,16 @@ pub async fn build_cetas_platform(
   let session_store = @fs_session.JsonlSessionStore::of_project(home~, cwd~)
   // `device_id` stays empty: no host crypto surface in stdio; providers mint a local id.
   let refreshables = refreshable_factories(ext_ctx)
+  let model_metadata = @llm.ModelMetadata(
+    store=Some(FileModelMetadataStore(fs, home~)),
+    warn~,
+  )
   {
     home,
     cwd,
     fs,
     catalogs,
+    model_metadata,
     default_slot_id,
     default_slot_pending: restore is Pending(_),
     persisted_effort,

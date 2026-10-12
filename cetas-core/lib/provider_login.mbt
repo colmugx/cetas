@@ -74,7 +74,8 @@ pub fn build_provider_catalog(
 ) -> @llm.ProviderModelCatalog? raise @posoco.CompositionError {
   let source = source_for_factory(factory, snapshot, cached_models~)
   match factory.build(source) {
-    @llm.ProviderBuildResult::Ready(catalog) => Some(catalog)
+    @llm.ProviderBuildResult::Ready(catalog) =>
+      Some(catalog.with_cached_context_windows(cached_models))
     @llm.ProviderBuildResult::Unconfigured => None
   }
 }

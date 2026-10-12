@@ -1102,13 +1102,7 @@ async fn CetasAcpHost::push_config_option_update(
 /// `UsageUpdate.size`; cetas has no `AgentConfig.model_context_window`
 /// source to prefer (default_agent_config passes nothing).
 fn active_slot_context_window(router : @llm.RouterModelPort) -> Int? {
-  let active = router.active_slot_id()
-  for slot in router.list_slots() {
-    if slot.id == active {
-      return slot.context_window
-    }
-  }
-  None
+  router.provider_config().context_window
 }
 
 ///|
@@ -1178,6 +1172,7 @@ priv struct Platform {
   cwd : String
   fs : &@workspace.WorkspaceFs
   catalogs : Array[@llm.ProviderModelCatalog]
+  model_metadata : @llm.ModelMetadata
   default_slot_id : String
   /// The persisted selection is absent from the startup catalogs: the id
   /// stays active and requests fail visibly instead of switching models.
@@ -1310,11 +1305,16 @@ async fn build_platform(
   let permission_mode = startup_permission_mode()
   // `device_id` stays empty: no host crypto surface in stdio; providers mint a local id.
   let refreshables = @cetas_core.refreshable_factories(ext_ctx)
+  let model_metadata = @llm.ModelMetadata(
+    store=Some(@cetas_core.FileModelMetadataStore(fs, home~)),
+    warn=message => acp_warn(message + "\n"),
+  )
   {
     home,
     cwd,
     fs,
     catalogs,
+    model_metadata,
     default_slot_id,
     default_slot_pending: restore is @cetas_core.Pending(_),
     persisted_effort,
@@ -1384,6 +1384,7 @@ async fn build_session_agent(
   // context window; the assembly reuses it instead of minting another.
   let router = @llm.RouterModelPort::from_catalogs(
     platform.catalogs,
+    model_metadata=Some(platform.model_metadata),
     default_slot_id=platform.default_slot_id,
     allow_missing_default=platform.default_slot_pending,
     provider_credential_store=Some(

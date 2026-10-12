@@ -19,7 +19,6 @@ import {
   "moonbitlang/async/js_async",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
-  // recipe-imports:begin
   "colmugx/cetas-ext-forme/lib" @forme,
   "colmugx/posoco-ext-read" @read,
   "colmugx/posoco-ext-write" @write,
@@ -43,7 +42,6 @@ import {
   "colmugx/posoco-ext-subagent" @subagent,
   "colmugx/posoco-ext-kind" @kind,
   "colmugx/posoco-kit-subagent" @subagent_kit,
-  // recipe-imports:end
 }
 
 import {

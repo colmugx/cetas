@@ -35,13 +35,7 @@ fn mint_memoh_session_id() -> String {
 
 ///|
 fn router_context_window(router : @llm.RouterModelPort) -> Int? {
-  let active = router.active_slot_id()
-  for slot in router.list_slots() {
-    if slot.id == active {
-      return slot.context_window
-    }
-  }
-  None
+  router.provider_config().context_window
 }
 
 ///|
@@ -61,6 +55,7 @@ pub struct MemohHost {
   version : String
   cwd : String
   catalogs : Array[@llm.ProviderModelCatalog]
+  model_metadata : @llm.ModelMetadata
   credential_store : @credentials.FileProviderCredentialStore
   mcp_group : @async.TaskGroup[Unit]
   priv sessions : Map[String, MemohSession]
@@ -88,6 +83,10 @@ pub async fn MemohHost::MemohHost(
     version,
     cwd,
     catalogs: platform.catalogs,
+    model_metadata: @llm.ModelMetadata(
+      store=Some(MemohModelMetadataStore::{ fs, home, }),
+      warn=message => memoh_warn(message + "\n"),
+    ),
     credential_store: platform.credential_store,
     mcp_group,
     sessions: Map::from_array([]),
@@ -139,6 +138,7 @@ async fn MemohHost::build_session(
 ) -> Result[MemohSession, String] noraise {
   let router = @llm.RouterModelPort::from_catalogs(
     self.catalogs,
+    model_metadata=Some(self.model_metadata),
     provider_credential_store=Some(self.credential_store),
   ) catch {
     error => return Err("model router composition failed: " + error.to_string())

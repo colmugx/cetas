@@ -50,33 +50,36 @@ pub fn catalog_model_records(catalog : @llm.ProviderModelCatalog) -> Json {
     for effort in slot.thinking_efforts {
       efforts.push(Json::string(effort))
     }
-    items.push(
-      Json::object(
-        Map::from_array([
-          ("model_id", Json::string(slot.model_id)),
-          ("thinking_efforts", Json::array(efforts)),
-          (
-            "default_effort",
-            match slot.default_effort {
-              Some(effort) => Json::string(effort)
-              None => Json::null()
-            },
-          ),
-          (
-            "context_window",
-            match slot.context_window {
-              Some(value) => Json::number(value.to_double())
-              None => Json::null()
-            },
-          ),
-          ("image_in", Json::boolean(slot.capabilities.contains("image_in"))),
-          (
-            "use_responses_lite",
-            Json::boolean(slot.capabilities.contains("use_responses_lite")),
-          ),
-        ]),
+    let fields = Map::from_array([
+      ("model_id", Json::string(slot.model_id)),
+      ("thinking_efforts", Json::array(efforts)),
+      (
+        "default_effort",
+        match slot.default_effort {
+          Some(effort) => Json::string(effort)
+          None => Json::null()
+        },
       ),
-    )
+      (
+        "context_window",
+        match slot.context_window {
+          Some(value) => Json::number(value.to_double())
+          None => Json::null()
+        },
+      ),
+      ("image_in", Json::boolean(slot.capabilities.contains("image_in"))),
+      (
+        "use_responses_lite",
+        Json::boolean(slot.capabilities.contains("use_responses_lite")),
+      ),
+    ])
+    if slot.context_window is Some(_) {
+      fields["context_window_source"] = Json::string(slot.context_window_source)
+      fields["metadata_provider_id"] = Json::string(
+        slot.metadata_provider_id.unwrap_or(slot.provider_id),
+      )
+    }
+    items.push(Json::object(fields))
   }
   Json::array(items)
 }

@@ -1070,6 +1070,7 @@ pub fn CetasJsConfig::CetasJsConfig(
 pub(all) struct CetasJsRuntime {
   config : CetasJsConfig
   catalog_cache : Map[String, @llm.ProviderModelCatalog]
+  mut model_metadata : @llm.ModelMetadata?
   /// Providers whose last catalog build raised. Surfaced as setup warnings
   /// instead of aborting composition: one misconfigured provider must not
   /// take down the whole host.
@@ -1092,6 +1093,7 @@ pub fn CetasJsRuntime::CetasJsRuntime(config : CetasJsConfig) -> CetasJsRuntime 
   {
     config,
     catalog_cache: Map::from_array([]),
+    model_metadata: None,
     catalog_issues: [],
     pi: None,
     live_router: None,
@@ -1646,13 +1648,14 @@ pub fn cetas_js_runtime_create_agent(
                 )
               None => @permission.PermissionPolicy(mode, bus=Some(event_bus))
             }
-            // Plan mode: a write gate — only denylisted mutating shell
-            // commands and non-Markdown writes are blocked while planning;
-            // every other tool passes to the permission gate above. Toggled
-            // via /plan or shift+tab (declared on the command's shortcut),
-            // model entry via enter_plan_mode, exit only via plan.approve.
-            // Its enter/exit tools are reported on the bus and skip the
-            // permission gate above.
+            // Plan mode: a write gate — only writes outside the writable
+            // areas are blocked while planning (workspace .md files and
+            // /tmp scratch pass; everything else lands in the plan);
+            // every other tool passes to the permission gate above.
+            // Toggled via /plan or shift+tab (declared on the command's
+            // shortcut), model entry via enter_plan_mode, exit only via
+            // plan.approve. Its enter/exit tools are reported on the bus
+            // and skip the permission gate above.
             let plan_review = PlanApprovalSource()
             let plan_mode = @plan.PlanMode(
               config=@plan.PlanModeConfig::{
@@ -1664,6 +1667,12 @@ pub fn cetas_js_runtime_create_agent(
               // Plan-file persistence: planning narrative + named final plans go
               // to .cetas/plan/ through the workspace boundary.
               fs=Some(context_fs as &@workspace.WorkspaceFs),
+              // Lets the gate prove a target is inside the workspace
+              // (workspace .md writes) — the same anchoring the recipe
+              // gives the write/edit tools.
+              anchor=Some(
+                @devkit.WorkspaceAnchor::WorkspaceAnchor(runtime.config.cwd),
+              ),
             )
             // Status bar bridge: renders peer-published status segments over the
             // shared JsUiPort (slot Status); the host mounts that key in whichever

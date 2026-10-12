@@ -36,6 +36,7 @@ pub fn build_cetas_router(
     default_slot_id=platform.default_slot_id,
     allow_missing_default=platform.default_slot_pending,
     bus=event_bus,
+    model_metadata=Some(platform.model_metadata),
     provider_credential_store=Some(
       platform.credential_store as &@oauth.ProviderCredentialStore,
     ),
