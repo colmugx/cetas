@@ -73,6 +73,7 @@ fn cetas_tool_names() -> Array[String] {
 fn build_cetas_tools(
   ctx~ : @cetas_core.HostContext,
   names : Array[String],
+  question~ : &@askquestion.QuestionEndpoint? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
   let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
   let freshness = @devkit.FreshnessGuard::FreshnessGuard()
@@ -122,7 +123,15 @@ fn build_cetas_tools(
         }
       "webfetch" => exts.push(@webfetch.WebFetchTools() as &@posoco.Extension)
       "ask_question" =>
-        exts.push(@askquestion.AskQuestionTools() as &@posoco.Extension)
+        match question {
+          Some(endpoint) =>
+            exts.push(
+              @askquestion.AskQuestionTools::for_parent(endpoint~)
+              as &@posoco.Extension,
+            )
+          None =>
+            exts.push(@askquestion.AskQuestionTools() as &@posoco.Extension)
+        }
       _ =>
         raise @posoco.CompositionError::ManifestSchemaError(
           manifest_id="cetas.tools",
@@ -198,7 +207,7 @@ async fn build_cetas_skills(
 ///|
 
 ///|
-fn build_compiled_zcode_ext(
+async fn build_compiled_zcode_ext(
   env~ : (String) -> String?,
   exists~ : async (String) -> Bool,
 ) -> &@posoco.Extension? {
