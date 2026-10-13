@@ -14,6 +14,7 @@
 //
 // Public composition is checked in as MoonBit source; building does not
 // mutate the package graph or generate recipe sources.
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { moonbit } from "bun-plugin-moonbit";
 
@@ -29,6 +30,19 @@ const TARGETS = {
 } as const;
 
 const args = process.argv.slice(2);
+
+// Release version injected into the compiled binaries and the node bundle —
+// a compiled exe cannot read package.json at runtime. `VERSION` is the
+// release root of truth (release.py syncs package.json from it at tag time).
+const CETAS_VERSION = (() => {
+  try {
+    return readFileSync(join(import.meta.dir, "../VERSION"), "utf8").trim();
+  } catch {
+    console.error("cannot read ../VERSION — build from the cetas workspace checkout");
+    process.exit(2);
+  }
+})();
+const VERSION_DEFINE = { __CETAS_VERSION__: JSON.stringify(CETAS_VERSION) };
 const executableIdx = args.indexOf("--executable");
 const executable = executableIdx >= 0 ? args[executableIdx + 1] : undefined;
 const positional =
@@ -103,6 +117,7 @@ if (nodeBundle) {
     target: "node",
     minify: true,
     external: ["@earendil-works/pi-tui"],
+    define: VERSION_DEFINE,
     plugins: [
       moonbit({
         root: import.meta.dir,
@@ -165,6 +180,7 @@ for (const name of selected.filter((n) => osFor(n) === os)) {
       }),
     ],
     compile: { target: TARGETS[name], outfile, ...(executable ? { executablePath: executable } : {}) },
+    define: VERSION_DEFINE,
     minify: true,
   });
   if (!result.success) {

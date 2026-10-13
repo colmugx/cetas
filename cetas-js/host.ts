@@ -18,6 +18,8 @@ import { ProcessTerminal, TuiMainScreen } from "@earendil-works/pi-tui";
 import * as moonbit from "mbt:colmugx/cetas-js/lib";
 
 import { buildCetasHostConfig, CetasApplication } from "./src/app/index.ts";
+import { runUpdateCheck, updateNoticeMessage } from "./src/app/update-check.ts";
+import { cetasVersion, detectChannel } from "./src/app/version.ts";
 import { makeUnhandledFaultHandler, TrackedTerminal } from "./src/host-fault.ts";
 import {
   MoonbitCetasAgentBridge,
@@ -78,6 +80,11 @@ process.on("uncaughtException", (error: unknown) => {
 });
 
 async function main(): Promise<void> {
+  const versionInfo = { version: cetasVersion(), channel: detectChannel() };
+  if (process.argv.includes("--version")) {
+    console.log(`cetas-js ${versionInfo.version} (${versionInfo.channel})`);
+    return;
+  }
   const config = buildCetasHostConfig({ hostHelpNote: CETAS_TUI_HELP_NOTE });
   const sessionId = newSessionId();
   const bridge = new MoonbitCetasAgentBridge(config);
@@ -101,6 +108,7 @@ async function main(): Promise<void> {
     maxToolRounds: config.maxToolRounds,
     initialSessionId: sessionId,
     toolLabels,
+    versionInfo,
     onExit: (code) => process.exit(code),
   });
   const app = new CetasApplication({
@@ -118,6 +126,23 @@ async function main(): Promise<void> {
   process.on("SIGINT", () => shell.requestShutdown(0));
   process.on("SIGTERM", () => shell.requestShutdown(0));
   await shell.start();
+  // Fire-and-forget, channel-scoped, at most once per 24h; a hit surfaces as
+  // a muted transcript notice. Never awaited so startup latency is zero.
+  if (versionInfo.channel !== "dev") {
+    void runUpdateCheck({
+      home: config.home,
+      channel: versionInfo.channel,
+      currentVersion: versionInfo.version,
+    })
+      .then((hit) => {
+        if (hit !== undefined) {
+          shell.surfaceNotice(
+            updateNoticeMessage(versionInfo.version, hit, versionInfo.channel),
+          );
+        }
+      })
+      .catch(() => {});
+  }
 }
 
 void main().catch((error: unknown) => {

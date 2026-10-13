@@ -14,15 +14,28 @@ describe("welcome header", () => {
     for (const state of ["ready", "needs_setup"] as const) {
       for (const width of [-1, 0, 1, 8, 23, 24, 39, 40, 63, 64, 80, 120]) {
         for (const compact of [false, true]) {
-          const lines = renderWelcomeHeader({ ...source, state, cwd: "/工作区/🧑‍💻/一个很长的项目名称/\x1b[2Jtest\nnext", model: "提供方 / 模型 🧑‍💻" }, width, compact);
-          for (const line of lines) {
-            expect(visibleWidth(line)).toBeLessThanOrEqual(width);
-            expect(line).not.toContain("\x1b[2J");
-            expect(line).not.toContain("\n");
+          for (const versionInfo of [undefined, { version: "0.8.1", channel: "release" as const }]) {
+            const lines = renderWelcomeHeader({ ...source, state, cwd: "/工作区/🧑‍💻/一个很长的项目名称/\x1b[2Jtest\nnext", model: "提供方 / 模型 🧑‍💻", versionInfo }, width, compact);
+            for (const line of lines) {
+              expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+              expect(line).not.toContain("\x1b[2J");
+              expect(line).not.toContain("\n");
+            }
           }
         }
       }
     }
+  });
+
+  test("version and channel show on the card title row, not in compact mode", () => {
+    const versioned = { ...source, versionInfo: { version: "0.8.1", channel: "release" as const } };
+    const card = plain(renderWelcomeHeader(versioned, 88));
+    expect(card).toContain("0.8.1 · release");
+    const narrow = plain(renderWelcomeHeader(versioned, 40));
+    expect(narrow).toContain("0.8.1 · release");
+    expect(plain(renderWelcomeHeader(versioned, 88, true))).not.toContain("0.8.1");
+    // No version info → byte-identical to the legacy card.
+    expect(plain(renderWelcomeHeader(source, 88))).not.toContain("· release");
   });
 
   test("first-run guidance asks for login; ready state suggests starting work", () => {

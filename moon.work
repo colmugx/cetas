@@ -62,6 +62,7 @@ members = [
   "./extension/posoco-kit-compact-trim",
   "./extension/posoco-kit-delegation",
   "./extension/posoco-kit-lody",
+  "./extension/posoco-kit-model-management",
   "./extension/posoco-kit-paseo",
   "./extension/posoco-kit-responses",
   "./extension/posoco-kit-subagent",

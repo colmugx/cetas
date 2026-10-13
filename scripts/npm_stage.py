@@ -46,6 +46,9 @@ runtime and pi-tui's native addons load from its npm install.
 
 The GitHub Release channel ships a self-contained bun-compiled binary
 (cetas-bun-*) for users without Node.
+
+The host checks this registry once a day for a newer release and prints a
+one-line notice; set `CETAS_NO_UPDATE_CHECK=1` to disable.
 """
 
 

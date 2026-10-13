@@ -107,6 +107,25 @@ function buildFixtureTree(root: string): void {
   write("node_modules/cyc/a.js", `import { b } from "./b.js";\nexport const a = "a" + b;\n`);
   write("node_modules/cyc/b.js", `import "./a.js";\nexport const b = "b";\n`);
 
+  // pi-coding-agent 0.84.4 regression: an export clause carrying inline
+  // comments with parentheses must not hide "./core/sdk.js" from the scan.
+  write("node_modules/clausey/package.json", JSON.stringify({ name: "clausey", main: "./index.js" }));
+  write(
+    "node_modules/clausey/index.js",
+    [
+      `export { sdkValue,`,
+      `// Factory`,
+      `sdkHelper,`,
+      `// Tool factories (for custom cwd)`,
+      `sdkTool, } from "./core/sdk.js";`,
+      `export const local = "clausey-local";`,
+    ].join("\n") + "\n",
+  );
+  write(
+    "node_modules/clausey/core/sdk.js",
+    `export const sdkValue = "clausey-sdk";\nexport const sdkHelper = "clausey-helper";\nexport const sdkTool = "clausey-tool";\n`,
+  );
+
   write(
     "entry.ts",
     [
@@ -208,6 +227,22 @@ describe("PiModuleMirror", () => {
     const first = again.mirrorEntry(join(root, "entry.ts"));
     const second = again.mirrorEntry(join(root, "entry.ts"));
     expect(second.url).toBe(first.url);
+  });
+
+  const clauseyOutcome = mirror.mirrorEntry(join(root, "node_modules/clausey/index.js"));
+
+  test("export clauses with parenthesized inline comments still resolve", async () => {
+    // Regression for the 2026-10-13 pi:fetch_content outage: the clause class
+    // must cross `(` `)` (comments) to reach `from` — pi-coding-agent 0.84.4
+    // ships exactly this shape and the missed spec broke the flat mirror.
+    expect(clauseyOutcome.warnings).toEqual([]);
+    const mirroredEntry = readFileSync(new URL(clauseyOutcome.url).pathname, "utf8");
+    expect(mirroredEntry).toContain('} from "file://');
+    expect(mirroredEntry).not.toContain('"./core/sdk.js"');
+    const mod = (await import(clauseyOutcome.url)) as { sdkValue: string; sdkHelper: string; sdkTool: string };
+    expect(mod.sdkValue).toBe("clausey-sdk");
+    expect(mod.sdkHelper).toBe("clausey-helper");
+    expect(mod.sdkTool).toBe("clausey-tool");
   });
 });
 

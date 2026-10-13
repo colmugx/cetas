@@ -176,6 +176,9 @@ priv struct CetasChildComposer {
   child_store : CetasChildSessionStore
   approval : &@permission.ApprovalSource?
   ui : &@posoco.UiPort?
+  /// Parent question channel: children whose face includes ask_question
+  /// get an `ask_question_child` tool answered by the parent agent.
+  question : @subagent.ParentQuestionChannel?
   context_fs : &@workspace.WorkspaceFs
   feature_fs : &@workspace.WorkspaceFs
   cwd : String
@@ -188,6 +191,7 @@ fn CetasChildComposer::CetasChildComposer(
   parent_mode~ : () -> @permission.PermissionMode,
   approval~ : &@permission.ApprovalSource? = None,
   ui~ : &@posoco.UiPort? = None,
+  question~ : @subagent.ParentQuestionChannel? = None,
   context_fs~ : &@workspace.WorkspaceFs,
   feature_fs~ : &@workspace.WorkspaceFs,
   cwd~ : String,
@@ -199,6 +203,7 @@ fn CetasChildComposer::CetasChildComposer(
     child_store: CetasChildSessionStore::CetasChildSessionStore(),
     approval,
     ui,
+    question,
     context_fs,
     feature_fs,
     cwd,
@@ -220,10 +225,12 @@ fn CetasChildComposer::resolve_child_mode(
 fn CetasChildComposer::tool_extensions(
   self : CetasChildComposer,
   names : Array[String],
+  question~ : &@askquestion.QuestionEndpoint? = None,
 ) -> Array[&@posoco.Extension] raise @subagent.ComposerError {
   build_cetas_tools(
     ctx={ fs: self.feature_fs, cwd: self.cwd, home: self.home, },
     names,
+    question~,
   ) catch {
     error =>
       raise @subagent.ComposerError::Failed(
@@ -354,11 +361,18 @@ async fn build_cetas_subagents(
   home~ : String,
 ) -> &@posoco.Extension raise @posoco.CompositionError {
   let (config, extra_kinds) = load_cetas_subagent_settings(home~)
+  // One broker serves both sides of the question round trip: the parent's
+  // SubagentTools (answer tool, race, injection) and every child's
+  // ask_question_child face through the channel view.
+  let broker = @subagent.QuestionBroker::QuestionBroker(
+    answer_timeout_ms=config.limits.answer_timeout_ms,
+  )
   let composer = CetasChildComposer::CetasChildComposer(
     parent_router~,
     parent_mode~,
     approval~,
     ui~,
+    question=Some(broker.channel()),
     context_fs~,
     feature_fs~,
     cwd~,
@@ -374,6 +388,7 @@ async fn build_cetas_subagents(
       (parent_router.active_slot_id(), parent_router.active_effort())
     }),
     observers~,
+    question=Some(broker),
     // Wakeup-port §10 policy: this host integrated the operation lifecycle
     // (operation_settled projection, structured Busy retention), so a
     // background receipt requests one ordinary turn instead of waiting for
@@ -455,7 +470,24 @@ impl @subagent.ChildComposer for CetasChildComposer with fn compose(
     Some(names) => names
     None => cetas_tool_names()
   }
-  for ext in self.tool_extensions(tool_names) {
+  // Interactive children (face includes ask_question, default face does)
+  // get the parent-bound ask face instead of the human one.
+  let question : &@askquestion.QuestionEndpoint? = match self.question {
+    Some(channel) =>
+      if tool_names.contains("ask_question") {
+        Some(
+          CetasParentQuestionEndpoint::CetasParentQuestionEndpoint(
+            channel~,
+            child_session=spec.session_id,
+          )
+          as &@askquestion.QuestionEndpoint,
+        )
+      } else {
+        None
+      }
+    None => None
+  }
+  for ext in self.tool_extensions(tool_names, question~) {
     exts.push(ext)
   }
   match self.ui {

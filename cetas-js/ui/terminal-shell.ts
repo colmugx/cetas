@@ -63,6 +63,7 @@ import {
   decisionFailureDiagnostic,
   type CoreCustomParse,
 } from "../src/core-events.ts";
+import type { Channel } from "../src/app/version.ts";
 import {
   SubagentHeader,
   projectSubagentHeader,
@@ -158,6 +159,8 @@ export interface TerminalShellOptions {
   initialSessionId: string;
   /** Tool name → extension id (bridge tool catalog); labels tool rows. */
   toolLabels?: ReadonlyMap<string, string>;
+  /** Version and distribution channel, shown on the welcome card. */
+  versionInfo?: { version: string; channel: Channel };
   /** Host-owned process exit hook; tests can leave it undefined. */
   onExit?: (code: number) => void;
   /**
@@ -382,6 +385,7 @@ export class TerminalShell {
         state: this.welcomeSnapshot?.state,
         model: active?.label ?? setup?.activeModelId,
         rows: this.tui.terminal.rows,
+        versionInfo: options.versionInfo,
       };
     });
     this.tui.addChild(this.welcomeHeader);
@@ -786,6 +790,16 @@ export class TerminalShell {
   surfaceHostFault(message: string): void {
     if (this.shutdownPromise !== undefined) return;
     this.addTranscriptChild(errorNotice(message));
+    this.tui.requestRender();
+  }
+
+  /**
+   * Surface a benign one-line notice (update availability) in the transcript;
+   * muted styling — never rendered as an error.
+   */
+  surfaceNotice(message: string): void {
+    if (this.shutdownPromise !== undefined) return;
+    this.addTranscriptChild(systemNotice(message));
     this.tui.requestRender();
   }
 

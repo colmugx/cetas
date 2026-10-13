@@ -283,7 +283,10 @@ function scanSourceImports(content: string): ScannedImport[] {
 const SCAN_PATTERNS: ReadonlyArray<readonly [string, RegExp]> = [
   [
     "import-statement",
-    /(?:^|[;{}\s])(?:import|export)\s+(?:[^;'"()]*?\bfrom\s*)?["'`]([^"'`\n]+)["'`]/g,
+    // The clause class keeps `()` so inline comments inside an export clause
+    // (e.g. `// Tool factories (for custom cwd)` in pi-coding-agent's index)
+    // don't break the scan; `;` still bounds each statement.
+    /(?:^|[;{}\s])(?:import|export)\s+(?:[^;'"]*?\bfrom\s*)?["'`]([^"'`\n]+)["'`]/g,
   ],
   ["dynamic-import", /\bimport\s*\(\s*["'`]([^"'`\n]+)["'`]\s*\)/g],
   ["require-call", /\brequire\s*\(\s*["'`]([^"'`\n]+)["'`]\s*\)/g],

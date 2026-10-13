@@ -6,6 +6,7 @@ import {
   type Component,
 } from "@earendil-works/pi-tui";
 import type { AppState } from "../src/app/types.ts";
+import type { Channel } from "../src/app/version.ts";
 import { theme } from "./theme.ts";
 
 // A six-row terminal cut of the Wakeful mark, using half-block cells.
@@ -24,6 +25,8 @@ export interface WelcomeHeaderSource {
   state?: AppState;
   model?: string;
   rows?: number;
+  /** Static per-process facts; shown on the card title row when present. */
+  versionInfo?: { version: string; channel: Channel };
 }
 
 /** File names and provider labels must never introduce terminal controls. */
@@ -55,6 +58,10 @@ export function renderWelcomeHeader(
   const starting = source.state === undefined;
   const fit = (value: string, max = columns): string => truncateToWidth(value, max, "…");
   const title = theme.brandBold("cetas");
+  // Compact mode keeps the bare brand; the card title row carries the facts.
+  const cardTitle = source.versionInfo === undefined
+    ? title
+    : title + theme.muted(` ${source.versionInfo.version} · ${source.versionInfo.channel}`);
 
   // Tiny / short terminals and active conversations retain only useful context.
   if (compact || columns < 40 || (source.rows ?? 24) < 22) {
@@ -75,7 +82,7 @@ export function renderWelcomeHeader(
       " ".repeat(contentWidth - visibleWidth(clipped)) + theme.muted(" │");
   };
   const context = [
-    title,
+    cardTitle,
     theme.muted("One agent. Every surface."),
     "",
     theme.muted("Workspace  ") + workspace,
