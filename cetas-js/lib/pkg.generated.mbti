@@ -10,6 +10,7 @@ import {
   "colmugx/posoco-ext-plan",
   "colmugx/posoco-ext-ratelimit",
   "colmugx/posoco-ext-workspace",
+  "colmugx/posoco-kit-provider",
   "colmugx/posoco/error",
   "colmugx/posoco/port",
   "colmugx/posoco/types",
@@ -116,7 +117,7 @@ pub fn CetasJsConfig::CetasJsConfig(String, Int, String, String, String, String)
 
 pub(all) struct CetasJsRuntime {
   config : CetasJsConfig
-  catalog_cache : Map[String, @ext-llm.ProviderModelCatalog]
+  catalog_cache : Map[String, @posoco-kit-provider.ProviderModelCatalog]
   mut model_metadata : @ext-llm.ModelMetadata?
   mut catalog_issues : Array[@colmugx/cetas-core/lib.CatalogBuildIssue]
   mut pi : @posoco-ext-pi-adaptor.PiAdaptor?

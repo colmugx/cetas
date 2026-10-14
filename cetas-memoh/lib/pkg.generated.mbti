@@ -7,6 +7,7 @@ import {
   "colmugx/posoco-ext-credentials",
   "colmugx/posoco-ext-skills",
   "colmugx/posoco-ext-workspace",
+  "colmugx/posoco-kit-provider",
   "moonbitlang/async",
   "posoco/ext-llm",
 }
@@ -34,7 +35,7 @@ pub async fn run_setup(home~ : String, provider? : String) -> String
 pub struct MemohHost {
   version : String
   cwd : String
-  catalogs : Array[@ext-llm.ProviderModelCatalog]
+  catalogs : Array[@posoco-kit-provider.ProviderModelCatalog]
   model_metadata : @ext-llm.ModelMetadata
   credential_store : @posoco-ext-credentials.FileProviderCredentialStore
   mcp_group : @async.TaskGroup[Unit]
@@ -55,7 +56,7 @@ pub(all) struct ProviderIssue {
 }
 
 pub(all) struct ProviderPlatform {
-  catalogs : Array[@ext-llm.ProviderModelCatalog]
+  catalogs : Array[@posoco-kit-provider.ProviderModelCatalog]
   credential_store : @posoco-ext-credentials.FileProviderCredentialStore
   issues : Array[ProviderIssue]
 }

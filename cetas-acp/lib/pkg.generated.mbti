@@ -7,9 +7,9 @@ import {
   "colmugx/acp/protocol/session",
   "colmugx/posoco-ext-mcp",
   "colmugx/posoco-ext-workspace",
+  "colmugx/posoco-kit-provider",
   "colmugx/posoco/kernel",
   "moonbitlang/async",
-  "posoco/ext-llm",
 }
 
 // Values
@@ -22,7 +22,7 @@ pub struct CetasAcpHost {
   version : String
   home : String
   fs : &@posoco-ext-workspace.WorkspaceFs
-  refreshables : Array[&@ext-llm.RefreshableProviderFactory]
+  refreshables : Array[&@posoco-kit-provider.RefreshableProviderFactory]
   refresh_snapshot : @colmugx/cetas-core/lib.ProviderCredentialSnapshot
   // private fields
 }
