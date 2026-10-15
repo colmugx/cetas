@@ -2946,6 +2946,7 @@ pub fn cetas_js_invoke_command(
           let outcome = if magpie_invoked {
             match outcome {
               Success(feedback~, structured~, ui_hint~) => {
+                structured |> ignore
                 persist_active_model_selection(handle)
                 @port.CommandOutcome::Success(
                   // Pending selections stay visible in the picker feedback

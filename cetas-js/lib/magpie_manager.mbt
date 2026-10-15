@@ -425,7 +425,7 @@ fn magpie_setup_entry_json(binding : MagpieBinding) -> Json {
 /// Rebuild a fresh model-manager extension for one subagent: providers get a
 /// router over the parent's slots (per-child selection), Magpie gets a child
 /// manager bound to the same endpoint material with its own selection state.
-async fn ModelManagerFace::manager_subagent_extension(
+fn ModelManagerFace::manager_subagent_extension(
   self : ModelManagerFace,
   spec_slot~ : String,
   spec_effort~ : String?,
