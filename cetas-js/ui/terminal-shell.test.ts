@@ -106,6 +106,7 @@ describe("matchLocalSlash", () => {
 
   test("/model is a local route; arg logic stays in the handler", () => {
     expect(matchLocalSlash("/model")?.id).toBe("model");
+    expect(matchLocalSlash("/manager")?.id).toBe("manager");
     expect(matchLocalSlash("/skills")?.id).toBe("skills");
   });
 
