@@ -2989,9 +2989,16 @@ pub fn cetas_js_invoke_command(
     if id == "quota" {
       match handle.manager {
         Magpie(binding) => {
-          let snapshot = binding.runtime
-            .intelligence()
-            .quota_snapshot(kept=true) catch {
+          let refresh = match args {
+            Json::Object(fields) => fields.get("refresh") is Some(Json::True)
+            _ => false
+          }
+          let intelligence = binding.runtime.intelligence()
+          let snapshot = (if refresh {
+            intelligence.refresh_quota_cards()
+          } else {
+            intelligence.quota_snapshot(kept=true)
+          }) catch {
               _ =>
                 return command_outcome_to_json(
                   @port.CommandOutcome::Failure(
