@@ -438,21 +438,22 @@ async fn provider_setup_json(
   // Magpie managers replace the provider setup surface with a single entry,
   // so the host's needs-setup logic treats Magpie like any configured
   // provider and no provider credentials or catalogs are probed.
-  let magpie_binding : MagpieBinding? = match runtime.magpie_binding {
-    Some(binding) => Some(binding)
-    None => {
-      let cred = credential_store(runtime.config.home)
-      let settings = read_magpie_host_settings(
-        @workspace.JsWorkspaceFs(),
-        home=runtime.config.home,
-        cred_store=cred,
-        warn=fn(_message) { () },
-      )
-      match settings {
-        Some(settings) => Some(bind_magpie_manager(settings))
-        None => None
+  // Settings are authoritative during recomposition; the cached binding
+  // can belong to a retired Agent using a different manager.
+  let cred = credential_store(runtime.config.home)
+  let settings = read_magpie_host_settings(
+    @workspace.JsWorkspaceFs(),
+    home=runtime.config.home,
+    cred_store=cred,
+    warn=fn(_message) { () },
+  )
+  let magpie_binding : MagpieBinding? = match settings {
+    Some(settings) =>
+      match runtime.magpie_binding {
+        Some(binding) => Some(binding)
+        None => Some(bind_magpie_manager(settings))
       }
-    }
+    None => None
   }
   match magpie_binding {
     Some(binding) =>
