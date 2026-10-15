@@ -2247,6 +2247,11 @@ async fn run_turn_outcome(
       Some(_) => "resume"
       None => "new"
     }
+    if reason == "resume" {
+      // The resumed session continues on the model that produced its last
+      // persisted turn (best-effort; see session_model_restore.mbt).
+      restore_session_model_selection(handle, session_id)
+    }
     // Restore persisted pi custom entries before handlers see session_start
     // so package state (e.g. pi-web-access search caches) survives restarts.
     seed_pi_custom_entries(handle, session_id)
@@ -2387,6 +2392,11 @@ pub fn cetas_js_resume_turn(
       let reason = match handle.pi_session {
         Some(_) => "resume"
         None => "new"
+      }
+      if reason == "resume" {
+        // The resumed session continues on the model that produced its last
+        // persisted turn (best-effort; see session_model_restore.mbt).
+        restore_session_model_selection(handle, session_id)
       }
       seed_pi_custom_entries(handle, session_id)
       emit_pi_session_start(handle, session_id, reason)
