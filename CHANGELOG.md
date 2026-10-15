@@ -2,6 +2,12 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.9.0 (2026-10-15)
+
+### Added
+- add opencode-go provider and update related tests and imports (37e52d4)
+- implement version check and update notification system (f69e71c)
+
 ## 0.8.1 (2026-10-12)
 
 ## General
