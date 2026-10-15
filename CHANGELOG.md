@@ -2,6 +2,17 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.9.1 (2026-10-15)
+
+## Bun Ver.（cetas-bun）
+
+### Feats
+- Subagent questions now surface right in the stream: when a spawned subagent parks a question, its run card shows exactly what it asks — free-text input, a yes/no confirm, or a select with options — and the run status switches to "? waiting your answer", so you can tell a child is blocked on you rather than still working.
+- Your replies to subagents are now on the record: each answer produces a dedicated transcript entry showing the question and the submitted answer side by side, both live and when replaying a saved session, replacing the bare "answer accepted" line.
+
+### Fixes
+- Fatal host faults no longer leave a frozen terminal: cetas now restores the terminal, releases background resources, logs full crash details, and exits with a clear pointer to restart and pick up your persisted session — instead of lingering as an unresponsive screen; cleanup failures during a crash no longer cascade, and a broken output pipe (e.g. a detached terminal) is detected instead of erroring repeatedly.
+
 ## 0.9.0 (2026-10-15)
 
 ### Added
