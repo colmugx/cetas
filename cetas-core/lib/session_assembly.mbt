@@ -83,6 +83,10 @@ pub async fn build_cetas_session(
     Some(bus) => bus
     None => @devkit.EventBus()
   }
+  // Provider model ports publish their statusbar segments (the spend
+  // estimate) through the process default bus; this registration is what
+  // points those publishes at this session's channel.
+  @devkit.status_bus_register(event_bus)
   let router = match router {
     Some(router) => router
     None => build_cetas_router(platform~, event_bus=Some(event_bus))

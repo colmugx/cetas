@@ -36,6 +36,7 @@ members = [
   "./extension/posoco-ext-openai-compatible",
   "./extension/posoco-ext-openai",
   "./extension/posoco-ext-opencode-zen",
+  "./extension/posoco-ext-opencode-go",
   "./extension/posoco-ext-openrouter",
   "./extension/posoco-ext-permission",
   "./extension/posoco-ext-pi-adaptor",

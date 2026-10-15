@@ -25,6 +25,7 @@ pub fn provider_factories(
   let kimi = @kimi.KimiProvider(ctx~)
   let openai = @openai.OpenAIProvider()
   let opencode_zen = @opencode_zen.OpenCodeZenProvider(ctx~)
+  let opencode_go = @opencode_go.OpenCodeGoProvider(ctx~)
   let zai = @zai.ZaiProvider(ctx~)
   let zai_coding_plan = @zai_coding_plan.ZaiCodingPlanProvider(ctx~)
   let openrouter = @openrouter.OpenRouterProvider(ctx~)
@@ -33,6 +34,7 @@ pub fn provider_factories(
     kimi as &@llm.ProviderFactory,
     openai as &@llm.ProviderFactory,
     opencode_zen as &@llm.ProviderFactory,
+    opencode_go as &@llm.ProviderFactory,
     zai as &@llm.ProviderFactory,
     zai_coding_plan as &@llm.ProviderFactory,
     openrouter as &@llm.ProviderFactory,
@@ -125,6 +127,7 @@ pub fn api_key_factories(
   let kimi = @kimi.KimiProvider(ctx~)
   let openai = @openai.OpenAIProvider()
   let opencode_zen = @opencode_zen.OpenCodeZenProvider(ctx~)
+  let opencode_go = @opencode_go.OpenCodeGoProvider(ctx~)
   let zai = @zai.ZaiProvider(ctx~)
   let zai_coding_plan = @zai_coding_plan.ZaiCodingPlanProvider(ctx~)
   let openrouter = @openrouter.OpenRouterApiKeyFactory()
@@ -133,6 +136,7 @@ pub fn api_key_factories(
     kimi as &@llm.ApiKeyFactory,
     openai as &@llm.ApiKeyFactory,
     opencode_zen as &@llm.ApiKeyFactory,
+    opencode_go as &@llm.ApiKeyFactory,
     zai as &@llm.ApiKeyFactory,
     zai_coding_plan as &@llm.ApiKeyFactory,
     openrouter as &@llm.ApiKeyFactory,
@@ -166,6 +170,7 @@ pub fn refreshable_factories(
   let kimi = @kimi.KimiProvider(ctx~, device_id~)
   let openai = @openai.OpenAIProvider()
   let opencode_zen = @opencode_zen.OpenCodeZenProvider(ctx~)
+  let opencode_go = @opencode_go.OpenCodeGoProvider(ctx~)
   let zai = @zai.ZaiProvider(ctx~)
   let openrouter = @openrouter.OpenRouterProvider(ctx~)
   [
@@ -173,6 +178,7 @@ pub fn refreshable_factories(
     kimi as &@llm.RefreshableProviderFactory,
     openai as &@llm.RefreshableProviderFactory,
     opencode_zen as &@llm.RefreshableProviderFactory,
+    opencode_go as &@llm.RefreshableProviderFactory,
     zai as &@llm.RefreshableProviderFactory,
     openrouter as &@llm.RefreshableProviderFactory,
   ]

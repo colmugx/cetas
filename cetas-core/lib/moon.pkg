@@ -8,6 +8,7 @@ import {
   "colmugx/posoco-ext-openai" @openai,
   "colmugx/posoco-ext-openai-compatible" @openai_compatible,
   "colmugx/posoco-ext-opencode-zen" @opencode_zen,
+  "colmugx/posoco-ext-opencode-go" @opencode_go,
   "colmugx/posoco-ext-zai" @zai,
   "colmugx/posoco-ext-zai-coding-plan" @zai_coding_plan,
   "colmugx/posoco-ext-openrouter" @openrouter,
