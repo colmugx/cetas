@@ -1841,10 +1841,11 @@ export class TerminalShell {
     const setup = this.requireApp().snapshot();
     const current = setup.setup.providers.find((entry) => entry.id === setup.setup.activeModelId)
       ?? setup.setup.providers.find((entry) => entry.active);
+    const magpieActive = this.requireApp().listCommands().some((cmd) => cmd.id === "magpie_status");
     this.addTranscriptChild(systemNotice(
-      `status: ${setup.state}; session ${setup.sessionId}; model ${current?.label ?? setup.setup.activeModelId ?? "unselected"}`,
+      `status: ${setup.state}; manager ${magpieActive ? "Magpie" : "Providers"}; session ${setup.sessionId}; model ${current?.label ?? setup.setup.activeModelId ?? "unselected"}`,
     ));
-    if (this.requireApp().listCommands().some((cmd) => cmd.id === "magpie_status")) {
+    if (magpieActive) {
       await this.invokeCommand("/magpie_status", "");
     }
   }
