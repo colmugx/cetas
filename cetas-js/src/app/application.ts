@@ -1,3 +1,4 @@
+import { readManagerSettings, restoreManagerSettings, writeManagerChoice, type ModelManagerChoice } from "./model-manager-settings.ts";
 import {
   CetasApplicationError,
   type AgentCallbacks,
@@ -119,6 +120,7 @@ export class CetasApplication<AgentHandle = unknown> {
    */
   private abortWatchdog: ReturnType<typeof setTimeout> | undefined;
   private activeCommand: Promise<string> | undefined;
+  private managerSwitching = false;
   /**
    * Mirror of follow-ups accepted but not yet drained by the Agent (the
    * core keeps them queued across operations and starts them at a later
@@ -360,6 +362,39 @@ export class CetasApplication<AgentHandle = unknown> {
         ? []
         : undefined,
     );
+  }
+
+  /** Recompose the Agent after an atomic manager-setting change. */
+  async switchModelManager(choice: ModelManagerChoice): Promise<AppSnapshot> {
+    if (this.managerSwitching || this.startPromise !== undefined ||
+        this.operations.busy || this.operations.compactPending ||
+        this.activeCommand !== undefined || this.state === "shutting_down" ||
+        this.pendingFollowUps.length > 0) {
+      throw new CetasApplicationError("already_running", "manager switching requires an idle application");
+    }
+    const previous = await readManagerSettings(this.options.config.home);
+    if (previous.manager === choice) return this.snapshot();
+    this.managerSwitching = true;
+    try {
+      await this.stopLiveCatalogRefresh();
+      await writeManagerChoice(this.options.config.home, choice, previous);
+      try {
+        const next = await this.refreshSetup();
+        if (next.state !== "ready") throw new Error("selected manager did not produce a ready Agent");
+        return next;
+      } catch (error: unknown) {
+        await restoreManagerSettings(this.options.config.home, previous);
+        try {
+          await this.refreshSetup();
+        } catch (rollback: unknown) {
+          throw new CetasApplicationError("bridge_failure",
+            `manager switch failed and recovery failed: ${errorMessage(rollback)}`, rollback);
+        }
+        throw error;
+      }
+    } finally {
+      this.managerSwitching = false;
+    }
   }
 
   private beginSetup(
