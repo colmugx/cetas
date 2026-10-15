@@ -2167,6 +2167,44 @@ pub fn cetas_js_runtime_login_provider(
 }
 
 ///|
+/// Validate the gateway before persisting its credential. No token or raw
+/// gateway body is returned to the host UI.
+pub fn cetas_js_runtime_connect_magpie(
+  runtime : CetasJsRuntime,
+  base_url : String,
+  key : String,
+) -> @js_async.Promise[String] {
+  @js_async.Promise::from_async() <| () => {
+    let config = @magpie.MagpieConfig::MagpieConfig(
+      base_url~,
+      credential=if key == "" { None } else { Some(key) },
+    ) catch {
+      _ => raise @posoco.CommandError::InvalidArgs(reason="invalid gateway address")
+    }
+    let manager = @magpie.MagpieManager::MagpieManager(
+      config~,
+      transport=@magpie.magpie_http_transport(),
+    )
+    let _ = manager.refresh() catch {
+      _ => raise @posoco.CommandError::ExecutionFailed(
+        "gateway connection or authentication failed",
+      )
+    }
+    if key != "" {
+      credential_store(runtime.config.home).write(
+        "magpie",
+        @oauth.ProviderCredential::ApiKey(
+          @oauth.ApiKeyCredential::ApiKeyCredential(secret=key),
+        ),
+      ) catch {
+        _ => raise @posoco.CommandError::ExecutionFailed("credential storage failed")
+      }
+    }
+    Json::object({ "connected": Json::boolean(true) }).stringify()
+  }
+}
+
+///|
 /// Run one turn on an existing agent handle.
 ///
 /// Why this shape: `pub async fn` exported to JS compiles to a CPS state
