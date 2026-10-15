@@ -6,6 +6,7 @@ import {
   readManagerSettings,
   restoreManagerSettings,
   writeManagerChoice,
+  writeMagpieAddress,
 } from "./model-manager-settings.ts";
 
 describe("model manager settings", () => {
@@ -31,6 +32,17 @@ describe("model manager settings", () => {
     expect(updated.custom.enabled).toBe(true);
     await restoreManagerSettings(home, previous);
     expect(await readFile(join(home, ".cetas", "settings.json"), "utf8")).toBe(original);
+  });
+
+  test("requires HTTPS for remote gateways and retains manager choice", async () => {
+    const home = await mkdtemp(join(tmpdir(), "cetas-manager-"));
+    await expect(writeMagpieAddress(home, "http://remote.example:3425")).rejects.toThrow("HTTPS");
+    await expect(writeMagpieAddress(home, "https://user:pass@remote.example")).rejects.toThrow("HTTPS");
+    await expect(writeMagpieAddress(home, "https://remote.example/v1/models")).rejects.toThrow("HTTPS");
+    await writeMagpieAddress(home, "https://remote.example:3443/");
+    const settings = JSON.parse(await readFile(join(home, ".cetas", "settings.json"), "utf8"));
+    expect(settings.model_manager).toBeUndefined();
+    expect(settings.magpie).toEqual({ base_url: "https://remote.example:3443", enabled: true });
   });
 
   test("rejects an invalid manager instead of silently selecting providers", async () => {
