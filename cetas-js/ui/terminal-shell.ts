@@ -1582,6 +1582,8 @@ export class TerminalShell {
       await this.invokeCommand("/skills", rawArgs);
     },
     login: (rawArgs) => this.openLogin(rawArgs),
+    quota: () => this.openQuotaOverlay(),
+    status: () => this.showManagerStatus(),
     pi: (rawArgs) => this.runPiCommand(rawArgs),
   };
 
@@ -1749,6 +1751,79 @@ export class TerminalShell {
     } catch (error: unknown) {
       this.commandLock.release();
       this.addTranscriptChild(errorNotice(`/manager failed: ${errorMessage(error)}`));
+    }
+  }
+
+  private async openQuotaOverlay(): Promise<void> {
+    if (this.operationBusy || this.commandBusy) {
+      this.addTranscriptChild(errorNotice("/quota requires an idle application"));
+      return;
+    }
+    this.commandLock.acquire("loading quotas");
+    try {
+      const outcome = parseCommandOutcome(await this.requireApp().invokeCommand("quota", "{}"));
+      if (outcome.type !== "success") {
+        this.renderOutcome(outcome, "/quota");
+        return;
+      }
+      const data = outcome.structured;
+      const lines = ["Quotas"];
+      if (typeof data === "object" && data !== null && !Array.isArray(data)) {
+        const record = data as Record<string, unknown>;
+        if (record.manager === "providers") {
+          lines.push("Provider quotas are available in /model quick-pick where supported.");
+        } else if (Array.isArray(record.cards)) {
+          for (const raw of record.cards.slice(0, 100)) {
+            if (typeof raw !== "object" || raw === null || Array.isArray(raw)) continue;
+            const card = raw as Record<string, unknown>;
+            const clean = (v: unknown) => typeof v === "string"
+              ? stripTerminalSequences(v).replace(/[\u0000-\u001F\u007F]/g, "").slice(0, 90)
+              : "";
+            const label = [clean(card.provider), clean(card.name), clean(card.plan)]
+              .filter(Boolean).join(" · ");
+            lines.push(label || "Unknown provider");
+            if (card.error) lines.push("  Unavailable");
+            if (Array.isArray(card.windows)) {
+              for (const rawWindow of card.windows.slice(0, 20)) {
+                if (typeof rawWindow !== "object" || rawWindow === null || Array.isArray(rawWindow)) continue;
+                const w = rawWindow as Record<string, unknown>;
+                const remaining = typeof w.remaining === "number" && Number.isFinite(w.remaining)
+                  ? `${w.remaining}% remaining` : "";
+                const amount = typeof w.amount === "number" && typeof w.limit === "number"
+                  ? `${w.amount} / ${w.limit}` : "";
+                const value = clean(w.display) || remaining || amount || "Unknown";
+                lines.push(`  ${clean(w.name)}: ${value}`);
+                if (typeof w.resets_at === "string") lines.push(`  reset: ${clean(w.resets_at)}`);
+              }
+            }
+          }
+          if (record.cards.length === 0) lines.push("No accessible quota cards.");
+        }
+      }
+      const overlay = new DismissibleTextOverlay(
+        new Text(lines.join("\n").slice(0, 16000), 1, 1),
+        () => { handle.hide(); this.commandLock.release(); },
+      );
+      const handle = this.modals.showOverlay(overlay, {
+        width: "76%", maxHeight: "78%", anchor: "center", margin: 1,
+      });
+      this.tui.requestRender();
+      return;
+    } catch (error: unknown) {
+      this.addTranscriptChild(errorNotice(`/quota failed: ${errorMessage(error)}`));
+    }
+    this.commandLock.release();
+  }
+
+  private async showManagerStatus(): Promise<void> {
+    const setup = this.requireApp().snapshot();
+    const current = setup.setup.providers.find((entry) => entry.id === setup.setup.activeModelId)
+      ?? setup.setup.providers.find((entry) => entry.active);
+    this.addTranscriptChild(systemNotice(
+      `status: ${setup.state}; session ${setup.sessionId}; model ${current?.label ?? setup.setup.activeModelId ?? "unselected"}`,
+    ));
+    if (this.requireApp().listCommands().some((cmd) => cmd.id === "magpie_status")) {
+      await this.invokeCommand("/magpie_status", "");
     }
   }
 
@@ -2651,6 +2726,8 @@ const LOCAL_SLASH_ROUTES: readonly SlashRoute[] = [
   { id: "skills" },
   { id: "pi" },
   { id: "login" },
+  { id: "quota" },
+  { id: "status" },
 ];
 
 /**
