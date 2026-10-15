@@ -530,3 +530,8 @@ impl @posoco.Lifecycle for MagpieChildModel with fn on_start(self : MagpieChildM
     _ => ()
   }
 }
+
+///|
+impl @posoco.Lifecycle for MagpieChildModel with fn on_shutdown(_self : MagpieChildModel) -> Unit {
+  ()
+}
