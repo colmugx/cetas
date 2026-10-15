@@ -2941,6 +2941,25 @@ pub fn cetas_js_invoke_command(
       _ => false
     }
     let id = if magpie_invoked { "magpie_model" } else { id }
+    // The shared picker sends "slot"; Magpie owns opaque "model" ids.
+    let args = if magpie_invoked {
+      match args {
+        Json::Object(fields) => {
+          let forwarded = fields.copy()
+          match fields.get("slot") {
+            Some(value) => {
+              forwarded["model"] = value
+              ignore(forwarded.remove("slot"))
+            }
+            None => ()
+          }
+          Json::object(forwarded)
+        }
+        other => other
+      }
+    } else {
+      args
+    }
     let ports = handle.agent.commands()
     let mut result_json = ""
     let mut found = false
