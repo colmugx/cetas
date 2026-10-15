@@ -1771,7 +1771,29 @@ export class TerminalShell {
       if (typeof data === "object" && data !== null && !Array.isArray(data)) {
         const record = data as Record<string, unknown>;
         if (record.manager === "providers") {
-          lines.push("Provider quotas are available in /model quick-pick where supported.");
+          const models = parseModelPickerOutcome(
+            await this.requireApp().invokeCommand("model", "{}"),
+          );
+          if (models.type === "success") {
+            const providers = new Map<string, string[]>();
+            for (const entry of models.entries) {
+              const id = entry.provider ?? "Unknown provider";
+              if (providers.has(id)) continue;
+              const readings = entry.quotaReadings ?? [];
+              const rows = readings.map((q) => {
+                const quantity = q.usedPercent == null
+                  ? q.amount == null ? "Unknown" : `${q.amount.value} ${q.amount.currency}`
+                  : `${q.usedPercent}% used`;
+                return `  ${q.window}: ${quantity}`;
+              });
+              providers.set(id, rows.length > 0 ? rows : ["  Quota unavailable"]);
+            }
+            for (const [provider, rows] of providers) {
+              lines.push(stripTerminalSequences(provider).slice(0, 90), ...rows.slice(0, 20));
+            }
+          } else {
+            lines.push("Provider quota data unavailable.");
+          }
         } else if (Array.isArray(record.cards)) {
           for (const raw of record.cards.slice(0, 100)) {
             if (typeof raw !== "object" || raw === null || Array.isArray(raw)) continue;
