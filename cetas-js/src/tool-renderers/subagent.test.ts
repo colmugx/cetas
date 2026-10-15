@@ -13,7 +13,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { ToolRow } from "../transcript/components.ts";
 import { parseCetasEvent } from "../events.ts";
 import { SubagentActivityStore } from "../controllers/subagent-activity.ts";
-import { subagentRenderer } from "./subagent.ts";
+import { parseWaitingReceipt, subagentRenderer } from "./subagent.ts";
 import type { ToolRenderContext } from "./registry.ts";
 
 /** Build one parsed `subagent_event` from a raw child turn event. */
@@ -108,9 +108,101 @@ describe("subagentRenderer", () => {
     expect(result.render(80).join("\n")).toContain("agent");
   });
 
-  it("exports only the renderer — no module-level rows or ticker", async () => {
+  it("exports the renderer plus pure receipt helpers — no rows or ticker", async () => {
     const mod = await import("./subagent.ts");
-    expect(Object.keys(mod).sort()).toEqual(["subagentRenderer"]);
+    // `WaitingReceipt` is a type-only export and never appears at runtime.
+    expect(Object.keys(mod).sort()).toEqual([
+      "parseWaitingReceipt",
+      "subagentRenderer",
+    ]);
+  });
+});
+
+describe("waiting_reply result card", () => {
+  const structured = {
+    status: "waiting_reply",
+    question_id: "question-1",
+    child_session: "sub-1",
+    kind: "coder",
+    question: "Which database should we use?",
+    type: "select",
+    options: ["postgres", "sqlite"],
+  };
+  const receiptContent =
+    "status: waiting_reply\nsubagent asked a question and is waiting (NOT finished)\nchild_session: sub-1\nkind: coder\nquestion: Which database should we use?\ntype: select\noptions: postgres | sqlite\nanswer with answer_question(question_id=\"question-1\"); after answering, the child continues and its final result arrives as a follow-up turn";
+
+  function renderResult(
+    payload: { content: string; isError: boolean; structured?: unknown },
+    ctxOverrides: Partial<ToolRenderContext> = {},
+    expanded = false,
+  ): string {
+    return subagentRenderer
+      .renderResult!(payload, { expanded, isPartial: false }, makeCtx(ctxOverrides))
+      .render(80)
+      .join("\n");
+  }
+
+  function storeWithNick(): { store: SubagentActivityStore; nick: string } {
+    const store = new SubagentActivityStore();
+    store.apply(childEvent("sub-1", "call_1", { type: "turn_started" }));
+    return { store, nick: store.get("sub-1")!.display_name };
+  }
+
+  it("renders the question card from the structured receipt", () => {
+    const { store, nick } = storeWithNick();
+    const text = renderResult(
+      { content: receiptContent, isError: false, structured },
+      { subagentActivity: store },
+    );
+    expect(text).toContain(`${nick} asks`);
+    expect(text).toContain("question-1");
+    expect(text).toContain('"Which database should we use?"');
+    expect(text).toContain("[select]");
+    expect(text).toContain("「postgres」");
+    expect(text).toContain(
+      'answer with answer_question(question_id="question-1")',
+    );
+  });
+
+  it("expanded adds the child session and kind", () => {
+    const text = renderResult(
+      { content: receiptContent, isError: false, structured },
+      {},
+      true,
+    );
+    expect(text).toContain("child_session: sub-1");
+    expect(text).toContain("kind: coder");
+  });
+
+  it("rebuilds the card from content alone (replay path)", () => {
+    const text = renderResult({ content: receiptContent, isError: false });
+    expect(text).toContain("coder asks");
+    expect(text).toContain('"Which database should we use?"');
+    expect(text).toContain("「sqlite」");
+    expect(text).toContain(
+      'answer with answer_question(question_id="question-1")',
+    );
+  });
+
+  it("non-waiting and error results never render the card", () => {
+    const done = renderResult({
+      content: "task done",
+      isError: false,
+      structured: { status: "completed" },
+    });
+    expect(done).not.toContain("asks");
+    const failed = renderResult({
+      content: receiptContent,
+      isError: true,
+    });
+    expect(failed).not.toContain("asks");
+  });
+
+  it("parseWaitingReceipt rejects non-waiting content", () => {
+    expect(parseWaitingReceipt("ok")).toBeUndefined();
+    expect(
+      parseWaitingReceipt("status: completed\nquestion: ignored"),
+    ).toBeUndefined();
   });
 });
 

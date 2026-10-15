@@ -10,7 +10,7 @@
  *   bun host.ts
  */
 
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -20,7 +20,7 @@ import * as moonbit from "mbt:colmugx/cetas-js/lib";
 import { buildCetasHostConfig, CetasApplication } from "./src/app/index.ts";
 import { runUpdateCheck, updateNoticeMessage } from "./src/app/update-check.ts";
 import { cetasVersion, detectChannel } from "./src/app/version.ts";
-import { makeUnhandledFaultHandler, TrackedTerminal } from "./src/host-fault.ts";
+import { makeUnhandledFaultHandler } from "./src/host-fault.ts";
 import {
   MoonbitCetasAgentBridge,
   resolvedSessionsDir,
@@ -28,48 +28,44 @@ import {
 import { newSessionId } from "./src/app/session-id.ts";
 import { TerminalShell, CETAS_TUI_HELP_NOTE } from "./ui/terminal-shell.ts";
 
-// Without these handlers Bun's default terminates the process on any stray
-// JS-side rejection. One known source: moonbitlang/async's JS http client
-// drops the promise returned by ReadableStream.cancel(), which rejects when
-// the fetch body stream already failed (e.g. ECONNRESET mid-stream) — a
-// transient transport fault must end the turn, not the session.
-// Full detail goes to the crash file; the transcript notice points at it.
-// Registered before main() runs so no early async work can race them.
-// A fault with the terminal already torn down (pi-tui stops the terminal
-// before throwing on an oversize line) cannot be surfaced anywhere — the
-// host exits instead of running on as a painted zombie holding the tty.
-let surfaceFault: ((message: string) => void) | undefined;
-
-/** The live terminal, once main() composes the TUI. */
-let terminal: TrackedTerminal | undefined;
+// Recoverable failures belong to the Agent/tool boundary. A fault escaping
+// that boundary cannot safely resume the scheduler or repaint the TUI.
+let stopSurface: ((outputBroken: boolean) => void) | undefined;
+const initialRawMode = process.stdin.isRaw ?? false;
 
 function reportUnhandledFault(kind: string, error: unknown): string {
   const detail =
     error instanceof Error
       ? `${error.name}: ${error.message}\n${error.stack ?? ""}`
       : String(error);
-  try {
-    const crashPath = join(tmpdir(), "cetas-js-crash.log");
-    appendFileSync(
-      crashPath,
-      `[${new Date().toISOString()}] ${kind}\n${detail}\n\n`,
-    );
-    return `⚠ host fault (${kind}) logged to ${crashPath}`;
-  } catch {
-    console.error(`cetas-js ${kind}`, error);
-    return `⚠ host fault (${kind})`;
-  }
+  const crashPath = join(tmpdir(), "cetas-js-crash.log");
+  appendFileSync(
+    crashPath,
+    `[${new Date().toISOString()}] ${kind} pid=${process.pid} cetas=${cetasVersion()} channel=${detectChannel()} runtime=${process.version}\n${detail}\n\n`,
+  );
+  return `cetas: fatal host fault (${kind}) logged to ${crashPath}`;
 }
 
 const onUnhandledFault = makeUnhandledFaultHandler({
   report: reportUnhandledFault,
-  surface: (notice) => surfaceFault?.(notice),
-  exitFatal: (notice) => {
-    console.error(`${notice}\ncetas: terminal torn down — exiting.`);
-    moonbit.cetas_js_herdr_release();
-    process.exit(1);
+  stopSurface: (outputBroken) => {
+    try {
+      stopSurface?.(outputBroken);
+    } finally {
+      // ProcessTerminal.stop writes to stdout before restoring raw mode.
+      // Restore input separately even if stdout is broken or stop throws.
+      try {
+        process.stdin.setRawMode?.(initialRawMode);
+      } finally {
+        process.stdin.pause();
+      }
+    }
   },
-  isTerminalStopped: () => terminal?.terminalStopped ?? false,
+  releaseResources: () => moonbit.cetas_js_herdr_release(),
+  writeDiagnostic: (notice) => {
+    writeSync(2, `${notice}\ncetas: exiting; restart to recover the persisted session.\n`);
+  },
+  exitFatal: () => process.exit(1),
 });
 
 process.on("unhandledRejection", (reason: unknown) => {
@@ -98,8 +94,7 @@ async function main(): Promise<void> {
       toolLabels.set(name, ext);
     }
   };
-  terminal = new TrackedTerminal(new ProcessTerminal());
-  const tui = new TuiMainScreen(terminal);
+  const tui = new TuiMainScreen(new ProcessTerminal());
   const shell = new TerminalShell({
     tui,
     cwd: config.cwd,
@@ -122,7 +117,7 @@ async function main(): Promise<void> {
     },
   });
   shell.attachApplication(app);
-  surfaceFault = (message) => shell.surfaceHostFault(message);
+  stopSurface = (outputBroken) => shell.stopForHostFault(outputBroken);
   process.on("SIGINT", () => shell.requestShutdown(0));
   process.on("SIGTERM", () => shell.requestShutdown(0));
   await shell.start();
@@ -146,9 +141,5 @@ async function main(): Promise<void> {
 }
 
 void main().catch((error: unknown) => {
-  console.error("cetas-js fatal error", error);
-  // Composition may have registered the herdr presence authority before
-  // failing; no Agent lifecycle exists to release it, so drop it here.
-  moonbit.cetas_js_herdr_release();
-  process.exit(1);
+  onUnhandledFault("startup failure", error);
 });

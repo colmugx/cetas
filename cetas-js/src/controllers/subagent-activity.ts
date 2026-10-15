@@ -144,6 +144,22 @@ export interface SubagentActivity {
   exited?: boolean;
   /** A core `background_outcome_ready` receipt arrived for this run's task. */
   outcome_ready?: boolean;
+  /**
+   * Current parked question of this run (from `question_asked`); presence
+   * means the child is waiting for the parent's answer. Cleared by
+   * `question_answered` and on a new run.
+   */
+  question?: AgentQuestion;
+}
+
+/** One parent-directed child question currently awaiting an answer. */
+export interface AgentQuestion {
+  /** Broker-minted id (`question-N`). */
+  readonly id: string;
+  /** The question text. */
+  readonly text: string;
+  readonly type: "input" | "confirm" | "select";
+  readonly asked_at: number;
 }
 
 /** Snapshot handed to the shell for the one-shot terminal notification. */
@@ -471,6 +487,7 @@ export class SubagentActivityStore {
     record.terminal_received = false;
     record.terminal_notified = false;
     record.child_turn_state = undefined;
+    record.question = undefined;
     record.exited = false;
     record.version += 1;
   }
@@ -634,7 +651,8 @@ export class SubagentActivityStore {
    * `spawned` carries model/effort and the run's background mode,
    * `background_spawned` adds the task id, `background_exited` is the
    * actual exit (best-effort state), `background_terminal` the
-   * authoritative classification. Unknown sources and labels are no-ops.
+   * authoritative classification, `question_asked`/`question_answered`
+   * the parked-question round trip. Unknown sources and labels are no-ops.
    */
   private applyCustom(
     record: SubagentActivity,
@@ -728,6 +746,34 @@ export class SubagentActivityStore {
             summary.length > 0 ? ` — ${summary}` : ""
           }`,
         );
+        record.version += 1;
+        return true;
+      }
+      case "question_asked": {
+        // Parked-ask marker: presence drives the waiting phase. Never
+        // rekeys the run — only `spawned` owns run identity — and a late
+        // event after exit is ignored. Same-id repeats are idempotent.
+        if (!this.isLive(record)) return false;
+        const id = typeof data.question_id === "string" ? data.question_id : "";
+        if (id.length === 0 || record.question?.id === id) return false;
+        const text = typeof data.question === "string" ? data.question : "";
+        const word = typeof data.type === "string" ? data.type : "input";
+        const type = word === "confirm" || word === "select" ? word : "input";
+        record.question = { id, text, type, asked_at: this.now() };
+        this.pushHistory(
+          record,
+          `? asked: ${text.replace(/\s+/g, " ").trim().slice(0, HISTORY_TEXT_CHARS)}`,
+        );
+        record.version += 1;
+        return true;
+      }
+      case "question_answered": {
+        if (!this.isLive(record)) return false;
+        const had = record.question !== undefined;
+        record.question = undefined;
+        // One message for both paths so repeat acks collapse in history.
+        const added = this.pushHistory(record, "✓ answered → child resumed");
+        if (!had && !added) return false;
         record.version += 1;
         return true;
       }

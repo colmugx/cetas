@@ -332,6 +332,8 @@ export class TerminalShell {
   private forceExitTimer?: ReturnType<typeof setTimeout>;
   /** Force exit runs once; the graceful chain defers to it afterwards. */
   private exitDelivered = false;
+  /** Set by stopForHostFault: the surface is gone and must not repaint. */
+  private hostFaultStopped = false;
   private readonly forceExitDelayMs: number;
   /** Last application state rendered; edge detection only, never authority. */
   private renderedAppState?: AppState;
@@ -791,6 +793,26 @@ export class TerminalShell {
     if (this.shutdownPromise !== undefined) return;
     this.addTranscriptChild(errorNotice(message));
     this.tui.requestRender();
+  }
+
+  /**
+   * Host-fault teardown, driven by the process-level handler in host.ts: a
+   * fault escaping the Agent/tool boundary must not repaint the TUI, so the
+   * shell only stops the render loop and lets the TUI restore the terminal —
+   * raw mode/stdin are restored by the host itself. Runs inside an
+   * uncaughtException handler: synchronous, idempotent, and writes nothing
+   * when the output pipe is already broken. The process exits right after
+   * this returns; nothing here may throw ahead of that exit.
+   */
+  stopForHostFault(outputBroken: boolean): void {
+    if (this.hostFaultStopped) return;
+    this.hostFaultStopped = true;
+    if (!this.started || outputBroken) return;
+    try {
+      this.tui.stop();
+    } catch {
+      // A broken surface must not block the fatal exit that follows.
+    }
   }
 
   /**

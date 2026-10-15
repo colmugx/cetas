@@ -12,6 +12,7 @@
  */
 
 import { registerToolRenderer } from "./registry.ts";
+import { answerQuestionRenderer } from "./answer.ts";
 import { askQuestionRenderer } from "./askquestion.ts";
 import { bashRenderer } from "./bash.ts";
 import { exitPlanRenderer } from "./exitplan.ts";
@@ -24,6 +25,7 @@ let registered = false;
 export function registerBuiltinToolRenderers(): void {
   if (registered) return;
   registered = true;
+  registerToolRenderer("answer_question", answerQuestionRenderer);
   registerToolRenderer("ask_question", askQuestionRenderer);
   registerToolRenderer("bash", bashRenderer);
   registerToolRenderer("exit_plan_mode", exitPlanRenderer);

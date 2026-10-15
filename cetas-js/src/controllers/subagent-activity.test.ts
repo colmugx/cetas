@@ -557,3 +557,102 @@ describe("SubagentActivityStore snapshot shape", () => {
     expect(record.terminal_notified).toBe(false);
   });
 });
+
+describe("SubagentActivityStore question round trip", () => {
+  /** Foreground `question_asked` rides the real spawning call id. */
+  function asked(
+    store: SubagentActivityStore,
+    childSession: string,
+    parentCall: string,
+    data: Record<string, unknown> = {
+      question_id: "question-1",
+      question: "Which database?",
+      type: "select",
+    },
+  ) {
+    return store.apply(
+      childEvent(childSession, parentCall, {
+        type: "custom",
+        source: "posoco_ext_subagent",
+        label: "question_asked",
+        data,
+      }),
+    );
+  }
+
+  it("marks a parked question without rekeying the run", () => {
+    const store = new SubagentActivityStore(() => 5_000);
+    spawned(store, "fg", "call_1");
+    const versionBefore = store.get("fg")!.version;
+    expect(asked(store, "fg", "call_1")).toBe(true);
+    const record = store.get("fg")!;
+    expect(record.question).toEqual({
+      id: "question-1",
+      text: "Which database?",
+      type: "select",
+      asked_at: 5_000,
+    });
+    expect(record.parent_call).toBe("call_1");
+    expect(record.run_id).toBe("call_1");
+    expect(record.version).toBe(versionBefore + 1);
+    expect(record.history.at(-1)).toContain("? asked: Which database?");
+  });
+
+  it("treats a same-id repeat as idempotent", () => {
+    const store = new SubagentActivityStore();
+    spawned(store, "fg", "call_1");
+    asked(store, "fg", "call_1");
+    const before = store.get("fg")!;
+    expect(asked(store, "fg", "call_1")).toBe(false);
+    expect(store.get("fg")!.version).toBe(before.version);
+  });
+
+  it("clears the marker on answer", () => {
+    const store = new SubagentActivityStore();
+    spawned(store, "fg", "call_1");
+    asked(store, "fg", "call_1");
+    const versionBefore = store.get("fg")!.version;
+    expect(
+      label(store, "fg", "question_answered", { question_id: "question-1" }),
+    ).toBe(true);
+    const record = store.get("fg")!;
+    expect(record.question).toBeUndefined();
+    expect(record.history.at(-1)).toBe("✓ answered → child resumed");
+    expect(record.version).toBe(versionBefore + 1);
+    // A repeat ack changes nothing.
+    expect(
+      label(store, "fg", "question_answered", { question_id: "question-1" }),
+    ).toBe(false);
+  });
+
+  it("ignores a question after terminal", () => {
+    const store = new SubagentActivityStore();
+    spawned(store, "fg", "call_1");
+    label(store, "fg", "background_terminal", {
+      state: "completed",
+      summary: "done",
+    });
+    expect(asked(store, "fg", "call_1")).toBe(false);
+    expect(store.get("fg")!.question).toBeUndefined();
+  });
+
+  it("resets the question on a new run", () => {
+    const store = new SubagentActivityStore();
+    spawned(store, "fg", "call_1");
+    asked(store, "fg", "call_1");
+    spawned(store, "fg", "call_2");
+    expect(store.get("fg")!.question).toBeUndefined();
+  });
+
+  it("creates a record from a queued question alone", () => {
+    const store = new SubagentActivityStore();
+    expect(label(store, "bq", "question_asked", {
+      question_id: "question-2",
+      question: "Proceed?",
+      type: "confirm",
+    })).toBe(true);
+    const record = store.get("bq")!;
+    expect(record.question?.type).toBe("confirm");
+    expect(record.parent_call).toBe("background");
+  });
+});

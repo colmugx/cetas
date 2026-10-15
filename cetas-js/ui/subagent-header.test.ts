@@ -8,6 +8,7 @@ import {
   renderSubagentHeader,
   subagentHeaderEquals,
   SubagentHeader,
+  subagentPhase,
   type SubagentHeaderProjection,
 } from "./subagent-header.ts";
 
@@ -274,5 +275,25 @@ describe("SubagentHeader component", () => {
     const component = new SubagentHeader(() => undefined);
     component.invalidate();
     component.handleInput("x");
+  });
+});
+
+describe("subagentPhase", () => {
+  test("a parked question outranks the current tool", () => {
+    const record = backgroundRecord({
+      current_tool: "ask_question_child",
+      question: { id: "question-1", text: "q", type: "select", asked_at: 0 },
+    });
+    expect(subagentPhase(record)).toBe("? waiting your answer");
+  });
+
+  test("no question falls back to tool and phase words", () => {
+    expect(subagentPhase(backgroundRecord({ current_tool: "bash" }))).toBe(
+      "bash",
+    );
+    expect(subagentPhase(backgroundRecord({ child_turn_state: "completed" }))).toBe(
+      "finishing",
+    );
+    expect(subagentPhase(backgroundRecord({}))).toBe("thinking");
   });
 });

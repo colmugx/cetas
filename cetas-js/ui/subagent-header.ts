@@ -86,13 +86,15 @@ export function formatSubagentElapsed(startedAt: number, now: number): string {
 }
 
 /**
- * What the child is doing right now. The current tool when one is in
- * flight; otherwise a short phase word — never the stale `last_tool`
- * posing as ongoing work.
+ * What the child is doing right now. A parked question outranks everything
+ * — the child is waiting on the parent, not working. Otherwise the current
+ * tool when one is in flight; otherwise a short phase word — never the
+ * stale `last_tool` posing as ongoing work.
  */
 export function subagentPhase(
-  record: Pick<SubagentActivity, "current_tool" | "child_turn_state">,
+  record: Pick<SubagentActivity, "current_tool" | "child_turn_state" | "question">,
 ): string {
+  if (record.question !== undefined) return "? waiting your answer";
   if (record.current_tool !== undefined && record.current_tool.length > 0) {
     return record.current_tool;
   }

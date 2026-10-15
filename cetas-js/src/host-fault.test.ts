@@ -1,118 +1,114 @@
 import { describe, expect, test } from "bun:test";
-import type { Terminal } from "@earendil-works/pi-tui";
 
-import {
-  makeUnhandledFaultHandler,
-  TrackedTerminal,
-  type UnhandledFaultHooks,
-} from "./host-fault.ts";
+import { makeUnhandledFaultHandler } from "./host-fault.ts";
 
-/** Records lifecycle, touches nothing — safe in a test process. */
-class FakeTerminal implements Terminal {
-  stopped = false;
-  startedCount = 0;
-
-  start(_onInput: (data: string) => void, _onResize: () => void): void {
-    this.startedCount += 1;
-    this.stopped = false;
-  }
-
-  stop(): void {
-    this.stopped = true;
-  }
-
-  async drainInput(): Promise<void> {}
-
-  write(_data: string): void {}
-
-  get columns(): number {
-    return 80;
-  }
-
-  get rows(): number {
-    return 24;
-  }
-
-  get kittyProtocolActive(): boolean {
-    return false;
-  }
-
-  moveBy(): void {}
-
-  hideCursor(): void {}
-
-  showCursor(): void {}
-
-  clearLine(): void {}
-
-  clearFromCursor(): void {}
-
-  clearScreen(): void {}
-
-  setTitle(): void {}
-
-  setProgress(): void {}
-}
-
-describe("TrackedTerminal", () => {
-  test("tracks the last lifecycle transition", () => {
-    const inner = new FakeTerminal();
-    const terminal = new TrackedTerminal(inner);
-    expect(terminal.terminalStopped).toBe(false);
-
-    terminal.start(() => {}, () => {});
-    expect(terminal.terminalStopped).toBe(false);
-    expect(inner.stopped).toBe(false);
-
-    terminal.stop();
-    expect(terminal.terminalStopped).toBe(true);
-    expect(inner.stopped).toBe(true);
-
-    // A restart clears the teardown flag along with the inner terminal.
-    terminal.start(() => {}, () => {});
-    expect(terminal.terminalStopped).toBe(false);
-  });
-
-  test("delegates writes and dimensions to the inner terminal", () => {
-    const terminal = new TrackedTerminal(new FakeTerminal());
-    expect(terminal.columns).toBe(80);
-    expect(terminal.rows).toBe(24);
-    expect(() => terminal.write("x")).not.toThrow();
-  });
-});
-
-describe("makeUnhandledFaultHandler", () => {
-  function rig(stopped: boolean) {
-    const calls = {
-      reported: [] as string[],
-      surfaced: [] as string[],
-      exited: [] as string[],
-    };
-    const hooks: UnhandledFaultHooks = {
-      report: (kind, error) => {
-        calls.reported.push(`${kind}:${String(error)}`);
-        return `notice(${kind})`;
+describe("unhandled host faults", () => {
+  test("a live surface is stopped and the process exits instead of continuing the turn", () => {
+    const calls: string[] = [];
+    const handle = makeUnhandledFaultHandler({
+      report: (kind: string) => {
+        calls.push(`report:${kind}`);
+        return "crash recorded";
       },
-      surface: (notice) => calls.surfaced.push(notice),
-      exitFatal: (notice) => calls.exited.push(notice),
-      isTerminalStopped: () => stopped,
-    };
-    return { calls, handle: makeUnhandledFaultHandler(hooks) };
+      stopSurface: (outputBroken: boolean) => calls.push(`stop:${outputBroken}`),
+      releaseResources: () => calls.push("release"),
+      writeDiagnostic: (notice: string) => calls.push(`diagnostic:${notice}`),
+      exitFatal: () => calls.push("exit:1"),
+    });
+
+    handle("unhandled rejection", new TypeError("null.length"));
+
+    expect(calls).toEqual([
+      "report:unhandled rejection",
+      "stop:false",
+      "release",
+      "diagnostic:crash recorded",
+      "exit:1",
+    ]);
+  });
+
+  test("reentrant and repeated faults neither log nor clean up twice", () => {
+    const calls: string[] = [];
+    let nested = false;
+    const handle = makeUnhandledFaultHandler({
+      report: () => {
+        calls.push("report");
+        if (!nested) {
+          nested = true;
+          handle("uncaught exception", new Error("nested"));
+        }
+        return "notice";
+      },
+      stopSurface: () => calls.push("stop"),
+      releaseResources: () => calls.push("release"),
+      writeDiagnostic: () => calls.push("diagnostic"),
+      exitFatal: () => calls.push("exit:1"),
+    });
+    handle("unhandled rejection", new Error("first"));
+    handle("uncaught exception", new Error("later"));
+    expect(calls).toEqual(["report", "stop", "release", "diagnostic", "exit:1"]);
+  });
+
+  test("a broken output pipe is not used for teardown or another diagnostic", () => {
+    const calls: string[] = [];
+    const handle = makeUnhandledFaultHandler({
+      report: () => { calls.push("report"); return "notice"; },
+      stopSurface: (broken) => calls.push(`stop:${broken}`),
+      releaseResources: () => calls.push("release"),
+      writeDiagnostic: () => calls.push("diagnostic"),
+      exitFatal: () => calls.push("exit:1"),
+    });
+    handle("uncaught exception", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+    expect(calls).toEqual(["report", "stop:true", "release", "exit:1"]);
+  });
+
+  test("a pipe failure during cleanup suppresses subsequent terminal output", () => {
+    let diagnosed = false;
+    let exited = false;
+    const handle = makeUnhandledFaultHandler({
+      report: () => "notice",
+      stopSurface: () => { throw Object.assign(new Error("write EPIPE"), { code: "EPIPE" }); },
+      releaseResources: () => {},
+      writeDiagnostic: () => { diagnosed = true; },
+      exitFatal: () => { exited = true; },
+    });
+    handle("unhandled rejection", new Error("first"));
+    expect(diagnosed).toBe(false);
+    expect(exited).toBe(true);
+  });
+
+  test("a failed crash logger still leaves the original error in the diagnostic", () => {
+    let diagnostic = "";
+    const handle = makeUnhandledFaultHandler({
+      report: () => { throw new Error("disk full"); },
+      stopSurface: () => {},
+      releaseResources: () => {},
+      writeDiagnostic: (notice) => { diagnostic = notice; },
+      exitFatal: () => {},
+    });
+    handle("unhandled rejection", new TypeError("null.length"));
+    expect(diagnostic).toContain("TypeError: null.length");
+    expect(diagnostic).toContain("disk full");
+  });
+
+  for (const failedStep of ["report", "stop", "release", "diagnostic"]) {
+    test(`a failing ${failedStep} cannot prevent remaining cleanup or exit`, () => {
+      const calls: string[] = [];
+      const step = (name: string) => {
+        calls.push(name);
+        if (name === failedStep) throw new Error(`${name} failed`);
+      };
+      const handle = makeUnhandledFaultHandler({
+        report: () => { step("report"); return "notice"; },
+        stopSurface: () => step("stop"),
+        releaseResources: () => step("release"),
+        writeDiagnostic: () => step("diagnostic"),
+        exitFatal: () => step("exit:1"),
+      });
+      expect(() => handle("uncaught exception", new Error("first"))).not.toThrow();
+      expect(calls).toContain("stop");
+      expect(calls).toContain("release");
+      expect(calls.at(-1)).toBe("exit:1");
+    });
   }
-
-  test("a live terminal surfaces the notice and keeps the host running", () => {
-    const { calls, handle } = rig(false);
-    handle("uncaught exception", new Error("boom"));
-    expect(calls.reported).toEqual(["uncaught exception:Error: boom"]);
-    expect(calls.surfaced).toEqual(["notice(uncaught exception)"]);
-    expect(calls.exited).toHaveLength(0);
-  });
-
-  test("a torn-down terminal exits fatally instead of surfacing", () => {
-    const { calls, handle } = rig(true);
-    handle("unhandled rejection", "socket died");
-    expect(calls.reported).toEqual(["unhandled rejection:socket died"]);
-    expect(calls.exited).toEqual(["notice(unhandled rejection)"]);
-    expect(calls.surfaced).toHaveLength(0);
-  });
 });
