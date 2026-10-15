@@ -2566,6 +2566,13 @@ export class TerminalShell {
         this.addTranscriptChild(errorNotice(`/login: unknown authentication provider ${item.value}`));
         return;
       }
+      if (capability.id === "magpie") {
+        // The generic picker owns the lock; transfer ownership before
+        // starting the dedicated Gateway setup flow.
+        this.commandLock.release();
+        void this.configureMagpieLogin();
+        return;
+      }
       void this.chooseLoginMethod(capability).catch((error: unknown) => {
         this.addTranscriptChild(errorNotice(`/login failed: ${errorMessage(error)}`));
         this.commandLock.release();
