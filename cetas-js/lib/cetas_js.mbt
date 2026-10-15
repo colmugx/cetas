@@ -2974,7 +2974,7 @@ pub fn cetas_js_invoke_command(
       match handle.manager {
         Magpie(binding) => {
           let snapshot = binding.runtime.intelligence().quota_snapshot(kept=true) catch {
-            error =>
+            _ =>
               return command_outcome_to_json(
                 @port.CommandOutcome::Failure(reason="Magpie quota unavailable or forbidden"),
               ).stringify()
@@ -2985,22 +2985,52 @@ pub fn cetas_js_invoke_command(
                 values.map(fn(w) {
                   Json::object({
                     "name": Json::string(w.name),
-                    "used": match w.used { Some(v) => Json::number(v) None => Json::null() },
-                    "remaining": match w.remaining { Some(v) => Json::number(v) None => Json::null() },
-                    "display": match w.display { Some(v) => Json::string(v) None => Json::null() },
-                    "resets_at": match w.resets_at { Some(v) => Json::string(v) None => Json::null() },
-                    "amount": match w.amount { Some(v) => Json::number(v) None => Json::null() },
-                    "limit": match w.limit { Some(v) => Json::number(v) None => Json::null() },
+                    "used": match w.used {
+                      Some(v) => Json::number(v)
+                      None => Json::null()
+                    },
+                    "remaining": match w.remaining {
+                      Some(v) => Json::number(v)
+                      None => Json::null()
+                    },
+                    "display": match w.display {
+                      Some(v) => Json::string(v)
+                      None => Json::null()
+                    },
+                    "resets_at": match w.resets_at {
+                      Some(v) => Json::string(v)
+                      None => Json::null()
+                    },
+                    "amount": match w.amount {
+                      Some(v) => Json::number(v)
+                      None => Json::null()
+                    },
+                    "limit": match w.limit {
+                      Some(v) => Json::number(v)
+                      None => Json::null()
+                    },
                   })
                 })
               None => []
             }
             Json::object({
               "provider": Json::string(card.provider),
-              "name": match card.name { Some(v) => Json::string(v) None => Json::null() },
-              "plan": match card.plan { Some(v) => Json::string(v) None => Json::null() },
-              "error": match card.error { Some(_) => Json::string("unavailable") None => Json::null() },
-              "read_at": match card.read_at { Some(v) => Json::string(v) None => Json::null() },
+              "name": match card.name {
+                      Some(v) => Json::string(v)
+                      None => Json::null()
+                    },
+              "plan": match card.plan {
+                      Some(v) => Json::string(v)
+                      None => Json::null()
+                    },
+              "error": match card.error {
+                      Some(_) => Json::string("unavailable")
+                      None => Json::null()
+                    },
+              "read_at": match card.read_at {
+                      Some(v) => Json::string(v)
+                      None => Json::null()
+                    },
               "windows": Json::array(windows),
             })
           })
