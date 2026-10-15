@@ -3094,16 +3094,17 @@ pub fn cetas_js_invoke_command(
     if magpie_invoked {
       match handle.manager {
         Magpie(binding) => {
-          let control = binding.runtime.manager() as &@modelmgmt.ModelManagerControl
+          let control = binding.runtime.manager()
+            as &@modelmgmt.ModelManagerControl
           if control.list_models().is_empty() {
             let _ = binding.runtime.manager().refresh() catch {
-              _ =>
-                return command_outcome_to_json(
-                  @port.CommandOutcome::Failure(
-                    reason="Magpie catalog unavailable; check Gateway connection",
-                  ),
-                ).stringify()
-            }
+                _ =>
+                  return command_outcome_to_json(
+                    @port.CommandOutcome::Failure(
+                      reason="Magpie catalog unavailable; check Gateway connection",
+                    ),
+                  ).stringify()
+              }
           }
         }
         _ => ()
