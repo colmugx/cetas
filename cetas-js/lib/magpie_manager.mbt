@@ -523,7 +523,9 @@ impl @posoco.Extension for MagpieChildModel with fn manifest(
 }
 
 ///|
-impl @posoco.Lifecycle for MagpieChildModel with fn on_start(self : MagpieChildModel) -> Unit {
+impl @posoco.Lifecycle for MagpieChildModel with fn on_start(
+  self : MagpieChildModel,
+) -> Unit {
   try {
     let _ = self.manager.refresh()
   } catch {
@@ -532,6 +534,8 @@ impl @posoco.Lifecycle for MagpieChildModel with fn on_start(self : MagpieChildM
 }
 
 ///|
-impl @posoco.Lifecycle for MagpieChildModel with fn on_shutdown(_self : MagpieChildModel) -> Unit {
+impl @posoco.Lifecycle for MagpieChildModel with fn on_shutdown(
+  _self : MagpieChildModel,
+) -> Unit {
   ()
 }
