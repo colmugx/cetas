@@ -2932,6 +2932,65 @@ pub fn cetas_js_invoke_command(
       Some(outcome) => return command_outcome_to_json(outcome).stringify()
       None => ()
     }
+    if id == "quota" {
+      match handle.manager {
+        Magpie(binding) => {
+          let snapshot = binding.runtime.intelligence().quota_snapshot(kept=true) catch {
+            error =>
+              return command_outcome_to_json(
+                @port.CommandOutcome::Failure(reason="Magpie quota unavailable or forbidden"),
+              ).stringify()
+          }
+          let cards = snapshot.cards.map(fn(card) {
+            let windows : Array[Json] = match card.windows {
+              Some(values) =>
+                values.map(fn(w) {
+                  Json::object({
+                    "name": Json::string(w.name),
+                    "used": match w.used { Some(v) => Json::number(v) None => Json::null() },
+                    "remaining": match w.remaining { Some(v) => Json::number(v) None => Json::null() },
+                    "display": match w.display { Some(v) => Json::string(v) None => Json::null() },
+                    "resets_at": match w.resets_at { Some(v) => Json::string(v) None => Json::null() },
+                    "amount": match w.amount { Some(v) => Json::number(v) None => Json::null() },
+                    "limit": match w.limit { Some(v) => Json::number(v) None => Json::null() },
+                  })
+                })
+              None => []
+            }
+            Json::object({
+              "provider": Json::string(card.provider),
+              "name": match card.name { Some(v) => Json::string(v) None => Json::null() },
+              "plan": match card.plan { Some(v) => Json::string(v) None => Json::null() },
+              "error": match card.error { Some(_) => Json::string("unavailable") None => Json::null() },
+              "read_at": match card.read_at { Some(v) => Json::string(v) None => Json::null() },
+              "windows": Json::array(windows),
+            })
+          })
+          return command_outcome_to_json(
+            @port.CommandOutcome::Success(
+              feedback="Magpie quota snapshot",
+              structured=Some(Json::object({
+                "manager": Json::string("magpie"),
+                "kept": Json::boolean(snapshot.kept),
+                "cards": Json::array(cards),
+              })),
+              ui_hint=None,
+            ),
+          ).stringify()
+        }
+        Providers(_) =>
+          return command_outcome_to_json(
+            @port.CommandOutcome::Success(
+              feedback="Provider quota details are available in /model quick-pick where supported",
+              structured=Some(Json::object({
+                "manager": Json::string("providers"),
+                "cards": Json::array([]),
+              })),
+              ui_hint=None,
+            ),
+          ).stringify()
+      }
+    }
     // The neutral `model`/`effort` command ids ride the active manager: the
     // providers manager owns them natively; Magpie forwards to its own
     // selection command and remaps the catalog payload into the shared
