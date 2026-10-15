@@ -1356,6 +1356,7 @@ export class TerminalShell {
               ["/resume", "Resume this session's interrupted turn"],
               ["/compact", "Compact this session's context on the server"],
               ["/model", "Select a model and effort"],
+              ["/manager", "Switch model manager"],
               ["/skills", "Browse discovered agent skills by scope"],
               ["/update", "Check for updates and install"],
               ["/pi", "Manage pi packages (install/remove/list)"],
@@ -1561,6 +1562,7 @@ export class TerminalShell {
     exit: () => this.requestShutdown(0),
     update: () => this.runUpdateCommand(),
     compact: (rawArgs) => this.runCompactCommand(rawArgs),
+    manager: () => this.openManagerPicker(),
     model: async (rawArgs) => {
       if (rawArgs.length === 0) {
         await this.openModelPicker();
@@ -1697,6 +1699,57 @@ export class TerminalShell {
       return;
     }
     this.addTranscriptChild(systemNotice(`/compact needs input: ${outcome.prompt ?? ""}`));
+  }
+
+  private async openManagerPicker(): Promise<void> {
+    if (this.operationBusy || this.commandBusy) {
+      this.addTranscriptChild(errorNotice("/manager requires an idle application"));
+      return;
+    }
+    this.commandLock.acquire("selecting model manager");
+    const items = [
+      { value: "providers", label: "Providers", description: "Built-in model providers" },
+      { value: "magpie", label: "Magpie", description: "Magpie Gateway model manager" },
+    ];
+    const list = new SelectList(items, items.length, selectListTheme);
+    const panel = new ProviderPickerOverlay(
+      new Text(theme.brandBold("Select model manager"), 1, 1),
+      list,
+    );
+    let handle: OverlayHandle | undefined;
+    const close = () => {
+      handle?.hide();
+      if (this.providerPickerHandle === handle) this.providerPickerHandle = undefined;
+      this.commandLock.release();
+    };
+    list.onCancel = close;
+    list.onSelect = (item) => {
+      handle?.hide();
+      if (this.providerPickerHandle === handle) this.providerPickerHandle = undefined;
+      void this.requireApp().switchModelManager(item.value as "providers" | "magpie")
+        .then((snapshot) => {
+          this.handleSnapshot(snapshot);
+          this.addTranscriptChild(systemNotice(`model manager: ${item.value}`));
+        })
+        .catch((error: unknown) => {
+          this.addTranscriptChild(errorNotice(`/manager failed: ${errorMessage(error)}`));
+          this.handleSnapshot(this.requireApp().snapshot());
+        })
+        .finally(() => this.commandLock.release());
+    };
+    try {
+      handle = this.modals.showOverlay(panel, {
+        width: "56%",
+        maxHeight: "50%",
+        anchor: "center",
+        margin: 1,
+      });
+      this.providerPickerHandle = handle;
+      this.tui.requestRender();
+    } catch (error: unknown) {
+      this.commandLock.release();
+      this.addTranscriptChild(errorNotice(`/manager failed: ${errorMessage(error)}`));
+    }
   }
 
   private async openModelPicker(): Promise<void> {
@@ -2593,6 +2646,7 @@ const LOCAL_SLASH_ROUTES: readonly SlashRoute[] = [
   { id: "exit", aliases: ["quit"] },
   { id: "compact" },
   { id: "model" },
+  { id: "manager" },
   { id: "update" },
   { id: "skills" },
   { id: "pi" },
