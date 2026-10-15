@@ -3117,6 +3117,7 @@ pub fn cetas_js_invoke_command(
         Json::Object(fields) => {
           let forwarded = fields.copy()
           match fields.get("slot") {
+            Some(Json::String("quick-pick")) => ignore(forwarded.remove("slot"))
             Some(value) => {
               forwarded["model"] = value
               ignore(forwarded.remove("slot"))
