@@ -455,26 +455,28 @@ fn ModelManagerFace::manager_subagent_extension(
       child as &@posoco.Extension
     }
     Magpie(binding) => {
-      let manager = @magpie.MagpieManager::MagpieManager(
-        config=binding.config,
-        transport=binding.transport,
-      )
-      try {
-        manager.select_model(spec_slot)
-        match spec_effort {
-          Some(effort) => manager.select_effort(effort)
-          None => ()
-        }
-      } catch {
+      let child_config = @magpie.MagpieConfig::MagpieConfig(
+        base_url=binding.config.base_url,
+        credential=binding.config.credential,
+        connect_timeout_ms=binding.config.connect_timeout_ms,
+        enabled=binding.config.enabled,
+        selected_model=Some(spec_slot),
+        selected_effort=spec_effort,
+      ) catch {
         error =>
           raise @subagent.ComposerError::Failed(
-            "child model selection failed: " + error.to_string(),
+            "child configuration invalid: " + error.to_string(),
           )
       }
+      let manager = @magpie.MagpieManager::MagpieManager(
+        config=child_config,
+        transport=binding.transport,
+      )
       // Child execution reports are dropped: subagent usage is not attributed
       // to the parent's operation log. The child manifest carries only the
       // model port — the runtime's commands and lifecycle are parent-only.
       let ext = MagpieChildModel::MagpieChildModel(
+        manager~,
         port=@magpie.MagpieModelPort::MagpieModelPort(
           manager~,
           transport=binding.transport,
@@ -490,14 +492,16 @@ fn ModelManagerFace::manager_subagent_extension(
 /// Extension shell for a subagent's Magpie ModelPort. The parent runtime
 /// owns commands and lifecycle; a child needs exactly one model port.
 priv struct MagpieChildModel {
+  manager : @magpie.MagpieManager
   port : @magpie.MagpieModelPort
 }
 
 ///|
 fn MagpieChildModel::MagpieChildModel(
+  manager~ : @magpie.MagpieManager,
   port~ : @magpie.MagpieModelPort,
 ) -> MagpieChildModel {
-  { port, }
+  { manager, port, }
 }
 
 ///|
@@ -511,5 +515,18 @@ impl @posoco.Extension for MagpieChildModel with fn extension_id(
 impl @posoco.Extension for MagpieChildModel with fn manifest(
   self : MagpieChildModel,
 ) -> @posoco.ExtensionManifest {
-  @posoco.ExtensionManifest(id="cetas_js.magpie_child_model", models=[self.port])
+  @posoco.ExtensionManifest(
+    id="cetas_js.magpie_child_model",
+    models=[self.port],
+    lifecycle=[self],
+  )
+}
+
+///|
+impl @posoco.Lifecycle for MagpieChildModel with fn on_start(self : MagpieChildModel) -> Unit {
+  try {
+    let _ = self.manager.refresh()
+  } catch {
+    _ => ()
+  }
 }
