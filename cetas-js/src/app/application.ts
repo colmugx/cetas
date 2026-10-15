@@ -373,14 +373,22 @@ export class CetasApplication<AgentHandle = unknown> {
     if (this.options.bridge.connectMagpie === undefined) {
       throw new CetasApplicationError("invalid_state", "gateway configuration is unavailable");
     }
-    const previous = await readManagerSettings(this.options.config.home);
-    await this.options.bridge.connectMagpie(url, key);
+    this.managerSwitching = true;
     try {
-      await writeMagpieAddress(this.options.config.home, url);
-      if (previous.manager === "magpie") await this.refreshSetup();
-    } catch (error: unknown) {
-      await restoreManagerSettings(this.options.config.home, previous);
-      throw error;
+      const previous = await readManagerSettings(this.options.config.home);
+      await this.options.bridge.connectMagpie(url, key);
+      try {
+        await writeMagpieAddress(this.options.config.home, url);
+        if (previous.manager === "magpie") await this.refreshSetup();
+      } catch (error: unknown) {
+        await restoreManagerSettings(this.options.config.home, previous);
+        if (previous.manager === "magpie") {
+          try { await this.refreshSetup(); } catch { /* Original error remains authoritative. */ }
+        }
+        throw error;
+      }
+    } finally {
+      this.managerSwitching = false;
     }
   }
 
