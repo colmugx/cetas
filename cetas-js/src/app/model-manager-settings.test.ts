@@ -26,6 +26,7 @@ describe("model manager settings", () => {
     expect(updated.model_manager).toBe("magpie");
     expect(updated.model).toBeUndefined();
     expect(updated.reasoning_effort).toBeUndefined();
+    expect(updated.manager_selections.providers).toEqual({ model: "provider/model", reasoning_effort: "high" });
     expect(updated.magpie.base_url).toBe("http://127.0.0.1:3425");
     expect(updated.custom.enabled).toBe(true);
     await restoreManagerSettings(home, previous);
