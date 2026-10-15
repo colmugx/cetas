@@ -359,7 +359,16 @@ async test "configured manager lists, selects and persists through neutral ids" 
     fail("entry must be an object")
   }
   guard fields.get("provider") is Some(Json::String("magpie")) else {
-    fail("magpie entries must surface under the magpie picker group")
+    fail("magpie entries must preserve manager ownership")
+  }
+  guard fields.get("group") is Some(Json::String("anthropic")) else {
+    fail("ordinary models must group by gateway provider attribution")
+  }
+  guard entries[1] is Json::Object(group_fields) else {
+    fail("routing group must remain a model entry")
+  }
+  guard group_fields.get("group") is Some(Json::String("Routing Groups")) else {
+    fail("routing groups must have their own picker tab")
   }
   guard fields.get("thinking_efforts") is Some(Json::Array(efforts)) else {
     fail("entries must carry the advertised efforts")
