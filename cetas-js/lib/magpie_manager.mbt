@@ -380,7 +380,7 @@ fn ModelManagerFace::manager_catalog_entries_json(
               if entry.meta.is_routing_group {
                 Json::string("Routing Groups")
               } else {
-                Json::string(entry.meta.provider_id)
+                Json::string(@devkit.sanitize_label(entry.meta.provider_id))
               }
             None => Json::null()
           },
