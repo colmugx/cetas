@@ -2504,7 +2504,9 @@ export class TerminalShell {
   private loginCapabilities(): readonly ProviderAuthCapability[] {
     const setup = this.requireApp().snapshot().setup;
     if (setup.authProviders !== undefined && setup.authProviders.length > 0) {
-      return setup.authProviders;
+      return [...setup.authProviders.filter((item) => item.id !== "magpie"), {
+        id: "magpie", methods: ["gateway"],
+      }];
     }
     const fromModels = new Map<string, Set<string>>();
     for (const model of setup.providers) {
@@ -2514,12 +2516,18 @@ export class TerminalShell {
       fromModels.set(model.provider, existing);
     }
     if (fromModels.size > 0) {
-      return [...fromModels.entries()].map(([id, methods]) => ({ id, methods: [...methods] }));
+      return [
+        ...[...fromModels.entries()].filter(([id]) => id !== "magpie")
+          .map(([id, methods]) => ({ id, methods: [...methods] })),
+        { id: "magpie", methods: ["gateway"] },
+      ];
     }
-    return setup.oauthProviders.map((id) => ({ id, methods: ["oauth"] }));
+    return [...setup.oauthProviders.filter((id) => id !== "magpie").map((id) => ({ id, methods: ["oauth"] })),
+      { id: "magpie", methods: ["gateway"] }];
   }
 
   private async chooseLoginMethod(capability: ProviderAuthCapability): Promise<void> {
+    if (capability.id === "magpie") return this.configureMagpieLogin();
     if (capability.methods.length === 0) {
       throw new Error(`authentication provider ${capability.id} advertises no methods`);
     }
@@ -2624,6 +2632,7 @@ export class TerminalShell {
   }
 
   private async runLogin(provider: string, method?: string): Promise<void> {
+    if (provider === "magpie") return this.configureMagpieLogin();
     // Provider picker already owns the command lock; acquire tolerates that
     // nested re-acquire. Direct `/login p` takes the lock fresh here.
     this.commandLock.acquire(`authenticating ${provider}`);
