@@ -2194,8 +2194,9 @@ pub fn cetas_js_runtime_connect_magpie(
           "gateway connection or authentication failed",
         )
     }
+    let store = credential_store(runtime.config.home)
     if key != "" {
-      credential_store(runtime.config.home).write(
+      store.write(
         "magpie",
         @oauth.ProviderCredential::ApiKey(
           @oauth.ApiKeyCredential::ApiKeyCredential(secret=key),
@@ -2204,6 +2205,14 @@ pub fn cetas_js_runtime_connect_magpie(
         _ =>
           raise @posoco.CommandError::ExecutionFailed(
             "credential storage failed",
+          )
+      }
+    } else {
+      // Local login must not reuse a previously saved remote gateway key.
+      store.delete("magpie") catch {
+        _ =>
+          raise @posoco.CommandError::ExecutionFailed(
+            "previous credential could not be cleared",
           )
       }
     }
