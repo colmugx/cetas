@@ -2330,7 +2330,45 @@ export class TerminalShell {
     }
   }
 
+  private async configureMagpieLogin(): Promise<void> {
+    if (this.commandBusy || this.operationBusy) {
+      this.addTranscriptChild(errorNotice("/login magpie requires an idle application"));
+      return;
+    }
+    this.commandLock.acquire("configuring Magpie");
+    try {
+      const mode = await this.authPromptOverlay.request({
+        type: "select",
+        message: "Magpie Gateway",
+        options: [
+          { id: "local", label: "Local Gateway", description: "http://127.0.0.1:3425" },
+          { id: "remote", label: "Remote Gateway", description: "HTTPS with Gateway Key" },
+        ],
+      });
+      let url = "http://127.0.0.1:3425";
+      let key = "";
+      if (mode === "remote") {
+        url = await this.authPromptOverlay.request({
+          type: "secret",
+          message: "Gateway HTTPS origin",
+        });
+        key = await this.authPromptOverlay.request({
+          type: "secret",
+          message: "Gateway Key (input hidden)",
+        });
+      }
+      await this.requireApp().configureMagpie(url, key);
+      this.addTranscriptChild(systemNotice("Magpie Gateway verified and configured"));
+      this.handleSnapshot(this.requireApp().snapshot());
+    } catch (_error: unknown) {
+      this.addTranscriptChild(errorNotice("/login magpie cancelled, unavailable or invalid"));
+    } finally {
+      this.commandLock.release();
+    }
+  }
+
   private async openLogin(rawProvider: string): Promise<void> {
+    if (rawProvider.trim() === "magpie") return this.configureMagpieLogin();
     if (this.commandBusy) {
       this.addTranscriptChild(errorNotice("/login cannot run while another command is active"));
       return;
