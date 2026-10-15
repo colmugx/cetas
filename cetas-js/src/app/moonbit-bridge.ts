@@ -153,6 +153,10 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
     return agent;
   }
 
+  connectMagpie(url: string, credential: string): Promise<string> {
+    return moonbit.cetas_js_runtime_connect_magpie(this.runtimeValue, url, credential);
+  }
+
   login(
     _config: CetasHostConfig,
     provider: string,
