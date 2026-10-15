@@ -303,7 +303,7 @@ export class CetasApplication<AgentHandle = unknown> {
       );
     }
     if (this.startPromise !== undefined) return this.startPromise;
-    if (this.operations.busy || this.operations.compactPending || this.activeCommand !== undefined) {
+    if (this.managerSwitching || this.operations.busy || this.operations.compactPending || this.activeCommand !== undefined) {
       return Promise.reject(
         new CetasApplicationError(
           "already_running",
@@ -372,10 +372,10 @@ export class CetasApplication<AgentHandle = unknown> {
         this.pendingFollowUps.length > 0) {
       throw new CetasApplicationError("already_running", "manager switching requires an idle application");
     }
-    const previous = await readManagerSettings(this.options.config.home);
-    if (previous.manager === choice) return this.snapshot();
     this.managerSwitching = true;
     try {
+      const previous = await readManagerSettings(this.options.config.home);
+      if (previous.manager === choice) return this.snapshot();
       await this.stopLiveCatalogRefresh();
       await writeManagerChoice(this.options.config.home, choice, previous);
       try {
@@ -741,7 +741,7 @@ export class CetasApplication<AgentHandle = unknown> {
         "no model provider is configured; use /model or /login [provider] [method] to complete setup",
       );
     }
-    if (this.operations.busy || this.operations.compactPending) {
+    if (this.managerSwitching || this.operations.busy || this.operations.compactPending) {
       throw new CetasApplicationError(
         "already_running",
         "a turn is already running",
