@@ -195,6 +195,7 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
    * and (when needed) Agent recomposition. The provider extension persists
    * credentials and returns a normal CommandOutcome JSON string.
    */
+  connectMagpie?(url: string, credential: string): Promise<string>;
   login?(
     config: CetasHostConfig,
     provider: string,
