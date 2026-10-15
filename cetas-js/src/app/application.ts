@@ -645,6 +645,9 @@ export class CetasApplication<AgentHandle = unknown> {
   }
 
   setSession(sessionId: string): void {
+    if (this.managerSwitching) {
+      throw new CetasApplicationError("already_running", "model manager is changing");
+    }
     if (sessionId.length === 0) {
       throw new CetasApplicationError(
         "invalid_state",
@@ -1414,6 +1417,9 @@ export class CetasApplication<AgentHandle = unknown> {
 
   /** Invoke a provider/router command through the extension command port. */
   async invokeCommand(id: string, argsJson = "{}"): Promise<string> {
+    if (this.managerSwitching) {
+      throw new CetasApplicationError("already_running", "model manager is changing");
+    }
     if (id.length === 0) {
       throw new CetasApplicationError("invalid_state", "command id must not be empty");
     }
