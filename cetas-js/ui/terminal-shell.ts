@@ -2371,7 +2371,7 @@ export class TerminalShell {
       let key = "";
       if (mode === "remote") {
         url = await this.authPromptOverlay.request({
-          type: "secret",
+          type: "text",
           message: "Gateway HTTPS origin",
         });
         key = await this.authPromptOverlay.request({
