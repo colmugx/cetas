@@ -1582,7 +1582,7 @@ export class TerminalShell {
       await this.invokeCommand("/skills", rawArgs);
     },
     login: (rawArgs) => this.openLogin(rawArgs),
-    quota: () => this.openQuotaOverlay(),
+    quota: (args) => this.openQuotaOverlay(args),
     status: () => this.showManagerStatus(),
     pi: (rawArgs) => this.runPiCommand(rawArgs),
   };
@@ -1754,20 +1754,24 @@ export class TerminalShell {
     }
   }
 
-  private async openQuotaOverlay(): Promise<void> {
+  private async openQuotaOverlay(rawArgs = ""): Promise<void> {
+    if (rawArgs.trim() !== "" && rawArgs.trim() !== "refresh") {
+      this.addTranscriptChild(errorNotice("/quota accepts only the refresh argument"));
+      return;
+    }
     if (this.operationBusy || this.commandBusy) {
       this.addTranscriptChild(errorNotice("/quota requires an idle application"));
       return;
     }
     this.commandLock.acquire("loading quotas");
     try {
-      const outcome = parseCommandOutcome(await this.requireApp().invokeCommand("quota", "{}"));
+      const outcome = parseCommandOutcome(await this.requireApp().invokeCommand("quota", JSON.stringify({ refresh: rawArgs.trim() === "refresh" })));
       if (outcome.type !== "success") {
         this.renderOutcome(outcome, "/quota");
         return;
       }
       const data = outcome.structured;
-      const lines = ["Quotas"];
+      const lines = ["Quotas", "Use /quota refresh to request updated Gateway quota cards."];
       if (typeof data === "object" && data !== null && !Array.isArray(data)) {
         const record = data as Record<string, unknown>;
         if (record.manager === "providers") {
