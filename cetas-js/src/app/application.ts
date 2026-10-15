@@ -381,11 +381,15 @@ export class CetasApplication<AgentHandle = unknown> {
       try {
         const next = await this.refreshSetup();
         if (next.state !== "ready") throw new Error("selected manager did not produce a ready Agent");
+        this.liveRefreshStarted = false;
+        this.startLiveCatalogRefresh();
         return next;
       } catch (error: unknown) {
         await restoreManagerSettings(this.options.config.home, previous);
         try {
           await this.refreshSetup();
+          this.liveRefreshStarted = false;
+          this.startLiveCatalogRefresh();
         } catch (rollback: unknown) {
           throw new CetasApplicationError("bridge_failure",
             `manager switch failed and recovery failed: ${errorMessage(rollback)}`, rollback);
@@ -804,6 +808,9 @@ export class CetasApplication<AgentHandle = unknown> {
     sessionId = this.currentSessionId,
     images?: readonly ImageAttachment[],
   ): Promise<string> {
+    if (this.managerSwitching) {
+      throw new CetasApplicationError("already_running", "model manager is switching");
+    }
     if (prompt.length === 0) {
       throw new CetasApplicationError("invalid_state", "prompt must not be empty");
     }
