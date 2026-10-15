@@ -2179,16 +2179,20 @@ pub fn cetas_js_runtime_connect_magpie(
       base_url~,
       credential=if key == "" { None } else { Some(key) },
     ) catch {
-      _ => raise @posoco.CommandError::InvalidArgs(reason="invalid gateway address")
+      _ =>
+        raise @posoco.CommandError::InvalidArgs(
+          reason="invalid gateway address",
+        )
     }
     let manager = @magpie.MagpieManager::MagpieManager(
       config~,
       transport=@magpie.magpie_http_transport(),
     )
     let _ = manager.refresh() catch {
-      _ => raise @posoco.CommandError::ExecutionFailed(
-        "gateway connection or authentication failed",
-      )
+      _ =>
+        raise @posoco.CommandError::ExecutionFailed(
+          "gateway connection or authentication failed",
+        )
     }
     if key != "" {
       credential_store(runtime.config.home).write(
@@ -2197,7 +2201,10 @@ pub fn cetas_js_runtime_connect_magpie(
           @oauth.ApiKeyCredential::ApiKeyCredential(secret=key),
         ),
       ) catch {
-        _ => raise @posoco.CommandError::ExecutionFailed("credential storage failed")
+        _ =>
+          raise @posoco.CommandError::ExecutionFailed(
+            "credential storage failed",
+          )
       }
     }
     Json::object({ "connected": Json::boolean(true) }).stringify()
@@ -2973,12 +2980,16 @@ pub fn cetas_js_invoke_command(
     if id == "quota" {
       match handle.manager {
         Magpie(binding) => {
-          let snapshot = binding.runtime.intelligence().quota_snapshot(kept=true) catch {
-            _ =>
-              return command_outcome_to_json(
-                @port.CommandOutcome::Failure(reason="Magpie quota unavailable or forbidden"),
-              ).stringify()
-          }
+          let snapshot = binding.runtime
+            .intelligence()
+            .quota_snapshot(kept=true) catch {
+              _ =>
+                return command_outcome_to_json(
+                  @port.CommandOutcome::Failure(
+                    reason="Magpie quota unavailable or forbidden",
+                  ),
+                ).stringify()
+            }
           let cards = snapshot.cards.map(fn(card) {
             let windows : Array[Json] = match card.windows {
               Some(values) =>
@@ -3016,32 +3027,34 @@ pub fn cetas_js_invoke_command(
             Json::object({
               "provider": Json::string(card.provider),
               "name": match card.name {
-                      Some(v) => Json::string(v)
-                      None => Json::null()
-                    },
+                Some(v) => Json::string(v)
+                None => Json::null()
+              },
               "plan": match card.plan {
-                      Some(v) => Json::string(v)
-                      None => Json::null()
-                    },
+                Some(v) => Json::string(v)
+                None => Json::null()
+              },
               "error": match card.error {
-                      Some(_) => Json::string("unavailable")
-                      None => Json::null()
-                    },
+                Some(_) => Json::string("unavailable")
+                None => Json::null()
+              },
               "read_at": match card.read_at {
-                      Some(v) => Json::string(v)
-                      None => Json::null()
-                    },
+                Some(v) => Json::string(v)
+                None => Json::null()
+              },
               "windows": Json::array(windows),
             })
           })
           return command_outcome_to_json(
             @port.CommandOutcome::Success(
               feedback="Magpie quota snapshot",
-              structured=Some(Json::object({
-                "manager": Json::string("magpie"),
-                "kept": Json::boolean(snapshot.kept),
-                "cards": Json::array(cards),
-              })),
+              structured=Some(
+                Json::object({
+                  "manager": Json::string("magpie"),
+                  "kept": Json::boolean(snapshot.kept),
+                  "cards": Json::array(cards),
+                }),
+              ),
               ui_hint=None,
             ),
           ).stringify()
@@ -3050,10 +3063,12 @@ pub fn cetas_js_invoke_command(
           return command_outcome_to_json(
             @port.CommandOutcome::Success(
               feedback="Provider quota details are available in /model quick-pick where supported",
-              structured=Some(Json::object({
-                "manager": Json::string("providers"),
-                "cards": Json::array([]),
-              })),
+              structured=Some(
+                Json::object({
+                  "manager": Json::string("providers"),
+                  "cards": Json::array([]),
+                }),
+              ),
               ui_hint=None,
             ),
           ).stringify()
