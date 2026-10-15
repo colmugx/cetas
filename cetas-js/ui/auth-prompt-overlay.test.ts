@@ -70,6 +70,17 @@ describe("provider-neutral auth prompts", () => {
     expect(overlay.isActive).toBe(false);
   });
 
+  test("Gateway address input is visible, while keys stay masked", async () => {
+    const tui = new FakeTui();
+    const overlay = new AuthPromptOverlay(tui as never);
+    const result = overlay.request({ type: "text", message: "Gateway HTTPS origin" });
+    for (const character of "https://gateway.example") tui.shown!.handleInput!(character);
+    expect(tui.shown!.render(90).join("\n")).toContain("https://gateway.example");
+    tui.shown!.handleInput!("\r");
+    await expect(result).resolves.toBe("https://gateway.example");
+    expect(overlay.isActive).toBe(false);
+  });
+
   test("cancellation rejects without exposing a secret value", async () => {
     const tui = new FakeTui();
     const overlay = new AuthPromptOverlay(tui as never);
