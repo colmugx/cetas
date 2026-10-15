@@ -56,10 +56,34 @@ export async function writeManagerChoice(
   snapshot: ManagerSettingsSnapshot,
 ): Promise<void> {
   const settings = parseSettings(snapshot.original);
-  settings.model_manager = choice;
-  // Model ids and effort ladders belong to their respective managers.
+  const rawSelections = settings.manager_selections;
+  const selections: Record<string, unknown> =
+    typeof rawSelections === "object" && rawSelections !== null && !Array.isArray(rawSelections)
+      ? { ...rawSelections as Record<string, unknown> }
+      : {};
+  const source = selections[snapshot.manager];
+  const sourceEntry: Record<string, unknown> =
+    typeof source === "object" && source !== null && !Array.isArray(source)
+      ? { ...source as Record<string, unknown> }
+      : {};
+  if (typeof settings.model === "string") sourceEntry.model = settings.model;
+  if (typeof settings.reasoning_effort === "string") sourceEntry.reasoning_effort = settings.reasoning_effort;
+  selections[snapshot.manager] = sourceEntry;
+  const target = selections[choice];
+  const targetEntry =
+    typeof target === "object" && target !== null && !Array.isArray(target)
+      ? target as Record<string, unknown>
+      : {};
   delete settings.model;
   delete settings.reasoning_effort;
+  if (typeof targetEntry.model === "string") {
+    settings.model = targetEntry.model;
+    if (typeof targetEntry.reasoning_effort === "string") {
+      settings.reasoning_effort = targetEntry.reasoning_effort;
+    }
+  }
+  settings.manager_selections = selections;
+  settings.model_manager = choice;
   await writeSettings(home, JSON.stringify(settings, null, 2) + "\n");
 }
 
