@@ -16,7 +16,7 @@ fn subagent_test_slot(
 fn subagent_test_composer(router : @llm.RouterModelPort) -> CetasChildComposer {
   let fs = @workspace.JsWorkspaceFs()
   CetasChildComposer(
-    parent_router=router,
+    parent_manager=Providers(router),
     parent_mode=fn() { @permission.ReadOnly },
     context_fs=fs,
     feature_fs=fs,
@@ -127,7 +127,7 @@ async test "cetas-js owns the agent tool at the host boundary" {
   )
   let fs = @workspace.JsWorkspaceFs()
   let ext = build_cetas_subagents(
-    parent_router=router,
+    parent_manager=Providers(router),
     parent_mode=fn() { @permission.ReadOnly },
     context_fs=fs,
     feature_fs=fs,
@@ -186,7 +186,7 @@ test "resolve_child_mode applies the live parent posture" {
   }
   let fs = @workspace.JsWorkspaceFs()
   let yolo_parent = CetasChildComposer(
-    parent_router=router,
+    parent_manager=Providers(router),
     parent_mode=fn() { @permission.Yolo },
     context_fs=fs,
     feature_fs=fs,
@@ -202,7 +202,7 @@ test "resolve_child_mode applies the live parent posture" {
     @permission.ReadOnly,
   )
   let write_parent = CetasChildComposer(
-    parent_router=router,
+    parent_manager=Providers(router),
     parent_mode=fn() { @permission.WorkspaceWrite },
     context_fs=fs,
     feature_fs=fs,

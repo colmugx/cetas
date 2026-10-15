@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { classifyChannel, cetasVersion } from "./version.ts";
+import { bunGlobalRoot, classifyChannel, cetasVersion, matchGlobalManager } from "./version.ts";
 
 describe("channel classification", () => {
   test("compiled bun executables mount the entry under /$bunfs", () => {
@@ -14,6 +14,59 @@ describe("channel classification", () => {
   test("no bun runtime means the npm node bundle", () => {
     expect(classifyChannel(undefined, undefined)).toBe("npm");
     expect(classifyChannel(undefined, "/anything")).toBe("npm");
+  });
+
+  test("package-manager global installs take the npm channel", () => {
+    expect(
+      classifyChannel(
+        "1.4.2",
+        "/home/u/.bun/install/global/node_modules/@posoco/cetas/dist/cetas.js",
+        {},
+        "/home/u",
+      ),
+    ).toBe("npm");
+    expect(
+      classifyChannel(
+        "1.4.2",
+        "/home/u/.local/share/pnpm/global/5/node_modules/@posoco/cetas/dist/cetas.js",
+      ),
+    ).toBe("npm");
+  });
+});
+
+describe("matchGlobalManager", () => {
+  const env = {};
+  const home = "/home/u";
+
+  test("bun's global root (with $BUN_INSTALL override) owns the entry", () => {
+    const under = (root: string, rest: string) => matchGlobalManager(`${root}/${rest}`, env, home);
+    expect(under(bunGlobalRoot(env, home), "@posoco/cetas/dist/cetas.js")).toBe("bun");
+    expect(under("/opt/bun/install/global/node_modules", "x.js")).toBeUndefined();
+    expect(
+      matchGlobalManager("/opt/bun/install/global/node_modules/x.js", { BUN_INSTALL: "/opt/bun" }, home),
+    ).toBe("bun");
+  });
+
+  test("pnpm's global root layout is recognized", () => {
+    expect(
+      matchGlobalManager("/home/u/.local/share/pnpm/global/5/node_modules/@posoco/cetas/dist/cetas.js", env, home),
+    ).toBe("pnpm");
+    expect(matchGlobalManager("/opt/pnpm/global/5/node_modules/x.js", env, home)).toBe("pnpm");
+  });
+
+  test("npm global trees and source checkouts fall back to the npm manager", () => {
+    expect(matchGlobalManager("/usr/local/lib/node_modules/@posoco/cetas/dist/cetas.js", env, home)).toBeUndefined();
+    expect(matchGlobalManager("/home/dev/cetas/cetas-js/host.ts", env, home)).toBeUndefined();
+  });
+
+  test("windows separators normalize", () => {
+    expect(
+      matchGlobalManager(
+        "C:\\Users\\u\\.bun\\install\\global\\node_modules\\@posoco\\cetas\\dist\\cetas.js",
+        env,
+        "C:\\Users\\u",
+      ),
+    ).toBe("bun");
   });
 });
 

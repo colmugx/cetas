@@ -169,7 +169,7 @@ fn effective_child_mode(
 
 ///|
 priv struct CetasChildComposer {
-  parent_router : @llm.RouterModelPort
+  parent_manager : ModelManagerFace
   /// Live parent posture, read at each spawn so `/permission` switches
   /// propagate to children composed afterwards.
   parent_mode : () -> @permission.PermissionMode
@@ -187,7 +187,7 @@ priv struct CetasChildComposer {
 
 ///|
 fn CetasChildComposer::CetasChildComposer(
-  parent_router~ : @llm.RouterModelPort,
+  parent_manager~ : ModelManagerFace,
   parent_mode~ : () -> @permission.PermissionMode,
   approval~ : &@permission.ApprovalSource? = None,
   ui~ : &@posoco.UiPort? = None,
@@ -198,7 +198,7 @@ fn CetasChildComposer::CetasChildComposer(
   home~ : String,
 ) -> CetasChildComposer {
   {
-    parent_router,
+    parent_manager,
     parent_mode,
     child_store: CetasChildSessionStore::CetasChildSessionStore(),
     approval,
@@ -350,7 +350,7 @@ async fn load_cetas_subagent_settings(
 
 ///|
 async fn build_cetas_subagents(
-  parent_router~ : @llm.RouterModelPort,
+  parent_manager~ : ModelManagerFace,
   parent_mode~ : () -> @permission.PermissionMode,
   approval~ : &@permission.ApprovalSource? = None,
   ui~ : &@posoco.UiPort? = None,
@@ -368,7 +368,7 @@ async fn build_cetas_subagents(
     answer_timeout_ms=config.limits.answer_timeout_ms,
   )
   let composer = CetasChildComposer::CetasChildComposer(
-    parent_router~,
+    parent_manager~,
     parent_mode~,
     approval~,
     ui~,
@@ -382,10 +382,13 @@ async fn build_cetas_subagents(
     catalog=load_cetas_subagent_catalog(home~, cwd~, extra=extra_kinds),
     config~,
     composer=composer as &@subagent.ChildComposer,
-    parent_slot=parent_router.active_slot_id(),
-    parent_effort=parent_router.active_effort(),
+    parent_slot=parent_manager.manager_active_model_id(),
+    parent_effort=parent_manager.manager_active_effort(),
     parent_selection=Some(fn() {
-      (parent_router.active_slot_id(), parent_router.active_effort())
+      (
+        parent_manager.manager_active_model_id(),
+        parent_manager.manager_active_effort(),
+      )
     }),
     observers~,
     question=Some(broker),
@@ -406,26 +409,10 @@ impl @subagent.ChildComposer for CetasChildComposer with fn compose(
 ) -> @posoco.Agent raise @subagent.ComposerError {
   // New router value per child: provider ModelPorts may be shared, but mutable
   // active slot/effort selection never is.
-  let router = @llm.RouterModelPort(
-    slots=self.parent_router.list_slots(),
-    model_metadata=self.parent_router.model_metadata,
-    default_slot_id=spec.slot,
-  ) catch {
-    error =>
-      raise @subagent.ComposerError::Failed(
-        "child model selection failed: " + error.to_string(),
-      )
-  }
-  match spec.effort {
-    Some(effort) =>
-      router.select_effort(spec.slot, effort) catch {
-        error =>
-          raise @subagent.ComposerError::Failed(
-            "child effort selection failed: " + error.to_string(),
-          )
-      }
-    None => ()
-  }
+  let child_model = self.parent_manager.manager_subagent_extension(
+    spec_slot=spec.slot,
+    spec_effort=spec.effort,
+  )
 
   let permission = @permission.PermissionPolicy(
     self.resolve_child_mode(spec.mode),
@@ -433,7 +420,7 @@ impl @subagent.ChildComposer for CetasChildComposer with fn compose(
     workspace=Some(@devkit.WorkspaceAnchor::WorkspaceAnchor(self.cwd)),
   )
   let exts : Array[&@posoco.Extension] = [
-    router as &@posoco.Extension,
+    child_model,
     permission as &@posoco.Extension,
     CetasChildIo::{ store: self.child_store, observers: spec.observers, }
     as &@posoco.Extension,

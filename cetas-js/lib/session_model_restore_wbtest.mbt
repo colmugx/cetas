@@ -105,7 +105,7 @@ async test "restore keeps the current selection when nothing is recorded" {
   let warns : Array[String] = []
   let applied = restore_session_model_selection_over(
     store,
-    router,
+    Providers(router),
     warn=fn(message) { warns.push(message) },
     "sess_restore",
   )
@@ -131,7 +131,7 @@ async test "restore applies the recorded slot and effort" {
   let warns : Array[String] = []
   let applied = restore_session_model_selection_over(
     store,
-    router,
+    Providers(router),
     warn=fn(message) { warns.push(message) },
     "sess_restore",
   )
@@ -158,7 +158,7 @@ async test "restore skips when the selection already matches" {
   let warns : Array[String] = []
   let applied = restore_session_model_selection_over(
     store,
-    router,
+    Providers(router),
     warn=fn(message) { warns.push(message) },
     "sess_restore",
   )
@@ -177,7 +177,7 @@ async test "restore warns and keeps the selection when the slot is missing" {
   let warns : Array[String] = []
   let applied = restore_session_model_selection_over(
     store,
-    router,
+    Providers(router),
     warn=fn(message) { warns.push(message) },
     "sess_restore",
   )
@@ -203,7 +203,7 @@ async test "restore warns on an unsupported effort but still applies the slot" {
   let warns : Array[String] = []
   let applied = restore_session_model_selection_over(
     store,
-    router,
+    Providers(router),
     warn=fn(message) { warns.push(message) },
     "sess_restore",
   )

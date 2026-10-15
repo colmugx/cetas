@@ -28,6 +28,7 @@ members = [
   "./extension/posoco-ext-lazytools",
   "./extension/posoco-ext-llm",
   "./extension/posoco-ext-mbtx",
+  "./extension/posoco-ext-magpie",
   "./extension/posoco-ext-mcp",
   "./extension/posoco-ext-memoh",
   "./extension/posoco-ext-nowledge-mem",

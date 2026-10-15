@@ -16,7 +16,7 @@
 /// `false` for every degraded/skip path.
 async fn restore_session_model_selection_over(
   store : @fs_session.JsonlSessionStore,
-  router : @llm.RouterModelPort,
+  manager : ModelManagerFace,
   warn~ : (String) -> Unit,
   session_id : String,
 ) -> Bool noraise {
@@ -25,33 +25,34 @@ async fn restore_session_model_selection_over(
     Some(slot) => slot
     None => return false
   }
-  // Identical selection: keep the router untouched — switch_slot drops the
+  // Identical selection: keep the manager untouched — a slot switch drops the
   // provider's quota segments and resets cache state, avoid that churn.
-  if slot == router.active_slot_id() && summary.effort == router.active_effort() {
+  if slot == manager.manager_active_model_id() &&
+    summary.effort == manager.manager_active_effort() {
     return false
   }
-  router.switch_slot(slot) catch {
+  manager.manager_select(model=slot) catch {
     _ => {
       warn(
         "Session '" +
         session_id +
-        "' last used model slot '" +
+        "' last used model '" +
         slot +
-        "', which is not in the startup catalog; keeping the current selection.",
+        "', which is not in the manager catalog; keeping the current selection.",
       )
       return false
     }
   }
   match summary.effort {
     Some(effort) =>
-      router.select_effort(slot, effort) catch {
+      manager.manager_select(effort~) catch {
         _ =>
           warn(
             "Session's reasoning effort '" +
             effort +
-            "' is not advertised by model slot '" +
+            "' is not advertised by model '" +
             slot +
-            "'; using the slot's default effort.",
+            "'; using the model's default effort.",
           )
       }
     None => ()
@@ -72,7 +73,7 @@ async fn restore_session_model_selection(
 ) -> Unit noraise {
   let applied = restore_session_model_selection_over(
     handle.store,
-    handle.router,
+    handle.manager,
     warn=fn(message) {
       handle.observer.on_event(
         Custom(

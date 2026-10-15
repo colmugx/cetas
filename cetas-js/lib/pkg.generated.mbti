@@ -4,6 +4,7 @@ package "colmugx/cetas-js/lib"
 import {
   "colmugx/posoco",
   "colmugx/posoco-ext-fs-session",
+  "colmugx/posoco-ext-magpie",
   "colmugx/posoco-ext-mcp",
   "colmugx/posoco-ext-permission",
   "colmugx/posoco-ext-pi-adaptor",
@@ -91,7 +92,7 @@ pub impl @posoco-ext-permission.ApprovalSource for BlockingApprovalSource
 
 pub struct CetasJsAgent {
   agent : @posoco.Agent
-  router : @ext-llm.RouterModelPort
+  manager : ModelManagerFace
   plan : @posoco-ext-plan.PlanMode
   home : String
   observer : JsCallbackObserver
@@ -122,6 +123,7 @@ pub(all) struct CetasJsRuntime {
   mut catalog_issues : Array[@colmugx/cetas-core/lib.CatalogBuildIssue]
   mut pi : @posoco-ext-pi-adaptor.PiAdaptor?
   mut live_router : @ext-llm.RouterModelPort?
+  mut magpie_binding : MagpieBinding?
 }
 pub fn CetasJsRuntime::CetasJsRuntime(CetasJsConfig) -> Self
 
@@ -173,6 +175,17 @@ pub type JsUiRenderCallback
 
 #external
 pub type JsUiRequestCallback
+
+pub struct MagpieBinding {
+  runtime : @posoco-ext-magpie.MagpieRuntime
+  config : @posoco-ext-magpie.MagpieConfig
+  transport : &@posoco-ext-magpie.MagpieTransport
+}
+
+pub enum ModelManagerFace {
+  Providers(@ext-llm.RouterModelPort)
+  Magpie(MagpieBinding)
+}
 
 pub(all) struct PlanApprovalSource {
   mut ui : &@port.UiPort?

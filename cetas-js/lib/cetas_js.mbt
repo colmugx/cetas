@@ -1084,6 +1084,10 @@ pub(all) struct CetasJsRuntime {
   /// refresh can hot-swap provider slots without recomposition; `None` until
   /// then. JS never reads or writes it directly.
   mut live_router : @llm.RouterModelPort?
+  /// Bound Magpie manager, cached so describe-setup reports the Magpie
+  /// surface without re-reading settings or credentials. `None` under the
+  /// providers manager.
+  mut magpie_binding : MagpieBinding?
 }
 
 ///|
@@ -1097,6 +1101,7 @@ pub fn CetasJsRuntime::CetasJsRuntime(config : CetasJsConfig) -> CetasJsRuntime 
     catalog_issues: [],
     pi: None,
     live_router: None,
+    magpie_binding: None,
   }
 }
 
@@ -1113,7 +1118,7 @@ pub fn CetasJsRuntime::CetasJsRuntime(config : CetasJsConfig) -> CetasJsRuntime 
 /// the active model selection without reconstructing composition state.
 pub struct CetasJsAgent {
   agent : @posoco.Agent
-  router : @llm.RouterModelPort
+  manager : ModelManagerFace
   /// Plan-mode extension reference, so the bridge can stamp the session
   /// label onto plan file names when a session starts.
   plan : @plan.PlanMode
@@ -1580,16 +1585,35 @@ pub fn cetas_js_runtime_create_agent(
             // One binding holds the tracker so the & borrow stays alive for the call.
             let codex_quota_source = @openai.codex_shared_quota_tracker()
             let codex_quota_borrowed : &@devkit.QuotaSource = codex_quota_source
-            let model = build_provider_router(
-              runtime,
-              cred_store,
-              auth_interaction,
-              observer,
-              bus=Some(event_bus),
-              extra_quota_sources=Map::from_array([
-                ("openai", codex_quota_borrowed),
-              ]),
+            let magpie_host = read_magpie_host_settings(
+              @workspace.JsWorkspaceFs(),
+              home=runtime.config.home,
+              cred_store~,
+              warn=fn(message) {
+                active_model_warning(
+                  observer, "magpie_settings_warning", message,
+                )
+              },
             )
+            let model = match magpie_host {
+              Some(settings) => {
+                let binding = bind_magpie_manager(settings)
+                Magpie(binding)
+              }
+              None => {
+                let router = build_provider_router(
+                  runtime,
+                  cred_store,
+                  auth_interaction,
+                  observer,
+                  bus=Some(event_bus),
+                  extra_quota_sources=Map::from_array([
+                    ("openai", codex_quota_borrowed),
+                  ]),
+                )
+                Providers(router)
+              }
+            }
             let store = @fs_session.JsonlSessionStore(
               runtime.config.sessions_dir,
               bus=Some(event_bus),
@@ -1688,7 +1712,7 @@ pub fn cetas_js_runtime_create_agent(
             let codex_quota = @openai.CodexQuotaStatus(bus=Some(event_bus))
             let exts : Array[&@posoco.Extension] = [
               cetas,
-              model as &@posoco.Extension,
+              model.manager_extension(),
               store as &@posoco.Extension,
               observer as &@posoco.Extension,
               ui as &@posoco.Extension,
@@ -1775,7 +1799,7 @@ pub fn cetas_js_runtime_create_agent(
               },
             ]
             let subagents = build_cetas_subagents(
-              parent_router=model,
+              parent_manager=model,
               parent_mode=fn() { policy.mode() },
               approval=child_approval,
               ui=Some(ui as &@posoco.UiPort),
@@ -1896,8 +1920,13 @@ pub fn cetas_js_runtime_create_agent(
             // cancellation is port-level now: the composed ShellTools registers
             // a ToolCancellable facet, so an aborted turn kills the spawned
             // `sh -c` child without a host-side runtime decorator.
+            let model_port : &@posoco.ModelPort = match model {
+              Providers(router) => router as &@posoco.ModelPort
+              Magpie(binding) =>
+                binding.runtime.model_port() as &@posoco.ModelPort
+            }
             let base_runtime = @runtime.PortRuntime(
-              model=model as &@posoco.ModelPort,
+              model=model_port,
               tools=routing,
             )
             let mcp_runtime = @mcp.McpRuntime(
@@ -1957,10 +1986,15 @@ pub fn cetas_js_runtime_create_agent(
             // Publish the live router on the runtime so the background catalog
             // refresh can hot-swap provider slots in place (see
             // refresh_model_lists_live); the handle keeps the same instance.
-            runtime.live_router = Some(model)
+            // Magpie managers are not hot-swapped: switching managers is a
+            // recomposition.
+            match model {
+              Providers(router) => runtime.live_router = Some(router)
+              Magpie(binding) => runtime.magpie_binding = Some(binding)
+            }
             {
               agent,
-              router: model,
+              manager: model,
               plan: plan_mode,
               home: runtime.config.home,
               observer,
@@ -2197,16 +2231,11 @@ fn parse_image_attachments(images_json : String) -> Array[@posoco.Content] {
 /// means attach nothing and warn (switch model via /model), matching the
 /// Codex CLI attach-time gate.
 pub fn cetas_js_active_model_supports_images(handle : CetasJsAgent) -> String {
-  let active_id = handle.router.active_slot_id()
-  for slot in handle.router.list_slots() {
-    if slot.id == active_id {
-      if slot.capabilities.contains("image_in") {
-        return "true"
-      }
-      return "false"
-    }
+  if handle.manager.manager_supports_images() {
+    "true"
+  } else {
+    "false"
   }
-  "false"
 }
 
 ///|
@@ -2749,6 +2778,22 @@ fn command_outcome_to_json(outcome : @port.CommandOutcome) -> Json {
 pub fn cetas_js_list_commands(handle : CetasJsAgent) -> String {
   let ports = handle.agent.commands()
   let defs : Array[Json] = []
+  // The neutral `/model` entry stays first under every manager: Magpie
+  // managers serve it through the bridge's aliasing, not a port command.
+  if handle.manager is Magpie(_) {
+    defs.push(
+      Json::object({
+        "id": Json::string("model"),
+        "label": Json::string("Model"),
+        "description": Json::string("List or select a Magpie model"),
+        "category": Json::string("model"),
+        "ctype": Json::string("select"),
+        "params": Json::array([]),
+        "aliases": Json::array([]),
+        "visible": Json::boolean(true),
+      }),
+    )
+  }
   for port in ports {
     for def in port.commands() {
       defs.push(command_def_to_json(def))
@@ -2781,8 +2826,8 @@ async fn persist_active_model_selection(handle : CetasJsAgent) -> Unit noraise {
     @workspace.JsWorkspaceFs(),
     home=handle.home,
     @cetas_core.ActiveModelSelection::from_current(
-      handle.router.active_slot_id(),
-      handle.router.active_effort(),
+      handle.manager.manager_active_model_id(),
+      handle.manager.manager_active_effort(),
     ),
   ) catch {
     _ =>
@@ -2881,6 +2926,15 @@ pub fn cetas_js_invoke_command(
       Some(outcome) => return command_outcome_to_json(outcome).stringify()
       None => ()
     }
+    // The neutral `model`/`effort` command ids ride the active manager: the
+    // providers manager owns them natively; Magpie forwards to its own
+    // selection command and remaps the catalog payload into the shared
+    // picker shape.
+    let magpie_invoked = match (handle.manager, id) {
+      (Magpie(_), "model" | "effort") => true
+      _ => false
+    }
+    let id = if magpie_invoked { "magpie_model" } else { id }
     let ports = handle.agent.commands()
     let mut result_json = ""
     let mut found = false
@@ -2889,11 +2943,30 @@ pub fn cetas_js_invoke_command(
         let owns = port.commands().iter().any(fn(def) { def.id == id })
         if owns {
           let outcome = port.invoke(id, args)
+          let outcome = if magpie_invoked {
+            match outcome {
+              Success(feedback~, structured~, ui_hint~) => {
+                persist_active_model_selection(handle)
+                @port.CommandOutcome::Success(
+                  // Pending selections stay visible in the picker feedback
+                  // instead of reading as applied.
+                  feedback=feedback + handle.manager.manager_pending_note(),
+                  structured=Some(
+                    Json::array(handle.manager.manager_catalog_entries_json()),
+                  ),
+                  ui_hint~,
+                )
+              }
+              other => other
+            }
+          } else {
+            outcome
+          }
           result_json = command_outcome_to_json(outcome).stringify()
           // Router-mutating commands persist the new selection: the
           // invocation already committed the change, so make it outlive
-          // the process.
-          if id == "model" || id == "effort" {
+          // the process. (The magpie path persisted above, after remapping.)
+          if !magpie_invoked && (id == "model" || id == "effort") {
             match outcome {
               Success(..) => persist_active_model_selection(handle)
               _ => ()

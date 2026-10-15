@@ -1,21 +1,86 @@
+import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import type { Channel } from "./version.ts";
+import type { Channel, PackageManager } from "./version.ts";
 
 const NPM_PACKAGE = "@posoco/cetas";
-const NPM_LATEST_URL = `https://registry.npmjs.org/${NPM_PACKAGE}/latest`;
+const DEFAULT_REGISTRY = "https://registry.npmjs.org";
 const RELEASES_LATEST_URL = "https://github.com/colmugx/cetas/releases/latest";
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 3000;
+const NPM_CONFIG_TIMEOUT_MS = 3000;
 const RELEASE_TAG_RE = /\/tag\/cetas-v(\d+\.\d+\.\d+)\/?$/;
 const SEMVER_RE = /^v?(\d+)\.(\d+)\.(\d+)$/;
+const BUNFIG_REGISTRY_RE = /^\s*registry\s*=\s*["']([^"']+)["']/m;
 
 /** Structural subset of fetch the checker needs; injectable for tests. */
 export type FetchImpl = (
   url: string,
   init?: { signal?: AbortSignal },
 ) => Promise<{ ok: boolean; url: string; json(): Promise<unknown> }>;
+
+/** Spawn seam for `npm config get registry`; injectable for tests. */
+export type CommandRunner = (
+  command: string,
+  args: readonly string[],
+  timeoutMs: number,
+) => Promise<{ exitCode: number; stdout: string }>;
+
+const defaultCommandRunner: CommandRunner = (command, args, timeoutMs) =>
+  new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "ignore"] });
+    let stdout = "";
+    const timer = setTimeout(() => child.kill(), timeoutMs);
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve({ exitCode: 1, stdout: "" });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ exitCode: code ?? 1, stdout });
+    });
+  });
+
+function sanitizedRegistry(value: string | undefined): string | undefined {
+  const trimmed = value?.trim().replace(/\/+$/, "");
+  return trimmed !== undefined && trimmed !== "" && /^https?:\/\//.test(trimmed)
+    ? trimmed
+    : undefined;
+}
+
+/**
+ * The registry the user's package manager actually installs from. Mirrors may
+ * lag npmjs, so querying the install source keeps every advertised version
+ * installable by the very command the /update flow runs.
+ */
+export async function resolveRegistry(options: {
+  manager: PackageManager;
+  env: Record<string, string | undefined>;
+  home: string;
+  runCommand?: CommandRunner;
+}): Promise<string> {
+  const fromEnv =
+    sanitizedRegistry(options.env.CETAS_REGISTRY) ??
+    sanitizedRegistry(options.env.npm_config_registry) ??
+    sanitizedRegistry(options.env.NPM_CONFIG_REGISTRY);
+  if (fromEnv !== undefined) return fromEnv;
+  if (options.manager === "bun") {
+    // bun does not read .npmrc; its registry lives in ~/.bunfig.toml.
+    try {
+      const bunfig = await readFile(join(options.home, ".bunfig.toml"), "utf8");
+      return sanitizedRegistry(BUNFIG_REGISTRY_RE.exec(bunfig)?.[1]) ?? DEFAULT_REGISTRY;
+    } catch {
+      return DEFAULT_REGISTRY;
+    }
+  }
+  const run = options.runCommand ?? defaultCommandRunner;
+  const result = await run("npm", ["config", "get", "registry"], NPM_CONFIG_TIMEOUT_MS);
+  return sanitizedRegistry(result.stdout) ?? DEFAULT_REGISTRY;
+}
 
 export interface UpdateHit {
   latest: string;
@@ -42,6 +107,24 @@ function channelHomeUrl(channel: Channel): string {
     : RELEASES_LATEST_URL;
 }
 
+/** Manager-specific global install command surfaced by the /update picker. */
+export function updateInstallCommand(manager: PackageManager): string {
+  const install = manager === "npm" ? "npm install -g" : `${manager} add -g`;
+  return `${install} ${NPM_PACKAGE}@latest`;
+}
+
+/**
+ * POSIX one-liner behind "Update now": install, then re-exec cetas through
+ * the original argv so the shell hands the terminal straight back.
+ */
+export function updateHandoffCommand(
+  installCommand: string,
+  argv: readonly string[],
+): string {
+  const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+  return `${installCommand} && exec ${argv.map(quote).join(" ")}`;
+}
+
 /**
  * Update sources are channel-scoped: the npm publish is manual and lags
  * releases, so a cross-channel comparison would nag users who are current.
@@ -49,10 +132,11 @@ function channelHomeUrl(channel: Channel): string {
 async function fetchLatest(
   channel: Channel,
   fetchImpl: FetchImpl,
+  registryUrl: string,
 ): Promise<UpdateHit | undefined> {
   try {
     if (channel === "npm") {
-      const res = await fetchImpl(NPM_LATEST_URL, {
+      const res = await fetchImpl(`${registryUrl}/@posoco%2Fcetas/latest`, {
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
       if (!res.ok) return undefined;
@@ -106,8 +190,13 @@ export interface RunUpdateCheckOptions {
   home: string;
   channel: Channel;
   currentVersion: string;
+  /** Owner of the npm-channel install; resolves whose registry to query. */
+  manager?: PackageManager;
+  /** Skip the 24h cache and hit the update source right now (/update). */
+  bypassCache?: boolean;
   now?: () => number;
   fetchImpl?: FetchImpl;
+  runCommand?: CommandRunner;
   cachePath?: string;
   env?: Record<string, string | undefined>;
 }
@@ -115,7 +204,7 @@ export interface RunUpdateCheckOptions {
 /**
  * Returns a hit only when a newer version exists on the channel's own update
  * source. Checked at most once per 24h (cache under `<home>/.cetas/`), never
- * throws, and is silent for the dev channel or `CETAS_NO_UPDATE_CHECK`.
+ * throws, and is silent for the dev channel.
  */
 export async function runUpdateCheck(
   options: RunUpdateCheckOptions,
@@ -125,11 +214,9 @@ export async function runUpdateCheck(
   const env = options.env ?? process.env;
   const cachePath =
     options.cachePath ?? join(options.home, ".cetas", "update-check.json");
-  const optOut = env.CETAS_NO_UPDATE_CHECK;
-  if (optOut !== undefined && optOut !== "" && optOut !== "0") return undefined;
   if (options.channel === "dev") return undefined;
 
-  const cache = await readCache(cachePath);
+  const cache = options.bypassCache === true ? undefined : await readCache(cachePath);
   let hit: UpdateHit | undefined;
   if (
     cache !== undefined &&
@@ -138,7 +225,16 @@ export async function runUpdateCheck(
   ) {
     hit = { latest: cache.latest, url: channelHomeUrl(options.channel) };
   } else {
-    const fresh = await fetchLatest(options.channel, fetchImpl);
+    const registry =
+      options.channel === "npm"
+        ? await resolveRegistry({
+            manager: options.manager ?? "npm",
+            env,
+            home: options.home,
+            runCommand: options.runCommand,
+          })
+        : DEFAULT_REGISTRY;
+    const fresh = await fetchLatest(options.channel, fetchImpl, registry);
     if (fresh !== undefined) {
       await writeCache(cachePath, {
         checkedAt: now(),
@@ -161,7 +257,9 @@ export function updateNoticeMessage(
 ): string {
   const head = `⚠ Update available: cetas ${hit.latest} (current ${currentVersion}, ${channel})`;
   if (channel === "npm") {
-    return `${head} — run: npm install -g ${NPM_PACKAGE}`;
+    return `${head} — run /update`;
   }
   return `${head} — ${RELEASES_LATEST_URL} (replace the cetas-bun binary and its native/ directory)`;
 }
+
+export { DEFAULT_REGISTRY };

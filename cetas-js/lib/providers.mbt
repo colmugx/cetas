@@ -435,6 +435,37 @@ async fn build_provider_router(
 async fn provider_setup_json(
   runtime : CetasJsRuntime,
 ) -> String raise @posoco.CompositionError {
+  // Magpie managers replace the provider setup surface with a single entry,
+  // so the host's needs-setup logic treats Magpie like any configured
+  // provider and no provider credentials or catalogs are probed.
+  let magpie_binding : MagpieBinding? = match runtime.magpie_binding {
+    Some(binding) => Some(binding)
+    None => {
+      let cred = credential_store(runtime.config.home)
+      let settings = read_magpie_host_settings(
+        @workspace.JsWorkspaceFs(),
+        home=runtime.config.home,
+        cred_store=cred,
+        warn=fn(_message) { () },
+      )
+      match settings {
+        Some(settings) => Some(bind_magpie_manager(settings))
+        None => None
+      }
+    }
+  }
+  match magpie_binding {
+    Some(binding) =>
+      return Json::object({
+        "providers": Json::array([magpie_setup_entry_json(binding)]),
+        "oauthProviders": Json::array([]),
+        "authProviders": Json::array([]),
+        "activeModelId": Json::string(
+          binding.runtime.manager().active_selection().model_id,
+        ),
+      }).stringify()
+    None => ()
+  }
   let catalogs = cached_provider_catalogs(runtime)
   let settings = load_provider_settings(runtime)
   @cetas_core.provider_setup_json(

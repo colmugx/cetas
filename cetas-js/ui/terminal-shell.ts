@@ -8,6 +8,7 @@
  */
 
 import chalk from "chalk";
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import {
@@ -63,7 +64,7 @@ import {
   decisionFailureDiagnostic,
   type CoreCustomParse,
 } from "../src/core-events.ts";
-import type { Channel } from "../src/app/version.ts";
+import type { Channel, PackageManager } from "../src/app/version.ts";
 import {
   SubagentHeader,
   projectSubagentHeader,
@@ -114,6 +115,8 @@ import {
 } from "./sessions-overlay.ts";
 import { RewindOverlay } from "./rewind-overlay.ts";
 import { ModalVeilHost } from "./modal-mask.ts";
+import { UpdateOverlay, type UpdateChoice } from "./update-picker.ts";
+import { runUpdateCheck, updateInstallCommand, updateHandoffCommand } from "../src/app/update-check.ts";
 import { theme } from "./theme.ts";
 import { WelcomeHeader } from "./welcome-header.ts";
 
@@ -159,8 +162,8 @@ export interface TerminalShellOptions {
   initialSessionId: string;
   /** Tool name → extension id (bridge tool catalog); labels tool rows. */
   toolLabels?: ReadonlyMap<string, string>;
-  /** Version and distribution channel, shown on the welcome card. */
-  versionInfo?: { version: string; channel: Channel };
+  /** Version, distribution channel and install manager; drives /update. */
+  versionInfo?: { version: string; channel: Channel; manager: PackageManager };
   /** Host-owned process exit hook; tests can leave it undefined. */
   onExit?: (code: number) => void;
   /**
@@ -250,8 +253,13 @@ export class TerminalShell {
   private sessionId: string;
   private readonly cwd: string;
   private readonly sessionsDir: string;
+  private readonly home: string;
   private readonly piCommands: PiCommands;
   private readonly onExit: (code: number) => void;
+  private readonly versionInfo?: { version: string; channel: Channel; manager: PackageManager };
+  private readonly updateOverlay: UpdateOverlay;
+  /** Set by "Update now"; exit() runs it after teardown instead of onExit. */
+  private pendingUpdateHandoff?: () => void;
 
   private readonly transcript: Container;
   private readonly welcomeHeader: WelcomeHeader;
@@ -355,6 +363,7 @@ export class TerminalShell {
     this.tui = options.tui;
     this.cwd = options.cwd;
     this.sessionsDir = options.sessionsDir;
+    this.home = options.home ?? homedir();
     this.piCommands = new PiCommands({
       home: options.home ?? homedir(),
       // Reload through the application's public boundary: refreshSetup
@@ -460,6 +469,8 @@ export class TerminalShell {
     this.skillsOverlay = new SkillsOverlay(this.modals);
     this.sessionsOverlay = new SessionsOverlay(this.modals);
     this.rewindOverlay = new RewindOverlay(this.modals);
+    this.updateOverlay = new UpdateOverlay(this.modals);
+    this.versionInfo = options.versionInfo;
     this.commandLock = new CommandLock(
       (label) => {
         this.commandBusy = true;
@@ -770,17 +781,33 @@ export class TerminalShell {
     bestEffort(() => this.authPromptOverlay.hide());
     bestEffort(() => this.skillsOverlay.hide());
     bestEffort(() => this.rewindOverlay.hide());
+    bestEffort(() => this.updateOverlay.hide());
     bestEffort(() => this.providerPickerHandle?.hide());
     bestEffort(() => this.uiRenderHost.dispose());
     if (this.started) bestEffort(() => this.tui.stop());
     console.error(`cetas: ${reason} — exiting now`);
-    this.onExit(code);
+    this.exit(code);
   }
 
   private deliverExit(code: number): void {
     if (this.exitDelivered) return;
     this.exitDelivered = true;
-    this.onExit(code);
+    this.exit(code);
+  }
+
+  /**
+   * Single funnel for every process exit. A pending update handoff replaces
+   * the host exit hook: the TUI is already torn down, so the install child
+   * owns the terminal and exits the process itself.
+   */
+  private exit(code: number): void {
+    const handoff = this.pendingUpdateHandoff;
+    if (handoff === undefined) {
+      this.onExit(code);
+      return;
+    }
+    this.pendingUpdateHandoff = undefined;
+    handoff();
   }
 
   /**
@@ -834,6 +861,7 @@ export class TerminalShell {
       this.authPromptOverlay.hide();
       this.skillsOverlay.hide();
       this.rewindOverlay.hide();
+      this.updateOverlay.hide();
       this.providerPickerHandle?.hide();
       this.providerPickerHandle = undefined;
       try {
@@ -1329,6 +1357,7 @@ export class TerminalShell {
               ["/compact", "Compact this session's context on the server"],
               ["/model", "Select a model and effort"],
               ["/skills", "Browse discovered agent skills by scope"],
+              ["/update", "Check for updates and install"],
               ["/pi", "Manage pi packages (install/remove/list)"],
               ["/login", "Authenticate with a provider (API key or OAuth)"],
               ["/exit", "Quit cetas-js"],
@@ -1424,6 +1453,7 @@ export class TerminalShell {
       this.skillsOverlay.isActive ||
       this.sessionsOverlay.isActive ||
       this.rewindOverlay.isActive ||
+      this.updateOverlay.isActive ||
       this.providerPickerHandle !== undefined
     ) {
       return undefined;
@@ -1529,6 +1559,7 @@ export class TerminalShell {
     rewind: () => this.openRewindPicker(),
     resume: () => this.runResumeCommand(),
     exit: () => this.requestShutdown(0),
+    update: () => this.runUpdateCommand(),
     compact: (rawArgs) => this.runCompactCommand(rawArgs),
     model: async (rawArgs) => {
       if (rawArgs.length === 0) {
@@ -1858,6 +1889,91 @@ export class TerminalShell {
       this.addTranscriptChild(errorNotice(`/sessions failed: ${errorMessage(error)}`));
       this.commandLock.release();
     }
+  }
+
+  /**
+   * /update — fresh check, then the confirm picker. Update handoff exits the
+   * process only after the graceful shutdown persists the session; the
+   * install child inherits the terminal and re-execs cetas when it finishes.
+   */
+  private async runUpdateCommand(): Promise<void> {
+    const info = this.versionInfo;
+    if (info === undefined) {
+      this.addTranscriptChild(errorNotice("/update is unavailable without version info"));
+      return;
+    }
+    if (this.operationBusy || this.commandBusy) {
+      this.addTranscriptChild(errorNotice("/update cannot run while an operation is active"));
+      return;
+    }
+    if (info.channel !== "npm") {
+      this.addTranscriptChild(
+        systemNotice(`/update supports the npm channel only (this install is ${info.channel})`),
+      );
+      return;
+    }
+    this.commandLock.acquire("checking for updates");
+    try {
+      const hit = await runUpdateCheck({
+        home: this.home,
+        channel: "npm",
+        currentVersion: info.version,
+        manager: info.manager,
+        bypassCache: true,
+      });
+      if (hit === undefined) {
+        this.addTranscriptChild(systemNotice(`cetas ${info.version} is up to date`));
+        return;
+      }
+      this.updateOverlay.open(
+        info.version,
+        hit.latest,
+        updateInstallCommand(info.manager),
+        (choice) => this.applyUpdateChoice(choice),
+        () => this.commandLock.release(),
+      );
+    } catch (error: unknown) {
+      this.addTranscriptChild(errorNotice(`/update failed: ${errorMessage(error)}`));
+      this.commandLock.release();
+    }
+  }
+
+  private applyUpdateChoice(choice: UpdateChoice): void {
+    if (choice === "skip" || this.versionInfo === undefined) return;
+    const installCommand = updateInstallCommand(this.versionInfo.manager);
+    if (choice === "command") {
+      this.addTranscriptChild(systemNotice(`update command: ${installCommand}`));
+      return;
+    }
+    this.beginUpdateHandoff(installCommand);
+    this.requestShutdown(0);
+  }
+
+  private beginUpdateHandoff(installCommand: string): void {
+    const argv = process.argv;
+    this.pendingUpdateHandoff = () => {
+      const finish = (code: number): void => {
+        if (code !== 0) {
+          console.error(`cetas: update failed — run manually: ${installCommand}`);
+        }
+        this.exit(code);
+      };
+      // POSIX: install then exec back into cetas through the original argv.
+      // Windows: the running process cannot be re-exec'd; ask for a restart.
+      const child =
+        process.platform === "win32"
+          ? spawn(installCommand, { shell: true, stdio: "inherit" })
+          : spawn("sh", ["-c", updateHandoffCommand(installCommand, argv)], {
+              stdio: "inherit",
+            });
+      child.on("error", () => finish(1));
+      child.on("close", (code) => {
+        if (process.platform === "win32" && (code === 0 || code === null)) {
+          console.error("cetas: update complete — restart cetas");
+        }
+        finish(code ?? 1);
+      });
+    };
   }
 
   /**
@@ -2477,6 +2593,7 @@ const LOCAL_SLASH_ROUTES: readonly SlashRoute[] = [
   { id: "exit", aliases: ["quit"] },
   { id: "compact" },
   { id: "model" },
+  { id: "update" },
   { id: "skills" },
   { id: "pi" },
   { id: "login" },

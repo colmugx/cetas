@@ -37,6 +37,7 @@ import {
   "colmugx/posoco-ext-zcode" @zcode,
   "colmugx/posoco-ext-nowledge-mem" @nmem,
   "posoco/ext-herdr" @herdr,
+  "colmugx/posoco-ext-magpie" @magpie,
   "colmugx/posoco-ext-mcp" @mcp,
   "colmugx/posoco-ext-plan" @plan,
   "colmugx/posoco-ext-pi-adaptor" @pi,
@@ -45,6 +46,7 @@ import {
   "colmugx/posoco-ext-subagent" @subagent,
   "colmugx/posoco-ext-kind" @kind,
   "colmugx/posoco-kit-subagent" @subagent_kit,
+  "colmugx/posoco-kit-model-management" @modelmgmt,
 }
 
 import {

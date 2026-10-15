@@ -113,6 +113,10 @@ describe("matchLocalSlash", () => {
     expect(matchLocalSlash("/resume")?.id).toBe("resume");
   });
 
+  test("/update is a local route", () => {
+    expect(matchLocalSlash("/update")?.id).toBe("update");
+  });
+
   test("/name is unknown locally and falls through to the extension fallback", () => {
     expect(matchLocalSlash("/name")).toBeUndefined();
   });
