@@ -1989,8 +1989,14 @@ pub fn cetas_js_runtime_create_agent(
             // Magpie managers are not hot-swapped: switching managers is a
             // recomposition.
             match model {
-              Providers(router) => runtime.live_router = Some(router)
-              Magpie(binding) => runtime.magpie_binding = Some(binding)
+              Providers(router) => {
+                runtime.live_router = Some(router)
+                runtime.magpie_binding = None
+              }
+              Magpie(binding) => {
+                runtime.magpie_binding = Some(binding)
+                runtime.live_router = None
+              }
             }
             {
               agent,
