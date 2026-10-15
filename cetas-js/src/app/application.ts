@@ -1,4 +1,4 @@
-import { readManagerSettings, restoreManagerSettings, writeManagerChoice, type ModelManagerChoice } from "./model-manager-settings.ts";
+import { readManagerSettings, restoreManagerSettings, writeManagerChoice, writeMagpieAddress, type ModelManagerChoice } from "./model-manager-settings.ts";
 import {
   CetasApplicationError,
   type AgentCallbacks,
@@ -362,6 +362,26 @@ export class CetasApplication<AgentHandle = unknown> {
         ? []
         : undefined,
     );
+  }
+
+  async configureMagpie(url: string, key: string): Promise<void> {
+    if (this.managerSwitching || this.operations.busy || this.operations.compactPending ||
+      this.activeCommand !== undefined || this.startPromise !== undefined ||
+      this.state === "shutting_down") {
+      throw new CetasApplicationError("already_running", "gateway setup requires an idle application");
+    }
+    if (this.options.bridge.connectMagpie === undefined) {
+      throw new CetasApplicationError("invalid_state", "gateway configuration is unavailable");
+    }
+    const previous = await readManagerSettings(this.options.config.home);
+    await this.options.bridge.connectMagpie(url, key);
+    try {
+      await writeMagpieAddress(this.options.config.home, url);
+      if (previous.manager === "magpie") await this.refreshSetup();
+    } catch (error: unknown) {
+      await restoreManagerSettings(this.options.config.home, previous);
+      throw error;
+    }
   }
 
   /** Recompose the Agent after an atomic manager-setting change. */
