@@ -3094,7 +3094,8 @@ pub fn cetas_js_invoke_command(
     if magpie_invoked {
       match handle.manager {
         Magpie(binding) => {
-          if binding.runtime.manager().list_models().is_empty() {
+          let control = binding.runtime.manager() as &@modelmgmt.ModelManagerControl
+          if control.list_models().is_empty() {
             let _ = binding.runtime.manager().refresh() catch {
               _ =>
                 return command_outcome_to_json(
