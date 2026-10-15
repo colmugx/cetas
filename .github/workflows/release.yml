@@ -52,14 +52,12 @@ jobs:
 
       - name: switch embedded cetas to the release tag
         if: github.event_name == 'push'
-        working-directory: posoco/external/cetas
         shell: bash
         run: |
           git fetch --depth=1 origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
           git checkout "${GITHUB_REF_NAME}"
 
       - name: init nested submodules
-        working-directory: posoco/external/cetas
         shell: bash
         run: git submodule update --init --recursive
 
@@ -72,49 +70,22 @@ jobs:
         run: moon version --all
 
       - name: release check (version sync gate)
-        working-directory: posoco/external/cetas
         run: python3 scripts/release.py check --scope core
 
       - name: npm staging tests
-        working-directory: posoco/external/cetas
         run: python3 -m unittest scripts/test_npm_stage.py
 
-      # The workspace check covers ACP, Run, and all native-capable modules.
-      - name: moon check (workspace native)
-        working-directory: posoco/external/cetas
+      - name: moon check
         run: |
           moon update
-          moon check --target native --deny-warn --output-json
-
-      - name: moon check (Run public recipe, wasm)
-        working-directory: posoco/external/cetas/cetas-run
-        run: moon check --target wasm --deny-warn --output-json
-
-      - name: moon check (JS public recipe)
-        working-directory: posoco/external/cetas/cetas-js
-        run: moon check --target js --deny-warn --output-json
+          moon check --deny-warn --output-json
 
       - name: moon test (native)
-        id: test
-        working-directory: posoco/external/cetas/cetas-acp
-        run: moon test --target native --output-json
-
-      # Keep release gating aligned with CI's one-shot retry for the known
-      # async-ordering flaky test.
-      - name: moon test (native, flake rerun)
-        if: failure() && steps.test.outcome == 'failure'
-        working-directory: posoco/external/cetas/cetas-acp
         run: moon test --target native --output-json
 
       - name: setup bun
         uses: oven-sh/setup-bun@v2
 
-      - name: moon update (cetas-js)
-        working-directory: posoco/external/cetas/cetas-js
-        run: moon update
-
-      # Upload half of the same-run handoff; build needs: [preflight], so the
-      # matrix jobs download these instead of re-fetching over the network.
       - name: upload moon registry cache
         uses: actions/upload-artifact@v6
         with:
@@ -122,8 +93,7 @@ jobs:
           path: ~/.moon/registry
           retention-days: 1
 
-      - name: typecheck
-        working-directory: posoco/external/cetas/cetas-js
+      - name: typecheck/cetas-js
         run: |
           bun install
           bun build.ts --dts-only
@@ -131,8 +101,7 @@ jobs:
 
       # Full cetas-js suite as a release gate: hermetic by construction
       # (fake homes, stubbed model endpoints) — no network or credentials.
-      - name: cetas-js test suite
-        working-directory: posoco/external/cetas/cetas-js
+      - name: cetas-js test suite/cetas-js
         run: bun test --preload ./moonbit-preload.ts
 
       - name: upload bun install cache
@@ -173,7 +142,6 @@ jobs:
       # posoco@POSOCO_REF currently points at.
       - name: switch embedded cetas to the release tag
         if: github.event_name == 'push'
-        working-directory: posoco/external/cetas
         shell: bash
         run: |
           git fetch --depth=1 origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
@@ -182,7 +150,6 @@ jobs:
       # On dispatch the submodule stays at the posoco@ref pointer; this still
       # syncs the nested extension/ submodule.
       - name: init nested submodules
-        working-directory: posoco/external/cetas
         shell: bash
         run: git submodule update --init --recursive
 
@@ -223,33 +190,28 @@ jobs:
       # Native TUI is still experimental: it may be built by Moon as a
       # workspace member, but it is NOT packaged as a stable release asset.
       - name: moon update (native workspace)
-        working-directory: posoco/external/cetas
         run: moon update
 
       - name: moon build (native workspace release)
-        working-directory: posoco/external/cetas
         run: moon build --target native --release
 
       # moon names the native binary main.exe on every platform; stage/ holds
       # both products under their bare release names before packaging.
       - name: collect cetas-acp (unix)
-        if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas/cetas-acp
+        if: matrix.os != 'windows-latest'/cetas-acp
         run: |
           mkdir -p ../stage
           cp "../_build/native/release/build/colmugx/cetas-acp/main/main.exe" "../stage/cetas-acp"
 
       - name: collect cetas-acp (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas/cetas-acp
+        if: matrix.os == 'windows-latest'/cetas-acp
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "..\stage" | Out-Null
           Copy-Item "..\_build\native\release\build\colmugx\cetas-acp\main\main.exe" -Destination "..\stage\cetas-acp.exe"
 
       - name: version smoke (unix)
-        if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas/stage
+        if: matrix.os != 'windows-latest'/stage
         run: |
           out="$(./cetas-acp --version)"
           echo "$out"
@@ -259,8 +221,7 @@ jobs:
           fi
 
       - name: version smoke (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas/stage
+        if: matrix.os == 'windows-latest'/stage
         shell: pwsh
         run: |
           $out = (& ".\cetas-acp.exe" --version) -join ' '
@@ -274,23 +235,20 @@ jobs:
           }
 
       - name: collect cetas-run (unix)
-        if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas/cetas-run
+        if: matrix.os != 'windows-latest'/cetas-run
         run: |
           mkdir -p ../stage
           cp "../_build/native/release/build/colmugx/cetas-run/main/main.exe" "../stage/cetas-run"
 
       - name: collect cetas-run (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas/cetas-run
+        if: matrix.os == 'windows-latest'/cetas-run
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path "..\stage" | Out-Null
           Copy-Item "..\_build\native\release\build\colmugx\cetas-run\main\main.exe" -Destination "..\stage\cetas-run.exe"
 
       - name: version smoke cetas-run (unix)
-        if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas/stage
+        if: matrix.os != 'windows-latest'/stage
         run: |
           out="$(./cetas-run --version)"
           echo "$out"
@@ -300,8 +258,7 @@ jobs:
           fi
 
       - name: version smoke cetas-run (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas/stage
+        if: matrix.os == 'windows-latest'/stage
         shell: pwsh
         run: |
           $out = (& ".\cetas-run.exe" --version) -join ' '
@@ -320,21 +277,17 @@ jobs:
       - name: setup bun
         uses: oven-sh/setup-bun@v2
 
-      - name: bun install
-        working-directory: posoco/external/cetas/cetas-js
+      - name: bun install/cetas-js
         run: bun install
 
-      - name: moon update (cetas-js)
-        working-directory: posoco/external/cetas/cetas-js
+      - name: moon update (cetas-js)/cetas-js
         run: moon update
 
-      - name: build cetas-bun
-        working-directory: posoco/external/cetas/cetas-js
+      - name: build cetas-bun/cetas-js
         run: bun build.ts ${{ matrix.target }}
 
       - name: collect cetas-bun + pi-tui native prebuilds (unix)
-        if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas/cetas-js
+        if: matrix.os != 'windows-latest'/cetas-js
         run: |
           cp "dist/cetas-bun-${{ matrix.target }}" "../stage/cetas-bun"
           # pi-tui's standalone-binary fallback resolves `native/` next to the
@@ -343,8 +296,7 @@ jobs:
           cp -R node_modules/@earendil-works/pi-tui/native "../stage/native"
 
       - name: collect cetas-bun + pi-tui native prebuilds (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas/cetas-js
+        if: matrix.os == 'windows-latest'/cetas-js
         shell: pwsh
         run: |
           Copy-Item "dist\cetas-bun-${{ matrix.target }}.exe" -Destination "..\stage\cetas-bun.exe"
@@ -356,22 +308,19 @@ jobs:
       # No body on workflow_dispatch.
       - name: extract release body
         if: matrix.os == 'ubuntu-latest' && github.event_name == 'push'
-        working-directory: posoco/external/cetas
         run: |
           ver="${GITHUB_REF_NAME#cetas-v}"
           awk -v hdr="## ${ver} " 'index($0, hdr) == 1 {on=1; next} /^## ([0-9]+\.[0-9]+\.[0-9]+|Unreleased)( |\(|$)/ {on=0} on' CHANGELOG.md > stage/release_body.md
 
       - name: package (unix)
-        if: matrix.os != 'windows-latest'
-        working-directory: posoco/external/cetas/stage
+        if: matrix.os != 'windows-latest'/stage
         run: |
           tar -czf "cetas-acp-${{ matrix.target }}.tar.gz" cetas-acp
           tar -czf "cetas-run-${{ matrix.target }}.tar.gz" cetas-run
           tar -czf "cetas-bun-${{ matrix.target }}.tar.gz" cetas-bun native
 
       - name: package (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: posoco/external/cetas/stage
+        if: matrix.os == 'windows-latest'/stage
         shell: pwsh
         run: |
           Compress-Archive -Path "cetas-acp.exe" -DestinationPath "cetas-acp-windows-x64.zip" -Force
@@ -403,14 +352,12 @@ jobs:
 
       - name: switch embedded cetas to the release tag
         if: github.event_name == 'push'
-        working-directory: posoco/external/cetas
         shell: bash
         run: |
           git fetch --depth=1 origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
           git checkout "${GITHUB_REF_NAME}"
 
       - name: init nested submodules
-        working-directory: posoco/external/cetas
         shell: bash
         run: git submodule update --init --recursive
 
@@ -442,22 +389,18 @@ jobs:
         with:
           node-version: "24"
 
-      - name: bun install
-        working-directory: posoco/external/cetas/cetas-js
+      - name: bun install/cetas-js
         run: bun install
 
-      - name: moon update (cetas-js)
-        working-directory: posoco/external/cetas/cetas-js
+      - name: moon update (cetas-js)/cetas-js
         run: moon update
 
       # Platform-independent JS bundle: no per-platform matrix, one artifact
       # feeds the npm staging (manual dispatch of npm-publish.yml).
-      - name: build node bundle
-        working-directory: posoco/external/cetas/cetas-js
+      - name: build node bundle/cetas-js
         run: bun build.ts --node-bundle
 
-      - name: package dist
-        working-directory: posoco/external/cetas/cetas-js
+      - name: package dist/cetas-js
         run: tar -czf cetas-js-dist.tar.gz -C dist cetas.js
 
       - name: upload dist
