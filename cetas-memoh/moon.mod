@@ -39,5 +39,5 @@ import {
   "colmugx/posoco-ext-zai@0.1.0",
   "colmugx/posoco-ext-zai-coding-plan@0.1.0",
   "colmugx/mcp@0.18.0",
-  "moonbitlang/async@0.22.4",
+  "moonbitlang/async@0.22.5",
 }

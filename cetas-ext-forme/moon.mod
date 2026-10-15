@@ -15,5 +15,5 @@ description = "Cetas self-description extension: the product manual as built-in 
 import {
   "colmugx/posoco@0.22.1",
   "colmugx/posoco-ext-skills@0.2.0",
-  "moonbitlang/async@0.22.4",
+  "moonbitlang/async@0.22.5",
 }

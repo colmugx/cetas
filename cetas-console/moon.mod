@@ -20,7 +20,7 @@ import {
   "posoco/devkit@0.4.1",
   "colmugx/posoco-ext-permission@0.2.0",
   "colmugx/posoco-ext-workspace@0.1.0",
-  "moonbitlang/async@0.22.4",
+  "moonbitlang/async@0.22.5",
   // recipe-deps:begin
   "colmugx/cetas-ext-forme@0.1.0",
   "colmugx/posoco-ext-read@0.2.0",
