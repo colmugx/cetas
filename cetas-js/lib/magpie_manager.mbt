@@ -375,8 +375,13 @@ fn ModelManagerFace::manager_catalog_entries_json(
             Some(effort) => Json::string(effort)
             None => Json::null()
           },
-          "group": match model.display_group {
-            Some(group) => Json::string(group)
+          "group": match manager.catalog_entry(model.model_id) {
+            Some(entry) =>
+              if entry.meta.is_routing_group {
+                Json::string("Routing Groups")
+              } else {
+                Json::string(entry.meta.provider_id)
+              }
             None => Json::null()
           },
           "pending": Json::boolean(selection.pending),
