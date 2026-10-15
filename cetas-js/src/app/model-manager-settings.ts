@@ -93,3 +93,22 @@ export async function restoreManagerSettings(
 ): Promise<void> {
   await writeSettings(home, snapshot.original);
 }
+
+export async function writeMagpieAddress(home: string, url: string): Promise<void> {
+  const parsed = new URL(url);
+  const loopback = parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost" || parsed.hostname === "[::1]";
+  if (parsed.username || parsed.password || parsed.search || parsed.hash ||
+      parsed.pathname !== "/" ||
+      (parsed.protocol !== "https:" && !(loopback && parsed.protocol === "http:"))) {
+    throw new Error("gateway must be an HTTPS origin or loopback HTTP origin");
+  }
+  const snapshot = await readManagerSettings(home);
+  const data = parseSettings(snapshot.original);
+  const magpie = typeof data.magpie === "object" && data.magpie !== null && !Array.isArray(data.magpie)
+    ? { ...data.magpie as Record<string, unknown> }
+    : {};
+  magpie.base_url = parsed.origin;
+  magpie.enabled = true;
+  data.magpie = magpie;
+  await writeSettings(home, JSON.stringify(data, null, 2) + "\n");
+}
