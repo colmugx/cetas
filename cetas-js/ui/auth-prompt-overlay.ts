@@ -27,6 +27,7 @@ export interface AuthPromptOption {
 
 export type AuthPromptRequest =
   | { type: "secret"; message: string }
+  | { type: "text"; message: string }
   | { type: "select"; message: string; options: readonly AuthPromptOption[] };
 
 export interface AuthPromptTui {
@@ -145,6 +146,35 @@ class SecretPromptPanel implements Component {
   }
 }
 
+/** Plain input for non-secret values such as a Gateway address. */
+class TextPromptPanel implements Component {
+  focused = false;
+  private readonly input = new Input();
+
+  constructor(
+    private readonly title: Text,
+    private readonly onSubmit: (value: string) => void,
+    private readonly onCancel: () => void,
+  ) {
+    this.input.onSubmit = this.onSubmit;
+    this.input.onEscape = this.onCancel;
+  }
+
+  render(width: number): string[] {
+    return [...this.title.render(width), ...this.input.render(width)];
+  }
+
+  handleInput(data: string): void {
+    this.input.handleInput(data);
+    this.invalidate();
+  }
+
+  invalidate(): void {
+    this.title.invalidate();
+    this.input.invalidate();
+  }
+}
+
 /** A single in-flight provider-neutral authentication prompt. */
 export class AuthPromptOverlay {
   private handle?: OverlayHandle;
@@ -167,7 +197,13 @@ export class AuthPromptOverlay {
       const complete = (value: string) => this.finish(value);
       const cancel = () => this.cancel();
       let panel: Component;
-      if (request.type === "secret") {
+      if (request.type === "text") {
+        panel = new TextPromptPanel(
+          new Text(theme.brandBold(request.message), 1, 1),
+          complete,
+          cancel,
+        );
+      } else if (request.type === "secret") {
         panel = new SecretPromptPanel(
           new Text(theme.brandBold(request.message), 1, 1),
           complete,
