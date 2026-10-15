@@ -2994,18 +2994,20 @@ pub fn cetas_js_invoke_command(
             _ => false
           }
           let intelligence = binding.runtime.intelligence()
-          let snapshot = (if refresh {
-            intelligence.refresh_quota_cards()
-          } else {
-            intelligence.quota_snapshot(kept=true)
-          }) catch {
-              _ =>
-                return command_outcome_to_json(
-                  @port.CommandOutcome::Failure(
-                    reason="Magpie quota unavailable or forbidden",
-                  ),
-                ).stringify()
+          let snapshot = try {
+            if refresh {
+              intelligence.refresh_quota_cards()
+            } else {
+              intelligence.quota_snapshot(kept=true)
             }
+          } catch {
+            _ =>
+              return command_outcome_to_json(
+                @port.CommandOutcome::Failure(
+                  reason="Magpie quota unavailable or forbidden",
+                ),
+              ).stringify()
+          }
           let cards = snapshot.cards.map(fn(card) {
             let windows : Array[Json] = match card.windows {
               Some(values) =>
