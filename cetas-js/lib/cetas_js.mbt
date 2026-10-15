@@ -3091,6 +3091,23 @@ pub fn cetas_js_invoke_command(
       (Magpie(_), "model" | "effort") => true
       _ => false
     }
+    if magpie_invoked {
+      match handle.manager {
+        Magpie(binding) => {
+          if binding.runtime.manager().list_models().is_empty() {
+            let _ = binding.runtime.manager().refresh() catch {
+              _ =>
+                return command_outcome_to_json(
+                  @port.CommandOutcome::Failure(
+                    reason="Magpie catalog unavailable; check Gateway connection",
+                  ),
+                ).stringify()
+            }
+          }
+        }
+        _ => ()
+      }
+    }
     let id = if magpie_invoked { "magpie_model" } else { id }
     // The shared picker sends "slot"; Magpie owns opaque "model" ids.
     let args = if magpie_invoked {
