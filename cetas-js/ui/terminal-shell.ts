@@ -119,6 +119,7 @@ import { createVirtualScroll, type VirtualTranscriptDocument } from "../src/tran
 import { DeferredTranscriptComponent } from "../src/transcript/deferred-component.ts";
 import { TranscriptSearchIndex, transcriptTextRange } from "../src/transcript/search-index.ts";
 import { getNativeClipboard } from "@earendil-works/pi-tui";
+import { AboveAutocompleteEditor } from "./above-autocomplete-editor.ts";
 import { projectProgramStatus, classifyRequestStatus } from "./program-status.ts";
 
 const identity = (value: string): string => value;
@@ -454,7 +455,7 @@ export class TerminalShell {
     this.askRegion = new Container();
     if (!(this.tui instanceof TuiAltScreen)) this.tui.addChild(this.askRegion);
 
-    this.editor = new Editor(this.tui, editorTheme);
+    this.editor = new AboveAutocompleteEditor(this.tui, editorTheme);
     this.editor.setAutocompleteProvider(this.uiRegistry);
     if (!(this.tui instanceof TuiAltScreen)) this.tui.addChild(this.editor);
     this.tui.setFocus(this.editor);
@@ -483,6 +484,7 @@ export class TerminalShell {
         { component: statusRegion, basis: "auto", shrink: 0 },
         { component: this.extensionWidgets, basis: "auto", shrink: 0 },
         { component: this.askRegion, basis: "auto", shrink: 0 },
+        { component: (this.editor as AboveAutocompleteEditor).menuComponent, basis: "auto", shrink: 0 },
         { component: this.editor, basis: "auto", shrink: 0 },
         { component: this.statusBarMount, basis: "auto", shrink: 0 },
       ]);
@@ -1317,6 +1319,7 @@ export class TerminalShell {
   private applyTerminalColors(colors: import("@earendil-works/pi-tui").TerminalColors): void {
     if (this.hostFaultStopped || this.shutdownPromise !== undefined) return;
     this.terminalActivityStyle = createTerminalActivityStyle(colors);
+    (this.editor as AboveAutocompleteEditor).setTerminalColors(colors);
     this.refreshSwarmLine();
   }
 
