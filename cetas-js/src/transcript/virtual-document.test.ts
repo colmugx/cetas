@@ -43,3 +43,19 @@ describe("Gate 2 logical-height virtual layout", () => {
     expect(document.stats.logicalRows).toBe(0);
   });
 });
+
+describe("Gate 5 measured height scroll anchor", () => {
+  test("reconciles visible rows before an unfollowed viewport", () => {
+    const source = new Container();
+    for (let i = 0; i < 100; i++) source.addChild({
+      render: () => Array.from({length: i===20 ? 8 : 1},()=>String(i)),
+      invalidate() {},
+    });
+    const document = new VirtualTranscriptDocument(source,()=>80,()=>15,()=>({top:65,followEnd:false}));
+    const corrected:number[] = [];
+    document.attachNavigation(row=>corrected.push(row));
+    (document as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    expect(corrected.every(n=>Number.isFinite(n) && n>=0)).toBe(true);
+    expect(document.stats.mountedItems).toBeLessThan(30);
+  });
+});

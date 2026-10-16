@@ -103,6 +103,12 @@ export class VirtualTranscriptDocument implements Component {
     const top = scrolled.followEnd
       ? Math.max(0, this.heights.totalRows - viewport)
       : Math.max(0, Math.floor(scrolled.top));
+    // Preserve the topmost visible message and its intra-message line when
+    // measured component heights differ from estimates. Only adjust when
+    // follow-end is disabled; the ScrollView owns end-following otherwise.
+    const anchorIndex = !scrolled.followEnd ? this.heights.rowToIndex(top) : -1;
+    const anchorOffset = anchorIndex >= 0 && anchorIndex < this.heights.size
+      ? top - this.heights.prefix(anchorIndex) : 0;
     const range = this.heights.range(top, viewport, this.overscanRows);
     const lines: string[] = [];
     // Index resolution is O(log N); only visible+overscan components render.
@@ -113,6 +119,11 @@ export class VirtualTranscriptDocument implements Component {
       if (height !== this.heights.heightAt(i)) this.heights.update(i, height);
       if (rendered.length === 0) lines.push("");
       else lines.push(...rendered);
+    }
+    if (anchorIndex >= 0 && anchorIndex < this.heights.size) {
+      const corrected = this.heights.prefix(anchorIndex) +
+        Math.min(anchorOffset, this.heights.heightAt(anchorIndex) - 1);
+      if (corrected !== top && this.navigate) this.navigate(corrected);
     }
     this.first = range.first;
     this.end = range.endExclusive;
