@@ -1088,6 +1088,8 @@ pub(all) struct CetasJsRuntime {
   /// surface without re-reading settings or credentials. `None` under the
   /// providers manager.
   mut magpie_binding : MagpieBinding?
+  mut magpie_credential_pending : Bool
+  mut magpie_previous_credential : @oauth.ProviderCredential?
 }
 
 ///|
@@ -1102,6 +1104,8 @@ pub fn CetasJsRuntime::CetasJsRuntime(config : CetasJsConfig) -> CetasJsRuntime 
     pi: None,
     live_router: None,
     magpie_binding: None,
+    magpie_credential_pending: false,
+    magpie_previous_credential: None,
   }
 }
 
@@ -2167,10 +2171,10 @@ pub fn cetas_js_runtime_login_provider(
 }
 
 ///|
-/// Validate the gateway before persisting its credential. No token or raw
-/// gateway body is returned to the host UI.
+/// Validate Gateway discovery without mutating credentials or settings.
+/// Errors deliberately omit URLs, authorization headers and response bodies.
 pub fn cetas_js_runtime_connect_magpie(
-  runtime : CetasJsRuntime,
+  _runtime : CetasJsRuntime,
   base_url : String,
   key : String,
 ) -> @js_async.Promise[String] {
@@ -2179,44 +2183,94 @@ pub fn cetas_js_runtime_connect_magpie(
       base_url~,
       credential=if key == "" { None } else { Some(key) },
     ) catch {
-      _ =>
-        raise @posoco.CommandError::InvalidArgs(
-          reason="invalid gateway address",
-        )
+      _ => raise @posoco.CommandError::InvalidArgs(reason="invalid gateway address")
     }
     let manager = @magpie.MagpieManager::MagpieManager(
       config~,
       transport=@magpie.magpie_http_transport(),
     )
     let _ = manager.refresh() catch {
-      _ =>
-        raise @posoco.CommandError::ExecutionFailed(
-          "gateway connection or authentication failed",
-        )
+      _ => raise @posoco.CommandError::ExecutionFailed(
+        "gateway connection or authentication failed",
+      )
+    }
+    Json::object({ "connected": Json::boolean(true) }).stringify()
+  }
+}
+
+///|
+/// Stage the key after the host has persisted the new Gateway origin. The
+/// previous value stays inside the MoonBit runtime and never reaches JS.
+pub fn cetas_js_runtime_commit_magpie_credential(
+  runtime : CetasJsRuntime,
+  key : String,
+) -> @js_async.Promise[Unit] {
+  @js_async.Promise::from_async() <| () => {
+    if runtime.magpie_credential_pending {
+      raise @posoco.CommandError::ExecutionFailed(
+        "gateway credential transaction is already pending",
+      )
     }
     let store = credential_store(runtime.config.home)
-    if key != "" {
+    let previous = store.read(MAGPIE_PROVIDER_ID) catch {
+      _ => raise @posoco.CommandError::ExecutionFailed(
+        "previous gateway credential cannot be read",
+      )
+    }
+    runtime.magpie_previous_credential = previous
+    runtime.magpie_credential_pending = true
+    if key == "" {
+      store.delete(MAGPIE_PROVIDER_ID) catch {
+        _ => raise @posoco.CommandError::ExecutionFailed(
+          "gateway credential cannot be cleared",
+        )
+      }
+    } else {
       store.write(
-        "magpie",
+        MAGPIE_PROVIDER_ID,
         @oauth.ProviderCredential::ApiKey(
           @oauth.ApiKeyCredential::ApiKeyCredential(secret=key),
         ),
       ) catch {
-        _ =>
-          raise @posoco.CommandError::ExecutionFailed(
-            "credential storage failed",
-          )
-      }
-    } else {
-      // Local login must not reuse a previously saved remote gateway key.
-      store.delete("magpie") catch {
-        _ =>
-          raise @posoco.CommandError::ExecutionFailed(
-            "previous credential could not be cleared",
-          )
+        _ => raise @posoco.CommandError::ExecutionFailed(
+          "gateway credential cannot be saved",
+        )
       }
     }
-    Json::object({ "connected": Json::boolean(true) }).stringify()
+  }
+}
+
+///|
+/// Finish a successful transaction or restore the previous credential.
+/// A failed rollback retains its undo state for a later recovery attempt.
+pub fn cetas_js_runtime_finish_magpie_credential(
+  runtime : CetasJsRuntime,
+  rollback : Bool,
+) -> @js_async.Promise[Unit] {
+  @js_async.Promise::from_async() <| () => {
+    if runtime.magpie_credential_pending {
+      if rollback {
+        let store = credential_store(runtime.config.home)
+        match runtime.magpie_previous_credential {
+          Some(credential) => {
+            store.write(MAGPIE_PROVIDER_ID, credential) catch {
+              _ => raise @posoco.CommandError::ExecutionFailed(
+                "previous gateway credential could not be restored",
+              )
+            }
+          }
+          None => {
+            store.delete(MAGPIE_PROVIDER_ID) catch {
+              _ => raise @posoco.CommandError::ExecutionFailed(
+                "previous gateway credential could not be cleared",
+              )
+            }
+          }
+        }
+      }
+      runtime.magpie_previous_credential = None
+      runtime.magpie_credential_pending = false
+    }
   }
 }
 

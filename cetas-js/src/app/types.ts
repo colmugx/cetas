@@ -195,7 +195,12 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
    * and (when needed) Agent recomposition. The provider extension persists
    * credentials and returns a normal CommandOutcome JSON string.
    */
+  /** Read-only discovery: this call must not mutate persistent credentials. */
   connectMagpie?(url: string, credential: string): Promise<string>;
+  /** Stage a credential update while retaining its undo data within the bridge. */
+  commitMagpieCredential?(credential: string): Promise<void>;
+  /** Finalize the staged credential or roll it back. */
+  finishMagpieCredential?(rollback: boolean): Promise<void>;
   login?(
     config: CetasHostConfig,
     provider: string,

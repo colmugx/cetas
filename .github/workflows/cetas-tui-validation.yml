@@ -183,7 +183,8 @@ jobs:
         run: |
           product="_build/native/release/build/colmugx/cetas-native/src/cetas/cetas.exe"
           test -f "$product"
-          test "$("$product" --version)" = "cetas 0.7.0"
+          expected="cetas $(tr -d '\r\n' < VERSION)"
+          test "$("$product" --version)" = "$expected"
 
       - name: version smoke (Windows)
         if: matrix.platform == 'windows'
@@ -192,4 +193,5 @@ jobs:
           $product = "_build\native\release\build\colmugx\cetas-native\src\cetas\cetas.exe"
           if (-not (Test-Path $product)) { throw "native Cetas executable missing" }
           $out = (& $product --version) -join ' '
-          if ($out.Trim() -ne "cetas 0.7.0") { throw "--version mismatch: $out" }
+          $expected = "cetas $((Get-Content VERSION -Raw).Trim())"
+          if ($out.Trim() -ne $expected) { throw "--version mismatch: $out (expected $expected)" }
