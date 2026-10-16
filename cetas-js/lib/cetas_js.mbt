@@ -1123,6 +1123,7 @@ pub fn CetasJsRuntime::CetasJsRuntime(config : CetasJsConfig) -> CetasJsRuntime 
 pub struct CetasJsAgent {
   agent : @posoco.Agent
   manager : ModelManagerFace
+  manager_bus : @devkit.EventBus
   /// Plan-mode extension reference, so the bridge can stamp the session
   /// label onto plan file names when a session starts.
   plan : @plan.PlanMode
@@ -2002,9 +2003,11 @@ pub fn cetas_js_runtime_create_agent(
                 runtime.live_router = None
               }
             }
+            model.manager_publish_status(event_bus)
             {
               agent,
               manager: model,
+              manager_bus: event_bus,
               plan: plan_mode,
               home: runtime.config.home,
               observer,
@@ -3214,6 +3217,7 @@ pub fn cetas_js_invoke_command(
               Success(feedback~, structured~, ui_hint~) => {
                 structured |> ignore
                 persist_active_model_selection(handle)
+                handle.manager.manager_publish_status(handle.manager_bus)
                 @port.CommandOutcome::Success(
                   // Pending selections stay visible in the picker feedback
                   // instead of reading as applied.
@@ -3235,7 +3239,10 @@ pub fn cetas_js_invoke_command(
           // the process. (The magpie path persisted above, after remapping.)
           if !magpie_invoked && (id == "model" || id == "effort") {
             match outcome {
-              Success(..) => persist_active_model_selection(handle)
+              Success(..) => {
+                persist_active_model_selection(handle)
+                handle.manager.manager_publish_status(handle.manager_bus)
+              }
               _ => ()
             }
           }

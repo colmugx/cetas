@@ -240,20 +240,71 @@ fn ModelManagerFace::manager_extension(
 }
 
 ///|
-/// The active model id: the router slot id, or the Magpie selection id
-/// (pending selections included, so persistence round-trips).
-fn ModelManagerFace::manager_active_model_id(self : ModelManagerFace) -> String {
+/// Control contract shared by ext-llm and ext-magpie. Concrete dispatch is
+/// limited to this adapter; callers see only ModelManagerControl.
+fn ModelManagerFace::manager_control(
+  self : ModelManagerFace,
+) -> &@modelmgmt.ModelManagerControl {
   match self {
-    Providers(router) => router.active_slot_id()
-    Magpie(binding) => binding.runtime.manager().active_selection().model_id
+    Providers(router) => router as &@modelmgmt.ModelManagerControl
+    Magpie(binding) =>
+      binding.runtime.manager() as &@modelmgmt.ModelManagerControl
   }
 }
 
 ///|
+fn ModelManagerFace::manager_active_model_id(self : ModelManagerFace) -> String {
+  self.manager_control().active_selection().model_id
+}
+
+///|
 fn ModelManagerFace::manager_active_effort(self : ModelManagerFace) -> String? {
+  self.manager_control().active_selection().effort
+}
+
+///|
+/// Each adapter fulfills the same devkit status contract. The ext-llm
+/// manager already owns the "model" segment; its status publisher remains
+/// authoritative. The Magpie adapter owns its own "model" segment. Both
+/// publish a manager label through the same bus. No UI needs to know either.
+fn ModelManagerFace::manager_publish_status(
+  self : ModelManagerFace,
+  bus : @devkit.EventBus,
+) -> Unit {
+  let control = self.manager_control()
+  let selection = control.active_selection()
+  let label = match self {
+    Providers(_) => "Posoco"
+    Magpie(_) => "Magpie"
+  }
+  @devkit.publish_status_register(
+    bus,
+    source="cetas.model_manager",
+    segment="manager",
+    priority=21,
+    value=label,
+  )
   match self {
-    Providers(router) => router.active_effort()
-    Magpie(binding) => binding.runtime.manager().active_selection().effort
+    Providers(_) => () // ext-llm owns and publishes its model status.
+    Magpie(_) => {
+      let effort = match selection.effort {
+        Some(value) => value
+        None =>
+          match control.list_models().find(fn(info) {
+            info.model_id == selection.model_id
+          }) {
+            Some(info) => info.default_effort.unwrap_or("default")
+            None => "default"
+          }
+      }
+      @devkit.publish_status_register(
+        bus,
+        source="cetas.model_manager",
+        segment="model",
+        priority=20,
+        value=selection.model_id + ":" + effort,
+      )
+    }
   }
 }
 
