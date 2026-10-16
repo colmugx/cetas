@@ -61,3 +61,37 @@ describe("CommandLock", () => {
     expect(lock.isHeld).toBe(false);
   });
 });
+
+
+describe("CommandLease ownership", () => {
+  test("a lease releases its command exactly once", () => {
+    let released = 0;
+    const lock = new CommandLock(() => {}, () => { released += 1; });
+    const lease = lock.lease("quota");
+    expect(lock.isHeld).toBe(true);
+    lease.release();
+    lease.release();
+    expect(lock.isHeld).toBe(false);
+    expect(released).toBe(1);
+  });
+
+  test("a stale asynchronous callback cannot unlock a later command", () => {
+    let released = 0;
+    const lock = new CommandLock(() => {}, () => { released += 1; });
+    const first = lock.lease("model");
+    first.release();
+    const second = lock.lease("update");
+    first.release();
+    expect(lock.isHeld).toBe(true);
+    expect(released).toBe(1);
+    second.release();
+    expect(released).toBe(2);
+  });
+
+  test("strict lease acquisition rejects accidental overlapping commands", () => {
+    const lock = new CommandLock(() => {}, () => {});
+    const lease = lock.lease("first");
+    expect(() => lock.lease("second")).toThrow("already owns");
+    lease.release();
+  });
+});
