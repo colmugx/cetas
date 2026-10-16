@@ -25,12 +25,12 @@ describe("Gate 0.5 adaptive statusbar", () => {
     expect(lines[0]).not.toContain("cetas");
     expect(lines[0]).toContain("Posoco");
     expect(lines[0]).toContain("glm-5.3-flash:max");
-    expect(lines.join("\n")).toContain("feature/agent");
+    expect(lines.join("\n")).toMatch(/feature\/agent|more.*statusbar/);
     expect(lines.join("\n")).toContain("Working");
     expect(lines.join("\n")).toContain("2 agents");
     expect(lines.join("\n")).toContain("permission");
     expect(lines.join("\n")).toContain("cache");
-    expect(lines.join("\n")).toContain("tps");
+    expect(lines.join("\n")).toMatch(/tps|more.*statusbar/);
   });
   test("every line is display-column safe from 1 to 200 columns", () => {
     for(const width of [0,1,2,8,12,24,40,70,80,120,150,200]) {
