@@ -281,6 +281,7 @@ export class TerminalShell {
   private lastBranchCheck = 0;
   private lastMagpieEffortRead = 0;
   private cachedMagpieEffort?: string;
+  private cachedMagpieModel?: string;
   private cachedGitBranch?: string;
   private readonly router: EventRouter;
   private readonly subagents = new SubagentActivityStore();
@@ -1061,16 +1062,19 @@ export class TerminalShell {
     if (magpie && (now - this.lastMagpieEffortRead >= 5_000 || this.lastMagpieEffortRead === 0)) {
       this.lastMagpieEffortRead = now || 1;
       this.cachedMagpieEffort = undefined;
+      this.cachedMagpieModel = undefined;
       try {
         const settings: unknown = JSON.parse(readFileSync(join(this.home, ".cetas", "settings.json"), "utf8"));
         if (settings !== null && typeof settings === "object" && !Array.isArray(settings)) {
+          const model = (settings as Record<string, unknown>).model;
+          if (typeof model === "string" && model.trim()) this.cachedMagpieModel = model.trim();
           const effort = (settings as Record<string, unknown>).reasoning_effort;
           if (typeof effort === "string" && effort.trim()) this.cachedMagpieEffort = effort.trim();
         }
       } catch { /* Snapshot model remains authoritative if settings are inaccessible. */ }
     }
     const selectedModel = magpie
-      ? this.welcomeSnapshot?.setup.activeModelId
+      ? this.cachedMagpieModel ?? this.welcomeSnapshot?.setup.activeModelId
         ?? this.welcomeSnapshot?.setup.providers.find(entry => entry.active)?.model
       : undefined;
     return {
@@ -2149,6 +2153,10 @@ export class TerminalShell {
       const raw = await this.requireApp().invokeCommand("model", JSON.stringify(args));
       const outcome = parseModelPickerOutcome(raw);
       this.renderOutcome(outcome, "/model");
+      if (outcome.type === "success") {
+        this.lastMagpieEffortRead = 0;
+        this.tui.requestRender();
+      }
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice(`/model failed: ${errorMessage(error)}`));
     } finally {
