@@ -117,6 +117,8 @@ import { WelcomeHeader } from "./welcome-header.ts";
 import { readWorkspaceGitBranch, type StatusbarDashboardContext } from "./statusbar-dashboard.ts";
 import { createVirtualScroll, type VirtualTranscriptDocument } from "../src/transcript/virtual-document.ts";
 import { DeferredTranscriptComponent } from "../src/transcript/deferred-component.ts";
+import { TranscriptSearchIndex, transcriptTextRange } from "../src/transcript/search-index.ts";
+import { getNativeClipboard } from "@earendil-works/pi-tui";
 import { projectProgramStatus, classifyRequestStatus } from "./program-status.ts";
 
 const identity = (value: string): string => value;
@@ -262,6 +264,8 @@ export class TerminalShell {
 
   private readonly transcript: Container;
   private readonly virtualTranscript?: VirtualTranscriptDocument;
+  private readonly transcriptSearch = new TranscriptSearchIndex();
+  private activeSearchHit = -1;
   private readonly welcomeHeader: WelcomeHeader;
   private welcomeSnapshot?: AppSnapshot;
   private readonly statusLoader: Loader;
@@ -1059,6 +1063,8 @@ export class TerminalShell {
 
   private addTranscriptChild(component: Component): void {
     this.transcript.addChild(component);
+    this.transcriptSearch.clear();
+    this.activeSearchHit = -1;
     this.tui.requestRender();
   }
 
@@ -1650,6 +1656,18 @@ export class TerminalShell {
   }
 
   private async dispatchSlash(input: string): Promise<void> {
+    if (input === "/find-next" || input === "/find-prev") {
+      this.navigateTranscriptSearch(input === "/find-prev");
+      return;
+    }
+    if (input.startsWith("/find ")) {
+      this.findTranscript(input.slice(6));
+      return;
+    }
+    if (input.startsWith("/copyhistory ")) {
+      await this.copyTranscriptRange(input.slice(13));
+      return;
+    }
     const spaceIndex = input.indexOf(" ");
     const command = spaceIndex === -1 ? input : input.slice(0, spaceIndex);
     const rawArgs = spaceIndex === -1 ? "" : input.slice(spaceIndex + 1).trim();
@@ -1668,6 +1686,51 @@ export class TerminalShell {
    * matcher: "/model <args>" keeps its extension-command path through
    * invokeCommand.
    */
+  /** Document-source search does not mount offscreen Markdown or tool rows. */
+  private findTranscript(query: string): void {
+    if (!(this.tui instanceof TuiAltScreen) || !this.virtualTranscript) return;
+    const matches = this.transcriptSearch.search(this.transcript.children, query);
+    this.activeSearchHit = -1;
+    if (!matches.length) {
+      this.addTranscriptChild(systemNotice(`No transcript matches for: ${query}`));
+      return;
+    }
+    this.navigateTranscriptSearch(false);
+  }
+
+  private navigateTranscriptSearch(reverse: boolean): void {
+    if (!this.virtualTranscript) return;
+    const next = this.transcriptSearch.next(this.activeSearchHit, reverse);
+    if (next < 0) return;
+    this.activeSearchHit = next;
+    const hit = this.transcriptSearch.matches[next]!;
+    this.virtualTranscript.scrollToItem(hit.index);
+    this.tui.requestRender();
+  }
+
+  /** Copy original transcript blocks; never paint all rows for a clipboard request. */
+  private async copyTranscriptRange(raw: string): Promise<void> {
+    const match = /^(\d+)(?:\s+(\d+))?$/.exec(raw.trim());
+    if (!match) {
+      this.addTranscriptChild(systemNotice("Usage: /copyhistory <first> [last] (1-based)"));
+      return;
+    }
+    const first = Number(match[1]) - 1;
+    const last = Number(match[2] ?? match[1]) - 1;
+    try {
+      const text = transcriptTextRange(this.transcript.children, first, last);
+      const clipboard = getNativeClipboard();
+      if (!clipboard?.setText) {
+        this.addTranscriptChild(systemNotice("Native clipboard writing is unavailable in this terminal"));
+        return;
+      }
+      await clipboard.setText(text);
+      this.addTranscriptChild(systemNotice(`Copied transcript entries ${first + 1}–${last + 1}`));
+    } catch (error) {
+      this.addTranscriptChild(errorNotice(`/copyhistory failed: ${String(error)}`));
+    }
+  }
+
   private readonly slashHandlers: Readonly<
     Record<string, (rawArgs: string) => Promise<void> | void>
   > = {
@@ -2386,16 +2449,16 @@ export class TerminalShell {
         case "user":
           result.push(new DeferredTranscriptComponent(() => new UserMessage(
             (item.text.length === 0 ? "(image attachment)" : item.text) + (item.hasImage ? " 🖼" : ""),
-          )));
+          ), item.text));
           break;
         case "wakeup":
-          result.push(new DeferredTranscriptComponent(() => systemNotice(`◌ wakeup envelope · ${item.text}`)));
+          result.push(new DeferredTranscriptComponent(() => systemNotice(`◌ wakeup envelope · ${item.text}`), item.text));
           break;
         case "reasoning":
-          result.push(new DeferredTranscriptComponent(() => new ThinkingComponent(item.text, "finalized")));
+          result.push(new DeferredTranscriptComponent(() => new ThinkingComponent(item.text, "finalized"), item.text));
           break;
         case "assistant":
-          result.push(new DeferredTranscriptComponent(() => new AssistantMessage(item.text)));
+          result.push(new DeferredTranscriptComponent(() => new AssistantMessage(item.text), item.text));
           break;
         case "tool_call": {
           const state = { content: "", isError: false };
@@ -2409,7 +2472,7 @@ export class TerminalShell {
             if (outcome !== undefined && outcome.content !== "") row.setResult(outcome.content, outcome.isError, undefined);
             toolComponents.set(item.toolCallId, row);
             return row;
-          });
+          }, [item.toolName, JSON.stringify(item.args ?? ""), state.content].join("\n"));
           result.push(deferred);
           break;
         }
@@ -2420,7 +2483,7 @@ export class TerminalShell {
             recorded.isError = item.isError;
             toolComponents.get(item.toolCallId)?.setResult(item.content, item.isError);
           } else {
-            result.push(new DeferredTranscriptComponent(() => systemNotice(`[result] ${item.content}`)));
+            result.push(new DeferredTranscriptComponent(() => systemNotice(`[result] ${item.content}`), item.content));
           }
           break;
         }
