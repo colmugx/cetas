@@ -8,6 +8,7 @@ import { readWorkspaceGitBranch, renderStatusbarDashboard } from "./statusbar-da
 const entries = [
   {key:"permission",value:"yolo",color:"warning"},
   {key:"model",value:"glm-5.3-flash:max"},
+  {key:"manager",value:"Posoco"},
   {key:"ctx",value:"ctx: 30.4K/1.0M · 3%"},
   {key:"cache",value:"0%"},
   {key:"TIME_LIMIT",value:"98% left"},
@@ -61,7 +62,7 @@ describe("Gate 0.5 adaptive statusbar", () => {
 describe("fixed semantic statusbar hierarchy", () => {
   test("model effort precedes active manager, then lifecycle; never show cetas brand", () => {
     const rows = stripTerminalSequences(renderStatusbarDashboard(entries, 180,
-      {...context, manager:"Magpie",status:"Ready"}).join("\n"));
+      {...context, status:"Ready"}).join("\n"));
     expect(rows.split("\n")[0]).toMatch(/^ glm-5\.3-flash:max · Magpie Ready/);
     expect(rows).not.toContain("cetas");
     expect(rows).toContain("ctx");
@@ -69,13 +70,14 @@ describe("fixed semantic statusbar hierarchy", () => {
   test("reset and limits are first-class secondary fields, not invented gateway status", () => {
     const sample = [
       {key:"model",value:"GPT-6 Luna:high"},
+      {key:"manager",value:"Posoco"},
       {key:"reset",value:"14:30"},
       {key:"5h",value:"62%"},
       {key:"7d",value:"78%"},
       {key:"ctx",value:"38%"},
     ];
     const text = stripTerminalSequences(renderStatusbarDashboard(sample, 120,
-      {manager:"Posoco",status:"Rate limited"}).join("\n"));
+      {status:"Rate limited"}).join("\n"));
     expect(text).toContain("GPT-6 Luna:high · Posoco Rate limited");
     expect(text).toContain("Reset 14:30");
     expect(text).toContain("5h 62%");
@@ -84,17 +86,22 @@ describe("fixed semantic statusbar hierarchy", () => {
   });
 });
 
-
-describe("Magpie current model dashboard", () => {
-  test("uses manager-selected model and persisted effort when ext-statusbar has no model segment", () => {
-    const shown=stripTerminalSequences(renderStatusbarDashboard([{key:"ctx",value:"38%"}],120,
-      {manager:"Magpie",status:"Working",selectedModel:"anthropic/claude-sonnet",selectedEffort:"high"}).join("\n"));
-    expect(shown).toContain("anthropic/claude-sonnet:high · Magpie Working");
-    expect(shown).not.toContain("No model");
+describe("model manager presentation contract", () => {
+  test("independent manager segment is rendered without implementation-dependent context", () => {
+    for (const label of ["Posoco", "Magpie", "Third-party manager"]) {
+      const value = stripTerminalSequences(renderStatusbarDashboard([
+        { key:"model", value:"model:high" }, { key:"manager", value:label },
+      ], 120, { status:"Working" }).join("\n"));
+      expect(value).toContain(`model:high · ${label} Working`);
+      expect(value).not.toContain("No model");
+    }
   });
-  test("does not overwrite Posoco publisher's own model field", () => {
-    const shown=stripTerminalSequences(renderStatusbarDashboard(
-      [{key:"model",value:"glm-5.3-flash:max"}],120,{manager:"Posoco",status:"Ready"}).join("\n"));
-    expect(shown).toContain("glm-5.3-flash:max · Posoco Ready");
+  test("missing manager publication never fabricates a particular backend", () => {
+    const value = stripTerminalSequences(renderStatusbarDashboard([
+      {key:"model",value:"model:default"},
+    ],100,{status:"Ready"}).join("\n"));
+    expect(value).toContain("model:default Ready");
+    expect(value).not.toContain("Posoco");
+    expect(value).not.toContain("Magpie");
   });
 });

@@ -115,8 +115,6 @@ import { runUpdateCheck, updateInstallCommand, updateHandoffCommand } from "../s
 import { theme } from "./theme.ts";
 import { WelcomeHeader } from "./welcome-header.ts";
 import { readWorkspaceGitBranch, type StatusbarDashboardContext } from "./statusbar-dashboard.ts";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { createVirtualScroll, type VirtualTranscriptDocument } from "../src/transcript/virtual-document.ts";
 import { DeferredTranscriptComponent } from "../src/transcript/deferred-component.ts";
 import { TranscriptSearchIndex, transcriptTextRange } from "../src/transcript/search-index.ts";
@@ -279,9 +277,6 @@ export class TerminalShell {
   private readonly editor: Editor;
   private readonly statusBarMount: Container;
   private lastBranchCheck = 0;
-  private lastMagpieEffortRead = 0;
-  private cachedMagpieEffort?: string;
-  private cachedMagpieModel?: string;
   private cachedGitBranch?: string;
   private readonly router: EventRouter;
   private readonly subagents = new SubagentActivityStore();
@@ -1058,29 +1053,8 @@ export class TerminalShell {
       this.lastBranchCheck = now || 1;
     }
     const running = this.subagents.running(this.sessionId);
-    const magpie = this.app?.modelManager === "magpie";
-    if (magpie && (now - this.lastMagpieEffortRead >= 5_000 || this.lastMagpieEffortRead === 0)) {
-      this.lastMagpieEffortRead = now || 1;
-      this.cachedMagpieEffort = undefined;
-      this.cachedMagpieModel = undefined;
-      try {
-        const settings: unknown = JSON.parse(readFileSync(join(this.home, ".cetas", "settings.json"), "utf8"));
-        if (settings !== null && typeof settings === "object" && !Array.isArray(settings)) {
-          const model = (settings as Record<string, unknown>).model;
-          if (typeof model === "string" && model.trim()) this.cachedMagpieModel = model.trim();
-          const effort = (settings as Record<string, unknown>).reasoning_effort;
-          if (typeof effort === "string" && effort.trim()) this.cachedMagpieEffort = effort.trim();
-        }
-      } catch { /* Snapshot model remains authoritative if settings are inaccessible. */ }
-    }
-    const selectedModel = magpie
-      ? this.cachedMagpieModel ?? this.welcomeSnapshot?.setup.activeModelId
-        ?? this.welcomeSnapshot?.setup.providers.find(entry => entry.active)?.model
-      : undefined;
     return {
       branch: this.cachedGitBranch,
-      ...(magpie && selectedModel ? { selectedModel, selectedEffort: this.cachedMagpieEffort } : {}),
-      manager: this.app?.modelManager === "magpie" ? "Magpie" : "Posoco",
       status: this.pendingAuthRequests > 0 ? "Waiting for auth"
         : this.pendingUiRequests > 0 ? "Waiting for reply"
           : this.operationBusy || this.commandBusy || this.renderedAppState === "running" ? "Working"
@@ -2069,13 +2043,9 @@ export class TerminalShell {
     const setup = this.requireApp().snapshot();
     const current = setup.setup.providers.find((entry) => entry.id === setup.setup.activeModelId)
       ?? setup.setup.providers.find((entry) => entry.active);
-    const magpieActive = this.requireApp().modelManager === "magpie";
     this.addTranscriptChild(systemNotice(
-      `status: ${setup.state}; manager ${magpieActive ? "Magpie" : "Providers"}; session ${setup.sessionId}; model ${current?.label ?? setup.setup.activeModelId ?? "unselected"}`,
+      `status: ${setup.state}; session ${setup.sessionId}; model ${current?.label ?? setup.setup.activeModelId ?? "unselected"}`,
     ));
-    if (magpieActive) {
-      await this.invokeCommand("/magpie_status", "");
-    }
   }
 
   private async openModelPicker(): Promise<void> {
@@ -2153,10 +2123,6 @@ export class TerminalShell {
       const raw = await this.requireApp().invokeCommand("model", JSON.stringify(args));
       const outcome = parseModelPickerOutcome(raw);
       this.renderOutcome(outcome, "/model");
-      if (outcome.type === "success") {
-        this.lastMagpieEffortRead = 0;
-        this.tui.requestRender();
-      }
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice(`/model failed: ${errorMessage(error)}`));
     } finally {

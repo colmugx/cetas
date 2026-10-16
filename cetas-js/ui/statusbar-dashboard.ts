@@ -17,9 +17,6 @@ export interface StatusbarEntry {
 export interface StatusbarDashboardContext {
   readonly branch?: string;
   readonly manager?: "Posoco" | "Magpie";
-  /** Current manager selection, not a synthetic extension status segment. */
-  readonly selectedModel?: string;
-  readonly selectedEffort?: string;
   readonly status?: string;
   readonly activeAgents?: number;
   readonly awaitingReplies?: number;
@@ -94,18 +91,16 @@ export function renderStatusbarDashboard(
   const get = (name: string) => entries.find(e => e.key.toLowerCase() === name);
   const model = get("model");
   const ctx = get("ctx");
-  const selected = context.selectedModel?.trim();
-  const effective = selected
-    ? selected + (context.selectedEffort?.trim() ? `:${context.selectedEffort.trim()}` : "")
-    : undefined;
-  const modelValue = effective ? theme.bold(effective)
-    : model ? segment(model, false, true) : theme.muted("No model");
-  const manager = theme.muted(context.manager ?? "Posoco");
+  const modelValue = model ? segment(model, false, true) : theme.muted("No model");
+  // The active manager publishes its own neutral status segment. UI has
+  // no knowledge of implementation choices or settings.json.
+  const managerEntry = get("manager");
+  const manager = managerEntry ? segment(managerEntry, false) : "";
   const statusText = clean(context.status ?? "Ready");
   const status = /waiting|rate.limit|error|failed|setup/i.test(statusText)
     ? theme.warning(statusText) : theme.accent(statusText);
   const sep = theme.muted(" · ");
-  const header = " " + modelValue + sep + manager + " " + status;
+  const header = " " + modelValue + (manager ? sep + manager : "") + " " + status;
   const contextValue = ctx ? segment(ctx, true) : "";
   let postponeCtx = false;
   const first = contextValue && width >= 55 &&
