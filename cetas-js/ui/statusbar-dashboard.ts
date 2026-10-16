@@ -91,7 +91,14 @@ export function renderStatusbarDashboard(
   const get = (name: string) => entries.find(e => e.key.toLowerCase() === name);
   const model = get("model");
   const ctx = get("ctx");
-  const modelValue = model ? segment(model, false, true) : theme.muted("No model");
+  // The "model" segment is an opaque selection value (model ID + effort),
+  // not a key/value display label. For instance, "model:high" is a valid
+  // model ID/effort pair; valueOf() would accidentally strip "model:".
+  const modelValue = model
+    ? (model.color !== undefined
+      ? roleStyle(model.color)(clean(model.value))
+      : theme.bold(clean(model.value)))
+    : theme.muted("No model");
   // The active manager publishes its own neutral status segment. UI has
   // no knowledge of implementation choices or settings.json.
   const managerEntry = get("manager");

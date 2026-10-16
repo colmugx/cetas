@@ -63,7 +63,7 @@ describe("fixed semantic statusbar hierarchy", () => {
   test("model effort precedes active manager, then lifecycle; never show cetas brand", () => {
     const rows = stripTerminalSequences(renderStatusbarDashboard(entries, 180,
       {...context, status:"Ready"}).join("\n"));
-    expect(rows.split("\n")[0]).toMatch(/^ glm-5\.3-flash:max · Magpie Ready/);
+    expect(rows.split("\n")[0]).toMatch(/^ glm-5\.3-flash:max · Posoco Ready/);
     expect(rows).not.toContain("cetas");
     expect(rows).toContain("ctx");
   });
@@ -103,5 +103,27 @@ describe("model manager presentation contract", () => {
     expect(value).toContain("model:default Ready");
     expect(value).not.toContain("Posoco");
     expect(value).not.toContain("Magpie");
+  });
+});
+
+describe("opaque model selection values", () => {
+  test("model-prefixed IDs are never interpreted as duplicated display labels", () => {
+    for (const value of ["model:high", "model:default", "model:provider/variant:low"]) {
+      const rendered = stripTerminalSequences(renderStatusbarDashboard([
+        {key:"model", value},
+        {key:"manager", value:"Custom Model Router"},
+      ], 120, {status:"Ready"}).join("\n"));
+      expect(rendered).toContain(value);
+      expect(rendered).toContain("Custom Model Router Ready");
+    }
+  });
+
+  test("other labeled metrics still normalize duplicated labels", () => {
+    const rendered = stripTerminalSequences(renderStatusbarDashboard([
+      {key:"model",value:"glm-5.3-flash:max"},
+      {key:"ctx",value:"ctx: 30.4K/1.0M"},
+    ],140,{status:"Working"}).join("\n"));
+    expect(rendered).toContain("ctx 30.4K/1.0M");
+    expect(rendered).not.toContain("ctx ctx:");
   });
 });
