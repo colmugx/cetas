@@ -8,6 +8,7 @@
  */
 
 import chalk from "chalk";
+import type { Channel, PackageManager } from "../src/app/version.ts";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -15,16 +16,13 @@ import {
   Container,
   Editor,
   Loader,
-  SelectList,
   Text,
   TUI,
   TuiAltScreen,
   TuiMainScreen,
   VStack,
-  stripTerminalSequences,
   type Component,
   type EditorTheme,
-  type OverlayHandle,
   type ProgramStatus,
   type SelectListTheme,
 } from "@earendil-works/pi-tui";

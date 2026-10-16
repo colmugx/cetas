@@ -2,7 +2,7 @@ import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import type { ModelCatalogEntry } from "./model-picker.ts";
 
 const clean = (value: unknown): string => typeof value === "string"
-  ? stripTerminalSequences(value).replace(/[\\u0000-\\u001F\\u007F]/g, "").slice(0, 90)
+  ? stripTerminalSequences(value).replace(/[\u0000-\u001F\u007F]/g, "").slice(0, 90)
   : "";
 
 /** Pure view projection: neither command execution nor overlay ownership belongs here. */
