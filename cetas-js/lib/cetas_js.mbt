@@ -3158,7 +3158,8 @@ pub fn cetas_js_invoke_command(
     }
     // Interactive manager-specific semantics are confined to the adapter.
     // Persist and publish successful neutral model/effort commands equally.
-    match handle.manager.manager_intercept_model_command(handle.agent, id, args) {
+    match
+      handle.manager.manager_intercept_model_command(handle.agent, id, args) {
       Some(outcome) => {
         match outcome {
           Success(..) => {
