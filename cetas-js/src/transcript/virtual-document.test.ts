@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Container, type Component } from "@earendil-works/pi-tui";
-import { VirtualTranscriptDocument } from "./virtual-document.ts";
+import { VirtualTranscriptDocument, highlightLiteralRows } from "./virtual-document.ts";
 
 describe("Gate 2 logical-height virtual layout", () => {
   test("ten thousand messages only render a bounded visible window", () => {
@@ -57,5 +57,20 @@ describe("Gate 5 measured height scroll anchor", () => {
     (document as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
     expect(corrected.every(n=>Number.isFinite(n) && n>=0)).toBe(true);
     expect(document.stats.mountedItems).toBeLessThan(30);
+  });
+});
+
+describe("visible source match highlighting",()=>{
+  test("highlights literal text without changing visible width",()=>{
+    const original=["\x1b[33mbanana asked main\x1b[0m"];
+    const result=highlightLiteralRows(original,"banana asked main",[{offset:0,length:6}],80);
+    expect(result[0]).toContain("\x1b[4m");
+    expect(result[0]).toContain("banana");
+    expect(result[0]).not.toBe(original[0]);
+  });
+  test("avoids uncertain Markdown and image payloads",()=>{
+    expect(highlightLiteralRows(["shown"],"**banana**",[{offset:2,length:6}],80)).toEqual(["shown"]);
+    const image="\x1b_Ga=T;payload\x1b\\";
+    expect(highlightLiteralRows([image],"banana",[{offset:0,length:6}],80)).toEqual([image]);
   });
 });
