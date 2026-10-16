@@ -22,6 +22,8 @@ describe("Gate 5 source-indexed transcript search and copy",()=>{
     expect(index.next(1)).toBe(0);
     expect(index.next(0,true)).toBe(1);
     expect(index.next(0)).toBe(1);
+    expect(index.next(-1)).toBe(0);
+    expect(index.next(-1,true)).toBe(1);
   });
   test("empty query and no matches clear the result state",()=>{
     const idx=new TranscriptSearchIndex();
