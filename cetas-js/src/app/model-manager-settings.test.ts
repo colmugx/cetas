@@ -37,6 +37,9 @@ describe("model manager settings", () => {
   test("requires HTTPS for remote gateways and retains manager choice", async () => {
     const home = await mkdtemp(join(tmpdir(), "cetas-manager-"));
     await expect(writeMagpieAddress(home, "http://remote.example:3425")).rejects.toThrow("HTTPS");
+    await expect(writeMagpieAddress(home, "http://[::2]:3425")).rejects.toThrow("HTTPS");
+    await expect(writeMagpieAddress(home, "https://remote.example/?key=secret")).rejects.toThrow("HTTPS");
+    await expect(writeMagpieAddress(home, "https://remote.example/#key")).rejects.toThrow("HTTPS");
     await expect(writeMagpieAddress(home, "https://user:pass@remote.example")).rejects.toThrow("HTTPS");
     await expect(writeMagpieAddress(home, "https://remote.example/v1/models")).rejects.toThrow("HTTPS");
     await writeMagpieAddress(home, "https://remote.example:3443/");

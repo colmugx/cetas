@@ -1,4 +1,4 @@
-import { readManagerSettings, restoreManagerSettings, writeManagerChoice, writeMagpieAddress, type ModelManagerChoice } from "./model-manager-settings.ts";
+import { readManagerSettings, restoreManagerSettings, writeManagerChoice, writeMagpieAddress, validateMagpieAddress, type ModelManagerChoice } from "./model-manager-settings.ts";
 import {
   CetasApplicationError,
   type AgentCallbacks,
@@ -121,6 +121,8 @@ export class CetasApplication<AgentHandle = unknown> {
   private abortWatchdog: ReturnType<typeof setTimeout> | undefined;
   private activeCommand: Promise<string> | undefined;
   private managerSwitching = false;
+  private selectedManager: ModelManagerChoice = "providers";
+  private agentGeneration = 0;
   /**
    * Mirror of follow-ups accepted but not yet drained by the Agent (the
    * core keeps them queued across operations and starts them at a later
@@ -213,6 +215,10 @@ export class CetasApplication<AgentHandle = unknown> {
 
   get sessionId(): string {
     return this.currentSessionId;
+  }
+
+  get modelManager(): ModelManagerChoice {
+    return this.selectedManager;
   }
 
   get operationSnapshot(): OperationSnapshot {
@@ -347,7 +353,7 @@ export class CetasApplication<AgentHandle = unknown> {
         ),
       );
     }
-    if (this.operations.busy || this.operations.compactPending || this.activeCommand !== undefined) {
+    if (this.managerSwitching || this.operations.busy || this.operations.compactPending || this.activeCommand !== undefined) {
       return Promise.reject(
         new CetasApplicationError(
           "already_running",
@@ -370,22 +376,50 @@ export class CetasApplication<AgentHandle = unknown> {
       this.state === "shutting_down") {
       throw new CetasApplicationError("already_running", "gateway setup requires an idle application");
     }
-    if (this.options.bridge.connectMagpie === undefined) {
+    const bridge = this.options.bridge;
+    if (!bridge.connectMagpie || !bridge.commitMagpieCredential || !bridge.finishMagpieCredential) {
       throw new CetasApplicationError("invalid_state", "gateway configuration is unavailable");
     }
+    // Reject unsafe origins before making any authenticated network request.
+    const origin = validateMagpieAddress(url);
     this.managerSwitching = true;
     try {
       const previous = await readManagerSettings(this.options.config.home);
-      await this.options.bridge.connectMagpie(url, key);
+      await bridge.connectMagpie(origin, key);
+      let addressTouched = false;
+      let credentialTouched = false;
       try {
-        await writeMagpieAddress(this.options.config.home, url);
-        if (previous.manager === "magpie") await this.refreshSetup();
-      } catch (error: unknown) {
-        await restoreManagerSettings(this.options.config.home, previous);
+        addressTouched = true;
+        await writeMagpieAddress(this.options.config.home, origin);
+        credentialTouched = true;
+        await bridge.commitMagpieCredential(key);
         if (previous.manager === "magpie") {
-          try { await this.refreshSetup(); } catch { /* Original error remains authoritative. */ }
+          const composed = await this.beginSetup(true);
+          if (composed.state !== "ready") throw new Error("configured Gateway did not produce a ready Agent");
         }
-        throw error;
+        await bridge.finishMagpieCredential(false);
+      } catch (error: unknown) {
+        // Roll back the credential before exposing the old Gateway URL again.
+        // Errors are intentionally generic: exception bodies may contain keys.
+        let recoveryFailed = false;
+        if (credentialTouched) {
+          try { await bridge.finishMagpieCredential(true); } catch { recoveryFailed = true; }
+        }
+        if (addressTouched) {
+          try { await restoreManagerSettings(this.options.config.home, previous); }
+          catch { recoveryFailed = true; }
+        }
+        if (previous.manager === "magpie" && !recoveryFailed) {
+          try {
+            const restored = await this.beginSetup(true);
+            if (restored.state !== "ready") recoveryFailed = true;
+          } catch { recoveryFailed = true; }
+        }
+        if (recoveryFailed) {
+          throw new CetasApplicationError("bridge_failure",
+            "gateway configuration recovery failed; restart Cetas before using Magpie");
+        }
+        throw new CetasApplicationError("bridge_failure", "gateway configuration failed; previous settings restored");
       }
     } finally {
       this.managerSwitching = false;
@@ -407,7 +441,7 @@ export class CetasApplication<AgentHandle = unknown> {
       await this.stopLiveCatalogRefresh();
       await writeManagerChoice(this.options.config.home, choice, previous);
       try {
-        const next = await this.refreshSetup();
+        const next = await this.beginSetup(true);
         if (next.state !== "ready") throw new Error("selected manager did not produce a ready Agent");
         this.liveRefreshStarted = false;
         this.startLiveCatalogRefresh();
@@ -415,7 +449,7 @@ export class CetasApplication<AgentHandle = unknown> {
       } catch (error: unknown) {
         await restoreManagerSettings(this.options.config.home, previous);
         try {
-          await this.refreshSetup();
+          await this.beginSetup(true);
           this.liveRefreshStarted = false;
           this.startLiveCatalogRefresh();
         } catch (rollback: unknown) {
@@ -479,6 +513,7 @@ export class CetasApplication<AgentHandle = unknown> {
     try {
       if (this.state === "shutting_down") return this.snapshot();
       const setup = await this.options.bridge.describeSetup(this.options.config);
+      this.selectedManager = (await readManagerSettings(this.options.config.home)).manager;
       this.setup = setup;
       this.lastError = undefined;
       if (setup.providers.length === 0) {
@@ -487,6 +522,7 @@ export class CetasApplication<AgentHandle = unknown> {
         if (this.agent !== undefined && (this.state as AppState) !== "shutting_down") {
           const previousAgent = this.agent;
           this.agent = undefined;
+          this.agentGeneration++;
           this.options.bridge.cancelPendingRateLimit(previousAgent);
           await this.options.bridge.shutdown(previousAgent);
         }
@@ -503,10 +539,12 @@ export class CetasApplication<AgentHandle = unknown> {
       ) {
         const previousAgent = this.agent;
         this.agent = undefined;
+        this.agentGeneration++;
         this.options.bridge.cancelPendingRateLimit(previousAgent);
         await this.options.bridge.shutdown(previousAgent);
       }
       if ((this.state as AppState) !== "shutting_down" && this.agent === undefined) {
+        this.agentGeneration++;
         this.agent = await this.options.bridge.createAgent(
           this.options.config,
           this.agentCallbacks(),
@@ -535,6 +573,7 @@ export class CetasApplication<AgentHandle = unknown> {
       ) {
         const staleAgent = this.agent;
         this.agent = undefined;
+        this.agentGeneration++;
         try {
           this.options.bridge.cancelPendingRateLimit(staleAgent);
           await this.options.bridge.shutdown(staleAgent);
@@ -569,6 +608,7 @@ export class CetasApplication<AgentHandle = unknown> {
    */
   private startLiveCatalogRefresh(): void {
     if (this.liveRefreshStarted) return;
+    if (this.selectedManager !== "providers") return;
     if ((this.state as AppState) === "shutting_down") return;
     const bridge = this.options.bridge;
     if (bridge.refreshModelListsLive === undefined) return;
@@ -628,6 +668,7 @@ export class CetasApplication<AgentHandle = unknown> {
     // Recompose only when idle — the same busy guards an explicit
     // refreshSetup enforces; its rejection path already surfaced the error.
     if (
+      !this.managerSwitching &&
       this.state === "needs_setup" &&
       summary.results.some((entry) => entry.status === "refreshed") &&
       !this.operations.busy &&
@@ -689,6 +730,9 @@ export class CetasApplication<AgentHandle = unknown> {
    * the user-intent path and keeps those guards.
    */
   adoptSessionRedirect(to: string): void {
+    if (this.managerSwitching) {
+      throw new CetasApplicationError("already_running", "model manager is changing");
+    }
     if (to.length === 0) {
       throw new CetasApplicationError(
         "invalid_state",
@@ -717,6 +761,9 @@ export class CetasApplication<AgentHandle = unknown> {
    * busy guards as setSession apply.
    */
   async rewind(sessionId: string, fromIndex: number): Promise<void> {
+    if (this.managerSwitching) {
+      throw new CetasApplicationError("already_running", "model manager is changing");
+    }
     if (sessionId.length === 0) {
       throw new CetasApplicationError("invalid_state", "session id must not be empty");
     }
@@ -881,6 +928,9 @@ export class CetasApplication<AgentHandle = unknown> {
     this.currentSessionId = sessionId;
     this.bindActiveSession();
     while (true) {
+      if (this.managerSwitching) {
+        throw new CetasApplicationError("already_running", "model manager is changing");
+      }
       if ((this.state as AppState) === "shutting_down") {
         throw new CetasApplicationError(
           "shutting_down",
@@ -1049,6 +1099,9 @@ export class CetasApplication<AgentHandle = unknown> {
     sessionId = this.currentSessionId,
     images?: readonly ImageAttachment[],
   ): Promise<UserInputSubmission> {
+    if (this.managerSwitching) {
+      throw new CetasApplicationError("already_running", "model manager is changing");
+    }
     if (prompt.length === 0) {
       throw new CetasApplicationError("invalid_state", "prompt must not be empty");
     }
@@ -1078,6 +1131,9 @@ export class CetasApplication<AgentHandle = unknown> {
 
     return this.serializeSubmission(async () => {
       while (true) {
+        if (this.managerSwitching) {
+          throw new CetasApplicationError("already_running", "model manager is changing");
+        }
         if ((this.state as AppState) === "shutting_down") {
           throw new CetasApplicationError(
             "shutting_down",
@@ -1169,6 +1225,9 @@ export class CetasApplication<AgentHandle = unknown> {
   async compactSession(
     sessionId: string = this.currentSessionId,
   ): Promise<CompactSessionOutcome> {
+    if (this.managerSwitching) {
+      throw new CetasApplicationError("already_running", "model manager is changing");
+    }
     if (sessionId.length === 0) {
       throw new CetasApplicationError("invalid_state", "session id must not be empty");
     }
@@ -1672,6 +1731,7 @@ export class CetasApplication<AgentHandle = unknown> {
       if (this.agent !== undefined) {
         const agent = this.agent;
         this.agent = undefined;
+        this.agentGeneration++;
         const outcome = await this.settleWithin(
           this.options.bridge.shutdown(agent),
           timeoutMs,
@@ -1745,9 +1805,20 @@ export class CetasApplication<AgentHandle = unknown> {
   }
 
   private agentCallbacks(): AgentCallbacks {
+    const generation = this.agentGeneration;
     return {
-      ...this.options.callbacks,
-      observerCallback: (eventJson) => this.handleAgentObserverEvent(eventJson),
+      observerCallback: (eventJson) => {
+        if (generation === this.agentGeneration) this.handleAgentObserverEvent(eventJson);
+      },
+      renderCallback: (eventJson) => {
+        if (generation === this.agentGeneration) this.options.callbacks.renderCallback(eventJson);
+      },
+      requestCallback: (eventJson) => {
+        if (generation !== this.agentGeneration) {
+          return Promise.reject(new CetasApplicationError("not_ready", "Agent has been retired"));
+        }
+        return this.options.callbacks.requestCallback(eventJson);
+      },
     };
   }
 

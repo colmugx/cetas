@@ -60,7 +60,11 @@ pub fn cetas_js_run_turn(CetasJsAgent, String, String, String, @js_async.AbortSi
 
 pub fn cetas_js_run_turn_result(CetasJsAgent, String, String, String, @js_async.AbortSignal) -> @js_async.Promise[String]
 
+pub fn cetas_js_runtime_commit_magpie_credential(CetasJsRuntime, String) -> @js_async.Promise[Unit]
+
 pub fn cetas_js_runtime_connect_magpie(CetasJsRuntime, String, String) -> @js_async.Promise[String]
+
+pub fn cetas_js_runtime_finish_magpie_credential(CetasJsRuntime, Bool) -> @js_async.Promise[Unit]
 
 pub fn cetas_js_runtime_create_agent(CetasJsRuntime, JsCallback, JsUiRenderCallback, JsUiRequestCallback, JsCancelCheck) -> @js_async.Promise[CetasJsAgent]
 
@@ -126,6 +130,8 @@ pub(all) struct CetasJsRuntime {
   mut pi : @posoco-ext-pi-adaptor.PiAdaptor?
   mut live_router : @ext-llm.RouterModelPort?
   mut magpie_binding : MagpieBinding?
+  mut magpie_credential_pending : Bool
+  mut magpie_previous_credential : @ext-oauth.ProviderCredential?
 }
 pub fn CetasJsRuntime::CetasJsRuntime(CetasJsConfig) -> Self
 

@@ -1809,6 +1809,7 @@ export class TerminalShell {
               .filter(Boolean).join(" · ");
             lines.push(label || "Unknown provider");
             if (card.error) lines.push("  Unavailable");
+            if (card.read_at) lines.push(`  snapshot: ${clean(card.read_at)}`);
             if (Array.isArray(card.windows)) {
               for (const rawWindow of card.windows.slice(0, 20)) {
                 if (typeof rawWindow !== "object" || rawWindow === null || Array.isArray(rawWindow)) continue;
@@ -1845,7 +1846,7 @@ export class TerminalShell {
     const setup = this.requireApp().snapshot();
     const current = setup.setup.providers.find((entry) => entry.id === setup.setup.activeModelId)
       ?? setup.setup.providers.find((entry) => entry.active);
-    const magpieActive = this.requireApp().listCommands().some((cmd) => cmd.id === "magpie_status");
+    const magpieActive = this.requireApp().modelManager === "magpie";
     this.addTranscriptChild(systemNotice(
       `status: ${setup.state}; manager ${magpieActive ? "Magpie" : "Providers"}; session ${setup.sessionId}; model ${current?.label ?? setup.setup.activeModelId ?? "unselected"}`,
     ));

@@ -69,6 +69,8 @@ options(
         "cetas_js_runtime_refresh_model_lists_live",
         "cetas_js_runtime_login_provider",
         "cetas_js_runtime_connect_magpie",
+        "cetas_js_runtime_commit_magpie_credential",
+        "cetas_js_runtime_finish_magpie_credential",
         "cetas_js_run_turn",
         "cetas_js_run_turn_result",
         "cetas_js_resume_turn",

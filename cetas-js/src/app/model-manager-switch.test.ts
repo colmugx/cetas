@@ -50,6 +50,49 @@ async function harness(failOnMagpie = false) {
 }
 
 describe("manager switching", () => {
+  test("rejects mutations while recomposition is underway", async () => {
+    const { app } = await harness();
+    const pending = app.switchModelManager("magpie");
+    expect(() => app.setSession("other-session")).toThrow();
+    expect(() => app.adoptSessionRedirect("other-session")).toThrow();
+    await expect(app.submitUserInput("hello")).rejects.toThrow();
+    await expect(app.compactSession()).rejects.toThrow();
+    await pending;
+    expect(app.modelManager).toBe("magpie");
+    await app.shutdown();
+  });
+
+  test("retired Agent callbacks cannot publish to the active renderer", async () => {
+    const home = await mkdtemp(join(tmpdir(), "cetas-manager-callback-"));
+    const path = join(home, ".cetas", "settings.json");
+    await mkdir(join(home, ".cetas"));
+    await writeFile(path, '{"model_manager":"providers"}');
+    const observed: string[] = [];
+    const agents: AgentCallbacks[] = [];
+    const bridge: CetasAgentBridge<number> = {
+      describeSetup: async () => available,
+      createAgent: async (_config, callbacks) => { agents.push(callbacks); return agents.length; },
+      runTurn: async () => "",
+      cancelPendingRateLimit: () => undefined,
+      shutdown: async () => undefined,
+      listCommands: () => [],
+      invokeCommand: async () => '{}',
+      rewind: async () => undefined,
+    };
+    const app = new CetasApplication({
+      bridge, config: { home, cwd: home, maxToolRounds: 1 },
+      initialSessionId: "session-one",
+      callbacks: { ...callbacks, renderCallback: (event) => observed.push(event) },
+    });
+    await app.start();
+    const old = agents[0]!;
+    await app.switchModelManager("magpie");
+    old.renderCallback("stale");
+    agents[1]!.renderCallback("current");
+    expect(observed).toEqual(["current"]);
+    await app.shutdown();
+  });
+
   test("soft-recomposes the Agent while keeping the session", async () => {
     const { app, path, created, stopped } = await harness();
     expect(app.sessionId).toBe("session-one");
