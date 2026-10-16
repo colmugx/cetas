@@ -13,6 +13,7 @@ import {
 } from "@earendil-works/pi-tui";
 
 import { markdownTheme, roleStyle, theme } from "./theme.ts";
+import { renderStatusbarDashboard, type StatusbarDashboardContext } from "./statusbar-dashboard.ts";
 
 export type UiSlot = "status" | "notice" | "widget";
 
@@ -255,7 +256,8 @@ interface RenderMounts {
  */
 export interface UiKeyRoute {
   mount: Container;
-  format?: "line";
+  format?: "line" | "dashboard";
+  dashboardContext?: () => StatusbarDashboardContext;
 }
 
 interface MountedRender {
@@ -339,6 +341,20 @@ function renderKeyValueLine(
     invalidate(): void {},
   };
   return { component, dispose() {} };
+}
+
+function renderStatusbarDashboardComponent(
+  entries: Array<{ key: string; value: string; color?: string }>,
+  context: () => StatusbarDashboardContext,
+): { component: Component; dispose(): void } {
+  const normalized = entries.map((entry) => ({ ...entry, value: formatStatusValue(entry.value) }));
+  return {
+    component: {
+      render: (width) => renderStatusbarDashboard(normalized, width, context()),
+      invalidate() {},
+    },
+    dispose() {},
+  };
 }
 
 function renderBody(
@@ -444,9 +460,11 @@ export class UiRenderHost {
     const route = this.keyRoutes[slotKey];
     const body = intent.body;
     const renderedBody =
-      route?.format === "line" && (body.type === "key_value" || body.type === "entries")
-        ? renderKeyValueLine(body.entries)
-        : renderBody(this.tui, intent.title, body);
+      route?.format === "dashboard" && (body.type === "key_value" || body.type === "entries")
+        ? renderStatusbarDashboardComponent(body.entries, route.dashboardContext ?? (() => ({})))
+        : route?.format === "line" && (body.type === "key_value" || body.type === "entries")
+          ? renderKeyValueLine(body.entries)
+          : renderBody(this.tui, intent.title, body);
     const container = route?.mount ?? this.mounts[intent.slot];
     const mounted: MountedRender = {
       component: renderedBody.component,
