@@ -25,7 +25,7 @@ const layouts=300;
 let mountedMax=0;
 for(let i=0;i<layouts;i++){
   top=i*101;
-  document[Symbol.for("@earendil-works/pi-tui/layout-node") as never]?.();
+  (document as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
   mountedMax=Math.max(mountedMax,document.stats.mountedItems);
 }
 const layoutMs=performance.now()-start;
