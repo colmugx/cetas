@@ -365,7 +365,7 @@ export class EventRouter {
         return comp;
       },
       createText: () => {
-        const comp = new AssistantMessage("");
+        const comp = new AssistantMessage("", { streaming: true });
         this.cb.addTranscriptChild(comp);
         return comp;
       },

@@ -20,6 +20,7 @@ import {
   type Component,
 } from "@earendil-works/pi-tui";
 import { theme, markdownTheme } from "../../ui/theme.ts";
+import { IncrementalMarkdown } from "./markdown-stream.ts";
 import { wrapAssistantLines, wrapUserLines } from "../../ui/osc133.ts";
 import type { SubagentActivityStore } from "../controllers/subagent-activity.ts";
 import {
@@ -101,18 +102,20 @@ export class QueuedUserMessage extends Container {
  * as deltas arrive — cheap diffing is pi-tui's job.
  */
 export class AssistantMessage extends Container {
-  private md: Markdown;
+  private md: Markdown | IncrementalMarkdown;
   private reasoningText?: Text;
   private text: string;
 
-  constructor(initialText = "") {
+  constructor(initialText = "", options: { streaming?: boolean } = {}) {
     super();
     this.text = initialText;
     // Spacer is child[0]; the markdown is appended after. setReasoning()
     // inserts between them by removeChild(md) + addChild(reasoning) +
     // addChild(md), which preserves the leading spacer.
     this.addChild(new Spacer(1));
-    this.md = new Markdown(initialText, 1, 0, markdownTheme);
+    this.md = options.streaming
+      ? new IncrementalMarkdown(initialText, 1, 0, markdownTheme)
+      : new Markdown(initialText, 1, 0, markdownTheme);
     this.addChild(this.md);
   }
 
