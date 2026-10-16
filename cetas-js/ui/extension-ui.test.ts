@@ -218,8 +218,8 @@ describe("UiRenderHost", () => {
     expect(line).toContain(`${theme.muted("model:")} ${theme.bold("deepseek-v4-pro")}`);
     expect(line).toContain(`${theme.muted("effort:")} high`);
     expect(line).toContain(`${theme.muted("tok:")} 10↑ 2↓`);
-    // One muted ` | ` separator between ALL segments; the title is dropped.
-    expect(line.split(theme.muted(" | "))).toHaveLength(3);
+    // One muted ` · ` separator between ALL segments; the title is dropped.
+    expect(line.split(theme.muted(" · "))).toHaveLength(3);
     expect(line).not.toContain("Status");
   });
 
@@ -256,7 +256,7 @@ describe("UiRenderHost", () => {
     expect(line).toContain(`${theme.muted("plan:")} ${theme.accent("pro")}`);
     expect(line).toContain(`${theme.muted("resume:")} ${theme.warning("12:00")}`);
     expect(line).toContain(`${theme.muted("session:")} s1`);
-    expect(line.split(theme.muted(" | "))).toHaveLength(4);
+    expect(line.split(theme.muted(" · "))).toHaveLength(4);
   });
 
   test("renders the llm ctx segment without doubling its self-carried key label", () => {
@@ -556,7 +556,7 @@ describe("entries bodies over the FFI guard", () => {
     expect(line).toContain(`${theme.muted("model:")} ${theme.bold("deepseek-v4-pro")}`);
     expect(line).toContain(`${theme.muted("plan:")} ${theme.accent("pro")}`);
     expect(line).toContain(`${theme.muted("session:")} s1`);
-    expect(line.split(theme.muted(" | "))).toHaveLength(3);
+    expect(line.split(theme.muted(" · "))).toHaveLength(3);
   });
 
   test("a non-string color role drops the render like any malformed body", () => {
