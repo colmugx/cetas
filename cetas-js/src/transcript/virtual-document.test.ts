@@ -74,3 +74,27 @@ describe("visible source match highlighting",()=>{
     expect(highlightLiteralRows([image],"banana",[{offset:0,length:6}],80)).toEqual([image]);
   });
 });
+
+describe("virtual message-range mouse selection", () => {
+  test("drag across unmounted history copies source without painting skipped items", async () => {
+    const source = new Container();
+    let renders = 0;
+    for (let i=0;i<10000;i++) source.addChild({
+      getSearchText: () => "message " + i,
+      render: () => {renders++;return ["message " + i];},
+      invalidate() {},
+    });
+    const document = new VirtualTranscriptDocument(source,()=>80,()=>20,()=>({top:0,followEnd:false}));
+    const copied:string[]=[];
+    document.attachCopy(text=>{copied.push(text);});
+    (document as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    const before=renders;
+    document.handleMouse({type:"press",button:"left",x:0,y:100,width:80,height:10000} as never);
+    document.handleMouse({type:"drag",button:"left",x:0,y:4500,width:80,height:10000} as never);
+    document.handleMouse({type:"release",button:"left",x:0,y:4500,width:80,height:10000} as never);
+    expect(copied).toHaveLength(1);
+    expect(copied[0]).toContain("message 33");
+    expect(copied[0]).toContain("message 1500");
+    expect(renders).toBe(before);
+  });
+});
