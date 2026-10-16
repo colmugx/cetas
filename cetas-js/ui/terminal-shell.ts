@@ -332,6 +332,7 @@ export class TerminalShell {
   private readonly queuedPrompts: QueuedUserMessage[] = [];
   private commandShortcuts: ReadonlyArray<{ keyId: KeyId; command: string }> = [];
   private providerPickerHandle?: OverlayHandle;
+  private quotaOverlayHandle?: OverlayHandle;
   private started = false;
   private setupNoticeShown = false;
   private setupErrorShown?: string;
@@ -787,6 +788,7 @@ export class TerminalShell {
     bestEffort(() => this.modelPicker.hide());
     bestEffort(() => this.oauthOverlay.hide());
     bestEffort(() => this.authPromptOverlay.hide());
+    bestEffort(() => this.dismissQuotaOverlay());
     bestEffort(() => this.skillsOverlay.hide());
     bestEffort(() => this.rewindOverlay.hide());
     bestEffort(() => this.updateOverlay.hide());
@@ -856,6 +858,7 @@ export class TerminalShell {
       this.updateOverlay.hide();
       this.providerPickerHandle?.hide();
       this.providerPickerHandle = undefined;
+      this.dismissQuotaOverlay();
       try {
         if (this.app !== undefined) await this.app.shutdown();
       } finally {
@@ -1434,7 +1437,8 @@ export class TerminalShell {
       this.sessionsOverlay.isActive ||
       this.rewindOverlay.isActive ||
       this.updateOverlay.isActive ||
-      this.providerPickerHandle !== undefined
+      this.providerPickerHandle !== undefined ||
+      this.quotaOverlayHandle !== undefined
     ) {
       return undefined;
     }
@@ -1733,6 +1737,17 @@ export class TerminalShell {
     }
   }
 
+  private dismissQuotaOverlay(): void {
+    const handle = this.quotaOverlayHandle;
+    if (handle === undefined) return;
+    this.quotaOverlayHandle = undefined;
+    try {
+      handle.hide();
+    } finally {
+      this.commandLock.release();
+    }
+  }
+
   private async openQuotaOverlay(rawArgs = ""): Promise<void> {
     if (rawArgs.trim() !== "" && rawArgs.trim() !== "refresh") {
       this.addTranscriptChild(errorNotice("/quota accepts only the refresh argument"));
@@ -1747,6 +1762,7 @@ export class TerminalShell {
       const outcome = parseCommandOutcome(await this.requireApp().invokeCommand("quota", JSON.stringify({ refresh: rawArgs.trim() === "refresh" })));
       if (outcome.type !== "success") {
         this.renderOutcome(outcome, "/quota");
+        this.commandLock.release();
         return;
       }
       const data = outcome.structured;
@@ -1808,9 +1824,9 @@ export class TerminalShell {
       }
       const overlay = new DismissibleTextOverlay(
         new Text(lines.join("\n").slice(0, 16000), 1, 1),
-        () => { handle.hide(); this.commandLock.release(); },
+        () => this.dismissQuotaOverlay(),
       );
-      const handle = this.modals.showOverlay(overlay, {
+      this.quotaOverlayHandle = this.modals.showOverlay(overlay, {
         width: "76%", maxHeight: "78%", anchor: "center", margin: 1,
       });
       this.tui.requestRender();

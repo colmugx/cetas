@@ -324,6 +324,60 @@ function sendKey(tui: TUI, data: string): void {
   (tui as any).handleTerminalInput(data);
 }
 
+describe("quota overlay cleanup", () => {
+  function shellWithQuotaResult(result: unknown) {
+    const { shell, tui } = makeShell();
+    (shell as any).app = {
+      invokeCommand: async () => JSON.stringify(result),
+      shutdown: async () => undefined,
+    };
+    return { shell, tui };
+  }
+
+  for (const [label, key] of [["Enter", "\r"], ["Escape", "\x1b"]] as const) {
+    test(`${label} releases the quota overlay, veil and editor lock`, async () => {
+      const { shell, tui } = shellWithQuotaResult({
+        type: "success", structured: { manager: "magpie", kept: true, cards: [] },
+      });
+      await (shell as any).openQuotaOverlay();
+      expect(tui.hasOverlay()).toBe(true);
+      expect((shell as any).commandLock.isHeld).toBe(true);
+
+      sendKey(tui, key);
+      expect(tui.hasOverlay()).toBe(false);
+      expect((shell as any).quotaOverlayHandle).toBeUndefined();
+      expect((shell as any).commandLock.isHeld).toBe(false);
+      expect((shell as any).commandBusy).toBe(false);
+      expect((shell as any).editor.disableSubmit).toBe(false);
+      expect((shell as any).statusWrapper.children).toHaveLength(0);
+
+      await (shell as any).openQuotaOverlay();
+      expect((shell as any).commandLock.isHeld).toBe(true);
+      sendKey(tui, key);
+      expect(tui.hasOverlay()).toBe(false);
+      expect((shell as any).commandBusy).toBe(false);
+    });
+  }
+
+  test("failure outcome releases the quota command lock", async () => {
+    const { shell, tui } = shellWithQuotaResult({ type: "failure", reason: "forbidden" });
+    await (shell as any).openQuotaOverlay();
+    expect(tui.hasOverlay()).toBe(false);
+    expect((shell as any).commandLock.isHeld).toBe(false);
+    expect((shell as any).editor.disableSubmit).toBe(false);
+  });
+
+  test("shutdown dismisses an open quota overlay", async () => {
+    const { shell, tui } = shellWithQuotaResult({
+      type: "success", structured: { manager: "magpie", cards: [] },
+    });
+    await (shell as any).openQuotaOverlay();
+    await shell.shutdown();
+    expect(tui.hasOverlay()).toBe(false);
+    expect((shell as any).commandLock.isHeld).toBe(false);
+  });
+});
+
 describe("handleInput key-release filtering", () => {
   // Kitty-protocol terminals report event types, so one physical keypress
   // arrives as a press sequence plus a release sequence (~0ms apart). The
