@@ -5,18 +5,19 @@
 import { performance } from "node:perf_hooks";
 import { Container } from "@earendil-works/pi-tui";
 import { VirtualTranscriptDocument } from "./virtual-document.ts";
-import { TranscriptSearchIndex } from "./search-index.ts";
+import { TranscriptSearchIndex, type SearchableComponent } from "./search-index.ts";
 
 const messages = 10_000;
 let paintCount = 0;
 const source = new Container();
 for(let index=0;index<messages;index++){
   const label = `message ${index} · stable content in Cetas session`;
-  source.addChild({
+  const item: SearchableComponent = {
     getSearchText:()=>label,
     render:(_width:number)=>{paintCount++;return [label];},
     invalidate(){},
-  });
+  };
+  source.addChild(item);
 }
 let top=0;
 const document=new VirtualTranscriptDocument(source,()=>100,()=>30,()=>({top,followEnd:false}));
