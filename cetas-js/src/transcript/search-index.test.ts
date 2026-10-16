@@ -41,3 +41,21 @@ describe("Gate 5 source-indexed transcript search and copy",()=>{
     expect(()=>transcriptTextRange(blocks,0,2,10)).toThrow(RangeError);
   });
 });
+
+describe("search source from component objects",()=>{
+  test("search uses immutable deferred text and mutable assistant text",async()=>{
+    const { DeferredTranscriptComponent }=await import("./deferred-component.ts");
+    const { AssistantMessage, UserMessage }=await import("./components.ts");
+    let built=0;
+    const lazy=new DeferredTranscriptComponent(()=>{built++;return new AssistantMessage("banana");},"banana asks main");
+    const live=new AssistantMessage("main replies banana",{streaming:true});
+    const user=new UserMessage("汉字 🍌 banana");
+    const index=new TranscriptSearchIndex();
+    expect(index.search([lazy,live,user],"banana").map(hit=>hit.index)).toEqual([0,1,2]);
+    expect(built).toBe(0);
+    live.updateContent("main replies orange");
+    expect(index.search([lazy,live,user],"banana").map(hit=>hit.index)).toEqual([0,2]);
+    expect(transcriptTextRange([lazy,live,user],0,2)).toContain("main replies orange");
+    expect(built).toBe(0);
+  });
+});
