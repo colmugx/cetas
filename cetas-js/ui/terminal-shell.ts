@@ -832,7 +832,7 @@ export class TerminalShell {
     bestEffort(() => this.updateOverlay.hide());
     bestEffort(() => this.providerPickerHandle?.hide());
     bestEffort(() => this.uiRenderHost.dispose());
-    if (this.started) bestEffort(() => this.tui.stop());
+    if (this.started) bestEffort(() => this.tui.stop({ preserveScreen: this.tui instanceof TuiAltScreen }));
     console.error(`cetas: ${reason} — exiting now`);
     this.exit(code);
   }
@@ -872,7 +872,7 @@ export class TerminalShell {
     try {
       this.uiRenderHost.dispose({ requestRender: false });
     } finally {
-      if (this.started && !outputBroken) this.tui.stop();
+      if (this.started && !outputBroken) this.tui.stop({ preserveScreen: this.tui instanceof TuiAltScreen });
     }
   }
 
@@ -913,7 +913,7 @@ export class TerminalShell {
         this.replayedToolRows.clear();
         if (!this.hostFaultStopped) {
           this.uiRenderHost.dispose();
-          if (this.started) this.tui.stop();
+          if (this.started) this.tui.stop({ preserveScreen: this.tui instanceof TuiAltScreen });
         }
         // The graceful drain finished; the force-exit watchdog is no longer
         // wanted (requestShutdown armed it before starting this drain).
@@ -1729,7 +1729,7 @@ export class TerminalShell {
     this.requireApp().setSession(nextSession);
     this.sessionId = nextSession;
     this.transcript.clear();
-    this.virtualTranscript?.reset();
+      this.virtualTranscript?.reset();
     this.welcomeHeader.compact = false;
     this.tui.terminal.clearScreen();
     this.tui.requestRender(true);
@@ -2300,7 +2300,7 @@ export class TerminalShell {
     try {
       await this.requireApp().rewind(this.sessionId, point.messageIndex);
       this.transcript.clear();
-    this.virtualTranscript?.reset();
+      this.virtualTranscript?.reset();
       this.addTranscriptChild(
         systemNotice(
           `rewound to message #${point.messageIndex} — the original prompt is back in the editor`,
@@ -2342,7 +2342,7 @@ export class TerminalShell {
       this.requireApp().setSession(sessionId);
       this.sessionId = sessionId;
       this.transcript.clear();
-    this.virtualTranscript?.reset();
+      this.virtualTranscript?.reset();
       this.welcomeHeader.compact = true;
       for (const component of banner("cetas-js", `resumed session ${sessionId}`)) {
         this.transcript.addChild(component);
