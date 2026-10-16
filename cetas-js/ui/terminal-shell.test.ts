@@ -930,21 +930,30 @@ describe("command status restore on finish", () => {
   });
 });
 
-describe("surfaceHostFault", () => {
-  test("appends the fault notice to the transcript", () => {
-    const { shell } = makeShell();
-    shell.surfaceHostFault("⚠ host fault (unhandled rejection) logged to /tmp/cetas-js-crash.log");
-    const transcript = (shell as any).transcript.render(200).join("\n");
-    expect(transcript).toContain("host fault (unhandled rejection)");
-    expect(transcript).toContain("/tmp/cetas-js-crash.log");
+describe("stopForHostFault", () => {
+  test("stops animation and ignores late callbacks without repainting", async () => {
+    const { shell, tui } = makeShell();
+    let renders = 0;
+    tui.requestRender = () => { renders += 1; };
+    shell.stopForHostFault(true);
+    shell.callbacks.observerCallback(JSON.stringify({ type: "turn_started" }));
+    shell.surfaceNotice("late update");
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(renders).toBe(0);
   });
 
-  test("is a no-op once shutdown has started", async () => {
-    const { shell } = makeShell();
-    await shell.shutdown();
-    const before = (shell as any).transcript.children.length;
-    shell.surfaceHostFault("late fault");
-    expect((shell as any).transcript.children.length).toBe(before);
+  test("a pending graceful drain cannot repaint after fatal teardown", async () => {
+    const { shell, tui } = makeShell();
+    let finish!: () => void;
+    const drain = new Promise<void>((resolve) => { finish = resolve; });
+    shell.attachApplication({ listCommands: () => [], cancelCurrentOperation: () => {}, shutdown: () => drain } as any);
+    const shutdown = shell.shutdown();
+    shell.stopForHostFault(true);
+    let renders = 0;
+    tui.requestRender = () => { renders += 1; };
+    finish();
+    await shutdown;
+    expect(renders).toBe(0);
   });
 });
 

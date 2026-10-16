@@ -379,9 +379,15 @@ export class TerminalShell {
     this.onExit = options.onExit ?? (() => {});
     this.forceExitDelayMs = options.forceExitDelayMs ?? 10_000;
     this.callbacks = {
-      observerCallback: (eventJson) => this.handleObserverEvent(eventJson),
-      renderCallback: (eventJson) => this.handleUiRender(eventJson),
-      requestCallback: (eventJson) => this.handleUiRequest(eventJson),
+      observerCallback: (eventJson) => {
+        if (!this.hostFaultStopped) this.handleObserverEvent(eventJson);
+      },
+      renderCallback: (eventJson) => {
+        if (!this.hostFaultStopped) this.handleUiRender(eventJson);
+      },
+      requestCallback: (eventJson) => this.hostFaultStopped
+        ? Promise.reject(new Error("host stopped after a fatal fault"))
+        : this.handleUiRequest(eventJson),
     };
 
     registerBuiltinToolRenderers();
@@ -600,6 +606,7 @@ export class TerminalShell {
   }
 
   async submit(prompt: string): Promise<void> {
+    if (this.hostFaultStopped) throw new Error("host stopped after a fatal fault");
     if (this.commandBusy) {
       throw new Error("editor submitted while a command is running");
     }
@@ -734,6 +741,7 @@ export class TerminalShell {
    * A shutdown whose promises never settle must still end the process.
    */
   requestShutdown(code = 0): void {
+    if (this.hostFaultStopped) return;
     if (this.shutdownPromise === undefined) {
       this.armForceExitWatchdog(code);
       void this.shutdown().then(
@@ -810,35 +818,19 @@ export class TerminalShell {
     handoff();
   }
 
-  /**
-   * Surface a host-level fault (stray unhandled rejection/exception) in the
-   * transcript. The process-level handlers in host.ts log the full detail to
-   * the crash file; this keeps the session alive and tells the user where to
-   * find it without writing raw console output over the TUI.
-   */
-  surfaceHostFault(message: string): void {
-    if (this.shutdownPromise !== undefined) return;
-    this.addTranscriptChild(errorNotice(message));
-    this.tui.requestRender();
-  }
-
-  /**
-   * Host-fault teardown, driven by the process-level handler in host.ts: a
-   * fault escaping the Agent/tool boundary must not repaint the TUI, so the
-   * shell only stops the render loop and lets the TUI restore the terminal —
-   * raw mode/stdin are restored by the host itself. Runs inside an
-   * uncaughtException handler: synchronous, idempotent, and writes nothing
-   * when the output pipe is already broken. The process exits right after
-   * this returns; nothing here may throw ahead of that exit.
-   */
+  /** Fatal teardown cannot await Agent shutdown or use a broken output pipe. */
   stopForHostFault(outputBroken: boolean): void {
     if (this.hostFaultStopped) return;
     this.hostFaultStopped = true;
-    if (!this.started || outputBroken) return;
+    this.exitDelivered = true;
+    this.pendingUpdateHandoff = undefined;
+    this.clearForceExitWatchdog();
+    this.stopSwarmTicker();
+    this.statusLoader.stop();
     try {
-      this.tui.stop();
-    } catch {
-      // A broken surface must not block the fatal exit that follows.
+      this.uiRenderHost.dispose({ requestRender: false });
+    } finally {
+      if (this.started && !outputBroken) this.tui.stop();
     }
   }
 
@@ -847,7 +839,7 @@ export class TerminalShell {
    * muted styling — never rendered as an error.
    */
   surfaceNotice(message: string): void {
-    if (this.shutdownPromise !== undefined) return;
+    if (this.hostFaultStopped || this.shutdownPromise !== undefined) return;
     this.addTranscriptChild(systemNotice(message));
     this.tui.requestRender();
   }
@@ -874,8 +866,10 @@ export class TerminalShell {
         this.wakeupEnvelopesShown.clear();
         this.agentSwarm.clear();
         this.replayedToolRows.clear();
-        this.uiRenderHost.dispose();
-        if (this.started) this.tui.stop();
+        if (!this.hostFaultStopped) {
+          this.uiRenderHost.dispose();
+          if (this.started) this.tui.stop();
+        }
         // The graceful drain finished; the force-exit watchdog is no longer
         // wanted (requestShutdown armed it before starting this drain).
         this.clearForceExitWatchdog();
@@ -885,6 +879,7 @@ export class TerminalShell {
   }
 
   handleSnapshot(snapshot: AppSnapshot): void {
+    if (this.hostFaultStopped) return;
     this.welcomeSnapshot = snapshot;
     const previousState = this.renderedAppState;
     this.renderedAppState = snapshot.state;
@@ -1428,6 +1423,7 @@ export class TerminalShell {
   }
 
   private handleInput(data: string): { consume?: boolean } | undefined {
+    if (this.hostFaultStopped) return { consume: true };
     // Input listeners receive kitty-protocol release events unfiltered (the
     // TUI drops them only for the focused component), and matchesKey cannot
     // tell press from release — so one physical keypress would run this

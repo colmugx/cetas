@@ -468,11 +468,11 @@ export class UiRenderHost {
     this.rendered.delete(slotKey);
   }
 
-  dispose(): void {
+  dispose(options: { requestRender?: boolean } = {}): void {
     for (const slotKey of [...this.rendered.keys()]) {
       this.unmount(slotKey);
     }
-    this.tui.requestRender();
+    if (options.requestRender !== false) this.tui.requestRender();
   }
 }
 
