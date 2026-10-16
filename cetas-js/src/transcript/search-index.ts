@@ -58,6 +58,7 @@ export class TranscriptSearchIndex {
   /** Search-result navigation is stable within one search snapshot. */
   next(current: number, reverse = false): number {
     if (this.hits.length === 0) return -1;
+    if (current < 0) return reverse ? this.hits.length - 1 : 0;
     return (current + (reverse ? this.hits.length-1 : 1)) % this.hits.length;
   }
 
