@@ -2,6 +2,37 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.10.0 (2026-10-17)
+
+## General
+
+## Bun Ver.（cetas-bun）
+
+### Feats
+- Long sessions stay fast at any size: the transcript is now rendered through a virtual engine, so scrolling, resizing, and modal overlays only process what fits on your screen instead of the whole history — 10k-message sessions scroll smoothly, resume and rewind are instant, streaming Markdown renders incrementally (only the active block re-renders), and leaving the fullscreen view keeps your normal terminal scrollback intact.
+- Search now covers the entire session, including text inside collapsed or off-screen tool results, with wraparound navigation and exact-match highlighting; select text with the mouse across message boundaries and copy exactly what you selected, or copy a message's source text directly.
+- A new responsive two-tier statusbar leads with your model and reasoning effort plus the active model manager, surfaces rate-limit/reset and quota information right after, and keeps git branch and context usage in view — readable at any terminal width and colored from your terminal's own palette.
+- Subagent runs, their pending questions, wakeups, and waiting results now share one compact Live Activities region — when a child agent asks you something, its question appears right there instead of scrolling away in the stream.
+- Cetas now reports its agent state (working, waiting for your answer, waiting for authentication) to compatible terminals, so you can tell the agent is blocked on you without watching the session.
+- New `/manager` command switches between the built-in providers and the Magpie gateway: switching atomically recomposes the agent with rollback on failure, each manager keeps its own model and reasoning-effort selection, and `/status` names the active manager. Magpie setup lives entirely in `/login` — local or remote gateway address typed in plain sight with only the key masked, credentials verified before anything is saved, and the model picker grouped by gateway owner with selectable routing groups.
+- The `/quota` overlay shows each provider's real quota windows — plan, account, balance, per-window usage, pool sharing, unlimited flags, and reset times — and refreshes only on request via `/quota refresh`, with cached readings marked as such instead of posing as live data.
+- Resuming a session restores the model and reasoning effort that produced its last turn, so picking up earlier work no longer silently runs on whatever model happens to be selected.
+- Delegated subagents are manager-aware: the manager's model catalog is loaded at startup, so child agents work immediately after you switch to Magpie.
+
+### Fixes
+- Search no longer skips matches near the transcript ends (wraparound corrected) and highlights only exact visible matches.
+- Your scroll position no longer jumps when earlier messages resize or their heights are re-measured, and copy failures are reported instead of failing silently.
+- Exiting the fullscreen transcript no longer replays the session into your main scrollback.
+- Dismissing the quota overlay releases the input lock, so the UI no longer stays stuck behind a modal veil.
+- Codex WebSocket connections now deliver a usage-limit notice that arrives just before the connection closes as a proper rate-limit message instead of a generic transport error.
+- Shell commands run in their own process group: cancelling a command or quitting kills the whole child tree instead of leaving orphaned background processes, and fatal shell failures surface cleanly instead of hanging the UI.
+- The delegation tool is now offered only when a runnable child runner binary actually exists, so the agent never picks a delegate command that cannot start.
+- Model-manager switching is safe under pressure: turns and commands are blocked during the handoff, gateway configuration is serialized against running turns, concurrent switches are guarded, a failed Magpie setup rolls back completely, and Magpie reconnects correctly after switching managers away and back.
+- Model-group labels supplied by a gateway are sanitized before display.
+- Image attachments now work when the terminal runs through Node (npm install).
+- Local commands like `/quota` and `/status` appear in slash autocomplete again.
+- The autocomplete popup renders above the composer with a background derived from your terminal's actual colors, and extreme terminal widths no longer break redraws.
+
 ## 0.9.1 (2026-10-15)
 
 ## Bun Ver.（cetas-bun）
