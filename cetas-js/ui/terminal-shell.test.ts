@@ -1099,7 +1099,7 @@ describe("core projection events", () => {
     expect(transcript).toContain("[posoco-wakeup tag=build-watch] build failed");
     expect(transcript).not.toContain("posoco.wakeup/wakeup_executing");
     // The ambient header (state-driven, so it restores after rebuilds).
-    const header = (shell as any).wakeupHeader.render(120).join("\n");
+    const header = (shell as any).liveActivities.render(120).join("\n");
     expect(header).toContain("wakeup build-watch · running (environment)");
     // A repeated executing event neither duplicates the notice nor changes state.
     feed(
@@ -1130,7 +1130,7 @@ describe("core projection events", () => {
     );
     const transcript = (shell as any).transcript.render(200).join("\n");
     expect(transcript).not.toContain("posoco.tasks/background_outcome_ready");
-    const header = (shell as any).wakeupHeader.render(120).join("\n");
+    const header = (shell as any).liveActivities.render(120).join("\n");
     expect(header).toContain("⧗ 1 background result pending delivery");
   });
 

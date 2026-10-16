@@ -325,8 +325,20 @@ function renderKeyValueLine(
     const value = raw.startsWith(prefix) ? raw.slice(prefix.length).trimStart() : raw;
     return `${theme.muted(prefix)} ${style(value)}`;
   });
+  // Keep the extension-owned segment order and color roles, but don't force
+  // the terminal to print an unbounded line when many providers participate.
+  // This component degrades gracefully in very narrow Herdr splits.
   const line = segments.join(theme.muted(" | "));
-  return { component: new Text(line, 1, 0), dispose() {} };
+  const component: Component = {
+    render(width: number): string[] {
+      if (width <= 0 || segments.length === 0) return [];
+      const contentWidth = Math.max(0, width - 2);
+      if (contentWidth === 0) return [""];
+      return [" " + truncateToWidth(line, contentWidth, "")];
+    },
+    invalidate(): void {},
+  };
+  return { component, dispose() {} };
 }
 
 function renderBody(
