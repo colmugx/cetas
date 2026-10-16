@@ -51,11 +51,11 @@ export function dimLine(line: string): string {
 
 /** Renders the visible viewport of the base content, dimmed. */
 class DimVeil implements Component {
-  constructor(private readonly tui: VeilTui) {}
+  constructor(private readonly tui: VeilTui, private readonly snapshot: readonly string[]) {}
 
   render(width: number): string[] {
     const rows = Math.max(1, this.tui.terminal.rows);
-    const base = this.tui.getScreenLines?.() ?? this.tui.render(width);
+    const base = this.snapshot;
     const lines: string[] = [];
     for (let i = Math.max(0, base.length - rows); i < base.length; i++) {
       lines.push(truncateToWidth(dimLine(base[i] ?? ""), width, ""));
@@ -114,7 +114,11 @@ export class ModalVeilHost {
 
   private ensureVeil(): void {
     if (this.veilHandle !== undefined) return;
-    this.veilHandle = this.tui.showOverlay(new DimVeil(this.tui), {
+    // Freeze the screen before compositing any modal; previousScreen otherwise
+    // includes earlier modal frames and causes cumulative ghost images.
+    const frame = this.tui.getScreenLines?.() ?? [];
+    const snapshot = frame.length ? frame : this.tui.render(this.tui.terminal.columns);
+    this.veilHandle = this.tui.showOverlay(new DimVeil(this.tui, [...snapshot]), {
       width: "100%",
       anchor: "top-left",
       margin: 0,
