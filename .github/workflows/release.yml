@@ -77,7 +77,7 @@ jobs:
       - name: moon check
         run: |
           moon update
-          moon check --target native --deny-warn --output-json
+          moon check --deny-warn --output-json
 
       - name: moon test (native)
         run: moon test --target native --output-json
