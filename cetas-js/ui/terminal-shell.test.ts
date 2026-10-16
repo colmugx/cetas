@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { TUI, TuiMainScreen } from "@earendil-works/pi-tui";
 import {
   isAbortError,
+  localSlashAutocompleteItems,
   matchLocalSlash,
   parseCetasEventLenient,
   parsePositionalArgs,
@@ -95,6 +96,29 @@ describe("parsePositionalArgs", () => {
   test("empty input produces an empty args object", () => {
     expect(parsePositionalArgs("")).toBe("{}");
     expect(parsePositionalArgs("   ")).toBe("{}");
+  });
+});
+
+describe("local slash autocomplete", () => {
+  test("every locally routed command is discoverable, including quota and status", () => {
+    const items = localSlashAutocompleteItems();
+    const labels = items.map((item) => item.label);
+    expect(labels).toContain("/quota");
+    expect(labels).toContain("/status");
+    expect(new Set(labels).size).toBe(labels.length);
+    for (const item of items) {
+      expect(matchLocalSlash(item.label)).toBeDefined();
+      expect(item.detail.length).toBeGreaterThan(0);
+      expect(item.insert_text).toBe(item.label);
+    }
+  });
+
+  test("quota refresh is offered without relying on extension commands", () => {
+    const { shell } = makeShell();
+    expect((shell as any).commandArgItems("quota", "re")).toEqual([
+      { label: "refresh", detail: "Refresh Magpie Gateway quota snapshots", insert_text: "/quota refresh" },
+    ]);
+    expect((shell as any).commandArgItems("quota", "unknown")).toEqual([]);
   });
 });
 

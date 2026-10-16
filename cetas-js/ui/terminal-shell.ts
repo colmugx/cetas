@@ -1344,24 +1344,7 @@ export class TerminalShell {
                 prefix.slice(spaceIndex + 1),
               );
             }
-            const local = [
-              ["/new", "Start a new session"],
-              ["/sessions", "Browse and resume past sessions"],
-              ["/rewind", "Rewind to an earlier message of this session"],
-              ["/resume", "Resume this session's interrupted turn"],
-              ["/compact", "Compact this session's context on the server"],
-              ["/model", "Select a model and effort"],
-              ["/manager", "Switch model manager"],
-              ["/skills", "Browse discovered agent skills by scope"],
-              ["/update", "Check for updates and install"],
-              ["/pi", "Manage pi packages (install/remove/list)"],
-              ["/login", "Authenticate with a provider (API key or OAuth)"],
-              ["/exit", "Quit cetas-js"],
-            ].map(([label, detail]) => ({
-              label,
-              detail,
-              insert_text: label,
-            }));
+            const local = localSlashAutocompleteItems();
             // Local entries win over extension commands with the same id
             // (the router also contributes /model and /login); without this
             // filter the dropdown lists those commands twice.
@@ -2453,6 +2436,11 @@ export class TerminalShell {
   ): Array<{ label: string; detail: string; insert_text: string }> {
     if (command === "login") return this.loginArgItems(argPrefix);
     if (command === "pi") return piCommandArgItems(this.piCommands.home, argPrefix);
+    if (command === "quota") {
+      return "refresh".startsWith(argPrefix)
+        ? [{ label: "refresh", detail: "Refresh Magpie Gateway quota snapshots", insert_text: "/quota refresh" }]
+        : [];
+    }
     const descriptor = this.requireApp()
       .listCommands()
       .find(
@@ -2788,25 +2776,40 @@ export function rankFileMentionItems(
 /** A slash command the shell handles locally instead of via extensions. */
 export interface SlashRoute {
   id: string;
+  description: string;
   aliases?: readonly string[];
 }
 
+// One registry drives both command dispatch and slash autocomplete. Local
+// commands must remain discoverable even if no Agent/manager is configured.
 const LOCAL_SLASH_ROUTES: readonly SlashRoute[] = [
-  { id: "new" },
-  { id: "sessions" },
-  { id: "rewind" },
-  { id: "resume" },
-  { id: "exit", aliases: ["quit"] },
-  { id: "compact" },
-  { id: "model" },
-  { id: "manager" },
-  { id: "update" },
-  { id: "skills" },
-  { id: "pi" },
-  { id: "login" },
-  { id: "quota" },
-  { id: "status" },
+  { id: "new", description: "Start a new session" },
+  { id: "sessions", description: "Browse and resume past sessions" },
+  { id: "rewind", description: "Rewind to an earlier message of this session" },
+  { id: "resume", description: "Resume this session's interrupted turn" },
+  { id: "compact", description: "Compact this session's context on the server" },
+  { id: "model", description: "Select a model and effort in the active manager" },
+  { id: "manager", description: "Switch between Providers and Magpie" },
+  { id: "skills", description: "Browse discovered agent skills by scope" },
+  { id: "update", description: "Check for updates and install" },
+  { id: "pi", description: "Manage pi packages (install/remove/list)" },
+  { id: "login", description: "Authenticate with a provider or configure Magpie Gateway" },
+  { id: "quota", description: "Show available quota information for the active manager" },
+  { id: "status", description: "Show Agent, session, model and manager status" },
+  { id: "exit", description: "Quit cetas-js", aliases: ["quit"] },
 ];
+
+export function localSlashAutocompleteItems(): Array<{
+  label: string;
+  detail: string;
+  insert_text: string;
+}> {
+  return LOCAL_SLASH_ROUTES.map(({ id, description }) => ({
+    label: `/${id}`,
+    detail: description,
+    insert_text: `/${id}`,
+  }));
+}
 
 /**
  * Match a parsed command token ("/model") against the local slash routes.
