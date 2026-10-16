@@ -17,6 +17,7 @@ import {
   "colmugx/posoco/types",
   "moonbitlang/async/aqueue",
   "moonbitlang/async/js_async",
+  "posoco/devkit",
   "posoco/ext-llm",
   "posoco/ext-oauth",
 }
@@ -99,6 +100,7 @@ pub impl @posoco-ext-permission.ApprovalSource for BlockingApprovalSource
 pub struct CetasJsAgent {
   agent : @posoco.Agent
   manager : ModelManagerFace
+  manager_bus : @devkit.EventBus
   plan : @posoco-ext-plan.PlanMode
   home : String
   observer : JsCallbackObserver
