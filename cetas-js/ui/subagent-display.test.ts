@@ -37,6 +37,7 @@ function harness(rows = 12) {
     clearScreen: () => {},
     setTitle: () => {},
     setProgress: () => {},
+    setProgramStatus: () => {},
   };
   const tui = new TuiMainScreen(terminal);
   const shell = new TerminalShell({
