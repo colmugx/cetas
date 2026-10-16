@@ -66,16 +66,7 @@ import {
   type CoreCustomParse,
 } from "../src/core-events.ts";
 import type { Channel, PackageManager } from "../src/app/version.ts";
-import {
-  SubagentHeader,
-  projectSubagentHeader,
-  renderSubagentHeader,
-  type SubagentHeaderSource,
-} from "./subagent-header.ts";
-import {
-  WakeupHeader,
-  type WakeupHeaderSource,
-} from "./wakeup-header.ts";
+import { LiveActivitiesHeader, renderLiveActivities, projectLiveActivities, type LiveActivitiesSource } from "./live-activities.ts";
 import {
   errorNotice,
   systemNotice,
@@ -281,8 +272,9 @@ export class TerminalShell {
   private readonly wakeupEnvelopesShown = new Set<string>();
   /** Background activity above the editor, separate from transcript history. */
   private readonly agentSwarm: Container;
-  private readonly wakeupHeader: WakeupHeader;
-  private readonly subagentHeader: SubagentHeader;
+  private readonly liveActivities: LiveActivitiesHeader;
+  /** Active core decision calls, tracked by stable IDs; bounded, no transcript noise. */
+  private readonly liveDecisions = new Set<string>();
   private readonly askRegion: Container;
   private swarmLines: string[] = [];
   private readonly uiRenderHost: UiRenderHost;
@@ -427,10 +419,8 @@ export class TerminalShell {
     this.setupStatus = new Container();
     this.extensionStatus = new Container();
     this.agentSwarm = new Container();
-    this.wakeupHeader = new WakeupHeader(() => this.wakeupHeaderSource());
-    this.subagentHeader = new SubagentHeader(() => this.subagentHeaderSource());
-    this.agentSwarm.addChild(this.wakeupHeader);
-    this.agentSwarm.addChild(this.subagentHeader);
+    this.liveActivities = new LiveActivitiesHeader(() => this.liveActivitiesSource());
+    this.agentSwarm.addChild(this.liveActivities);
     const statusRegion = new Container();
     statusRegion.addChild(this.statusWrapper);
     statusRegion.addChild(this.agentSwarm);
@@ -878,6 +868,7 @@ export class TerminalShell {
         this.statusLoader.stop();
         this.subagents.clear();
         this.wakeups.clear();
+        this.liveDecisions.clear();
         this.wakeupEnvelopesShown.clear();
         this.agentSwarm.clear();
         this.replayedToolRows.clear();
@@ -1179,7 +1170,7 @@ export class TerminalShell {
             ),
           );
         }
-        this.tui.requestRender();
+        this.refreshSwarmLine();
         return;
       }
       case "task":
@@ -1187,24 +1178,30 @@ export class TerminalShell {
         // the shell's current session: a receipt for another session must
         // not leak into this session's waiting count.
         if (this.subagents.noteOutcomeReady(core.event.task_id, core.event.session)) {
-          this.tui.requestRender();
+          this.refreshSwarmLine();
         }
         return;
-      case "decision":
+      case "decision": {
+        if (core.event.label === "started") {
+          // A bounded set prevents stalled observer hooks retaining unbounded
+          // IDs. Completed decisions are removed rather than logged as live.
+          if (this.liveDecisions.size >= 64 && !this.liveDecisions.has(core.event.call_id)) {
+            const oldest = this.liveDecisions.values().next().value;
+            if (oldest !== undefined) this.liveDecisions.delete(oldest);
+          }
+          this.liveDecisions.add(core.event.call_id);
+        } else {
+          this.liveDecisions.delete(core.event.call_id);
+        }
+        this.refreshSwarmLine();
         if (core.event.label === "failed") {
           this.addTranscriptChild(
             errorNotice(`⚠ decision failed (${decisionFailureDiagnostic(core.event)})`),
           );
         }
         return;
+      }
     }
-  }
-
-  private wakeupHeaderSource(): WakeupHeaderSource | undefined {
-    const executing = this.wakeups.executing(this.sessionId);
-    const resultsWaiting = this.subagents.resultsWaiting(this.sessionId);
-    if (executing.length === 0 && resultsWaiting === 0) return undefined;
-    return { executing, resultsWaiting };
   }
 
   private handleSubagentEvent(ev: CetasEvent & { type: "subagent_event" }): void {
@@ -1240,25 +1237,29 @@ export class TerminalShell {
     this.swarmTicker = undefined;
   }
 
-  private subagentHeaderSource(): SubagentHeaderSource {
-    const records = this.subagents.runningBackground(this.sessionId);
-    if (records.length === 0) return { records, now: Date.now() };
+  private liveActivitiesSource(): LiveActivitiesSource {
+    const records = this.subagents.running(this.sessionId);
+    const wakeups = this.wakeups.executing(this.sessionId);
+    const resultsWaiting = this.subagents.resultsWaiting(this.sessionId);
     const width = this.tui.terminal.columns;
+    // The expensive chrome height estimation is unnecessary when the live
+    // window is empty. Both statusbar and editor retain their existing layout.
+    if (records.length === 0 && wakeups.length === 0 && resultsWaiting === 0 && this.liveDecisions.size === 0) {
+      return { records, wakeups, resultsWaiting, activeDecisions: 0, now: Date.now() };
+    }
     const chrome = [
       this.statusWrapper, this.setupStatus, this.extensionStatus,
       this.extensionWidgets, this.askRegion, this.editor, this.statusBarMount,
     ];
     return {
-      records,
-      now: Date.now(),
-      height: this.tui.terminal.rows,
+      records, wakeups, resultsWaiting, activeDecisions: this.liveDecisions.size,
+      now: Date.now(), height: this.tui.terminal.rows,
       bottomReserve: 4 + chrome.reduce((rows, component) => rows + component.render(width).length, 0),
     };
   }
 
   private refreshSwarmLine(): void {
-    const source = this.subagentHeaderSource();
-    const lines = renderSubagentHeader(projectSubagentHeader(source.records, source), this.tui.terminal.columns);
+    const lines = renderLiveActivities(projectLiveActivities(this.liveActivitiesSource()), this.tui.terminal.columns);
     if (lines.length === this.swarmLines.length && lines.every((line, i) => line === this.swarmLines[i])) return;
     this.swarmLines = lines;
     this.tui.requestRender();
@@ -1266,6 +1267,7 @@ export class TerminalShell {
 
   private refreshSessionSubagents(): void {
     this.replayedToolRows.clear();
+    this.liveDecisions.clear();
     this.refreshSwarmLine();
     this.ensureSwarmTicker();
   }
