@@ -602,7 +602,7 @@ impl @posoco.Lifecycle for MagpieChildModel with fn on_shutdown(
 ///|
 /// Adapter-owned interactive model-command translation. The business bridge
 /// sees only an optional CommandOutcome, never a concrete manager.
-fn ModelManagerFace::manager_intercept_model_command(
+async fn ModelManagerFace::manager_intercept_model_command(
   self : ModelManagerFace,
   agent : @posoco.Agent,
   id : String,
