@@ -2472,7 +2472,7 @@ export class TerminalShell {
             if (outcome !== undefined && outcome.content !== "") row.setResult(outcome.content, outcome.isError, undefined);
             toolComponents.set(item.toolCallId, row);
             return row;
-          }, [item.toolName, JSON.stringify(item.args ?? ""), state.content].join("\n"));
+          }, () => [item.toolName, JSON.stringify(item.args ?? ""), state.content].join("\n"));
           result.push(deferred);
           break;
         }
