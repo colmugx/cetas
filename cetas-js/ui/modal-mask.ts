@@ -25,6 +25,7 @@ import { truncateToWidth } from "@earendil-works/pi-tui";
  */
 export interface VeilTui {
   render(width: number): string[];
+  getScreenLines?(): string[];
   readonly terminal: { readonly rows: number; readonly columns: number };
   showOverlay(component: Component, options?: OverlayOptions): OverlayHandle;
   requestRender(): void;
@@ -54,7 +55,7 @@ class DimVeil implements Component {
 
   render(width: number): string[] {
     const rows = Math.max(1, this.tui.terminal.rows);
-    const base = this.tui.render(width);
+    const base = this.tui.getScreenLines?.() ?? this.tui.render(width);
     const lines: string[] = [];
     for (let i = Math.max(0, base.length - rows); i < base.length; i++) {
       lines.push(truncateToWidth(dimLine(base[i] ?? ""), width, ""));
