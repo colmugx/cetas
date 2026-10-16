@@ -139,7 +139,18 @@ export class VirtualTranscriptDocument implements Component {
 
   private prepare(width: number): void {
     const safeWidth = Math.max(1, Math.floor(width));
+    const previousScroll = this.getScroll();
+    const widthChanged = this.width !== -1 && this.width !== safeWidth;
+    const previousIndex = !previousScroll.followEnd && widthChanged
+      ? this.heights.rowToIndex(Math.max(0, previousScroll.top)) : -1;
+    const previousOffset = previousIndex >= 0 && previousIndex < this.heights.size
+      ? previousScroll.top - this.heights.prefix(previousIndex) : 0;
     this.reconcile(safeWidth);
+    if (previousIndex >= 0 && previousIndex < this.heights.size) {
+      const correctedTop = this.heights.prefix(previousIndex) +
+        Math.min(previousOffset, this.heights.heightAt(previousIndex) - 1);
+      if (correctedTop !== previousScroll.top) this.navigate?.(correctedTop);
+    }
     const viewport = Math.max(1, Math.floor(this.getViewport()));
     const scrolled = this.getScroll();
     const top = scrolled.followEnd

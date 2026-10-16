@@ -474,7 +474,8 @@ export class TerminalShell {
           this.addTranscriptChild(systemNotice("Clipboard writing is unavailable on this platform"));
           return;
         }
-        await clipboard.setText(text);
+        try { await clipboard.setText(text); }
+        catch (error) { this.addTranscriptChild(errorNotice(`Clipboard copy failed: ${String(error)}`)); }
       });
       const root = new VStack([
         { component: this.welcomeHeader, basis: "auto", shrink: 1 },
