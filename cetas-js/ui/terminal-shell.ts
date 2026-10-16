@@ -88,7 +88,7 @@ import {
   createUiRequestCallback,
   isPlanReviewRequest,
 } from "./extension-ui.ts";
-import { CommandLock } from "./command-lock.ts";
+import { CommandLock, type CommandLease } from "./command-lock.ts";
 import { banner } from "./primitives.ts";
 import {
   formatPickCandidateNotices,
@@ -1765,7 +1765,7 @@ export class TerminalShell {
         return;
       }
       if (rawArgs.trim() === "quick-pick") {
-        await this.openQuickModelPicker();
+        await this.openModelPicker("quota");
         return;
       }
       await this.invokeCommand("/model", rawArgs);
@@ -2048,72 +2048,43 @@ export class TerminalShell {
     ));
   }
 
-  private async openModelPicker(): Promise<void> {
+  private async openModelPicker(mode: "tabs" | "quota" = "tabs"): Promise<void> {
     if (this.commandBusy) {
       this.addTranscriptChild(errorNotice("/model cannot run while another command is active"));
       return;
     }
-    this.commandLock.acquire("loading model catalog");
+    const lease = this.commandLock.lease("loading model catalog");
+    let handedOff = false;
     try {
+      const args = mode === "quota" ? { slot: "quick-pick" } : {};
       const outcome = parseModelPickerOutcome(
-        await this.requireApp().invokeCommand("model", "{}"),
+        await this.requireApp().invokeCommand("model", JSON.stringify(args)),
       );
       if (outcome.type !== "success") {
         this.renderOutcome(outcome, "/model");
-        this.commandLock.release();
         return;
       }
       if (outcome.entries.length === 0) {
         this.addTranscriptChild(errorNotice("/model: provider returned an empty model catalog"));
-        this.commandLock.release();
         return;
       }
       this.modelPicker.open(
         outcome.entries,
-        (selection) => void this.applyModelSelection(selection),
-        () => this.commandLock.release(),
+        (selection) => void this.applyModelSelection(selection, lease),
+        () => lease.release(),
+        undefined,
+        mode,
       );
+      // The picker now owns the lease until selection completes or it is cancelled.
+      handedOff = true;
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice(`/model failed: ${errorMessage(error)}`));
-      this.commandLock.release();
+    } finally {
+      if (!handedOff) lease.release();
     }
   }
 
-  /** /model quick-pick — tabbed picker in quota mode; the catalog carries provider quota readings. */
-  private async openQuickModelPicker(): Promise<void> {
-    if (this.commandBusy) {
-      this.addTranscriptChild(errorNotice("/model cannot run while another command is active"));
-      return;
-    }
-    this.commandLock.acquire("loading model catalog");
-    try {
-      const outcome = parseModelPickerOutcome(
-        await this.requireApp().invokeCommand("model", JSON.stringify({ slot: "quick-pick" })),
-      );
-      if (outcome.type !== "success") {
-        this.renderOutcome(outcome, "/model");
-        this.commandLock.release();
-        return;
-      }
-      if (outcome.entries.length === 0) {
-        this.addTranscriptChild(errorNotice("/model quick-pick: provider returned an empty model catalog"));
-        this.commandLock.release();
-        return;
-      }
-      this.modelPicker.open(
-        outcome.entries,
-        (selection) => void this.applyModelSelection(selection),
-        () => this.commandLock.release(),
-        undefined,
-        "quota",
-      );
-    } catch (error: unknown) {
-      this.addTranscriptChild(errorNotice(`/model quick-pick failed: ${errorMessage(error)}`));
-      this.commandLock.release();
-    }
-  }
-
-  private async applyModelSelection(selection: ModelSelection): Promise<void> {
+  private async applyModelSelection(selection: ModelSelection, lease: CommandLease): Promise<void> {
     this.setCommandStatus(`switching to ${selection.slot}`);
     try {
       const args = {
@@ -2126,7 +2097,7 @@ export class TerminalShell {
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice(`/model failed: ${errorMessage(error)}`));
     } finally {
-      this.commandLock.release();
+      lease.release();
     }
   }
 

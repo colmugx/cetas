@@ -23,12 +23,12 @@ import {
   type OperationLease,
 } from "./operation-coordinator.ts";
 import {
-  parseCoreCustom,
   type CoreOperationOrigin,
   type CoreOperationSettled,
   type CoreOperationStarted,
 } from "../core-events.ts";
 import { AgentBusyError } from "./agent-busy.ts";
+import { projectObserverEvent } from "./observer-projection.ts";
 
 /**
  * Commands invocable while a turn is running. Membership requires that the
@@ -1887,45 +1887,14 @@ export class CetasApplication<AgentHandle = unknown> {
   }
 
   private handleAgentObserverEvent(eventJson: string): void {
-    let type: unknown;
-    let coreCustom: { source: string; label: string; data: unknown } | undefined;
-    try {
-      const event: unknown = JSON.parse(eventJson);
-      if (typeof event === "object" && event !== null && !Array.isArray(event)) {
-        const record = event as Record<string, unknown>;
-        type = record.type;
-        if (
-          record.type === "custom" &&
-          typeof record.source === "string" &&
-          typeof record.label === "string"
-        ) {
-          coreCustom = {
-            source: record.source,
-            label: record.label,
-            data: record.data,
-          };
-        }
+    const projection = projectObserverEvent(eventJson);
+    const type = projection.type;
+    if (projection.operation !== undefined) {
+      if (projection.operation.phase === "started") {
+        this.projectCoreOperationStarted(projection.operation);
+      } else {
+        this.projectCoreOperationSettled(projection.operation);
       }
-    } catch {
-      // The renderer owns strict event diagnostics. Lifecycle tracking only
-      // classifies known boundaries and forwards all bytes unchanged below.
-    }
-
-    if (coreCustom !== undefined) {
-      const core = parseCoreCustom(
-        coreCustom.source,
-        coreCustom.label,
-        coreCustom.data,
-      );
-      if (core.kind === "operation") {
-        if (core.event.phase === "started") {
-          this.projectCoreOperationStarted(core.event);
-        } else {
-          this.projectCoreOperationSettled(core.event);
-        }
-      }
-      // wakeup/tasks/decision customs are display projections: the observer
-      // callback below forwards them to the renderer unchanged.
     }
 
     // Legacy protocol only (no operation events observed): an idle

@@ -8,8 +8,14 @@
  * so nested acquires make a finally-release safe and double releases
  * (error path + close callback) are harmless.
  */
+/** One invocation's authority to release a lock. Old callbacks cannot release a newer owner. */
+export interface CommandLease {
+  release(): void;
+}
+
 export class CommandLock {
   private held = false;
+  private epoch = 0;
 
   constructor(
     private readonly onAcquire: (label: string) => void,
@@ -21,8 +27,21 @@ export class CommandLock {
   }
 
   acquire(label: string): void {
+    this.epoch += 1;
     this.held = true;
     this.onAcquire(label);
+  }
+
+  /** Strict acquisition for a single command; use its lease in async callbacks. */
+  lease(label: string): CommandLease {
+    if (this.held) throw new Error("a command already owns the lock");
+    this.acquire(label);
+    const owner = this.epoch;
+    return {
+      release: () => {
+        if (this.held && this.epoch === owner) this.release();
+      },
+    };
   }
 
   release(): void {
