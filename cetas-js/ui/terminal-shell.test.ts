@@ -329,6 +329,7 @@ describe("quota overlay cleanup", () => {
     const { shell, tui } = makeShell();
     (shell as any).app = {
       invokeCommand: async () => JSON.stringify(result),
+      cancelCurrentOperation: () => undefined,
       shutdown: async () => undefined,
     };
     return { shell, tui };
