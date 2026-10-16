@@ -66,7 +66,8 @@ import {
   type CoreCustomParse,
 } from "../src/core-events.ts";
 import type { Channel, PackageManager } from "../src/app/version.ts";
-import { LiveActivitiesHeader, renderLiveActivities, projectLiveActivities, type LiveActivitiesSource } from "./live-activities.ts";
+import { LiveActivitiesHeader, renderLiveActivities, projectLiveActivities, type LiveActivitiesSource, type LiveActivityStyle, defaultActivityStyle } from "./live-activities.ts";
+import { createTerminalActivityStyle } from "./terminal-colors.ts";
 import {
   errorNotice,
   systemNotice,
@@ -273,6 +274,7 @@ export class TerminalShell {
   /** Background activity above the editor, separate from transcript history. */
   private readonly agentSwarm: Container;
   private readonly liveActivities: LiveActivitiesHeader;
+  private terminalActivityStyle?: LiveActivityStyle;
   /** Active core decision calls, tracked by stable IDs; bounded, no transcript noise. */
   private readonly liveDecisions = new Set<string>();
   private readonly askRegion: Container;
@@ -419,7 +421,10 @@ export class TerminalShell {
     this.setupStatus = new Container();
     this.extensionStatus = new Container();
     this.agentSwarm = new Container();
-    this.liveActivities = new LiveActivitiesHeader(() => this.liveActivitiesSource());
+    this.liveActivities = new LiveActivitiesHeader(
+      () => this.liveActivitiesSource(),
+      (role, text) => this.terminalActivityStyle?.(role, text) ?? defaultActivityStyle(role, text),
+    );
     this.agentSwarm.addChild(this.liveActivities);
     const statusRegion = new Container();
     statusRegion.addChild(this.statusWrapper);
@@ -567,6 +572,11 @@ export class TerminalShell {
     this.started = true;
     this.commandLock.acquire("starting cetas");
     this.tui.start();
+    // Query OSC 10/11/4 after the TUI has installed its input parser. A
+    // terminal that never responds uses the fixed semantic fallback colors.
+    void this.tui.queryTerminalColors({ timeoutMs: 250, onLateReply: (colors) => this.applyTerminalColors(colors) })
+      .then((colors) => this.applyTerminalColors(colors))
+      .catch(() => {});
     this.publishProgramStatus();
     this.tui.requestRender(true);
     let snapshot: AppSnapshot | undefined;
@@ -1237,6 +1247,12 @@ export class TerminalShell {
     this.swarmTicker = undefined;
   }
 
+  private applyTerminalColors(colors: import("@earendil-works/pi-tui").TerminalColors): void {
+    if (this.hostFaultStopped || this.shutdownPromise !== undefined) return;
+    this.terminalActivityStyle = createTerminalActivityStyle(colors);
+    this.refreshSwarmLine();
+  }
+
   private liveActivitiesSource(): LiveActivitiesSource {
     const records = this.subagents.running(this.sessionId);
     const wakeups = this.wakeups.executing(this.sessionId);
@@ -1259,7 +1275,10 @@ export class TerminalShell {
   }
 
   private refreshSwarmLine(): void {
-    const lines = renderLiveActivities(projectLiveActivities(this.liveActivitiesSource()), this.tui.terminal.columns);
+    const lines = renderLiveActivities(
+      projectLiveActivities(this.liveActivitiesSource()), this.tui.terminal.columns,
+      this.terminalActivityStyle ?? defaultActivityStyle,
+    );
     if (lines.length === this.swarmLines.length && lines.every((line, i) => line === this.swarmLines[i])) return;
     this.swarmLines = lines;
     this.tui.requestRender();
