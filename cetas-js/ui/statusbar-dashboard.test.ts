@@ -83,3 +83,18 @@ describe("fixed semantic statusbar hierarchy", () => {
     expect(text).not.toContain("✔");
   });
 });
+
+
+describe("Magpie current model dashboard", () => {
+  test("uses manager-selected model and persisted effort when ext-statusbar has no model segment", () => {
+    const shown=stripTerminalSequences(renderStatusbarDashboard([{key:"ctx",value:"38%"}],120,
+      {manager:"Magpie",status:"Working",selectedModel:"anthropic/claude-sonnet",selectedEffort:"high"}).join("\n"));
+    expect(shown).toContain("anthropic/claude-sonnet:high · Magpie Working");
+    expect(shown).not.toContain("No model");
+  });
+  test("does not overwrite Posoco publisher's own model field", () => {
+    const shown=stripTerminalSequences(renderStatusbarDashboard(
+      [{key:"model",value:"glm-5.3-flash:max"}],120,{manager:"Posoco",status:"Ready"}).join("\n"));
+    expect(shown).toContain("glm-5.3-flash:max · Posoco Ready");
+  });
+});
