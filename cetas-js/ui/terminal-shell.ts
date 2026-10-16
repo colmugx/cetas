@@ -1042,6 +1042,7 @@ export class TerminalShell {
     const running = this.subagents.running(this.sessionId);
     return {
       branch: this.cachedGitBranch,
+      manager: this.app?.modelManager === "magpie" ? "Magpie" : "Posoco",
       status: this.pendingAuthRequests > 0 ? "Waiting for auth"
         : this.pendingUiRequests > 0 ? "Waiting for reply"
           : this.operationBusy || this.commandBusy || this.renderedAppState === "running" ? "Working"
