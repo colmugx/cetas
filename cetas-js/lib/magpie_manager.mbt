@@ -289,13 +289,16 @@ fn ModelManagerFace::manager_publish_status(
     Magpie(_) => {
       let effort = match selection.effort {
         Some(value) => value
-        None =>
-          match control.list_models().find(fn(info) {
-            info.model_id == selection.model_id
-          }) {
-            Some(info) => info.default_effort.unwrap_or("default")
-            None => "default"
+        None => {
+          let mut selected = "default"
+          for info in control.list_models() {
+            if info.model_id == selection.model_id {
+              selected = info.default_effort.unwrap_or("default")
+              break
+            }
           }
+          selected
+        }
       }
       @devkit.publish_status_register(
         bus,
