@@ -59,9 +59,10 @@ export class AboveAutocompleteEditor extends Editor {
     this.updateParts(width);
     return this.menu.map(line => {
       const reset = "\x1b[0m";
-      const padding = " ".repeat(Math.max(0, width - visibleWidth(line)));
+      const clipped = truncateToWidth(line, width, "");
+      const padding = " ".repeat(Math.max(0, width - visibleWidth(clipped)));
       return this.palette.background + this.palette.foreground +
-        truncateToWidth(line, width, "") + padding + reset;
+        clipped + padding + reset;
     });
   }
 

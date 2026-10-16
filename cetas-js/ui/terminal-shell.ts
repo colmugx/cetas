@@ -455,7 +455,9 @@ export class TerminalShell {
     this.askRegion = new Container();
     if (!(this.tui instanceof TuiAltScreen)) this.tui.addChild(this.askRegion);
 
-    this.editor = new AboveAutocompleteEditor(this.tui, editorTheme);
+    this.editor = this.tui instanceof TuiAltScreen
+      ? new AboveAutocompleteEditor(this.tui, editorTheme)
+      : new Editor(this.tui, editorTheme);
     this.editor.setAutocompleteProvider(this.uiRegistry);
     if (!(this.tui instanceof TuiAltScreen)) this.tui.addChild(this.editor);
     this.tui.setFocus(this.editor);
@@ -1319,7 +1321,7 @@ export class TerminalShell {
   private applyTerminalColors(colors: import("@earendil-works/pi-tui").TerminalColors): void {
     if (this.hostFaultStopped || this.shutdownPromise !== undefined) return;
     this.terminalActivityStyle = createTerminalActivityStyle(colors);
-    (this.editor as AboveAutocompleteEditor).setTerminalColors(colors);
+    if (this.editor instanceof AboveAutocompleteEditor) this.editor.setTerminalColors(colors);
     this.refreshSwarmLine();
   }
 
