@@ -23,6 +23,7 @@ import {
   type Component,
   type EditorTheme,
   type OverlayHandle,
+  type ProgramStatus,
   type SelectListTheme,
 } from "@earendil-works/pi-tui";
 import { isKeyRelease, matchesKey, type KeyId } from "@earendil-works/pi-tui";
@@ -119,6 +120,7 @@ import { UpdateOverlay, type UpdateChoice } from "./update-picker.ts";
 import { runUpdateCheck, updateInstallCommand, updateHandoffCommand } from "../src/app/update-check.ts";
 import { theme } from "./theme.ts";
 import { WelcomeHeader } from "./welcome-header.ts";
+import { projectProgramStatus, classifyRequestStatus } from "./program-status.ts";
 
 const identity = (value: string): string => value;
 
@@ -345,6 +347,11 @@ export class TerminalShell {
   private readonly forceExitDelayMs: number;
   /** Last application state rendered; edge detection only, never authority. */
   private renderedAppState?: AppState;
+  /** Single root OSC 7501 status; never stores prompt or extension content. */
+  private pendingUiRequests = 0;
+  private pendingAuthRequests = 0;
+  private programStatusStopping = false;
+  private lastProgramStatus?: string;
   /**
    * Bridge events the lenient parser skipped since the last turn_started.
    * Grows in-memory across skips within one turn window.
@@ -387,7 +394,7 @@ export class TerminalShell {
       },
       requestCallback: (eventJson) => this.hostFaultStopped
         ? Promise.reject(new Error("host stopped after a fatal fault"))
-        : this.handleUiRequest(eventJson),
+        : this.handleUiRequestWithStatus(eventJson),
     };
 
     registerBuiltinToolRenderers();
@@ -482,6 +489,7 @@ export class TerminalShell {
         this.commandBusy = true;
         this.editor.disableSubmit = true;
         if (label.length > 0) this.setCommandStatus(label);
+        this.publishProgramStatus();
       },
       () => this.finishCommand(),
     );
@@ -569,6 +577,7 @@ export class TerminalShell {
     this.started = true;
     this.commandLock.acquire("starting cetas");
     this.tui.start();
+    this.publishProgramStatus();
     this.tui.requestRender(true);
     let snapshot: AppSnapshot | undefined;
     try {
@@ -773,6 +782,8 @@ export class TerminalShell {
 
   /** Best-effort teardown followed by the exit hook; runs at most once. */
   private forceExit(code: number, reason: string): void {
+    this.programStatusStopping = true;
+    this.publishProgramStatus();
     this.clearForceExitWatchdog();
     if (this.exitDelivered) return;
     this.exitDelivered = true;
@@ -821,6 +832,8 @@ export class TerminalShell {
   /** Fatal teardown cannot await Agent shutdown or use a broken output pipe. */
   stopForHostFault(outputBroken: boolean): void {
     if (this.hostFaultStopped) return;
+    this.programStatusStopping = true;
+    if (!outputBroken) this.publishProgramStatus();
     this.hostFaultStopped = true;
     this.exitDelivered = true;
     this.pendingUpdateHandoff = undefined;
@@ -846,6 +859,8 @@ export class TerminalShell {
 
   async shutdown(): Promise<void> {
     if (this.shutdownPromise !== undefined) return this.shutdownPromise;
+    this.programStatusStopping = true;
+    this.publishProgramStatus();
     this.shutdownPromise = (async () => {
       this.uiRequestBar.cancel();
       this.modelPicker.hide();
@@ -915,6 +930,7 @@ export class TerminalShell {
     // Extension command shortcuts only exist after app.start() composed the
     // agent — attachApplication ran too early to see them.
     if (snapshot.state === "ready") this.refreshCommandShortcuts();
+    this.publishProgramStatus();
     this.tui.requestRender();
   }
 
@@ -931,6 +947,53 @@ export class TerminalShell {
         keyId: descriptor.shortcut as KeyId,
         command: `/${descriptor.id}`,
       }));
+  }
+
+  /**
+   * Report one coarse, terminal-owned application status through OSC 7501.
+   * The full Subagent/Wakeup/observer state remains in Cetas' own Header.
+   * ProcessTerminal negotiates support, so this is a no-op in unsupported PTYs.
+   * Test/embedder terminals may not implement the new optional capability.
+   */
+  private publishProgramStatus(): void {
+    const terminal = this.tui.terminal;
+    if (typeof terminal.setProgramStatus !== "function") return;
+    const status: ProgramStatus = projectProgramStatus({
+      appState: this.renderedAppState,
+      operationBusy: this.operationBusy,
+      commandBusy: this.commandBusy,
+      turnActive: this.turnStatusMessage !== undefined,
+      pendingQuestions: this.pendingUiRequests,
+      pendingAuth: this.pendingAuthRequests,
+      stopping: this.programStatusStopping || this.hostFaultStopped,
+    });
+    const key = JSON.stringify(status);
+    if (key === this.lastProgramStatus) return;
+    // Diagnostic output must never make an otherwise healthy Agent fail.
+    try {
+      terminal.setProgramStatus(status);
+      this.lastProgramStatus = key;
+    } catch {
+      // Broken/partial terminals are outside the Agent's failure domain.
+    }
+  }
+
+  private handleUiRequestWithStatus(eventJson: string): Promise<string> {
+    const kind = classifyRequestStatus(eventJson);
+    this.pendingUiRequests += 1;
+    if (kind === "auth") this.pendingAuthRequests += 1;
+    this.publishProgramStatus();
+    let result: Promise<string>;
+    try {
+      result = this.handleUiRequest(eventJson);
+    } catch (error: unknown) {
+      result = Promise.reject(error);
+    }
+    return Promise.resolve(result).finally(() => {
+      this.pendingUiRequests -= 1;
+      if (kind === "auth") this.pendingAuthRequests -= 1;
+      this.publishProgramStatus();
+    });
   }
 
   private get operationBusy(): boolean {
@@ -981,10 +1044,12 @@ export class TerminalShell {
       this.statusWrapper.clear();
       this.statusWrapper.addChild(this.statusLoader);
     }
+    this.publishProgramStatus();
     this.tui.requestRender();
   }
 
   private setCommandStatus(message: string): void {
+    this.publishProgramStatus();
     this.statusLoader.setMessage(message);
     this.statusLoader.start();
     this.statusWrapper.clear();
@@ -993,6 +1058,7 @@ export class TerminalShell {
   }
 
   private clearCommandStatus(): void {
+    this.publishProgramStatus();
     // The command is over; its label must not outlive it. While an operation
     // is still running, the shared spinner returns to the turn's status; only
     // a settled app clears the line entirely.
