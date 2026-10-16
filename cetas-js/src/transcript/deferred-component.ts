@@ -9,7 +9,7 @@ import type { SearchableComponent } from "./search-index.ts";
 export class DeferredTranscriptComponent implements SearchableComponent {
   private delegate?: Component;
 
-  constructor(private readonly build: () => Component, private readonly sourceText = "") {}
+  constructor(private readonly build: () => Component, private readonly sourceText: string | (() => string) = "") {}
 
   render(width: number): string[] {
     this.delegate ??= this.build();
@@ -20,7 +20,7 @@ export class DeferredTranscriptComponent implements SearchableComponent {
     this.delegate?.invalidate();
   }
 
-  getSearchText(): string { return this.sourceText; }
+  getSearchText(): string { return typeof this.sourceText === "function" ? this.sourceText() : this.sourceText; }
 
   /** No materialized markup outside the viewport until first visible. */
   get isMaterialized(): boolean {
