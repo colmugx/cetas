@@ -4,7 +4,7 @@
  * The extension supplies semantic fields; this module owns placement, width
  * and hierarchy. No config, color theme or second source of provider metrics.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { roleStyle, theme } from "./theme.ts";
@@ -122,10 +122,12 @@ export function readWorkspaceGitBranch(cwd: string): string | undefined {
     for (let depth = 0; depth < 20; depth++) {
       const git = join(dir, ".git");
       if (existsSync(git)) {
-        const content = readFileSync(git, "utf8").trim();
-        const gitDir = content.startsWith("gitdir: ")
-          ? (isAbsolute(content.slice(8)) ? content.slice(8) : resolve(dir, content.slice(8)))
-          : git;
+        const gitDir = statSync(git).isDirectory() ? git : (() => {
+          const content = readFileSync(git, "utf8").trim();
+          if (!content.startsWith("gitdir: ")) throw new Error("invalid git worktree pointer");
+          const target = content.slice(8);
+          return isAbsolute(target) ? target : resolve(dir, target);
+        })();
         const head = readFileSync(join(gitDir, "HEAD"), "utf8").trim();
         return head.startsWith("ref: refs/heads/") ? clean(head.slice(16)) :
           /^[0-9a-f]{40,64}$/i.test(head) ? head.slice(0, 8) : undefined;
