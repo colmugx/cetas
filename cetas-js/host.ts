@@ -14,7 +14,8 @@ import { appendFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { ProcessTerminal, TuiMainScreen } from "@earendil-works/pi-tui";
+import { ProcessTerminal } from "@earendil-works/pi-tui";
+import { CetasTuiMainScreen } from "./ui/safe-main-screen.ts";
 import * as moonbit from "mbt:colmugx/cetas-js/lib";
 
 import { buildCetasHostConfig, CetasApplication } from "./src/app/index.ts";
@@ -98,7 +99,7 @@ async function main(): Promise<void> {
       toolLabels.set(name, ext);
     }
   };
-  const tui = new TuiMainScreen(new ProcessTerminal());
+  const tui = new CetasTuiMainScreen(new ProcessTerminal());
   const shell = new TerminalShell({
     tui,
     cwd: config.cwd,

@@ -607,7 +607,13 @@ class AskPanel implements Component {
   }
 
   render(width: number): string[] {
+    // Any slot may be only one or two columns wide in a split pane. The
+    // footer, option count and collapsed-preview label are raw strings, not
+    // pi-tui Text components, so they need the same display-column contract.
+    if (width <= 0) return [];
     this.lastWidth = width;
+    const fit = (lines: string[]): string[] =>
+      lines.map((line) => truncateToWidth(line, width, ""));
     const lines: string[] = [];
     // The head question is bold and word-wrapped; detail lines wrap instead
     // of truncating — an ask must never silently hide its own content.
@@ -631,7 +637,7 @@ class AskPanel implements Component {
       }
       lines.push(...this.input.render(width));
       lines.push(theme.muted(" ⏎ submit · esc cancel"));
-      return lines;
+      return fit(lines);
     }
     const buttonRow = this.renderButtonRow(width);
     if (buttonRow !== undefined) {
@@ -669,7 +675,7 @@ class AskPanel implements Component {
         ? ` ←→ choose · ⏎ confirm · esc cancel${expandHint}`
         : ` ↑↓ choose · ⏎ confirm · esc cancel${expandHint}`,
     ));
-    return lines;
+    return fit(lines);
   }
 
   handleInput(data: string): void {
