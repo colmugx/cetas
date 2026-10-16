@@ -112,6 +112,7 @@ import { UpdateOverlay, type UpdateChoice } from "./update-picker.ts";
 import { runUpdateCheck, updateInstallCommand, updateHandoffCommand } from "../src/app/update-check.ts";
 import { theme } from "./theme.ts";
 import { WelcomeHeader } from "./welcome-header.ts";
+import { readWorkspaceGitBranch, type StatusbarDashboardContext } from "./statusbar-dashboard.ts";
 import { projectProgramStatus, classifyRequestStatus } from "./program-status.ts";
 
 const identity = (value: string): string => value;
@@ -265,6 +266,8 @@ export class TerminalShell {
   private readonly extensionWidgets: Container;
   private readonly editor: Editor;
   private readonly statusBarMount: Container;
+  private lastBranchCheck = 0;
+  private cachedGitBranch?: string;
   private readonly router: EventRouter;
   private readonly subagents = new SubagentActivityStore();
   /** Folded `posoco.wakeup` projection for the ambient header. */
@@ -460,7 +463,11 @@ export class TerminalShell {
         widget: this.extensionWidgets,
       },
       {
-        "status:statusbar": { mount: this.statusBarMount, format: "line" },
+        "status:statusbar": {
+          mount: this.statusBarMount,
+          format: "dashboard",
+          dashboardContext: () => this.statusbarDashboardContext(),
+        },
       },
     );
     this.uiRequestBar = new UiRequestBar(this.tui, this.askRegion, () => {
@@ -995,6 +1002,26 @@ export class TerminalShell {
       if (kind === "auth") this.pendingAuthRequests -= 1;
       this.publishProgramStatus();
     });
+  }
+
+  /** Reuse the extension-provided metrics; host owns visual hierarchy. */
+  private statusbarDashboardContext(): StatusbarDashboardContext {
+    // Git HEAD is read only at a low cadence, never for every stream token.
+    const now = Date.now();
+    if (now - this.lastBranchCheck >= 5_000 || this.lastBranchCheck === 0) {
+      this.cachedGitBranch = readWorkspaceGitBranch(this.cwd);
+      this.lastBranchCheck = now || 1;
+    }
+    const running = this.subagents.running(this.sessionId);
+    return {
+      branch: this.cachedGitBranch,
+      status: this.pendingAuthRequests > 0 ? "Waiting for auth"
+        : this.pendingUiRequests > 0 ? "Waiting for reply"
+          : this.operationBusy || this.commandBusy || this.renderedAppState === "running" ? "Working"
+            : this.renderedAppState === "needs_setup" ? "Setup required" : "Ready",
+      activeAgents: running.length,
+      awaitingReplies: running.filter((agent) => agent.question !== undefined).length + this.pendingUiRequests,
+    };
   }
 
   private get operationBusy(): boolean {
