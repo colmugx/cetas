@@ -1,0 +1,45 @@
+import { describe, expect, test } from "bun:test";
+import { Container, type Component } from "@earendil-works/pi-tui";
+import { VirtualTranscriptDocument } from "./virtual-document.ts";
+
+describe("Gate 2 logical-height virtual layout", () => {
+  test("ten thousand messages only render a bounded visible window", () => {
+    const source = new Container();
+    let rendered = 0;
+    for(let i=0;i<10000;i++) {
+      const component: Component = {render:() => {rendered++;return [String(i)];},invalidate(){}};
+      source.addChild(component);
+    }
+    const document = new VirtualTranscriptDocument(source,()=>80,()=>24,()=>({top:0,followEnd:true}));
+    const layout = (document as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    expect(layout.entries).toHaveLength(3);
+    expect(layout.entries.reduce((n:number,e:{basis:number})=>n+e.basis,0)).toBe(document.stats.logicalRows);
+    expect(document.stats.totalItems).toBe(10000);
+    expect(document.stats.mountedItems).toBeLessThan(35);
+    expect(rendered).toBeLessThan(35);
+    expect(document.render(80)).toHaveLength(document.stats.renderedLines);
+    expect(document.render(80).length).toBeLessThan(35);
+  });
+  test("scroll follows a stable logical row, resize invalidates heights", () => {
+    const source=new Container();
+    let width=80,top=70, followEnd=false;
+    for(let i=0;i<100;i++) source.addChild({
+      render: (w:number)=>Array.from({length:w<50?4:2},()=>String(i)),
+      invalidate(){},
+    });
+    const document=new VirtualTranscriptDocument(source,()=>width,()=>12,()=>({top,followEnd}));
+    (document as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    expect(document.stats.mountedItems).toBeLessThan(20);
+    expect(document.stats.logicalRows).toBeGreaterThan(100);
+    top=120;width=40;
+    (document as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    expect(document.stats.mountedItems).toBeLessThan(20);
+    followEnd=true;
+    (document as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    expect(document.stats.endExclusive).toBe(100);
+    source.clear();
+    document.reset();
+    (document as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    expect(document.stats.logicalRows).toBe(0);
+  });
+});
