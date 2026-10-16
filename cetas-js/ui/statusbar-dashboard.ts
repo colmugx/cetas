@@ -16,6 +16,7 @@ export interface StatusbarEntry {
 }
 export interface StatusbarDashboardContext {
   readonly branch?: string;
+  readonly manager?: "Posoco" | "Magpie";
   readonly status?: string;
   readonly activeAgents?: number;
   readonly awaitingReplies?: number;
@@ -76,43 +77,56 @@ function wrapFields(fields: readonly string[], width: number, maxRows: number): 
 }
 
 /**
- * Row 1: brand · model · branch, with context aligned right when possible.
- * Row 2+: live status, agent summary, and provider metrics wrapped by field.
+ * Statusbar contract:
+ * primary = selected model:effort · manager status; right = context.
+ * important notices (rate limit and Reset), quota and then diagnostics follow.
+ * Never invent connectivity or reset state. Unknown extension metrics remain
+ * available in the wrapped secondary rows, with an overflow indicator.
  */
 export function renderStatusbarDashboard(
   entries: readonly StatusbarEntry[], width: number,
   context: StatusbarDashboardContext = {},
 ): string[] {
-  if (width <= 0 || entries.length === 0) return [];
-  const get = (name: string) => entries.find((e) => e.key.toLowerCase() === name);
+  if (width <= 0) return [];
+  const get = (name: string) => entries.find(e => e.key.toLowerCase() === name);
   const model = get("model");
   const ctx = get("ctx");
-  const brand = theme.bold("cetas");
-  const sep = theme.muted(" │ ");
-  const head = [brand, model ? segment(model, false, true) : undefined,
-    context.branch ? theme.muted("⑂ ") + clean(context.branch) : undefined]
-    .filter((v): v is string => v !== undefined).join(sep);
+  const modelValue = model ? segment(model, false, true) : theme.muted("No model");
+  const manager = theme.muted(context.manager ?? "Posoco");
+  const statusText = clean(context.status ?? "Ready");
+  const status = /waiting|rate.limit|error|failed|setup/i.test(statusText)
+    ? theme.warning(statusText) : theme.accent(statusText);
+  const sep = theme.muted(" · ");
+  const header = " " + modelValue + sep + manager + " " + status;
   const contextValue = ctx ? segment(ctx, true) : "";
-  const leading = " " + head;
-  let first: string;
   let postponeCtx = false;
-  if (contextValue && width >= 50 &&
-      visibleWidth(leading) + visibleWidth(contextValue) + 2 <= width) {
-    first = putRow(leading, contextValue, width);
-  } else {
-    first = truncateToWidth(leading, width, "…");
-    postponeCtx = Boolean(contextValue);
-  }
-  const status = clean(context.status ?? "Ready");
+  const first = contextValue && width >= 55 &&
+    visibleWidth(header) + visibleWidth(contextValue) + 2 <= width
+      ? putRow(header, contextValue, width)
+      : (postponeCtx = Boolean(contextValue), truncateToWidth(header, width, "…"));
+
+  const remaining = entries.filter(e => e !== model && e !== ctx &&
+    !["manager","router","status"].includes(e.key.toLowerCase()));
+  const isUrgent = (e: StatusbarEntry) =>
+    /reset|rate.?limit|retry|resume|backoff/i.test(e.key);
+  const isQuota = (e: StatusbarEntry) =>
+    /^(5h|7d|quota|time_limit|remaining|usage)$/i.test(e.key);
+  const format = (e: StatusbarEntry): string =>
+    /reset/i.test(e.key) ? theme.warning("Reset ") + segment(e, false)
+      : segment(e);
+  const urgent = remaining.filter(isUrgent).map(format);
+  const quota = remaining.filter(e => !isUrgent(e) && isQuota(e)).map(format);
+  const diagnostics = remaining.filter(e => !isUrgent(e) && !isQuota(e)).map(format);
   const activity = context.activeAgents || context.awaitingReplies
     ? `${context.activeAgents ?? 0} agent${context.activeAgents === 1 ? "" : "s"}` +
       (context.awaitingReplies ? ` · ${context.awaitingReplies} awaiting reply` : "")
     : "";
-  const misc = entries.filter((e) => e !== model && e !== ctx).map((e) => segment(e));
-  const fields = [theme.accent(status), ...(activity ? [theme.muted(activity)] : []),
-    ...(postponeCtx ? [contextValue] : []), ...misc];
-  const rowBudget = width < 28 ? 6 : width < 70 ? 5 : 4;
-  return [first, ...wrapFields(fields, width - 1, rowBudget).map((r) => " " + r)];
+  const detail = [...urgent, ...quota, ...(activity ? [theme.muted(activity)] : []),
+    ...(postponeCtx ? [contextValue] : []), ...diagnostics,
+    ...(context.branch ? [theme.muted("⑂ ") + clean(context.branch)] : [])];
+  if (!detail.length) return [first];
+  const maxRows = width < 28 ? 6 : width < 70 ? 4 : 2;
+  return [first, ...wrapFields(detail, width - 1, maxRows).map(line => " " + line)];
 }
 
 /** Read nearest Git HEAD without spawning git or walking the whole workspace. */

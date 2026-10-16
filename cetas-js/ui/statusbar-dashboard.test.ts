@@ -22,9 +22,10 @@ describe("Gate 0.5 adaptive statusbar", () => {
   test("the real-world 10-field input becomes a legible, multi-row dashboard", () => {
     const lines=renderStatusbarDashboard(entries,150,context);
     expect(lines.length).toBeGreaterThanOrEqual(2);
-    expect(lines[0]).toContain("cetas");
+    expect(lines[0]).not.toContain("cetas");
+    expect(lines[0]).toContain("Posoco");
     expect(lines[0]).toContain("glm-5.3-flash:max");
-    expect(lines[0]).toContain("feature/agent");
+    expect(lines.join("\n")).toContain("feature/agent");
     expect(lines.join("\n")).toContain("Working");
     expect(lines.join("\n")).toContain("2 agents");
     expect(lines.join("\n")).toContain("permission");
@@ -54,5 +55,31 @@ describe("Gate 0.5 adaptive statusbar", () => {
       writeFileSync(join(root,".git","HEAD"),"ref: refs/heads/feature/testing\n");
       expect(readWorkspaceGitBranch(join(root,"nested"))).toBe("feature/testing");
     } finally {rmSync(root,{recursive:true,force:true});}
+  });
+});
+
+describe("fixed semantic statusbar hierarchy", () => {
+  test("model effort precedes active manager, then lifecycle; never show cetas brand", () => {
+    const rows = stripTerminalSequences(renderStatusbarDashboard(entries, 180,
+      {...context, manager:"Magpie",status:"Ready"}).join("\n"));
+    expect(rows.split("\n")[0]).toMatch(/^ glm-5\.3-flash:max · Magpie Ready/);
+    expect(rows).not.toContain("cetas");
+    expect(rows).toContain("ctx");
+  });
+  test("reset and limits are first-class secondary fields, not invented gateway status", () => {
+    const sample = [
+      {key:"model",value:"GPT-6 Luna:high"},
+      {key:"reset",value:"14:30"},
+      {key:"5h",value:"62%"},
+      {key:"7d",value:"78%"},
+      {key:"ctx",value:"38%"},
+    ];
+    const text = stripTerminalSequences(renderStatusbarDashboard(sample, 120,
+      {manager:"Posoco",status:"Rate limited"}).join("\n"));
+    expect(text).toContain("GPT-6 Luna:high · Posoco Rate limited");
+    expect(text).toContain("Reset 14:30");
+    expect(text).toContain("5h 62%");
+    expect(text).not.toContain("Gateway connected");
+    expect(text).not.toContain("✔");
   });
 });
