@@ -328,7 +328,7 @@ function renderKeyValueLine(
   // Keep the extension-owned segment order and color roles, but don't force
   // the terminal to print an unbounded line when many providers participate.
   // This component degrades gracefully in very narrow Herdr splits.
-  const line = segments.join(theme.muted(" | "));
+  const line = segments.join(theme.muted(" · "));
   const component: Component = {
     render(width: number): string[] {
       if (width <= 0 || segments.length === 0) return [];
