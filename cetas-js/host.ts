@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ProcessTerminal } from "@earendil-works/pi-tui";
-import { CetasTuiMainScreen } from "./ui/safe-main-screen.ts";
+import { TuiAltScreen } from "@earendil-works/pi-tui";
 import * as moonbit from "mbt:colmugx/cetas-js/lib";
 
 import { buildCetasHostConfig, CetasApplication } from "./src/app/index.ts";
@@ -103,7 +103,7 @@ async function main(): Promise<void> {
       toolLabels.set(name, ext);
     }
   };
-  const tui = new CetasTuiMainScreen(new ProcessTerminal());
+  const tui = new TuiAltScreen(new ProcessTerminal(), false, undefined, { mouse: true, scrollToEndIndicator: () => "↓ newer messages" });
   const shell = new TerminalShell({
     tui,
     cwd: config.cwd,

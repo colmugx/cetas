@@ -18,7 +18,9 @@ import {
   SelectList,
   Text,
   TUI,
+  TuiAltScreen,
   TuiMainScreen,
+  VStack,
   stripTerminalSequences,
   type Component,
   type EditorTheme,
@@ -113,6 +115,7 @@ import { runUpdateCheck, updateInstallCommand, updateHandoffCommand } from "../s
 import { theme } from "./theme.ts";
 import { WelcomeHeader } from "./welcome-header.ts";
 import { readWorkspaceGitBranch, type StatusbarDashboardContext } from "./statusbar-dashboard.ts";
+import { createVirtualScroll, type VirtualTranscriptDocument } from "../src/transcript/virtual-document.ts";
 import { projectProgramStatus, classifyRequestStatus } from "./program-status.ts";
 
 const identity = (value: string): string => value;
@@ -257,6 +260,7 @@ export class TerminalShell {
   private pendingUpdateHandoff?: () => void;
 
   private readonly transcript: Container;
+  private readonly virtualTranscript?: VirtualTranscriptDocument;
   private readonly welcomeHeader: WelcomeHeader;
   private welcomeSnapshot?: AppSnapshot;
   private readonly statusLoader: Loader;
@@ -409,10 +413,10 @@ export class TerminalShell {
         versionInfo: options.versionInfo,
       };
     });
-    this.tui.addChild(this.welcomeHeader);
+    if (!(this.tui instanceof TuiAltScreen)) this.tui.addChild(this.welcomeHeader);
 
     this.transcript = new Container();
-    this.tui.addChild(this.transcript);
+    if (!(this.tui instanceof TuiAltScreen)) this.tui.addChild(this.transcript);
 
     this.statusLoader = new Loader(
       this.tui,
@@ -434,26 +438,44 @@ export class TerminalShell {
     statusRegion.addChild(this.agentSwarm);
     statusRegion.addChild(this.setupStatus);
     statusRegion.addChild(this.extensionStatus);
-    this.tui.addChild(statusRegion);
+    if (!(this.tui instanceof TuiAltScreen)) this.tui.addChild(statusRegion);
 
     this.extensionWidgets = new Container();
-    this.tui.addChild(this.extensionWidgets);
+    if (!(this.tui instanceof TuiAltScreen)) this.tui.addChild(this.extensionWidgets);
 
     // Interactive asks (permission approval, extension questions) render
     // inline here — directly above the editor — instead of a centered
     // overlay that fights the streaming transcript for the same rows.
     this.askRegion = new Container();
-    this.tui.addChild(this.askRegion);
+    if (!(this.tui instanceof TuiAltScreen)) this.tui.addChild(this.askRegion);
 
     this.editor = new Editor(this.tui, editorTheme);
     this.editor.setAutocompleteProvider(this.uiRegistry);
-    this.tui.addChild(this.editor);
+    if (!(this.tui instanceof TuiAltScreen)) this.tui.addChild(this.editor);
     this.tui.setFocus(this.editor);
 
     // The status bar is data-driven: ext-statusbar pushes `status:statusbar`
     // renders and this host mounts them below the editor as a single line.
     this.statusBarMount = new Container();
-    this.tui.addChild(this.statusBarMount);
+    if (this.tui instanceof TuiAltScreen) {
+      const { view, document } = createVirtualScroll(
+        this.transcript, this.tui,
+        () => Math.max(1, this.tui.terminal.rows - 6),
+      );
+      this.virtualTranscript = document;
+      const root = new VStack([
+        { component: this.welcomeHeader, basis: "auto", shrink: 1 },
+        { component: view, grow: 1, shrink: 1, minSize: 1 },
+        { component: statusRegion, basis: "auto", shrink: 0 },
+        { component: this.extensionWidgets, basis: "auto", shrink: 0 },
+        { component: this.askRegion, basis: "auto", shrink: 0 },
+        { component: this.editor, basis: "auto", shrink: 0 },
+        { component: this.statusBarMount, basis: "auto", shrink: 0 },
+      ]);
+      this.tui.setLayoutRoot(root);
+    } else {
+      this.tui.addChild(this.statusBarMount);
+    }
 
     this.uiRenderHost = new UiRenderHost(
       this.tui,
@@ -1707,6 +1729,7 @@ export class TerminalShell {
     this.requireApp().setSession(nextSession);
     this.sessionId = nextSession;
     this.transcript.clear();
+    this.virtualTranscript?.reset();
     this.welcomeHeader.compact = false;
     this.tui.terminal.clearScreen();
     this.tui.requestRender(true);
@@ -2277,6 +2300,7 @@ export class TerminalShell {
     try {
       await this.requireApp().rewind(this.sessionId, point.messageIndex);
       this.transcript.clear();
+    this.virtualTranscript?.reset();
       this.addTranscriptChild(
         systemNotice(
           `rewound to message #${point.messageIndex} — the original prompt is back in the editor`,
@@ -2318,6 +2342,7 @@ export class TerminalShell {
       this.requireApp().setSession(sessionId);
       this.sessionId = sessionId;
       this.transcript.clear();
+    this.virtualTranscript?.reset();
       this.welcomeHeader.compact = true;
       for (const component of banner("cetas-js", `resumed session ${sessionId}`)) {
         this.transcript.addChild(component);
