@@ -2369,7 +2369,13 @@ export class TerminalShell {
       }
       this.rewindOverlay.open(
         points,
-        (point) => void this.applyRewind(point),
+        (point) =>
+          void this.applyRewind(
+            // Capture the full prompt before the rewind deletes it; the lock
+            // held across the picker window keeps the file frozen meanwhile.
+            point,
+            readUserMessage(jsonl, point.messageIndex) ?? "",
+          ),
         () => this.commandLock.release(),
       );
     } catch (error: unknown) {
@@ -2378,7 +2384,7 @@ export class TerminalShell {
     }
   }
 
-  private async applyRewind(point: RewindPoint): Promise<void> {
+  private async applyRewind(point: RewindPoint, prompt: string): Promise<void> {
     try {
       await this.requireApp().rewind(this.sessionId, point.messageIndex);
       this.transcript.clear();
@@ -2401,9 +2407,9 @@ export class TerminalShell {
       for (const component of this.replayForViewport(parseSessionReplay(jsonl))) {
         this.addTranscriptChild(component);
       }
-      // The picker's preview is truncated; refill from the full record so the
-      // prompt can be edited and resubmitted.
-      this.editor.setText(readUserMessage(jsonl, point.messageIndex) ?? "");
+      // Refill the editor with the rewound-away prompt so it can be edited
+      // and resubmitted; captured before the truncate deleted it.
+      this.editor.setText(prompt);
       this.tui.terminal.clearScreen();
       this.tui.requestRender(true);
     } catch (error: unknown) {

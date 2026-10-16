@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TUI, TuiMainScreen, TuiAltScreen } from "@earendil-works/pi-tui";
@@ -38,7 +38,11 @@ function captureWarn(): { warns: string[]; restore(): void } {
 }
 
 /** Shell + headless TUI pair; the session transcript has one rewind point. */
-function makeShell(): { shell: TerminalShell; tui: TUI } {
+function makeShell(prompt = "hello"): {
+  shell: TerminalShell;
+  tui: TUI;
+  sessionsDir: string;
+} {
   const terminal = {
     write: () => {},
     hideCursor: () => {},
@@ -57,7 +61,7 @@ function makeShell(): { shell: TerminalShell; tui: TUI } {
       JSON.stringify({ version: 1 }),
       JSON.stringify({
         role: "user",
-        content: [{ type: "text", text: "hello" }],
+        content: [{ type: "text", text: prompt }],
       }),
     ].join("\n") + "\n",
   );
@@ -68,7 +72,7 @@ function makeShell(): { shell: TerminalShell; tui: TUI } {
     maxToolRounds: 8,
     initialSessionId: sessionId,
   });
-  return { shell, tui };
+  return { shell, tui, sessionsDir };
 }
 
 describe("parsePositionalArgs", () => {
@@ -270,6 +274,32 @@ describe("shouldOpenRewindOnEscape", () => {
   test("the window width is injectable", () => {
     expect(shouldOpenRewindOnEscape(1000, 1500, 501)).toBe(true);
     expect(shouldOpenRewindOnEscape(1000, 1500, 500)).toBe(false);
+  });
+});
+
+describe("rewind editor refill", () => {
+  test("picking a point refills the editor with the full rewound-away prompt", async () => {
+    // Multi-line on purpose: the picker preview flattens whitespace, so an
+    // exact editor match proves the refill came from the full record.
+    const prompt = "line one\nline two long enough that the preview flattens it";
+    const { shell, sessionsDir } = makeShell(prompt);
+    (shell as any).attachApplication({
+      listCommands: () => [],
+      // Mirror SessionStore::truncate: drop [fromIndex, ...) from the file.
+      rewind: (id: string, fromIndex: number) => {
+        const path = join(sessionsDir, `${id}.jsonl`);
+        const lines = readFileSync(path, "utf8").split("\n");
+        writeFileSync(path, lines.slice(0, fromIndex + 1).join("\n") + "\n");
+        return Promise.resolve();
+      },
+    });
+    (shell as any).openRewindPicker();
+    const panel = (shell as any).rewindOverlay.panel;
+    expect(panel).toBeDefined();
+    panel.list.onSelect({ value: "0" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((shell as any).editor.getText()).toBe(prompt);
+    expect((shell as any).rewindOverlay.isActive).toBe(false);
   });
 });
 
