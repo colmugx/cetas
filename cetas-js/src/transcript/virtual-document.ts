@@ -59,18 +59,20 @@ export class VirtualTranscriptDocument implements Component {
     if (event.type === "press") {
       this.pointerAnchor = Math.min(this.heights.size - 1, index);
       this.pointerFocus = this.pointerAnchor;
-      return {handled:true,capture:true,render:true};
+      return {handled:true,capture:true,render:false};
     }
     if (this.pointerAnchor === undefined) return undefined;
     if (event.type === "drag") {
       this.pointerFocus = Math.min(this.heights.size - 1, index);
-      return {handled:true,render:true};
+      return {handled:true,render:false};
     }
     if (event.type === "release") {
       this.pointerFocus = Math.min(this.heights.size - 1, index);
       const text = this.getSelectedSourceText();
-      if (text && this.pointerFocus !== this.pointerAnchor) void this.onCopy?.(text);
-      return {handled:true,render:true};
+      const dragged = this.pointerFocus !== this.pointerAnchor;
+      this.pointerAnchor = this.pointerFocus = undefined;
+      if (dragged && text) void this.onCopy?.(text);
+      return {handled:true,render:false};
     }
     return undefined;
   }
@@ -171,8 +173,6 @@ export class VirtualTranscriptDocument implements Component {
       // Highlight only literal source matches that can be located exactly on
       // rendered rows. Markdown transformations are intentionally not guessed.
       const hits = this.searchIndex?.matches.filter(hit => hit.index === i) ?? [];
-      const selected = this.pointerAnchor !== undefined && this.pointerFocus !== undefined &&
-        i >= Math.min(this.pointerAnchor, this.pointerFocus) && i <= Math.max(this.pointerAnchor, this.pointerFocus);
       const highlighted = hits.length && isSearchableComponent(component)
         ? highlightLiteralRows(rendered, component.getSearchText(), hits.map(hit => ({ offset: hit.offset, length: hit.length })), safeWidth)
         : rendered;
@@ -180,7 +180,7 @@ export class VirtualTranscriptDocument implements Component {
       const height = Math.max(1, rendered.length);
       if (height !== this.heights.heightAt(i)) this.heights.update(i, height);
       if (highlighted.length === 0) lines.push("");
-      else lines.push(...(selected ? highlighted.map(line => "\x1b[7m" + line + "\x1b[27m") : highlighted));
+      else lines.push(...highlighted);
     }
     if (anchorIndex >= 0 && anchorIndex < this.heights.size) {
       const corrected = this.heights.prefix(anchorIndex) +

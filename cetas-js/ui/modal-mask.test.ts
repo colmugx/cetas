@@ -104,8 +104,10 @@ describe("ModalVeilHost", () => {
     expect(lines[0]).toContain("\u001b[2m");
     expect(lines[1]).toBe("");
     expect(lines[2]).toContain("third");
-    // The veil re-derives the base content each render cycle.
-    expect(tui.renderCalls).toBeGreaterThan(0);
+    // One clean snapshot for the lifetime of the modal stack.
+    expect(tui.renderCalls).toBe(1);
+    veil.component.render(tui.terminal.columns);
+    expect(tui.renderCalls).toBe(1);
   });
 
   test("keeps the veil until the last modal handle hides", () => {

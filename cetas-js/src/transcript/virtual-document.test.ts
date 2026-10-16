@@ -102,3 +102,17 @@ describe("virtual message-range mouse selection", () => {
     expect(renders).toBe(before);
   });
 });
+
+describe("click selection appearance", () => {
+  test("single clicks do not invert a transcript block", () => {
+    const source = new Container();
+    source.addChild({ render:()=>["plain"], invalidate(){} });
+    const doc = new VirtualTranscriptDocument(source,()=>40,()=>6,()=>({top:0,followEnd:false}));
+    (doc as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    doc.handleMouse({type:"press",button:"left",x:0,y:0} as never);
+    doc.handleMouse({type:"release",button:"left",x:0,y:0} as never);
+    (doc as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    expect(doc.render(40).join("\n")).not.toContain("\x1b[7m");
+    expect(doc.getSelectedSourceText()).toBeUndefined();
+  });
+});
