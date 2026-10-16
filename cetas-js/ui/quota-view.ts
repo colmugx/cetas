@@ -1,5 +1,5 @@
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import type { ModelCatalogEntry } from "./model-picker.ts";
+import type { ModelCatalogEntry } from "./model-catalog.ts";
 
 const clean = (value: unknown): string => typeof value === "string"
   ? stripTerminalSequences(value).replace(/[\u0000-\u001F\u007F]/g, "").slice(0, 90)
