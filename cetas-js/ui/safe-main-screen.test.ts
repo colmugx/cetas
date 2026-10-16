@@ -47,6 +47,27 @@ describe("Cetas main-screen width boundary", () => {
     expect(fitTerminalLine(line, 20)).toBe(line);
   });
 
+  test("real differential redraws stay alive as a narrow pane receives long lines", () => {
+    let stopped = 0;
+    let raw = "first message with a very very long single line";
+    const terminal = {
+      columns: 8,
+      rows: 12,
+      write: (_data: string) => {},
+      hideCursor: () => {},
+      showCursor: () => {},
+      stop: () => { stopped++; },
+    };
+    const tui = new CetasTuiMainScreen(terminal as never);
+    tui.addChild({ render: () => [raw], invalidate: () => {} });
+    // The first render initializes the screen buffer; the second must take
+    // the pi-tui 1.3.0 differential path where it otherwise stops/throws.
+    tui.renderNow(true);
+    raw = "second message with 1000 characters " + "界".repeat(1000);
+    expect(() => tui.renderNow()).not.toThrow();
+    expect(stopped).toBe(0);
+  });
+
   test("normalizes root lines before pi-tui's compositor", () => {
     const tui = new CetasTuiMainScreen({ getColumns: () => 8, getRows: () => 24 } as never);
     tui.addChild({ render: () => ["long unwrapped code output", "正常"] , invalidate: () => {} });
