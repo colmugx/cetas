@@ -89,6 +89,7 @@ import {
   isPlanReviewRequest,
 } from "./extension-ui.ts";
 import { CommandLock, type CommandLease } from "./command-lock.ts";
+import { SelectionDialog } from "./selection-dialog.ts";
 import { banner } from "./primitives.ts";
 import {
   formatPickCandidateNotices,
@@ -224,27 +225,6 @@ class DismissibleTextOverlay implements Component {
   }
 }
 
-class ProviderPickerOverlay implements Component {
-  focused = false;
-
-  constructor(
-    private readonly title: Text,
-    private readonly list: SelectList,
-  ) {}
-
-  render(width: number): string[] {
-    return [...this.title.render(width), ...this.list.render(width)];
-  }
-
-  handleInput(data: string): void {
-    this.list.handleInput(data);
-  }
-
-  invalidate(): void {
-    this.title.invalidate();
-    this.list.invalidate();
-  }
-}
 
 /**
  * All terminal side effects live behind this class. `host.ts` only constructs
@@ -299,6 +279,7 @@ export class TerminalShell {
   private readonly uiRequestBar: UiRequestBar;
   private readonly uiRegistry = new UiRegistry();
   private readonly modals: ModalVeilHost;
+  private readonly selectionDialog: SelectionDialog;
   private readonly modelPicker: ModelPickerOverlay;
   private readonly oauthOverlay: OAuthOverlay;
   private readonly authPromptOverlay: AuthPromptOverlay;
@@ -343,7 +324,7 @@ export class TerminalShell {
   /** Follow-up bubbles awaiting their TurnStarted; promoted oldest-first. */
   private readonly queuedPrompts: QueuedUserMessage[] = [];
   private commandShortcuts: ReadonlyArray<{ keyId: KeyId; command: string }> = [];
-  private providerPickerHandle?: OverlayHandle;
+
   private started = false;
   private setupNoticeShown = false;
   private setupErrorShown?: string;
@@ -519,6 +500,7 @@ export class TerminalShell {
     // Every overlay-style popup goes through the veil host so centered
     // modals render over a dimmed background.
     this.modals = new ModalVeilHost(this.tui);
+    this.selectionDialog = new SelectionDialog(this.modals, selectListTheme);
     this.modelPicker = new ModelPickerOverlay(this.modals);
     this.oauthOverlay = new OAuthOverlay(this.modals, () => {
       this.app?.cancelCurrentOperation();
@@ -862,7 +844,7 @@ export class TerminalShell {
     bestEffort(() => this.skillsOverlay.hide());
     bestEffort(() => this.rewindOverlay.hide());
     bestEffort(() => this.updateOverlay.hide());
-    bestEffort(() => this.providerPickerHandle?.hide());
+    bestEffort(() => this.selectionDialog.hide());
     bestEffort(() => this.uiRenderHost.dispose());
     if (this.started) bestEffort(() => this.tui.stop({ preserveScreen: this.tui instanceof TuiAltScreen }));
     console.error(`cetas: ${reason} — exiting now`);
@@ -930,8 +912,7 @@ export class TerminalShell {
       this.skillsOverlay.hide();
       this.rewindOverlay.hide();
       this.updateOverlay.hide();
-      this.providerPickerHandle?.hide();
-      this.providerPickerHandle = undefined;
+      this.selectionDialog.hide();
       try {
         if (this.app !== undefined) await this.app.shutdown();
       } finally {
@@ -1606,7 +1587,7 @@ export class TerminalShell {
       this.sessionsOverlay.isActive ||
       this.rewindOverlay.isActive ||
       this.updateOverlay.isActive ||
-      this.providerPickerHandle !== undefined
+      this.selectionDialog.isActive
     ) {
       return undefined;
     }
@@ -1919,48 +1900,33 @@ export class TerminalShell {
       this.addTranscriptChild(errorNotice("/manager requires an idle application"));
       return;
     }
-    this.commandLock.acquire("selecting model manager");
-    const items = [
-      { value: "providers", label: "Providers", description: "Built-in model providers" },
-      { value: "magpie", label: "Magpie", description: "Magpie Gateway model manager" },
-    ];
-    const list = new SelectList(items, items.length, selectListTheme);
-    const panel = new ProviderPickerOverlay(
-      new Text(theme.brandBold("Select model manager"), 1, 1),
-      list,
-    );
-    let handle: OverlayHandle | undefined;
-    const close = () => {
-      handle?.hide();
-      if (this.providerPickerHandle === handle) this.providerPickerHandle = undefined;
-      this.commandLock.release();
-    };
-    list.onCancel = close;
-    list.onSelect = (item) => {
-      handle?.hide();
-      if (this.providerPickerHandle === handle) this.providerPickerHandle = undefined;
-      void this.requireApp().switchModelManager(item.value as "providers" | "magpie")
-        .then((snapshot) => {
-          this.handleSnapshot(snapshot);
-          this.addTranscriptChild(systemNotice(`model manager: ${item.value}`));
-        })
-        .catch((error: unknown) => {
-          this.addTranscriptChild(errorNotice(`/manager failed: ${errorMessage(error)}`));
-          this.handleSnapshot(this.requireApp().snapshot());
-        })
-        .finally(() => this.commandLock.release());
-    };
+    const lease = this.commandLock.lease("selecting model manager");
     try {
-      handle = this.modals.showOverlay(panel, {
-        width: "56%",
+      this.selectionDialog.open<"providers" | "magpie">({
+        title: "Select model manager",
+        items: [
+          { value: "providers", label: "Providers", description: "Built-in model providers" },
+          { value: "magpie", label: "Magpie", description: "Magpie Gateway model manager" },
+        ],
         maxHeight: "50%",
-        anchor: "center",
-        margin: 1,
+        onCancel: () => lease.release(),
+        onSelect: (manager) => {
+          void (async () => {
+            try {
+              const snapshot = await this.requireApp().switchModelManager(manager);
+              this.handleSnapshot(snapshot);
+              this.addTranscriptChild(systemNotice(`model manager: ${manager}`));
+            } catch (error: unknown) {
+              this.addTranscriptChild(errorNotice(`/manager failed: ${errorMessage(error)}`));
+              if (this.app !== undefined) this.handleSnapshot(this.app.snapshot());
+            } finally {
+              lease.release();
+            }
+          })();
+        },
       });
-      this.providerPickerHandle = handle;
-      this.tui.requestRender();
     } catch (error: unknown) {
-      this.commandLock.release();
+      lease.release();
       this.addTranscriptChild(errorNotice(`/manager failed: ${errorMessage(error)}`));
     }
   }
@@ -2690,112 +2656,64 @@ export class TerminalShell {
   }
 
   private showProviderPicker(capabilities: readonly ProviderAuthCapability[]): void {
-    this.commandLock.acquire("");
-    const items = capabilities.map((capability) => ({
-      value: capability.id,
-      label: capability.id,
-      description: capability.methods.map(authMethodLabel).join(" / "),
-    }));
-    const list = new SelectList(items, Math.min(8, items.length), selectListTheme);
-    const panel = new ProviderPickerOverlay(
-      new Text(theme.brandBold("Select authentication provider"), 1, 1),
-      list,
-    );
-    let handle: OverlayHandle | undefined;
-    const close = () => {
-      handle?.hide();
-      if (this.providerPickerHandle === handle) this.providerPickerHandle = undefined;
-      this.commandLock.release();
-    };
-    list.onSelect = (item) => {
-      handle?.hide();
-      if (this.providerPickerHandle === handle) this.providerPickerHandle = undefined;
-      const capability = capabilities.find((entry) => entry.id === item.value);
-      if (capability === undefined) {
-        this.commandLock.release();
-        this.addTranscriptChild(errorNotice(`/login: unknown authentication provider ${item.value}`));
-        return;
-      }
-      if (capability.id === "magpie") {
-        // The generic picker owns the lock; transfer ownership before
-        // starting the dedicated Gateway setup flow.
-        this.commandLock.release();
-        void this.configureMagpieLogin();
-        return;
-      }
-      void this.chooseLoginMethod(capability).catch((error: unknown) => {
-        this.addTranscriptChild(errorNotice(`/login failed: ${errorMessage(error)}`));
-        this.commandLock.release();
-      });
-    };
-    list.onCancel = close;
+    const lease = this.commandLock.lease("");
     try {
-      handle = this.modals.showOverlay(panel, {
-        width: "56%",
-        maxHeight: "60%",
-        anchor: "center",
-        margin: 1,
+      this.selectionDialog.open({
+        title: "Select authentication provider",
+        items: capabilities.map((capability) => ({
+          value: capability.id,
+          label: capability.id,
+          description: capability.methods.map(authMethodLabel).join(" / "),
+        })),
+        onCancel: () => lease.release(),
+        onSelect: (id) => {
+          lease.release();
+          const capability = capabilities.find((entry) => entry.id === id);
+          if (capability === undefined) {
+            this.addTranscriptChild(errorNotice(`/login: unknown authentication provider ${id}`));
+            return;
+          }
+          void this.chooseLoginMethod(capability).catch((error: unknown) => {
+            this.addTranscriptChild(errorNotice(`/login failed: ${errorMessage(error)}`));
+          });
+        },
       });
     } catch (error: unknown) {
-      // The command lock is already held — release it or the terminal bricks.
-      this.commandLock.release();
+      lease.release();
       this.addTranscriptChild(errorNotice(`/login failed: ${errorMessage(error)}`));
-      return;
     }
-    this.providerPickerHandle = handle;
-    this.tui.requestRender();
   }
 
   private showAuthMethodPicker(capability: ProviderAuthCapability): void {
-    this.commandLock.acquire("");
-    const items = capability.methods.map((method) => ({
-      value: method,
-      label: authMethodLabel(method),
-      description: method,
-    }));
-    const list = new SelectList(items, Math.min(8, items.length), selectListTheme);
-    const panel = new ProviderPickerOverlay(
-      new Text(theme.brandBold(`Select login method · ${capability.id}`), 1, 1),
-      list,
-    );
-    let handle: OverlayHandle | undefined;
-    const close = () => {
-      handle?.hide();
-      if (this.providerPickerHandle === handle) this.providerPickerHandle = undefined;
-      this.commandLock.release();
-    };
-    list.onSelect = (item) => {
-      handle?.hide();
-      if (this.providerPickerHandle === handle) this.providerPickerHandle = undefined;
-      void this.runLogin(capability.id, item.value).catch((error: unknown) => {
-        this.addTranscriptChild(errorNotice(`/login failed: ${errorMessage(error)}`));
-      });
-    };
-    list.onCancel = close;
+    const lease = this.commandLock.lease("");
     try {
-      handle = this.modals.showOverlay(panel, {
+      this.selectionDialog.open({
+        title: `Select login method · ${capability.id}`,
+        items: capability.methods.map((method) => ({
+          value: method,
+          label: authMethodLabel(method),
+          description: method,
+        })),
         width: "62%",
-        maxHeight: "60%",
-        anchor: "center",
-        margin: 1,
+        onCancel: () => lease.release(),
+        onSelect: (method) => {
+          lease.release();
+          void this.runLogin(capability.id, method).catch((error: unknown) => {
+            this.addTranscriptChild(errorNotice(`/login failed: ${errorMessage(error)}`));
+          });
+        },
       });
     } catch (error: unknown) {
-      // The command lock is already held — release it or the terminal bricks.
-      this.commandLock.release();
+      lease.release();
       this.addTranscriptChild(errorNotice(`/login failed: ${errorMessage(error)}`));
-      return;
     }
-    this.providerPickerHandle = handle;
-    this.tui.requestRender();
   }
 
   private async runLogin(provider: string, method?: string): Promise<void> {
     if (provider === "magpie") return this.configureMagpieLogin();
-    // Provider picker already owns the command lock; acquire tolerates that
-    // nested re-acquire. Direct `/login p` takes the lock fresh here.
     this.commandLock.acquire(`authenticating ${provider}`);
-    if (method === "oauth") this.oauthOverlay.show(provider);
     try {
+      if (method === "oauth") this.oauthOverlay.show(provider);
       const raw = await this.requireApp().invokeCommand(
         "login",
         JSON.stringify({ provider, ...(method === undefined ? {} : { method }) }),
