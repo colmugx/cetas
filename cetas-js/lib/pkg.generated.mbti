@@ -64,11 +64,11 @@ pub fn cetas_js_runtime_commit_magpie_credential(CetasJsRuntime, String) -> @js_
 
 pub fn cetas_js_runtime_connect_magpie(CetasJsRuntime, String, String) -> @js_async.Promise[String]
 
-pub fn cetas_js_runtime_finish_magpie_credential(CetasJsRuntime, Bool) -> @js_async.Promise[Unit]
-
 pub fn cetas_js_runtime_create_agent(CetasJsRuntime, JsCallback, JsUiRenderCallback, JsUiRequestCallback, JsCancelCheck) -> @js_async.Promise[CetasJsAgent]
 
 pub fn cetas_js_runtime_describe_setup(CetasJsRuntime) -> @js_async.Promise[String]
+
+pub fn cetas_js_runtime_finish_magpie_credential(CetasJsRuntime, Bool) -> @js_async.Promise[Unit]
 
 pub fn cetas_js_runtime_login_provider(CetasJsRuntime, String, JsCallback, JsUiRequestCallback, JsCancelCheck, String) -> @js_async.Promise[String]
 
