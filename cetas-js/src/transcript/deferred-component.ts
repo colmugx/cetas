@@ -1,14 +1,15 @@
 import type { Component } from "@earendil-works/pi-tui";
+import type { SearchableComponent } from "./search-index.ts";
 
 /**
  * Lightweight immutable replay descriptor. Instantiate pi-tui Markdown/
  * ToolRow and their render caches only when the message reaches the viewport.
  * Once mounted its instance is retained to preserve native folding/state.
  */
-export class DeferredTranscriptComponent implements Component {
+export class DeferredTranscriptComponent implements SearchableComponent {
   private delegate?: Component;
 
-  constructor(private readonly build: () => Component) {}
+  constructor(private readonly build: () => Component, private readonly sourceText = "") {}
 
   render(width: number): string[] {
     this.delegate ??= this.build();
@@ -18,6 +19,8 @@ export class DeferredTranscriptComponent implements Component {
   invalidate(): void {
     this.delegate?.invalidate();
   }
+
+  getSearchText(): string { return this.sourceText; }
 
   /** No materialized markup outside the viewport until first visible. */
   get isMaterialized(): boolean {

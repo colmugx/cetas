@@ -66,6 +66,13 @@ export class VirtualTranscriptDocument implements Component {
 
   get stats(): VirtualDocumentStats { return this.lastStats; }
 
+  private navigate?: (row: number) => void;
+  scrollToItem(index: number): void {
+    if (index < 0 || index >= this.heights.size) return;
+    this.navigate?.(this.heights.prefix(index));
+  }
+  attachNavigation(scrollTo: (row: number) => void): void { this.navigate = scrollTo; }
+
   /** A session switch is a new document, even if it has an identical count. */
   reset(): void {
     this.heights.replace([], -1);
@@ -152,5 +159,6 @@ export function createVirtualScroll(
     () => ({ top: view?.scrollTop ?? 0, followEnd: view?.isFollowingEnd ?? true }),
   );
   view = new ScrollView(document, { follow: "end", primary: true, scrollbar: "auto" });
+  document.attachNavigation((row) => view!.scrollTo(row, { disableFollow: true }));
   return { view, document };
 }

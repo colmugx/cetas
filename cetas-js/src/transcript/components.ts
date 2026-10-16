@@ -39,6 +39,8 @@ import {
  * whole block so terminal scrollback sees the prompt boundary.
  */
 export class UserMessage extends Container {
+  private readonly searchText: string;
+  getSearchText(): string { return this.searchText; }
   /**
    * `attachments` lists the workspace paths that were inlined as image
    * blocks with this prompt; they render as one dim chip line so the echo
@@ -46,6 +48,7 @@ export class UserMessage extends Container {
    */
   constructor(text: string, attachments: readonly string[] = []) {
     super();
+    this.searchText = text;
     this.addChild(new Spacer(1));
     const box = new Box(1, 0, (s) => theme.userMessageBg(s));
     box.addChild(new Text(theme.user("> ") + text, 0, 0));
@@ -102,6 +105,7 @@ export class QueuedUserMessage extends Container {
  * as deltas arrive — cheap diffing is pi-tui's job.
  */
 export class AssistantMessage extends Container {
+  getSearchText(): string { return this.text; }
   private md: Markdown | IncrementalMarkdown;
   private reasoningText?: Text;
   private text: string;
@@ -189,6 +193,10 @@ export interface ToolRowOptions {
  * authoritative full-args replace — by {@link markCallStarted}.
  */
 export class ToolRow extends Container {
+  getSearchText(): string {
+    const args = typeof this.ctx.args === "string" ? this.ctx.args : JSON.stringify(this.ctx.args ?? "");
+    return [this.ctx.toolName, args, this.result?.content ?? ""].join("\n");
+  }
   private ctx: ToolRenderContext;
   private renderer = pickToolRenderer("fallback"); // set in constructor
   private result?: { content: string; isError: boolean; structured?: unknown };
