@@ -116,6 +116,7 @@ import { theme } from "./theme.ts";
 import { WelcomeHeader } from "./welcome-header.ts";
 import { readWorkspaceGitBranch, type StatusbarDashboardContext } from "./statusbar-dashboard.ts";
 import { createVirtualScroll, type VirtualTranscriptDocument } from "../src/transcript/virtual-document.ts";
+import { DeferredTranscriptComponent } from "../src/transcript/deferred-component.ts";
 import { projectProgramStatus, classifyRequestStatus } from "./program-status.ts";
 
 const identity = (value: string): string => value;
@@ -2316,7 +2317,7 @@ export class TerminalShell {
           errorNotice(`could not replay session history: ${errorMessage(error)}`),
         );
       }
-      for (const component of this.replayComponents(parseSessionReplay(jsonl))) {
+      for (const component of this.replayForViewport(parseSessionReplay(jsonl))) {
         this.addTranscriptChild(component);
       }
       // The picker's preview is truncated; refill from the full record so the
@@ -2358,7 +2359,7 @@ export class TerminalShell {
         const path = sessionFilePath(this.sessionsDir, sessionId);
         if (existsSync(path)) {
           const items = parseSessionReplay(readFileSync(path, "utf8"));
-          for (const component of this.replayComponents(items)) {
+          for (const component of this.replayForViewport(items)) {
             this.addTranscriptChild(component);
           }
         }
@@ -2372,6 +2373,60 @@ export class TerminalShell {
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice(`resume failed: ${errorMessage(error)}`));
     }
+  }
+
+  /** AltScreen replay keeps data descriptors; components mount only on view. */
+  private replayForViewport(items: readonly ReplayItem[]): Component[] {
+    if (!(this.tui instanceof TuiAltScreen)) return this.replayComponents(items);
+    const result: Component[] = [];
+    const pending = new Map<string, { content: string; isError: boolean } | undefined>();
+    const toolComponents = new Map<string, { setResult(content: string, isError: boolean): void }>();
+    for (const item of items) {
+      switch (item.kind) {
+        case "user":
+          result.push(new DeferredTranscriptComponent(() => new UserMessage(
+            (item.text.length === 0 ? "(image attachment)" : item.text) + (item.hasImage ? " 🖼" : ""),
+          )));
+          break;
+        case "wakeup":
+          result.push(new DeferredTranscriptComponent(() => systemNotice(`◌ wakeup envelope · ${item.text}`)));
+          break;
+        case "reasoning":
+          result.push(new DeferredTranscriptComponent(() => new ThinkingComponent(item.text, "finalized")));
+          break;
+        case "assistant":
+          result.push(new DeferredTranscriptComponent(() => new AssistantMessage(item.text)));
+          break;
+        case "tool_call": {
+          const state = { content: "", isError: false };
+          pending.set(item.toolCallId, state);
+          const deferred = new DeferredTranscriptComponent(() => {
+            const row = new ToolRow(
+              item.toolName, item.toolCallId, item.args, this.cwd,
+              () => this.tui.requestRender(), toolDisplayLabel(undefined, item.toolName),
+            );
+            const outcome = pending.get(item.toolCallId);
+            if (outcome !== undefined && outcome.content !== "") row.setResult(outcome.content, outcome.isError, undefined);
+            toolComponents.set(item.toolCallId, row);
+            return row;
+          });
+          result.push(deferred);
+          break;
+        }
+        case "tool_result": {
+          const recorded = pending.get(item.toolCallId);
+          if (recorded !== undefined) {
+            recorded.content = item.content;
+            recorded.isError = item.isError;
+            toolComponents.get(item.toolCallId)?.setResult(item.content, item.isError);
+          } else {
+            result.push(new DeferredTranscriptComponent(() => systemNotice(`[result] ${item.content}`)));
+          }
+          break;
+        }
+      }
+    }
+    return result;
   }
 
   /** Turn replay items into the same components live turns render with. */
