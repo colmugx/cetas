@@ -1,7 +1,7 @@
 /**
  * Final Cetas-owned display-column boundary for pi-tui's main-screen renderer.
  *
- * pi-tui v0.85.1 calls stop() and throws when a differential update contains
+ * pi-tui 1.3.0 still calls stop() and throws when a differential update contains
  * a line wider than terminal.columns. Such a presentation error must never
  * turn a healthy Agent operation into a fatal process exit.
  *
@@ -11,6 +11,12 @@
  * width is not the visibleWidth of the payload.
  */
 import { TuiMainScreen, sliceByColumn, visibleWidth } from "@earendil-works/pi-tui";
+
+// pi-tui 1.3.0 resolves fake-cursor APC spans *after* the root render.
+// A truncated span must retain its closing marker, or reverse-video styling
+// can bleed into subsequent cells when the TUI resolves it.
+const FAKE_CURSOR_START = "\x1b_pi:fc\x07";
+const FAKE_CURSOR_END = "\x1b_pi:/fc\x07";
 
 const OSC133_END = /((?:\x1b\]133;[A-D](?:\x07|\x1b\\))+)$/;
 
@@ -22,7 +28,11 @@ export function fitTerminalLine(line: string, width: number): string {
   // hyperlink after the cut; preserve shell-integration boundary markers that
   // follow the final visible glyph (and hence fall outside the slice).
   const markers = line.match(OSC133_END)?.[0] ?? "";
-  return sliceByColumn(line, 0, width, true) + "\x1b[0m\x1b]8;;\x07" + markers;
+  const clipped = sliceByColumn(line, 0, width, true);
+  const fakeCursorOpen = clipped.lastIndexOf(FAKE_CURSOR_START) >
+    clipped.lastIndexOf(FAKE_CURSOR_END);
+  return clipped + (fakeCursorOpen ? FAKE_CURSOR_END : "") +
+    "\x1b[0m\x1b]8;;\x07" + markers;
 }
 
 export function fitTerminalLines(lines: readonly string[], width: number): string[] {

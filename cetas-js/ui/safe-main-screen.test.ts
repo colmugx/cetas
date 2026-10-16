@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { CURSOR_MARKER, renderFakeCursor, visibleWidth } from "@earendil-works/pi-tui";
 import { CetasTuiMainScreen, fitTerminalLine, fitTerminalLines } from "./safe-main-screen.ts";
 
 describe("Cetas main-screen width boundary", () => {
@@ -10,6 +10,7 @@ describe("Cetas main-screen width boundary", () => {
     "\x1b[31mred and very long text\x1b[0m",
     "\x1b]8;;https://example.com\x07hyperlinked extra long text\x1b]8;;\x07",
     "\x1b]133;A\x07" + "x".repeat(100) + "\x1b]133;B\x07",
+    CURSOR_MARKER + renderFakeCursor("cursor here") + "x".repeat(100),
   ];
   for (const width of [0, 1, 2, 8, 12, 20, 40, 80, 120, 200]) {
     test(`every text line fits ${width} columns`, () => {
@@ -30,6 +31,15 @@ describe("Cetas main-screen width boundary", () => {
     const clipped = fitTerminalLine(line, 8);
     expect(clipped).toContain("\x1b]133;A\x07");
     expect(clipped.endsWith("\x1b]133;B\x07")).toBe(true);
+  });
+
+  test("preserves fake-cursor balancing at the clipped column", () => {
+    const original = CURSOR_MARKER + renderFakeCursor("focused cursor") + "x".repeat(100);
+    const clipped = fitTerminalLine(original, 2);
+    expect(clipped).toContain(CURSOR_MARKER);
+    expect(clipped).toContain("\x1b_pi:fc\x07");
+    expect(clipped).toContain("\x1b_pi:/fc\x07");
+    expect(visibleWidth(clipped)).toBeLessThanOrEqual(2);
   });
 
   test("does not alter lines already in bounds", () => {
