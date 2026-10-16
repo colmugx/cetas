@@ -3156,53 +3156,20 @@ pub fn cetas_js_invoke_command(
           ).stringify()
       }
     }
-    // The neutral `model`/`effort` command ids ride the active manager: the
-    // providers manager owns them natively; Magpie forwards to its own
-    // selection command and remaps the catalog payload into the shared
-    // picker shape.
-    let magpie_invoked = match (handle.manager, id) {
-      (Magpie(_), "model" | "effort") => true
-      _ => false
-    }
-    if magpie_invoked {
-      match handle.manager {
-        Magpie(binding) => {
-          let control = binding.runtime.manager()
-            as &@modelmgmt.ModelManagerControl
-          if control.list_models().is_empty() {
-            let _ = binding.runtime.manager().refresh() catch {
-                _ =>
-                  return command_outcome_to_json(
-                    @port.CommandOutcome::Failure(
-                      reason="Magpie catalog unavailable; check Gateway connection",
-                    ),
-                  ).stringify()
-              }
+    // Interactive manager-specific semantics are confined to the adapter.
+    // Persist and publish successful neutral model/effort commands equally.
+    match handle.manager.manager_intercept_model_command(handle.agent, id, args) {
+      Some(outcome) => {
+        match outcome {
+          Success(..) => {
+            persist_active_model_selection(handle)
+            handle.manager.manager_publish_status(handle.manager_bus)
           }
+          _ => ()
         }
-        _ => ()
+        return command_outcome_to_json(outcome).stringify()
       }
-    }
-    let id = if magpie_invoked { "magpie_model" } else { id }
-    // The shared picker sends "slot"; Magpie owns opaque "model" ids.
-    let args = if magpie_invoked {
-      match args {
-        Json::Object(fields) => {
-          let forwarded = fields.copy()
-          match fields.get("slot") {
-            Some(Json::String("quick-pick")) => ignore(forwarded.remove("slot"))
-            Some(value) => {
-              forwarded["model"] = value
-              ignore(forwarded.remove("slot"))
-            }
-            None => ()
-          }
-          Json::object(forwarded)
-        }
-        other => other
-      }
-    } else {
-      args
+      None => ()
     }
     let ports = handle.agent.commands()
     let mut result_json = ""
@@ -3212,32 +3179,8 @@ pub fn cetas_js_invoke_command(
         let owns = port.commands().iter().any(fn(def) { def.id == id })
         if owns {
           let outcome = port.invoke(id, args)
-          let outcome = if magpie_invoked {
-            match outcome {
-              Success(feedback~, structured~, ui_hint~) => {
-                structured |> ignore
-                persist_active_model_selection(handle)
-                handle.manager.manager_publish_status(handle.manager_bus)
-                @port.CommandOutcome::Success(
-                  // Pending selections stay visible in the picker feedback
-                  // instead of reading as applied.
-                  feedback=feedback + handle.manager.manager_pending_note(),
-                  structured=Some(
-                    Json::array(handle.manager.manager_catalog_entries_json()),
-                  ),
-                  ui_hint~,
-                )
-              }
-              other => other
-            }
-          } else {
-            outcome
-          }
           result_json = command_outcome_to_json(outcome).stringify()
-          // Router-mutating commands persist the new selection: the
-          // invocation already committed the change, so make it outlive
-          // the process. (The magpie path persisted above, after remapping.)
-          if !magpie_invoked && (id == "model" || id == "effort") {
+          if id == "model" || id == "effort" {
             match outcome {
               Success(..) => {
                 persist_active_model_selection(handle)

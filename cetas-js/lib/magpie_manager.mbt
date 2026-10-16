@@ -598,3 +598,66 @@ impl @posoco.Lifecycle for MagpieChildModel with fn on_shutdown(
 ) -> Unit {
   ()
 }
+
+///|
+/// Adapter-owned interactive model-command translation. The business bridge
+/// sees only an optional CommandOutcome, never a concrete manager.
+fn ModelManagerFace::manager_intercept_model_command(
+  self : ModelManagerFace,
+  agent : @posoco.Agent,
+  id : String,
+  args : Json,
+) -> @port.CommandOutcome? raise @posoco.CommandError {
+  match self {
+    Providers(_) => None
+    Magpie(binding) => {
+      if id != "model" && id != "effort" {
+        return None
+      }
+      let control = binding.runtime.manager()
+        as &@modelmgmt.ModelManagerControl
+      if control.list_models().is_empty() {
+        let _ = binding.runtime.manager().refresh() catch {
+          _ =>
+            return Some(@port.CommandOutcome::Failure(
+              reason="Model catalog unavailable",
+            ))
+        }
+      }
+      let args = match args {
+        Json::Object(fields) => {
+          let forwarded = fields.copy()
+          match fields.get("slot") {
+            Some(Json::String("quick-pick")) => ignore(forwarded.remove("slot"))
+            Some(value) => {
+              forwarded["model"] = value
+              ignore(forwarded.remove("slot"))
+            }
+            None => ()
+          }
+          Json::object(forwarded)
+        }
+        other => other
+      }
+      for port in agent.commands() {
+        if port.commands().iter().any(fn(def) { def.id == "magpie_model" }) {
+          let outcome = port.invoke("magpie_model", args)
+          return Some(match outcome {
+            Success(feedback~, structured~, ui_hint~) => {
+              structured |> ignore
+              @port.CommandOutcome::Success(
+                feedback=feedback + self.manager_pending_note(),
+                structured=Some(Json::array(self.manager_catalog_entries_json())),
+                ui_hint~,
+              )
+            }
+            other => other
+          })
+        }
+      }
+      Some(@port.CommandOutcome::Failure(
+        reason="model command unavailable",
+      ))
+    }
+  }
+}
