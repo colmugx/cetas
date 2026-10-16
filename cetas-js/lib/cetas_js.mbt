@@ -2183,16 +2183,20 @@ pub fn cetas_js_runtime_connect_magpie(
       base_url~,
       credential=if key == "" { None } else { Some(key) },
     ) catch {
-      _ => raise @posoco.CommandError::InvalidArgs(reason="invalid gateway address")
+      _ =>
+        raise @posoco.CommandError::InvalidArgs(
+          reason="invalid gateway address",
+        )
     }
     let manager = @magpie.MagpieManager::MagpieManager(
       config~,
       transport=@magpie.magpie_http_transport(),
     )
     let _ = manager.refresh() catch {
-      _ => raise @posoco.CommandError::ExecutionFailed(
-        "gateway connection or authentication failed",
-      )
+      _ =>
+        raise @posoco.CommandError::ExecutionFailed(
+          "gateway connection or authentication failed",
+        )
     }
     Json::object({ "connected": Json::boolean(true) }).stringify()
   }
@@ -2213,17 +2217,19 @@ pub fn cetas_js_runtime_commit_magpie_credential(
     }
     let store = credential_store(runtime.config.home)
     let previous = store.read(MAGPIE_PROVIDER_ID) catch {
-      _ => raise @posoco.CommandError::ExecutionFailed(
-        "previous gateway credential cannot be read",
-      )
+      _ =>
+        raise @posoco.CommandError::ExecutionFailed(
+          "previous gateway credential cannot be read",
+        )
     }
     runtime.magpie_previous_credential = previous
     runtime.magpie_credential_pending = true
     if key == "" {
       store.delete(MAGPIE_PROVIDER_ID) catch {
-        _ => raise @posoco.CommandError::ExecutionFailed(
-          "gateway credential cannot be cleared",
-        )
+        _ =>
+          raise @posoco.CommandError::ExecutionFailed(
+            "gateway credential cannot be cleared",
+          )
       }
     } else {
       store.write(
@@ -2232,9 +2238,10 @@ pub fn cetas_js_runtime_commit_magpie_credential(
           @oauth.ApiKeyCredential::ApiKeyCredential(secret=key),
         ),
       ) catch {
-        _ => raise @posoco.CommandError::ExecutionFailed(
-          "gateway credential cannot be saved",
-        )
+        _ =>
+          raise @posoco.CommandError::ExecutionFailed(
+            "gateway credential cannot be saved",
+          )
       }
     }
   }
@@ -2252,20 +2259,20 @@ pub fn cetas_js_runtime_finish_magpie_credential(
       if rollback {
         let store = credential_store(runtime.config.home)
         match runtime.magpie_previous_credential {
-          Some(credential) => {
+          Some(credential) =>
             store.write(MAGPIE_PROVIDER_ID, credential) catch {
-              _ => raise @posoco.CommandError::ExecutionFailed(
-                "previous gateway credential could not be restored",
-              )
+              _ =>
+                raise @posoco.CommandError::ExecutionFailed(
+                  "previous gateway credential could not be restored",
+                )
             }
-          }
-          None => {
+          None =>
             store.delete(MAGPIE_PROVIDER_ID) catch {
-              _ => raise @posoco.CommandError::ExecutionFailed(
-                "previous gateway credential could not be cleared",
-              )
+              _ =>
+                raise @posoco.CommandError::ExecutionFailed(
+                  "previous gateway credential could not be cleared",
+                )
             }
-          }
         }
       }
       runtime.magpie_previous_credential = None
