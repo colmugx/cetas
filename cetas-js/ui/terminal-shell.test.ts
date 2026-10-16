@@ -9,7 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TUI, TuiMainScreen } from "@earendil-works/pi-tui";
+import { TUI, TuiMainScreen, TuiAltScreen } from "@earendil-works/pi-tui";
 import {
   isAbortError,
   localSlashAutocompleteItems,
@@ -1323,5 +1323,37 @@ describe("OSC 7501 terminal lifecycle reports", () => {
     const { shell } = makeShell();
     expect(() => shell.handleSnapshot({state:"ready",sessionId:"test",setup:{providers:[],oauthProviders:[]}} as never))
       .not.toThrow();
+  });
+});
+
+
+describe("Gate 3 full-screen virtual transcript integration", () => {
+  test("AltScreen shell installs a virtualized transcript and keeps controls in the layout", () => {
+    const terminal = {
+      columns: 100, rows: 32, kittyProtocolActive: false,
+      write: () => {}, start: () => {}, stop: () => {},
+      drainInput: async () => {}, moveBy: () => {},
+      hideCursor: () => {}, showCursor: () => {},
+      clearScreen: () => {}, clearLine: () => {}, clearFromCursor: () => {},
+      setTitle: () => {}, setProgress: () => {}, setProgramStatus: () => {},
+    };
+    const tui = new TuiAltScreen(terminal as never);
+    const shell = new TerminalShell({
+      tui, cwd: "/tmp", sessionsDir: "/tmp", maxToolRounds: 8,
+      initialSessionId: "test-virtual-session",
+    });
+    const doc = (shell as any).virtualTranscript;
+    expect(doc).toBeDefined();
+    const transcript = (shell as any).transcript;
+    for (let i = 0; i < 10000; i++) transcript.addChild({
+      render: () => [String(i)], invalidate() {},
+    });
+    doc[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    expect(doc.stats.mountedItems).toBeLessThan(40);
+    expect(doc.stats.totalItems).toBe(10000);
+    transcript.clear();
+    doc.reset();
+    doc[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    expect(doc.stats.totalItems).toBe(0);
   });
 });
