@@ -1275,3 +1275,53 @@ describe("welcome screen lifecycle", () => {
     expect(ui.welcomeHeader.compact).toBe(false);
   });
 });
+
+
+describe("OSC 7501 terminal lifecycle reports", () => {
+  test("startup, turn and readiness are coalesced and do not leak turn text", () => {
+    const { shell, tui } = makeShell();
+    const statuses: Array<{ state: string; message?: string; kind?: string }> = [];
+    (tui.terminal as any).setProgramStatus = (status: typeof statuses[number]) => statuses.push(status);
+    const snapshot = (state: "ready" | "running") =>
+      ({ state, sessionId: "test", setup: { providers: [], oauthProviders: [] } }) as never;
+    (shell as any).publishProgramStatus();
+    expect(statuses.at(-1)).toMatchObject({state: "working", message: "Starting"});
+    shell.handleSnapshot(snapshot("ready"));
+    expect(statuses.at(-1)?.state).toBe("idle");
+    const writes = statuses.length;
+    shell.handleSnapshot(snapshot("ready"));
+    expect(statuses.length).toBe(writes);
+    (shell as any).setTurnStatus("working", "secret prompt with token sk-private");
+    expect(statuses.at(-1)).toMatchObject({state: "working", message: "Working"});
+    expect(statuses.at(-1)?.message).not.toContain("secret");
+    (shell as any).setTurnStatus("idle");
+    expect(statuses.at(-1)?.state).toBe("idle");
+  });
+
+  test("concurrent UI requests yield blocked then restore the running state", async () => {
+    const { shell, tui } = makeShell();
+    const statuses: Array<{ state: string; kind?: string }> = [];
+    (tui.terminal as any).setProgramStatus = (status: typeof statuses[number]) => statuses.push(status);
+    shell.handleSnapshot({ state:"running", sessionId:"test", setup:{providers:[],oauthProviders:[]} } as never);
+    const releases: Array<(value: string) => void> = [];
+    (shell as any).handleUiRequest = () => new Promise<string>(resolve => { releases.push(resolve); });
+    const question = shell.callbacks.requestCallback!(JSON.stringify({type:"ui_request",request:{type:"confirm"}}));
+    expect(statuses.at(-1)).toMatchObject({state:"blocked",kind:"question"});
+    const auth = shell.callbacks.requestCallback!(JSON.stringify({type:"auth_prompt"}));
+    expect(statuses.at(-1)).toMatchObject({state:"blocked",kind:"auth"});
+    releases[1]("{}");
+    await auth;
+    expect(statuses.at(-1)).toMatchObject({state:"blocked",kind:"question"});
+    releases[0]("{}");
+    await question;
+    expect(statuses.at(-1)?.state).toBe("working");
+    await shell.shutdown();
+    expect(statuses.at(-1)?.state).toBe("clear");
+  });
+
+  test("missing OSC capability is a no-op", () => {
+    const { shell } = makeShell();
+    expect(() => shell.handleSnapshot({state:"ready",sessionId:"test",setup:{providers:[],oauthProviders:[]}} as never))
+      .not.toThrow();
+  });
+});
