@@ -468,6 +468,14 @@ export class TerminalShell {
         () => Math.max(1, this.tui.terminal.rows - 6),
       );
       this.virtualTranscript = document;
+      document.attachCopy(async (text) => {
+        const clipboard = getNativeClipboard();
+        if (!clipboard?.setText) {
+          this.addTranscriptChild(systemNotice("Clipboard writing is unavailable on this platform"));
+          return;
+        }
+        await clipboard.setText(text);
+      });
       const root = new VStack([
         { component: this.welcomeHeader, basis: "auto", shrink: 1 },
         { component: view, grow: 1, shrink: 1, minSize: 1 },
