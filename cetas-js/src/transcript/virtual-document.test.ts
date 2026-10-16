@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Container, type Component } from "@earendil-works/pi-tui";
 import { VirtualTranscriptDocument, highlightLiteralRows } from "./virtual-document.ts";
+import type { SearchableComponent } from "./search-index.ts";
 
 describe("Gate 2 logical-height virtual layout", () => {
   test("ten thousand messages only render a bounded visible window", () => {
@@ -79,11 +80,14 @@ describe("virtual message-range mouse selection", () => {
   test("drag across unmounted history copies source without painting skipped items", async () => {
     const source = new Container();
     let renders = 0;
-    for (let i=0;i<10000;i++) source.addChild({
-      getSearchText: () => "message " + i,
-      render: () => {renders++;return ["message " + i];},
-      invalidate() {},
-    });
+    for (let i=0;i<10000;i++) {
+      const item: SearchableComponent = {
+        getSearchText: () => "message " + i,
+        render: () => {renders++;return ["message " + i];},
+        invalidate() {},
+      };
+      source.addChild(item);
+    }
     const document = new VirtualTranscriptDocument(source,()=>80,()=>20,()=>({top:0,followEnd:false}));
     const copied:string[]=[];
     document.attachCopy(text=>{copied.push(text);});
