@@ -29,7 +29,7 @@ DIST_ARTIFACT = "cetas-js-dist.tar.gz"
 
 # Keep in sync with cetas-js/package.json dependencies. pi-tui ships native
 # .node prebuilds inside the package, so one dependency serves every platform.
-PI_TUI_RANGE = "^0.85.1"
+PI_TUI_RANGE = "^1.3.0"
 
 README = f"""# cetas
 

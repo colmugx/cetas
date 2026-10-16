@@ -47,7 +47,9 @@ class NpmStageTest(unittest.TestCase):
             self.assertEqual(manifest["bin"], {"cetas": "dist/cetas.js"})
             self.assertEqual(manifest["files"], ["dist"])
             self.assertEqual(manifest["engines"], {"node": ">=24"})
-            self.assertIn("@earendil-works/pi-tui", manifest["dependencies"])
+            self.assertEqual(
+                manifest["dependencies"]["@earendil-works/pi-tui"], npm_stage.PI_TUI_RANGE
+            )
             self.assertNotIn("optionalDependencies", manifest)
 
             bundle = pkg_dir / "dist" / "cetas.js"
