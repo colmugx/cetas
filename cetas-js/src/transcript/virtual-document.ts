@@ -10,7 +10,8 @@
  * This is a pi-tui 1.3-specific adapter. Upstream search/selection are NOT
  * complete across unmounted history; Gate 5 supplies indexed equivalents.
  */
-import { Container, ScrollView, TuiAltScreen, type Component } from "@earendil-works/pi-tui";
+import { Container, ScrollView, TuiAltScreen, sliceByColumn, visibleWidth, type Component } from "@earendil-works/pi-tui";
+import { TranscriptSearchIndex, isSearchableComponent } from "./search-index.ts";
 import { TranscriptHeightIndex } from "./model.ts";
 
 const LAYOUT_NODE = Symbol.for("@earendil-works/pi-tui/layout-node");
@@ -48,6 +49,13 @@ export class VirtualTranscriptDocument implements Component {
   private startRow = 0;
   private lastLines: string[] = [];
   private slots: StackSlot[] = [];
+  private searchIndex?: TranscriptSearchIndex;
+  private selectedHit = -1;
+  setSearchHighlight(index: TranscriptSearchIndex, selectedHit: number): void {
+    this.searchIndex = index;
+    this.selectedHit = selectedHit;
+  }
+  clearSearchHighlight(): void { this.searchIndex = undefined; this.selectedHit = -1; }
   private readonly estimateHeight = 3;
   private readonly overscanRows = 10;
   private lastStats: VirtualDocumentStats = {
@@ -113,12 +121,19 @@ export class VirtualTranscriptDocument implements Component {
     const lines: string[] = [];
     // Index resolution is O(log N); only visible+overscan components render.
     for (let i = range.first; i < range.endExclusive; i++) {
-      const rendered = this.source.children[i]!.render(safeWidth);
+      const component = this.source.children[i]!;
+      const rendered = component.render(safeWidth);
+      // Highlight only literal source matches that can be located exactly on
+      // rendered rows. Markdown transformations are intentionally not guessed.
+      const hits = this.searchIndex?.matches.filter(hit => hit.index === i) ?? [];
+      const highlighted = hits.length && isSearchableComponent(component)
+        ? highlightLiteralRows(rendered, component.getSearchText(), hits.map(hit => ({ offset: hit.offset, length: hit.length })), safeWidth)
+        : rendered;
       // Blank blocks still occupy a logical row; never let index heights be 0.
       const height = Math.max(1, rendered.length);
       if (height !== this.heights.heightAt(i)) this.heights.update(i, height);
-      if (rendered.length === 0) lines.push("");
-      else lines.push(...rendered);
+      if (highlighted.length === 0) lines.push("");
+      else lines.push(...highlighted);
     }
     if (anchorIndex >= 0 && anchorIndex < this.heights.size) {
       const corrected = this.heights.prefix(anchorIndex) +
@@ -172,4 +187,45 @@ export function createVirtualScroll(
   view = new ScrollView(document, { follow: "end", primary: true, scrollbar: "auto" });
   document.attachNavigation((row) => view!.scrollTo(row, { disableFollow: true }));
   return { view, document };
+}
+
+/** Exact literal-row matches only; preserves the existing ANSI escapes. */
+export function highlightLiteralRows(
+  rows: readonly string[], source: string,
+  hits: readonly { offset: number; length: number }[], width: number,
+): string[] {
+  if (!hits.length || !source) return [...rows];
+  // Markdown may change source text into formatted terminal content. Only
+  // highlight when the source line occurs literally within a rendered row.
+  const sourceLines = source.split("\n");
+  return rows.map(raw => {
+    if (raw.includes("\x1b_G") || raw.includes("\x1b]1337;File=")) return raw;
+    const plain = raw.replace(/\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "");
+    const ranges: {start:number;end:number}[] = [];
+    let startOffset=0;
+    for (const line of sourceLines) {
+      const displayStart=plain.indexOf(line);
+      if (line && displayStart>=0) {
+        for (const hit of hits) {
+          const localStart=hit.offset-startOffset;
+          if (localStart>=0 && localStart+hit.length<=line.length) {
+            const prefix=plain.slice(0,displayStart+localStart);
+            const start=visibleWidth(prefix);
+            const len=visibleWidth(line.slice(localStart,localStart+hit.length));
+            if(start+len<=width) ranges.push({start,end:start+len});
+          }
+        }
+      }
+      startOffset+=line.length+1;
+    }
+    if (!ranges.length) return raw;
+    let result=raw;
+    for (const range of ranges.sort((a,b)=>b.start-a.start)) {
+      const before=sliceByColumn(result,0,range.start,true);
+      const middle=sliceByColumn(result,range.start,range.end-range.start,true);
+      const after=sliceByColumn(result,range.end,Math.max(0,visibleWidth(result)-range.end),true);
+      result=before+"\x1b[4m"+middle+"\x1b[24m"+after;
+    }
+    return result;
+  });
 }

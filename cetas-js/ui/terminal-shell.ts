@@ -1065,6 +1065,7 @@ export class TerminalShell {
     this.transcript.addChild(component);
     this.transcriptSearch.clear();
     this.activeSearchHit = -1;
+    this.virtualTranscript?.clearSearchHighlight();
     this.tui.requestRender();
   }
 
@@ -1691,6 +1692,7 @@ export class TerminalShell {
     if (!(this.tui instanceof TuiAltScreen) || !this.virtualTranscript) return;
     const matches = this.transcriptSearch.search(this.transcript.children, query);
     this.activeSearchHit = -1;
+    this.virtualTranscript.setSearchHighlight(this.transcriptSearch, -1);
     if (!matches.length) {
       this.addTranscriptChild(systemNotice(`No transcript matches for: ${query}`));
       return;
@@ -1703,6 +1705,7 @@ export class TerminalShell {
     const next = this.transcriptSearch.next(this.activeSearchHit, reverse);
     if (next < 0) return;
     this.activeSearchHit = next;
+    this.virtualTranscript.setSearchHighlight(this.transcriptSearch, next);
     const hit = this.transcriptSearch.matches[next]!;
     this.virtualTranscript.scrollToItem(hit.index);
     this.tui.requestRender();
