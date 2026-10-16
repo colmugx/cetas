@@ -67,7 +67,7 @@ import {
   decisionFailureDiagnostic,
   type CoreCustomParse,
 } from "../src/core-events.ts";
-import type { Channel, PackageManager } from "../src/app/version.ts";
+
 import { LiveActivitiesHeader, renderLiveActivities, projectLiveActivities, type LiveActivitiesSource, type LiveActivityStyle, defaultActivityStyle } from "./live-activities.ts";
 import { createTerminalActivityStyle } from "./terminal-colors.ts";
 import {
@@ -95,6 +95,7 @@ import {
   ModelPickerOverlay,
   parseModelPickerOutcome,
   type ModelSelection,
+  type ModelCatalogEntry,
 } from "./model-picker.ts";
 import {
   SkillsOverlay,
@@ -110,8 +111,10 @@ import {
 } from "./sessions-overlay.ts";
 import { RewindOverlay } from "./rewind-overlay.ts";
 import { ModalVeilHost } from "./modal-mask.ts";
-import { UpdateOverlay, type UpdateChoice } from "./update-picker.ts";
-import { runUpdateCheck, updateInstallCommand, updateHandoffCommand } from "../src/app/update-check.ts";
+import { UpdateOverlay } from "./update-picker.ts";
+import { UpdateWorkflow } from "./update-workflow.ts";
+import { formatQuotaLines } from "./quota-view.ts";
+import { updateHandoffCommand } from "../src/app/update-check.ts";
 import { theme } from "./theme.ts";
 import { WelcomeHeader } from "./welcome-header.ts";
 import { readWorkspaceGitBranch, type StatusbarDashboardContext } from "./statusbar-dashboard.ts";
@@ -257,8 +260,8 @@ export class TerminalShell {
   private readonly home: string;
   private readonly piCommands: PiCommands;
   private readonly onExit: (code: number) => void;
-  private readonly versionInfo?: { version: string; channel: Channel; manager: PackageManager };
   private readonly updateOverlay: UpdateOverlay;
+  private readonly updateWorkflow: UpdateWorkflow;
   /** Set by "Update now"; exit() runs it after teardown instead of onExit. */
   private pendingUpdateHandoff?: () => void;
 
@@ -512,7 +515,6 @@ export class TerminalShell {
     this.sessionsOverlay = new SessionsOverlay(this.modals);
     this.rewindOverlay = new RewindOverlay(this.modals);
     this.updateOverlay = new UpdateOverlay(this.modals);
-    this.versionInfo = options.versionInfo;
     this.commandLock = new CommandLock(
       (label) => {
         this.commandBusy = true;
@@ -522,6 +524,18 @@ export class TerminalShell {
       },
       () => this.finishCommand(),
     );
+    this.updateWorkflow = new UpdateWorkflow({
+      version: options.versionInfo,
+      home: this.home,
+      lock: this.commandLock,
+      overlay: this.updateOverlay,
+      busy: () => this.operationBusy || this.commandBusy,
+      notice: (message, isError) => this.addTranscriptChild(isError ? errorNotice(message) : systemNotice(message)),
+      install: (command) => {
+        this.beginUpdateHandoff(command);
+        this.requestShutdown(0);
+      },
+    });
 
     this.router = new EventRouter({
       addTranscriptChild: (component) => this.addTranscriptChild(component),
@@ -1943,7 +1957,8 @@ export class TerminalShell {
       this.addTranscriptChild(errorNotice("/quota requires an idle application"));
       return;
     }
-    this.commandLock.acquire("loading quotas");
+    const lease = this.commandLock.lease("loading quotas");
+    let handedOff = false;
     try {
       const outcome = parseCommandOutcome(await this.requireApp().invokeCommand("quota", JSON.stringify({ refresh: rawArgs.trim() === "refresh" })));
       if (outcome.type !== "success") {
@@ -1951,75 +1966,27 @@ export class TerminalShell {
         return;
       }
       const data = outcome.structured;
-      const lines = ["Quotas", "Use /quota refresh to request updated Gateway quota cards."];
-      if (typeof data === "object" && data !== null && !Array.isArray(data)) {
-        const record = data as Record<string, unknown>;
-        if (record.manager === "providers") {
-          const models = parseModelPickerOutcome(
-            await this.requireApp().invokeCommand("model", "{}"),
-          );
-          if (models.type === "success") {
-            const providers = new Map<string, string[]>();
-            for (const entry of models.entries) {
-              const id = entry.provider ?? "Unknown provider";
-              if (providers.has(id)) continue;
-              const readings = entry.quotaReadings ?? [];
-              const rows = readings.map((q) => {
-                const quantity = q.usedPercent == null
-                  ? q.amount == null ? "Unknown" : `${q.amount.value} ${q.amount.currency}`
-                  : `${q.usedPercent}% used`;
-                return `  ${q.window}: ${quantity}`;
-              });
-              providers.set(id, rows.length > 0 ? rows : ["  Quota unavailable"]);
-            }
-            for (const [provider, rows] of providers) {
-              lines.push(stripTerminalSequences(provider).slice(0, 90), ...rows.slice(0, 20));
-            }
-          } else {
-            lines.push("Provider quota data unavailable.");
-          }
-        } else if (Array.isArray(record.cards)) {
-          for (const raw of record.cards.slice(0, 100)) {
-            if (typeof raw !== "object" || raw === null || Array.isArray(raw)) continue;
-            const card = raw as Record<string, unknown>;
-            const clean = (v: unknown) => typeof v === "string"
-              ? stripTerminalSequences(v).replace(/[\u0000-\u001F\u007F]/g, "").slice(0, 90)
-              : "";
-            const label = [clean(card.provider), clean(card.name), clean(card.plan)]
-              .filter(Boolean).join(" · ");
-            lines.push(label || "Unknown provider");
-            if (card.error) lines.push("  Unavailable");
-            if (card.read_at) lines.push(`  snapshot: ${clean(card.read_at)}`);
-            if (Array.isArray(card.windows)) {
-              for (const rawWindow of card.windows.slice(0, 20)) {
-                if (typeof rawWindow !== "object" || rawWindow === null || Array.isArray(rawWindow)) continue;
-                const w = rawWindow as Record<string, unknown>;
-                const remaining = typeof w.remaining === "number" && Number.isFinite(w.remaining)
-                  ? `${w.remaining}% remaining` : "";
-                const amount = typeof w.amount === "number" && typeof w.limit === "number"
-                  ? `${w.amount} / ${w.limit}` : "";
-                const value = clean(w.display) || remaining || amount || "Unknown";
-                lines.push(`  ${clean(w.name)}: ${value}`);
-                if (typeof w.resets_at === "string") lines.push(`  reset: ${clean(w.resets_at)}`);
-              }
-            }
-          }
-          if (record.cards.length === 0) lines.push("No accessible quota cards.");
-        }
+      let models: readonly ModelCatalogEntry[] | undefined;
+      if (typeof data === "object" && data !== null && !Array.isArray(data) &&
+          (data as Record<string, unknown>).manager === "providers") {
+        const result = parseModelPickerOutcome(await this.requireApp().invokeCommand("model", "{}"));
+        if (result.type === "success") models = result.entries;
       }
+      const lines = formatQuotaLines(data, models);
       const overlay = new DismissibleTextOverlay(
         new Text(lines.join("\n").slice(0, 16000), 1, 1),
-        () => { handle.hide(); this.commandLock.release(); },
+        () => { handle.hide(); lease.release(); },
       );
       const handle = this.modals.showOverlay(overlay, {
         width: "76%", maxHeight: "78%", anchor: "center", margin: 1,
       });
+      handedOff = true;
       this.tui.requestRender();
-      return;
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice(`/quota failed: ${errorMessage(error)}`));
+    } finally {
+      if (!handedOff) lease.release();
     }
-    this.commandLock.release();
   }
 
   private async showManagerStatus(): Promise<void> {
@@ -2198,62 +2165,9 @@ export class TerminalShell {
     }
   }
 
-  /**
-   * /update — fresh check, then the confirm picker. Update handoff exits the
-   * process only after the graceful shutdown persists the session; the
-   * install child inherits the terminal and re-execs cetas when it finishes.
-   */
-  private async runUpdateCommand(): Promise<void> {
-    const info = this.versionInfo;
-    if (info === undefined) {
-      this.addTranscriptChild(errorNotice("/update is unavailable without version info"));
-      return;
-    }
-    if (this.operationBusy || this.commandBusy) {
-      this.addTranscriptChild(errorNotice("/update cannot run while an operation is active"));
-      return;
-    }
-    if (info.channel !== "npm") {
-      this.addTranscriptChild(
-        systemNotice(`/update supports the npm channel only (this install is ${info.channel})`),
-      );
-      return;
-    }
-    this.commandLock.acquire("checking for updates");
-    try {
-      const hit = await runUpdateCheck({
-        home: this.home,
-        channel: "npm",
-        currentVersion: info.version,
-        manager: info.manager,
-        bypassCache: true,
-      });
-      if (hit === undefined) {
-        this.addTranscriptChild(systemNotice(`cetas ${info.version} is up to date`));
-        return;
-      }
-      this.updateOverlay.open(
-        info.version,
-        hit.latest,
-        updateInstallCommand(info.manager),
-        (choice) => this.applyUpdateChoice(choice),
-        () => this.commandLock.release(),
-      );
-    } catch (error: unknown) {
-      this.addTranscriptChild(errorNotice(`/update failed: ${errorMessage(error)}`));
-      this.commandLock.release();
-    }
-  }
-
-  private applyUpdateChoice(choice: UpdateChoice): void {
-    if (choice === "skip" || this.versionInfo === undefined) return;
-    const installCommand = updateInstallCommand(this.versionInfo.manager);
-    if (choice === "command") {
-      this.addTranscriptChild(systemNotice(`update command: ${installCommand}`));
-      return;
-    }
-    this.beginUpdateHandoff(installCommand);
-    this.requestShutdown(0);
+  /** Host owns process handoff; update workflow owns the picker and command lease. */
+  private runUpdateCommand(): Promise<void> {
+    return this.updateWorkflow.run();
   }
 
   private beginUpdateHandoff(installCommand: string): void {
