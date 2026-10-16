@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { Component } from "@earendil-works/pi-tui";
-import { TranscriptSearchIndex, transcriptTextRange } from "./search-index.ts";
+import { TranscriptSearchIndex, transcriptTextRange, type SearchableComponent } from "./search-index.ts";
 
-function docs(count:number, onRender:()=>void): Component[] {
+function docs(count:number, onRender:()=>void): SearchableComponent[] {
   return Array.from({length:count},(_,i)=>({
     render:()=>{onRender();throw new Error("search must never render!");},
     getSearchText:()=>i===9876?"banana asks main and main replies banana":"plain "+i,
+    invalidate(){},
   }));
 }
 describe("Gate 5 source-indexed transcript search and copy",()=>{
@@ -30,10 +31,10 @@ describe("Gate 5 source-indexed transcript search and copy",()=>{
   });
   test("copies original CJK and multiline text across offscreen message boundaries",()=>{
     let paints=0;
-    const blocks:Component[]=[
-      {render:()=>{paints++;return [];},getSearchText:()=>"你好，main\nmessage"},
-      {render:()=>{paints++;return [];},getSearchText:()=>"agent banana\n答复"},
-      {render:()=>{paints++;return [];},getSearchText:()=>"tool output"},
+    const blocks:SearchableComponent[]=[
+      {render:()=>{paints++;return [];},getSearchText:()=>"你好，main\nmessage",invalidate(){}},
+      {render:()=>{paints++;return [];},getSearchText:()=>"agent banana\n答复",invalidate(){}},
+      {render:()=>{paints++;return [];},getSearchText:()=>"tool output",invalidate(){}},
     ];
     expect(transcriptTextRange(blocks,0,2)).toBe("你好，main\nmessage\n\nagent banana\n答复\n\ntool output");
     expect(paints).toBe(0);
