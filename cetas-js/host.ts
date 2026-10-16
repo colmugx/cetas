@@ -27,6 +27,7 @@ import {
   resolvedSessionsDir,
 } from "./src/app/moonbit-bridge.ts";
 import { newSessionId } from "./src/app/session-id.ts";
+import { disposeSharedPiModuleMirror } from "./src/app/pi-module-mirror.ts";
 import { TerminalShell, CETAS_TUI_HELP_NOTE } from "./ui/terminal-shell.ts";
 
 // Recoverable failures belong to the Agent/tool boundary. A fault escaping
@@ -62,7 +63,10 @@ const onUnhandledFault = makeUnhandledFaultHandler({
       }
     }
   },
-  releaseResources: () => moonbit.cetas_js_herdr_release(),
+  releaseResources: () => {
+    disposeSharedPiModuleMirror();
+    moonbit.cetas_js_herdr_release();
+  },
   writeDiagnostic: (notice) => {
     writeSync(2, `${notice}\ncetas: exiting; restart to recover the persisted session.\n`);
   },
@@ -109,7 +113,10 @@ async function main(): Promise<void> {
     initialSessionId: sessionId,
     toolLabels,
     versionInfo,
-    onExit: (code) => process.exit(code),
+    onExit: (code) => {
+      disposeSharedPiModuleMirror();
+      process.exit(code);
+    },
   });
   const app = new CetasApplication({
     bridge,

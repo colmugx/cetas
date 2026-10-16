@@ -13,6 +13,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   realpathSync,
   statSync,
   writeFileSync,
@@ -237,6 +238,20 @@ export class PiModuleMirror {
 }
 
 let sharedMirror: PiModuleMirror | undefined;
+
+/** Drop the per-process mirror on orderly exit; files from aborted processes
+ * remain an OS temp-dir concern. Repeated teardown is harmless.
+ */
+export function disposeSharedPiModuleMirror(): void {
+  const current = sharedMirror;
+  sharedMirror = undefined;
+  if (current === undefined) return;
+  try {
+    rmSync(current.root, { recursive: true, force: true });
+  } catch {
+    // The runtime is already exiting; keep shutdown best effort.
+  }
+}
 
 /** Per-process mirror session backed by one mkdtemp root. */
 export function sharedPiModuleMirror(): PiModuleMirror {

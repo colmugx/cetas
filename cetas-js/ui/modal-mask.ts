@@ -17,6 +17,7 @@ import type {
 } from "@earendil-works/pi-tui";
 
 import { theme } from "./theme.ts";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 
 /**
  * The TUI surface the veil needs. The real pi-tui TUI satisfies this
@@ -56,7 +57,7 @@ class DimVeil implements Component {
     const base = this.tui.render(width);
     const lines: string[] = [];
     for (let i = Math.max(0, base.length - rows); i < base.length; i++) {
-      lines.push(dimLine(base[i] ?? ""));
+      lines.push(truncateToWidth(dimLine(base[i] ?? ""), width, ""));
     }
     while (lines.length < rows) lines.push("");
     return lines.slice(0, rows);

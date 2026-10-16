@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 /**
  * image-attachments.ts — `@path` image attachment resolution for the TUI.
  *
@@ -93,12 +95,8 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 async function readWorkspaceFile(absolutePath: string): Promise<Uint8Array> {
-  const bun = (globalThis as { Bun?: { file(path: string): { arrayBuffer(): Promise<ArrayBuffer> } } }).Bun;
-  if (bun === undefined) {
-    throw new Error("image attachments require the Bun runtime");
-  }
-  const buffer = await bun.file(absolutePath).arrayBuffer();
-  return new Uint8Array(buffer);
+  // node:fs works in both Bun and Node bundles, unlike Bun.file().
+  return readFile(absolutePath);
 }
 
 function formatBytes(size: number): string {
