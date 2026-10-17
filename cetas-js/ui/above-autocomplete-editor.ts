@@ -33,7 +33,15 @@ export class AboveAutocompleteEditor extends Editor {
   readonly menuComponent: Component & { handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined };
 
   constructor(tui: TUI, theme: EditorTheme) {
-    super(tui, theme);
+    // Keep the selected background active through the Editor's right-padding.
+    // A normal Chalk style resets before the padding and highlights only text.
+    super(tui, {
+      ...theme,
+      selectList: {
+        ...theme.selectList,
+        selectedText: (text: string) => "\x1b[46m\x1b[30m" + text,
+      },
+    });
     this.menuComponent = {
       render: (width) => this.renderMenu(width),
       invalidate: () => { this.computedWidth = -1; },
@@ -47,8 +55,27 @@ export class AboveAutocompleteEditor extends Editor {
   }
 
   private updateParts(width: number): void {
+    const raw = this as unknown as {
+      // pi-tui keeps the SelectList private; its default 32-column primary
+      // width truncates long @paths even when the terminal has room.
+      autocompleteList?: {
+        layout: { minPrimaryColumnWidth?: number; maxPrimaryColumnWidth?: number };
+      };
+      renderedAutocompleteHeight: number;
+      renderedVisibleLineCount: number;
+    };
+    const padding = Math.min(this.getPaddingX(), Math.max(0, Math.floor((width - 1) / 2)));
+    const contentWidth = Math.max(1, width - padding * 2);
+    if (raw.autocompleteList) {
+      const layout = raw.autocompleteList.layout;
+      raw.autocompleteList.layout = {
+        ...layout,
+        minPrimaryColumnWidth: layout.minPrimaryColumnWidth ?? 12,
+        // Reserve space for the secondary description when one is present.
+        maxPrimaryColumnWidth: Math.max(12, contentWidth - 16),
+      };
+    }
     const lines = super.render(width);
-    const raw = this as unknown as { renderedAutocompleteHeight: number; renderedVisibleLineCount: number };
     const count = Math.max(0, raw.renderedAutocompleteHeight);
     this.editorLines = count ? lines.slice(0, -count) : lines;
     this.menu = count ? lines.slice(-count) : [];
