@@ -18,6 +18,7 @@ import {
 } from "@earendil-works/pi-tui";
 
 import { theme } from "./theme.ts";
+import { OverlayChoice } from "./overlay-choice.ts";
 
 export interface UpdateTui {
   showOverlay(component: Component, options: {
@@ -50,6 +51,7 @@ class UpdatePanel implements Component {
     installCommand: string,
     private readonly choose: (choice: UpdateChoice) => void,
     private readonly close: () => void,
+    private readonly settleChoice: (choice: UpdateChoice) => void = () => {},
   ) {
     this.title = new Text(
       theme.brandBold("Update available") +
@@ -64,8 +66,10 @@ class UpdatePanel implements Component {
     ];
     this.list = new SelectList(items, items.length, selectTheme);
     this.list.onSelect = (item) => {
+      const choice = item.value as UpdateChoice;
+      this.settleChoice(choice);
       this.close();
-      this.choose(item.value as UpdateChoice);
+      this.choose(choice);
     };
     this.list.onCancel = () => this.close();
     this.footer = new Text(
@@ -104,11 +108,26 @@ class UpdatePanel implements Component {
 export class UpdateOverlay {
   private handle?: OverlayHandle;
   private panel?: UpdatePanel;
+  private readonly choice = new OverlayChoice<UpdateChoice>();
 
   constructor(private readonly tui: UpdateTui) {}
 
   get isActive(): boolean {
     return this.handle !== undefined;
+  }
+
+  /** Await selection or dismissal; shutdown aborts the pending choice. */
+  choose(
+    currentVersion: string,
+    latestVersion: string,
+    installCommand: string,
+    signal?: AbortSignal,
+  ): Promise<UpdateChoice | undefined> {
+    return this.choice.wait(
+      () => this.open(currentVersion, latestVersion, installCommand, () => {}, () => {}),
+      () => this.hide(),
+      signal,
+    );
   }
 
   open(
@@ -128,7 +147,10 @@ export class UpdateOverlay {
       this.hide();
       onClose();
     };
-    const panel = new UpdatePanel(currentVersion, latestVersion, installCommand, choose, close);
+    const panel = new UpdatePanel(
+      currentVersion, latestVersion, installCommand, choose, close,
+      (choice) => this.choice.select(choice),
+    );
     this.panel = panel;
     this.handle = this.tui.showOverlay(panel, {
       width: "76%",
@@ -139,6 +161,7 @@ export class UpdateOverlay {
   }
 
   hide(): void {
+    this.choice.cancel();
     const handle = this.handle;
     this.handle = undefined;
     this.panel = undefined;
