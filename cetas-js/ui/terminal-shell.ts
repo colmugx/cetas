@@ -86,7 +86,9 @@ import {
   createUiRequestCallback,
   isPlanReviewRequest,
 } from "./extension-ui.ts";
-import { CommandLock, type CommandLease } from "./command-lock.ts";
+import { CommandLock } from "./command-lock.ts";
+import { CommandRunner } from "./command-runner.ts";
+import { MessageDialog } from "./message-dialog.ts";
 import { SelectionDialog } from "./selection-dialog.ts";
 import { banner } from "./primitives.ts";
 import {
@@ -206,23 +208,6 @@ interface CommandOutcome {
   ui_hint?: string;
 }
 
-class DismissibleTextOverlay implements Component {
-  constructor(private readonly text: Text, private readonly close: () => void) {}
-
-  render(width: number): string[] {
-    return this.text.render(width);
-  }
-
-  handleInput(_data: string): void {
-    this.close();
-  }
-
-  invalidate(): void {
-    this.text.invalidate();
-  }
-}
-
-
 /**
  * All terminal side effects live behind this class. `host.ts` only constructs
  * the bridge/application and delegates callbacks here.
@@ -277,6 +262,8 @@ export class TerminalShell {
   private readonly uiRegistry = new UiRegistry();
   private readonly modals: ModalVeilHost;
   private readonly selectionDialog: SelectionDialog;
+  private readonly commands: CommandRunner;
+  private readonly messageDialog: MessageDialog;
   private readonly modelPicker: ModelPickerOverlay;
   private readonly oauthOverlay: OAuthOverlay;
   private readonly authPromptOverlay: AuthPromptOverlay;
@@ -486,6 +473,7 @@ export class TerminalShell {
     // modals render over a dimmed background.
     this.modals = new ModalVeilHost(this.tui);
     this.selectionDialog = new SelectionDialog(this.modals, selectListTheme);
+    this.messageDialog = new MessageDialog(this.modals);
     this.modelPicker = new ModelPickerOverlay(this.modals);
     this.oauthOverlay = new OAuthOverlay(this.modals, () => {
       this.app?.cancelCurrentOperation();
@@ -504,10 +492,14 @@ export class TerminalShell {
       },
       () => this.finishCommand(),
     );
+    this.commands = new CommandRunner(
+      label => this.commandLock.acquire(label),
+      () => this.commandLock.release(),
+    );
     this.updateWorkflow = new UpdateWorkflow({
       version: options.versionInfo,
       home: this.home,
-      lock: this.commandLock,
+      commands: this.commands,
       overlay: this.updateOverlay,
       busy: () => this.operationBusy || this.commandBusy,
       notice: (message, isError) => this.addTranscriptChild(isError ? errorNotice(message) : systemNotice(message)),
@@ -823,12 +815,14 @@ export class TerminalShell {
       }
     };
     bestEffort(() => this.uiRequestBar.cancel());
+    bestEffort(() => this.commands.cancel());
     bestEffort(() => this.modelPicker.hide());
     bestEffort(() => this.oauthOverlay.hide());
     bestEffort(() => this.authPromptOverlay.hide());
     bestEffort(() => this.skillsOverlay.hide());
     bestEffort(() => this.rewindOverlay.hide());
     bestEffort(() => this.updateOverlay.hide());
+    bestEffort(() => this.messageDialog.hide());
     bestEffort(() => this.selectionDialog.hide());
     bestEffort(() => this.uiRenderHost.dispose());
     if (this.started) bestEffort(() => this.tui.stop({ preserveScreen: this.tui instanceof TuiAltScreen }));
@@ -865,6 +859,7 @@ export class TerminalShell {
     this.hostFaultStopped = true;
     this.exitDelivered = true;
     this.pendingUpdateHandoff = undefined;
+    this.commands.cancel();
     this.clearForceExitWatchdog();
     this.stopSwarmTicker();
     this.statusLoader.stop();
@@ -891,12 +886,14 @@ export class TerminalShell {
     this.publishProgramStatus();
     this.shutdownPromise = (async () => {
       this.uiRequestBar.cancel();
+      this.commands.cancel();
       this.modelPicker.hide();
       this.oauthOverlay.hide();
       this.authPromptOverlay.hide();
       this.skillsOverlay.hide();
       this.rewindOverlay.hide();
       this.updateOverlay.hide();
+      this.messageDialog.hide();
       this.selectionDialog.hide();
       try {
         if (this.app !== undefined) await this.app.shutdown();
@@ -1921,35 +1918,25 @@ export class TerminalShell {
       this.addTranscriptChild(errorNotice("/quota requires an idle application"));
       return;
     }
-    const lease = this.commandLock.lease("loading quotas");
-    let handedOff = false;
     try {
-      const outcome = parseCommandOutcome(await this.requireApp().invokeCommand("quota", JSON.stringify({ refresh: rawArgs.trim() === "refresh" })));
-      if (outcome.type !== "success") {
-        this.renderOutcome(outcome, "/quota");
-        return;
-      }
-      const data = outcome.structured;
-      let models: readonly ModelCatalogEntry[] | undefined;
-      if (typeof data === "object" && data !== null && !Array.isArray(data) &&
-          (data as Record<string, unknown>).manager === "providers") {
-        const result = parseModelPickerOutcome(await this.requireApp().invokeCommand("model", "{}"));
-        if (result.type === "success") models = result.entries;
-      }
-      const lines = formatQuotaLines(data, models);
-      const overlay = new DismissibleTextOverlay(
-        new Text(lines.join("\n").slice(0, 16000), 1, 1),
-        () => { handle.hide(); lease.release(); },
-      );
-      const handle = this.modals.showOverlay(overlay, {
-        width: "76%", maxHeight: "78%", anchor: "center", margin: 1,
+      await this.commands.run("loading quotas", async signal => {
+        const outcome = parseCommandOutcome(await this.requireApp().invokeCommand(
+          "quota", JSON.stringify({ refresh: rawArgs.trim() === "refresh" }),
+        ));
+        if (signal.aborted) return;
+        if (outcome.type !== "success") { this.renderOutcome(outcome, "/quota"); return; }
+        const data = outcome.structured;
+        let models: readonly ModelCatalogEntry[] | undefined;
+        if (typeof data === "object" && data !== null && !Array.isArray(data) &&
+            (data as Record<string, unknown>).manager === "providers") {
+          const result = parseModelPickerOutcome(await this.requireApp().invokeCommand("model", "{}"));
+          if (result.type === "success") models = result.entries;
+        }
+        if (signal.aborted) return;
+        await this.messageDialog.show(formatQuotaLines(data, models).join("\n"), signal);
       });
-      handedOff = true;
-      this.tui.requestRender();
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice(`/quota failed: ${errorMessage(error)}`));
-    } finally {
-      if (!handedOff) lease.release();
     }
   }
 
@@ -1971,51 +1958,31 @@ export class TerminalShell {
       this.addTranscriptChild(errorNotice("/model cannot run while another command is active"));
       return;
     }
-    const lease = this.commandLock.lease("loading model catalog");
-    let handedOff = false;
     try {
-      const args = mode === "quota" ? { slot: "quick-pick" } : {};
-      const outcome = parseModelPickerOutcome(
-        await this.requireApp().invokeCommand("model", JSON.stringify(args)),
-      );
-      if (outcome.type !== "success") {
-        this.renderOutcome(outcome, "/model");
-        return;
-      }
-      if (outcome.entries.length === 0) {
-        this.addTranscriptChild(errorNotice("/model: provider returned an empty model catalog"));
-        return;
-      }
-      this.modelPicker.open(
-        outcome.entries,
-        (selection) => void this.applyModelSelection(selection, lease),
-        () => lease.release(),
-        undefined,
-        mode,
-      );
-      // The picker now owns the lease until selection completes or it is cancelled.
-      handedOff = true;
+      await this.commands.run("loading model catalog", async signal => {
+        const args = mode === "quota" ? { slot: "quick-pick" } : {};
+        const outcome = parseModelPickerOutcome(
+          await this.requireApp().invokeCommand("model", JSON.stringify(args)),
+        );
+        if (signal.aborted) return;
+        if (outcome.type !== "success") { this.renderOutcome(outcome, "/model"); return; }
+        if (outcome.entries.length === 0) {
+          this.addTranscriptChild(errorNotice("/model: provider returned an empty model catalog"));
+          return;
+        }
+        const selection = await this.modelPicker.choose(outcome.entries, signal, mode);
+        if (selection === undefined || signal.aborted) return;
+        this.setCommandStatus(`switching to ${selection.slot}`);
+        const selectionArgs = {
+          slot: selection.slot, ...(selection.effort === undefined ? {} : { effort: selection.effort }),
+        };
+        const selected = parseModelPickerOutcome(
+          await this.requireApp().invokeCommand("model", JSON.stringify(selectionArgs)),
+        );
+        if (!signal.aborted) this.renderOutcome(selected, "/model");
+      });
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice(`/model failed: ${errorMessage(error)}`));
-    } finally {
-      if (!handedOff) lease.release();
-    }
-  }
-
-  private async applyModelSelection(selection: ModelSelection, lease: CommandLease): Promise<void> {
-    this.setCommandStatus(`switching to ${selection.slot}`);
-    try {
-      const args = {
-        slot: selection.slot,
-        ...(selection.effort === undefined ? {} : { effort: selection.effort }),
-      };
-      const raw = await this.requireApp().invokeCommand("model", JSON.stringify(args));
-      const outcome = parseModelPickerOutcome(raw);
-      this.renderOutcome(outcome, "/model");
-    } catch (error: unknown) {
-      this.addTranscriptChild(errorNotice(`/model failed: ${errorMessage(error)}`));
-    } finally {
-      lease.release();
     }
   }
 
