@@ -1622,6 +1622,7 @@ pub fn cetas_js_runtime_create_agent(
             let store = @fs_session.JsonlSessionStore(
               runtime.config.sessions_dir,
               bus=Some(event_bus),
+              selection_control=Some(model.manager_control()),
             )
             let ui = JsUiPort(render_callback, request_callback)
             // Load AGENTS.md / CLAUDE.md context files from home + cwd ancestor
@@ -1724,9 +1725,14 @@ pub fn cetas_js_runtime_create_agent(
               plan_mode,
               statusbar,
               stats,
-              codex_quota,
               policy,
             ]
+            // The quota publisher belongs to the provider-router composition.
+            // Its independent status segments must not survive a manager switch.
+            match model {
+              Providers(_) => exts.push(codex_quota as &@posoco.Extension)
+              Magpie(_) => ()
+            }
             // Fill the approval/plan sources from the composed view: their
             // asks then ride the aggregated UiPort (request-event seam).
             exts.push(
@@ -2400,11 +2406,9 @@ async fn run_turn_outcome(
       Some(_) => "resume"
       None => "new"
     }
-    if reason == "resume" {
-      // The resumed session continues on the model that produced its last
-      // persisted turn (best-effort; see session_model_restore.mbt).
-      restore_session_model_selection(handle, session_id)
-    }
+    // Existing journals may also be opened as the process's first session.
+    // Fresh sessions have no saved selection and leave the manager unchanged.
+    restore_session_model_selection(handle, session_id)
     // Restore persisted pi custom entries before handlers see session_start
     // so package state (e.g. pi-web-access search caches) survives restarts.
     seed_pi_custom_entries(handle, session_id)
@@ -2546,11 +2550,7 @@ pub fn cetas_js_resume_turn(
         Some(_) => "resume"
         None => "new"
       }
-      if reason == "resume" {
-        // The resumed session continues on the model that produced its last
-        // persisted turn (best-effort; see session_model_restore.mbt).
-        restore_session_model_selection(handle, session_id)
-      }
+      restore_session_model_selection(handle, session_id)
       seed_pi_custom_entries(handle, session_id)
       emit_pi_session_start(handle, session_id, reason)
       handle.pi_session = Some(session_id)

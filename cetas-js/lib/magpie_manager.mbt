@@ -263,6 +263,18 @@ fn ModelManagerFace::manager_active_effort(self : ModelManagerFace) -> String? {
 }
 
 ///|
+/// Legacy selection records did not identify their owner. Only the router
+/// that originally produced them can interpret their slot identifiers.
+fn ModelManagerFace::manager_accepts_legacy_selection(
+  self : ModelManagerFace,
+) -> Bool {
+  match self {
+    Providers(_) => true
+    Magpie(_) => false
+  }
+}
+
+///|
 /// Each adapter fulfills the same devkit status contract. The ext-llm
 /// manager already owns the "model" segment; its status publisher remains
 /// authoritative. The Magpie adapter owns its own "model" segment. Both

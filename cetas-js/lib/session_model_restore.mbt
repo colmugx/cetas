@@ -1,58 +1,53 @@
 ///|
-/// session_model_restore.mbt — per-session model restoration on resume.
-///
-/// Session journals record the model slot (+ explicit effort) behind their
-/// last persisted turn (posoco-ext-fs-session's `posoco.model_selection`
-/// metadata, fed by the ext-llm `model_selection` bus event). Resuming a
-/// session restores that selection over the global `~/.cetas/settings.json`
-/// seed, so a conversation continues on the model that produced it. Restore
-/// problems degrade to one observer warning and the current selection —
-/// never a blocked resume.
-
-///|
-/// Core restore decision over injected seams, so the branches are testable
-/// without a fully composed agent handle. `warn` reports degraded restores.
-/// Returns `true` when the recorded selection was applied (slot switched),
-/// `false` for every degraded/skip path.
+/// Restore the model recorded for a session using an owner-qualified
+/// selection. Older unqualified slot records are interpreted only by the
+/// manager that originally wrote them.
 async fn restore_session_model_selection_over(
   store : @fs_session.JsonlSessionStore,
   manager : ModelManagerFace,
   warn~ : (String) -> Unit,
   session_id : String,
 ) -> Bool noraise {
-  let summary = store.summary(session_id) catch { _ => return false }
-  let slot = match summary.model {
-    Some(slot) => slot
+  let session = store.load(session_id) catch { _ => return false }
+  let recorded : (String, String?)? = if session.metadata.contains(
+      @fs_session.MODEL_SELECTION_V2_METADATA_KEY,
+    ) {
+    match
+      @fs_session.session_selection_v2_for_owner(
+        session.metadata,
+        manager.manager_control().manager_id(),
+      ) {
+      Some(selection) => Some((selection.model_id, selection.effort))
+      None => return false
+    }
+  } else {
+    if !manager.manager_accepts_legacy_selection() {
+      return false
+    }
+    @fs_session.model_selection_from_metadata(session.metadata)
+  }
+  let (model_id, effort) = match recorded {
+    Some(value) => value
     None => return false
   }
-  // Identical selection: keep the manager untouched — a slot switch drops the
-  // provider's quota segments and resets cache state, avoid that churn.
-  if slot == manager.manager_active_model_id() &&
-    summary.effort == manager.manager_active_effort() {
+  if model_id == manager.manager_active_model_id() &&
+    effort == manager.manager_active_effort() {
     return false
   }
-  manager.manager_select(model=slot) catch {
+  manager.manager_select(model=model_id) catch {
     _ => {
       warn(
-        "Session '" +
-        session_id +
-        "' last used model '" +
-        slot +
-        "', which is not in the manager catalog; keeping the current selection.",
+        "The session model is unavailable in the active model catalog; keeping the current selection.",
       )
       return false
     }
   }
-  match summary.effort {
-    Some(effort) =>
-      manager.manager_select(effort~) catch {
+  match effort {
+    Some(value) =>
+      manager.manager_select(effort=value) catch {
         _ =>
           warn(
-            "Session's reasoning effort '" +
-            effort +
-            "' is not advertised by model '" +
-            slot +
-            "'; using the model's default effort.",
+            "The saved reasoning effort is unavailable for this model; using the model's default effort.",
           )
       }
     None => ()
@@ -61,12 +56,9 @@ async fn restore_session_model_selection_over(
 }
 
 ///|
-/// Restore the session's last recorded model selection before a turn or a
-/// resumed turn runs. Best-effort end to end: a missing record (legacy
-/// journals, stores without the model bus) keeps the global selection; an
-/// absent slot or a no-longer-advertised effort warns once and keeps the
-/// current selection; an applied restore is written back to the global
-/// selection so the next fresh session inherits it.
+/// Apply the stored model before a turn or resumed turn. Missing or foreign
+/// selections do not alter the current manager; a valid selection also
+/// updates the default model for subsequent sessions.
 async fn restore_session_model_selection(
   handle : CetasJsAgent,
   session_id : String,
