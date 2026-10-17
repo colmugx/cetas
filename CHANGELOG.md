@@ -2,6 +2,23 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.10.2 (2026-10-17)
+
+## Bun Ver.（cetas-bun）
+
+### Feats
+- Sessions now remember their model: resuming a conversation restores the exact model and reasoning effort that produced it, so a session no longer silently falls back to your global default after a restart.
+- Model selections are persisted as versioned, owner-qualified records, so multiple managers (built-in and Magpie) keep separate selections without overwriting each other, and records written by an older manager keep working with that same manager.
+- The statusbar now shows how full your context window is — measured or estimated tokens used against the model's window, with a percentage. Estimates carry a `~` marker, and missing readings show `?` instead of a misleading zero.
+- The statusbar header now displays the current git branch in a soft pastel green, so you always know which checkout you are working in.
+
+### Fixes
+- Copying selected transcript text now works over SSH and inside terminal multiplexers: the terminal clipboard transport (OSC 52) is used when no native clipboard is available, native clipboards without write support no longer abort the copy, and you get a single clear notice only when no clipboard transport exists at all.
+- Autocomplete suggestions now expand to the full available width, so long `@`-paths and commands are no longer truncated to a narrow column, and the highlighted entry is emphasized across its entire row — the current selection is instantly visible.
+- Statusbar secondary rows were re-ordered for readability: the active permission mode leads, provider quota windows (including weekly/monthly) are grouped together, and remaining metrics keep their reported priority order.
+- The average speed in the statusbar is now a true weighted rate (total output tokens over total decode time), so bursts of short tool-call rounds no longer inflate the reported average.
+- Live activity entries no longer show a redundant "1" next to running agents (now `⚡ agent(name) · ...`).
+
 ## 0.10.1 (2026-10-17)
 
 ## Bun Ver.（cetas-bun）
