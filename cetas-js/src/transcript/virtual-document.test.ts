@@ -128,18 +128,20 @@ describe("AltScreen native selection fallback prevention", () => {
     (document as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
     const view = new TranscriptScrollView(document);
 
-    const press = view.handleMouse({type:"press",button:"left",x:4,y:8} as never);
+    const press = view.handleMouse({type:"press",button:"left",x:4,y:8,screenX:4,screenY:8,width:80,height:20} as never);
     expect(press?.handled).toBe(true);
     expect(press?.capture).toBe(true);
+    expect(press?.target.component).toBe(view);
+    expect(press?.target.originY).toBe(0);
     expect(press?.render).toBe(false);
-    const release = view.handleMouse({type:"release",button:"left",x:4,y:8} as never);
+    const release = view.handleMouse({type:"release",button:"left",x:4,y:8,screenX:4,screenY:8,width:80,height:20} as never);
     expect(release?.handled).toBe(true);
     expect(release?.render).toBe(false);
     expect(document.getSelectedSourceText()).toBeUndefined();
 
-    const click = view.handleMouse({type:"click",button:"left",x:4,y:8} as never);
+    const click = view.handleMouse({type:"click",button:"left",x:4,y:8,screenX:4,screenY:8,width:80,height:20} as never);
     expect(click?.handled).toBe(true);
-    expect(view.handleMouse({type:"wheel",button:"none",x:4,y:8} as never)).toBeUndefined();
+    expect(view.handleMouse({type:"wheel",button:"none",x:4,y:8,screenX:4,screenY:8,width:80,height:20} as never)).toBeUndefined();
   });
 
   test("scroll view sends viewport-relative gestures to document coordinates", () => {
@@ -157,10 +159,11 @@ describe("AltScreen native selection fallback prevention", () => {
     document.attachCopy(text => {copied = text;});
     (document as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
     const view = new TranscriptScrollView(document);
+    view.updateLayout(document.stats.logicalRows, 20, () => {});
     view.scrollTo(60, {disableFollow:true});
-    view.handleMouse({type:"press",button:"left",x:3,y:0} as never);
-    view.handleMouse({type:"drag",button:"left",x:3,y:12} as never);
-    view.handleMouse({type:"release",button:"left",x:3,y:12} as never);
+    view.handleMouse({type:"press",button:"left",x:3,y:0,screenX:3,screenY:0,width:80,height:20} as never);
+    view.handleMouse({type:"drag",button:"left",x:3,y:12,screenX:3,screenY:12,width:80,height:20} as never);
+    view.handleMouse({type:"release",button:"left",x:3,y:12,screenX:3,screenY:12,width:80,height:20} as never);
     expect(copied).toContain("message 20");
     expect(copied).toContain("message 24");
     expect(document.getSelectedSourceText()).toBeUndefined();
