@@ -7,6 +7,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import chalk from "chalk";
 import { roleStyle, theme } from "./theme.ts";
 
 export interface StatusbarEntry {
@@ -98,7 +99,9 @@ export function renderStatusbarDashboard(
   const managerEntry = get("manager");
   const manager = managerEntry ? segment(managerEntry, false) : "";
   const branch = context.branch ? clean(context.branch) : "";
-  const branchLabel = branch ? theme.muted("⑂ ") + branch : "";
+  const branchLabel = branch
+    ? theme.muted("⑂ ") + chalk.hex("#9BE1A1")(branch)
+    : "";
   const sep = theme.muted(" · ");
   const header = " " + modelValue + (manager ? sep + manager : "") +
     (branchLabel ? " " + branchLabel : "");
