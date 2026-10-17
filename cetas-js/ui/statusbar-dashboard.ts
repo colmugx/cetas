@@ -10,6 +10,29 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 import { roleStyle, theme } from "./theme.ts";
 
+/** Format the Core's current context reading without treating missing data as zero. */
+export function contextOccupancy(raw: unknown): string | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
+  const state = raw as Record<string, unknown>;
+  const tokens = (value: unknown): number | undefined =>
+    typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+  const format = (value: number): string =>
+    value >= 1_000_000 ? `${(Math.round(value / 100_000) / 10).toFixed(1)}M`
+      : value >= 1_000 ? `${(Math.round(value / 100) / 10).toFixed(1)}K` : String(value);
+  const window = tokens(state.window_tokens);
+  const measured = tokens(state.last_measured_tokens);
+  const estimate = tokens(state.estimated_added_tokens);
+  const source = state.source;
+  if (source !== "measured" && source !== "estimated" && source !== "unknown") return undefined;
+  const used = source === "unknown" || measured === undefined || estimate === undefined
+    ? undefined : measured + estimate;
+  const occupancy = used === undefined ? "?" :
+    `${source === "estimated" || estimate! > 0 ? "~" : ""}${format(used)}`;
+  if (window === undefined || window === 0) return occupancy === "?" ? "?" : occupancy;
+  return `${occupancy}/${format(window)}` +
+    (used === undefined ? "" : ` · ${Math.floor(used * 100 / window)}%`);
+}
+
 export interface StatusbarEntry {
   readonly key: string;
   readonly value: string;
@@ -17,6 +40,7 @@ export interface StatusbarEntry {
 }
 export interface StatusbarDashboardContext {
   readonly branch?: string;
+  readonly contextValue?: string;
   readonly manager?: "Posoco" | "Magpie";
   readonly status?: string;
   readonly activeAgents?: number;
@@ -107,7 +131,7 @@ export function renderStatusbarDashboard(
   const sep = theme.muted(" · ");
   const header = " " + modelValue + (manager ? sep + manager : "") +
     (branchLabel ? " " + branchLabel : "");
-  const contextValue = ctx ? segment(ctx, false) : "";
+  const contextValue = ctx ? segment(ctx, false) : context.contextValue ?? "";
   const withContext = contextValue ? header + sep + contextValue : header;
   const postponeCtx = Boolean(contextValue) && visibleWidth(withContext) > width;
   const first = truncateToWidth(postponeCtx ? header : withContext, width, "…");

@@ -118,7 +118,7 @@ import { formatQuotaLines } from "./quota-view.ts";
 import { updateHandoffCommand } from "../src/app/update-check.ts";
 import { theme } from "./theme.ts";
 import { WelcomeHeader } from "./welcome-header.ts";
-import { readWorkspaceGitBranch, type StatusbarDashboardContext } from "./statusbar-dashboard.ts";
+import { contextOccupancy, readWorkspaceGitBranch, type StatusbarDashboardContext } from "./statusbar-dashboard.ts";
 import { createVirtualScroll, type VirtualTranscriptDocument } from "../src/transcript/virtual-document.ts";
 import { DeferredTranscriptComponent } from "../src/transcript/deferred-component.ts";
 import { TranscriptSearchIndex, transcriptTextRange } from "../src/transcript/search-index.ts";
@@ -242,6 +242,7 @@ export class TerminalShell {
   private readonly extensionWidgets: Container;
   private readonly editor: Editor;
   private readonly statusBarMount: Container;
+  private readonly sessionContext = new Map<string, string>();
   private lastBranchCheck = 0;
   private cachedGitBranch?: string;
   private readonly router: EventRouter;
@@ -1045,6 +1046,7 @@ export class TerminalShell {
     const running = this.subagents.running(this.sessionId);
     return {
       branch: this.cachedGitBranch,
+      contextValue: this.sessionContext.get(this.sessionId),
       status: this.pendingAuthRequests > 0 ? "Waiting for auth"
         : this.pendingUiRequests > 0 ? "Waiting for reply"
           : this.operationBusy || this.commandBusy || this.renderedAppState === "running" ? "Working"
@@ -1373,10 +1375,24 @@ export class TerminalShell {
     const text = (key: string): string =>
       typeof event[key] === "string" ? (event[key] as string) : "";
     switch (event.type) {
-      case "context_state":
-        // The statusbar ctx segment is extension-projected over ui_render;
-        // the raw snapshot needs no host-side display.
+      case "context_state": {
+        const state = event.state;
+        if (typeof state !== "object" || state === null || Array.isArray(state)) return true;
+        const record = state as Record<string, unknown>;
+        const sessionId = record.session_id;
+        if (typeof sessionId !== "string" || sessionId.length === 0) return true;
+        const value = contextOccupancy(state);
+        if (value === undefined) return true;
+        // Use the core reading only when no status extension provides ctx.
+        // Index by session to avoid carrying occupancy into a new session.
+        this.sessionContext.delete(sessionId);
+        this.sessionContext.set(sessionId, value);
+        if (this.sessionContext.size > 64) {
+          this.sessionContext.delete(this.sessionContext.keys().next().value!);
+        }
+        if (sessionId === this.sessionId) this.tui.requestRender();
         return true;
+      }
       case "compact_started":
         this.setTurnStatus("compaction", `compacting (${text("trigger")})`);
         return true;

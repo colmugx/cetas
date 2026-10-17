@@ -101,4 +101,29 @@ describe("above-composer autocomplete", () => {
     expect(menu.every(line => visibleWidth(line) === 80)).toBe(true);
   });
 
+  test("selected row highlight follows the cursor without changing other rows", () => {
+    const tui = { terminal: { columns: 50, rows: 20 }, requestRender() {} } as never;
+    const plain = (value: string) => value;
+    const editor = new AboveAutocompleteEditor(tui, {
+      borderColor: plain,
+      selectList: { selectedPrefix: plain, selectedText: plain,
+        description: plain, scrollInfo: plain, noMatch: plain },
+    });
+    const list = new SelectList([
+      { value: "one", label: "one" },
+      { value: "two", label: "two" },
+    ], 5, {
+      selectedPrefix: plain, selectedText: plain, description: plain,
+      scrollInfo: plain, noMatch: plain,
+    });
+    const state = editor as unknown as { autocompleteList: SelectList; autocompleteState: string };
+    state.autocompleteList = list;
+    state.autocompleteState = "regular";
+    list.handleInput("\x1b[B");
+    const rows = editor.renderMenu(50);
+    expect(rows[0]).not.toContain("\x1b[46m");
+    expect(rows[1]).toContain("\x1b[46m\x1b[30m");
+    expect(rows[1]).toMatch(/ +\x1b\[0m$/);
+  });
+
 });
