@@ -122,7 +122,7 @@ import { contextOccupancy, readWorkspaceGitBranch, type StatusbarDashboardContex
 import { createVirtualScroll, type VirtualTranscriptDocument } from "../src/transcript/virtual-document.ts";
 import { DeferredTranscriptComponent } from "../src/transcript/deferred-component.ts";
 import { TranscriptSearchIndex, transcriptTextRange } from "../src/transcript/search-index.ts";
-import { getNativeClipboard } from "@earendil-works/pi-tui";
+import { copyTextToClipboard } from "./clipboard.ts";
 import { AboveAutocompleteEditor } from "./above-autocomplete-editor.ts";
 import { projectProgramStatus, classifyRequestStatus } from "./program-status.ts";
 
@@ -231,6 +231,7 @@ export class TerminalShell {
 
   private readonly transcript: Container;
   private readonly virtualTranscript?: VirtualTranscriptDocument;
+  private clipboardWarningShown = false;
   private readonly transcriptSearch = new TranscriptSearchIndex();
   private activeSearchHit = -1;
   private readonly welcomeHeader: WelcomeHeader;
@@ -442,13 +443,13 @@ export class TerminalShell {
       );
       this.virtualTranscript = document;
       document.attachCopy(async (text) => {
-        const clipboard = getNativeClipboard();
-        if (!clipboard?.setText) {
-          this.addTranscriptChild(systemNotice("Clipboard writing is unavailable on this platform"));
-          return;
+        const result = await copyTextToClipboard(text);
+        if (result === "unavailable" && !this.clipboardWarningShown) {
+          this.clipboardWarningShown = true;
+          this.addTranscriptChild(systemNotice(
+            "Clipboard copy unavailable: the terminal does not provide a clipboard transport",
+          ));
         }
-        try { await clipboard.setText(text); }
-        catch (error) { this.addTranscriptChild(errorNotice(`Clipboard copy failed: ${String(error)}`)); }
       });
       const root = new VStack([
         { component: this.welcomeHeader, basis: "auto", shrink: 1 },
@@ -1742,13 +1743,15 @@ export class TerminalShell {
     const last = Number(match[2] ?? match[1]) - 1;
     try {
       const text = transcriptTextRange(this.transcript.children, first, last);
-      const clipboard = getNativeClipboard();
-      if (!clipboard?.setText) {
-        this.addTranscriptChild(systemNotice("Native clipboard writing is unavailable in this terminal"));
+      const result = await copyTextToClipboard(text);
+      if (result === "unavailable") {
+        this.addTranscriptChild(errorNotice("Clipboard copy is unavailable in this terminal"));
         return;
       }
-      await clipboard.setText(text);
-      this.addTranscriptChild(systemNotice(`Copied transcript entries ${first + 1}–${last + 1}`));
+      const action = result === "terminal" ? "Sent to terminal clipboard" : "Copied";
+      this.addTranscriptChild(systemNotice(
+        `${action} transcript entries ${first + 1}–${last + 1}`,
+      ));
     } catch (error) {
       this.addTranscriptChild(errorNotice(`/copyhistory failed: ${String(error)}`));
     }
