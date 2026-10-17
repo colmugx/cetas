@@ -1,6 +1,6 @@
 import { getNativeClipboard } from "@earendil-works/pi-tui";
 
-type ClipboardWriter = { setText(text: string): void | Promise<void> };
+type ClipboardWriter = { setText?(text: string): void | Promise<void> };
 type TerminalWriter = { isTTY?: boolean; write(text: string): unknown };
 
 export type ClipboardResult = "native" | "terminal" | "unavailable";

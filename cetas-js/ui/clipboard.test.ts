@@ -15,6 +15,17 @@ describe("terminal clipboard", () => {
     expect(sequences).toEqual([]);
   });
 
+  test("uses OSC 52 when native clipboard cannot write", async () => {
+    const sequences: string[] = [];
+    const result = await copyTextToClipboard("selection", {
+      native: {},
+      terminal: { isTTY: true, write(text) { sequences.push(text); } },
+      preferTerminal: false,
+    });
+    expect(result).toBe("terminal");
+    expect(sequences).toHaveLength(1);
+  });
+
   test("falls back to OSC 52 when the native clipboard is absent", async () => {
     const sequences: string[] = [];
     const result = await copyTextToClipboard("你好\nhello", {
