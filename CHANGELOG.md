@@ -2,6 +2,15 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.10.1 (2026-10-17)
+
+## Bun Ver.（cetas-bun）
+
+### Fixes
+- Mouse text selection in the transcript works reliably again: dragging highlights exactly the characters you select — the highlight stays visible even inside colored Markdown output — and releasing copies precisely that range instead of the whole message.
+- Finishing a selection now always clears the highlight and copies your text, including on terminals that report the mouse release without a button code, and a plain click no longer leaves inverse-video residue behind or copies anything.
+- Backwards and multi-line drags copy the selected lines in the right order, and drags spanning several messages still copy each message in full — even parts currently scrolled out of the virtualized viewport — without rendering off-screen history just to complete the copy.
+
 ## 0.10.0 (2026-10-17)
 
 ## General
