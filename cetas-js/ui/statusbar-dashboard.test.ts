@@ -31,7 +31,8 @@ describe("Gate 0.5 adaptive statusbar", () => {
     expect(stripTerminalSequences(lines[0])).toContain("30.4K/1.0M · 3%");
     expect(lines.join("\n")).not.toContain("Working");
     expect(lines.join("\n")).toContain("2 agents");
-    expect(lines.join("\n")).toContain("permission");
+    expect(lines.join("\n")).toContain("yolo");
+    expect(lines.join("\n")).not.toContain("permission");
     expect(lines.join("\n")).toContain("cache");
     expect(lines.join("\n")).toMatch(/tps|more.*statusbar/);
   });
@@ -90,9 +91,21 @@ describe("fixed semantic statusbar hierarchy", () => {
     expect(text).not.toContain("Rate limited");
     expect(text).not.toContain("ctx");
     expect(text).toContain("Reset 14:30");
-    expect(text).toContain("5h 62%");
+    expect(text).toContain("5h 62% · 7d 78%");
     expect(text).not.toContain("Gateway connected");
     expect(text).not.toContain("✔");
+  });
+  test("permission leads the secondary rows unlabeled; quota windows stay one group", () => {
+    const rows = stripTerminalSequences(renderStatusbarDashboard([
+      {key:"model",value:"GPT-6 Luna:high"},
+      {key:"5h",value:"62% left"},
+      {key:"permission",value:"yolo",color:"warning"},
+      {key:"weekly",value:"78% left"},
+      {key:"session",value:"2026-10-16T10-1"},
+    ], 200, {}).join("\n")).split("\n");
+    expect(rows[1]).toBe(
+      " yolo · 5h 62% left · weekly 78% left · session 2026-10-16T10-1");
+    expect(rows.join("\n")).not.toContain("permission");
   });
 });
 

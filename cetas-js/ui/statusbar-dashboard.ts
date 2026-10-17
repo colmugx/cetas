@@ -73,9 +73,11 @@ function wrapFields(fields: readonly string[], width: number, maxRows: number): 
 /**
  * Statusbar contract:
  * primary = selected model:effort · manager · git branch · context.
- * Context follows the left-aligned header (or wraps when needed); important
- * notices (rate limit and Reset), quota and then diagnostics follow.
- * Never invent connectivity or reset state. Unknown extension metrics remain
+ * Context follows the left-aligned header (or wraps when needed); the
+ * permission mode leads the secondary rows unlabeled, the provider quota
+ * windows follow as one group, and the remaining fields keep their
+ * reported order (the registry pre-sorts by priority). Never invent
+ * connectivity or reset state. Unknown extension metrics remain
  * available in the wrapped secondary rows, with an overflow indicator.
  */
 export function renderStatusbarDashboard(
@@ -112,22 +114,26 @@ export function renderStatusbarDashboard(
 
   const remaining = entries.filter(e => e !== model && e !== ctx &&
     !["manager","router","status"].includes(e.key.toLowerCase()));
-  const isUrgent = (e: StatusbarEntry) =>
-    /reset|rate.?limit|retry|resume|backoff/i.test(e.key);
+  const permission = remaining.find(e => e.key.toLowerCase() === "permission");
+  const rest = remaining.filter(e => e !== permission);
   const isQuota = (e: StatusbarEntry) =>
-    /^(5h|7d|quota|time_limit|remaining|usage)$/i.test(e.key);
+    /^(5h|7d|weekly|monthly|quota|time_limit|remaining|usage)$/i.test(e.key);
   const format = (e: StatusbarEntry): string =>
     /reset/i.test(e.key) ? theme.warning("Reset ") + segment(e, false)
       : segment(e);
-  const urgent = remaining.filter(isUrgent).map(format);
-  const quota = remaining.filter(e => !isUrgent(e) && isQuota(e)).map(format);
-  const diagnostics = remaining.filter(e => !isUrgent(e) && !isQuota(e)).map(format);
+  const quota = rest.filter(isQuota).map(format);
+  const others = rest.filter(e => !isQuota(e)).map(format);
   const activity = context.activeAgents || context.awaitingReplies
     ? `${context.activeAgents ?? 0} agent${context.activeAgents === 1 ? "" : "s"}` +
       (context.awaitingReplies ? ` · ${context.awaitingReplies} awaiting reply` : "")
     : "";
-  const detail = [...(postponeCtx ? [contextValue] : []), ...urgent, ...quota,
-    ...(activity ? [theme.muted(activity)] : []), ...diagnostics];
+  const detail = [
+    ...(permission ? [segment(permission, false)] : []),
+    ...(postponeCtx ? [contextValue] : []),
+    ...quota,
+    ...(activity ? [theme.muted(activity)] : []),
+    ...others,
+  ];
   if (!detail.length) return [first];
   const maxRows = width < 28 ? 6 : width < 70 ? 4 : 2;
   return [first, ...wrapFields(detail, width - 1, maxRows).map(line => " " + line)];
