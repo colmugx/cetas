@@ -248,8 +248,10 @@ export class TranscriptScrollView extends ScrollView {
     // includes a concrete target. Target *this* view, not the document:
     // pi-tui uses its origin to retarget subsequent capture drag/releases.
     return {
-      handled: true,
       ...forwarded,
+      // TuiMouseDispatchResult.handled must be literal true. The forwarded
+      // component result has handled?: boolean; spread it BEFORE this flag.
+      handled: true,
       ...(event.type === "press" ? { capture: true } : {}),
       render: false,
       target: {
