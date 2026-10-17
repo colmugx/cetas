@@ -26,6 +26,7 @@ import {
   type EntryPricing,
   type ModelCatalogEntry,
   type ModelSelection,
+  type ProviderQuotaReading,
 } from "./model-catalog.ts";
 import {
   classifyProviderQuota,
