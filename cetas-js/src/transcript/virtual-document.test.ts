@@ -120,11 +120,12 @@ describe("click selection appearance", () => {
 describe("transcript text selection and clipboard", () => {
   test("drag within one message highlights selected characters, copies them, and clears on release", () => {
     const source = new Container();
-    source.addChild({
+    const item: SearchableComponent = {
       render: () => ["\x1b[32mhello world\x1b[0m"],
       invalidate() {},
       getSearchText: () => "hello world",
-    });
+    };
+    source.addChild(item);
     const document = new VirtualTranscriptDocument(source, () => 40, () => 8,
       () => ({ top: 0, followEnd: false }));
     const copied: string[] = [];
