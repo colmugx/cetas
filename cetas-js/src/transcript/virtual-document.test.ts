@@ -117,6 +117,86 @@ describe("click selection appearance", () => {
   });
 });
 
+describe("transcript text selection and clipboard", () => {
+  test("drag within one message highlights selected characters, copies them, and clears on release", () => {
+    const source = new Container();
+    source.addChild({
+      render: () => ["\x1b[32mhello world\x1b[0m"],
+      invalidate() {},
+      getSearchText: () => "hello world",
+    });
+    const document = new VirtualTranscriptDocument(source, () => 40, () => 8,
+      () => ({ top: 0, followEnd: false }));
+    const copied: string[] = [];
+    document.attachCopy(text => { copied.push(text); });
+    const layout = () => (document as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    layout();
+    document.handleMouse({ type: "press", button: "left", x: 1, y: 0 } as never);
+    expect(document.handleMouse({ type: "drag", button: "left", x: 3, y: 0 } as never)?.render).toBe(true);
+    layout();
+    expect(document.render(40)[0]).toContain("\x1b[7m");
+    expect(document.getSelectedSourceText()).toBe("ell");
+    // SGR mouse release code 3 decodes to "none", not "left".
+    expect(document.handleMouse({ type: "release", button: "none", x: 3, y: 0 } as never)?.render).toBe(true);
+    expect(copied).toEqual(["ell"]);
+    expect(document.getSelectedSourceText()).toBeUndefined();
+    layout();
+    expect(document.render(40)[0]).not.toContain("\x1b[7m");
+  });
+
+  test("a plain click neither copies nor leaves persistent inversion", () => {
+    const source = new Container();
+    source.addChild({ render: () => ["some text"], invalidate() {} });
+    const doc = new VirtualTranscriptDocument(source, () => 40, () => 8,
+      () => ({ top: 0, followEnd: false }));
+    const copied: string[] = [];
+    doc.attachCopy(text => { copied.push(text); });
+    const layout = () => (doc as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    layout();
+    doc.handleMouse({ type: "press", button: "left", x: 3, y: 0 } as never);
+    expect(doc.handleMouse({ type: "release", button: "none", x: 3, y: 0 } as never)?.render).toBe(true);
+    layout();
+    expect(doc.render(40)[0]).not.toContain("\x1b[7m");
+    expect(copied).toEqual([]);
+  });
+
+  test("reverse drag and multiline drag copy only the selected text", () => {
+    const source = new Container();
+    source.addChild({ render: () => ["abcdef", "uvwxyz"], invalidate() {} });
+    const doc = new VirtualTranscriptDocument(source, () => 40, () => 8,
+      () => ({ top: 0, followEnd: false }));
+    const copied: string[] = [];
+    doc.attachCopy(text => { copied.push(text); });
+    (doc as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    doc.handleMouse({ type: "press", button: "left", x: 4, y: 0 } as never);
+    doc.handleMouse({ type: "drag", button: "left", x: 1, y: 0 } as never);
+    doc.handleMouse({ type: "release", button: "none", x: 1, y: 0 } as never);
+    expect(copied).toEqual(["bcde"]);
+    doc.handleMouse({ type: "press", button: "left", x: 3, y: 0 } as never);
+    doc.handleMouse({ type: "drag", button: "left", x: 2, y: 1 } as never);
+    doc.handleMouse({ type: "release", button: "none", x: 2, y: 1 } as never);
+    expect(copied[1]).toBe("def\nuvw");
+  });
+
+  test("viewport forwards SGR generic-button release and repaints the selection", () => {
+    const source = new Container();
+    source.addChild({ render: () => ["abcdef"], invalidate() {} });
+    const doc = new VirtualTranscriptDocument(source, () => 40, () => 8,
+      () => ({ top: 0, followEnd: false }));
+    const copied: string[] = [];
+    doc.attachCopy(text => { copied.push(text); });
+    (doc as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    const view = new TranscriptScrollView(doc);
+    const mouse = (type: string, button: string, x: number) =>
+      ({ type, button, x, y: 0, screenX: x, screenY: 0, width: 40, height: 8 }) as never;
+    view.handleMouse(mouse("press", "left", 1));
+    expect(view.handleMouse(mouse("drag", "left", 3))?.render).toBe(true);
+    expect(view.handleMouse(mouse("release", "none", 3))?.render).toBe(true);
+    expect(copied).toEqual(["bcd"]);
+    expect(doc.getSelectedSourceText()).toBeUndefined();
+  });
+});
+
 describe("AltScreen native selection fallback prevention", () => {
   test("viewport consumes clicks without starting inverse-video text selection", () => {
     const source = new Container();
@@ -136,7 +216,7 @@ describe("AltScreen native selection fallback prevention", () => {
     expect(press?.render).toBe(false);
     const release = view.handleMouse({type:"release",button:"left",x:4,y:8,screenX:4,screenY:8,width:80,height:20} as never);
     expect(release?.handled).toBe(true);
-    expect(release?.render).toBe(false);
+    expect(release?.render).toBe(true);
     expect(document.getSelectedSourceText()).toBeUndefined();
 
     const click = view.handleMouse({type:"click",button:"left",x:4,y:8,screenX:4,screenY:8,width:80,height:20} as never);

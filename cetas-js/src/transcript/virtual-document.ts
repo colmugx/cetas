@@ -10,13 +10,14 @@
  * This is a pi-tui 1.3-specific adapter. Upstream search/selection are NOT
  * complete across unmounted history; Gate 5 supplies indexed equivalents.
  */
-import { Container, ScrollView, TuiAltScreen, sliceByColumn, visibleWidth, type Component, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
+import { Container, ScrollView, TuiAltScreen, sliceByColumn, stripTerminalSequences, visibleWidth, type Component, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { TranscriptSearchIndex, isSearchableComponent, transcriptTextRange } from "./search-index.ts";
 import { TranscriptHeightIndex } from "./model.ts";
 
 const LAYOUT_NODE = Symbol.for("@earendil-works/pi-tui/layout-node");
 const empty: Component = { render: () => [], invalidate: () => {} };
 
+type PointerPoint = { row: number; col: number };
 type StackSlot = { component: Component; basis: number; shrink: number };
 type StackNode = {
   type: "vstack";
@@ -41,38 +42,100 @@ export interface VirtualDocumentStats {
  */
 export class VirtualTranscriptDocument implements Component {
   private readonly heights = new TranscriptHeightIndex();
-  private pointerAnchor?: number;
-  private pointerFocus?: number;
+  private pointerAnchor?: PointerPoint;
+  private pointerFocus?: PointerPoint;
   private onCopy?: (text: string) => void | Promise<void>;
+
   attachCopy(copy: (text: string) => void | Promise<void>): void { this.onCopy = copy; }
-  /** Message-granular selection spans virtual/unmounted blocks. */
+
+  /** Character selection within one message; source-indexed across unmounted messages. */
   getSelectedSourceText(): string | undefined {
-    if (this.pointerAnchor === undefined || this.pointerFocus === undefined) return undefined;
-    const first = Math.min(this.pointerAnchor, this.pointerFocus);
-    const last = Math.max(this.pointerAnchor, this.pointerFocus);
-    try { return transcriptTextRange(this.source.children, first, last); }
-    catch { return undefined; }
-  }
-  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
-    if (event.button !== "left" || this.heights.size === 0) return undefined;
-    const index = this.heights.rowToIndex(Math.max(0, event.y));
-    if (event.type === "press") {
-      this.pointerAnchor = Math.min(this.heights.size - 1, index);
-      this.pointerFocus = this.pointerAnchor;
-      return {handled:true,capture:true,render:false};
+    const bounds = this.selectionBounds();
+    if (!bounds) return undefined;
+    const { start, end } = bounds;
+    const first = this.heights.rowToIndex(start.row);
+    const last = this.heights.rowToIndex(end.row);
+    if (first !== last) {
+      // Unmounted history must not be rendered just to copy a long drag.
+      try { return transcriptTextRange(this.source.children, first, last) || undefined; }
+      catch { return undefined; }
     }
-    if (this.pointerAnchor === undefined) return undefined;
+
+    // Within a message, copy the selected characters rather than the whole
+    // message. Terminal columns are cells, not JS string or ANSI offsets.
+    const rendered = this.source.children[first]?.render(Math.max(1, this.width < 0 ? this.getWidth() : this.width)) ?? [];
+    const baseRow = this.heights.prefix(first);
+    const parts: string[] = [];
+    for (let row = start.row; row <= end.row; row++) {
+      const line = rendered[row - baseRow] ?? "";
+      const from = row === start.row ? start.col : 0;
+      const to = row === end.row ? end.col + 1 : visibleWidth(line);
+      parts.push(stripTerminalSequences(sliceByColumn(line, from, Math.max(0, to - from), true)).trimEnd());
+    }
+    return parts.join("\n") || undefined;
+  }
+
+  private selectionBounds(): { start: PointerPoint; end: PointerPoint } | undefined {
+    const anchor = this.pointerAnchor;
+    const focus = this.pointerFocus;
+    if (!anchor || !focus || (anchor.row === focus.row && anchor.col === focus.col)) return undefined;
+    const anchorFirst = anchor.row < focus.row || (anchor.row === focus.row && anchor.col < focus.col);
+    return anchorFirst ? { start: anchor, end: focus } : { start: focus, end: anchor };
+  }
+
+  /** Only paint the mounted window; native pi-tui selection has no virtual source rows. */
+  private paintPointerSelection(line: string, row: number): string {
+    const bounds = this.selectionBounds();
+    if (!bounds || line.includes("\x1b_G") || line.includes("\x1b]1337;File=")) return line;
+    const first = this.heights.rowToIndex(bounds.start.row);
+    const last = this.heights.rowToIndex(bounds.end.row);
+    const current = this.heights.rowToIndex(row);
+    if (current < first || current > last) return line;
+
+    // Cross-message drags select whole blocks, matching the source-indexed
+    // clipboard text (including blocks that aren't mounted).
+    let from = 0;
+    let to = visibleWidth(line);
+    if (first === last) {
+      if (row < bounds.start.row || row > bounds.end.row) return line;
+      if (row === bounds.start.row) from = bounds.start.col;
+      if (row === bounds.end.row) to = Math.min(to, bounds.end.col + 1);
+    }
+    if (to <= from) return line;
+    const before = sliceByColumn(line, 0, from, true);
+    const middle = sliceByColumn(line, from, to - from, true);
+    const after = sliceByColumn(line, to, Math.max(0, visibleWidth(line) - to), true);
+    // Reapply inversion after ANSI resets in colored Markdown content.
+    const inverted = middle.replace(/\x1b\[[0-?]*[ -/]*m/g, code => code + "\x1b[7m");
+    return before + "\x1b[7m" + inverted + "\x1b[27m" + after;
+  }
+
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    // SGR release often carries button=none (code 3), even after a left press.
+    if (this.heights.size === 0 ||
+        (event.button !== "left" && !(event.type === "release" && event.button === "none"))) return undefined;
+    const point: PointerPoint = {
+      row: Math.max(0, Math.min(this.heights.totalRows - 1, Math.floor(event.y))),
+      col: Math.max(0, Math.min(Math.max(1, this.width < 0 ? this.getWidth() : this.width) - 1, Math.floor(event.x))),
+    };
+    if (event.type === "press") {
+      this.pointerAnchor = point;
+      this.pointerFocus = point;
+      return { handled: true, capture: true, render: false };
+    }
+    if (!this.pointerAnchor) return undefined;
     if (event.type === "drag") {
-      this.pointerFocus = Math.min(this.heights.size - 1, index);
-      return {handled:true,render:false};
+      this.pointerFocus = point;
+      return { handled: true, render: true };
     }
     if (event.type === "release") {
-      this.pointerFocus = Math.min(this.heights.size - 1, index);
+      this.pointerFocus = point;
       const text = this.getSelectedSourceText();
-      const dragged = this.pointerFocus !== this.pointerAnchor;
       this.pointerAnchor = this.pointerFocus = undefined;
-      if (dragged && text) void this.onCopy?.(text);
-      return {handled:true,render:false};
+      if (text) void this.onCopy?.(text);
+      // Release must repaint: no persistent inverse-video highlight or
+      // click-only selection, irrespective of clipboard success.
+      return { handled: true, render: true };
     }
     return undefined;
   }
@@ -189,8 +252,8 @@ export class VirtualTranscriptDocument implements Component {
     }
     this.first = range.first;
     this.end = range.endExclusive;
-    this.lastLines = lines;
     this.startRow = this.heights.prefix(this.first);
+    this.lastLines = lines.map((line, row) => this.paintPointerSelection(line, this.startRow + row));
     const bottomRows = Math.max(0, this.heights.totalRows - this.startRow - lines.length);
     this.slots = [
       { component: empty, basis: this.startRow, shrink: 0 },
@@ -221,11 +284,9 @@ export class VirtualTranscriptDocument implements Component {
 /**
  * Consumes left-button interaction at the SCROLL VIEW hit target.
  *
- * pi-tui 1.3 falls back to its built-in character selection (SGR inverse
- * highlight) whenever no layout component handles a press. The virtual
- * document spans logical rows, whereas the visible viewport has a clipped
- * hitbox. Install a handler on the viewport itself to prevent that fallback
- * in gaps, estimated-height regions and as scrollback changes.
+ * Native pi-tui selection reads a full-document line array, but the virtual
+ * transcript intentionally only paints mounted rows. Forward events into its
+ * own character selection and source-indexed cross-message copy instead.
  *
  * Wheel, scrollbar and non-left-button input remain pi-tui-owned.
  */
@@ -235,7 +296,7 @@ export class TranscriptScrollView extends ScrollView {
   }
 
   override handleMouse(event: TuiMouseEvent): ReturnType<ScrollView["handleMouse"]> {
-    if (event.button !== "left") return undefined;
+    if (event.button !== "left" && !(event.type === "release" && event.button === "none")) return undefined;
     if (event.type !== "press" && event.type !== "drag" &&
         event.type !== "release" && event.type !== "click") return undefined;
     // ScrollView is viewport-relative; TranscriptDocument's height index is
@@ -253,7 +314,7 @@ export class TranscriptScrollView extends ScrollView {
       // component result has handled?: boolean; spread it BEFORE this flag.
       handled: true,
       ...(event.type === "press" ? { capture: true } : {}),
-      render: false,
+      render: forwarded?.render ?? false,
       target: {
         component: this,
         originX: event.screenX - event.x,
