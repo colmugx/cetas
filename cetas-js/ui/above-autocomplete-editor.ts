@@ -1,5 +1,5 @@
 import {
-  Editor, visibleWidth, truncateToWidth,
+  Editor, visibleWidth, truncateToWidth, stripTerminalSequences,
   type Component, type EditorTheme, type TUI,
   type TuiMouseEvent, type TuiMouseEventResult, type TerminalColors,
 } from "@earendil-works/pi-tui";
@@ -88,8 +88,12 @@ export class AboveAutocompleteEditor extends Editor {
       const reset = "\x1b[0m";
       const clipped = truncateToWidth(line, width, "");
       const padding = " ".repeat(Math.max(0, width - visibleWidth(clipped)));
-      return this.palette.background + this.palette.foreground +
-        clipped + padding + reset;
+      // SelectList marks its current row with an arrow. Apply the highlight
+      // to the entire row, including padding, rather than relying on its
+      // text-only selectedText theme callback.
+      const selected = /^\s*→\s/.test(stripTerminalSequences(clipped));
+      if (selected) return "\x1b[46m\x1b[30m" + stripTerminalSequences(clipped) + padding + reset;
+      return this.palette.background + this.palette.foreground + clipped + padding + reset;
     });
   }
 

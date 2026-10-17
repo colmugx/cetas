@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
-import { readWorkspaceGitBranch, renderStatusbarDashboard } from "./statusbar-dashboard.ts";
+import { contextOccupancy, readWorkspaceGitBranch, renderStatusbarDashboard } from "./statusbar-dashboard.ts";
 import chalk from "chalk";
 
 const entries = [
@@ -205,5 +205,36 @@ describe("git branch accent color", () => {
     } finally {
       chalk.level = originalLevel;
     }
+  });
+});
+
+describe("core context status fallback", () => {
+  const state = { source: "measured", last_measured_tokens: 24000,
+    estimated_added_tokens: 1000, window_tokens: 100000 };
+  test("formats a measured reading and marks estimated additions", () => {
+    expect(contextOccupancy(state)).toBe("~25.0K/100.0K · 25%");
+    expect(contextOccupancy({...state, estimated_added_tokens: 0}))
+      .toBe("24.0K/100.0K · 24%");
+  });
+  test("never invents occupancy for unknown or invalid readings", () => {
+    expect(contextOccupancy({...state, source: "unknown", last_measured_tokens: null}))
+      .toBe("?/100.0K");
+    expect(contextOccupancy({...state, last_measured_tokens: null}))
+      .toBe("?/100.0K");
+    expect(contextOccupancy({...state, window_tokens: 0}))
+      .toBe("~25.0K");
+    expect(contextOccupancy({source: "bogus"})).toBeUndefined();
+  });
+  test("uses Core context only when no extension ctx segment exists", () => {
+    const without = stripTerminalSequences(renderStatusbarDashboard(
+      [{key:"model",value:"single-model"}], 120, {contextValue:"~25.0K/100.0K · 25%"}
+    ).join(" "));
+    expect(without).toContain("~25.0K/100.0K · 25%");
+    const withExtension = stripTerminalSequences(renderStatusbarDashboard(
+      [{key:"model",value:"single-model"},{key:"ctx",value:"ctx: 9.0K/20.0K"}],
+      120, {contextValue:"~25.0K/100.0K · 25%"}
+    ).join(" "));
+    expect(withExtension).toContain("9.0K/20.0K");
+    expect(withExtension).not.toContain("25.0K/100.0K");
   });
 });
