@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { readWorkspaceGitBranch, renderStatusbarDashboard } from "./statusbar-dashboard.ts";
+import chalk from "chalk";
 
 const entries = [
   {key:"permission",value:"yolo",color:"warning"},
@@ -171,5 +172,25 @@ describe("left-aligned context placement", () => {
       {key:"ctx",value:"ctx: 5%"},
     ],120,{status:"Working"})[0]);
     expect(first).toBe(" gpt-6:high · Posoco · 5%");
+  });
+});
+
+describe("git branch accent color", () => {
+  test("branch name uses #9BE1A1 and marker remains muted", () => {
+    const originalLevel = chalk.level;
+    try {
+      chalk.level = 3;
+      const first = renderStatusbarDashboard([
+        {key:"model",value:"gpt-6:high"},
+        {key:"manager",value:"Posoco"},
+        {key:"ctx",value:"ctx: 5%"},
+      ],120,{branch:"feature/demo"})[0];
+      expect(first).toContain("\x1b[38;2;155;225;161mfeature/demo\x1b[39m");
+      expect(first).not.toContain("\x1b[38;2;155;225;161m⑂");
+      expect(stripTerminalSequences(first))
+        .toBe(" gpt-6:high · Posoco ⑂ feature/demo · 5%");
+    } finally {
+      chalk.level = originalLevel;
+    }
   });
 });
