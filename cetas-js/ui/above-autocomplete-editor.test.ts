@@ -95,9 +95,9 @@ describe("above-composer autocomplete", () => {
     state.autocompleteState = "regular";
 
     const menu = editor.renderMenu(80);
-    expect(menu[0]).toContain("\\x1b[46m\\x1b[30m".replaceAll("\\\\x1b", "\\x1b"));
-    expect(menu[0]).toMatch(/ +\\x1b\\[0m$/);
-    expect(menu[1]).not.toContain("\\x1b[46m".replace("\\\\x1b", "\\x1b"));
+    expect(menu[0]).toContain("\x1b[46m\x1b[30m");
+    expect(menu[0]).toMatch(/ +\x1b\[0m$/);
+    expect(menu[1]).not.toContain("\x1b[46m");
     expect(menu.every(line => visibleWidth(line) === 80)).toBe(true);
   });
 
