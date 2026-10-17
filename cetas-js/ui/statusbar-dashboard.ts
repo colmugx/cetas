@@ -36,13 +36,6 @@ function segment(entry: StatusbarEntry, label = true, primary = false): string {
     : primary ? theme.bold(raw) : raw;
   return label ? theme.muted(`${clean(entry.key)} `) + value : value;
 }
-function putRow(left: string, right: string, width: number): string {
-  if (!right) return truncateToWidth(left, width, "…");
-  const rest = width - visibleWidth(left) - visibleWidth(right);
-  if (rest >= 2) return left + " ".repeat(rest) + right;
-  return truncateToWidth(left, width, "…");
-}
-
 /** Keep field boundaries intact. A narrow window wraps whole fields. */
 function wrapFields(fields: readonly string[], width: number, maxRows: number): string[] {
   if (width <= 0 || maxRows <= 0 || fields.length === 0) return [];
@@ -78,8 +71,9 @@ function wrapFields(fields: readonly string[], width: number, maxRows: number): 
 
 /**
  * Statusbar contract:
- * primary = selected model:effort · manager status; right = context.
- * important notices (rate limit and Reset), quota and then diagnostics follow.
+ * primary = selected model:effort · manager · git branch · context.
+ * Context follows the left-aligned header (or wraps when needed); important
+ * notices (rate limit and Reset), quota and then diagnostics follow.
  * Never invent connectivity or reset state. Unknown extension metrics remain
  * available in the wrapped secondary rows, with an overflow indicator.
  */
@@ -103,17 +97,15 @@ export function renderStatusbarDashboard(
   // no knowledge of implementation choices or settings.json.
   const managerEntry = get("manager");
   const manager = managerEntry ? segment(managerEntry, false) : "";
-  const statusText = clean(context.status ?? "Ready");
-  const status = /waiting|rate.limit|error|failed|setup/i.test(statusText)
-    ? theme.warning(statusText) : theme.accent(statusText);
+  const branch = context.branch ? clean(context.branch) : "";
+  const branchLabel = branch ? theme.muted("⑂ ") + branch : "";
   const sep = theme.muted(" · ");
-  const header = " " + modelValue + (manager ? sep + manager : "") + " " + status;
-  const contextValue = ctx ? segment(ctx, true) : "";
-  let postponeCtx = false;
-  const first = contextValue && width >= 55 &&
-    visibleWidth(header) + visibleWidth(contextValue) + 2 <= width
-      ? putRow(header, contextValue, width)
-      : (postponeCtx = Boolean(contextValue), truncateToWidth(header, width, "…"));
+  const header = " " + modelValue + (manager ? sep + manager : "") +
+    (branchLabel ? " " + branchLabel : "");
+  const contextValue = ctx ? segment(ctx, false) : "";
+  const withContext = contextValue ? header + sep + contextValue : header;
+  const postponeCtx = Boolean(contextValue) && visibleWidth(withContext) > width;
+  const first = truncateToWidth(postponeCtx ? header : withContext, width, "…");
 
   const remaining = entries.filter(e => e !== model && e !== ctx &&
     !["manager","router","status"].includes(e.key.toLowerCase()));
@@ -131,9 +123,8 @@ export function renderStatusbarDashboard(
     ? `${context.activeAgents ?? 0} agent${context.activeAgents === 1 ? "" : "s"}` +
       (context.awaitingReplies ? ` · ${context.awaitingReplies} awaiting reply` : "")
     : "";
-  const detail = [...urgent, ...quota, ...(activity ? [theme.muted(activity)] : []),
-    ...(postponeCtx ? [contextValue] : []), ...diagnostics,
-    ...(context.branch ? [theme.muted("⑂ ") + clean(context.branch)] : [])];
+  const detail = [...(postponeCtx ? [contextValue] : []), ...urgent, ...quota,
+    ...(activity ? [theme.muted(activity)] : []), ...diagnostics];
   if (!detail.length) return [first];
   const maxRows = width < 28 ? 6 : width < 70 ? 4 : 2;
   return [first, ...wrapFields(detail, width - 1, maxRows).map(line => " " + line)];
