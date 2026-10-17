@@ -21,6 +21,7 @@ import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tu
 import chalk from "chalk";
 
 import { theme } from "./theme.ts";
+import { OverlayChoice } from "./overlay-choice.ts";
 
 import {
   type EntryPricing,
@@ -546,11 +547,25 @@ class TabbedPickerPanel implements Component {
 export class ModelPickerOverlay {
   private handle?: OverlayHandle;
   private panel?: TabbedPickerPanel;
+  private readonly choice = new OverlayChoice<ModelSelection>();
 
   constructor(private readonly tui: ModelPickerTui) {}
 
   get isActive(): boolean {
     return this.handle !== undefined;
+  }
+
+  /** Await a choice or cancellation without exposing the modal's lock lifetime. */
+  choose(
+    entries: readonly ModelCatalogEntry[],
+    signal?: AbortSignal,
+    mode: "tabs" | "quota" = "tabs",
+  ): Promise<ModelSelection | undefined> {
+    return this.choice.wait(
+      () => this.open(entries, () => {}, () => {}, () => new Date(), mode),
+      () => this.hide(),
+      signal,
+    );
   }
 
   open(
@@ -575,10 +590,12 @@ export class ModelPickerOverlay {
     const panel = new TabbedPickerPanel(
       entries,
       (selection) => {
+        this.choice.select(selection);
         close();
         onSelect(selection);
       },
       () => {
+        this.choice.cancel();
         close();
         onCancel();
       },
@@ -596,6 +613,7 @@ export class ModelPickerOverlay {
   }
 
   hide(): void {
+    this.choice.cancel();
     const handle = this.handle;
     this.handle = undefined;
     this.panel = undefined;

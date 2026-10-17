@@ -1,6 +1,7 @@
 import { SelectList, Text, type Component, type OverlayHandle, type SelectListTheme } from "@earendil-works/pi-tui";
 import type { ModalVeilHost } from "./modal-mask.ts";
 import { theme } from "./theme.ts";
+import { OverlayChoice } from "./overlay-choice.ts";
 
 interface DialogOptions<T extends string> {
   title: string;
@@ -21,11 +22,24 @@ class SelectionPanel implements Component {
 /** Presentation only. The caller retains ownership of its command lease. */
 export class SelectionDialog {
   private handle?: OverlayHandle;
+  private readonly choice = new OverlayChoice<string>();
   constructor(
     private readonly tui: Pick<ModalVeilHost, "showOverlay" | "requestRender">,
     private readonly listTheme: SelectListTheme,
   ) {}
   get isActive(): boolean { return this.handle !== undefined; }
+
+  choose<T extends string>(
+    options: Omit<DialogOptions<T>, "onSelect" | "onCancel">,
+    signal?: AbortSignal,
+  ): Promise<T | undefined> {
+    return this.choice.wait(
+      () => this.open({ ...options, onSelect: () => {}, onCancel: () => {} }),
+      () => this.hide(),
+      signal,
+    ) as Promise<T | undefined>;
+  }
+
   open<T extends string>(options: DialogOptions<T>): void {
     if (this.isActive) throw new Error("selection dialog is already open");
     if (options.items.length === 0) throw new Error("selection dialog requires entries");
@@ -37,8 +51,11 @@ export class SelectionDialog {
       this.hide();
       return true;
     };
-    list.onCancel = () => { if (finish()) options.onCancel(); };
-    list.onSelect = (item) => { if (finish()) options.onSelect(item.value as T); };
+    list.onCancel = () => { this.choice.cancel(); if (finish()) options.onCancel(); };
+    list.onSelect = (item) => {
+      this.choice.select(item.value);
+      if (finish()) options.onSelect(item.value as T);
+    };
     const panel = new SelectionPanel(new Text(theme.brandBold(options.title), 1, 1), list);
     this.handle = this.tui.showOverlay(panel, {
       width: options.width ?? "56%",
@@ -49,6 +66,7 @@ export class SelectionDialog {
     this.tui.requestRender();
   }
   hide(): void {
+    this.choice.cancel();
     const handle = this.handle;
     this.handle = undefined;
     handle?.hide();
