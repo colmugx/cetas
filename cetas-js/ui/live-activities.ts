@@ -65,7 +65,7 @@ export function projectLiveActivities(source: LiveActivitiesSource): LiveActivit
     all.push({
       key: `agent:${record.child_session}`,
       role: "agent",
-      label: `⚡ 1 agent(${record.display_name}) · ${record.kind} ${formatSubagentElapsed(record.started_at, source.now)} · ${subagentPhase(record)}`,
+      label: `⚡ agent(${record.display_name}) · ${record.kind} ${formatSubagentElapsed(record.started_at, source.now)} · ${subagentPhase(record)}`,
     });
   }
   if (source.resultsWaiting > 0) {
