@@ -213,3 +213,105 @@ async test "restore warns on an unsupported effort but still applies the slot" {
   assert_eq(router.active_slot_id(), "one/a")
   assert_eq(router.active_effort(), None)
 }
+
+///|
+async test "restore honors an owner-qualified model selection" {
+  let root = "/tmp/cetas-js-restore-owned"
+  let store = restore_test_store(root, slot=None)
+  let router = @llm.RouterModelPort(slots=[
+    restore_test_slot(id="one/a", efforts=["low", "high"]),
+    restore_test_slot(id="two/b"),
+  ])
+  let control = router as &@modelmgmt.ModelManagerControl
+  let metadata : Map[String, Json] = @fs_session.metadata_with_selection_v2(
+    Map::from_array([]),
+    {
+      owner: control.manager_id(),
+      model_id: "two/b",
+      effort: None,
+      pending: false,
+      revision: 1L,
+    },
+  )
+  store.save("sess_restore", { messages: [], metadata, }) catch {
+    e => fail("seed v2 session failed: \{e}")
+  }
+  let warns : Array[String] = []
+  let applied = restore_session_model_selection_over(
+    store,
+    Providers(router),
+    warn=fn(message) { warns.push(message) },
+    "sess_restore",
+  )
+  assert_true(applied)
+  assert_eq(warns.length(), 0)
+  assert_eq(router.active_slot_id(), "two/b")
+}
+
+///|
+async test "restore ignores a selection owned by another model manager" {
+  let store = restore_test_store(
+    "/tmp/cetas-js-restore-foreign",
+    slot=Some("two/b"),
+  )
+  let router = @llm.RouterModelPort(slots=[
+    restore_test_slot(id="one/a"),
+    restore_test_slot(id="two/b"),
+  ])
+  let saved = store.load("sess_restore") catch {
+    e => fail("read session failed: \{e}")
+  }
+  let metadata = @fs_session.metadata_with_selection_v2(saved.metadata, {
+    owner: "unrelated-manager",
+    model_id: "two/b",
+    effort: None,
+    pending: false,
+    revision: 1L,
+  })
+  store.save("sess_restore", { messages: [], metadata, }) catch {
+    e => fail("save session failed: \{e}")
+  }
+  let warns : Array[String] = []
+  let applied = restore_session_model_selection_over(
+    store,
+    Providers(router),
+    warn=fn(message) { warns.push(message) },
+    "sess_restore",
+  )
+  assert_false(applied)
+  assert_eq(warns.length(), 0)
+  assert_eq(router.active_slot_id(), "one/a")
+}
+
+///|
+async test "malformed versioned selection does not fall back to legacy slot" {
+  let store = restore_test_store(
+    "/tmp/cetas-js-restore-invalid",
+    slot=Some("two/b"),
+  )
+  let router = @llm.RouterModelPort(slots=[
+    restore_test_slot(id="one/a"),
+    restore_test_slot(id="two/b"),
+  ])
+  let saved = store.load("sess_restore") catch {
+    e => fail("read session failed: \{e}")
+  }
+  let metadata = saved.metadata.copy()
+  metadata[@fs_session.MODEL_SELECTION_V2_METADATA_KEY] = Json::object(
+    Map::from_array([
+      ("version", Json::number(2)),
+      ("model_id", Json::string("two/b")),
+    ]),
+  )
+  store.save("sess_restore", { messages: [], metadata, }) catch {
+    e => fail("save session failed: \{e}")
+  }
+  let applied = restore_session_model_selection_over(
+    store,
+    Providers(router),
+    warn=fn(_message) { () },
+    "sess_restore",
+  )
+  assert_false(applied)
+  assert_eq(router.active_slot_id(), "one/a")
+}
