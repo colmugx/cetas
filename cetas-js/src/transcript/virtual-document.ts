@@ -218,6 +218,41 @@ export class VirtualTranscriptDocument implements Component {
   invalidate(): void { /* Components refresh themselves on each visible frame. */ }
 }
 
+/**
+ * Consumes left-button interaction at the SCROLL VIEW hit target.
+ *
+ * pi-tui 1.3 falls back to its built-in character selection (SGR inverse
+ * highlight) whenever no layout component handles a press. The virtual
+ * document spans logical rows, whereas the visible viewport has a clipped
+ * hitbox. Install a handler on the viewport itself to prevent that fallback
+ * in gaps, estimated-height regions and as scrollback changes.
+ *
+ * Wheel, scrollbar and non-left-button input remain pi-tui-owned.
+ */
+export class TranscriptScrollView extends ScrollView {
+  constructor(private readonly transcriptDocument: VirtualTranscriptDocument) {
+    super(transcriptDocument, { follow: "end", primary: true, scrollbar: "auto" });
+  }
+
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (event.button !== "left") return undefined;
+    if (event.type !== "press" && event.type !== "drag" &&
+        event.type !== "release" && event.type !== "click") return undefined;
+    if (event.type === "click") return { handled: true, render: false };
+    // ScrollView is viewport-relative; TranscriptDocument's height index is
+    // document-relative. This also handles regions not occupied by a child.
+    const forwarded = this.transcriptDocument.handleMouse({
+      ...event,
+      y: event.y + this.scrollTop,
+    });
+    return forwarded ?? {
+      handled: true,
+      ...(event.type === "press" ? { capture: true } : {}),
+      render: false,
+    };
+  }
+}
+
 /** Exact window height and pinning state live in pi-tui ScrollView. */
 export function createVirtualScroll(
   source: Container,
@@ -231,7 +266,7 @@ export function createVirtualScroll(
     getViewport,
     () => ({ top: view?.scrollTop ?? 0, followEnd: view?.isFollowingEnd ?? true }),
   );
-  view = new ScrollView(document, { follow: "end", primary: true, scrollbar: "auto" });
+  view = new TranscriptScrollView(document);
   document.attachNavigation((row) => view!.scrollTo(row, { disableFollow: true }));
   return { view, document };
 }

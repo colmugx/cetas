@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Container, type Component } from "@earendil-works/pi-tui";
-import { VirtualTranscriptDocument, highlightLiteralRows } from "./virtual-document.ts";
+import { VirtualTranscriptDocument, TranscriptScrollView, highlightLiteralRows } from "./virtual-document.ts";
 import type { SearchableComponent } from "./search-index.ts";
 
 describe("Gate 2 logical-height virtual layout", () => {
@@ -114,5 +114,55 @@ describe("click selection appearance", () => {
     (doc as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
     expect(doc.render(40).join("\n")).not.toContain("\x1b[7m");
     expect(doc.getSelectedSourceText()).toBeUndefined();
+  });
+});
+
+describe("AltScreen native selection fallback prevention", () => {
+  test("viewport consumes clicks without starting inverse-video text selection", () => {
+    const source = new Container();
+    for (let i = 0; i < 100; i++) {
+      source.addChild({ render: () => ["message " + i], invalidate() {} });
+    }
+    const document = new VirtualTranscriptDocument(source, () => 80, () => 20,
+      () => ({top: 0, followEnd: false}));
+    (document as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    const view = new TranscriptScrollView(document);
+
+    const press = view.handleMouse({type:"press",button:"left",x:4,y:8} as never);
+    expect(press?.handled).toBe(true);
+    expect(press?.capture).toBe(true);
+    expect(press?.render).toBe(false);
+    const release = view.handleMouse({type:"release",button:"left",x:4,y:8} as never);
+    expect(release?.handled).toBe(true);
+    expect(release?.render).toBe(false);
+    expect(document.getSelectedSourceText()).toBeUndefined();
+
+    const click = view.handleMouse({type:"click",button:"left",x:4,y:8} as never);
+    expect(click?.handled).toBe(true);
+    expect(view.handleMouse({type:"wheel",button:"none",x:4,y:8} as never)).toBeUndefined();
+  });
+
+  test("scroll view sends viewport-relative gestures to document coordinates", () => {
+    const source = new Container();
+    let copied = "";
+    for (let i = 0; i < 100; i++) {
+      const item: SearchableComponent = {
+        render: () => ["message " + i], invalidate() {},
+        getSearchText: () => "message " + i,
+      };
+      source.addChild(item);
+    }
+    const document = new VirtualTranscriptDocument(source, () => 80, () => 20,
+      () => ({top: 0, followEnd: false}));
+    document.attachCopy(text => {copied = text;});
+    (document as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    const view = new TranscriptScrollView(document);
+    view.scrollTo(60, {disableFollow:true});
+    view.handleMouse({type:"press",button:"left",x:3,y:0} as never);
+    view.handleMouse({type:"drag",button:"left",x:3,y:12} as never);
+    view.handleMouse({type:"release",button:"left",x:3,y:12} as never);
+    expect(copied).toContain("message 20");
+    expect(copied).toContain("message 24");
+    expect(document.getSelectedSourceText()).toBeUndefined();
   });
 });
