@@ -164,8 +164,14 @@ describe("AltScreen native selection fallback prevention", () => {
     view.handleMouse({type:"press",button:"left",x:3,y:0,screenX:3,screenY:0,width:80,height:20} as never);
     view.handleMouse({type:"drag",button:"left",x:3,y:12,screenX:3,screenY:12,width:80,height:20} as never);
     view.handleMouse({type:"release",button:"left",x:3,y:12,screenX:3,screenY:12,width:80,height:20} as never);
-    expect(copied).toContain("message 20");
-    expect(copied).toContain("message 24");
+    // The first virtual layout measures visible blocks and corrects the
+    // height estimates. A scrollTop of 60 is a logical ROW, not item 20.
+    const measured = (document as any).heights as import("./model.ts").TranscriptHeightIndex;
+    const startItem = measured.rowToIndex(view.scrollTop);
+    const endItem = measured.rowToIndex(view.scrollTop + 12);
+    expect(copied.split("\n\n")).toEqual(
+      Array.from({ length: endItem - startItem + 1 }, (_, i) => "message " + (startItem + i)),
+    );
     expect(document.getSelectedSourceText()).toBeUndefined();
   });
 });
