@@ -234,21 +234,31 @@ export class TranscriptScrollView extends ScrollView {
     super(transcriptDocument, { follow: "end", primary: true, scrollbar: "auto" });
   }
 
-  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+  override handleMouse(event: TuiMouseEvent): ReturnType<ScrollView["handleMouse"]> {
     if (event.button !== "left") return undefined;
     if (event.type !== "press" && event.type !== "drag" &&
         event.type !== "release" && event.type !== "click") return undefined;
-    if (event.type === "click") return { handled: true, render: false };
     // ScrollView is viewport-relative; TranscriptDocument's height index is
     // document-relative. This also handles regions not occupied by a child.
-    const forwarded = this.transcriptDocument.handleMouse({
+    const forwarded = event.type === "click" ? undefined : this.transcriptDocument.handleMouse({
       ...event,
       y: event.y + this.scrollTop,
     });
-    return forwarded ?? {
+    // ScrollView inherits Container.handleMouse(), whose return contract
+    // includes a concrete target. Target *this* view, not the document:
+    // pi-tui uses its origin to retarget subsequent capture drag/releases.
+    return {
       handled: true,
+      ...forwarded,
       ...(event.type === "press" ? { capture: true } : {}),
       render: false,
+      target: {
+        component: this,
+        originX: event.screenX - event.x,
+        originY: event.screenY - event.y,
+        width: event.width,
+        height: event.height,
+      },
     };
   }
 }
@@ -268,7 +278,7 @@ export function createVirtualScroll(
   );
   view = new TranscriptScrollView(document);
   document.attachNavigation((row) => view!.scrollTo(row, { disableFollow: true }));
-  return { view, document };
+  return { view: view!, document };
 }
 
 /** Exact literal-row matches only; preserves the existing ANSI escapes. */
