@@ -1753,11 +1753,9 @@ pub fn cetas_js_runtime_create_agent(
             }
             let ratelimit = @ratelimit.RateLimitGuard(
               probe_interval_ms=transient_probe_ms,
-              max_probe_interval_ms=3600000L,
+              max_probe_interval_ms=600000L,
               bus=Some(event_bus),
-              trace=fn(
-              message : String,
-            ) {
+              trace=fn(message : String) {
               observer.on_event(
                 @posoco.TurnEvent::Custom(
                   source="posoco_ext_ratelimit",
@@ -1766,7 +1764,7 @@ pub fn cetas_js_runtime_create_agent(
                     Map::from_array([("message", Json::string(message))]),
                   ),
                 ),
-              ),
+              },
             )
             exts.push(ratelimit as &@posoco.Extension)
             // Concrete capabilities are selected by the host-owned compiled
