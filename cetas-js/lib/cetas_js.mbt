@@ -1751,9 +1751,13 @@ pub fn cetas_js_runtime_create_agent(
               Magpie(_) => 60000L
               Providers(_) => 900000L
             }
+            let max_probe_ms : Int64 = match model {
+              Magpie(_) => 600000L
+              Providers(_) => 3600000L
+            }
             let ratelimit = @ratelimit.RateLimitGuard(
               probe_interval_ms=transient_probe_ms,
-              max_probe_interval_ms=600000L,
+              max_probe_interval_ms=max_probe_ms,
               bus=Some(event_bus),
               trace=fn(message : String) {
               observer.on_event(
@@ -1764,6 +1768,7 @@ pub fn cetas_js_runtime_create_agent(
                     Map::from_array([("message", Json::string(message))]),
                   ),
                 ),
+              )
               },
             )
             exts.push(ratelimit as &@posoco.Extension)
