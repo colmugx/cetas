@@ -10,14 +10,30 @@ import type { WakeupTicket } from "../src/controllers/wakeup-activity.ts";
 import { formatSubagentElapsed, subagentPhase } from "./subagent-header.ts";
 import { theme } from "./theme.ts";
 
-export type LiveActivityRole = "agent" | "question" | "wakeup" | "coordination" | "waiting" | "muted";
+export type LiveActivityRole = "agent" | "question" | "user-question" | "wakeup" | "coordination" | "waiting" | "muted";
 export type LiveActivityStyle = (role: LiveActivityRole, text: string) => string;
+
+/**
+ * One parked non-blocking question (`notify_user`), as the header shows it.
+ * Answered/expired questions never reach the header: the store removes them.
+ */
+export interface PendingUserQuestion {
+  readonly id: string;
+  /** Short UI form (`@q3`); the header never shows the long id. */
+  readonly short_id: string;
+  readonly text: string;
+  readonly kind: "input" | "confirm" | "select";
+  /** Absolute deadline (epoch ms); 0 disables expiry. */
+  readonly deadline_at: number;
+}
 
 export interface LiveActivitiesSource {
   readonly records: readonly SubagentActivity[];
   readonly wakeups: readonly WakeupTicket[];
   readonly resultsWaiting: number;
   readonly activeDecisions: number;
+  /** Questions the human still owes an answer to (never agent-to-agent). */
+  readonly userQuestions?: readonly PendingUserQuestion[];
   readonly now: number;
   readonly height?: number;
   readonly bottomReserve?: number;
@@ -49,6 +65,17 @@ export function questionPreview(raw: string): string {
 
 export function projectLiveActivities(source: LiveActivitiesSource): LiveActivitiesProjection {
   const all: LiveActivityRow[] = [];
+  // A parked human question outranks everything: it is the only row the
+  // user has to act on, and the turn keeps running regardless.
+  for (const question of source.userQuestions ?? []) {
+    const preview = questionPreview(question.text);
+    const head = question.short_id.length > 0 ? question.short_id : question.id;
+    all.push({
+      key: `user-question:${question.id}`,
+      role: "user-question",
+      label: `? ${head} asks you · ${preview ? `"${preview}"` : "waiting for an answer"}`,
+    });
+  }
   // Questions have priority regardless of whether the child is a foreground
   // or background agent. Do not duplicate its normal running line.
   const questions = source.records.filter((record) => record.question !== undefined && record.status === "running");
@@ -105,7 +132,8 @@ export function projectLiveActivities(source: LiveActivitiesSource): LiveActivit
 
 export const defaultActivityStyle: LiveActivityStyle = (role, text) => {
   switch (role) {
-    case "question": return theme.warning(text);
+    case "question":
+    case "user-question": return theme.warning(text);
     case "agent": return theme.accent(text);
     case "wakeup": return theme.info(text);
     case "coordination": return theme.info(text);

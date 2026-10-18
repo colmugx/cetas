@@ -60,4 +60,38 @@ describe("Live Activities replacement header", () => {
       expect(lines.every(line=>visibleWidth(line)<=width)).toBe(true);
     }
   });
+  test("a parked human question outranks agent rows and uses its short id", () => {
+    const src: LiveActivitiesSource = {
+      ...base([agent({ question: { id: "q-child", type: "input", text: "child q", asked_at: 0 } })]),
+      userQuestions: [
+        {
+          id: "question-7",
+          short_id: "@q7",
+          text: "Upgrade node to 22?",
+          kind: "confirm",
+          deadline_at: 0,
+        },
+      ],
+    };
+    const lines = renderLiveActivities(projectLiveActivities(src), 120);
+    expect(lines[0]).toContain("@q7 asks you");
+    expect(lines[0]).toContain("Upgrade node to 22?");
+    expect(lines.join("\n")).toContain("agent(banana) asks main");
+  });
+  test("answered questions leave no header row at all", () => {
+    const src: LiveActivitiesSource = { ...base([]), userQuestions: [] };
+    expect(renderLiveActivities(projectLiveActivities(src), 120)).toEqual([]);
+  });
+  test("a long human question is truncated, never wrapped past the width", () => {
+    const src: LiveActivitiesSource = {
+      ...base([]),
+      userQuestions: [
+        { id: "question-1", short_id: "@q1", text: "x".repeat(400), kind: "input", deadline_at: 0 },
+      ],
+    };
+    for (const width of [1, 12, 24, 80]) {
+      const lines = renderLiveActivities(projectLiveActivities(src), width);
+      expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+    }
+  });
 });

@@ -207,7 +207,7 @@ async fn build_cetas_skills(
 ///|
 
 ///|
-fn build_compiled_zcode_ext(
+async fn build_compiled_zcode_ext(
   env~ : (String) -> String?,
   exists~ : async (String) -> Bool,
 ) -> &@posoco.Extension? {
@@ -268,7 +268,11 @@ async fn build_compiled_recipe_features(
         }
       }
       "askquestion" =>
-        exts.push(@askquestion.AskQuestionTools() as &@posoco.Extension)
+        // Built by the JS host (cetas_js.mbt), not here: the host needs the
+        // instance to subscribe to its question events and to answer parked
+        // questions. Other hosts building from this recipe should construct
+        // `@askquestion.AskQuestionTools()` themselves for the same reason.
+        ()
       "handoff" =>
         exts.push(
           @handoff.Handoff(

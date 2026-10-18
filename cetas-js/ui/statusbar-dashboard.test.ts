@@ -64,6 +64,17 @@ describe("Gate 0.5 adaptive statusbar", () => {
       expect(readWorkspaceGitBranch(join(root,"nested"))).toBe("feature/testing");
     } finally {rmSync(root,{recursive:true,force:true});}
   });
+  test("a pending question is a count, never the status word", () => {
+    const output = stripTerminalSequences(
+      renderStatusbarDashboard(entries, 200, {...context, status:"Ready", pendingUserQuestions:2}).join("\n"));
+    expect(output).toContain("? 2 to answer");
+    // The turn is not blocked: "Ready" stays unrendered and the status never
+    // changes to a waiting word.
+    expect(output).not.toContain("Ready");
+    const none = stripTerminalSequences(
+      renderStatusbarDashboard(entries, 200, {...context, status:"Ready", pendingUserQuestions:0}).join("\n"));
+    expect(none).not.toContain("to answer");
+  });
 });
 
 describe("fixed semantic statusbar hierarchy", () => {

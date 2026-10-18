@@ -1133,6 +1133,9 @@ pub struct CetasJsAgent {
   observer : JsCallbackObserver
   /// Rate-limit guard retained for context invalidation and lifecycle shutdown.
   ratelimit : @ratelimit.RateLimitGuard
+  /// Non-blocking ask extension: the host answers parked questions through
+  /// it (`cetas_js_answer_question`) and subscribes to its lifecycle events.
+  askquestion : @askquestion.AskQuestionTools
   /// Tool name → owning extension id, snapshotted once at composition so the
   /// host can render `ext:tool_name` titles without per-event attribution.
   tool_catalog : Map[String, String]
@@ -1838,6 +1841,20 @@ pub fn cetas_js_runtime_create_agent(
             )
             exts.push(subagents)
 
+            // Non-blocking asks (`notify_user`): the host owns display and
+            // answer routing, so the extension is built here — its
+            // lifecycle events ride the same JS callback as every other
+            // host event, and `cetas_js_answer_question` below holds the
+            // instance. The compiled recipe deliberately does not build it
+            // (see recipe.mbt "askquestion").
+            let askquestion = @askquestion.AskQuestionTools()
+            askquestion.subscribe(fn(event) {
+              observer_callback.invoke(
+                question_event_to_json(event).stringify(),
+              )
+            })
+            exts.push(askquestion as &@posoco.Extension)
+
             // cetas-bun is the only outlet that reports presence to herdr; both
             // presence reporting and herdr-pane delegation are env-gated — absent env → absent exts.
             match @herdr.HerdrReporter::detect() {
@@ -2034,6 +2051,7 @@ pub fn cetas_js_runtime_create_agent(
               home: runtime.config.home,
               observer,
               ratelimit,
+              askquestion,
               tool_catalog,
               mcp: mcp_bridge,
               mcp_fs: context_fs,
@@ -2620,6 +2638,9 @@ pub fn cetas_js_set_active_session(
       Some(session_id)
     },
   )
+  // The non-blocking ask extension addresses its turn-end wakeup request at
+  // one session; keep it in step with the Agent's bound window.
+  handle.askquestion.set_session(session=session_id)
 }
 
 ///|

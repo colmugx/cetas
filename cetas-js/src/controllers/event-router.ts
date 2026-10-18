@@ -58,6 +58,12 @@ export interface EventRouterCallbacks {
    */
   onSubagentEvent?(ev: CetasEvent & { type: "subagent_event" }): void;
   /**
+   * One non-blocking ask lifecycle fact. Optional: hosts without an answer
+   * surface simply omit it (the question stays answerable through the
+   * extension's own tool path, and nothing here reaches the model).
+   */
+  onQuestionEvent?(ev: CetasEvent & { type: "question_event" }): void;
+  /**
    * Shell-owned subagent activity store, handed to tool rows through
    * ToolRowOptions so the `agent` renderer reads child snapshots from the
    * host's instance. Optional: hosts without subagent live-display omit it.
@@ -146,6 +152,11 @@ export class EventRouter {
         // Child-run events never touch the parent's turn/stream state — the
         // subscriber owns folding and row invalidation.
         this.cb.onSubagentEvent?.(ev);
+        return;
+      case "question_event":
+        // Non-blocking ask facts are host display state; like subagent
+        // events they never touch the turn/stream state.
+        this.cb.onQuestionEvent?.(ev);
         return;
       case "model_invoked":
         break;

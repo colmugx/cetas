@@ -29,6 +29,7 @@ import {
 } from "../core-events.ts";
 import { AgentBusyError } from "./agent-busy.ts";
 import { projectObserverEvent } from "./observer-projection.ts";
+import type { QuestionAnswerResponse } from "../controllers/question-answer.ts";
 
 /**
  * Commands invocable while a turn is running. Membership requires that the
@@ -1129,6 +1130,16 @@ export class CetasApplication<AgentHandle = unknown> {
       );
     }
 
+    // A plain reply supersedes every parked non-blocking question: the
+    // model reads the reply in context, and closing here suppresses the
+    // expiry line the extension would otherwise inject later. Queued or
+    // fresh turn, both are replies. Display-state only — never blocks or
+    // reshapes this admission.
+    const closeUserQuestions = this.options.bridge.closeUserQuestions;
+    if (closeUserQuestions !== undefined) {
+      closeUserQuestions.call(this.options.bridge, this.agent);
+    }
+
     return this.serializeSubmission(async () => {
       while (true) {
         if (this.managerSwitching) {
@@ -1209,6 +1220,41 @@ export class CetasApplication<AgentHandle = unknown> {
     if (raw.startsWith("RejectedStale")) return "stale";
     if (raw.startsWith("RejectedQueueFull")) return "full";
     throw new CetasApplicationError("bridge_failure", `unexpected follow-up outcome: ${raw}`);
+  }
+
+  /**
+   * Answer one parked non-blocking question (`notify_user`).
+   *
+   * Resolve-then-echo, in that order: the extension accepts or refuses the
+   * answer first (expired / already answered / wrong kind are refusals, not
+   * errors), and only an accepted answer is echoed as ordinary input. The
+   * echo reuses `submitUserInput`, so the app still decides whether it is a
+   * queued follow-up on the running turn or a new turn — the answer itself
+   * travels to the model in the extension's next envelope, never in this
+   * text.
+   */
+  async answerQuestion(
+    questionId: string,
+    response: QuestionAnswerResponse,
+    echo: string,
+    sessionId: string = this.currentSessionId,
+  ): Promise<boolean> {
+    if (this.agent === undefined) {
+      throw new CetasApplicationError("not_ready", "no agent is attached");
+    }
+    const answer = this.options.bridge.answerQuestion;
+    if (answer === undefined) {
+      throw new CetasApplicationError(
+        "invalid_state",
+        "this bridge does not support answering questions",
+      );
+    }
+    const accepted = await answer.call(this.options.bridge, this.agent, questionId, response);
+    if (!accepted) return false;
+    const submission = await this.submitUserInput(echo, sessionId);
+    if (submission.kind === "full") return false;
+    if (submission.kind === "started") await submission.completion;
+    return true;
   }
 
   /**

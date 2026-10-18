@@ -3,6 +3,7 @@ package "colmugx/cetas-js/lib"
 
 import {
   "colmugx/posoco",
+  "colmugx/posoco-ext-askquestion",
   "colmugx/posoco-ext-fs-session",
   "colmugx/posoco-ext-magpie",
   "colmugx/posoco-ext-mcp",
@@ -26,6 +27,8 @@ import {
 pub fn cetas_js_abort_turn(CetasJsAgent) -> String
 
 pub fn cetas_js_active_model_supports_images(CetasJsAgent) -> String
+
+pub fn cetas_js_answer_question(CetasJsAgent, String, String) -> String
 
 pub fn cetas_js_cancel_pending_ratelimit(CetasJsAgent) -> Unit
 
@@ -87,6 +90,10 @@ pub fn cetas_js_shutdown(CetasJsAgent) -> @js_async.Promise[Unit]
 
 pub fn cetas_js_tool_catalog(CetasJsAgent) -> String
 
+pub fn cetas_js_user_replied(CetasJsAgent) -> String
+
+pub fn question_event_to_json(@posoco-ext-askquestion.QuestionEvent) -> Json
+
 // Errors
 
 // Types and methods
@@ -105,6 +112,7 @@ pub struct CetasJsAgent {
   home : String
   observer : JsCallbackObserver
   ratelimit : @posoco-ext-ratelimit.RateLimitGuard
+  askquestion : @posoco-ext-askquestion.AskQuestionTools
   tool_catalog : Map[String, String]
   mcp : @posoco-ext-mcp.MCPToolBridge
   mcp_fs : &@posoco-ext-workspace.WorkspaceFs

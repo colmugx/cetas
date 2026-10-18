@@ -79,6 +79,8 @@ options(
         "cetas_js_set_active_session",
         "cetas_js_abort_turn",
         "cetas_js_enqueue_follow_up",
+        "cetas_js_answer_question",
+        "cetas_js_user_replied",
         "cetas_js_rewind",
         "cetas_js_active_model_supports_images",
         "cetas_js_shutdown",

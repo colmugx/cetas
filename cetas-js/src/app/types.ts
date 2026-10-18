@@ -5,6 +5,7 @@
  */
 
 import type { PiPackagesSummary } from "./pi-packages.ts";
+import type { QuestionAnswerResponse } from "../controllers/question-answer.ts";
 
 export type AppState = "needs_setup" | "ready" | "running" | "shutting_down";
 
@@ -268,6 +269,29 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
     images?: readonly ImageAttachment[],
   ): string;
   shutdown(agent: AgentHandle): Promise<void>;
+  /**
+   * Resolve one parked non-blocking question with the human's answer.
+   * Returns whether the extension accepted it (false = unknown, expired,
+   * already answered, or the wrong answer kind). The accepted answer is
+   * delivered to the model on the next model call by the extension; the
+   * caller separately submits the human's echo as ordinary input so a turn
+   * exists to carry it. Optional: bridges without the non-blocking ask
+   * extension omit it.
+   */
+  answerQuestion?(
+    agent: AgentHandle,
+    questionId: string,
+    response: QuestionAnswerResponse,
+  ): Promise<boolean>;
+  /**
+   * The user sent a plain reply with no question addressing: close every
+   * parked non-blocking question so no expiry line is injected later (the
+   * model pairs the reply with its own question from context). Returns how
+   * many were closed. Optional: bridges without the non-blocking ask
+   * extension omit it. Must not throw — input admission must never be
+   * blocked by a display-state sync.
+   */
+  closeUserQuestions?(agent: AgentHandle): number;
   listCommands(agent: AgentHandle): readonly CommandDescriptor[];
   invokeCommand(agent: AgentHandle, id: string, argsJson: string): Promise<string>;
   /**

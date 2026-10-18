@@ -209,4 +209,69 @@ describe("parseCetasEvent", () => {
       reason: "active modelport does not accept this value",
     });
   });
+
+  test("parses a question_event and normalizes every display field", () => {
+    expect(
+      parseCetasEvent({
+        type: "question_event",
+        label: "question_asked",
+        data: {
+          question_id: "question-3",
+          short_id: "@q3",
+          origin_call: "call-9",
+          question: "Which env?",
+          kind: "select",
+          options: ["staging", "production", 7],
+          asked_at: 100,
+          deadline_at: 200,
+        },
+      }),
+    ).toEqual({
+      type: "question_event",
+      label: "question_asked",
+      data: {
+        question_id: "question-3",
+        short_id: "@q3",
+        origin_call: "call-9",
+        question: "Which env?",
+        kind: "select",
+        options: ["staging", "production"],
+        asked_at: 100,
+        deadline_at: 200,
+      },
+    });
+  });
+
+  test("a question_event without display fields degrades to defaults", () => {
+    expect(
+      parseCetasEvent({
+        type: "question_event",
+        label: "question_answered",
+        data: { question_id: "question-1" },
+      }),
+    ).toEqual({
+      type: "question_event",
+      label: "question_answered",
+      data: {
+        question_id: "question-1",
+        short_id: "",
+        origin_call: "",
+        question: "",
+        kind: "input",
+        options: [],
+        asked_at: 0,
+        deadline_at: 0,
+      },
+    });
+  });
+
+  test("a question_event without an id is malformed, not silently dropped", () => {
+    expect(() =>
+      parseCetasEvent({
+        type: "question_event",
+        label: "question_asked",
+        data: { question: "no id" },
+      }),
+    ).toThrow("question_event.data.question_id");
+  });
 });

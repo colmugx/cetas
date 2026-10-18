@@ -2,6 +2,7 @@ import * as moonbit from "mbt:colmugx/cetas-js/lib";
 import { join } from "node:path";
 import { scanAndLoadPiPackages, type PiPackagesSummary } from "./pi-packages.ts";
 import { decodeAgentRunTurnResult, AgentBusyError } from "./agent-busy.ts";
+import { answerResponseJson, type QuestionAnswerResponse } from "../controllers/question-answer.ts";
 import type { AgentRunTurnResultWire } from "./agent-busy.ts";
 import type {
   AgentCallbacks,
@@ -16,6 +17,16 @@ import type {
 
 const rateLimitExports = moonbit as unknown as {
   cetas_js_cancel_pending_ratelimit(agent: moonbit.CetasJsAgent): void;
+};
+
+/** Non-blocking ask exports (see lib/question_bridge.mbt). */
+const questionExports = moonbit as unknown as {
+  cetas_js_answer_question(
+    agent: moonbit.CetasJsAgent,
+    questionId: string,
+    responseJson: string,
+  ): string;
+  cetas_js_user_replied(agent: moonbit.CetasJsAgent): string;
 };
 
 /**
@@ -307,6 +318,34 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
     images?: readonly ImageAttachment[],
   ): string {
     return moonbit.cetas_js_enqueue_follow_up(agent as moonbit.CetasJsAgent, prompt, imagesJsonFor(images));
+  }
+
+  /**
+   * The user sent a plain reply: close every parked non-blocking question.
+   * The MoonBit export is infallible (display-state sync), so the count is
+   * returned for diagnostics and never blocks admission.
+   */
+  closeUserQuestions(agent: unknown): number {
+    const raw = questionExports.cetas_js_user_replied(agent as moonbit.CetasJsAgent);
+    const verdict = JSON.parse(raw) as { closed?: unknown };
+    return typeof verdict.closed === "number" ? verdict.closed : 0;
+  }
+
+  async answerQuestion(
+    agent: unknown,
+    questionId: string,
+    response: QuestionAnswerResponse,
+  ): Promise<boolean> {
+    // Resolve only. The accepted answer rides the extension's next
+    // `before_model` envelope; the caller separately submits the human's
+    // echo as ordinary input so a turn (or a queued follow-up) carries it.
+    const raw = questionExports.cetas_js_answer_question(
+      agent as moonbit.CetasJsAgent,
+      questionId,
+      answerResponseJson(response),
+    );
+    const verdict = JSON.parse(raw) as { ok?: unknown };
+    return verdict.ok === true;
   }
 
   shutdown(agent: unknown): Promise<void> {

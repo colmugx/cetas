@@ -58,6 +58,30 @@ export interface ToolResultImage {
   data: string;
 }
 
+/**
+ * Payload of one `question_event` (see lib/question_bridge.mbt). Every
+ * display field is normalized to a concrete value by the parser; the
+ * extension always sends them, and a missing one degrades to a default.
+ */
+export interface QuestionEventData {
+  /** Registry-minted id (`question-2`); the answer key. */
+  readonly question_id: string;
+  /** Short UI form (`@q2`); "" when unknown. */
+  readonly short_id: string;
+  /** Asking tool call id; "" when unknown. */
+  readonly origin_call: string;
+  /** Question text, display only; "" when unknown. */
+  readonly question: string;
+  /** `input` / `confirm` / `select`; `input` when unknown. */
+  readonly kind: string;
+  /** Offered options; empty unless `kind` is `select`. */
+  readonly options: readonly string[];
+  /** Ask time (epoch ms); 0 when unknown. */
+  readonly asked_at: number;
+  /** Absolute deadline (epoch ms); 0 disables expiry. */
+  readonly deadline_at: number;
+}
+
 export type CetasEvent =
   | { type: "turn_started" }
   | { type: "model_request_started" }
@@ -124,6 +148,17 @@ export type CetasEvent =
       source: string;
       label: string;
       data?: unknown;
+    }
+  | {
+      /**
+       * One non-blocking ask lifecycle fact (`notify_user`). The question
+       * text is host display only — the model learns about the question
+       * through the tool receipt and about the answer through the
+       * extension's `[question-reply …]` envelope.
+       */
+      type: "question_event";
+      label: string;
+      data?: QuestionEventData;
     }
   | {
       /**
@@ -288,6 +323,38 @@ function requireStreamKind(value: unknown): "text" | "reasoning" {
   throw new Error("stream_chunk.kind must be text or reasoning");
 }
 
+/**
+ * Parse one `question_event.data`. `question_id` is required (it is the
+ * answer key); every other field is display metadata that an older or newer
+ * extension may omit, so absent or mistyped values degrade to defaults
+ * instead of failing the event.
+ */
+function parseQuestionData(value: unknown): QuestionEventData | undefined {
+  if (value === undefined || value === null) return undefined;
+  const data = requireRecord(value, "question_event.data");
+  const id = data.question_id;
+  if (typeof id !== "string" || id.length === 0) {
+    throw new Error("question_event.data.question_id must be a non-empty string");
+  }
+  const options = Array.isArray(data.options)
+    ? data.options.filter((item): item is string => typeof item === "string")
+    : [];
+  return {
+    question_id: id,
+    short_id: typeof data.short_id === "string" ? data.short_id : "",
+    origin_call: typeof data.origin_call === "string" ? data.origin_call : "",
+    question: typeof data.question === "string" ? data.question : "",
+    kind: typeof data.kind === "string" ? data.kind : "input",
+    options,
+    asked_at: finite(data.asked_at),
+    deadline_at: finite(data.deadline_at),
+  };
+}
+
+function finite(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
 /** Narrow unknown JSON (from `JSON.parse(eventJson)`) into a CetasEvent. */
 export function parseCetasEvent(raw: unknown): CetasEvent | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
@@ -397,6 +464,12 @@ export function parseCetasEvent(raw: unknown): CetasEvent | null {
         source: requireString(ev.source, "custom.source"),
         label: requireString(ev.label, "custom.label"),
         data: ev.data,
+      };
+    case "question_event":
+      return {
+        type: "question_event",
+        label: requireString(ev.label, "question_event.label"),
+        data: parseQuestionData(ev.data),
       };
     case "config_changed":
       return {

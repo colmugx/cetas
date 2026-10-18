@@ -45,6 +45,12 @@ export interface StatusbarDashboardContext {
   readonly status?: string;
   readonly activeAgents?: number;
   readonly awaitingReplies?: number;
+  /**
+   * Non-blocking questions the human still owes an answer to. Never folded
+   * into `status`: an unanswered question must not read as "waiting", or it
+   * looks like the turn is blocked when it is not.
+   */
+  readonly pendingUserQuestions?: number;
 }
 
 function clean(text: string): string {
@@ -156,6 +162,9 @@ export function renderStatusbarDashboard(
     ...(postponeCtx ? [contextValue] : []),
     ...quota,
     ...(activity ? [theme.muted(activity)] : []),
+    ...(context.pendingUserQuestions
+      ? [theme.warning(`? ${context.pendingUserQuestions} to answer`)]
+      : []),
     ...others,
   ];
   if (!detail.length) return [first];

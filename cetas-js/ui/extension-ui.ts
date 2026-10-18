@@ -546,6 +546,8 @@ const ASK_PREVIEW_LINES = 15;
  * and word-wrapped; the remaining lines render as muted text — or, for
  * select requests, as markdown that collapses to a preview once it
  * overflows {@link ASK_PREVIEW_LINES} lines (ctrl+o toggles the full body).
+ * Plan-review selects are the exception: the transcript already carries
+ * the full plan, so the panel renders only its title line and options.
  * Buttons lay out horizontally along the bottom and fall back to a stacked
  * list when the row cannot fit the terminal width. The focused button
  * renders as a background block, not an arrow prefix.
@@ -604,9 +606,15 @@ class AskPanel implements Component {
         }
         const [head, rest] = splitTitle(request.title);
         this.titleHead = head;
-        this.titleRest = rest;
+        // Plan review is selector-only: the transcript already printed the
+        // full plan (and the panel's collapsed preview could not scroll
+        // anyway), so the body would just duplicate what is in scrollback.
+        const hideBody = isPlanReviewRequest(request);
+        this.titleRest = hideBody ? "" : rest;
         this.restMarkdown =
-          rest.length > 0 ? new Markdown(rest, 0, 0, markdownTheme) : undefined;
+          !hideBody && rest.length > 0
+            ? new Markdown(rest, 0, 0, markdownTheme)
+            : undefined;
         this.options = request.options.map((option, index) => ({
           label: option,
           response: { type: "selected", index },

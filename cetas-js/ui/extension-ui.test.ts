@@ -815,7 +815,7 @@ describe("UiRequestBar", () => {
     const body = Array.from({ length: 40 }, (_, i) => `- Step ${i + 1}: do thing ${i + 1}`).join("\n");
     const pending = bar.request({
       type: "select",
-      title: `Plan awaiting approval: big plan\n${body}`,
+      title: `Choose an option\n${body}`,
       options: ["Approve", "Revise", "Dismiss"],
     });
 
@@ -843,7 +843,7 @@ describe("UiRequestBar", () => {
     const { mount, bar } = makeBar();
     const pending = bar.request({
       type: "select",
-      title: "Plan awaiting approval: small plan\n1. only step",
+      title: "Choose an option\n1. only step",
       options: ["Approve", "Revise", "Dismiss"],
     });
 
@@ -853,6 +853,29 @@ describe("UiRequestBar", () => {
 
     bar.cancel();
     await expect(pending).resolves.toEqual({ type: "cancelled" });
+  });
+
+  test("plan review renders selector-only — the transcript already carries the plan", async () => {
+    const { tui, mount, bar } = makeBar();
+    const body = Array.from({ length: 40 }, (_, i) => `- Step ${i + 1}: do thing ${i + 1}`).join("\n");
+    const pending = bar.request({
+      type: "select",
+      title: `${PLAN_REVIEW_TITLE_PREFIX} big plan\n\n${body}\n\nAccept, revise with feedback, or dismiss?`,
+      options: ["Approve — accept the plan and implement it", "Revise", "Dismiss"],
+      default_index: 0,
+    });
+
+    // No body preview and no expand hint: the plan lives in the transcript
+    // scrollback, duplicated here only as a few unscrollable lines.
+    const rendered = mount.render(80).join("\n");
+    expect(rendered).toContain(PLAN_REVIEW_TITLE_PREFIX + " big plan");
+    expect(rendered).not.toContain("do thing");
+    expect(rendered).not.toContain("ctrl+o");
+    expect(rendered).toContain("Approve — accept the plan and implement it");
+
+    // The selector still decides: confirm accepts the default option.
+    tui.focused!.handleInput!("\r");
+    await expect(pending).resolves.toEqual({ type: "selected", index: 0 });
   });
 
   test("resolves an input request from the inline field", async () => {

@@ -60,6 +60,13 @@ import {
 import { EventRouter } from "../src/controllers/event-router.ts";
 import { SubagentActivityStore } from "../src/controllers/subagent-activity.ts";
 import { WakeupActivityStore } from "../src/controllers/wakeup-activity.ts";
+import { QuestionActivityStore, type PendingQuestion } from "../src/controllers/question-activity.ts";
+import {
+  parseQuestionAnswerPrefix,
+  parseAnswerArgument,
+  answerFromText,
+  type QuestionAnswerResponse,
+} from "../src/controllers/question-answer.ts";
 import {
   parseCoreCustom,
   decisionFailureDiagnostic,
@@ -140,6 +147,8 @@ export const CETAS_TUI_HELP_NOTE = [
   "  Typing while a turn runs stays live; Enter queues it as a follow-up",
   "  @path — autocomplete a workspace file (Tab/Enter applies it; the agent reads it)",
   "  /permission <mode> works mid-turn (readonly | workspace_write | interactive | yolo)",
+  "  If the agent asks you a question (? line above), just type the reply",
+  "  /answer — list pending questions, or /answer @q3 <reply> to answer one",
   "  ctrl+t — collapse/expand thinking blocks",
   "  ctrl+o — collapse/expand tool output",
 ].join("\n");
@@ -250,6 +259,10 @@ export class TerminalShell {
   private readonly subagents = new SubagentActivityStore();
   /** Folded `posoco.wakeup` projection for the ambient header. */
   private readonly wakeups = new WakeupActivityStore();
+  /** Parked non-blocking questions (`notify_user`) of this shell. */
+  private readonly questions = new QuestionActivityStore();
+  /** Repaints the question header while a parked question can expire. */
+  private questionTicker?: ReturnType<typeof setInterval>;
   /** Envelope notices already rendered, once per ticket. */
   private readonly wakeupEnvelopesShown = new Set<string>();
   /** Background activity above the editor, separate from transcript history. */
@@ -548,6 +561,7 @@ export class TerminalShell {
         }
       },
       onSubagentEvent: (ev) => this.handleSubagentEvent(ev),
+      onQuestionEvent: (ev) => this.handleQuestionEvent(ev),
     });
 
     this.tui.addInputListener((data) => this.handleInput(data));
@@ -673,6 +687,31 @@ export class TerminalShell {
       return;
     }
     if (trimmed.length === 0) return;
+
+    // `@qN <answer>` addresses a parked non-blocking question. It must win
+    // over `@path` resolution, or a bare number would be looked up as a
+    // filename mention.
+    const questionAnswer = parseQuestionAnswerPrefix(trimmed);
+    if (questionAnswer !== undefined) {
+      const question = this.questions.get(questionAnswer.questionId);
+      if (question === undefined) {
+        this.addTranscriptChild(
+          errorNotice(`${questionAnswer.questionId.replace("question-", "@q")} matches no pending question`),
+        );
+        return;
+      }
+      const response = answerFromText(question.kind, questionAnswer.text, question.options);
+      if (response === undefined) {
+        this.addTranscriptChild(
+          systemNotice(
+            `${question.short_id || question.id} wants ${answerShapeHint(question.kind, question.options)} — e.g. @q${question.id.replace("question-", "")} <value>`,
+          ),
+        );
+        return;
+      }
+      await this.answerQuestion(questionAnswer.questionId, response, trimmed);
+      return;
+    }
 
     const app = this.requireApp();
     const { images, paths } = await this.resolveImageMentions(app, trimmed);
@@ -914,9 +953,11 @@ export class TerminalShell {
         if (this.app !== undefined) await this.app.shutdown();
       } finally {
         this.stopSwarmTicker();
+        this.stopQuestionTicker();
         this.statusLoader.stop();
         this.subagents.clear();
         this.wakeups.clear();
+        this.questions.clear();
         this.liveDecisions.clear();
         this.wakeupEnvelopesShown.clear();
         this.agentSwarm.clear();
@@ -1054,6 +1095,7 @@ export class TerminalShell {
             : this.renderedAppState === "needs_setup" ? "Setup required" : "Ready",
       activeAgents: running.length,
       awaitingReplies: running.filter((agent) => agent.question !== undefined).length + this.pendingUiRequests,
+      pendingUserQuestions: this.questions.pendingFor(this.sessionId).length,
     };
   }
 
@@ -1291,6 +1333,49 @@ export class TerminalShell {
     this.ensureSwarmTicker();
   }
 
+  /**
+   * Non-blocking ask facts (`notify_user`). Like subagent events these are
+   * host display state only: the question text never enters the model
+   * context, and the answer reaches it as an ordinary user message (or, for
+   * `/answer`/`@qN`, through the extension's envelope).
+   */
+  private handleQuestionEvent(ev: CetasEvent & { type: "question_event" }): void {
+    if (!this.questions.apply(ev.label, ev.data, this.sessionId)) return;
+    this.refreshSwarmLine();
+    this.refreshQuestionTicker();
+  }
+
+  /**
+   * Re-render while a parked question can still expire on screen. The ask
+   * itself never blocks the turn, so nothing else would repaint the header.
+   * A plain reply closes questions through the extension's `question_closed`
+   * events, which land here and stop the ticker.
+   */
+  private refreshQuestionTicker(): void {
+    if (this.shutdownPromise !== undefined) return;
+    if (this.questions.pendingFor(this.sessionId).length === 0) {
+      this.stopQuestionTicker();
+      return;
+    }
+    if (this.questionTicker !== undefined) return;
+    this.questionTicker = setInterval(() => {
+      const expired = this.questions.expire();
+      for (const id of expired) {
+        this.addTranscriptChild(
+          systemNotice(`⌛ question ${id.replace("question-", "@q")} expired before an answer arrived`),
+        );
+      }
+      this.refreshSwarmLine();
+      this.refreshQuestionTicker();
+    }, 1000);
+  }
+
+  private stopQuestionTicker(): void {
+    if (this.questionTicker === undefined) return;
+    clearInterval(this.questionTicker);
+    this.questionTicker = undefined;
+  }
+
   private ensureSwarmTicker(): void {
     if (this.shutdownPromise !== undefined || this.subagents.running(this.sessionId).length === 0) {
       this.stopSwarmTicker();
@@ -1310,6 +1395,66 @@ export class TerminalShell {
     this.swarmTicker = undefined;
   }
 
+  /**
+   * Answer one parked question by id (`/answer`, `@qN`): submit the human's
+   * reply as ordinary input (the app decides queued follow-up vs new turn)
+   * and tell the extension which question it answers, so the next model
+   * call carries the `[question-reply …]` envelope. A refused reply must
+   * not look delivered — the store settles it locally, since the extension
+   * fires no event for a refusal.
+   */
+  private async answerQuestion(
+    questionId: string,
+    response: QuestionAnswerResponse,
+    echo: string,
+  ): Promise<void> {
+    const question = this.questions.get(questionId);
+    if (question === undefined) {
+      this.addTranscriptChild(
+        errorNotice(`question ${questionId.replace("question-", "@q")} is no longer pending`),
+      );
+      return;
+    }
+    try {
+      const accepted = await this.requireApp().answerQuestion(
+        questionId,
+        response,
+        echo,
+        this.sessionId,
+      );
+      if (!accepted) {
+        this.addTranscriptChild(
+          errorNotice(
+            `answer refused: question ${questionId.replace("question-", "@q")} expired or was already answered`,
+          ),
+        );
+        // The extension fires no event for a refusal; settle locally so the
+        // card does not linger until the deadline.
+        this.questions.apply(
+          "question_answered",
+          {
+            question_id: questionId,
+            short_id: question.short_id,
+            origin_call: question.origin_call,
+            question: question.text,
+            kind: question.kind,
+            options: question.options,
+            asked_at: question.asked_at,
+            deadline_at: question.deadline_at,
+          },
+          this.sessionId,
+        );
+        this.refreshSwarmLine();
+        this.refreshQuestionTicker();
+        return;
+      }
+      // Accepted: the extension's own question_answered event clears the
+      // card; nothing local to fold.
+    } catch (error: unknown) {
+      this.addTranscriptChild(errorNotice(`answer failed: ${errorMessage(error)}`));
+    }
+  }
+
   private applyTerminalColors(colors: import("@earendil-works/pi-tui").TerminalColors): void {
     if (this.hostFaultStopped || this.shutdownPromise !== undefined) return;
     this.terminalActivityStyle = createTerminalActivityStyle(colors);
@@ -1321,10 +1466,14 @@ export class TerminalShell {
     const records = this.subagents.running(this.sessionId);
     const wakeups = this.wakeups.executing(this.sessionId);
     const resultsWaiting = this.subagents.resultsWaiting(this.sessionId);
+    const userQuestions = this.questions.pendingFor(this.sessionId);
     const width = this.tui.terminal.columns;
     // The expensive chrome height estimation is unnecessary when the live
     // window is empty. Both statusbar and editor retain their existing layout.
-    if (records.length === 0 && wakeups.length === 0 && resultsWaiting === 0 && this.liveDecisions.size === 0) {
+    if (
+      records.length === 0 && wakeups.length === 0 && resultsWaiting === 0 &&
+      this.liveDecisions.size === 0 && userQuestions.length === 0
+    ) {
       return { records, wakeups, resultsWaiting, activeDecisions: 0, now: Date.now() };
     }
     const chrome = [
@@ -1333,6 +1482,7 @@ export class TerminalShell {
     ];
     return {
       records, wakeups, resultsWaiting, activeDecisions: this.liveDecisions.size,
+      userQuestions,
       now: Date.now(), height: this.tui.terminal.rows,
       bottomReserve: 4 + chrome.reduce((rows, component) => rows + component.render(width).length, 0),
     };
@@ -1678,6 +1828,10 @@ export class TerminalShell {
   }
 
   private async dispatchSlash(input: string): Promise<void> {
+    if (input === "/answer" || input.startsWith("/answer ")) {
+      await this.runAnswerCommand(input === "/answer" ? "" : input.slice("/answer ".length).trim());
+      return;
+    }
     if (input === "/find-next" || input === "/find-prev") {
       this.navigateTranscriptSearch(input === "/find-prev");
       return;
@@ -1708,8 +1862,66 @@ export class TerminalShell {
    * matcher: "/model <args>" keeps its extension-command path through
    * invokeCommand.
    */
-  /** Document-source search does not mount offscreen Markdown or tool rows. */
-  private findTranscript(query: string): void {
+  /**
+   * `/answer [@qN] [text]` — answer a parked non-blocking question.
+   *
+   * No argument with one question: answer it by typing the reply here.
+   * Several questions: a picker chooses which one (Esc leaves them all
+   * pending). `@qN text` answers that question directly. The picker is a
+   * modal, but the question itself never blocks the turn — it waits in the
+   * header until the user chooses to deal with it.
+   */
+  private async runAnswerCommand(rawArgs: string): Promise<void> {
+    const pending = this.questions.pendingFor(this.sessionId);
+    if (pending.length === 0) {
+      this.addTranscriptChild(systemNotice("no questions are waiting for an answer"));
+      return;
+    }
+    let target = pending[0]!;
+    let freeText = rawArgs;
+    const addressed = parseAnswerArgument(rawArgs);
+    if (addressed !== undefined) {
+      const match = pending.find((question) => question.id === addressed.questionId);
+      if (match === undefined) {
+        this.addTranscriptChild(
+          errorNotice(`${addressed.questionId.replace("question-", "@q")} matches no pending question`),
+        );
+        return;
+      }
+      target = match;
+      freeText = addressed.text;
+    } else if (pending.length > 1) {
+      const options = pending.map((question, index) => ({
+        value: String(index),
+        label: `${question.short_id || question.id}  ${oneLineBound(question.text)}`,
+        description: describeChoices(question),
+      }));
+      const picked = await this.selectionDialog.choose<string>({
+        title: `pending questions (${pending.length})`,
+        items: options,
+      });
+      if (picked === undefined) return;
+      target = pending[Number(picked)] ?? target;
+    }
+    const response = answerFromText(target.kind, freeText, target.options);
+    if (response === undefined) {
+      this.addTranscriptChild(
+        systemNotice(
+          `${target.short_id || target.id} wants ${
+            answerShapeHint(target.kind, target.options)
+          } — e.g. /answer ${target.short_id || target.id} <value>`,
+        ),
+      );
+      return;
+    }
+    await this.answerQuestion(
+      target.id,
+      response,
+      `${target.short_id || target.id}: ${displayAnswer(response, target)}`,
+    );
+  }
+
+  /** Document-source search does not mount offscreen Markdown or tool rows. */  private findTranscript(query: string): void {
     if (!(this.tui instanceof TuiAltScreen) || !this.virtualTranscript) return;
     const matches = this.transcriptSearch.search(this.transcript.children, query);
     this.activeSearchHit = -1;
@@ -3012,6 +3224,36 @@ function boundedJson(value: string, max = 200): string {
 function oneLineBound(text: string, max = 200): string {
   const line = text.replace(/\s+/g, " ").trim();
   return line.length <= max ? line : `${line.slice(0, max)}…`;
+}
+
+/** One-line description of what a parked question expects back. */
+function describeChoices(question: PendingQuestion): string {
+  return answerShapeHint(question.kind, question.options);
+}
+
+/** Human-facing shape hint for an answer (`yes/no`, `a | b`, free text). */
+function answerShapeHint(
+  kind: "input" | "confirm" | "select",
+  options: readonly string[],
+): string {
+  if (kind === "confirm") return "yes/no";
+  if (kind === "select") {
+    return options.length > 0 ? options.join(" | ") : "one of the offered options";
+  }
+  return "free text";
+}
+
+/**
+ * How the accepted answer will read in the transcript echo. The model gets
+ * the canonical value from the extension's envelope; this is the human view.
+ */
+function displayAnswer(
+  response: QuestionAnswerResponse,
+  question: PendingQuestion,
+): string {
+  if ("confirm" in response) return response.confirm ? "yes" : "no";
+  if ("index" in response) return question.options[response.index] ?? `option ${response.index}`;
+  return response.text;
 }
 
 /** The wire `type` tag of a parsed payload, bounded for short skip reasons. */
