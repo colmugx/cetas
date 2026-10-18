@@ -229,9 +229,7 @@ async fn build_compiled_recipe_features(
   // the program without a governed nested dispatch port.
   let ptc_mode = @env.get_env_var("CETAS_PTC_EXPERIMENTAL") == Some("1")
   if ptc_mode {
-    exts.push(
-      @ptc.PtcExtension(home=ctx.home) as &@posoco.Extension,
-    )
+    exts.push(@ptc.PtcExtension(home=ctx.home) as &@posoco.Extension)
   }
 
   for key in compiled_recipe {
