@@ -1760,15 +1760,15 @@ pub fn cetas_js_runtime_create_agent(
               max_probe_interval_ms=max_probe_ms,
               bus=Some(event_bus),
               trace=fn(message : String) {
-              observer.on_event(
-                @posoco.TurnEvent::Custom(
-                  source="posoco_ext_ratelimit",
-                  label="recovery_trace",
-                  data=Json::object(
-                    Map::from_array([("message", Json::string(message))]),
+                observer.on_event(
+                  @posoco.TurnEvent::Custom(
+                    source="posoco_ext_ratelimit",
+                    label="recovery_trace",
+                    data=Json::object(
+                      Map::from_array([("message", Json::string(message))]),
+                    ),
                   ),
-                ),
-              )
+                )
               },
             )
             exts.push(ratelimit as &@posoco.Extension)
