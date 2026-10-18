@@ -76,6 +76,7 @@ jobs:
         working-directory: posoco/external/cetas
         run: |
           # Interface drift is checked against the public graph.
+          git -C extension diff
           moon info
           git diff --exit-code -- . ./cetas-js ./cetas-core ./cetas-run ./cetas-acp ./cetas-ext-forme
 
