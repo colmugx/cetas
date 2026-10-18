@@ -2,6 +2,16 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.10.3 (2026-10-19)
+
+### Added
+- [cetas-js] feat: add tests for non-blocking ask shell flow and notify_user renderer (19f90d7)
+- [cetas-js] feat: implement non-blocking question handling with notify_user tool (f01883d)
+### Fixed
+- [cetas-js] fix(cetas): preserve default providers backoff and balance callback (df3295e)
+- [cetas-js] fix(cetas): correct recovery constructor and ten-minute probe cap (5139b88)
+- [cetas-js] fix(cetas): use short probing for Magpie transient gateway recovery (6ae71e2)
+
 ## 0.10.2 (2026-10-17)
 
 ## Bun Ver.（cetas-bun）
