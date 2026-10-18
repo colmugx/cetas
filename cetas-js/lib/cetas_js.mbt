@@ -1742,7 +1742,20 @@ pub fn cetas_js_runtime_create_agent(
             // Rate-limit guard: records quota verdicts (ModelError::RateLimited) per
             // session through its Observer/PipelineHook views. The TypeScript
             // application owns its cancellable monitor lifetime.
-            let ratelimit = @ratelimit.RateLimitGuard(bus=Some(event_bus), trace=fn(
+            // Magpie reports transient gateway failures as RateLimited without
+            // a provider reset timestamp. Probe at the same one-minute
+            // starting interval as Magpie's own fallback cooldown, with a
+            // ten-minute cap. True provider deadlines still take precedence.
+            // Other model managers retain their existing 15-minute policy.
+            let transient_probe_ms : Int64 = match model {
+              Magpie(_) => 60000L
+              Providers(_) => 900000L
+            }
+            let ratelimit = @ratelimit.RateLimitGuard(
+              probe_interval_ms=transient_probe_ms,
+              max_probe_interval_ms=3600000L,
+              bus=Some(event_bus),
+              trace=fn(
               message : String,
             ) {
               observer.on_event(
@@ -1753,8 +1766,8 @@ pub fn cetas_js_runtime_create_agent(
                     Map::from_array([("message", Json::string(message))]),
                   ),
                 ),
-              )
-            })
+              ),
+            )
             exts.push(ratelimit as &@posoco.Extension)
             // Concrete capabilities are selected by the host-owned compiled
             // recipe; cetas-core still owns the agent/session semantics.
