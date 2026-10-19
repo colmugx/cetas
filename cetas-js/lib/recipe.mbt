@@ -225,19 +225,9 @@ async fn build_compiled_recipe_features(
   let episodic : Array[&@posoco.Extension] = []
   let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
   let freshness = @devkit.FreshnessGuard::FreshnessGuard()
-  // Opt-in execution-only preview. Native tools are not made available to
-  // the program without a governed nested dispatch port.
-  let ptc_mode = @env.get_env_var("CETAS_PTC_EXPERIMENTAL") == Some("1")
-  if ptc_mode {
-    exts.push(@ptc.PtcExtension(home=ctx.home) as &@posoco.Extension)
-  }
+  exts.push(@ptc.PtcExtension(home=ctx.home) as &@posoco.Extension)
 
   for key in compiled_recipe {
-    // PTC-only preview presents a single program tool from this recipe.
-    // Composed model, policy, commands and UI remain host-owned.
-    if ptc_mode && key != "forme" {
-      continue
-    }
     match key {
       "forme" =>
         exts.push(
