@@ -77,7 +77,7 @@ jobs:
         run: |
           # Interface drift is checked against the public graph.
           moon info
-          git diff --exit-code -- . ./cetas-js ./cetas-core ./cetas-run ./cetas-acp ./cetas-ext-forme
+          git -c diff.ignoreSubmodules=dirty diff --exit-code -- . ./cetas-js ./cetas-core ./cetas-run ./cetas-acp ./cetas-ext-forme
 
       - name: moon test
         id: test
