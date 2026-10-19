@@ -2,6 +2,20 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.10.4 (2026-10-19)
+
+## Bun Ver.（cetas-bun）
+
+### Feats
+
+- Ask Cetas to solve a task with code: the built-in `run_code` tool lets the agent run MoonBit programs inside the current session — either a short inline body or a complete `.mbtx` program using the official MBTX SDK — with JSON input in, a JSON value out, cancellable execution and bounded output.
+- Repeated code runs are fast: compiled programs are kept in a persistent per-program build cache (partitioned by MoonBit toolchain version), so later runs skip recompilation while each concurrent run executes its own private copy of the artifact instead of racing over a shared binary.
+- `/status` now reports what your model manager actually knows: when a composed manager extension provides a status command, `/status` is routed to it (including Magpie gateway status), so provider, quota and gateway facts come from the manager rather than a shell-side guess, with the local summary kept as the fallback when no manager is present.
+
+### Fixes
+
+- The setup snapshot now marks the model you actually selected as active instead of flagging the first entry in the model catalog; a saved selection that is no longer in the catalog stays visible as pending rather than being silently swapped for another model.
+
 ## 0.10.3 (2026-10-19)
 
 ### Added
