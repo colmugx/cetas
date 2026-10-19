@@ -469,10 +469,31 @@ async fn provider_setup_json(
   }
   let catalogs = cached_provider_catalogs(runtime)
   let settings = load_provider_settings(runtime)
+  // The active selection is a manager fact, never catalog order: prefer the
+  // composed router's live selection; before composition fall back to the
+  // persisted settings selection (pending ids stay visible, flagged on
+  // nothing). No selection means the field is omitted honestly.
+  let active_model_id : String? = match runtime.live_router {
+    Some(router) =>
+      Some(ModelManagerFace::Providers(router).manager_active_model_id())
+    None =>
+      match
+        @cetas_core.resolve_active_model_restore(
+          catalogs,
+          @cetas_core.read_active_model_selection(
+            @workspace.JsWorkspaceFs(),
+            home=runtime.config.home,
+          ),
+        ) {
+        @cetas_core.Selected(slot~) | @cetas_core.Pending(slot~) => Some(slot)
+        @cetas_core.NoSelection => None
+      }
+  }
   @cetas_core.provider_setup_json(
     catalogs,
     settings~,
     issues=runtime.catalog_issues,
+    active_model_id~,
   )
 }
 

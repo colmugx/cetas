@@ -227,3 +227,53 @@ test "provider_setup_json carries isolated build issues as warnings" {
     _ => fail("issues must be surfaced as a warnings array")
   }
 }
+
+///|
+/// Count entries flagged active and read the echoed activeModelId field.
+fn active_entries(json_str : String) -> (Int32, String?) raise {
+  let json = @json.parse(json_str)
+  guard json is Object(fields) else { fail("setup json must be an object") }
+  guard fields.get("providers") is Some(Array(entries)) else {
+    fail("providers must be an array")
+  }
+  let mut count = 0
+  for entry in entries {
+    guard entry is Object(entry_fields) else { fail("entry must be an object") }
+    if entry_fields.get("active") is Some(True) {
+      count = count + 1
+    }
+  }
+  let active_model_id = match fields.get("activeModelId") {
+    Some(String(value)) => Some(value)
+    _ => None
+  }
+  (count, active_model_id)
+}
+
+///|
+test "provider_setup_json flags exactly the selected slot and echoes activeModelId" {
+  let catalogs = [tk_catalog([tk_slot("a/one"), tk_slot("b/two")])]
+  let (count, echoed) = active_entries(
+    provider_setup_json(catalogs, active_model_id=Some("b/two")),
+  )
+  assert_eq(count, 1)
+  assert_eq(echoed, Some("b/two"))
+}
+
+///|
+test "provider_setup_json keeps a pending selection visible without flagging any slot" {
+  let catalogs = [tk_catalog([tk_slot("a/one")])]
+  let (count, echoed) = active_entries(
+    provider_setup_json(catalogs, active_model_id=Some("gone/slot")),
+  )
+  assert_eq(count, 0)
+  assert_eq(echoed, Some("gone/slot"))
+}
+
+///|
+test "provider_setup_json without a selection marks nothing active" {
+  let catalogs = [tk_catalog([tk_slot("a/one"), tk_slot("b/two")])]
+  let (count, echoed) = active_entries(provider_setup_json(catalogs))
+  assert_eq(count, 0)
+  assert_eq(echoed, None)
+}

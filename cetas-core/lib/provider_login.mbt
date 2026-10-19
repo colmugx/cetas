@@ -279,19 +279,22 @@ pub async fn login_provider(
 /// `settings` widens the api-key matrix to settings-derived OpenAI-compatible
 /// providers so a configured-but-not-yet-logged-in custom id appears in
 /// `authProviders` with `["api_key"]`.
+///
+/// `active_model_id` is the caller's real selection: the matching slot is
+/// flagged `active` and the value is echoed as `activeModelId`, including a
+/// selection absent from the catalogs (pending). Unset means no selection is
+/// known — no slot is flagged and the field is omitted; enumeration order
+/// never implies selection.
 pub fn provider_setup_json(
   catalogs : Array[@llm.ProviderModelCatalog],
   settings~ : Map[String, Json] = Map::from_array([]),
   issues~ : Array[CatalogBuildIssue] = [],
+  active_model_id~ : String? = None,
 ) -> String {
   let entries : Array[Json] = []
-  let mut active_model_id : String? = None
   for catalog in catalogs {
     for slot in catalog.slots() {
-      let is_active = active_model_id is None
-      if is_active {
-        active_model_id = Some(slot.id)
-      }
+      let is_active = active_model_id is Some(selected) && selected == slot.id
       let efforts : Array[Json] = []
       for effort in slot.thinking_efforts {
         efforts.push(Json::string(effort))

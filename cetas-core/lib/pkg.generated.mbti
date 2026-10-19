@@ -97,7 +97,7 @@ pub fn parse_settings_json(String, manifest_id~ : String) -> Json raise @error.C
 
 pub fn provider_factories(@devkit.ExtContext) -> Array[&@posoco-kit-provider.ProviderFactory]
 
-pub fn provider_setup_json(Array[@posoco-kit-provider.ProviderModelCatalog], settings? : Map[String, Json], issues? : Array[CatalogBuildIssue]) -> String
+pub fn provider_setup_json(Array[@posoco-kit-provider.ProviderModelCatalog], settings? : Map[String, Json], issues? : Array[CatalogBuildIssue], active_model_id? : String?) -> String
 
 pub async fn read_active_model_selection(&@posoco-ext-workspace.WorkspaceFs, home~ : String) -> ActiveModelSelection? raise @error.CompositionError
 
