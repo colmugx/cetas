@@ -28,6 +28,14 @@ Use `/permission <mode>` in the interactive terminal, including during a turn:
 
 Select the mode that fits the task before requesting changes. Permission policy belongs to the core; the host supplies the approval UI.
 
+## Optional Board workflows (cetas-js only)
+
+Set `workflow.enabled` explicitly in settings to compose the Board workflow
+extension. Graph commitment and execution-scope authorization remain separate
+user approvals, including in `yolo` mode. See the [workflow guide](workflows.md)
+for budgets, commands, storage, permissions and recovery limits. `cetas-run`
+does not compose Board.
+
 ## Shared state
 
 Cetas hosts use the following layout under the platform user home:

@@ -40,6 +40,29 @@ import type { QuestionAnswerResponse } from "../controllers/question-answer.ts";
 const MID_TURN_COMMANDS = new Set(["permission", "status"]);
 
 /**
+ * Board workflow sync-control ids (posoco-ext-board CommandPort). The Board
+ * extension implements exactly these as prompt-free host-side reads
+ * (`status`, `preview`) and admission flags (`pause`, `stop`, `cancel`) —
+ * no Agent dispatch, no UiRequest, no session mutation — so a status glance
+ * or a pause stays reachable while a long Board proposal/UI flow or a wave
+ * occupies the lanes. Membership is exact: every other Board id (start,
+ * propose, graph approve/reject, prepare, run, wait, …) keeps the normal
+ * exclusive command path and is never admitted mid-turn or concurrently.
+ */
+const BOARD_WORKFLOW_CONTROLS = new Set([
+  "board.workflow.status",
+  "board.workflow.preview",
+  "board.workflow.pause",
+  "board.workflow.stop",
+  "board.workflow.cancel",
+]);
+
+/** Exact Board sync-control membership; shell routing reuses this gate. */
+export function isBoardWorkflowControl(id: string): boolean {
+  return BOARD_WORKFLOW_CONTROLS.has(id);
+}
+
+/**
  * Bridges exposing the Agent-level server compaction entry. An intersection
  * so older bridges without `compactSession` still compose.
  */
@@ -1533,6 +1556,28 @@ export class CetasApplication<AgentHandle = unknown> {
         "shutting_down",
         "cannot invoke a command after shutdown has begun",
       );
+    }
+    if (BOARD_WORKFLOW_CONTROLS.has(id)) {
+      // Board sync controls ride a narrow concurrent lane: safe while a turn
+      // or another command holds the exclusive lanes. Deliberately no
+      // cancellation.reset() — resetting the global token would un-cancel the
+      // occupied operation — and no activeCommand install/clear, so the
+      // running command keeps its lock until it settles. Setup discovery
+      // stays a serialization barrier, like for every other command.
+      if (this.startPromise !== undefined) {
+        throw new CetasApplicationError(
+          "already_running",
+          "cannot invoke a command while setup discovery is in progress",
+        );
+      }
+      if (this.agent === undefined) {
+        return JSON.stringify({
+          type: "failure",
+          reason: "no Agent is composed; configure a provider first",
+          code: "not_ready",
+        });
+      }
+      return await this.options.bridge.invokeCommand(this.agent, id, argsJson);
     }
     if (this.operations.busy || this.operations.compactPending) {
       // Allowlisted commands only touch host-side policy state (e.g.

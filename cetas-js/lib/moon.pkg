@@ -48,10 +48,14 @@ import {
   "colmugx/posoco-ext-kind" @kind,
   "colmugx/posoco-kit-subagent" @subagent_kit,
   "colmugx/posoco-kit-model-management" @modelmgmt,
+  "colmugx/posoco-ext-board" @board,
 }
 
 import {
   "colmugx/posoco/kernel",
+  "colmugx/posoco-ext-board/testkit/node_fs" @board_fixtures,
+  "colmugx/posoco-ext-board/domain" @board_domain,
+  "colmugx/posoco-ext-board/execution" @board_execution,
   "moonbitlang/async",
   "moonbitlang/async/aqueue",
 } for "wbtest"

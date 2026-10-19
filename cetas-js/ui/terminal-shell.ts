@@ -30,6 +30,7 @@ import { isKeyRelease, matchesKey, type KeyId } from "@earendil-works/pi-tui";
 
 import {
   CetasApplication,
+  isBoardWorkflowControl,
   type AgentCallbacks,
   type AppSnapshot,
   type AppState,
@@ -295,6 +296,7 @@ export class TerminalShell {
   private fileIndexLoadedAt = 0;
 
   private commandBusy = false;
+  private workflowCommandActive = false;
   /**
    * Latest turn status message (set by setTurnStatus). When a mid-turn
    * command finishes, clearCommandStatus restores it so the command's label
@@ -659,10 +661,11 @@ export class TerminalShell {
 
   async submit(prompt: string): Promise<void> {
     if (this.hostFaultStopped) throw new Error("host stopped after a fatal fault");
-    if (this.commandBusy) {
+    const trimmed = prompt.trim();
+    const commandId = trimmed.startsWith("/") ? trimmed.slice(1).split(/\s/, 1)[0]! : "";
+    if (this.commandBusy && !isBoardWorkflowControl(commandId)) {
       throw new Error("editor submitted while a command is running");
     }
-    const trimmed = prompt.trim();
     this.editor.setText("");
     if (trimmed.startsWith("/")) {
       try {
@@ -1790,8 +1793,9 @@ export class TerminalShell {
     }
     // Typing during a turn stays live — keys flow to the focused editor so
     // Enter can queue follow-ups and /permission can switch modes. Only
-    // command operations still swallow keys (their overlays own the flow).
-    if (this.commandBusy) return { consume: true };
+    // Other commands retain modal occupancy. A Board operation leaves the
+    // editor available for its narrow, non-prompting control lane only.
+    if (this.commandBusy && !this.workflowCommandActive) return { consume: true };
     // Extension-declared command shortcuts (e.g. shift+tab → /plan).
     if (!this.operationBusy) {
       for (const binding of this.commandShortcuts) {
@@ -2944,11 +2948,22 @@ export class TerminalShell {
 
   private async invokeCommand(command: string, rawArgs: string): Promise<void> {
     if (command.length < 2 || !command.startsWith("/")) return;
-    if (this.commandBusy) {
+    // Board workflow sync controls (/board.workflow.status|preview|pause|stop|
+    // cancel) stay reachable while another command or a wave occupies the
+    // runner: they are prompt-free reads and admission flags on the Board
+    // CommandPort, so they neither wait for the command lock nor take it —
+    // releasing or re-acquiring here would corrupt the running command's
+    // flow. Every other command keeps the exclusive path below.
+    const boardControl = isBoardWorkflowControl(command.slice(1));
+    if (this.commandBusy && !boardControl) {
       this.addTranscriptChild(errorNotice(`${command} cannot run while another command is active`));
       return;
     }
-    this.commandLock.acquire(`running ${command}`);
+    if (!boardControl) {
+      this.workflowCommandActive = command === "/workflow" || command.startsWith("/board.workflow");
+      this.commandLock.acquire(`running ${command}`);
+      if (this.workflowCommandActive) this.editor.disableSubmit = false;
+    }
     try {
       const outcome = parseCommandOutcome(
         await this.requireApp().invokeCommand(
@@ -2960,7 +2975,7 @@ export class TerminalShell {
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice(`${command} failed: ${errorMessage(error)}`));
     } finally {
-      this.commandLock.release();
+      if (!boardControl) this.commandLock.release();
     }
   }
 
@@ -3004,6 +3019,7 @@ export class TerminalShell {
 
   private finishCommand(): void {
     this.commandBusy = false;
+    this.workflowCommandActive = false;
     this.editor.disableSubmit = false;
     this.clearCommandStatus();
   }

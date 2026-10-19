@@ -147,6 +147,8 @@ pub fn valid_provider_id(String) -> Bool
 
 pub fn validate_provider_settings(Map[String, Json], Array[&@posoco-kit-provider.ProviderFactory]) -> Unit raise @error.CompositionError
 
+pub fn workflow_settings_from_json(String) -> CetasWorkflowSettings raise @error.CompositionError
+
 pub async fn write_active_model_selection(&@posoco-ext-workspace.WorkspaceFs, home~ : String, ActiveModelSelection) -> Unit raise @error.CompositionError
 
 pub async fn write_model_list_cache(&@posoco-ext-workspace.WorkspaceFs, home~ : String, String, Json) -> Unit raise @error.CompositionError
@@ -209,6 +211,18 @@ pub(all) struct CetasSession {
   config : @posoco.AgentConfig
   cwd : String
   session_fs : &@posoco-ext-workspace.WorkspaceFs
+}
+
+pub struct CetasWorkflowSettings {
+  enabled : Bool
+  max_executions : Int
+  max_elapsed_ms : Int
+  execution_timeout_ms : Int
+  max_concurrency : Int
+  max_expansions : Int
+  max_generated_tasks : Int
+  max_depth : Int
+  continue_on_confirmed_failure : Bool
 }
 
 pub(all) struct CompactRunOutcome {
