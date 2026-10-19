@@ -1802,6 +1802,20 @@ pub fn cetas_js_runtime_create_agent(
               Some(source) => Some(source as &@permission.ApprovalSource)
               None => None
             }
+            if build_cetas_workflows(
+                manager=model,
+                parent_mode=() => policy.mode(),
+                approval=child_approval,
+                ctx={
+                  fs: context_fs,
+                  cwd: runtime.config.cwd,
+                  home: runtime.config.home,
+                },
+                group~,
+              )
+              is Some(workflows) {
+              exts.push(workflows)
+            }
             // Child-run events ride the same JS callback as parent events,
             // wrapped so the TS router can tell them apart. `turn_event_to_json`
             // is the parent mapping reused verbatim for the child event; it

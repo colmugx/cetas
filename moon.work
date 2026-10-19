@@ -13,6 +13,7 @@ members = [
   "./extension/posoco-ext-askquestion",
   "./extension/posoco-ext-astgrep",
   "./extension/posoco-ext-bash",
+  "./extension/posoco-ext-board",
   "./extension/posoco-ext-context",
   "./extension/posoco-ext-credentials",
   "./extension/posoco-ext-deepseek",

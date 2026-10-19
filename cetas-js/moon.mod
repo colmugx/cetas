@@ -67,4 +67,5 @@ import {
   "colmugx/posoco-ext-kind@0.1.0",
   "colmugx/posoco-kit-subagent@0.1.1",
   "colmugx/posoco-kit-model-management@0.1.0",
+  "colmugx/posoco-ext-board@0.1.0",
 }
