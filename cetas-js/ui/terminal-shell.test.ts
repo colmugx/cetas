@@ -18,6 +18,7 @@ import {
   parsePositionalArgs,
   positionalArgsFor,
   shouldOpenRewindOnEscape,
+  statusRouteTarget,
   TerminalShell,
 } from "./terminal-shell.ts";
 import type { CommandDescriptor } from "../src/app/index.ts";
@@ -159,6 +160,40 @@ describe("matchLocalSlash", () => {
   test("matching is case-sensitive", () => {
     expect(matchLocalSlash("/QUIT")).toBeUndefined();
     expect(matchLocalSlash("/Model")).toBeUndefined();
+  });
+});
+
+describe("statusRouteTarget", () => {
+  const descriptor = (id: string): CommandDescriptor => ({
+    id,
+    label: id,
+    description: id,
+    category: "model",
+    ctype: "action",
+    params: [],
+    aliases: [],
+    visible: true,
+  });
+
+  test("extension-owned status wins over the shell one-liner", () => {
+    expect(statusRouteTarget([descriptor("model"), descriptor("status")])).toBe("extension-status");
+  });
+
+  test("magpie_status is the delegation target in Magpie manager mode", () => {
+    expect(statusRouteTarget([descriptor("magpie_model"), descriptor("magpie_status")])).toBe(
+      "extension-magpie-status",
+    );
+  });
+
+  test("no status command in the catalog keeps the local shell answer", () => {
+    expect(statusRouteTarget([descriptor("model"), descriptor("login")])).toBe("local");
+    expect(statusRouteTarget([])).toBe("local");
+  });
+
+  test("when both exist, plain status takes precedence", () => {
+    expect(statusRouteTarget([descriptor("magpie_status"), descriptor("status")])).toBe(
+      "extension-status",
+    );
   });
 });
 

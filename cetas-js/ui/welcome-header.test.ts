@@ -3,7 +3,7 @@ import chalk from "chalk";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { renderWelcomeHeader, welcomeWorkspace, WelcomeHeader } from "./welcome-header.ts";
 
-const source = { cwd: "/home/dev/projects/cetas", home: "/home/dev", state: "ready" as const, model: "Example model", rows: 36 };
+const source = { cwd: "/home/dev/projects/cetas", home: "/home/dev", state: "ready" as const, rows: 36 };
 const plain = (lines: string[]) => lines.map(stripTerminalSequences).join("\n");
 let detectedColorLevel = chalk.level;
 beforeEach(() => { detectedColorLevel = chalk.level; chalk.level = 3; });
@@ -15,7 +15,7 @@ describe("welcome header", () => {
       for (const width of [-1, 0, 1, 8, 23, 24, 39, 40, 63, 64, 80, 120]) {
         for (const compact of [false, true]) {
           for (const versionInfo of [undefined, { version: "0.8.1", channel: "release" as const }]) {
-            const lines = renderWelcomeHeader({ ...source, state, cwd: "/工作区/🧑‍💻/一个很长的项目名称/\x1b[2Jtest\nnext", model: "提供方 / 模型 🧑‍💻", versionInfo }, width, compact);
+            const lines = renderWelcomeHeader({ ...source, state, cwd: "/工作区/🧑‍💻/一个很长的项目名称/\x1b[2Jtest\nnext", versionInfo }, width, compact);
             for (const line of lines) {
               expect(visibleWidth(line)).toBeLessThanOrEqual(width);
               expect(line).not.toContain("\x1b[2J");
@@ -39,12 +39,10 @@ describe("welcome header", () => {
   });
 
   test("first-run guidance asks for login; ready state suggests starting work", () => {
-    const setup = plain(renderWelcomeHeader({ ...source, state: "needs_setup", model: undefined }, 88));
-    expect(setup).not.toContain("Not selected");
+    const setup = plain(renderWelcomeHeader({ ...source, state: "needs_setup" }, 88));
     expect(setup).toContain("/login");
     expect(setup).not.toContain("Describe a task");
     const ready = plain(renderWelcomeHeader(source, 88));
-    expect(ready).not.toContain("Example model");
     expect(ready).toContain("Describe a task");
     expect(ready).toContain("/sessions");
     expect(ready).not.toContain("/login");

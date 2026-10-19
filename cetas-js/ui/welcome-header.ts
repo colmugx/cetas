@@ -23,7 +23,6 @@ export interface WelcomeHeaderSource {
   cwd: string;
   home: string;
   state?: AppState;
-  model?: string;
   rows?: number;
   /** Static per-process facts; shown on the card title row when present. */
   versionInfo?: { version: string; channel: Channel };

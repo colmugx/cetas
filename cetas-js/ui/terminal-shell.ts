@@ -390,19 +390,13 @@ export class TerminalShell {
 
     registerBuiltinToolRenderers();
     this.tui.setClearOnShrink(false);
-    this.welcomeHeader = new WelcomeHeader(() => {
-      const setup = this.welcomeSnapshot?.setup;
-      const active = setup?.providers.find((provider) => provider.id === setup.activeModelId)
-        ?? setup?.providers.find((provider) => provider.active);
-      return {
-        cwd: this.cwd,
-        home: options.home ?? homedir(),
-        state: this.welcomeSnapshot?.state,
-        model: active?.label ?? setup?.activeModelId,
-        rows: this.tui.terminal.rows,
-        versionInfo: options.versionInfo,
-      };
-    });
+    this.welcomeHeader = new WelcomeHeader(() => ({
+      cwd: this.cwd,
+      home: options.home ?? homedir(),
+      state: this.welcomeSnapshot?.state,
+      rows: this.tui.terminal.rows,
+      versionInfo: options.versionInfo,
+    }));
     if (!(this.tui instanceof TuiAltScreen)) this.tui.addChild(this.welcomeHeader);
 
     this.transcript = new Container();
@@ -2000,7 +1994,7 @@ export class TerminalShell {
     },
     login: (rawArgs) => this.openLogin(rawArgs),
     quota: (args) => this.openQuotaOverlay(args),
-    status: () => this.showManagerStatus(),
+    status: (rawArgs) => this.runStatusCommand(rawArgs),
     pi: (rawArgs) => this.runPiCommand(rawArgs),
   };
 
@@ -2188,7 +2182,21 @@ export class TerminalShell {
     }
   }
 
-  private async showManagerStatus(): Promise<void> {
+  /**
+   * /status — protocol-first: the model manager extension owns status facts
+   * (ext-llm's provider/quota report; Magpie's gateway status). The shell
+   * answers directly only when no extension claims status.
+   */
+  private async runStatusCommand(rawArgs: string): Promise<void> {
+    const target = statusRouteTarget(this.requireApp().listCommands());
+    if (target === "extension-status") {
+      await this.invokeCommand("/status", rawArgs);
+      return;
+    }
+    if (target === "extension-magpie-status") {
+      await this.invokeCommand("/magpie_status", "");
+      return;
+    }
     const setup = this.requireApp().snapshot();
     const current = setup.setup.providers.find((entry) => entry.id === setup.setup.activeModelId)
       ?? setup.setup.providers.find((entry) => entry.active);
@@ -3097,6 +3105,15 @@ export function matchLocalSlash(command: string): SlashRoute | undefined {
       command === `/${route.id}` ||
       (route.aliases ?? []).some((alias) => command === `/${alias}`),
   );
+}
+
+/** Where /status answers: an extension-owned status command, or the shell. */
+export type StatusRouteTarget = "extension-status" | "extension-magpie-status" | "local";
+
+export function statusRouteTarget(commands: readonly { id: string }[]): StatusRouteTarget {
+  if (commands.some((cmd) => cmd.id === "status")) return "extension-status";
+  if (commands.some((cmd) => cmd.id === "magpie_status")) return "extension-magpie-status";
+  return "local";
 }
 
 export function parsePositionalArgs(raw: string, command = ""): string {
