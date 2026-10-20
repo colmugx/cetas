@@ -1990,10 +1990,6 @@ pub fn cetas_js_runtime_create_agent(
               bridge=mcp_bridge,
               fallback=base_runtime as &@runtime.Runtime,
             )
-            let pi_runtime = @pi.PiRuntime(
-              adaptor=pi,
-              fallback=mcp_runtime as &@runtime.Runtime,
-            )
             let ptc_names = [
               "read", "grep", "glob", "write", "edit", "apply_patch", "bash",
             ]
@@ -2007,12 +2003,16 @@ pub fn cetas_js_runtime_create_agent(
               })
               .collect()
             let ptc_runtime = @ptc.PtcRuntime(
-              fallback=pi_runtime as &@runtime.Runtime,
+              fallback=mcp_runtime as &@runtime.Runtime,
               tools=ptc_providers,
               hooks=[policy as &@posoco.PipelineHook],
               final_guards=[plan_mode as &@posoco.PipelineHook],
               bus=event_bus,
               home=runtime.config.home,
+            )
+            let pi_runtime = @pi.PiRuntime(
+              adaptor=pi,
+              fallback=ptc_runtime as &@runtime.Runtime,
             )
             let ptc_extension = ptc_runtime.extension()
             for provider in ptc_extension.manifest().tools {
@@ -2032,7 +2032,7 @@ pub fn cetas_js_runtime_create_agent(
                   @cetas_core.cetas_system_prompt(cwd=runtime.config.cwd),
                 ),
               ),
-              runtime=ptc_runtime as &@runtime.Runtime,
+              runtime=pi_runtime as &@runtime.Runtime,
               catalog_source=catalog_source as &@runtime.CatalogSource,
             )
             pi_runtime.attach_control(agent.control())
