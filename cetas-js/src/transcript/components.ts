@@ -33,8 +33,9 @@ import {
  * User prompt echo.
  *
  * Block layout: a leading `Spacer(1)` separates it from whatever came
- * before, then the text sits inside a full-width tinted `Box` (userMessageBg,
- * #343541). The Box gives the user turn a distinct visual zone so the next
+ * before, then the text sits inside a full-width terminal-aware `Box`.
+ * When OSC 10/11 are unavailable, the background stays transparent. This
+ * ensures the prompt is readable on both light and dark terminals. The next
  * query never visually merges with the previous answer. OSC 133 wraps the
  * whole block so terminal scrollback sees the prompt boundary.
  */
@@ -51,7 +52,7 @@ export class UserMessage extends Container {
     this.searchText = text;
     this.addChild(new Spacer(1));
     const box = new Box(1, 0, (s) => theme.userMessageBg(s));
-    box.addChild(new Text(theme.user("> ") + text, 0, 0));
+    box.addChild(new Text(theme.user("> " + text), 0, 0));
     if (attachments.length > 0) {
       box.addChild(new Text(theme.muted(`🖼 attached: ${attachments.join(", ")}`), 0, 0));
     }
@@ -85,7 +86,7 @@ export class QueuedUserMessage extends Container {
       this.children.pop();
     }
     const box = new Box(1, 0, (s) => theme.userMessageBg(s));
-    box.addChild(new Text(theme.user("> ") + this.prompt, 0, 0));
+    box.addChild(new Text(theme.user("> " + this.prompt), 0, 0));
     this.addChild(box);
     this.invalidate();
   }

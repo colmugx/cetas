@@ -124,7 +124,7 @@ import { UpdateOverlay } from "./update-picker.ts";
 import { UpdateWorkflow } from "./update-workflow.ts";
 import { formatQuotaLines } from "./quota-view.ts";
 import { updateHandoffCommand } from "../src/app/update-check.ts";
-import { theme } from "./theme.ts";
+import { theme, configureTerminalTheme } from "./theme.ts";
 import { WelcomeHeader } from "./welcome-header.ts";
 import { contextOccupancy, readWorkspaceGitBranch, type StatusbarDashboardContext } from "./statusbar-dashboard.ts";
 import { createVirtualScroll, type VirtualTranscriptDocument } from "../src/transcript/virtual-document.ts";
@@ -1454,9 +1454,13 @@ export class TerminalShell {
 
   private applyTerminalColors(colors: import("@earendil-works/pi-tui").TerminalColors): void {
     if (this.hostFaultStopped || this.shutdownPromise !== undefined) return;
+    configureTerminalTheme(colors);
     this.terminalActivityStyle = createTerminalActivityStyle(colors);
     if (this.editor instanceof AboveAutocompleteEditor) this.editor.setTerminalColors(colors);
     this.refreshSwarmLine();
+    // OSC replies arrive after startup; repaint transcript boxes and Markdown
+    // in place so previously rendered rows also follow the terminal palette.
+    this.tui.requestRender(true);
   }
 
   private liveActivitiesSource(): LiveActivitiesSource {
