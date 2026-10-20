@@ -17,29 +17,29 @@ import {
 }
 
 // Values
-pub fn command_lock_validation_marker() -> Int
+pub fn command_lock_validation_marker() -> Int32
 
-pub fn editor_input_validation_marker() -> Int
+pub fn editor_input_validation_marker() -> Int32
 
-pub fn event_wire_validation_marker() -> Int
+pub fn event_wire_validation_marker() -> Int32
 
 pub fn handle_editor_key(@ui.EditorModel, @ui.TerminalEvent) -> EditorInputAction
 
 pub fn handle_editor_paste(@ui.EditorModel, String) -> EditorInputAction
 
-pub fn input_validation_marker() -> Int
+pub fn input_validation_marker() -> Int32
 
 pub fn parse_native_events(String) -> Array[NativeEvent]?
 
-pub fn runtime_validation_marker() -> Int
+pub fn runtime_validation_marker() -> Int32
 
 pub fn should_open_rewind_on_escape(UInt64?, UInt64, window_ms? : UInt64) -> Bool
 
-pub fn snapshot_validation_marker() -> Int
+pub fn snapshot_validation_marker() -> Int32
 
-pub fn typed_observer_validation_marker() -> Int
+pub fn typed_observer_validation_marker() -> Int32
 
-pub fn validation_marker() -> Int
+pub fn validation_marker() -> Int32
 
 // Errors
 
@@ -79,9 +79,9 @@ pub struct NativeAppLoop {
   mut dismissible_overlay_visible : Bool
 }
 pub fn NativeAppLoop::acquire_command(Self, String) -> Unit
-pub fn NativeAppLoop::append_error(Self, String) -> Int
-pub fn NativeAppLoop::append_notice(Self, String) -> Int
-pub async fn NativeAppLoop::apply_rewind(Self, Int) -> Unit raise @error.SessionError
+pub fn NativeAppLoop::append_error(Self, String) -> Int32
+pub fn NativeAppLoop::append_notice(Self, String) -> Int32
+pub async fn NativeAppLoop::apply_rewind(Self, Int32) -> Unit raise @error.SessionError
 pub fn NativeAppLoop::auth_ui(Self) -> NativeAuthUi
 pub fn NativeAppLoop::command_busy(Self) -> Bool
 pub fn NativeAppLoop::command_label(Self) -> String?
@@ -128,9 +128,9 @@ pub(all) enum NativeEvent {
   NativeSessionRedirect(String, String)
   NativeToolCallDeferred(String, String, String)
   NativeCompactStarted(String)
-  NativeCompactFinished(String, String, String, Int)
+  NativeCompactFinished(String, String, String, Int32)
   NativeOperationFinalized(String, String, String)
-  NativeToolArgsDelta(Int, String?, String?, String?)
+  NativeToolArgsDelta(Int32, String?, String?, String?)
   NativeToolCallStarted(String, String, String)
   NativeToolCallCompleted(String, String, Bool)
 }
@@ -153,9 +153,9 @@ pub async fn NativeHost::compose(home~ : String, cwd~ : String, mode~ : @posoco-
 pub async fn NativeHost::compose_interactive(home~ : String, cwd~ : String, mode~ : @posoco-ext-permission.PermissionMode, session_id? : String, fs? : &@posoco-ext-workspace.WorkspaceFs?, mcp_group? : @async.TaskGroup[Unit]?, warn? : async (String) -> Unit noraise) -> (Self, NativeUiPort) raise @error.CompositionError
 pub fn NativeHost::interrupt_active(Self) -> @runtime.EnqueueOutcome
 pub fn NativeHost::queue_follow_up(Self, String) -> @runtime.EnqueueOutcome
-pub async fn NativeHost::rewind(Self, Int) -> Unit raise @error.SessionError
+pub async fn NativeHost::rewind(Self, Int32) -> Unit raise @error.SessionError
 pub fn NativeHost::rewind_points(Self) -> Array[@lib.PersistedRewindPoint] raise @error.SessionError
-pub fn NativeHost::rewind_user_message(Self, Int) -> String? raise @error.SessionError
+pub fn NativeHost::rewind_user_message(Self, Int32) -> String? raise @error.SessionError
 pub async fn NativeHost::run_text_turn(Self, String) -> @types.TurnResult raise @error.AgentError
 pub async fn NativeHost::run_text_turn_with_echo(Self, String, String) -> @types.TurnResult raise @error.AgentError
 pub fn NativeHost::session_id(Self) -> String
@@ -178,29 +178,29 @@ pub fn NativeInputRouter::auth_ui(Self) -> NativeAuthUi
 pub fn NativeInputRouter::close_ui(Self) -> Unit
 pub fn NativeInputRouter::new(NativeUiController) -> Self
 pub fn NativeInputRouter::pump_ui(Self) -> Bool
-pub fn NativeInputRouter::render_line(Self, Int) -> String?
-pub fn NativeInputRouter::render_line_count(Self) -> Int
+pub fn NativeInputRouter::render_line(Self, Int32) -> String?
+pub fn NativeInputRouter::render_line_count(Self) -> Int32
 pub fn NativeInputRouter::route_key(Self, @ui.TerminalEvent, UInt64, Bool, Bool, Bool, Bool, Bool) -> NativeInputRoute
 pub fn NativeInputRouter::route_paste(Self, String) -> Bool
 pub fn NativeInputRouter::ui_active(Self) -> Bool
 pub fn NativeInputRouter::ui_input_text(Self) -> String?
 pub fn NativeInputRouter::ui_kind(Self) -> UiRequestPanelKind?
-pub fn NativeInputRouter::ui_option_count(Self) -> Int
-pub fn NativeInputRouter::ui_option_label(Self, Int) -> String?
+pub fn NativeInputRouter::ui_option_count(Self) -> Int32
+pub fn NativeInputRouter::ui_option_label(Self, Int32) -> String?
 pub fn NativeInputRouter::ui_prompt(Self) -> String?
-pub fn NativeInputRouter::ui_selected_index(Self) -> Int?
+pub fn NativeInputRouter::ui_selected_index(Self) -> Int32?
 
 pub(all) enum NativeLoopSignal {
   LoopContinue
   LoopExit
   LoopOpenRewind
-  LoopApplyRewind(Int)
+  LoopApplyRewind(Int32)
   LoopDismissOverlay
   LoopAutocomplete
   LoopToggleThinking
   LoopToggleToolOutput
   LoopLogin(String)
-  LoopTerminalFailed(Int)
+  LoopTerminalFailed(Int32)
 } derive(Eq)
 pub fn NativeLoopSignal::equal(Self, Self) -> Bool
 pub fn NativeLoopSignal::not_equal(Self, Self) -> Bool
@@ -217,11 +217,11 @@ pub fn NativeRuntime::auth_ui(Self) -> NativeAuthUi
 pub fn NativeRuntime::close(Self) -> Unit
 pub fn NativeRuntime::close_ui_only(Self) -> Unit
 pub fn NativeRuntime::editor(Self) -> @ui.EditorModel
-pub fn NativeRuntime::flush_scrollback(Self) -> Int
+pub fn NativeRuntime::flush_scrollback(Self) -> Int32
 pub fn NativeRuntime::is_open(Self) -> Bool
 pub fn NativeRuntime::new(@ui.Terminal, NativeShell, NativeInputRouter, @ui.EditorModel, @ui.RewindPickerModel) -> Self
 pub fn NativeRuntime::poll_once(Self, UInt64, RuntimeInputState) -> RuntimeEvent
-pub fn NativeRuntime::render(Self) -> Int
+pub fn NativeRuntime::render(Self) -> Int32
 
 pub struct NativeSessionState {
   mut session_id : String
@@ -237,8 +237,8 @@ pub struct NativeSetupLoop {
   editor : @ui.EditorModel
   mut command_busy : Bool
 }
-pub fn NativeSetupLoop::append_error(Self, String) -> Int
-pub fn NativeSetupLoop::append_notice(Self, String) -> Int
+pub fn NativeSetupLoop::append_error(Self, String) -> Int32
+pub fn NativeSetupLoop::append_notice(Self, String) -> Int32
 pub fn NativeSetupLoop::auth_ui(Self) -> NativeAuthUi
 pub fn NativeSetupLoop::new(@ui.Terminal, String) -> Self
 pub async fn NativeSetupLoop::run_until_signal(Self) -> NativeSetupSignal
@@ -250,7 +250,7 @@ pub(all) enum NativeSetupSignal {
   SetupLogin(String)
   SetupRetry
   SetupExit
-  SetupTerminalFailed(Int)
+  SetupTerminalFailed(Int32)
 } derive(Eq)
 pub fn NativeSetupSignal::equal(Self, Self) -> Bool
 pub fn NativeSetupSignal::not_equal(Self, Self) -> Bool
@@ -258,31 +258,31 @@ pub fn NativeSetupSignal::not_equal(Self, Self) -> Bool
 pub struct NativeShell {
   transcript : @ui.TranscriptModel
   tools : @ui.ToolStreamingModel
-  mut pending_tool_rows : Map[Int, Int]
-  mut tool_rows : Map[String, Int]
+  mut pending_tool_rows : Map[Int32, Int32]
+  mut tool_rows : Map[String, Int32]
   mut tool_names : Map[String, String]
   mut tool_args : Map[String, String]
-  queued_prompt_rows : Array[Int]
+  queued_prompt_rows : Array[Int32]
   mut interrupt_requested : Bool
   mut thinking_expanded : Bool
   mut tool_output_expanded : Bool
-  mut finalized_operations : Int
-  mut termination_notices : Int
+  mut finalized_operations : Int32
+  mut termination_notices : Int32
   mut status : ShellStatus
 }
-pub fn NativeShell::append_error(Self, String) -> Int
-pub fn NativeShell::append_live_block_scene(Self, @ui.SceneBuilder, UInt, UInt, UInt, UInt) -> Unit
-pub fn NativeShell::append_live_scene(Self, @ui.SceneBuilder, UInt, UInt, UInt) -> UInt
-pub fn NativeShell::append_notice(Self, String) -> Int
+pub fn NativeShell::append_error(Self, String) -> Int32
+pub fn NativeShell::append_live_block_scene(Self, @ui.SceneBuilder, UInt32, UInt32, UInt32, UInt32) -> Unit
+pub fn NativeShell::append_live_scene(Self, @ui.SceneBuilder, UInt32, UInt32, UInt32) -> UInt32
+pub fn NativeShell::append_notice(Self, String) -> Int32
 pub fn NativeShell::append_reasoning(Self, String) -> Unit
 pub fn NativeShell::append_text(Self, String) -> Unit
-pub fn NativeShell::append_user(Self, String) -> Int
+pub fn NativeShell::append_user(Self, String) -> Int32
 pub fn NativeShell::begin_turn(Self) -> Unit
-pub fn NativeShell::compact_finished(Self, String, Int) -> Unit
+pub fn NativeShell::compact_finished(Self, String, Int32) -> Unit
 pub fn NativeShell::compact_started(Self, String) -> Unit
 pub fn NativeShell::end_turn(Self) -> Unit
 pub fn NativeShell::fail_turn(Self, String) -> Unit
-pub fn NativeShell::finalized_operation_count(Self) -> Int
+pub fn NativeShell::finalized_operation_count(Self) -> Int32
 pub fn NativeShell::handle_event(Self, NativeEvent) -> Unit
 pub fn NativeShell::handle_event_json(Self, String) -> Bool
 pub fn NativeShell::interrupt_requested(Self) -> Bool
@@ -290,19 +290,19 @@ pub fn NativeShell::is_in_turn(Self) -> Bool
 pub fn NativeShell::message_end(Self, String, String) -> Unit
 pub fn NativeShell::new() -> Self
 pub fn NativeShell::operation_finalized(Self, String, String, String) -> Unit
-pub fn NativeShell::queue_follow_up(Self, String) -> Int
-pub fn NativeShell::queued_prompt_count(Self) -> Int
+pub fn NativeShell::queue_follow_up(Self, String) -> Int32
+pub fn NativeShell::queued_prompt_count(Self) -> Int32
 pub fn NativeShell::request_interrupt(Self) -> Unit
 pub fn NativeShell::scrollback_text(Self, @ui.TranscriptRowSnapshot) -> String
 pub fn NativeShell::session_redirect(Self, String, String) -> Unit
 pub fn NativeShell::snapshot_json(Self) -> Json
 pub fn NativeShell::status(Self) -> ShellStatus
 pub fn NativeShell::take_scrollback_ready(Self) -> Array[@ui.TranscriptRowSnapshot]
-pub fn NativeShell::termination_notice_count(Self) -> Int
+pub fn NativeShell::termination_notice_count(Self) -> Int32
 pub fn NativeShell::thinking_expanded(Self) -> Bool
 pub fn NativeShell::toggle_thinking_expanded(Self) -> Bool
 pub fn NativeShell::toggle_tool_output_expanded(Self) -> Bool
-pub fn NativeShell::tool_args_delta(Self, Int, String?, String?, String?) -> Unit
+pub fn NativeShell::tool_args_delta(Self, Int32, String?, String?, String?) -> Unit
 pub fn NativeShell::tool_call_completed(Self, String, String, Bool) -> Unit
 pub fn NativeShell::tool_call_deferred(Self, String, String) -> Unit
 pub fn NativeShell::tool_call_started(Self, String, String, String) -> Unit
@@ -356,10 +356,10 @@ pub struct NativeUiController {
 }
 pub fn NativeUiController::active_input_text(Self) -> String?
 pub fn NativeUiController::active_kind(Self) -> UiRequestPanelKind?
-pub fn NativeUiController::active_option_count(Self) -> Int
-pub fn NativeUiController::active_option_label(Self, Int) -> String?
+pub fn NativeUiController::active_option_count(Self) -> Int32
+pub fn NativeUiController::active_option_label(Self, Int32) -> String?
 pub fn NativeUiController::active_prompt(Self) -> String?
-pub fn NativeUiController::active_selected_index(Self) -> Int?
+pub fn NativeUiController::active_selected_index(Self) -> Int32?
 pub fn NativeUiController::auth_ui(Self) -> NativeAuthUi
 pub fn NativeUiController::cancel_active(Self) -> Bool
 pub fn NativeUiController::close(Self) -> Unit
@@ -368,13 +368,13 @@ pub fn NativeUiController::handle_paste(Self, String) -> Unit
 pub fn NativeUiController::is_active(Self) -> Bool
 pub fn NativeUiController::new(NativeUiPort) -> Self
 pub fn NativeUiController::pump(Self) -> Bool
-pub fn NativeUiController::render_line(Self, Int) -> String?
-pub fn NativeUiController::render_line_count(Self) -> Int
+pub fn NativeUiController::render_line(Self, Int32) -> String?
+pub fn NativeUiController::render_line_count(Self) -> Int32
 
 pub struct NativeUiPort {
   renders : @aqueue.Queue[@port.UiRender]
   requests : @aqueue.Queue[PendingUiRequest]
-  mut next_request_id : Int
+  mut next_request_id : Int32
   mut closed : Bool
 }
 pub fn NativeUiPort::close(Self) -> Unit
@@ -389,17 +389,17 @@ pub impl @port.UiPort for NativeUiPort
 
 type NativeUiRenderModel
 pub fn NativeUiRenderModel::apply(Self, @port.UiRender) -> Unit
-pub fn NativeUiRenderModel::line(Self, Int) -> String?
-pub fn NativeUiRenderModel::line_count(Self) -> Int
+pub fn NativeUiRenderModel::line(Self, Int32) -> String?
+pub fn NativeUiRenderModel::line_count(Self) -> Int32
 pub fn NativeUiRenderModel::new() -> Self
 
 pub struct PendingUiRequest {
-  id : Int
+  id : Int32
   request : @port.UiRequest
   response : @aqueue.Queue[@port.UiResponse]
   mut resolved : Bool
 }
-pub fn PendingUiRequest::id(Self) -> Int
+pub fn PendingUiRequest::id(Self) -> Int32
 pub fn PendingUiRequest::request(Self) -> @port.UiRequest
 pub fn PendingUiRequest::respond(Self, @port.UiResponse) -> Bool
 
@@ -408,7 +408,7 @@ pub(all) enum PromptSubmitOutcome {
   PromptStarted
   PromptQueued
   PromptDeferred
-  PromptQueueFull(Int)
+  PromptQueueFull(Int32)
   PromptQueueFailed(String)
 } derive(Eq)
 pub fn PromptSubmitOutcome::equal(Self, Self) -> Bool
@@ -422,9 +422,9 @@ pub(all) enum RuntimeEvent {
   RuntimeEditorKey(@ui.TerminalEvent)
   RuntimeShellAction(ShellInputAction)
   RuntimePaste(String)
-  RuntimeResize(UInt, UInt)
+  RuntimeResize(UInt32, UInt32)
   RuntimeFocus(Bool)
-  RuntimeTerminalError(Int)
+  RuntimeTerminalError(Int32)
 } derive(Eq)
 pub fn RuntimeEvent::equal(Self, Self) -> Bool
 pub fn RuntimeEvent::not_equal(Self, Self) -> Bool
@@ -488,10 +488,10 @@ pub fn UiRequestPanelModel::handle_paste(Self, String) -> Unit
 pub fn UiRequestPanelModel::input_text(Self) -> String
 pub fn UiRequestPanelModel::kind(Self) -> UiRequestPanelKind
 pub fn UiRequestPanelModel::new(@port.UiRequest) -> Self
-pub fn UiRequestPanelModel::option_count(Self) -> Int
-pub fn UiRequestPanelModel::option_label(Self, Int) -> String?
+pub fn UiRequestPanelModel::option_count(Self) -> Int32
+pub fn UiRequestPanelModel::option_label(Self, Int32) -> String?
 pub fn UiRequestPanelModel::prompt(Self) -> String
-pub fn UiRequestPanelModel::selected_index(Self) -> Int
+pub fn UiRequestPanelModel::selected_index(Self) -> Int32
 
 // Type aliases
 
