@@ -2008,9 +2008,12 @@ pub fn cetas_js_runtime_create_agent(
                   let mut coding_only = true
                   for definition in definitions {
                     let name = definition.name.to_string()
-                    if name != "read" && name != "grep" &&
-                      name != "glob" && name != "write" &&
-                      name != "edit" && name != "apply_patch" &&
+                    if name != "read" &&
+                      name != "grep" &&
+                      name != "glob" &&
+                      name != "write" &&
+                      name != "edit" &&
+                      name != "apply_patch" &&
                       name != "bash" {
                       coding_only = false
                     }
