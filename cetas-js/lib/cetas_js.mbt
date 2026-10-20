@@ -1995,11 +1995,58 @@ pub fn cetas_js_runtime_create_agent(
               adaptor=pi,
               fallback=mcp_runtime as &@runtime.Runtime,
             )
+            // PTC is the default programmatic interface. Native providers are
+            // supplied without duplicating their tool schemas in model calls.
+            // Do not dump the whole agent catalog into every PTC system
+            // prompt. Keep a bounded, high-value coding capability set; all
+            // other tools (including Pi/MCP) remain directly accessible.
+            let ptc_providers : Array[&@posoco.ToolProvider] = []
+            for feature in exts {
+              for provider in feature.manifest().tools {
+                let definitions = provider.list_tools()
+                if !definitions.is_empty() {
+                  let coding_only = true
+                  for definition in definitions {
+                    let name = definition.name.to_string()
+                    if name != "read" && name != "grep" &&
+                      name != "glob" && name != "write" &&
+                      name != "edit" && name != "apply_patch" &&
+                      name != "bash" {
+                      coding_only = false
+                    }
+                  }
+                  if coding_only {
+                    ptc_providers.push(provider)
+                  }
+                }
+              }
+            }
+            // PermissionPolicy handles consent; PlanMode is rechecked as
+            // an irrevocable last-mile veto after argument rewrites.
+            let ptc_runtime = @ptc.PtcRuntime(
+              fallback=pi_runtime as &@runtime.Runtime,
+              tools=ptc_providers,
+              hooks=[policy as &@posoco.PipelineHook],
+              final_guards=[plan_mode as &@posoco.PipelineHook],
+              bus=Some(event_bus),
+              home=Some(runtime.config.home),
+            )
+            // Add run_code to the SAME layered catalog as native, MCP and Pi
+            // tools. PTC is additive, never the whole agent's tool surface.
+            let ptc_extension = ptc_runtime.extension()
+            for provider in ptc_extension.manifest().tools {
+              for definition in provider.list_tools() {
+                base_defs.push(definition)
+              }
+            }
+            exts.push(ptc_extension)
             let catalog_source = CetasLayeredCatalogSource::{
               base_tools: base_defs,
               mcp: @mcp.McpCatalogSource(bridge=mcp_bridge),
               pi: @pi.PiCatalogSource(adaptor=pi),
             }
+            let advanced_runtime : &@runtime.Runtime = ptc_runtime
+            let advanced_catalog : &@runtime.CatalogSource = catalog_source
             let agent = @posoco.Agent::with_runtime(
               exts~,
               config=@cetas_core.default_agent_config(
@@ -2008,8 +2055,8 @@ pub fn cetas_js_runtime_create_agent(
                   @cetas_core.cetas_system_prompt(cwd=runtime.config.cwd),
                 ),
               ),
-              runtime=pi_runtime as &@runtime.Runtime,
-              catalog_source=catalog_source as &@runtime.CatalogSource,
+              runtime=advanced_runtime,
+              catalog_source=advanced_catalog,
             )
             pi_runtime.attach_control(agent.control())
             // pi custom session entries: every appendEntry projects as an observer
