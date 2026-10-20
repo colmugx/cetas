@@ -1986,23 +1986,36 @@ pub fn cetas_js_runtime_create_agent(
               mcp: @mcp.McpCatalogSource(bridge=mcp_bridge),
               pi: @pi.PiCatalogSource(adaptor=pi),
             }
-            // PTC is the default native MoonBit programmatic tool surface.
-            // Cetas only supplies the already composed read-only providers.
+            // PTC is the default programmatic interface. Native providers are
+            // supplied without duplicating their tool schemas in model calls.
             let ptc_providers : Array[&@posoco.ToolProvider] = []
             for feature in exts {
               for provider in feature.manifest().tools {
-                let definitions = provider.list_tools()
-                if definitions.length() == 1 {
-                  let name = definitions[0].name.to_string()
-                  if name == "read" || name == "grep" || name == "glob" {
-                    ptc_providers.push(provider)
+                let acceptable = true
+                for definition in provider.list_tools() {
+                  let name = definition.name.to_string()
+                  // Privileged platform surfaces and recursive PTC are not
+                  // capabilities of user-generated MoonBit programs.
+                  if name == "run_code" || name == "" ||
+                    name == "enter_plan_mode" ||
+                    name == "exit_plan_mode" ||
+                    name == "tool_execute" ||
+                    name == "tool_list" {
+                    acceptable = false
                   }
+                }
+                if acceptable && !provider.list_tools().is_empty() {
+                  ptc_providers.push(provider)
                 }
               }
             }
+            // PermissionPolicy handles consent; PlanMode is rechecked as
+            // an irrevocable last-mile veto after argument rewrites.
             let ptc_runtime = @ptc.PtcRuntime(
               fallback=pi_runtime as &@runtime.Runtime,
               tools=ptc_providers,
+              hooks=[policy as &@posoco.PipelineHook],
+              final_guards=[plan_mode as &@posoco.PipelineHook],
               home=Some(runtime.config.home),
             )
             exts.push(ptc_runtime.extension())
