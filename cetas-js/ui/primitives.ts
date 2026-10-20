@@ -24,7 +24,7 @@ export class UserEcho extends Container {
   private inner: Text;
   constructor(prompt: string) {
     super();
-    this.inner = new Text(theme.user("> ") + prompt, 1, 0);
+    this.inner = new Text(theme.user("> " + prompt), 1, 0);
     this.addChild(this.inner);
   }
   override render(width: number): string[] {

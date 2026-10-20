@@ -5,18 +5,9 @@
  */
 import { foregroundAnsi, getTerminalColorMode, rgbColor, type RgbColor, type TerminalColors } from "@earendil-works/pi-tui";
 import { defaultActivityStyle, type LiveActivityRole, type LiveActivityStyle } from "./live-activities.ts";
+import { contrastRatio as contrast } from "./color-contrast.ts";
 
-function channel(value: number): number {
-  const v = value / 255;
-  return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
-}
-export function relativeLuminance(color: RgbColor): number {
-  return channel(color.r) * 0.2126 + channel(color.g) * 0.7152 + channel(color.b) * 0.0722;
-}
-function contrast(fg: RgbColor, bg: RgbColor): number {
-  const a = relativeLuminance(fg), b = relativeLuminance(bg);
-  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-}
+export { relativeLuminance } from "./color-contrast.ts";
 
 // Fixed semantic hues with light/dark variants, not configurable palettes.
 const ROLE_COLORS: Partial<Record<LiveActivityRole, readonly [RgbColor, RgbColor]>> = {
