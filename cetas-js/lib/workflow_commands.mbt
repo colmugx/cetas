@@ -175,11 +175,13 @@ fn CetasWorkflowCommands::summary(
         .find_first(t => run.scope.get(0) == Some(t.id.value))
       sb.write_string(
         "Goal: " +
-        goal.map(t => workflow_label(t.title)).unwrap_or(run.workflow_id) +
+        goal
+        .map(t => workflow_label(t.title))
+        .unwrap_or(workflow_label(run.workflow_id)) +
         "\n",
       )
       sb.write_string(
-        "Phase: \{Repr(run.phase)} | Running Agents: \{view.executions.filter(e => "\{Repr(e.phase)}" == "Running").length()} | Owned active slots: \{run.runner.active_count}\n",
+        "Phase: \{Repr(run.phase)} | Running Agents: \{view.executions.filter(e => e.phase is Running).length()} | Owned active slots: \{run.runner.active_count}\n",
       )
       sb.write_string(
         "Remaining: \{run.runner.remaining_executions} executions, \{run.remaining_expansions} expansions, \{run.runner.remaining_ms} ms\n",
@@ -235,6 +237,11 @@ fn workflow_label(value : String) -> String {
 }
 
 ///|
+fn workflow_terminal(phase : @board_workflow.WorkflowPhase) -> Bool {
+  phase is (Stopped | Completed | Failed | Unresolved)
+}
+
+///|
 fn workflow_actions(view : @board.BoardWorkflowView) -> Array[(String, String)] {
   let choices : Array[(String, String)] = []
   if view.unresolved || view.mutation_uncertain {
@@ -248,14 +255,19 @@ fn workflow_actions(view : @board.BoardWorkflowView) -> Array[(String, String)] 
           choices.push(("start", "Start from a coding goal"))
         }
       Some(run) => {
+        let terminal = workflow_terminal(run.phase)
         if run.pending_proposal_id is Some(_) {
           choices.push(("preview", "Inspect proposed DAG (no commit)"))
-          choices.push(
-            ("graph.approve", "Approve graph only — create durable Tasks"),
-          )
-          choices.push(("graph.reject", "Reject pending graph"))
+          if !terminal && !view.stopped {
+            choices.push(
+              ("graph.approve", "Approve graph only — create durable Tasks"),
+            )
+            choices.push(("graph.reject", "Reject pending graph"))
+          }
         }
-        if view.snapshot.expansions.any(e => {
+        if !terminal &&
+          !view.stopped &&
+          view.snapshot.expansions.any(e => {
             e.workflow_id == run.workflow_id &&
             e.mapping.any(m => !run.scope.contains(m.task_id.value))
           }) {
@@ -268,10 +280,7 @@ fn workflow_actions(view : @board.BoardWorkflowView) -> Array[(String, String)] 
         }
         if run.runner.active_count > 0 || view.operation_active {
           choices.push(("wait", "Wait for current wave to settle"))
-        } else if !view.stopped &&
-          !["Completed", "Failed", "Cancelled", "Unresolved"].contains(
-            "\{Repr(run.phase)}",
-          ) {
+        } else if !view.stopped && !terminal {
           if view.paused {
             choices.push(
               ("resume", "Resume in-process authorization (no dispatch)"),
@@ -416,12 +425,20 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     }
     self.present(result)
   } catch {
-    WorkflowNavigationCancelled =>
+    WorkflowNavigationCancelled | @posoco.UiError::Cancelled =>
       self.present(workflow_view_outcome(self.board.view())) catch {
         _ =>
           @posoco.CommandOutcome::Failure(reason="workflow_status_unavailable")
       }
     WorkflowNavigationError(reason) => @posoco.CommandOutcome::Failure(reason~)
+    @posoco.UiError::Unsupported(_) =>
+      @posoco.CommandOutcome::Failure(reason="trusted_ui_required")
+    @posoco.UiError::InvalidRequest(_) =>
+      @posoco.CommandOutcome::Failure(reason="workflow_ui_invalid_request")
+    @posoco.UiError::IoFailure(detail="UI request timed out") =>
+      @posoco.CommandOutcome::Failure(reason="workflow_ui_request_timed_out")
+    @posoco.UiError::IoFailure(_) =>
+      @posoco.CommandOutcome::Failure(reason="workflow_ui_request_failed")
     _ =>
       @posoco.CommandOutcome::Failure(
         reason="workflow_host_operation_failed_inspect_status_no_retry",

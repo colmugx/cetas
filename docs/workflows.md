@@ -87,8 +87,11 @@ The next-step choices are derived from that view, not a fixed list:
   These are navigation hints, not planner eligibility. Propose appears while no
   proposal is pending and expansion/execution budgets remain. A paused workflow offers
   resume instead of dispatch.
-- Status is always offered; pause, stop and cancel appear while a workflow is
-  active and not stopped.
+- Terminal Board phases (`Stopped`, `Completed`, `Failed`, `Unresolved`) do not
+  offer new graph/scope approvals, preparation or waves, even when no operator
+  stop flag was set. Pending proposals remain inspectable.
+- Status is always offered; pause, stop and cancel remain withdrawal controls
+  while an attached workflow is not operator-stopped.
 
 Under the `readonly` permission mode the menu is filtered to inspection and
 withdrawal actions (status, preview, pause, stop, cancel, reconcile), and any
@@ -167,8 +170,11 @@ authority or automatic Task progression:
   identities and settlement through the existing status control lane. It stops
   on quiescence, uncertainty or display shutdown; closing the observer never
   cancels Agents. A status-read failure is surfaced once without retrying any
-  mutation or execution. Failed preparation also triggers one status inspection
-  to expose independently committed steps, never a replay.
+  mutation or execution. Pause/stop/cancel acknowledgements request a fresh
+  read-only observation of settlement, not a new admission. Failed preparation
+  also triggers one status inspection to expose independently committed steps,
+  never a replay. UI cancellation remains cancellation; UI timeouts and transport
+  failures have distinct safe diagnostics rather than a generic host failure.
 - The proposal is strictly decoded JSON plus a text menu — **not a graphical
   DAG editor**, and Cetas claims no provider-side network behaviour and no
   crash resume. Restart evidence stays read-only, as described below.

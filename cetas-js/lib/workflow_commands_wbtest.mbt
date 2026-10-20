@@ -1,6 +1,7 @@
 ///|
 priv struct WorkflowMenuUi {
   requests : Array[@posoco.UiRequest]
+  mut failure : @posoco.UiError?
 }
 
 ///|
@@ -26,6 +27,9 @@ impl @posoco.UiPort for WorkflowMenuUi with fn render(_, _) {
 ///|
 impl @posoco.UiPort for WorkflowMenuUi with fn request(self, request) {
   self.requests.push(request)
+  if self.failure is Some(error) {
+    raise error
+  }
   @posoco.UiResponse::Cancelled
 }
 
@@ -56,7 +60,7 @@ async test "workflow menu cancellation is read-only and exposes no second Board 
       ),
       ui: None,
     }
-    let ui = WorkflowMenuUi::{ requests: [], }
+    let ui = WorkflowMenuUi::{ requests: [], failure: None, }
     let agent = @posoco.Agent(
       exts=[router, ui, product],
       config=@cetas_core.default_agent_config(),
@@ -81,6 +85,48 @@ async test "workflow menu cancellation is read-only and exposes no second Board 
       @workspace.read_file_result(
         @workspace.JsWorkspaceFs(),
         directory + "/board.json",
+      )
+      is @workspace.Missing,
+    )
+    for
+      (error, expected) in [
+        (@posoco.UiError::Cancelled, None),
+        (
+          @posoco.UiError::IoFailure(detail="UI request timed out"),
+          Some("workflow_ui_request_timed_out"),
+        ),
+        (
+          @posoco.UiError::IoFailure(detail="private transport detail"),
+          Some("workflow_ui_request_failed"),
+        ),
+        (
+          @posoco.UiError::Unsupported(detail="private unsupported detail"),
+          Some("trusted_ui_required"),
+        ),
+        (
+          @posoco.UiError::InvalidRequest(detail="private request detail"),
+          Some("workflow_ui_invalid_request"),
+        ),
+      ] {
+      ui.failure = Some(error)
+      for action in ["board.workflow", "board.workflow.start"] {
+        let outcome = (product as &@posoco.CommandPort).invoke(action, {})
+        match expected {
+          None => assert_true(outcome is @posoco.CommandOutcome::Success(_))
+          Some(reason) => {
+            guard outcome is @posoco.CommandOutcome::Failure(reason=actual) else {
+              fail("UI failure was hidden")
+            }
+            assert_eq(actual, reason)
+          }
+        }
+      }
+    }
+    assert_true(customer_checked(board.view()).snapshot.tasks.is_empty())
+    assert_true(
+      @workspace.read_file_result(
+        @workspace.JsWorkspaceFs(),
+        directory + "/execution.lock",
       )
       is @workspace.Missing,
     )
@@ -122,7 +168,7 @@ async test "readonly guided start refuses before any input or approval prompt" {
       ),
       ui: None,
     }
-    let ui = WorkflowMenuUi::{ requests: [], }
+    let ui = WorkflowMenuUi::{ requests: [], failure: None, }
     let agent = @posoco.Agent(
       exts=[router, ui, product],
       config=@cetas_core.default_agent_config(),
@@ -131,6 +177,21 @@ async test "readonly guided start refuses before any input or approval prompt" {
       (product as &@posoco.CommandPort).invoke("board.workflow.start", {})
       is @posoco.CommandOutcome::Failure(reason="approval_denied"),
     )
+    for action in ["start", "run", "graph.approve", "scope.approve", "prepare"] {
+      for
+        args in [({ "unexpected": true } : Json), Json::array([]), Json::null()] {
+        let result = (product as &@posoco.CommandPort).invoke(
+          "board.workflow." + action,
+          args,
+        )
+        assert_true(
+          result
+          is @posoco.CommandOutcome::Failure(
+            reason="Board commands accept trusted UI decisions, not executable JSON arguments"
+          ),
+        )
+      }
+    }
     assert_true(ui.requests.is_empty())
     assert_true(customer_checked(board.view()).snapshot.tasks.is_empty())
     agent.shutdown()
@@ -141,4 +202,27 @@ async test "readonly guided start refuses before any input or approval prompt" {
 test "workflow labels neutralize terminal controls without changing task identity" {
   assert_eq(workflow_label("a\u001b[31m\u009bb\nnext"), "a [31m b next")
   assert_eq(workflow_label("中文 😀"), "中文 😀")
+}
+
+///|
+test "workflow menu treats the real Stopped phase as terminal" {
+  for
+    phase in [
+      @board_workflow.Stopped,
+      @board_workflow.Completed,
+      @board_workflow.Failed,
+      @board_workflow.Unresolved,
+    ] {
+    assert_true(workflow_terminal(phase))
+  }
+  for
+    phase in [
+      @board_workflow.Idle,
+      @board_workflow.Running,
+      @board_workflow.Pausing,
+      @board_workflow.Paused,
+      @board_workflow.Stopping,
+    ] {
+    assert_false(workflow_terminal(phase))
+  }
 }

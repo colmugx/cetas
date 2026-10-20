@@ -1697,6 +1697,17 @@ describe("board ui confirm requests", () => {
 });
 
 describe("workflow progress watcher lifetime", () => {
+  test.each([
+    ["/board.workflow.pause", { pause_requested: true }],
+    ["/board.workflow.stop", { stop_after_wave_requested: true }],
+    ["/board.workflow.cancel", { cancel_requested: true, settled: false }],
+  ] as const)("%s observes settlement after its flag-only outcome", async (command, structured) => {
+    const { shell, calls } = makeWorkflowShell();
+    (shell as any).renderOutcome({ type: "success", structured }, command);
+    await awaitPollDeadline();
+    expect(calls).toEqual([{ id: "board.workflow.status", args: "{}" }]);
+  });
+
   test("host fault closes the watcher: reads neither fire nor re-arm", async () => {
     const { shell, calls } = makeWorkflowShell();
     (shell as any).workflowProgress.watch();

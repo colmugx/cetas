@@ -33,7 +33,8 @@ export class WorkflowProgress {
       view.operation_active, view.unresolved, view.mutation_uncertain, view.stopped, view.paused,
     ]);
     this.signature = signature;
-    if (view.unresolved === true || view.mutation_uncertain === true) {
+    if (view.unresolved === true || view.mutation_uncertain === true ||
+        executions.some(e => record(e)?.phase === "Unresolved")) {
       this.stop();
       return;
     }
@@ -41,11 +42,16 @@ export class WorkflowProgress {
       const phase = record(e)?.phase;
       return typeof phase === "string" && phase !== "Settled";
     });
-    if (active || view.operation_active === true) this.watch();
-    else this.stop();
+    if (active || view.operation_active === true) {
+      this.wanted = true;
+      this.arm();
+    } else this.stop();
   }
 
   watch(): void {
+    if (this.closed) return;
+    // A new explicit run/control action supersedes any pre-action read.
+    this.stop();
     this.wanted = true;
     this.arm();
   }

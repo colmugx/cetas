@@ -414,6 +414,15 @@ function nextStepLines(
   expansions: UnknownRecord[],
   blocked: UnknownRecord[],
 ): string[] {
+  if (flag(view.unresolved) || flag(view.mutation_uncertain) ||
+      records(view.executions).some(e => e.phase === "Unresolved")) {
+    return ["Something is unresolved or uncertain: /board.workflow.reconcile is a read-only check.",
+      "/board.workflow.status inspects ownership and durable evidence; do not retry execution or mutation."];
+  }
+  if (run && ["Stopped", "Completed", "Failed", "Unresolved"].includes(scalar(run.phase))) {
+    return ["This workflow is terminal; no new wave or authorization is available.",
+      "/board.workflow.status inspects outcomes; a stored graph never restores execution authority."];
+  }
   const steps: string[] = [];
   const proposal = scalar(run?.pending_proposal, "None");
   const pendingProposal = proposal !== "None" && proposal !== "";
@@ -446,9 +455,6 @@ function nextStepLines(
         " /board.workflow.run only ever runs the eligible wave.");
     }
   }
-  if (flag(view.unresolved) || flag(view.mutation_uncertain)) {
-    steps.push("Something is unresolved or uncertain: /board.workflow.reconcile is a read-only check.");
-  }
   if (flag(view.paused)) {
     steps.push("Admission is paused: /board.workflow.resume re-opens it without dispatching new work.");
   }
@@ -464,7 +470,7 @@ function nextStepLines(
 function statusLine(view: UnknownRecord): string {
   const statuses: string[] = [];
   if (flag(view.operation_active)) statuses.push("operation active");
-  if (flag(view.unresolved)) statuses.push("unresolved");
+  if (flag(view.unresolved) || records(view.executions).some(e => e.phase === "Unresolved")) statuses.push("unresolved");
   if (flag(view.mutation_uncertain)) statuses.push("mutation uncertain");
   if (flag(view.stopped)) statuses.push("stop requested");
   if (flag(view.paused)) statuses.push("paused");
