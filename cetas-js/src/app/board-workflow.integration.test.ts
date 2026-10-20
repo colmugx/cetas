@@ -116,6 +116,7 @@ test("cetas board workflow settles a two-task DAG only through explicit approval
   const taskChoices: string[] = [];
   const taskInputs = new Map<string, string>();
   let scopeDenials = 1;
+  let graphDenials = 1;
   let pickersToCancel = 0;
   let rootId = "";
   let expansionId = "";
@@ -214,6 +215,10 @@ test("cetas board workflow settles a two-task DAG only through explicit approval
         return reply({ type: "text", text: "" });
       }
       if (type === "confirm") {
+        if (text.startsWith("GRAPH APPROVAL") && graphDenials > 0) {
+          graphDenials -= 1;
+          return reply({ type: "no" });
+        }
         if (text.includes("EXECUTION SCOPE APPROVAL") && scopeDenials > 0) {
           scopeDenials -= 1;
           return reply({ type: "no" });
@@ -287,7 +292,26 @@ test("cetas board workflow settles a two-task DAG only through explicit approval
     expect(preview.tasks[0]!.depends_on).toEqual([]);
     expect(preview.tasks[1]!.depends_on).toEqual([{ local: "foundation" }]);
 
-    // Graph approval commits the durable Tasks and nothing else.
+    // A pending proposal leads to its own approval, not premature preparation
+    // or wave admission. Opening this guided next-step menu is still read-only.
+    pickersToCancel = 1;
+    expect((await invokeId("board.workflow")).type).toBe("success");
+    expect(pickerOptions.at(-1)).toContain("Approve graph only — create durable Tasks");
+    expect(pickerOptions.at(-1)).not.toContain("Run next eligible wave — explicit confirmation");
+    expect(pickerOptions.at(-1)).not.toContain("Prepare generated Tasks with trusted instructions");
+
+    // Saying No to commitment is not an implicit rejection or approval:
+    // the exact preview stays pending, and no graph state has changed.
+    const graphRevision = view.board.revision;
+    const graphDenied = await invoke("graph.approve");
+    expect(graphDenied).toMatchObject({ type: "failure", reason: "approval_denied" });
+    view = await status();
+    expect(view.board.revision).toBe(graphRevision);
+    expect(view.board.tasks).toHaveLength(1);
+    expect(view.board.expansions).toHaveLength(0);
+    expect((await invoke("preview")).structured).toEqual(preview);
+
+    // A fresh, explicit graph approval commits the durable Tasks and nothing else.
     view = await success("graph.approve");
     expect(view.board.expansions).toHaveLength(1);
     expect(view.board.expansions[0]!.parent).toBe(rootId);
@@ -389,7 +413,7 @@ test("cetas board workflow settles a two-task DAG only through explicit approval
     const count = (needle: string) => prompts.filter(prompt => prompt.includes(needle)).length;
     expect(count("Start bounded workflow?")).toBe(1);
     expect(count("Run one planning Agent for parent")).toBe(1);
-    expect(count("GRAPH APPROVAL")).toBe(1);
+    expect(count("GRAPH APPROVAL")).toBe(2);
     expect(count("EXECUTION SCOPE APPROVAL")).toBe(2);
     expect(count("Authorized generated Task to prepare")).toBe(2);
     expect(count("Run the next eligible wave")).toBe(2);

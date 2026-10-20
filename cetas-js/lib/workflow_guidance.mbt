@@ -1,4 +1,25 @@
 ///|
+fn workflow_preparable_tasks(
+  view : @board.BoardWorkflowView,
+) -> Array[@board_domain.BoardTask] {
+  guard view.run is Some(run) else { return [] }
+  let generated : Array[String] = []
+  for record in view.snapshot.expansions {
+    if record.workflow_id == run.workflow_id {
+      for entry in record.mapping {
+        generated.push(entry.task_id.value)
+      }
+    }
+  }
+  view.snapshot.tasks.filter(t => {
+    generated.contains(t.id.value) &&
+    run.scope.contains(t.id.value) &&
+    !view.snapshot.attempts.any(a => a.task_id == t.id) &&
+    !run.partial_preparations.any(p => p.task_id == t.id.value)
+  })
+}
+
+///|
 async fn CetasWorkflowCommands::fresh(
   self : CetasWorkflowCommands,
 ) -> @board.BoardWorkflowView {
@@ -81,19 +102,7 @@ async fn CetasWorkflowCommands::prepare_guided(
   guard view.run is Some(run) else {
     return @posoco.CommandOutcome::Failure(reason="workflow_not_started")
   }
-  let generated : Array[String] = []
-  for record in view.snapshot.expansions {
-    if record.workflow_id == run.workflow_id {
-      for entry in record.mapping {
-        generated.push(entry.task_id.value)
-      }
-    }
-  }
-  let tasks = view.snapshot.tasks.filter(t => {
-    generated.contains(t.id.value) &&
-    run.scope.contains(t.id.value) &&
-    !view.snapshot.attempts.any(a => a.task_id == t.id)
-  })
+  let tasks = workflow_preparable_tasks(view)
   if tasks.is_empty() {
     return @posoco.CommandOutcome::Failure(
       reason="No unprepared, execution-authorized generated Task. Inspect scope or partial preparation; never retry uncertainty.",

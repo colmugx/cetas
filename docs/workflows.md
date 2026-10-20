@@ -77,12 +77,15 @@ The next-step choices are derived from that view, not a fixed list:
   and withholds new mutations/admissions; inspection and withdrawal remain available.
 - No in-process authorization offers "Start from a coding goal"; stored graphs
   never restore authority.
-- A pending proposal offers preview, graph approve and graph reject.
+- A pending proposal offers preview, graph approve and graph reject rather than
+  premature task preparation or wave admission.
 - A committed expansion with Tasks outside the authorized scope offers scope
   approve/reject.
 - Active Agents or an in-flight operation offer wait; a quiescent, non-stopped
-  workflow offers prepare, run and move, plus propose while no proposal is
-  pending and expansion/execution budgets remain. A paused workflow offers
+  workflow offers prepare only for unprepared authorized generated Tasks, run
+  when scoped queued Execute Attempts exist, and operator-controlled move.
+  These are navigation hints, not planner eligibility. Propose appears while no
+  proposal is pending and expansion/execution budgets remain. A paused workflow offers
   resume instead of dispatch.
 - Status is always offered; pause, stop and cancel appear while a workflow is
   active and not stopped.
