@@ -2005,7 +2005,7 @@ pub fn cetas_js_runtime_create_agent(
               for provider in feature.manifest().tools {
                 let definitions = provider.list_tools()
                 if !definitions.is_empty() {
-                  let coding_only = true
+                  let mut coding_only = true
                   for definition in definitions {
                     let name = definition.name.to_string()
                     if name != "read" && name != "grep" &&
@@ -2028,8 +2028,8 @@ pub fn cetas_js_runtime_create_agent(
               tools=ptc_providers,
               hooks=[policy as &@posoco.PipelineHook],
               final_guards=[plan_mode as &@posoco.PipelineHook],
-              bus=Some(event_bus),
-              home=Some(runtime.config.home),
+              bus=event_bus,
+              home=runtime.config.home,
             )
             // Add run_code to the SAME layered catalog as native, MCP and Pi
             // tools. PTC is additive, never the whole agent's tool surface.
