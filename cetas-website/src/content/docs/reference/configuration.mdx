@@ -19,7 +19,7 @@ Known top-level responsibilities in the current core:
 
 Cetas preserves unrelated settings keys when it updates the active model selection.
 
-Normal startup creates a missing `.cetas/settings.json` with an empty `providers` object for the native and runner hosts; an existing file is never overwritten by that bootstrap.
+Normal startup creates a missing `.cetas/settings.json` with an empty `providers` object for the native, runner, and JS terminal hosts. Existing files (including empty or malformed JSON) are never overwritten by bootstrap; correct or back up a malformed file before retrying. The JS terminal host publishes a complete file atomically so simultaneous first starts cannot observe partial JSON.
 
 ## Other durable paths
 
