@@ -1983,22 +1983,27 @@ pub fn cetas_js_runtime_create_agent(
             )
             // PTC is the default programmatic interface. Native providers are
             // supplied without duplicating their tool schemas in model calls.
+            // Do not dump the whole agent catalog into every PTC system
+            // prompt. Keep a bounded, high-value coding capability set; all
+            // other tools (including Pi/MCP) remain directly accessible.
             let ptc_providers : Array[&@posoco.ToolProvider] = []
             for feature in exts {
               for provider in feature.manifest().tools {
-                let acceptable = true
-                for definition in provider.list_tools() {
-                  let name = definition.name.to_string()
-                  // Privileged platform surfaces and recursive PTC are not
-                  // capabilities of user-generated MoonBit programs.
-                  if name == "run_code" || name == "" ||
-                    name == "tool_execute" ||
-                    name == "tool_list" {
-                    acceptable = false
+                let definitions = provider.list_tools()
+                if !definitions.is_empty() {
+                  let coding_only = true
+                  for definition in definitions {
+                    let name = definition.name.to_string()
+                    if name != "read" && name != "grep" &&
+                      name != "glob" && name != "write" &&
+                      name != "edit" && name != "apply_patch" &&
+                      name != "bash" {
+                      coding_only = false
+                    }
                   }
-                }
-                if acceptable && !provider.list_tools().is_empty() {
-                  ptc_providers.push(provider)
+                  if coding_only {
+                    ptc_providers.push(provider)
+                  }
                 }
               }
             }
