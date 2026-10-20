@@ -79,3 +79,44 @@ test("a newer active observation survives an older in-flight status read", async
     expect(rendered).toEqual([view("Settled")]);
   } finally { progress.close(); }
 });
+
+test("a new approval supersedes an in-flight pre-approval quiescent read", async () => {
+  const entered = Promise.withResolvers<void>();
+  const old = Promise.withResolvers<unknown>();
+  const settled = Promise.withResolvers<void>();
+  let reads = 0;
+  const rendered: unknown[] = [];
+  const progress = new WorkflowProgress(async () => {
+    if (++reads === 1) { entered.resolve(); return old.promise; }
+    return view(reads === 2 ? "Started" : "Settled");
+  }, value => {
+    rendered.push(value);
+    if ((value as ReturnType<typeof view>).executions[0]!.phase === "Settled") settled.resolve();
+  }, () => settled.reject(new Error("status read failed")), 1);
+  try {
+    progress.watch();
+    await entered.promise;
+    progress.watch();
+    old.resolve(view("Settled"));
+    await settled.promise;
+    expect(reads).toBe(3);
+    expect(rendered).toEqual([view("Started"), view("Settled")]);
+  } finally { progress.close(); }
+});
+
+test("an unresolved binding is rendered once and never polled as active work", async () => {
+  const rendered = Promise.withResolvers<void>();
+  let reads = 0;
+  const frames: unknown[] = [];
+  const progress = new WorkflowProgress(async () => { reads++; return view("Unresolved"); }, value => {
+    frames.push(value);
+    rendered.resolve();
+  }, () => rendered.reject(new Error("unexpected read failure")), 1);
+  try {
+    progress.observe(view("Started"));
+    await rendered.promise;
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(reads).toBe(1);
+    expect(frames).toEqual([view("Unresolved")]);
+  } finally { progress.close(); }
+});

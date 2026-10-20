@@ -3042,6 +3042,11 @@ export class TerminalShell {
         this.tui.requestRender();
         return;
       }
+      if ((command === "/board.workflow.cancel" && value.cancel_requested === true) ||
+          (command === "/board.workflow.stop" && value.stop_after_wave_requested === true) ||
+          (command === "/board.workflow.pause" && value.pause_requested === true)) {
+        this.workflowProgress.watch();
+      }
     }
     switch (outcome.type) {
       case "success":

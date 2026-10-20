@@ -207,8 +207,9 @@ describe("renderBoardWorkflowView", () => {
     expectContent(lines, "task task-2 · attempt attempt-10 · step QueueExecute · uncertain yes");
     expectContent(lines, "Status: operation active · mutation uncertain");
     expectContent(lines, "agent session bound to an attempt");
-    expectContent(lines, "/board.workflow.graph.approve");
-    expectContent(lines, "/board.workflow.scope.approve");
+    // Uncertain state must not recommend a graph mutation or new admission.
+    expect(lines.join(" ")).not.toContain("/board.workflow.graph.approve");
+    expect(lines.join(" ")).not.toContain("/board.workflow.scope.approve");
     expectContent(lines, "/board.workflow.reconcile");
   });
 
@@ -419,4 +420,22 @@ test("product overview separates pinned host context, stage counts, evidence and
   expectContent(lines, "Evidence to verify (DoD): Run independent tests");
   expectContent(lines, "status Succeeded · Review decision none");
   expectContent(lines, "stage Created · execution authorized: no");
+});
+
+test("terminal and unresolved status never recommend new approval or admission", () => {
+  const base = { ...viewFixture, operation_active: false, mutation_uncertain: false };
+  for (const phase of ["Stopped", "Completed", "Failed", "Unresolved"]) {
+    const lines = renderBoardWorkflowView({ ...base, workflow: { ...base.workflow, phase } }, 100);
+    expectContent(lines, "This workflow is terminal");
+    expect(lines.join(" ")).not.toContain("/board.workflow.run");
+    expect(lines.join(" ")).not.toContain("/board.workflow.graph.approve");
+    expect(lines.join(" ")).not.toContain("/board.workflow.scope.approve");
+    expect(lines.join(" ")).not.toContain("/board.workflow.resume");
+  }
+  const unresolved = renderBoardWorkflowView({ ...base,
+    executions: [{ ...base.executions[0], phase: "Unresolved" }],
+  }, 100);
+  expectContent(unresolved, "Status: unresolved");
+  expectContent(unresolved, "/board.workflow.reconcile is a read-only check");
+  expect(unresolved.join(" ")).not.toContain("/board.workflow.run");
 });
