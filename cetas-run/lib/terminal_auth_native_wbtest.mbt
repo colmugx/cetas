@@ -134,12 +134,16 @@ async test "terminal auth: secret EOF cancels the lifecycle and restores echo" {
 async test "terminal auth: notifications are synchronous queued and pumped during wait, then drained" {
   let fake = auth_terminal_fake([])
   let notes : Array[String] = []
+  let delivered : @aqueue.Queue[Unit] = @aqueue.Queue(kind=Unbounded)
   let retained : Array[&@oauth.AuthInteraction] = []
   with_terminal_auth_input(
     fake.input(),
     note=async fn(text) noraise {
       @async.sleep(1)
       notes.push(text)
+      ignore(delivered.try_put(())) catch {
+        _ => ()
+      }
     },
     body=async fn(auth, _) {
       retained.push(auth)
@@ -150,7 +154,11 @@ async test "terminal auth: notifications are synchronous queued and pumped durin
         ),
       )
       auth.notify(@oauth.AuthMessage::Progress("waiting"))
-      @async.sleep(20)
+      @async.with_timeout(2000, () => {
+        for _ in 0..<3 {
+          ignore(delivered.get())
+        }
+      })
       assert_eq(notes.length(), 3)
       auth.notify(@oauth.AuthMessage::Progress("done"))
     },
