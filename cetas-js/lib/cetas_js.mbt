@@ -1981,11 +1981,6 @@ pub fn cetas_js_runtime_create_agent(
               adaptor=pi,
               fallback=mcp_runtime as &@runtime.Runtime,
             )
-            let catalog_source = CetasLayeredCatalogSource::{
-              base_tools: base_defs,
-              mcp: @mcp.McpCatalogSource(bridge=mcp_bridge),
-              pi: @pi.PiCatalogSource(adaptor=pi),
-            }
             // PTC is the default programmatic interface. Native providers are
             // supplied without duplicating their tool schemas in model calls.
             let ptc_providers : Array[&@posoco.ToolProvider] = []
@@ -2017,9 +2012,22 @@ pub fn cetas_js_runtime_create_agent(
               bus=Some(event_bus),
               home=Some(runtime.config.home),
             )
-            exts.push(ptc_runtime.extension())
+            // Add run_code to the SAME layered catalog as native, MCP and Pi
+            // tools. PTC is additive, never the whole agent's tool surface.
+            let ptc_extension = ptc_runtime.extension()
+            for provider in ptc_extension.manifest().tools {
+              for definition in provider.list_tools() {
+                base_defs.push(definition)
+              }
+            }
+            exts.push(ptc_extension)
+            let catalog_source = CetasLayeredCatalogSource::{
+              base_tools: base_defs,
+              mcp: @mcp.McpCatalogSource(bridge=mcp_bridge),
+              pi: @pi.PiCatalogSource(adaptor=pi),
+            }
             let advanced_runtime : &@runtime.Runtime = ptc_runtime
-            let advanced_catalog : &@runtime.CatalogSource = @ptc.PtcCatalogSource()
+            let advanced_catalog : &@runtime.CatalogSource = catalog_source
             let agent = @posoco.Agent::with_runtime(
               exts~,
               config=@cetas_core.default_agent_config(
