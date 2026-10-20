@@ -5,8 +5,8 @@
  * raw key sequences.
  */
 
-import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TUI, TuiMainScreen, TuiAltScreen } from "@earendil-works/pi-tui";
@@ -1433,6 +1433,19 @@ describe("Gate 3 full-screen virtual transcript integration", () => {
 const WORKFLOW_DIGEST =
   "sha256:e055c09e90b23c397fd9ab9658bcaeb6e8a90ff10c57a2c899bd56af00c1c1e5";
 
+const workflowFixtures: ReturnType<typeof makeShell>[] = [];
+function makeWorkflowFixture(): ReturnType<typeof makeShell> {
+  const fixture = makeShell();
+  workflowFixtures.push(fixture);
+  return fixture;
+}
+afterEach(() => {
+  for (const fixture of workflowFixtures.splice(0)) {
+    (fixture.shell as any).workflowProgress.close();
+    rmSync(fixture.sessionsDir, { recursive: true, force: true });
+  }
+});
+
 /** Post-failure board: the prepare left partial state the operator must see. */
 const uncertainPrepareView = {
   board: {
@@ -1469,7 +1482,7 @@ const quiescentView = {
 function makeWorkflowShell(
   statusView: unknown = quiescentView,
 ): { shell: TerminalShell; calls: Array<{ id: string; args: string }> } {
-  const { shell } = makeShell();
+  const { shell } = makeWorkflowFixture();
   const calls: Array<{ id: string; args: string }> = [];
   (shell as any).attachApplication({
     listCommands: () => [],
@@ -1516,7 +1529,7 @@ describe("board workflow failure observation", () => {
   });
 
   test("a failing status read is not itself re-observed", async () => {
-    const { shell } = makeShell();
+    const { shell } = makeWorkflowFixture();
     const calls: string[] = [];
     (shell as any).attachApplication({
       listCommands: () => [],
@@ -1578,7 +1591,7 @@ describe("board ui confirm requests", () => {
     asks: Array<Record<string, unknown>>;
     statusReads: string[];
   } {
-    const { shell } = makeShell();
+    const { shell } = makeWorkflowFixture();
     const asks: Array<Record<string, unknown>> = [];
     const statusReads: string[] = [];
     (shell as any).uiRequestBar = {
