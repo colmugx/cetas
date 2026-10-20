@@ -1997,8 +1997,6 @@ pub fn cetas_js_runtime_create_agent(
                   // Privileged platform surfaces and recursive PTC are not
                   // capabilities of user-generated MoonBit programs.
                   if name == "run_code" || name == "" ||
-                    name == "enter_plan_mode" ||
-                    name == "exit_plan_mode" ||
                     name == "tool_execute" ||
                     name == "tool_list" {
                     acceptable = false
