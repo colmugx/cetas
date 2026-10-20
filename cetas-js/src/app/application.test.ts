@@ -305,6 +305,8 @@ describe("CetasApplication", () => {
     });
     let compositions = 0;
     const base = bridgeFor(setup, counters);
+    let resolveReady!: () => void;
+    const ready = new Promise<void>((resolve) => { resolveReady = resolve; });
     const app = new CetasApplication({
       bridge: {
         ...base,
@@ -321,6 +323,9 @@ describe("CetasApplication", () => {
       config,
       callbacks,
       initialSessionId: "session-1",
+      onStateChange: (snapshot) => {
+        if (snapshot.state === "ready") resolveReady();
+      },
     });
 
     // A failed first composition leaves needs_setup while the configured
@@ -336,7 +341,12 @@ describe("CetasApplication", () => {
         results: [{ provider: "deepseek", status: "refreshed", slots: 7 }],
       }),
     );
-    await Bun.sleep(1);
+    // The background summary launches an async recompose. Wait for the
+    // observable state transition instead of racing it with a 1ms timer.
+    await Promise.race([
+      ready,
+      Bun.sleep(1000).then(() => { throw new Error("catalog refresh did not recompose the Agent"); }),
+    ]);
     expect(app.appState).toBe("ready");
     expect(compositions).toBe(2);
     await app.shutdown();
