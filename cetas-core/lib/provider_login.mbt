@@ -96,6 +96,8 @@ pub(all) struct CatalogBuildIssue {
 /// over this seam, record the issue, and keep the healthy providers alive.
 /// The raising variant remains for single-provider actions that genuinely
 /// need fail-fast semantics.
+// Result is ordinary provider-isolation data: other catalogs can still load.
+#warnings("-result_error_return")
 pub fn try_build_provider_catalog(
   factory : &@llm.ProviderFactory,
   snapshot : ProviderCredentialSnapshot,
