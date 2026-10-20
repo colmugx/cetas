@@ -149,7 +149,8 @@ export const theme: CetasTheme = {
   bold: chalk.bold,
   italic: chalk.italic,
   underline: chalk.underline,
-  dim: muted,
+  // Preserve SGR 2 dimming: ModalVeilHost relies on true terminal faintness.
+  dim: chalk.dim,
 };
 
 /** Wire-role vocabulary negotiated with extensions. */
