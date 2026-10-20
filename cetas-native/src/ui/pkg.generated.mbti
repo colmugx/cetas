@@ -8,56 +8,56 @@ import {
 // Values
 pub fn active_autocomplete_matches(String, Array[AutocompleteSourceSpec]) -> Array[AutocompleteMatch]
 
-pub fn decode_terminal_event(FixedArray[UInt]) -> TerminalEvent?
+pub fn decode_terminal_event(FixedArray[UInt32]) -> TerminalEvent?
 
-pub fn editor_validation_marker() -> Int
+pub fn editor_validation_marker() -> Int32
 
-pub fn event_validation_marker() -> Int
+pub fn event_validation_marker() -> Int32
 
-pub fn layout_validation_marker() -> Int
+pub fn layout_validation_marker() -> Int32
 
-pub fn markdown_validation_marker() -> Int
+pub fn markdown_validation_marker() -> Int32
 
-pub fn modifier_alt() -> UInt
+pub fn modifier_alt() -> UInt32
 
-pub fn modifier_bold() -> UInt
+pub fn modifier_bold() -> UInt32
 
-pub fn modifier_control() -> UInt
+pub fn modifier_control() -> UInt32
 
-pub fn modifier_dim() -> UInt
+pub fn modifier_dim() -> UInt32
 
-pub fn modifier_hyper() -> UInt
+pub fn modifier_hyper() -> UInt32
 
-pub fn modifier_italic() -> UInt
+pub fn modifier_italic() -> UInt32
 
-pub fn modifier_meta() -> UInt
+pub fn modifier_meta() -> UInt32
 
-pub fn modifier_reversed() -> UInt
+pub fn modifier_reversed() -> UInt32
 
-pub fn modifier_shift() -> UInt
+pub fn modifier_shift() -> UInt32
 
-pub fn modifier_super() -> UInt
+pub fn modifier_super() -> UInt32
 
-pub fn modifier_underlined() -> UInt
+pub fn modifier_underlined() -> UInt32
 
-pub fn overlay_validation_marker() -> Int
+pub fn overlay_validation_marker() -> Int32
 
-pub fn rewind_validation_marker() -> Int
+pub fn rewind_validation_marker() -> Int32
 
-pub fn select_list_validation_marker() -> Int
+pub fn select_list_validation_marker() -> Int32
 
-pub fn tool_streaming_validation_marker() -> Int
+pub fn tool_streaming_validation_marker() -> Int32
 
-pub fn transcript_validation_marker() -> Int
+pub fn transcript_validation_marker() -> Int32
 
-pub fn validation_marker() -> Int
+pub fn validation_marker() -> Int32
 
 // Errors
 
 // Types and methods
 pub(all) struct AutocompleteMatch {
-  source_index : Int
-  trigger_index : Int
+  source_index : Int32
+  trigger_index : Int32
   query : String
   replacement_prefix : String
 }
@@ -68,17 +68,17 @@ pub(all) struct AutocompleteSourceSpec {
 }
 
 pub(all) struct EditorCursor {
-  line : Int
-  column : Int
+  line : Int32
+  column : Int32
 }
 
 pub struct EditorModel {
   lines : Array[String]
-  mut cursor_line : Int
-  mut cursor_column : Int
+  mut cursor_line : Int32
+  mut cursor_column : Int32
   mut submit_disabled : Bool
   history : Array[String]
-  mut history_index : Int?
+  mut history_index : Int32?
   mut history_draft : String
 }
 pub fn EditorModel::apply_completion(Self, String, String) -> Bool
@@ -88,13 +88,13 @@ pub fn EditorModel::clear(Self) -> Unit
 pub fn EditorModel::current_line(Self) -> String
 pub fn EditorModel::cursor(Self) -> EditorCursor
 pub fn EditorModel::delete_forward(Self) -> Unit
-pub fn EditorModel::history_length(Self) -> Int
+pub fn EditorModel::history_length(Self) -> Int32
 pub fn EditorModel::history_next(Self) -> Bool
 pub fn EditorModel::history_previous(Self) -> Bool
 pub fn EditorModel::insert_newline(Self) -> Unit
 pub fn EditorModel::insert_text(Self, String) -> Unit
-pub fn EditorModel::line(Self, Int) -> String?
-pub fn EditorModel::line_count(Self) -> Int
+pub fn EditorModel::line(Self, Int32) -> String?
+pub fn EditorModel::line_count(Self) -> Int32
 pub fn EditorModel::move_down(Self) -> Unit
 pub fn EditorModel::move_end(Self) -> Unit
 pub fn EditorModel::move_home(Self) -> Unit
@@ -103,7 +103,7 @@ pub fn EditorModel::move_right(Self) -> Unit
 pub fn EditorModel::move_up(Self) -> Unit
 pub fn EditorModel::new() -> Self
 pub fn EditorModel::record_history(Self, String) -> Unit
-pub fn EditorModel::replace_current_line_range(Self, Int, Int, String) -> Bool
+pub fn EditorModel::replace_current_line_range(Self, Int32, Int32, String) -> Bool
 pub fn EditorModel::set_submit_disabled(Self, Bool) -> Unit
 pub fn EditorModel::set_text(Self, String) -> Unit
 pub fn EditorModel::text(Self) -> String
@@ -113,13 +113,13 @@ pub(all) enum KeyAction {
   KeyPress
   KeyRepeat
   KeyRelease
-  KeyActionUnknown(UInt)
+  KeyActionUnknown(UInt32)
 } derive(Eq)
 pub fn KeyAction::equal(Self, Self) -> Bool
 pub fn KeyAction::not_equal(Self, Self) -> Bool
 
 pub(all) enum KeyCode {
-  KeyChar(UInt)
+  KeyChar(UInt32)
   KeyEnter
   KeyEscape
   KeyBackspace
@@ -135,14 +135,14 @@ pub(all) enum KeyCode {
   KeyPageDown
   KeyDelete
   KeyInsert
-  KeyFunction(UInt)
-  KeyUnknown(UInt)
+  KeyFunction(UInt32)
+  KeyUnknown(UInt32)
 } derive(Eq)
 pub fn KeyCode::equal(Self, Self) -> Bool
 pub fn KeyCode::not_equal(Self, Self) -> Bool
 
 pub(all) struct OverlayEntry {
-  id : Int
+  id : Int32
   capturing : Bool
   hidden : Bool
   focused : Bool
@@ -150,46 +150,46 @@ pub(all) struct OverlayEntry {
 
 pub struct OverlayStack {
   entries : Array[OverlayEntry]
-  mut next_id : Int
+  mut next_id : Int32
 }
-pub fn OverlayStack::active_count(Self) -> Int
-pub fn OverlayStack::focus(Self, Int) -> Bool
-pub fn OverlayStack::focused_id(Self) -> Int?
-pub fn OverlayStack::hide(Self, Int) -> Bool
-pub fn OverlayStack::is_hidden(Self, Int) -> Bool?
+pub fn OverlayStack::active_count(Self) -> Int32
+pub fn OverlayStack::focus(Self, Int32) -> Bool
+pub fn OverlayStack::focused_id(Self) -> Int32?
+pub fn OverlayStack::hide(Self, Int32) -> Bool
+pub fn OverlayStack::is_hidden(Self, Int32) -> Bool?
 pub fn OverlayStack::new() -> Self
-pub fn OverlayStack::open(Self, capturing? : Bool) -> Int
-pub fn OverlayStack::set_hidden(Self, Int, Bool) -> Bool
+pub fn OverlayStack::open(Self, capturing? : Bool) -> Int32
+pub fn OverlayStack::set_hidden(Self, Int32, Bool) -> Bool
 pub fn OverlayStack::veil_visible(Self) -> Bool
-pub fn OverlayStack::visible_count(Self) -> Int
+pub fn OverlayStack::visible_count(Self) -> Int32
 
 type PendingToolCall
 
 pub(all) struct PendingToolCallSnapshot {
-  slot : Int
+  slot : Int32
   id : String?
-  index : Int
+  index : Int32
   name : String?
   raw_args : String
 }
 
 pub(all) struct Rect {
-  x : UInt
-  y : UInt
-  width : UInt
-  height : UInt
+  x : UInt32
+  y : UInt32
+  width : UInt32
+  height : UInt32
 }
-pub fn Rect::bottom(Self) -> UInt
-pub fn Rect::centered_percent(Self, UInt, UInt) -> Self
-pub fn Rect::inset(Self, UInt) -> Self
-pub fn Rect::new(UInt, UInt, UInt, UInt) -> Self
-pub fn Rect::right(Self) -> UInt
+pub fn Rect::bottom(Self) -> UInt32
+pub fn Rect::centered_percent(Self, UInt32, UInt32) -> Self
+pub fn Rect::inset(Self, UInt32) -> Self
+pub fn Rect::new(UInt32, UInt32, UInt32, UInt32) -> Self
+pub fn Rect::right(Self) -> UInt32
 
 pub(all) enum RewindPickerAction {
   RewindUnhandled
   RewindChanged
   RewindCancelled
-  RewindPicked(Int)
+  RewindPicked(Int32)
 } derive(Eq)
 pub fn RewindPickerAction::equal(Self, Self) -> Bool
 pub fn RewindPickerAction::not_equal(Self, Self) -> Bool
@@ -199,42 +199,42 @@ pub struct RewindPickerModel {
   mut points : Array[RewindPoint]
   mut list : SelectListModel
 }
-pub fn RewindPickerModel::append_scene(Self, SceneBuilder, UInt, UInt, UInt, UInt) -> Unit
+pub fn RewindPickerModel::append_scene(Self, SceneBuilder, UInt32, UInt32, UInt32, UInt32) -> Unit
 pub fn RewindPickerModel::close(Self) -> Unit
 pub fn RewindPickerModel::handle_key(Self, TerminalEvent) -> RewindPickerAction
 pub fn RewindPickerModel::is_active(Self) -> Bool
 pub fn RewindPickerModel::new() -> Self
 pub fn RewindPickerModel::open(Self, Array[RewindPoint]) -> Bool
-pub fn RewindPickerModel::point(Self, Int) -> RewindPoint?
-pub fn RewindPickerModel::point_count(Self) -> Int
-pub fn RewindPickerModel::selected_index(Self) -> Int
+pub fn RewindPickerModel::point(Self, Int32) -> RewindPoint?
+pub fn RewindPickerModel::point_count(Self) -> Int32
+pub fn RewindPickerModel::selected_index(Self) -> Int32
 pub fn RewindPickerModel::selected_point(Self) -> RewindPoint?
 
 pub(all) struct RewindPoint {
-  message_index : Int
+  message_index : Int32
   preview : String
 }
 
 pub(all) struct Scene {
-  words : FixedArray[UInt]
-  styles : FixedArray[UInt]
+  words : FixedArray[UInt32]
+  styles : FixedArray[UInt32]
   text : Bytes
 }
 pub fn Scene::validation() -> Self
 
 pub struct SceneBuilder {
-  words : Array[UInt]
-  styles : Array[UInt]
+  words : Array[UInt32]
+  styles : Array[UInt32]
   text : Array[Byte]
 }
-pub fn SceneBuilder::border(Self, UInt, UInt, UInt, UInt, Bytes, TextStyle) -> Unit
-pub fn SceneBuilder::clear(Self, UInt, UInt, UInt, UInt) -> Unit
-pub fn SceneBuilder::cursor(Self, UInt, UInt) -> Unit
+pub fn SceneBuilder::border(Self, UInt32, UInt32, UInt32, UInt32, Bytes, TextStyle) -> Unit
+pub fn SceneBuilder::clear(Self, UInt32, UInt32, UInt32, UInt32) -> Unit
+pub fn SceneBuilder::cursor(Self, UInt32, UInt32) -> Unit
 pub fn SceneBuilder::finish(Self) -> Scene
 pub fn SceneBuilder::new() -> Self
-pub fn SceneBuilder::select_list(Self, UInt, UInt, UInt, UInt, Array[String], Int) -> Unit
-pub fn SceneBuilder::text(Self, UInt, UInt, UInt, UInt, Bytes) -> Unit
-pub fn SceneBuilder::text_styled(Self, UInt, UInt, UInt, UInt, Bytes, TextStyle) -> Unit
+pub fn SceneBuilder::select_list(Self, UInt32, UInt32, UInt32, UInt32, Array[String], Int32) -> Unit
+pub fn SceneBuilder::text(Self, UInt32, UInt32, UInt32, UInt32, Bytes) -> Unit
+pub fn SceneBuilder::text_styled(Self, UInt32, UInt32, UInt32, UInt32, Bytes, TextStyle) -> Unit
 
 pub(all) struct SelectItem {
   value : String
@@ -244,19 +244,19 @@ pub(all) struct SelectItem {
 
 pub struct SelectListModel {
   items : Array[SelectItem]
-  mut selected : Int
+  mut selected : Int32
 }
-pub fn SelectListModel::append_scene(Self, SceneBuilder, UInt, UInt, UInt, UInt) -> Unit
+pub fn SelectListModel::append_scene(Self, SceneBuilder, UInt32, UInt32, UInt32, UInt32) -> Unit
 pub fn SelectListModel::end(Self) -> Unit
 pub fn SelectListModel::home(Self) -> Unit
 pub fn SelectListModel::is_empty(Self) -> Bool
-pub fn SelectListModel::item(Self, Int) -> SelectItem?
-pub fn SelectListModel::item_count(Self) -> Int
+pub fn SelectListModel::item(Self, Int32) -> SelectItem?
+pub fn SelectListModel::item_count(Self) -> Int32
 pub fn SelectListModel::new(Array[SelectItem]) -> Self
 pub fn SelectListModel::next(Self) -> Unit
 pub fn SelectListModel::previous(Self) -> Unit
-pub fn SelectListModel::select(Self, Int) -> Bool
-pub fn SelectListModel::selected_index(Self) -> Int
+pub fn SelectListModel::select(Self, Int32) -> Bool
+pub fn SelectListModel::selected_index(Self) -> Int32
 pub fn SelectListModel::selected_item(Self) -> SelectItem?
 
 pub struct Terminal {
@@ -264,42 +264,42 @@ pub struct Terminal {
 }
 pub fn Terminal::close(Self) -> Unit
 pub fn Terminal::event_text(Self) -> Bytes?
-pub fn Terminal::insert_before(Self, String) -> Int
-pub fn Terminal::insert_before_markdown(Self, String) -> Int
+pub fn Terminal::insert_before(Self, String) -> Int32
+pub fn Terminal::insert_before_markdown(Self, String) -> Int32
 pub fn Terminal::is_open(Self) -> Bool
-pub fn Terminal::open_inline(UInt) -> Self?
-pub fn Terminal::poll(Self, UInt64) -> (Int, TerminalEvent?)
-pub fn Terminal::poll_raw(Self, UInt64) -> (Int, FixedArray[UInt])
-pub fn Terminal::render(Self, Scene) -> Int
-pub fn Terminal::resume_terminal(Self) -> Int
-pub fn Terminal::suspend(Self) -> Int
-pub fn Terminal::viewport_size(Self) -> (Int, FixedArray[UInt])
+pub fn Terminal::open_inline(UInt32) -> Self?
+pub fn Terminal::poll(Self, UInt64) -> (Int32, TerminalEvent?)
+pub fn Terminal::poll_raw(Self, UInt64) -> (Int32, FixedArray[UInt32])
+pub fn Terminal::render(Self, Scene) -> Int32
+pub fn Terminal::resume_terminal(Self) -> Int32
+pub fn Terminal::suspend(Self) -> Int32
+pub fn Terminal::viewport_size(Self) -> (Int32, FixedArray[UInt32])
 
 pub(all) struct TerminalEvent {
-  abi_version : UInt
-  struct_size : UInt
-  kind : UInt
-  key_code : UInt
-  codepoint : UInt
-  modifiers : UInt
-  key_action : UInt
-  width : UInt
-  height : UInt
-  mouse_x : UInt
-  mouse_y : UInt
-  mouse_kind : UInt
-  mouse_button : UInt
-  text_len : UInt
+  abi_version : UInt32
+  struct_size : UInt32
+  kind : UInt32
+  key_code : UInt32
+  codepoint : UInt32
+  modifiers : UInt32
+  key_action : UInt32
+  width : UInt32
+  height : UInt32
+  mouse_x : UInt32
+  mouse_y : UInt32
+  mouse_kind : UInt32
+  mouse_button : UInt32
+  text_len : UInt32
 } derive(Eq)
 pub fn TerminalEvent::equal(Self, Self) -> Bool
-pub fn TerminalEvent::has_modifier(Self, UInt) -> Bool
+pub fn TerminalEvent::has_modifier(Self, UInt32) -> Bool
 pub fn TerminalEvent::is_actionable_key(Self) -> Bool
 pub fn TerminalEvent::is_key_release(Self) -> Bool
 pub fn TerminalEvent::key_action_value(Self) -> KeyAction
 pub fn TerminalEvent::key_code_value(Self) -> KeyCode
 pub fn TerminalEvent::kind_value(Self) -> TerminalEventKind
-pub fn TerminalEvent::matches_char(Self, UInt, UInt) -> Bool
-pub fn TerminalEvent::matches_key(Self, KeyCode, UInt) -> Bool
+pub fn TerminalEvent::matches_char(Self, UInt32, UInt32) -> Bool
+pub fn TerminalEvent::matches_key(Self, KeyCode, UInt32) -> Bool
 pub fn TerminalEvent::not_equal(Self, Self) -> Bool
 
 pub(all) enum TerminalEventKind {
@@ -310,7 +310,7 @@ pub(all) enum TerminalEventKind {
   EventPaste
   EventFocusIn
   EventFocusOut
-  EventUnknown(UInt)
+  EventUnknown(UInt32)
 } derive(Eq)
 pub fn TerminalEventKind::equal(Self, Self) -> Bool
 pub fn TerminalEventKind::not_equal(Self, Self) -> Bool
@@ -318,54 +318,54 @@ pub fn TerminalEventKind::not_equal(Self, Self) -> Bool
 pub(all) struct TextStyle {
   fg : TuiColor
   bg : TuiColor
-  modifiers : UInt
+  modifiers : UInt32
 }
-pub fn TextStyle::new(fg? : TuiColor, bg? : TuiColor, modifiers? : UInt) -> Self
+pub fn TextStyle::new(fg? : TuiColor, bg? : TuiColor, modifiers? : UInt32) -> Self
 
 pub struct ToolStreamingModel {
   pending : Array[PendingToolCall]
-  mut next_slot : Int
+  mut next_slot : Int32
 }
 pub fn ToolStreamingModel::end_turn(Self) -> Unit
 pub fn ToolStreamingModel::new() -> Self
-pub fn ToolStreamingModel::on_args_delta(Self, Int, String?, String?, String?) -> PendingToolCallSnapshot
+pub fn ToolStreamingModel::on_args_delta(Self, Int32, String?, String?, String?) -> PendingToolCallSnapshot
 pub fn ToolStreamingModel::on_call_started(Self, String, String, String) -> PendingToolCallSnapshot?
-pub fn ToolStreamingModel::pending_count(Self) -> Int
-pub fn ToolStreamingModel::snapshot(Self, Int) -> PendingToolCallSnapshot?
+pub fn ToolStreamingModel::pending_count(Self) -> Int32
+pub fn ToolStreamingModel::snapshot(Self, Int32) -> PendingToolCallSnapshot?
 
 pub struct TranscriptModel {
   rows : Array[TranscriptRow]
-  mut next_id : Int
+  mut next_id : Int32
   mut in_turn : Bool
   mut streamed_this_turn : Bool
-  mut thinking_id : Int?
-  mut text_id : Int?
+  mut thinking_id : Int32?
+  mut text_id : Int32?
 }
-pub fn TranscriptModel::append_finalized(Self, TranscriptRowKind, String) -> Int
-pub fn TranscriptModel::append_live(Self, TranscriptRowKind, String) -> Int
-pub fn TranscriptModel::append_live_block_scene(Self, SceneBuilder, UInt, UInt, UInt, UInt) -> Unit
-pub fn TranscriptModel::append_live_block_scene_with_thinking(Self, SceneBuilder, UInt, UInt, UInt, UInt, Bool) -> Unit
-pub fn TranscriptModel::append_live_scene(Self, SceneBuilder, UInt, UInt, UInt) -> UInt
-pub fn TranscriptModel::append_live_scene_with_thinking(Self, SceneBuilder, UInt, UInt, UInt, Bool) -> UInt
-pub fn TranscriptModel::append_queued_user(Self, String) -> Int
+pub fn TranscriptModel::append_finalized(Self, TranscriptRowKind, String) -> Int32
+pub fn TranscriptModel::append_live(Self, TranscriptRowKind, String) -> Int32
+pub fn TranscriptModel::append_live_block_scene(Self, SceneBuilder, UInt32, UInt32, UInt32, UInt32) -> Unit
+pub fn TranscriptModel::append_live_block_scene_with_thinking(Self, SceneBuilder, UInt32, UInt32, UInt32, UInt32, Bool) -> Unit
+pub fn TranscriptModel::append_live_scene(Self, SceneBuilder, UInt32, UInt32, UInt32) -> UInt32
+pub fn TranscriptModel::append_live_scene_with_thinking(Self, SceneBuilder, UInt32, UInt32, UInt32, Bool) -> UInt32
+pub fn TranscriptModel::append_queued_user(Self, String) -> Int32
 pub fn TranscriptModel::append_reasoning(Self, String) -> Unit
 pub fn TranscriptModel::append_text(Self, String) -> Unit
 pub fn TranscriptModel::begin_turn(Self) -> Unit
 pub fn TranscriptModel::close_step(Self) -> Unit
 pub fn TranscriptModel::end_turn(Self) -> Unit
-pub fn TranscriptModel::finalize(Self, Int) -> Bool
+pub fn TranscriptModel::finalize(Self, Int32) -> Bool
 pub fn TranscriptModel::has_streamed_this_turn(Self) -> Bool
 pub fn TranscriptModel::is_in_turn(Self) -> Bool
 pub fn TranscriptModel::message_end(Self, String, String) -> Unit
 pub fn TranscriptModel::new() -> Self
-pub fn TranscriptModel::promote_queued_user(Self, Int) -> Bool
-pub fn TranscriptModel::row(Self, Int) -> TranscriptRow
-pub fn TranscriptModel::row_count(Self) -> Int
+pub fn TranscriptModel::promote_queued_user(Self, Int32) -> Bool
+pub fn TranscriptModel::row(Self, Int32) -> TranscriptRow
+pub fn TranscriptModel::row_count(Self) -> Int32
 pub fn TranscriptModel::take_scrollback_ready(Self) -> Array[TranscriptRowSnapshot]
-pub fn TranscriptModel::update_row(Self, Int, String) -> Bool
+pub fn TranscriptModel::update_row(Self, Int32, String) -> Bool
 
 pub(all) struct TranscriptRow {
-  id : Int
+  id : Int32
   mut kind : TranscriptRowKind
   mut text : String
   mut finalized : Bool
@@ -385,7 +385,7 @@ pub fn TranscriptRowKind::equal(Self, Self) -> Bool
 pub fn TranscriptRowKind::not_equal(Self, Self) -> Bool
 
 pub(all) struct TranscriptRowSnapshot {
-  id : Int
+  id : Int32
   kind : TranscriptRowKind
   text : String
 }
@@ -394,8 +394,8 @@ pub fn TranscriptRowSnapshot::scrollback_text(Self) -> String
 pub(all) enum TuiColor {
   ColorInherit
   ColorReset
-  ColorIndexed(UInt)
-  ColorRgb(UInt, UInt, UInt)
+  ColorIndexed(UInt32)
+  ColorRgb(UInt32, UInt32, UInt32)
 }
 
 // Type aliases
