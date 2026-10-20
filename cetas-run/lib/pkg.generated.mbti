@@ -49,7 +49,7 @@ pub fn text_block(String) -> String
 
 pub fn turn_failed_line(String) -> String
 
-pub fn turn_marker(Int) -> String
+pub fn turn_marker(Int32) -> String
 
 pub fn wants_terminal_ui(RunCli) -> Bool
 
@@ -74,18 +74,18 @@ pub(all) enum InvocationAction {
 }
 
 pub struct JsonlObserver {
-  mut turn : Int
+  mut turn : Int32
   mut session_id : String
-  mut turns_completed : Int
-  mut input_tokens : Int
-  mut output_tokens : Int
+  mut turns_completed : Int32
+  mut input_tokens : Int32
+  mut output_tokens : Int32
   mut lines : Array[String]
   stream : Bool
   id : String
   mut sink : ((String) -> Unit)?
 }
 pub fn JsonlObserver::JsonlObserver(stream? : Bool, id? : String) -> Self
-pub fn JsonlObserver::begin_turn(Self, turn_no~ : Int, session_id~ : String) -> Unit
+pub fn JsonlObserver::begin_turn(Self, turn_no~ : Int32, session_id~ : String) -> Unit
 pub fn JsonlObserver::emit_turn_completed(Self, summary~ : String, marker~ : String) -> Unit
 pub fn JsonlObserver::emit_turn_failed(Self, error~ : String, marker~ : String) -> Unit
 pub fn JsonlObserver::extension_id(Self) -> String
