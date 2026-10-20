@@ -96,6 +96,8 @@ import {
 } from "./extension-ui.ts";
 import { CommandLock } from "./command-lock.ts";
 import { CommandRunner } from "./command-runner.ts";
+import { renderBoardWorkflowView, renderProposalPreview, renderBoardConfirmPrompt } from "./workflow-presenter.ts";
+import { WorkflowProgress } from "./workflow-progress.ts";
 import { MessageDialog } from "./message-dialog.ts";
 import { SelectionDialog } from "./selection-dialog.ts";
 import { banner } from "./primitives.ts";
@@ -321,6 +323,18 @@ export class TerminalShell {
    * close/select callbacks and finally blocks can never double-release.
    */
   private readonly commandLock: CommandLock;
+  private readonly workflowProgress = new WorkflowProgress(
+    async () => {
+      const outcome = parseCommandOutcome(await this.requireApp().invokeCommand("board.workflow.status", "{}"));
+      if (outcome.type !== "success" || outcome.structured === undefined) throw new Error("workflow status unavailable");
+      return outcome.structured;
+    },
+    view => this.renderOutcome({ type: "success", structured: view }, "/board.workflow.status"),
+    () => {
+      this.addTranscriptChild(errorNotice("Workflow progress unavailable. Inspect /workflow; no execution or mutation was retried."));
+      this.tui.requestRender();
+    },
+  );
   /** ctrl+o state — persists across messages; new tool rows inherit it. */
   private toolOutputExpanded = false;
   /** Follow-up bubbles awaiting their TurnStarted; promoted oldest-first. */
@@ -853,6 +867,7 @@ export class TerminalShell {
 
   /** Best-effort teardown followed by the exit hook; runs at most once. */
   private forceExit(code: number, reason: string): void {
+    this.workflowProgress.close();
     this.programStatusStopping = true;
     this.publishProgramStatus();
     this.clearForceExitWatchdog();
@@ -908,6 +923,7 @@ export class TerminalShell {
     this.programStatusStopping = true;
     if (!outputBroken) this.publishProgramStatus();
     this.hostFaultStopped = true;
+    this.workflowProgress.close();
     this.exitDelivered = true;
     this.pendingUpdateHandoff = undefined;
     this.commands.cancel();
@@ -934,6 +950,7 @@ export class TerminalShell {
   async shutdown(): Promise<void> {
     if (this.shutdownPromise !== undefined) return this.shutdownPromise;
     this.programStatusStopping = true;
+    this.workflowProgress.close();
     this.publishProgramStatus();
     this.shutdownPromise = (async () => {
       this.uiRequestBar.cancel();
@@ -1609,6 +1626,7 @@ export class TerminalShell {
   }
 
   private handleUiRequest(eventJson: string): Promise<string> {
+    let watchWorkflowOnApproval = false;
     let raw: unknown;
     try {
       raw = JSON.parse(eventJson);
@@ -1630,6 +1648,20 @@ export class TerminalShell {
         // fall through to the guarded generic ui request path.
       }
     }
+    if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
+      const event = raw as Record<string, unknown>;
+      const request = event.request;
+      if (event.type === "ui_request" && typeof request === "object" && request !== null && !Array.isArray(request)) {
+        const question = request as Record<string, unknown>;
+        const prompt = question.prompt;
+        if (question.type === "confirm" && typeof prompt === "string") {
+          watchWorkflowOnApproval = prompt.startsWith("Run one planning Agent") || prompt.startsWith("Run the next eligible wave");
+          if (["GRAPH APPROVAL", "EXECUTION SCOPE APPROVAL", "Start bounded workflow"].some(prefix => prompt.startsWith(prefix))) {
+            eventJson = JSON.stringify({ ...event, request: { ...question, prompt: renderBoardConfirmPrompt(prompt, this.tui.terminal.columns).join("\n") } });
+          }
+        }
+      }
+    }
     // Plan-review asks wait for the user indefinitely — reading a plan is
     // reading a document, not a tool call; Esc remains the explicit cancel.
     // Every other ask keeps the blanket deadlock guard.
@@ -1637,7 +1669,17 @@ export class TerminalShell {
       this.uiRequestBar,
       (request) => (isPlanReviewRequest(request) ? null : 300_000),
       () => this.noteDegradedEvent("extension ui_request"),
-    )(eventJson);
+    )(eventJson).then(response => {
+      // Do not start and stop the observer while the user is still reading an
+      // approval. Only the exact affirmative response starts presentation reads;
+      // Board remains responsible for authorization and execution admission.
+      if (watchWorkflowOnApproval) {
+        try {
+          if (JSON.parse(response).response?.type === "yes") this.workflowProgress.watch();
+        } catch { /* The guarded UI callback already reports malformed responses. */ }
+      }
+      return response;
+    });
   }
 
   private registerAutocomplete(): void {
@@ -2976,6 +3018,12 @@ export class TerminalShell {
         ),
       );
       this.renderOutcome(outcome, command);
+      if (outcome.type === "failure" && (command === "/workflow" || command.startsWith("/board.workflow.")) && command !== "/board.workflow.status") {
+        // Inspection only: a failure may have independently persisted preparation
+        // steps. Never resubmit the failed operation or infer rollback.
+        const observation = parseCommandOutcome(await this.requireApp().invokeCommand("board.workflow.status", "{}"));
+        this.renderOutcome(observation, "/board.workflow.status");
+      }
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice(`${command} failed: ${errorMessage(error)}`));
     } finally {
@@ -2984,6 +3032,17 @@ export class TerminalShell {
   }
 
   private renderOutcome(outcome: CommandOutcome, command: string): void {
+    if (outcome.type === "success" && (command === "/workflow" || command.startsWith("/board.workflow")) && typeof outcome.structured === "object" && outcome.structured !== null) {
+      const value = outcome.structured as Record<string, unknown>;
+      const lines = "board" in value ? renderBoardWorkflowView(value, this.tui.terminal.columns)
+        : "proposal_id" in value && Array.isArray(value.tasks) ? renderProposalPreview(value, this.tui.terminal.columns) : undefined;
+      if (lines !== undefined) {
+        this.workflowProgress.observe(value);
+        this.addTranscriptChild(new Text(lines.join("\n"), 0, 0));
+        this.tui.requestRender();
+        return;
+      }
+    }
     switch (outcome.type) {
       case "success":
         if (outcome.feedback !== undefined && outcome.feedback.length > 0) {
