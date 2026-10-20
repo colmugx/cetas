@@ -41,6 +41,10 @@ MEMBERS = (
     "posoco-kit-chat-completions",
     "posoco-kit-compact-evict",
     "posoco-kit-compact-summary",
+    "posoco-kit-messages",
+    "posoco-kit-model-management",
+    "posoco-kit-provider",
+    "posoco-kit-rate-limit",
     "posoco-kit-responses",
 )
 
