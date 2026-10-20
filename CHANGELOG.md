@@ -2,6 +2,43 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.10.5 (2026-10-20)
+
+## General
+
+### Feats
+
+- Every Cetas client now gives DeepSeek models conservative reasoning safeguards by default.
+- DeepSeek now helps break tool-call loops: after the same tool call is repeated three times in one user turn, the next request carries a convergence instruction asking the model to check whether another call would produce new evidence, then either change approach or return a supported partial answer.
+
+### Fixes
+
+- DeepSeek requests that include tools now replay assistant reasoning from earlier turns as required, fixing API rejections and failed follow-up tool calls that previously occurred when a plain assistant turn omitted its reasoning.
+- Empty non-streaming DeepSeek replies cut off by the length limit no longer appear as blank answers: Cetas retries once at low effort and reports a warning, while partial answers and tool calls are never retried.
+- The streaming repetition guard no longer fires after a stream has already completed, and long reasoning no longer overflows its span comparison.
+- Reasoning ceiling and recovery settings now survive credential changes, effort changes and model-catalog rebuilds, so a configured protection cannot silently disappear mid-session.
+
+## Bun Ver.（cetas-bun）
+
+### Feats
+
+- Controlled multi-agent workflows are now available as an opt-in feature. Enable `workflow.enabled` in `~/.cetas/settings.json`, then use `/workflow`: Cetas proposes a bounded task graph from your requirement, shows a DAG preview, and runs eligible tasks in parallel waves. You separately approve the graph, the execution scope, each task's trusted input and each wave, so planning cannot silently expand into execution.
+- Long workflow runs stay controllable. `/board.workflow.status` and `/board.workflow.preview` report the live graph, budgets, attempts and blockers, while `pause`, `resume`, `stop` and `cancel` remain reachable even while another command or an execution wave is occupying the session.
+- Workflows are isolated and predictable: each workflow pins its model and reasoning effort when first composed, planning agents have no tools, execution agents receive freshly scoped read/search/write/edit/shell tools under the current permission policy, and a successful agent reply never marks a task Done by itself.
+- Workflow state is durable per workspace under `~/.cetas/board/`, with an append-only audit trail, execution identity journal and a single-writer lock. After a restart you can inspect the graph and identities read-only; Cetas never silently re-approves, resumes or replays work.
+- Programmatic tool calling now cooperates with your normal toolset. The model can choose `run_code` when batching several predictable file, search or shell operations saves tokens and round trips, while native, Pi and MCP tools remain available for ordinary calls.
+- `run_code` keeps full schemas for the core coding tools, while less-used capabilities are reduced to concise names and descriptions, cutting the batching prompt's size without losing precision on coding work.
+- Delegation is now the `subagent` tool, and its run card shows the delegated task while the call is still forming, followed by live child progress. The card also surfaces the spawn settings that matter — kind, model and effort, background, resume, timeout, and tool or skill counts — and expanding it reveals the full task.
+
+### Fixes
+
+- Enabling programmatic tool calling no longer replaces or hides the normal tool surface: native, Pi and MCP tools stay visible and direct calls keep their usual dispatch.
+- Nested calls inside `run_code` are checked individually by the permission policy and can be vetoed by plan mode after argument rewrites; the transport itself no longer requires a second blanket approval.
+- Cancelling a turn now cancels an in-flight `run_code` and its nested calls instead of leaving orphaned work running behind the UI.
+- Assistant messages produced by a child agent now appear reliably in the live transcript; previously they could be dropped when a child emitted a batched event.
+- The terminal interface now follows the foreground and background colors your terminal actually advertises. Prompt and transcript surfaces choose readable light or dark tints, and when the terminal does not advertise colors they stay transparent instead of forcing a dark box onto a light terminal.
+- Modal overlays preserve true terminal faint styling, so the veil no longer flattens dimmed content into a flat muted color.
+
 ## 0.10.4 (2026-10-19)
 
 ## Bun Ver.（cetas-bun）
