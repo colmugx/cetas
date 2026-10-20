@@ -47,7 +47,7 @@ pub fn cetas_home() -> String
 
 pub fn cetas_reconstructable_capabilities() -> Array[String]
 
-pub fn cetas_skills_max_instruction_chars() -> Int
+pub fn cetas_skills_max_instruction_chars() -> Int32
 
 pub fn cetas_system_prompt(cwd~ : String) -> String
 
@@ -63,7 +63,7 @@ pub fn debug_dir(String) -> String
 
 pub fn debug_wire_path(String, String) -> String
 
-pub fn default_agent_config(max_tool_rounds? : Int?, system_prompt? : String?) -> @posoco.AgentConfig
+pub fn default_agent_config(max_tool_rounds? : Int32?, system_prompt? : String?) -> @posoco.AgentConfig
 
 pub fn list_persisted_rewind_points(String) -> Array[PersistedRewindPoint]
 
@@ -105,7 +105,7 @@ pub async fn read_credential_snapshot(@posoco-ext-credentials.FileProviderCreden
 
 pub async fn read_model_list_cache(&@posoco-ext-workspace.WorkspaceFs, home~ : String) -> Result[Map[String, Json], String] noraise
 
-pub fn read_persisted_rewind_user_message(String, Int) -> String?
+pub fn read_persisted_rewind_user_message(String, Int32) -> String?
 
 pub async fn read_session_sidecar(&@posoco-ext-workspace.WorkspaceFs, home~ : String, session_id~ : String, label? : String, warn? : async (String) -> Unit noraise) -> SessionSidecar? noraise
 
@@ -117,7 +117,7 @@ pub fn resolve_active_model_restore(Array[@posoco-kit-provider.ProviderModelCata
 
 pub fn resolve_login_method(String, String, settings? : Map[String, Json]) -> String raise @error.CommandError
 
-pub async fn rewind_session(&@port.SessionStore, String, Int) -> Unit raise @error.SessionError
+pub async fn rewind_session(&@port.SessionStore, String, Int32) -> Unit raise @error.SessionError
 
 pub async fn run_compact(@posoco.Agent, String) -> CompactRunOutcome raise @error.AgentError
 
@@ -215,20 +215,20 @@ pub(all) struct CetasSession {
 
 pub struct CetasWorkflowSettings {
   enabled : Bool
-  max_executions : Int
-  max_elapsed_ms : Int
-  execution_timeout_ms : Int
-  max_concurrency : Int
-  max_expansions : Int
-  max_generated_tasks : Int
-  max_depth : Int
+  max_executions : Int32
+  max_elapsed_ms : Int32
+  execution_timeout_ms : Int32
+  max_concurrency : Int32
+  max_expansions : Int32
+  max_generated_tasks : Int32
+  max_depth : Int32
   continue_on_confirmed_failure : Bool
 }
 
 pub(all) struct CompactRunOutcome {
   final_session_id : String
   mode : String
-  messages_after : Int
+  messages_after : Int32
 } derive(Eq)
 pub fn CompactRunOutcome::equal(Self, Self) -> Bool
 pub fn CompactRunOutcome::not_equal(Self, Self) -> Bool
@@ -255,7 +255,7 @@ pub(all) struct LoginOutcome {
 }
 
 pub(all) struct PersistedRewindPoint {
-  message_index : Int
+  message_index : Int32
   preview : String
 }
 
