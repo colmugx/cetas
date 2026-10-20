@@ -1952,10 +1952,9 @@ pub fn cetas_js_runtime_create_agent(
             // so the core's manifest-aggregate ToolCollision check keeps the base
             // tool. Live-MCP names cannot collide at composition (lazy connect); those
             // are shadowed at catalog level by CetasLayeredCatalogSource below.
-            let protected_names : Array[Json] = []
-            for def in base_defs {
-              protected_names.push(Json::string(def.name.to_string()))
-            }
+            let protected_names = [
+              for def in base_defs => Json::string(def.name.to_string())
+            ]
             @pi.pi_adaptor_set_hidden_tools_json(
               pi,
               Json::array(protected_names).stringify(),
@@ -1995,20 +1994,18 @@ pub fn cetas_js_runtime_create_agent(
               adaptor=pi,
               fallback=mcp_runtime as &@runtime.Runtime,
             )
-            let ptc_providers : Array[&@posoco.ToolProvider] = []
-            for feature in exts {
-              for provider in feature.manifest().tools {
+            let ptc_names = [
+              "read", "grep", "glob", "write", "edit", "apply_patch", "bash",
+            ]
+            let ptc_providers : Array[&@posoco.ToolProvider] = exts
+              .iter()
+              .flat_map(fn(ext) { ext.manifest().tools.iter() })
+              .filter(fn(provider) {
                 let defs = provider.list_tools()
-                if defs.length() == 1 {
-                  let name = defs[0].name.to_string()
-                  if name == "read" || name == "grep" || name == "glob" ||
-                    name == "write" || name == "edit" ||
-                    name == "apply_patch" || name == "bash" {
-                    ptc_providers.push(provider)
-                  }
-                }
-              }
-            }
+                defs.length() == 1 &&
+                ptc_names.contains(defs[0].name.to_string())
+              })
+              .collect()
             let ptc_runtime = @ptc.PtcRuntime(
               fallback=pi_runtime as &@runtime.Runtime,
               tools=ptc_providers,
@@ -2019,9 +2016,7 @@ pub fn cetas_js_runtime_create_agent(
             )
             let ptc_extension = ptc_runtime.extension()
             for provider in ptc_extension.manifest().tools {
-              for def in provider.list_tools() {
-                base_defs.push(def)
-              }
+              base_defs.append(provider.list_tools())
             }
             exts.push(ptc_extension)
             let catalog_source = CetasLayeredCatalogSource::{
