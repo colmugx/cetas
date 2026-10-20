@@ -3,6 +3,9 @@
 /// FakeTty, plus the degradation raise and the no-op surfaces.
 
 ///|
+// Test helper deliberately returns failure as inspectable Result data.
+#warnings("-result_error_return")
+
 async fn tk_ui_request(
   req : @posoco.UiRequest,
   tty : FakeTty,
