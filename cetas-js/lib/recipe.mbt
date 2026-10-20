@@ -225,7 +225,6 @@ async fn build_compiled_recipe_features(
   let episodic : Array[&@posoco.Extension] = []
   let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
   let freshness = @devkit.FreshnessGuard::FreshnessGuard()
-  exts.push(@ptc.PtcExtension(home=ctx.home) as &@posoco.Extension)
 
   for key in compiled_recipe {
     match key {
