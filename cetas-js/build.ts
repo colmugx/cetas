@@ -103,14 +103,14 @@ console.log("platform: per-target  composition: checked-in MoonBit sources");
 // .node addons resolve from node_modules. No sourcemap is generated
 // (Bun.build defaults to "none").
 if (nodeBundle) {
-  const moonBuild = Bun.spawnSync(["moon", "build", "--target", "js", "--release"], {
+  const moonBuild = Bun.spawnSync(["moon", "build", "--target", "js", "--release", "--output-json"], {
     cwd: import.meta.dir,
     env: process.env,
     stdout: "pipe",
     stderr: "pipe",
   });
   if (moonBuild.exitCode !== 0) {
-    console.error(`moon build failed for the node bundle:\n${moonBuild.stderr.toString().trim()}`);
+    console.error(`moon build failed for the node bundle:\n${moonBuild.stdout.toString().trim()}\n${moonBuild.stderr.toString().trim()}`);
     process.exit(2);
   }
   const result = await Bun.build({
@@ -175,14 +175,14 @@ if (group === "") {
 const os = group as ReturnType<typeof osFor>;
 for (const name of selected.filter((n) => osFor(n) === os)) {
   // Build from the checked-in MoonBit composition.
-  const moonBuild = Bun.spawnSync(["moon", "build", "--target", "js", "--release"], {
+  const moonBuild = Bun.spawnSync(["moon", "build", "--target", "js", "--release", "--output-json"], {
     cwd: import.meta.dir,
     env: process.env,
     stdout: "pipe",
     stderr: "pipe",
   });
   if (moonBuild.exitCode !== 0) {
-    console.error(`moon build failed for ${os}:\n${moonBuild.stderr.toString().trim()}`);
+    console.error(`moon build failed for ${os}:\n${moonBuild.stdout.toString().trim()}\n${moonBuild.stderr.toString().trim()}`);
     process.exit(2);
   }
   const outfile = `dist/cetas-bun-${name}`;
@@ -195,7 +195,9 @@ for (const name of selected.filter((n) => osFor(n) === os)) {
         dts: MOONBIT_DTS,
       }),
     ],
-    compile: { target: TARGETS[name], outfile, ...(executable ? { executablePath: executable } : {}) },
+    // A shipped CLI must not load the customer's bunfig preloads (or this
+    // repository's development MoonBit plugin) before its own entry point.
+    compile: { target: TARGETS[name], outfile, autoloadBunfig: false, ...(executable ? { executablePath: executable } : {}) },
     define: VERSION_DEFINE,
     minify: true,
   });

@@ -8,6 +8,14 @@ not another Cetas scheduler, a `/plan` mode, or an automatic recursive agent.
 `cetas-run` intentionally does not compose Board. ACP, the native terminal and
 web hosts do not expose this feature.
 
+Since S5A the cetas-js host composes a **product parent extension** on top of
+Board's workflow CommandPort. It is navigation and presentation only: Board
+retains every approval, mutation, durability and lifecycle barrier, and the
+parent is a facade over that same runtime — same extension id, same command
+IDs, one Board runtime per workspace, never a second one. It requires the
+host's trusted UI capability; navigation without a trusted UI fails as
+navigation, never as a silent mutation.
+
 ## Enable and configure
 
 Configure a provider and select a model through the existing `/login` and
@@ -45,15 +53,63 @@ fresh router/model-manager wrapper, Agent, session identity, permission policy
 and tool composition. No child borrows the parent's mutable session, observers,
 MCP/Pi runtime or delegation tools.
 
+The product UI reports this context back to you: model, effort, whether the
+workflow's selection is already pinned (`model_pinned`), permission mode,
+workspace, concurrency and execution timeout. Until the first planning
+composition pins the selection, the menu shows the parent's current active
+model; afterwards it shows the pinned one.
+
+## The state-aware /workflow menu
+
+`/workflow` (command id `board.workflow`) opens the product overview instead of
+Board's plain picker. Opening it is a read-only act: it fetches one fresh
+authoritative view and renders a readable summary — goal, phase, active
+Agents, remaining execution/expansion/time budgets, blocked Tasks, Board
+revision and Task stage counts — plus the model/permission context. The menu
+header itself says "opening this menu changes nothing", and it means it:
+opening or cancelling submits no mutation, creates no additional runtime,
+writes no lock or journal file, and calls no tools. Cancelling returns another fresh
+read-only view.
+
+The next-step choices are derived from that view, not a fixed list:
+
+- Unresolved ownership or an uncertain mutation offers reconciliation first
+  and withholds new mutations/admissions; inspection and withdrawal remain available.
+- No in-process authorization offers "Start from a coding goal"; stored graphs
+  never restore authority.
+- A pending proposal offers preview, graph approve and graph reject.
+- A committed expansion with Tasks outside the authorized scope offers scope
+  approve/reject.
+- Active Agents or an in-flight operation offer wait; a quiescent, non-stopped
+  workflow offers prepare, run and move, plus propose while no proposal is
+  pending and expansion/execution budgets remain. A paused workflow offers
+  resume instead of dispatch.
+- Status is always offered; pause, stop and cancel appear while a workflow is
+  active and not stopped.
+
+Under the `readonly` permission mode the menu is filtered to inspection and
+withdrawal actions (status, preview, pause, stop, cancel, reconcile), and any
+other action — including guided start — is refused before any input or
+approval prompt is shown.
+
+Task titles shown in the menu and prompts pass through a display sanitizer
+that replaces terminal control characters (including ANSI escape sequences)
+with spaces. This is presentation only: Board task IDs and stored titles are
+untouched, and every explicit `/board.workflow.*` ID below keeps working
+exactly as before. Hosts that do not compose the parent still see Board's own
+picker for the same IDs.
+
 ## Commands and the two approvals
 
-Use `/workflow` for the extension's interactive action picker, or the explicit
-command IDs below. These are trusted user commands, **not model-callable tools**.
-Inputs and approvals use Cetas's existing extension UI.
+Use `/workflow` for the extension's guided picker, or the explicit command IDs
+below — the picker drives the same operations through the same IDs. These are
+trusted user commands, **not model-callable tools**. They take no JSON
+arguments; every decision is made through Cetas's existing extension UI (the
+terminal renders the guided selects and inputs as its standard panels).
 
 | Command | Operation |
 | --- | --- |
-| `/board.workflow.start` | Approve bounded workflow start and create its initial parent Task |
+| `/board.workflow.start` | Approve bounded workflow start and create its initial parent Task from the coding goal |
 | `/board.workflow.status` | Fresh Board graph, attempts, scope, budgets, blocked reasons and actual execution identities |
 | `/board.workflow.propose` | Select an authorized parent, supply requirements and approve one planning run |
 | `/board.workflow.preview` | Inspect the strictly decoded/validated DAG preview |
@@ -87,10 +143,38 @@ allowed through the host's control lane while another command is occupied. The
 ordinary command lock still protects graph approval, scope approval,
 preparation and execution admission.
 
+## What the presenter adds (and does not)
+
+The product parent adds readable status and proposal prompts; it never adds
+authority or automatic Task progression:
+
+- Guided prompts carry the decision context to each step: planning
+  requirements default to the parent Task title; preparation asks for each
+  Task's own trusted input and shows the permission scope; transitions ask for
+  the evidence you verified.
+- Every successful outcome is annotated with a `cetas_workflow` context object
+  (model, effort, pin state, permission, workspace, concurrency, timeout,
+  initial scope, planning/execution tool scope) and the feedback "Workflow
+  observation; no automatic Task completion." Status-like outcomes enrich the
+  same detached authoritative view with per-Task execution authorization,
+  Attempts and run counters — they never re-read after a mutation just to
+  manufacture a success message, and the UI hint is always "none", so no
+  prompt takes over the session.
+- During owned work, a read-only status observer shows changes to execution
+  identities and settlement through the existing status control lane. It stops
+  on quiescence, uncertainty or display shutdown; closing the observer never
+  cancels Agents. A status-read failure is surfaced once without retrying any
+  mutation or execution. Failed preparation also triggers one status inspection
+  to expose independently committed steps, never a replay.
+- The proposal is strictly decoded JSON plus a text menu — **not a graphical
+  DAG editor**, and Cetas claims no provider-side network behaviour and no
+  crash resume. Restart evidence stays read-only, as described below.
+
 ## Permissions and capability boundaries
 
 - `readonly`: workflow mutations/admissions are refused; inspection, withdrawal
-  and cancellation remain available.
+  and cancellation remain available, and the guided menu is filtered
+  accordingly.
 - `workspace_write` / `interactive`: child tools use the current Cetas permission
   policy and its existing confirmation source, anchored to the workspace.
 - `yolo`: affects child tool permission only. It **does not bypass** workflow
@@ -109,32 +193,46 @@ identity or imply retroactive rollback of tool effects.
 Suppose the request is “Add validation for a configuration field and cover it
 with tests.”
 
-1. Start a workflow and name its parent Task. Inspect and accept the budget
-   confirmation. The workflow starts at a quiescent boundary.
-2. Request a proposal for that parent with the coding requirement. Confirm one
-   planning run. This is a real S4A-owned Posoco Agent turn, recorded by identity
-   and charged to the same execution/time budget as task execution.
+1. Open `/workflow` and choose "Start from a coding goal". The single start
+   input collects only the goal text — stored as the parent Task's metadata,
+   never credentials. The same prompt displays what you are authorizing: the
+   configured budget (executions including planning, concurrency, deadline),
+   the initial scope — one new root Task; existing Board tasks are not
+   implicitly authorized — and the current model/effort/permission context.
+   There are no budget overrides in this input; changing budgets means editing
+   settings and restarting. Model selection pins at the workflow's first
+   planning composition, and separate confirmations are still required.
+2. Choose "Generate a Task DAG with one planning Agent", pick the parent and
+   confirm one planning run. This is a real S4A-owned Posoco Agent turn,
+   recorded by identity and charged to the same execution/time budget as task
+   execution.
 3. Inspect the preview. It may propose A “Implement validation” and B “Add
    regression tests”, with B depending on A. Invalid output is rejected before
    graph approval and creates no generated Tasks.
 4. Approve the **graph**. Board persists one atomic `ExpandGraph` transaction,
    publishes one authoritative event and advances revision once. Inspect the
    canonical IDs. Both Tasks are `Created`, with no Attempts.
-5. Separately approve that committed expansion's **execution scope**. Neither
-   Task is executable merely because this succeeds.
-6. Prepare A and B separately, supplying the actual trusted execution instruction
-   for each. Board uses legal `Created → Refining → Ready` commands and queues
+5. Separately approve that committed expansion's **execution scope**. The menu
+   states plainly that no tools execute and no budget increases by approving
+   scope; neither Task is executable merely because this succeeds.
+6. Prepare A and B separately, supplying the actual trusted execution
+   instruction for each — the generated description is never the authorization.
+   Board uses legal `Created → Refining → Ready` commands and queues
    host-generated Execute Attempts. Preparation is independently durable per
-   command, not part of the atomic graph transaction.
-7. Run the next wave and wait. A can execute; B remains blocked because A is not
-   Board-stage `Done`. The Attempt result is durable; a successful Agent return
-   leaves A's Task stage unchanged.
-8. Independently check A's changes and test evidence. Use legal Task transitions
-   `Ready → Running → Review → Done` one at a time through the operator command.
-   This is not automatic Review-Attempt approval.
-9. Run the next wave. Fresh S4B planning now sees A `Done`, so B may execute if
-   its input, scope, remaining budgets and other eligibility checks still hold.
-   Verify its evidence and advance its Task explicitly if appropriate.
+   command, not part of the atomic graph transaction, and partial preparation
+   is reported with its exact step.
+7. Run the next wave explicitly and wait. A can execute; B remains blocked
+   because A is not Board-stage `Done`. The Attempt result is durable; a
+   successful Agent return leaves A's Task stage unchanged.
+8. Independently check A's changes and test evidence, then use "Verify evidence
+   and advance a Task legally". The menu offers only the transitions the Board
+   domain itself accepts for that Task — it asks the domain's stage machine,
+   not a copy of it — and records your evidence note. Legal Task transitions
+   `Ready → Running → Review → Done` are taken one at a time; this is not
+   automatic Review-Attempt approval.
+9. Run the second wave. Fresh S4B planning now sees A `Done`, so B may execute
+   if its input, scope, remaining budgets and other eligibility checks still
+   hold. Verify its evidence and advance its Task explicitly if appropriate.
 
 There is no success inference from terminal prose. The status command reads
 Board state and the execution owner's actual bindings. “Attempt Succeeded” and
@@ -179,7 +277,8 @@ Each workspace has its own Cetas-owned namespace:
 The bucket uses the same normalized workspace identity as Cetas session buckets,
 but Board state and Cetas transcripts are separate objects. User Task metadata
 is persisted; raw planning requirements, execution inputs, credentials and model
-outputs are not written to the Board identity journal.
+outputs are not written to the Board identity journal. Merely opening or
+cancelling the `/workflow` menu writes none of these files.
 
 The extension owns Node-compatible file operations (`node:fs`, `node:path`,
 `node:crypto`), fsync/rename, lock acquisition, single-writer coordinator and
@@ -195,10 +294,12 @@ backend is closed through the extension lifecycle, not by host UI cleanup.
 
 Restart can inspect durable graph/identity evidence read-only. It **does not**
 restore workflow approval, scope authorization, execution input or automatic
-crash resume. A stale lock or unresolved binding requires operator reconciliation;
-Cetas never steals the lock or replays an Agent call. Preserve the directory
-before investigating. Do not remove the lock without proving the old process is
-terminated and reconciling unresolved external effects.
+crash resume — the product menu reflects this too: with no in-process
+authorization it offers start, never a resurrection of a previous run. A stale
+lock or unresolved binding requires operator reconciliation; Cetas never steals
+the lock or replays an Agent call. Preserve the directory before investigating.
+Do not remove the lock without proving the old process is terminated and
+reconciling unresolved external effects.
 
 Disabling the feature leaves storage intact. Rollback must retain Board schema
 v2 and journal v1 support; do not downgrade or delete expansion identities.

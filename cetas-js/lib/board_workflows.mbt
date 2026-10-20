@@ -91,32 +91,34 @@ async fn build_cetas_workflows(
   if !settings.enabled {
     return None
   }
+  let agents = CetasWorkflowAgents::{
+    manager,
+    parent_mode,
+    approval,
+    ctx,
+    selections: Map([]),
+  }
+  let board = @board.BoardWorkflows(
+    directory=ctx.home +
+      "/.cetas/board/" +
+      @fs_session.project_dir_name(ctx.cwd),
+    group~,
+    agents~,
+    authorize=() => parent_mode() != @permission.ReadOnly,
+    policy=@board.BoardWorkflowPolicy(
+      enabled=true,
+      max_executions=settings.max_executions,
+      max_elapsed_ms=settings.max_elapsed_ms,
+      execution_timeout_ms=settings.execution_timeout_ms,
+      max_concurrency=settings.max_concurrency,
+      max_expansions=settings.max_expansions,
+      max_generated_tasks=settings.max_generated_tasks,
+      max_depth=settings.max_depth,
+      continue_on_confirmed_failure=settings.continue_on_confirmed_failure,
+    ),
+  )
   Some(
-    @board.BoardWorkflows(
-      directory=ctx.home +
-        "/.cetas/board/" +
-        @fs_session.project_dir_name(ctx.cwd),
-      group~,
-      agents=CetasWorkflowAgents::{
-        manager,
-        parent_mode,
-        approval,
-        ctx,
-        selections: Map([]),
-      },
-      authorize=() => parent_mode() != @permission.ReadOnly,
-      policy=@board.BoardWorkflowPolicy(
-        enabled=true,
-        max_executions=settings.max_executions,
-        max_elapsed_ms=settings.max_elapsed_ms,
-        execution_timeout_ms=settings.execution_timeout_ms,
-        max_concurrency=settings.max_concurrency,
-        max_expansions=settings.max_expansions,
-        max_generated_tasks=settings.max_generated_tasks,
-        max_depth=settings.max_depth,
-        continue_on_confirmed_failure=settings.continue_on_confirmed_failure,
-      ),
-    )
+    CetasWorkflowCommands::{ board, agents, settings, ui: None, }
     as &@posoco.Extension,
   )
 }
