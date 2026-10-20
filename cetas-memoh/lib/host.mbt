@@ -225,6 +225,9 @@ async fn MemohHost::build_session(
 }
 
 ///|
+// ACP composition exposes a Result-valued registration contract. Preserve
+// this ordinary failure outcome rather than changing the host API to throws.
+#warnings("-result_error_return")
 pub fn MemohHost::agent_spec(
   self : MemohHost,
 ) -> Result[@acp.AgentSpec, @acp.AgentCompositionError] {
