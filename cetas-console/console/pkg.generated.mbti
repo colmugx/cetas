@@ -45,7 +45,7 @@ pub async fn ConsoleRuntime::compact_active_session(Self) -> Unit
 pub fn ConsoleRuntime::detach_sink(Self) -> Unit
 pub fn ConsoleRuntime::emit_active_snapshot(Self) -> Unit
 pub fn ConsoleRuntime::emit_event(Self, String, String, String, extra? : Array[(String, Json)]) -> Unit
-pub async fn ConsoleRuntime::file_suggestions_json(Self, String, Int) -> Json
+pub async fn ConsoleRuntime::file_suggestions_json(Self, String, Int32) -> Json
 pub async fn ConsoleRuntime::model_slots_json(Self, String?) -> Json noraise
 pub async fn ConsoleRuntime::new_session(Self) -> Result[String, String] noraise
 pub async fn ConsoleRuntime::quota_all_json(Self) -> Json
