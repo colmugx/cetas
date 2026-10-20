@@ -96,6 +96,9 @@ async test "host effort-only override lands on the active slot" {
 }
 
 ///|
+// Test helper deliberately returns failure as inspectable Result data.
+#warnings("-result_error_return")
+
 /// Compose with the given overrides, capturing the composition failure as a
 /// value. `Err` carries the raised CompositionError; `Ok` means the host
 /// composed.
