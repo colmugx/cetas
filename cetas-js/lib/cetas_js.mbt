@@ -2016,6 +2016,7 @@ pub fn cetas_js_runtime_create_agent(
               tools=ptc_providers,
               hooks=[policy as &@posoco.PipelineHook],
               final_guards=[plan_mode as &@posoco.PipelineHook],
+              bus=Some(event_bus),
               home=Some(runtime.config.home),
             )
             exts.push(ptc_runtime.extension())
