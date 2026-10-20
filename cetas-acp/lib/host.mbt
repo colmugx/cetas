@@ -345,6 +345,8 @@ impl @plan.PlanReviewSource for AcpPlanReview with fn review(
 /// Capabilities are derived from service presence inside `colmugx/acp`;
 /// `mcp_http=true` must be advertised or the protocol gate rejects injected
 /// HTTP MCP servers before the handler runs (SSE: no ext-mcp SSE client).
+// ACP registration uses an inspectable Result contract.
+#warnings("-result_error_return")
 pub fn CetasAcpHost::agent_spec(
   self : CetasAcpHost,
 ) -> Result[@acp.AgentSpec, @acp.AgentCompositionError] {
