@@ -276,13 +276,21 @@ fn workflow_actions(view : @board.BoardWorkflowView) -> Array[(String, String)] 
             choices.push(
               ("resume", "Resume in-process authorization (no dispatch)"),
             )
-          } else {
-            choices.push(
-              ("prepare", "Prepare generated Tasks with trusted instructions"),
-            )
-            choices.push(
-              ("run", "Run next eligible wave — explicit confirmation"),
-            )
+          } else if run.pending_proposal_id is None {
+            if !workflow_preparable_tasks(view).is_empty() {
+              choices.push(
+                ("prepare", "Prepare generated Tasks with trusted instructions"),
+              )
+            }
+            if view.snapshot.attempts.any(a => {
+                run.scope.contains(a.task_id.value) &&
+                a.kind == @board_domain.Execute &&
+                a.status == @board_domain.Queued
+              }) {
+              choices.push(
+                ("run", "Run next eligible wave — explicit confirmation"),
+              )
+            }
             choices.push(("move", "Verify evidence and advance a Task legally"))
             if run.pending_proposal_id is None &&
               run.remaining_expansions > 0 &&
