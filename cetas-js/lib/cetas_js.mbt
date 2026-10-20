@@ -1986,6 +1986,41 @@ pub fn cetas_js_runtime_create_agent(
               mcp: @mcp.McpCatalogSource(bridge=mcp_bridge),
               pi: @pi.PiCatalogSource(adaptor=pi),
             }
+            // PTC-only experiment: Cetas supplies only the existing composed
+            // providers and public Runtime seam. All nested tool execution
+            // and scope policy are implemented in posoco-ext-ptc.
+            let ptc_experiment = @env.get_env_var("CETAS_PTC_EXPERIMENT") == Some("1")
+            let advanced_runtime : &@runtime.Runtime = if ptc_experiment {
+              let ptc_providers : Array[&@posoco.ToolProvider] = []
+              // The experimental scope is deliberately limited to the
+              // existing workspace-anchored read, grep and glob extensions.
+              // This allowlist is validated again by PtcRuntime on compose.
+              for feature in exts {
+                for provider in feature.manifest().tools {
+                  let definitions = provider.list_tools()
+                  if definitions.length() == 1 {
+                    let name = definitions[0].name.to_string()
+                    if name == "read" || name == "grep" || name == "glob" {
+                      ptc_providers.push(provider)
+                    }
+                  }
+                }
+              }
+              let ptc_runtime = @ptc.PtcRuntime(
+                fallback=pi_runtime as &@runtime.Runtime,
+                tools=ptc_providers,
+                home=Some(runtime.config.home),
+              )
+              exts.push(ptc_runtime.extension())
+              ptc_runtime as &@runtime.Runtime
+            } else {
+              pi_runtime as &@runtime.Runtime
+            }
+            let advanced_catalog : &@runtime.CatalogSource = if ptc_experiment {
+              @ptc.PtcCatalogSource() as &@runtime.CatalogSource
+            } else {
+              catalog_source as &@runtime.CatalogSource
+            }
             let agent = @posoco.Agent::with_runtime(
               exts~,
               config=@cetas_core.default_agent_config(
@@ -1994,8 +2029,8 @@ pub fn cetas_js_runtime_create_agent(
                   @cetas_core.cetas_system_prompt(cwd=runtime.config.cwd),
                 ),
               ),
-              runtime=pi_runtime as &@runtime.Runtime,
-              catalog_source=catalog_source as &@runtime.CatalogSource,
+              runtime=advanced_runtime,
+              catalog_source=advanced_catalog,
             )
             pi_runtime.attach_control(agent.control())
             // pi custom session entries: every appendEntry projects as an observer
