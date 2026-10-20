@@ -225,11 +225,6 @@ async fn build_compiled_recipe_features(
   let episodic : Array[&@posoco.Extension] = []
   let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
   let freshness = @devkit.FreshnessGuard::FreshnessGuard()
-  // Experimental PTC runtime owns the sole run_code tool in advanced mode.
-  // Ordinary native composition remains unchanged when the flag is absent.
-  if @env.get_env_var("CETAS_PTC_EXPERIMENT") != Some("1") {
-    exts.push(@ptc.PtcExtension(home=ctx.home) as &@posoco.Extension)
-  }
 
   for key in compiled_recipe {
     match key {
