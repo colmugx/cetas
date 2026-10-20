@@ -72,10 +72,10 @@ describe("projectSubagentHeader", () => {
     const projection = projectionOf([record], { now: 53_000 });
     expect(projection.total).toBe(1);
     expect(projection.entries.length).toBe(1);
-    expect(projection.entries[0].detail).toBe("agent(apple) · coder 53s · bash");
+    expect(projection.entries[0].detail).toBe("subagent(apple) · coder 53s · bash");
     const lines = renderSubagentHeader(projection, 80);
     expect(lines.length).toBe(1);
-    expect(lines[0]).toContain("⚡ 1 agent(apple) · coder 53s · bash");
+    expect(lines[0]).toContain("⚡ 1 subagent(apple) · coder 53s · bash");
   });
 
   test("no current tool shows a phase word, never the stale last tool", () => {
@@ -103,8 +103,8 @@ describe("projectSubagentHeader", () => {
     const lines = renderSubagentHeader(projection, 120);
     expect(lines.length).toBe(4);
     expect(lines[3]).toContain("+2 more");
-    expect(lines[0]).toContain("agent(a)");
-    expect(lines[2]).toContain("agent(c)");
+    expect(lines[0]).toContain("subagent(a)");
+    expect(lines[2]).toContain("subagent(c)");
   });
 
   test("stable order follows first appearance (seq), not mutation recency", () => {
@@ -129,7 +129,7 @@ describe("projectSubagentHeader", () => {
     // Extremely short viewport: single count line only.
     const tiny = projectionOf(records, { height: 8, bottomReserve: 6 });
     expect(tiny.detailBudget).toBe(0);
-    expect(renderSubagentHeader(tiny, 120)).toEqual(["⚡ 3 agents"]);
+    expect(renderSubagentHeader(tiny, 120)).toEqual(["⚡ 3 subagents"]);
     // Tight viewport: one detail row.
     const tight = projectionOf(records, { height: 12, bottomReserve: 6 });
     expect(tight.detailBudget).toBe(1);
@@ -147,18 +147,18 @@ describe("projectSubagentHeader", () => {
     expect(projection.overflow).toBe(1);
   });
 
-  test("every task line reads `⚡ 1 agent(name)`; the total only in aggregates", () => {
+  test("every task line reads `⚡ 1 subagent(name)`; the total only in aggregates", () => {
     const records = ["a", "b", "c", "d"].map((name, index) =>
       backgroundRecord({ display_name: name, seq: index }),
     );
     const lines = renderSubagentHeader(projectionOf(records), 120);
     expect(lines.length).toBe(4);
     for (const line of lines.slice(0, 3)) {
-      expect(line).toContain("⚡ 1 agent(");
+      expect(line).toContain("⚡ 1 subagent(");
       expect(line).not.toContain("agents");
     }
     // The overflow aggregate is where the total shows up.
-    expect(lines[3]).toContain("⚡ 4 agents · +1 more");
+    expect(lines[3]).toContain("⚡ 4 subagents · +1 more");
   });
 
   test("a one-row budget with overflow shows the aggregate instead of hiding tasks", () => {
@@ -170,7 +170,7 @@ describe("projectSubagentHeader", () => {
       120,
     );
     expect(lines.length).toBe(1);
-    expect(lines[0]).toContain("⚡ 3 agents · +2 more");
+    expect(lines[0]).toContain("⚡ 3 subagents · +2 more");
   });
 });
 
@@ -198,8 +198,8 @@ describe("renderSubagentHeader width handling", () => {
     const lines = renderSubagentHeader(projectionOf(records), 20);
     expect(lines.length).toBe(1);
     expect(visibleWidth(lines[0])).toBeLessThanOrEqual(20);
-    expect(lines[0]).toContain("2 agents");
-    expect(lines[0]).not.toContain("agent(a");
+    expect(lines[0]).toContain("2 subagents");
+    expect(lines[0]).not.toContain("subagent(a");
   });
 
   test("zero or negative width renders nothing", () => {
@@ -259,7 +259,7 @@ describe("SubagentHeader component", () => {
     const component = new SubagentHeader(() => ({ records, now: 53_000 }));
     const lines = component.render(80);
     expect(lines.length).toBe(1);
-    expect(lines[0]).toContain("agent(apple)");
+    expect(lines[0]).toContain("subagent(apple)");
 
     records = [];
     expect(component.render(80)).toEqual([]);

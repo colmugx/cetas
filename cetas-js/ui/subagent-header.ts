@@ -3,11 +3,11 @@
  * mounted near the input (never in the transcript body).
  *
  * Shape (approved display plan):
- *     ⚡ 1 agent(apple) · coder 53s · bash
- *     ⚡ 1 agent(banana) · explore 1m · read
- *     ⚡ 3 agents · +2 more
+ *     ⚡ 1 subagent(apple) · coder 53s · bash
+ *     ⚡ 1 subagent(banana) · explore 1m · read
+ *     ⚡ 3 subagents · +2 more
  *
- * Every task line reads `⚡ 1 agent(name)`; the running total appears only
+ * Every task line reads `⚡ 1 subagent(name)`; the running total appears only
  * in the degraded single count line and the `+N more` aggregate.
  *
  * Bounded by construction: at most `maxTasks` (default 3) task detail rows
@@ -46,7 +46,7 @@ export interface SubagentHeaderEntry {
   readonly elapsed: string;
   /** Current tool, or the phase word (thinking/finishing). */
   readonly tool: string;
-  /** `agent(apple) · coder 53s · bash` — plain text, width applied at render. */
+  /** `subagent(apple) · coder 53s · bash` — plain text, width applied at render. */
   readonly detail: string;
 }
 
@@ -135,7 +135,7 @@ export function projectSubagentHeader(
       kind: record.kind,
       elapsed,
       tool,
-      detail: `agent(${record.display_name}) · ${record.kind} ${elapsed} · ${tool}`,
+      detail: `subagent(${record.display_name}) · ${record.kind} ${elapsed} · ${tool}`,
     });
   }
   return {
@@ -176,7 +176,7 @@ export function renderSubagentHeader(
   width: number,
 ): string[] {
   if (width <= 0 || projection.total === 0) return [];
-  const label = projection.total === 1 ? "agent" : "agents";
+  const label = projection.total === 1 ? "subagent" : "subagents";
   const countSummary = `⚡ ${projection.total} ${label}`;
   const countLine = (text: string): string =>
     theme.accent(truncateToWidth(text, width));
@@ -188,7 +188,7 @@ export function renderSubagentHeader(
     // One row cannot hold details plus the aggregate: prefer the aggregate.
     return [countLine(aggregate)];
   }
-  // Every task line reads `⚡ 1 agent(name) · …` — the total appears only in
+  // Every task line reads `⚡ 1 subagent(name) · …` — the total appears only in
   // the degraded count line and the `+N more` aggregate.
   const lines = projection.entries.map((entry) =>
     theme.muted(truncateToWidth(`⚡ 1 ${entry.detail}`, width)),

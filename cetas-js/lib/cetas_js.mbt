@@ -1822,24 +1822,33 @@ pub fn cetas_js_runtime_create_agent(
             // maps audit-only variants (ToolCallApproved/ToolCallStarted) to
             // Json::null() — those carry nothing to project, so the wrapper
             // drops them instead of emitting an unparseable envelope.
+            // ModelResponseReceived fans out into message_end + model_invoked
+            // (a Json array); each element rides in its own envelope, mirroring
+            // the parent observer's array dispatch — wrapping the bare array
+            // as "ev" would fail the TS parser's object check and drop every
+            // child assistant message as a malformed event.
             let subagent_observers : Array[
               (@subagent_kit.SubagentEvent) -> Unit,
             ] = [
               fn(event) {
                 let inner = turn_event_to_json(event.event)
-                if inner is Json::Null {
-                  return
+                let items : Array[Json] = match inner {
+                  Json::Null => []
+                  Json::Array(arr) => arr
+                  single => [single]
                 }
-                let payload = Json::object(
-                  Map::from_array([
-                    ("type", Json::string("subagent_event")),
-                    ("child_session", Json::string(event.child_session)),
-                    ("kind", Json::string(event.kind)),
-                    ("parent_call", Json::string(event.parent_call)),
-                    ("ev", inner),
-                  ]),
-                )
-                observer_callback.invoke(payload.stringify())
+                for item in items {
+                  let payload = Json::object(
+                    Map::from_array([
+                      ("type", Json::string("subagent_event")),
+                      ("child_session", Json::string(event.child_session)),
+                      ("kind", Json::string(event.kind)),
+                      ("parent_call", Json::string(event.parent_call)),
+                      ("ev", item),
+                    ]),
+                  )
+                  observer_callback.invoke(payload.stringify())
+                }
               },
             ]
             let subagents = build_cetas_subagents(

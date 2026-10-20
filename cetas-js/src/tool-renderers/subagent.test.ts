@@ -1,5 +1,5 @@
 /**
- * subagent.test.ts — the `agent` renderer and its ToolRow live contract.
+ * subagent.test.ts — the `subagent` renderer and its ToolRow live contract.
  *
  * The renderer is pure: child-run snapshots come from the store the host
  * injected via ToolRowOptions → ctx.subagentActivity, keyed on the row's
@@ -35,8 +35,8 @@ function childEvent(
 function makeCtx(overrides: Partial<ToolRenderContext> = {}): ToolRenderContext {
   return {
     toolCallId: "call_1",
-    toolName: "agent",
-    toolLabel: "agent",
+    toolName: "subagent",
+    toolLabel: "subagent",
     args: {},
     cwd: "/tmp/fake",
     state: {},
@@ -72,7 +72,7 @@ describe("subagentRenderer", () => {
       .renderCall!(makeCtx({ subagentActivity: store }))
       .render(80)
       .join("\n");
-    expect(text).toContain("agent");
+    expect(text).toContain("subagent");
     expect(text).toContain("coder");
     expect(text).toContain("step 1");
     expect(text).toContain("grep");
@@ -80,8 +80,72 @@ describe("subagentRenderer", () => {
 
   it("renders the bare call line when no store is injected (plain harness)", () => {
     const text = subagentRenderer.renderCall!(makeCtx()).render(80).join("\n");
-    expect(text).toContain("agent");
+    expect(text).toContain("subagent");
     expect(text).not.toContain("step");
+  });
+
+  it("renders the task preview and spawn params before any child activity", () => {
+    const text = subagentRenderer
+      .renderCall!(
+        makeCtx({
+          args: {
+            task: "fix the login flake",
+            kind: "coder",
+            model: "zai-coding-plan/glm",
+            effort: "max",
+            background: true,
+            resume: "sub-7",
+            timeout_ms: 300_000,
+            tools: ["read", "grep"],
+            skills: ["tdd"],
+          },
+        }),
+      )
+      .render(120)
+      .join("\n");
+    expect(text).toContain("fix the login flake");
+    expect(text).toContain("kind coder");
+    expect(text).toContain("model zai-coding-plan/glm(max)");
+    expect(text).toContain("background");
+    expect(text).toContain("resume=sub-7");
+    expect(text).toContain("timeout 5m");
+    expect(text).toContain("tools 2");
+    expect(text).toContain("skills 1");
+  });
+
+  it("shows partial args while streaming (task first, params as they arrive)", () => {
+    const text = subagentRenderer
+      .renderCall!(makeCtx({ args: { task: "streaming tas" } }))
+      .render(120)
+      .join("\n");
+    expect(text).toContain("streaming tas");
+    expect(text).not.toContain("kind ");
+  });
+
+  it("skips kind/model in the params line once the live badge shows them", () => {
+    const store = storeWithRun("call_1");
+    const text = subagentRenderer
+      .renderCall!(
+        makeCtx({ args: { task: "t", kind: "coder" }, subagentActivity: store }),
+      )
+      .render(120)
+      .join("\n");
+    expect(text).toContain("step 1"); // live badge present
+    expect(text).not.toContain("kind coder"); // not duplicated in the params line
+  });
+
+  it("expanded shows the full task when the preview truncated it", () => {
+    const longTask = "x".repeat(150);
+    const collapsed = subagentRenderer
+      .renderCall!(makeCtx({ args: { task: longTask } }))
+      .render(200)
+      .join("\n");
+    expect(collapsed).not.toContain(longTask);
+    const expanded = subagentRenderer
+      .renderCall!(makeCtx({ args: { task: longTask }, expanded: true }))
+      .render(200)
+      .join("\n");
+    expect(expanded).toContain(longTask);
   });
 
   it("shows the bounded step history only when expanded", () => {
@@ -105,7 +169,7 @@ describe("subagentRenderer", () => {
       makeCtx(),
     );
     expect(result).toBeDefined();
-    expect(result.render(80).join("\n")).toContain("agent");
+    expect(result.render(80).join("\n")).toContain("subagent");
   });
 
   it("exports the renderer plus pure receipt helpers — no rows or ticker", async () => {
@@ -206,16 +270,16 @@ describe("waiting_reply result card", () => {
   });
 });
 
-describe("agent ToolRow live contract", () => {
+describe("subagent ToolRow live contract", () => {
   it("refreshLive() ticks a pending row and refuses a finished one", () => {
     const store = storeWithRun("call_1");
     const row = new ToolRow(
-      "agent",
+      "subagent",
       "call_1",
       {},
       "/tmp/fake",
       () => {},
-      "agent",
+      "subagent",
       false,
       { subagentActivity: store },
     );
@@ -234,12 +298,12 @@ describe("agent ToolRow live contract", () => {
   it("streaming adoption re-keys the row so the renderer sees the final call id", () => {
     const store = storeWithRun("call_9");
     const row = new ToolRow(
-      "agent",
+      "subagent",
       "#0",
       {},
       "/tmp/fake",
       () => {},
-      "agent",
+      "subagent",
       false,
       { streaming: true, subagentActivity: store },
     );

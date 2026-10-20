@@ -84,7 +84,7 @@ export function projectLiveActivities(source: LiveActivitiesSource): LiveActivit
     all.push({
       key: `question:${record.child_session}:${record.question!.id}`,
       role: "question",
-      label: `? agent(${record.display_name}) asks main · ${preview ? `"${preview}"` : "waiting for reply"}`,
+      label: `? subagent(${record.display_name}) asks main · ${preview ? `"${preview}"` : "waiting for reply"}`,
     });
   }
   for (const record of source.records) {
@@ -92,7 +92,7 @@ export function projectLiveActivities(source: LiveActivitiesSource): LiveActivit
     all.push({
       key: `agent:${record.child_session}`,
       role: "agent",
-      label: `⚡ agent(${record.display_name}) · ${record.kind} ${formatSubagentElapsed(record.started_at, source.now)} · ${subagentPhase(record)}`,
+      label: `⚡ subagent(${record.display_name}) · ${record.kind} ${formatSubagentElapsed(record.started_at, source.now)} · ${subagentPhase(record)}`,
     });
   }
   if (source.resultsWaiting > 0) {

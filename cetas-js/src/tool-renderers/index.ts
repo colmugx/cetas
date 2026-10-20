@@ -31,7 +31,7 @@ export function registerBuiltinToolRenderers(): void {
   registerToolRenderer("bash", bashRenderer);
   registerToolRenderer("exit_plan_mode", exitPlanRenderer);
   registerToolRenderer("write", writeRenderer);
-  registerToolRenderer("agent", subagentRenderer);
+  registerToolRenderer("subagent", subagentRenderer);
   registerToolRenderer("notify_user", notifyUserRenderer);
 }
 

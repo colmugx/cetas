@@ -69,7 +69,7 @@ async test "subagent child sees only requested core tools and never agent" {
   assert_eq(model.received_tools.length(), 1)
   let names = model.received_tools[0].map(fn(def) { def.name.to_string() })
   assert_eq(names, ["read", "glob", "grep"])
-  assert_false(names.contains("agent"))
+  assert_false(names.contains("subagent"))
   assert_false(names.contains("activate_skill"))
 }
 
@@ -96,7 +96,7 @@ async test "subagent child model selection does not mutate parent router" {
 }
 
 ///|
-async test "subagent composer rejects recursive agent tool even in malformed spec" {
+async test "subagent composer rejects recursive subagent tool even in malformed spec" {
   let model = @posoco.ScriptedModel([])
   let router = @llm.RouterModelPort(
     slots=[subagent_test_slot("test/a", model as &@posoco.ModelPort)],
@@ -106,7 +106,7 @@ async test "subagent composer rejects recursive agent tool even in malformed spe
   let result : Result[@posoco.Agent, @subagent.ComposerError] = Ok(
     @subagent.ChildComposer::compose(
       composer,
-      subagent_test_spec("test/a", Some(["agent"])),
+      subagent_test_spec("test/a", Some(["subagent"])),
     ),
   ) catch {
     error => Err(error)
@@ -114,12 +114,12 @@ async test "subagent composer rejects recursive agent tool even in malformed spe
   match result {
     Err(@subagent.ComposerError::Failed(reason)) =>
       assert_true(reason.contains("not in the canonical Cetas tool registry"))
-    _ => fail("recursive agent tool must be rejected by the host composer")
+    _ => fail("recursive subagent tool must be rejected by the host composer")
   }
 }
 
 ///|
-async test "cetas-js owns the agent tool at the host boundary" {
+async test "cetas-js owns the subagent tool at the host boundary" {
   let model = @posoco.ScriptedModel([])
   let router = @llm.RouterModelPort(
     slots=[subagent_test_slot("test/a", model as &@posoco.ModelPort)],
@@ -140,7 +140,7 @@ async test "cetas-js owns the agent tool at the host boundary" {
       names.push(def.name.to_string())
     }
   }
-  assert_true(names.contains("agent"))
+  assert_true(names.contains("subagent"))
 }
 
 ///|

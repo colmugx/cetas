@@ -143,7 +143,7 @@ describe("EventRouter — late tool_call_completed", () => {
 const AGENT_STARTED = {
   type: "tool_call_started",
   tool_call_id: "call_1",
-  tool_name: "agent",
+  tool_name: "subagent",
   args: {},
 };
 
@@ -282,7 +282,7 @@ describe("EventRouter — refreshRunningSubagents (shell 1s tick)", () => {
       ev({
         type: "tool_call_started",
         tool_call_id: "call_9",
-        tool_name: "agent",
+        tool_name: "subagent",
         args: { preamble: "hi" },
       }),
     );

@@ -115,7 +115,7 @@ describe("subagent display — real pi-tui output", () => {
     h.flush();
     expectLocalUpdate(h, before);
     expect(h.visible()).not.toContain("🛰");
-    expect(h.visible()).toContain("agent(apple)");
+    expect(h.visible()).toContain("subagent(apple)");
     expect(h.visible()).toContain("bash");
   });
 
@@ -158,7 +158,7 @@ describe("subagent display — real pi-tui output", () => {
   test("a foreground child late event never becomes a background transcript row", () => {
     const h = harness(30);
     h.send({ type: "turn_started" });
-    h.send({ type: "tool_call_started", tool_call_id: "fg-call", tool_name: "agent", args: { kind: "coder" } });
+    h.send({ type: "tool_call_started", tool_call_id: "fg-call", tool_name: "subagent", args: { kind: "coder" } });
     h.spawn("foreground-late", "fg-call", false);
     h.send({ type: "tool_call_completed", tool_call_id: "fg-call", result: "finished", is_error: false });
     const before = h.visible();
@@ -172,9 +172,9 @@ describe("subagent display — real pi-tui output", () => {
     cleanups.push(async () => { now.mockRestore(); });
     const h = harness();
     h.send({ type: "turn_started" });
-    h.send({ type: "tool_call_started", tool_call_id: "fg-a", tool_name: "agent", args: { kind: "coder" } });
+    h.send({ type: "tool_call_started", tool_call_id: "fg-a", tool_name: "subagent", args: { kind: "coder" } });
     h.spawn("fg-a-child", "fg-a", false);
-    h.send({ type: "tool_call_started", tool_call_id: "fg-b", tool_name: "agent", args: { kind: "coder" } });
+    h.send({ type: "tool_call_started", tool_call_id: "fg-b", tool_name: "subagent", args: { kind: "coder" } });
     h.spawn("fg-b-child", "fg-b", false);
     h.body();
     h.flush();
@@ -193,7 +193,7 @@ describe("subagent display — real pi-tui output", () => {
   test("visible foreground card keeps model, effort, tool and text tail", () => {
     const h = harness(40);
     h.send({ type: "turn_started" });
-    h.send({ type: "tool_call_started", tool_call_id: "visible-fg", tool_name: "agent", args: { kind: "coder" } });
+    h.send({ type: "tool_call_started", tool_call_id: "visible-fg", tool_name: "subagent", args: { kind: "coder" } });
     h.spawn("visible-child", "visible-fg", false);
     h.flush();
     h.child("visible-child", "visible-fg", {
@@ -213,9 +213,9 @@ describe("subagent display — real pi-tui output", () => {
     first.spawn("first-child");
     const second = harness(30);
     second.spawn("second-child");
-    expect(second.visible()).toContain("agent(apple)");
-    expect(second.visible()).not.toContain("agent(banana)");
-    expect(second.visible()).not.toContain("2 agents");
+    expect(second.visible()).toContain("subagent(apple)");
+    expect(second.visible()).not.toContain("subagent(banana)");
+    expect(second.visible()).not.toContain("2 subagents");
     expect(first.visible()).not.toContain("second-child");
   });
 });

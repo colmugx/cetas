@@ -1,8 +1,14 @@
 /**
- * subagent.ts — `agent` tool renderer with live child-run progress.
+ * subagent.ts — `subagent` tool renderer with live child-run progress.
  *
- * Call view:  `● agent · <kind> · <elapsed>s · step N · <current tool>`
- *             + a dim trailing window of the child's latest text.
+ * Call view:  `● subagent · <task…>` — the task preview renders from the
+ *             tool args, so it is visible while the arguments still stream
+ *             and while the spawn composes, before any child event arrives.
+ *             A dim params line adds the present spawn fields (kind, model,
+ *             background, resume, timeout, tools, skills); once the child
+ *             runs, the row gains the live badges `<kind> <model(effort)>
+ *             <elapsed>s · step N · <current tool>` plus a dim trailing
+ *             window of the child's latest text.
  * Result view: a `waiting_reply` receipt gets a dedicated question card —
  *             the durable transcript record of the child's ask; everything
  *             else delegates to the fallback renderer.
@@ -19,19 +25,33 @@ import { Text } from "@earendil-works/pi-tui";
 import { theme } from "../../ui/theme.ts";
 import { fallbackRenderer } from "./fallback.ts";
 import {
+  argBool,
+  argNumber,
+  argString,
   callBullet,
   statusBullet,
   toolTitle,
+  truncateForPreview,
   type ToolRenderContext,
   type ToolRenderer,
   type ToolRenderResultOptions,
   type ToolRenderResultPayload,
 } from "./registry.ts";
 
+/** Collapsed call view keeps the task preview bounded; ctrl+o expands it. */
+const TASK_PREVIEW_MAX = 120;
+
+/** Expanded full-task cap — a debug aid, not a file dump. */
+const TASK_EXPANDED_MAX = 2000;
+
 export const subagentRenderer: ToolRenderer = {
   renderCall(ctx: ToolRenderContext) {
     const activity = ctx.subagentActivity?.runningForParentCall(ctx.toolCallId);
-    const parts = [toolTitle("agent")];
+    const parts = [toolTitle("subagent")];
+    const task = argString(ctx.args, "task").replace(/\s+/g, " ").trim();
+    if (task.length > 0) {
+      parts.push(theme.muted(`· ${truncateForPreview(task, TASK_PREVIEW_MAX)}`));
+    }
     let tail = "";
     if (activity !== undefined) {
       parts.push(theme.muted(activity.kind));
@@ -53,6 +73,8 @@ export const subagentRenderer: ToolRenderer = {
       }
     }
     let text = `${callBullet(ctx)} ${parts.join(" ")}`;
+    const params = spawnParamsLine(ctx.args, activity !== undefined);
+    if (params.length > 0) text += `\n  ${theme.dim(params)}`;
     if (tail.length > 0) text += `\n  ${theme.dim(`⋮ ${tail}`)}`;
     if (ctx.expanded && activity !== undefined && activity.history.length > 0) {
       const lines = activity.history
@@ -60,6 +82,8 @@ export const subagentRenderer: ToolRenderer = {
         .map((entry) => `  ${theme.dim(entry)}`)
         .join("\n");
       text += `\n${lines}`;
+    } else if (ctx.expanded && task.length > TASK_PREVIEW_MAX) {
+      text += `\n  ${theme.dim(truncateForPreview(task, TASK_EXPANDED_MAX))}`;
     }
     return new Text(text, 1, 0);
   },
@@ -86,6 +110,53 @@ export const subagentRenderer: ToolRenderer = {
     return render(result, options, ctx);
   },
 };
+
+/**
+ * Spawn-params line from the (possibly still-streaming) tool args. Fields
+ * the live badge already shows (kind/model/effort) are skipped once child
+ * activity exists. Absent fields render nothing — partial JSON mid-stream
+ * simply grows this line as fragments arrive.
+ */
+function spawnParamsLine(args: unknown, hasActivity: boolean): string {
+  const segments: string[] = [];
+  if (!hasActivity) {
+    const kind = argString(args, "kind");
+    if (kind.length > 0) segments.push(`kind ${kind}`);
+    const model = argString(args, "model");
+    if (model.length > 0) {
+      const effort = argString(args, "effort");
+      segments.push(`model ${model}${effort.length > 0 ? `(${effort})` : ""}`);
+    } else if (argString(args, "effort").length > 0) {
+      segments.push(`effort ${argString(args, "effort")}`);
+    }
+  }
+  if (argBool(args, "background")) segments.push("background");
+  const resume = argString(args, "resume");
+  if (resume.length > 0) segments.push(`resume=${resume}`);
+  const timeout = argNumber(args, "timeout_ms");
+  if (timeout !== undefined) segments.push(`timeout ${formatTimeout(timeout)}`);
+  const record = args !== null && typeof args === "object" && !Array.isArray(args)
+    ? (args as Record<string, unknown>)
+    : undefined;
+  if (record !== undefined) {
+    if (Array.isArray(record.tools)) {
+      segments.push(`tools ${record.tools.length}`);
+    }
+    if (record.skills === true) {
+      segments.push("skills all");
+    } else if (Array.isArray(record.skills)) {
+      segments.push(`skills ${record.skills.length}`);
+    }
+  }
+  return segments.join(" · ");
+}
+
+/** Compact timeout: seconds under a minute, minutes under an hour, else hours. */
+function formatTimeout(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+  return `${Math.round(ms / 3_600_000)}h`;
+}
 
 /** One child ask, as carried by the `waiting_reply` receipt. */
 export interface WaitingReceipt {
@@ -197,7 +268,7 @@ function waitingView(
       : undefined) ??
     (waiting.kind.length > 0 ? waiting.kind : undefined) ??
     (waiting.childSession.length > 0 ? waiting.childSession : "subagent");
-  const head = `${statusBullet("success")} ${toolTitle("agent")} → ${theme.muted(`${named} asks`)}${
+  const head = `${statusBullet("success")} ${toolTitle("subagent")} → ${theme.muted(`${named} asks`)}${
     waiting.questionId.length > 0 ? theme.dim(` · ${waiting.questionId}`) : ""
   }`;
   const optionNote =

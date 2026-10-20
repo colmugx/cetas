@@ -488,6 +488,35 @@ test "turn_event_to_json maps ModelRequestStarted onto the wire tag" {
 }
 
 ///|
+test "turn_event_to_json fans ModelResponseReceived out into message_end + model_invoked" {
+  // Both the parent observer and the subagent_event wrapper dispatch this
+  // array element-by-element; wrapping the bare array as "ev" would fail the
+  // TS parser's object check and drop every child assistant message.
+  let message : @posoco.Message = AssistantMessage(
+    content=[Text("child says hi")],
+    tool_calls=[],
+    reasoning=None,
+    finish_reason=Stop,
+  )
+  match turn_event_to_json(ModelResponseReceived(message~, usage=None)) {
+    Json::Array(items) => {
+      assert_eq(items.length(), 2)
+      match items[0] {
+        Json::Object(fields) =>
+          assert_eq(fields["type"], Json::string("message_end"))
+        _ => fail("first element must be a message_end object")
+      }
+      match items[1] {
+        Json::Object(fields) =>
+          assert_eq(fields["type"], Json::string("model_invoked"))
+        _ => fail("second element must be a model_invoked object")
+      }
+    }
+    _ => fail("ModelResponseReceived must fan out into a Json array")
+  }
+}
+
+///|
 fn tk_js_call(name~ : String, call_id~ : String) -> @posoco.ToolCall {
   {
     call_id: @posoco.CallId::unchecked(call_id),
