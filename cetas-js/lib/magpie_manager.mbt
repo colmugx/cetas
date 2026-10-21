@@ -298,7 +298,7 @@ fn ModelManagerFace::manager_publish_status(
     value=label,
   )
   match self {
-    Providers(router) => {
+    Providers(router) =>
       // A model name alone cannot distinguish an official provider from an
       // aggregator serving the same model. Keep the router's exact slot ID;
       // ext-llm remains the authority for the reasoning-effort suffix.
@@ -309,7 +309,6 @@ fn ModelManagerFace::manager_publish_status(
         priority=19,
         value=router.active_slot_id(),
       )
-    }
     Magpie(_) => {
       let effort = match selection.effort {
         Some(value) => value
