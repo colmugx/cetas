@@ -5,13 +5,13 @@
 # (@posoco/cetas, a single JS-only package staged from cetas-js-dist) is
 # manual: dispatch .github/workflows/npm-publish.yml on the release tag.
 #
-# A single Ubuntu preflight runs version sync, staging tests, moon check/test,
-# and TypeScript typecheck before any platform build starts. Only after it
-# passes does the three-platform build matrix fan out.
+# Full release checks and dependency preparation run concurrently. Once the
+# dependency artifacts are ready, platform builds can start without waiting
+# for the native/JS test suites. Publishing still requires passing preflight.
 #
 # Dependency downloads (mooncakes registry, bun install cache) happen once per
-# run: the preflight uploads them as run-scoped artifacts and every matrix job
-# downloads them, so no platform re-fetches what another platform already got.
+# run: the deps job uploads them as run-scoped artifacts for the matrix and
+# the platform-independent npm bundle job.
 #
 # Each job checks out cetas itself and its own extension/ submodule.
 # posoco is a versioned MoonBit dependency, not a required parent checkout.
@@ -85,15 +85,6 @@ jobs:
       - name: setup bun
         uses: oven-sh/setup-bun@v2
 
-      # Upload half of the same-run handoff; build needs: [preflight], so the
-      # matrix jobs download these instead of re-fetching over the network.
-      - name: upload moon registry cache
-        uses: actions/upload-artifact@v6
-        with:
-          name: moon-registry
-          path: ~/.moon/registry
-          retention-days: 1
-
       - name: typecheck
         working-directory: cetas-js
         run: |
@@ -107,6 +98,41 @@ jobs:
         working-directory: cetas-js
         run: bun test --preload ./moonbit-preload.ts
 
+  # Prepare the same-run dependency artifacts independently from the slower
+  # release gates. Builds can begin as soon as these downloads finish.
+  deps:
+    name: prepare release dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: checkout cetas and extension
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_REF }}
+          submodules: recursive
+
+      - name: install moon
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: moon update (populate registry cache)
+        run: moon update
+
+      - name: upload moon registry cache
+        uses: actions/upload-artifact@v6
+        with:
+          name: moon-registry
+          path: ~/.moon/registry
+          retention-days: 1
+
+      - name: setup bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: bun install (populate install cache)
+        working-directory: cetas-js
+        run: bun install
+
       - name: upload bun install cache
         uses: actions/upload-artifact@v6
         with:
@@ -116,7 +142,7 @@ jobs:
 
   build:
     name: build (${{ matrix.target }})
-    needs: [preflight]
+    needs: [deps]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -346,7 +372,7 @@ jobs:
 
   cetas-js-dist:
     name: build cetas-js npm dist (node bundle)
-    needs: [preflight]
+    needs: [deps]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -376,22 +402,6 @@ jobs:
           name: bun-cache
           path: ${{ runner.temp }}/bun-cache
 
-      - name: setup bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: setup node (smoke runtime)
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
-      - name: bun install
-        working-directory: cetas-js
-        run: bun install
-
-      - name: moon update (cetas-js)
-        working-directory: cetas-js
-        run: moon update
-
       - name: restore dependency caches
         shell: pwsh
         run: |
@@ -402,6 +412,17 @@ jobs:
             New-Item -ItemType Directory -Force -Path $cache.target | Out-Null
             Copy-Item -Path (Join-Path $cache.source '*') -Destination $cache.target -Recurse -Force
           }
+
+      - name: setup bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: bun install
+        working-directory: cetas-js
+        run: bun install
+
+      - name: moon update (cetas-js)
+        working-directory: cetas-js
+        run: moon update
 
       # Platform-independent JS bundle: no per-platform matrix, one artifact
       # feeds the npm staging (manual dispatch of npm-publish.yml).
@@ -421,7 +442,7 @@ jobs:
 
   release:
     name: publish GitHub release
-    needs: [build, cetas-js-dist]
+    needs: [preflight, build, cetas-js-dist]
     if: startsWith(github.ref, 'refs/tags/cetas-v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     runs-on: ubuntu-latest
     timeout-minutes: 10
