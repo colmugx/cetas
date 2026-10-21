@@ -2,6 +2,51 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.10.6 (2026-10-21)
+
+## Bun Ver.（cetas-bun）
+
+### Feats
+
+- Goal mode: run one persistent objective across many turns with `/goal <objective>`, `/goal status`, `/goal pause` and `/goal resume`. Runs are bounded (20 turns by default), progress is tracked in a plan you can inspect, and completion must be independently verified — Cetas asks you to approve the claimed result, a rejected claim sends the agent back to work within its remaining budget, and an unverified claim never counts as success. Pausing stores a versioned checkpoint tied to the session and its transcript; after a restart, resume restores that checkpoint only when the session and transcript still match, and otherwise refuses instead of repeating side effects.
+- Session model restore: switching to or resuming a session now restores that session's model and effort immediately — the status bar updates and the transcript confirms it — instead of waiting for your first message. A `/model` choice you make afterwards is never overridden, and unavailable saved selections fall back with a clear warning.
+- Images reach DeepSeek: with `image_input: true` on a vision-capable DeepSeek model, `@image` mentions are sent as real image parts and the model is advertised as accepting images. Without the opt-in the image is still announced to the model as an explicit placeholder instead of disappearing silently.
+- DeepSeek V4 / V4.1 prompt profile: set `prompt_profile` so prompts are rendered the way DeepSeek's official recipe expects instead of guessing from a model alias, with reasoning effort names normalized to the values that profile uses (`minimal`/`low` → `low`, `medium`/`high`/`xhigh` → `high`, `max`/`ultra` → `max`).
+- The grep tool accepts an opt-in regular expression (`regex: true`) for alternation, character classes, anchors and quantifiers, on both the ripgrep and built-in engines; literal search stays the default and an invalid pattern fails the search loudly.
+
+### Fixes
+
+- First launch is now race-free: a complete minimal settings file is published atomically, so two simultaneous launches cannot clobber each other and no half-written or empty file is ever read. An existing malformed file is reported to you instead of being silently replaced.
+- Long DeepSeek conversations can be compacted without breaking the cached prompt prefix — compaction replays the same message head and tool declarations and accounts for earlier reasoning, so summaries stay faithful and cache hits survive; a stray tool call is rejected instead of being stored as the summary.
+- Cancelling a turn now actually stops a running PowerShell command on Windows (graceful interrupt, then hard kill), and output collection is bounded so a lingering child process can no longer hang the turn.
+- Changing reasoning effort no longer prints the model status twice.
+- Workflow observation fixes: pause/stop/cancel acknowledgements refresh settlement instead of admitting new work, cancellation, timeout and transport failures produce distinct diagnostics, and a failed status read is surfaced once without retrying anything.
+
+## ACP Ver.（cetas-acp）
+
+### Feats
+
+- Images attached in your editor now reach vision-capable DeepSeek models once `image_input` is enabled — they are sent as real image parts instead of being reduced to placeholders.
+- DeepSeek V4 / V4.1 prompt profile: `prompt_profile` renders prompts per DeepSeek's official recipe rather than inferring a version from the model alias, and normalizes reasoning effort names to that profile's values.
+- The grep tool accepts an opt-in regular expression (`regex: true`); literal search remains the default and invalid patterns fail clearly.
+
+### Fixes
+
+- DeepSeek compaction preserves the cached prompt prefix (same message head and tool declarations, earlier reasoning accounted for), so long editor sessions stay coherent and fast; a tool-call response is rejected rather than stored as a summary.
+- Cancelling a turn stops a running PowerShell command on Windows, and output collection can no longer stall on a lingering child process.
+
+## Run Ver.（cetas-run）
+
+### Feats
+
+- DeepSeek V4 / V4.1 prompt profile: `prompt_profile` renders prompts per DeepSeek's official recipe instead of inferring a version from the model alias, with reasoning effort names normalized to that profile's values.
+- The grep tool accepts an opt-in regular expression (`regex: true`) for scripted investigations; literal search remains the default and invalid patterns fail clearly.
+
+### Fixes
+
+- DeepSeek compaction preserves the cached prompt prefix and earlier reasoning, so continuing a session by id stays coherent and fast.
+- Cancelling an invocation now stops a running PowerShell command on Windows (interrupt, then hard kill) and bounds output collection, so a stuck or lingering child process no longer hangs automation.
+
 ## 0.10.5 (2026-10-20)
 
 ## General
