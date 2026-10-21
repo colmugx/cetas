@@ -102,7 +102,7 @@ function wrapFields(fields: readonly string[], width: number, maxRows: number): 
 
 /**
  * Statusbar contract:
- * primary = selected model:effort · manager · git branch · context.
+ * primary = selected provider/model:effort · manager · git branch · context.
  * Context follows the left-aligned header (or wraps when needed); the
  * permission mode leads the secondary rows unlabeled, the provider quota
  * windows follow as one group, and the remaining fields keep their
@@ -117,14 +117,23 @@ export function renderStatusbarDashboard(
   if (width <= 0) return [];
   const get = (name: string) => entries.find(e => e.key.toLowerCase() === name);
   const model = get("model");
+  const modelSlot = get("model_slot");
   const ctx = get("ctx");
-  // The "model" segment is an opaque selection value (model ID + effort),
-  // not a key/value display label. For instance, "model:high" is a valid
-  // model ID/effort pair; valueOf() would accidentally strip "model:".
-  const modelValue = model
-    ? (model.color !== undefined
-      ? roleStyle(model.color)(clean(model.value))
-      : theme.bold(clean(model.value)))
+  // The "model" segment is opaque (model name + effort), not a key/value
+  // label: "model:high" is itself a valid model/effort pair. For the built-in
+  // router, the independent model_slot segment supplies the actual provider
+  // identity. Replace only the model-name part; ext-llm stays authoritative
+  // for effort and its color. Never infer a provider from a model's name.
+  const rawModel = model ? clean(model.value) : "";
+  const slot = modelSlot ? clean(modelSlot.value) : "";
+  const effortSeparator = rawModel.lastIndexOf(":");
+  const displayModel = slot
+    ? slot + (effortSeparator >= 0 ? rawModel.slice(effortSeparator) : "")
+    : rawModel;
+  const modelValue = displayModel
+    ? (model?.color !== undefined
+      ? roleStyle(model.color)(displayModel)
+      : theme.bold(displayModel))
     : theme.muted("No model");
   // The active manager publishes its own neutral status segment. UI has
   // no knowledge of implementation choices or settings.json.
@@ -142,7 +151,7 @@ export function renderStatusbarDashboard(
   const postponeCtx = Boolean(contextValue) && visibleWidth(withContext) > width;
   const first = truncateToWidth(postponeCtx ? header : withContext, width, "…");
 
-  const remaining = entries.filter(e => e !== model && e !== ctx &&
+  const remaining = entries.filter(e => e !== model && e !== modelSlot && e !== ctx &&
     !["manager","router","status"].includes(e.key.toLowerCase()));
   const permission = remaining.find(e => e.key.toLowerCase() === "permission");
   const rest = remaining.filter(e => e !== permission);
