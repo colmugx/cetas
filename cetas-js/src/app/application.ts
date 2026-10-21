@@ -1557,6 +1557,24 @@ export class CetasApplication<AgentHandle = unknown> {
         "cannot invoke a command after shutdown has begun",
       );
     }
+    // Read-only status and cooperative pause do not dispatch an Agent turn.
+    // Keep them available while the goal's long-running command holds the
+    // normal exclusive command lane.
+    if (id === "goal.pause" || id === "goal.status") {
+      if (this.agent === undefined) {
+        return JSON.stringify({ type: "failure", reason: "no agent configured" });
+      }
+      if (id === "goal.pause") {
+        this.options.bridge.goalPause?.(this.agent);
+        return JSON.stringify({ type: "success", feedback: "Goal pause requested" });
+      }
+      const snapshot = this.options.bridge.goalStatus?.(this.agent);
+      return JSON.stringify({
+        type: "success",
+        feedback: "Goal status",
+        structured: snapshot === undefined ? null : JSON.parse(snapshot),
+      });
+    }
     if (BOARD_WORKFLOW_CONTROLS.has(id)) {
       // Board sync controls ride a narrow concurrent lane: safe while a turn
       // or another command holds the exclusive lanes. Deliberately no
@@ -1720,6 +1738,27 @@ export class CetasApplication<AgentHandle = unknown> {
         reason: "no Agent is composed; configure a provider first",
         code: "not_ready",
       });
+    }
+    if (id === "goal.start" || id === "goal.resume") {
+      const agent = this.agent;
+      if (id === "goal.start") {
+        let parsed: unknown;
+        try { parsed = JSON.parse(argsJson); } catch { parsed = undefined; }
+        const objective = typeof parsed === "object" && parsed !== null &&
+          "objective" in parsed && typeof parsed.objective === "string"
+          ? parsed.objective.trim() : "";
+        if (objective.length === 0) {
+          return JSON.stringify({ type: "failure", reason: "usage: /goal <objective>" });
+        }
+        if (this.options.bridge.goalStart === undefined) {
+          return JSON.stringify({ type: "failure", reason: "Goal unavailable in this host" });
+        }
+        return this.options.bridge.goalStart(agent, objective, this.currentSessionId);
+      }
+      if (this.options.bridge.goalResume === undefined) {
+        return JSON.stringify({ type: "failure", reason: "Goal resume unavailable" });
+      }
+      return this.options.bridge.goalResume(agent, this.currentSessionId);
     }
     // `/compact` is a first-class app operation, not a pass-through command:
     // this path carries the mid-turn switch semantics, and the session id
