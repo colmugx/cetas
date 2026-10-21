@@ -276,9 +276,10 @@ fn ModelManagerFace::manager_accepts_legacy_selection(
 
 ///|
 /// Each adapter fulfills the same devkit status contract. The ext-llm
-/// manager already owns the "model" segment; its status publisher remains
-/// authoritative. The Magpie adapter owns its own "model" segment. Both
-/// publish a manager label through the same bus. No UI needs to know either.
+/// manager owns the "model" segment (model name and effort), while Cetas
+/// separately publishes its full active slot ID for provider disambiguation.
+/// The Magpie adapter owns its own "model" segment. Both publish a manager
+/// label through the same bus. No UI needs to know either.
 fn ModelManagerFace::manager_publish_status(
   self : ModelManagerFace,
   bus : @devkit.EventBus,
@@ -297,7 +298,18 @@ fn ModelManagerFace::manager_publish_status(
     value=label,
   )
   match self {
-    Providers(_) => () // ext-llm owns and publishes its model status.
+    Providers(router) => {
+      // A model name alone cannot distinguish an official provider from an
+      // aggregator serving the same model. Keep the router's exact slot ID;
+      // ext-llm remains the authority for the reasoning-effort suffix.
+      @devkit.publish_status_register(
+        bus,
+        source="cetas.model_manager",
+        segment="model_slot",
+        priority=19,
+        value=router.active_slot_id(),
+      )
+    }
     Magpie(_) => {
       let effort = match selection.effort {
         Some(value) => value
