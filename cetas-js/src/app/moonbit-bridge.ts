@@ -31,6 +31,14 @@ const questionExports = moonbit as unknown as {
   cetas_js_user_replied(agent: moonbit.CetasJsAgent): string;
 };
 
+/** Eager session-model restore export (see lib/session_model_restore.mbt). */
+const sessionModelRestoreExports = moonbit as unknown as {
+  cetas_js_restore_session_model(
+    agent: moonbit.CetasJsAgent,
+    sessionId: string,
+  ): Promise<string>;
+};
+
 /**
  * Typed outcome of the Agent-level server compaction. `ok:false` carries a
  * machine-readable `errorKind` (`cancelled` | `auto_compact_failed` |
@@ -348,6 +356,27 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
    */
   setActiveSession(agent: unknown, sessionId?: string): void {
     moonbit.cetas_js_set_active_session(agent as moonbit.CetasJsAgent, sessionId ?? "");
+  }
+
+  /**
+   * Eagerly apply the session's recorded model selection at a user-intent
+   * session switch. The MoonBit export never rejects; `applied:false` covers
+   * both "nothing recorded" and "already attempted for this session".
+   */
+  async restoreSessionModel(
+    agent: unknown,
+    sessionId: string,
+  ): Promise<{ applied: boolean; already_restored: boolean }> {
+    const raw = await sessionModelRestoreExports.cetas_js_restore_session_model(
+      agent as moonbit.CetasJsAgent,
+      sessionId,
+    );
+    const value: unknown = JSON.parse(raw);
+    if (!isRecord(value)) throw new Error("session model restore response must be an object");
+    return {
+      applied: value.applied === true,
+      already_restored: value.already_restored === true,
+    };
   }
 
   /** Interrupted-turn recovery through the Agent's resume_turn entry. */

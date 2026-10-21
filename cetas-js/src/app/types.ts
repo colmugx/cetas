@@ -243,6 +243,18 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
    */
   setActiveSession?(agent: AgentHandle, sessionId: string | undefined): void;
   /**
+   * Eagerly apply a session's recorded model/effort selection at the host's
+   * user-intent session switch, so the status bar reflects it immediately and
+   * the first message never force-switches over an explicit post-resume
+   * /model choice. The MoonBit side also emits the `session_model_restored`
+   * Custom event for the transcript notice. Optional — bridges without the
+   * export fall back to the turn-time restore.
+   */
+  restoreSessionModel?(
+    agent: AgentHandle,
+    sessionId: string,
+  ): Promise<{ applied: boolean; already_restored: boolean }>;
+  /**
    * Whether the active model slot advertises the `image_in` capability.
    * Used as the attach-time gate: `false` means send no images and warn
    * (switch model via /model). Absent on older bridges — callers treat that

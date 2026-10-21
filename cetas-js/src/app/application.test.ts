@@ -1647,6 +1647,83 @@ describe("CetasApplication", () => {
     expect((caught as CetasApplicationError).code).toBe("shutting_down");
   });
 
+  test("setSession eagerly restores the session model through the bridge", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const restored: string[] = [];
+    const base = bridgeFor(
+      {
+        providers: [
+          {
+            id: "deepseek/chat",
+            label: "DeepSeek Chat",
+            provider: "deepseek",
+            model: "deepseek-chat",
+            active: true,
+            efforts: [],
+            oauth: false,
+          },
+        ],
+        oauthProviders: [],
+      },
+      counters,
+    );
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        restoreSessionModel: async (_agent, sessionId) => {
+          restored.push(sessionId);
+          return { applied: true, already_restored: false };
+        },
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+    await app.start();
+    app.setSession("s_restored");
+    await Bun.sleep(1);
+    expect(restored).toEqual(["s_restored"]);
+    await app.shutdown();
+  });
+
+  test("setSession survives a rejecting restoreSessionModel bridge", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const base = bridgeFor(
+      {
+        providers: [
+          {
+            id: "deepseek/chat",
+            label: "DeepSeek Chat",
+            provider: "deepseek",
+            model: "deepseek-chat",
+            active: true,
+            efforts: [],
+            oauth: false,
+          },
+        ],
+        oauthProviders: [],
+      },
+      counters,
+    );
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        restoreSessionModel: async () => {
+          throw new Error("bridge exploded");
+        },
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+    await app.start();
+    app.setSession("s_boom");
+    await Bun.sleep(1);
+    expect(app.sessionId).toBe("s_boom");
+    expect(app.appState).toBe("ready");
+    await app.shutdown();
+  });
+
   test("rewind passes through when idle and is rejected while a turn runs", async () => {
     const counters = { created: 0, runs: 0, shutdowns: 0 };
     let markTurnStarted!: () => void;

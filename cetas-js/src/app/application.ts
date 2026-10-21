@@ -741,7 +741,21 @@ export class CetasApplication<AgentHandle = unknown> {
     // Bind now, not at the next turn: a real switch retires the previous
     // window's pending wakeup tickets while the app is idle.
     this.bindActiveSession();
+    // Restore the session's recorded model selection immediately, so the
+    // status bar reflects it and the first message never force-switches over
+    // a user's explicit post-resume /model choice. Advisory background work:
+    // failures reach the host as session_model_restore warning events.
+    this.restoreSessionModelEagerly(sessionId);
     this.publish();
+  }
+
+  private restoreSessionModelEagerly(sessionId: string): void {
+    const agent = this.agent;
+    const restore = this.options.bridge.restoreSessionModel;
+    if (agent === undefined || restore === undefined) return;
+    restore
+      .call(this.options.bridge, agent, sessionId)
+      .catch(() => undefined);
   }
 
   /**

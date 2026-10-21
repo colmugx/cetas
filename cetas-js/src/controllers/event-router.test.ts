@@ -336,3 +336,56 @@ describe("EventRouter — model metadata warnings", () => {
     expect(rendered()).toContain("other/event");
   });
 });
+
+describe("EventRouter — session model restore events", () => {
+  test("renders the restored selection as a transcript notice", () => {
+    const { router, rendered } = makeHarness();
+    router.handleEvent(ev({
+      type: "custom",
+      source: "cetas-js.bridge",
+      label: "session_model_restored",
+      data: { session_id: "s1", model_id: "one/a", effort: "high" },
+    }));
+    expect(rendered()).toContain("↩ session model restored: one/a:high");
+    expect(rendered()).not.toContain("cetas-js.bridge/session_model_restored");
+  });
+
+  test("a null effort renders as default", () => {
+    const { router, rendered } = makeHarness();
+    router.handleEvent(ev({
+      type: "custom",
+      source: "cetas-js.bridge",
+      label: "session_model_restored",
+      data: { session_id: "s1", model_id: "one/a", effort: null },
+    }));
+    expect(rendered()).toContain("↩ session model restored: one/a:default");
+  });
+
+  test("malformed restored payloads stay readable", () => {
+    const { router, rendered } = makeHarness();
+    router.handleEvent(ev({
+      type: "custom",
+      source: "cetas-js.bridge",
+      label: "session_model_restored",
+      data: 12,
+    }));
+    expect(rendered()).toContain("↩ session model restored: unknown:default");
+  });
+
+  test("restore warnings render their user-facing reason", () => {
+    const { router, rendered } = makeHarness();
+    router.handleEvent(ev({
+      type: "custom",
+      source: "cetas-js.bridge",
+      label: "session_model_restore_warning",
+      data: {
+        message:
+          "The session model 'ghost/x' is unavailable in the active model catalog; keeping the current selection.",
+      },
+    }));
+    expect(rendered()).toContain("⚠ The session model 'ghost/x' is unavailable");
+    expect(rendered()).not.toContain(
+      "cetas-js.bridge/session_model_restore_warning",
+    );
+  });
+});

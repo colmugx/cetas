@@ -170,6 +170,32 @@ export class EventRouter {
           if (this.metadataWarnings.has(message)) return;
           this.metadataWarnings.add(message);
           this.cb.addTranscriptChild(systemNotice(`⚠ ${message}`));
+        } else if (
+          ev.source === "cetas-js.bridge" &&
+          ev.label === "session_model_restore_warning"
+        ) {
+          // Same warning text the MoonBit restore path emits; render it as a
+          // user-facing notice instead of the opaque source/label line.
+          const data = ev.data;
+          const message = data !== null && typeof data === "object" &&
+            "message" in data && typeof data.message === "string"
+            ? data.message
+            : "The session model could not be restored; keeping the current selection.";
+          this.cb.addTranscriptChild(systemNotice(`⚠ ${message}`));
+        } else if (
+          ev.source === "cetas-js.bridge" &&
+          ev.label === "session_model_restored"
+        ) {
+          const data = ev.data !== null && typeof ev.data === "object" ? ev.data : {};
+          const model = "model_id" in data && typeof data.model_id === "string"
+            ? data.model_id
+            : "unknown";
+          const effort = "effort" in data && typeof data.effort === "string"
+            ? data.effort
+            : "default";
+          this.cb.addTranscriptChild(
+            systemNotice(`↩ session model restored: ${model}:${effort}`),
+          );
         } else {
           this.cb.addTranscriptChild(
             systemNotice(`· ${ev.source}/${ev.label}`),

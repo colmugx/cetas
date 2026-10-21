@@ -1154,6 +1154,10 @@ pub struct CetasJsAgent {
   /// Last session id that received a pi session_start, so the event fires
   /// once per session rather than once per turn.
   mut pi_session : String?
+  /// Session whose recorded model selection this process already applied or
+  /// attempted, so a later turn on the same session never force-switches over
+  /// a user's explicit post-resume `/model` choice.
+  mut model_restored_for : String?
   /// Close signal for the serving scope. `cetas_js_shutdown` releases the
   /// parked scope body (see `run_agent_group_session`) through it after
   /// `agent.shutdown()` has completed; scope exit ends the Agent lifetime.
@@ -2113,6 +2117,7 @@ pub fn cetas_js_runtime_create_agent(
               store,
               pi,
               pi_session: None,
+              model_restored_for: None,
               serve_close: close,
             }
           },
@@ -2497,7 +2502,11 @@ async fn run_turn_outcome(
     }
     // Existing journals may also be opened as the process's first session.
     // Fresh sessions have no saved selection and leave the manager unchanged.
-    restore_session_model_selection(handle, session_id)
+    // A session the host already eager-restored at switch time is skipped, so
+    // the user's explicit post-resume /model choice is never overridden here.
+    if handle.model_restored_for != Some(session_id) {
+      ignore(restore_session_model_selection(handle, session_id))
+    }
     // Restore persisted pi custom entries before handlers see session_start
     // so package state (e.g. pi-web-access search caches) survives restarts.
     seed_pi_custom_entries(handle, session_id)
@@ -2639,7 +2648,11 @@ pub fn cetas_js_resume_turn(
         Some(_) => "resume"
         None => "new"
       }
-      restore_session_model_selection(handle, session_id)
+      // Same guard as the turn path: a session the host already
+      // eager-restored at switch time is never force-switched again here.
+      if handle.model_restored_for != Some(session_id) {
+        ignore(restore_session_model_selection(handle, session_id))
+      }
       seed_pi_custom_entries(handle, session_id)
       emit_pi_session_start(handle, session_id, reason)
       handle.pi_session = Some(session_id)

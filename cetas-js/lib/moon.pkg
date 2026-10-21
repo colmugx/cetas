@@ -50,6 +50,8 @@ import {
   "colmugx/posoco-kit-subagent" @subagent_kit,
   "colmugx/posoco-kit-model-management" @modelmgmt,
   "colmugx/posoco-ext-board" @board,
+  "colmugx/posoco-ext-board/domain" @board_domain,
+  "colmugx/posoco-ext-board/workflow" @board_workflow,
 }
 
 import {
@@ -57,6 +59,7 @@ import {
   "colmugx/posoco-ext-board/testkit/node_fs" @board_fixtures,
   "colmugx/posoco-ext-board/domain" @board_domain,
   "colmugx/posoco-ext-board/execution" @board_execution,
+  "colmugx/posoco-ext-board/workflow" @board_workflow,
   "moonbitlang/async",
   "moonbitlang/async/aqueue",
 } for "wbtest"
@@ -86,6 +89,7 @@ options(
         "cetas_js_run_turn",
         "cetas_js_run_turn_result",
         "cetas_js_resume_turn",
+        "cetas_js_restore_session_model",
         "cetas_js_compact_session",
         "cetas_js_cancel_pending_ratelimit",
         "cetas_js_set_active_session",

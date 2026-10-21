@@ -315,3 +315,36 @@ async test "malformed versioned selection does not fall back to legacy slot" {
   assert_false(applied)
   assert_eq(router.active_slot_id(), "one/a")
 }
+
+///|
+async test "restored event payload reports the active selection" {
+  let router = @llm.RouterModelPort(slots=[
+    restore_test_slot(id="one/a", efforts=["low", "high"]),
+    restore_test_slot(id="two/b"),
+  ])
+  router.switch_slot("two/b") catch {
+    _ => fail("unexpected switch failure")
+  }
+  json_inspect(
+    session_model_restored_event(Providers(router), "sess_restore"),
+    content={
+      "session_id": "sess_restore",
+      "model_id": "two/b",
+      "effort": (None : String?),
+    },
+  )
+  router.switch_slot("one/a") catch {
+    _ => fail("unexpected switch failure")
+  }
+  router.select_effort("one/a", "high") catch {
+    _ => fail("unexpected effort failure")
+  }
+  json_inspect(
+    session_model_restored_event(Providers(router), "sess_restore"),
+    content={
+      "session_id": "sess_restore",
+      "model_id": "one/a",
+      "effort": "high",
+    },
+  )
+}
