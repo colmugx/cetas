@@ -294,6 +294,10 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
   closeUserQuestions?(agent: AgentHandle): number;
   listCommands(agent: AgentHandle): readonly CommandDescriptor[];
   invokeCommand(agent: AgentHandle, id: string, argsJson: string): Promise<string>;
+  goalStart?(agent: AgentHandle, objective: string, sessionId: string, signal?: AbortSignal): Promise<string>;
+  goalResume?(agent: AgentHandle, sessionId: string, signal?: AbortSignal): Promise<string>;
+  goalPause?(agent: AgentHandle): void;
+  goalStatus?(agent: AgentHandle): string;
   /**
    * Rewind a persisted session: drop stored messages at `fromIndex` and
    * after, keeping `[0, fromIndex)`; the session metadata line is preserved
