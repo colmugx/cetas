@@ -142,6 +142,44 @@ describe("model manager presentation contract", () => {
   });
 });
 
+describe("provider-qualified model status", () => {
+  test("distinguishes an aggregate provider from the official provider", () => {
+    const aggregate = stripTerminalSequences(renderStatusbarDashboard([
+      {key:"model",value:"deepseek-v4.1-flash:high"},
+      {key:"model_slot",value:"opencode-go/deepseek-v4.1-flash"},
+      {key:"manager",value:"Posoco"},
+    ],120,{branch:"main"})[0]);
+    expect(aggregate).toBe(" opencode-go/deepseek-v4.1-flash:high · Posoco ⑂ main");
+
+    const official = stripTerminalSequences(renderStatusbarDashboard([
+      {key:"model",value:"deepseek-flash:high"},
+      {key:"model_slot",value:"deepseek/deepseek-flash"},
+      {key:"manager",value:"Posoco"},
+    ],120)[0]);
+    expect(official).toBe(" deepseek/deepseek-flash:high · Posoco");
+  });
+
+  test("keeps the live effort suffix, without repeating the slot in details", () => {
+    for (const effort of ["low", "medium", "high"]) {
+      const result = stripTerminalSequences(renderStatusbarDashboard([
+        {key:"model",value:`deepseek-v4.1-flash:${effort}`},
+        {key:"model_slot",value:"opencode-go/deepseek-v4.1-flash"},
+        {key:"permission",value:"yolo"},
+      ],120).join("\n"));
+      expect(result).toContain(`opencode-go/deepseek-v4.1-flash:${effort}`);
+      expect(result).not.toContain("model_slot");
+      expect(result.split("opencode-go/")).toHaveLength(2);
+    }
+  });
+
+  test("without a slot segment preserves the publisher's opaque model value", () => {
+    const result = stripTerminalSequences(renderStatusbarDashboard([
+      {key:"model",value:"model:provider/variant:low"},
+    ],120)[0]);
+    expect(result).toBe(" model:provider/variant:low");
+  });
+});
+
 describe("opaque model selection values", () => {
   test("model-prefixed IDs are never interpreted as duplicated display labels", () => {
     for (const value of ["model:high", "model:default", "model:provider/variant:low"]) {
