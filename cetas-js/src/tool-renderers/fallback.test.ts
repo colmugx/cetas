@@ -7,7 +7,7 @@ import {
 } from "./registry.ts";
 import { fallbackRenderer } from "./fallback.ts";
 import { shellRenderer } from "./shell.ts";
-import { pickToolRenderer } from "./registry.ts";
+import { pickToolRenderer } from "./index.ts";
 
 const ANSI = /\x1b\[[0-9;]*m/g;
 
