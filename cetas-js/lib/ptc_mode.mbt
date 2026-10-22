@@ -9,6 +9,12 @@ pub(all) enum CetasPtcStatus {
 } derive(Eq, Debug)
 
 ///|
+pub extend CetasPtcStatus with Eq::{not_equal, equal}
+
+///|
+pub extend CetasPtcStatus with @moonbitlang/core/debug.Debug::{to_repr}
+
+///|
 pub struct CetasPtcMode {
   bus : @devkit.EventBus?
   nested_names : Array[String]
@@ -274,4 +280,20 @@ pub impl @posoco.PipelineHook for CetasPtcMode with fn before_model(
     @posoco.Message::UserMessage(content=[@posoco.Content::Text(content)]),
   )
   messages
+}
+
+///|
+pub extend CetasPtcMode with @posoco.Extension::{manifest, extension_id}
+
+///|
+pub extend CetasPtcMode with @posoco.CommandPort::{commands, invoke}
+
+///|
+pub extend CetasPtcMode with @posoco.PipelineHook::{
+  on_post_event,
+  on_turn_begin,
+  on_post_event_at,
+  before_model,
+  before_tool,
+  on_turn_end,
 }
