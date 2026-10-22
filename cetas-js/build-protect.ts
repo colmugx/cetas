@@ -87,6 +87,13 @@ function skipReason(
       (parent.callee.type === "Import" ||
         (parent.callee.type === "Identifier" && parent.callee.name === "require")));
   if (specifier) return "specifier";
+  // A TaggedTemplateExpression requires its `quasi` to remain a
+  // TemplateLiteral, even when the template has no interpolations.
+  // Replacing it with a CallExpression emits invalid syntax such as
+  // String.raw_d(0) and breaks the protected Node distribution.
+  if (parent.type === "TaggedTemplateExpression" && prop === "quasi") {
+    return "tagged-template";
+  }
   if (prop === "expression" && parent.type === "ExpressionStatement" && typeof parent.directive === "string")
     return "directive";
   if (keyPosition && value === "__proto__") return "proto";
