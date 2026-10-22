@@ -387,13 +387,19 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     if (self.agents.parent_mode)() == @permission.ReadOnly {
       return @posoco.CommandOutcome::Failure(reason="approval_denied")
     }
-    match self.board.start(title=goal) {
+    let started = self.board.start(title=goal) catch {
+      _ => return @posoco.CommandOutcome::Failure(reason="workflow_start_failed_inspect_status")
+    }
+    match started {
       Err(error) => return @posoco.CommandOutcome::Failure(reason=error.code())
       Ok(view) => {
         guard view.run is Some(run) && !run.scope.is_empty() else {
           return @posoco.CommandOutcome::Failure(reason="workflow_start_missing_scope")
         }
-        match self.board.propose(parent=run.scope[0], requirements=goal) {
+        let proposed = self.board.propose(parent=run.scope[0], requirements=goal) catch {
+          _ => return @posoco.CommandOutcome::Failure(reason="planning_failed_inspect_status_no_retry")
+        }
+        match proposed {
           Ok(preview) =>
             return @posoco.CommandOutcome::Success(
               feedback="Planning complete. Review the graph proposal, then approve graph and execution scope separately using /workflow.",
