@@ -3,7 +3,7 @@
  *
  * read/edit/glob/grep rows are driven by the declarative spec table
  * (specs.ts) and need no registration; renderers with bespoke behavior
- * register here (bash: elapsed timer, ask_question: option list, write:
+ * register here (shell: bash/PowerShell elapsed timer, ask_question: option list, write:
  * live streaming-args view over the spec's finalized output).
  *
  * Import this module once at host startup:
@@ -14,7 +14,7 @@
 import { registerToolRenderer } from "./registry.ts";
 import { answerQuestionRenderer } from "./answer.ts";
 import { askQuestionRenderer } from "./askquestion.ts";
-import { bashRenderer } from "./bash.ts";
+import { shellRenderer } from "./shell.ts";
 import { exitPlanRenderer } from "./exitplan.ts";
 import { writeRenderer } from "./write.ts";
 import { subagentRenderer } from "./subagent.ts";
@@ -28,7 +28,8 @@ export function registerBuiltinToolRenderers(): void {
   registered = true;
   registerToolRenderer("answer_question", answerQuestionRenderer);
   registerToolRenderer("ask_question", askQuestionRenderer);
-  registerToolRenderer("bash", bashRenderer);
+  registerToolRenderer("bash", shellRenderer);
+  registerToolRenderer("powershell", shellRenderer);
   registerToolRenderer("exit_plan_mode", exitPlanRenderer);
   registerToolRenderer("write", writeRenderer);
   registerToolRenderer("subagent", subagentRenderer);
