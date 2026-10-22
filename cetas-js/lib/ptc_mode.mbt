@@ -83,7 +83,7 @@ fn CetasPtcMode::publish_status(self : CetasPtcMode) -> Unit {
             source="posoco_ext_ptc",
             segment="ptc",
             priority=11,
-            value="PTC: Hybrid",
+            value="Hybrid",
             color="muted",
           )
         PtcOnly =>

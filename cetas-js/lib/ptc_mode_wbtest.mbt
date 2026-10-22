@@ -60,7 +60,7 @@ test "ptc status bus initializes, updates, unregisters, and ignores no-ops" {
     "op": "register",
     "segment": "ptc",
     "priority": 11,
-    "value": "PTC: Hybrid",
+    "value": "Hybrid",
     "color": "muted",
   })
   mode.set(PtcOnly)
