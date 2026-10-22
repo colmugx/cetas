@@ -43,6 +43,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn commands(self) {
           ..def,
           label: "Workflow — goal, approvals and progress",
           description: "Open the workflow overview and guided next steps",
+          aliases: [],
         }
       } else {
         def
