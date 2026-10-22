@@ -15,10 +15,12 @@ import {
   "colmugx/posoco-ext-workspace",
   "colmugx/posoco-kit-provider",
   "colmugx/posoco/error",
+  "colmugx/posoco/kernel",
   "colmugx/posoco/port",
   "colmugx/posoco/types",
   "moonbitlang/async/aqueue",
   "moonbitlang/async/js_async",
+  "moonbitlang/core/debug",
   "posoco/devkit",
   "posoco/ext-llm",
   "posoco/ext-oauth",
@@ -168,6 +170,40 @@ pub(all) struct CetasJsRuntime {
   mut magpie_previous_credential : @ext-oauth.ProviderCredential?
 }
 pub fn CetasJsRuntime::CetasJsRuntime(CetasJsConfig) -> Self
+
+pub struct CetasPtcMode {
+  bus : @devkit.EventBus?
+  nested_names : Array[String]
+  mut current_ : CetasPtcStatus
+  mut revision_ : Int32
+}
+pub fn CetasPtcMode::CetasPtcMode(bus? : @devkit.EventBus?, nested_names? : Array[String]) -> Self
+pub async fn CetasPtcMode::before_model(Self, Array[@kernel.Message]) -> Array[@kernel.Message] raise @port.HookAbort
+pub async fn CetasPtcMode::before_tool(Self, @kernel.ToolCall) -> @port.ToolDecision
+pub fn CetasPtcMode::commands(Self) -> Array[@port.CommandDef]
+pub fn CetasPtcMode::extension_id(Self) -> String
+pub async fn CetasPtcMode::invoke(Self, String, Json) -> @port.CommandOutcome raise @error.CommandError
+pub fn CetasPtcMode::manifest(Self) -> @port.ExtensionManifest
+pub fn CetasPtcMode::mode(Self) -> CetasPtcStatus
+pub fn CetasPtcMode::model_sees(Self, String) -> Bool
+pub async fn CetasPtcMode::on_post_event(Self, @port.HookStage) -> Unit noraise
+pub async fn CetasPtcMode::on_post_event_at(Self, @types.EventScope?, @port.HookStage) -> Unit noraise
+pub async fn CetasPtcMode::on_turn_begin(Self) -> Unit
+pub async fn CetasPtcMode::on_turn_end(Self) -> Unit
+pub fn CetasPtcMode::revision(Self) -> Int32
+pub fn CetasPtcMode::set(Self, CetasPtcStatus) -> Unit
+pub impl @port.CommandPort for CetasPtcMode
+pub impl @port.Extension for CetasPtcMode
+pub impl @port.PipelineHook for CetasPtcMode
+
+pub(all) enum CetasPtcStatus {
+  PtcDirect
+  PtcHybrid
+  PtcOnly
+} derive(Eq, @debug.Debug)
+pub fn CetasPtcStatus::equal(Self, Self) -> Bool
+pub fn CetasPtcStatus::not_equal(Self, Self) -> Bool
+pub fn CetasPtcStatus::to_repr(Self) -> @debug.Repr
 
 type JsAuthInteraction
 pub fn JsAuthInteraction::is_cancelled(Self) -> Bool
