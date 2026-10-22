@@ -2036,15 +2036,13 @@ pub fn cetas_js_runtime_create_agent(
             let nested_names = ptc_providers
               .iter()
               .flat_map(fn(provider) {
-                provider.list_tools().iter().map(fn(def) {
-                  def.name.to_string()
-                })
+                provider
+                .list_tools()
+                .iter()
+                .map(fn(def) { def.name.to_string() })
               })
               .collect()
-            let ptc_mode = CetasPtcMode(
-              bus=Some(event_bus),
-              nested_names~,
-            )
+            let ptc_mode = CetasPtcMode(bus=Some(event_bus), nested_names~)
             let pi_runtime = @pi.PiRuntime(
               adaptor=pi,
               fallback=ptc_runtime as &@runtime.Runtime,
