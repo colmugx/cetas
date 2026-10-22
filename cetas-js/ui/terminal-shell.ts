@@ -1986,6 +1986,13 @@ export class TerminalShell {
     update: () => this.runUpdateCommand(),
     compact: (rawArgs) => this.runCompactCommand(rawArgs),
     manager: () => this.openManagerPicker(),
+    ptc: async (rawArgs) => {
+      if (rawArgs.length === 0) {
+        await this.openPtcPicker();
+      } else {
+        await this.invokeCommand("/ptc", rawArgs);
+      }
+    },
     model: async (rawArgs) => {
       if (rawArgs.length === 0) {
         await this.openModelPicker();
@@ -2232,6 +2239,62 @@ export class TerminalShell {
       return;
     }
     this.addTranscriptChild(systemNotice(`/compact needs input: ${outcome.prompt ?? ""}`));
+  }
+
+  /** No-argument /ptc picker; all writes go through the same CommandPort as /ptc on/off. */
+  private async openPtcPicker(): Promise<void> {
+    if (this.operationBusy || this.commandBusy) {
+      this.addTranscriptChild(errorNotice("/ptc requires an idle application"));
+      return;
+    }
+    const lease = this.commandLock.lease("selecting PTC mode");
+    try {
+      const status = parseCommandOutcome(
+        await this.requireApp().invokeCommand("ptc", JSON.stringify({ action: "status" })),
+      );
+      if (status.type !== "success") {
+        this.renderOutcome(status, "/ptc");
+        lease.release();
+        return;
+      }
+      const value = status.structured;
+      const current = value !== null && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, unknown>).mode
+        : undefined;
+      const options = [
+        { value: "on", label: "PTC Only", description: "Use run_code for scoped native tools" },
+        { value: "hybrid", label: "Hybrid", description: "Native tools and run_code (default)" },
+        { value: "off", label: "Direct", description: "Use native tools without run_code" },
+      ];
+      // SelectionDialog starts on its first entry. Put the current mode first
+      // so Enter is a harmless no-op until the user actively chooses another.
+      const items = [
+        ...options.filter(item => item.value === current),
+        ...options.filter(item => item.value !== current),
+      ];
+      this.selectionDialog.open({
+        title: "Select PTC mode",
+        items,
+        onCancel: () => lease.release(),
+        onSelect: (selected) => {
+          void (async () => {
+            try {
+              const outcome = parseCommandOutcome(
+                await this.requireApp().invokeCommand("ptc", JSON.stringify({ action: selected })),
+              );
+              this.renderOutcome(outcome, "/ptc");
+            } catch (error: unknown) {
+              this.addTranscriptChild(errorNotice("/ptc failed: " + errorMessage(error)));
+            } finally {
+              lease.release();
+            }
+          })();
+        },
+      });
+    } catch (error: unknown) {
+      lease.release();
+      this.addTranscriptChild(errorNotice("/ptc failed: " + errorMessage(error)));
+    }
   }
 
   private async openManagerPicker(): Promise<void> {
@@ -3117,7 +3180,7 @@ export class TerminalShell {
         // listing — its output should be shown.
         if (
           outcome.structured !== undefined &&
-          !["/model", "/effort"].includes(command)
+          !["/model", "/effort", "/ptc"].includes(command)
         ) {
           this.addTranscriptChild(systemNotice(formatStructuredOutcome(outcome.structured)));
         }
@@ -3204,6 +3267,7 @@ const LOCAL_SLASH_ROUTES: readonly SlashRoute[] = [
   { id: "compact", description: "Compact this session's context on the server" },
   { id: "model", description: "Select a model and effort in the active manager" },
   { id: "manager", description: "Switch between Providers and Magpie" },
+  { id: "ptc", description: "Select programmatic tool calling mode" },
   { id: "skills", description: "Browse discovered agent skills by scope" },
   { id: "update", description: "Check for updates and install" },
   { id: "pi", description: "Manage pi packages (install/remove/list)" },
