@@ -370,6 +370,38 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
   id,
   args,
 ) {
+  // The user supplies the highest-level goal once. Starting and planning
+  // remain separately confirmed by the existing Board trusted UI.
+  if (id == "workflow" || id == "board.workflow") &&
+    args is { "goal": String(goal), .. } {
+    if goal.trim().is_empty() || goal.length() > 256 {
+      return @posoco.CommandOutcome::Failure(reason="invalid_workflow_goal")
+    }
+    if (self.agents.parent_mode)() == @permission.ReadOnly {
+      return @posoco.CommandOutcome::Failure(reason="approval_denied")
+    }
+    match self.board.start(title=goal) {
+      Err(error) => return @posoco.CommandOutcome::Failure(reason=error.code())
+      Ok(view) => {
+        guard view.run is Some(run) && !run.scope.is_empty() else {
+          return @posoco.CommandOutcome::Failure(reason="workflow_start_missing_scope")
+        }
+        match self.board.propose(parent=run.scope[0], requirements=goal) {
+          Ok(preview) =>
+            return @posoco.CommandOutcome::Success(
+              feedback="Planning complete. Review the graph proposal, then approve graph and execution scope separately using /workflow.",
+              structured=Some(preview),
+              ui_hint=Some(@posoco.UiHint::None),
+            )
+          Err(error) =>
+            return @posoco.CommandOutcome::Failure(
+              reason="workflow_started_planning_failed_" + error.code() +
+              "_inspect_status_no_retry",
+            )
+        }
+      }
+    }
+  }
   if !(args is Object(fields) && fields.is_empty()) {
     return self.board.invoke(id, args)
   }
