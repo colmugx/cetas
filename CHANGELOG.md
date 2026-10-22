@@ -2,6 +2,56 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.10.8 (2026-10-23)
+
+## General
+
+### Feats
+
+- OpenCode Go can now be connected with an OpenCode Console account through a browser device-flow login, so you no longer need to create a personal API key. Console grants refresh automatically, route requests to the correct organization, and work alongside the existing API-key login.
+- OpenCode account credentials now work consistently across the Go and Zen wires, including organization-scoped requests and the correct authentication scheme for each wire.
+
+## Bun Ver.（cetas-bun）
+
+### Feats
+
+- Start a controlled workflow from one high-level goal with `/workflow <goal>`: Cetas runs real planning, shows the proposed task graph, and asks you to approve the graph and execution scope separately. After approval, one action prepares the authorized tasks and runs the next bounded execution wave without silently marking work complete.
+- `/workflow` and `/board` are now normal, discoverable commands even when workflows are disabled. Enabling workflows asks for confirmation and preserves your existing provider and model settings.
+- `/board` opens a token-protected live Kanban on localhost, showing tasks, dependencies, attempts and active agents across seven lanes, with pause, stop and cancel controls. The board shuts down with Cetas.
+- `/ptc` opens an interactive mode picker for PTC Only, Hybrid or Direct, shows the active mode in the status bar, and applies the change from the next turn.
+- Choice-based questions now include an “Other answer” option that opens a free-text field, so you are never trapped between the model’s suggested choices.
+
+### Fixes
+
+- Startup no longer waits for stored MCP OAuth credentials. Token refresh and server probes run in the background, so an expired credential can no longer delay the first turn by up to 30 seconds; MCP tools appear as soon as their probes finish.
+- The protected Node distribution keeps tagged-template syntax intact and falls back safely when Bun’s whitespace pass rejects otherwise valid output, so the packaged CLI no longer ships broken JavaScript.
+- `/workflow <goal>` now forwards the goal correctly, dispatches through the canonical workflow command, reports Board failures as command errors instead of crashing, and closes the local Board server on shutdown.
+- Shell commands now enforce a hard deadline — 5 minutes by default, configurable up to 1 hour — stop the command and its child processes on timeout, and keep streamed output bounded. Hung children and output floods can no longer stall the app or exhaust memory.
+- Model metadata now falls back to an alternate mirror when models.dev is unreachable, so context limits and capabilities still resolve on restricted networks.
+- OpenCode streaming and response errors now name the exact provider plane (Zen or Go), making failures easier to diagnose.
+
+## ACP Ver.（cetas-acp）
+
+### Fixes
+
+- Shell commands now enforce a hard deadline — 5 minutes by default, configurable up to 1 hour — stop the command and its child processes on timeout, and keep streamed output bounded. A stuck command or output flood can no longer stall an ACP session or exhaust memory.
+- Shell output is decoded correctly when a UTF-8 character spans multiple pipe reads, and timeout failures now return a clear diagnostic instead of garbled or truncated output.
+- Model metadata now falls back to an alternate mirror when models.dev is unreachable, so context limits and capabilities still resolve on restricted networks.
+- OpenCode streaming and response errors now name the exact provider plane (Zen or Go), making failures easier to diagnose.
+
+## Run Ver.（cetas-run）
+
+### Feats
+
+- Choice-based questions now include an “Other answer” option that opens a free-text field, so you can answer beyond the model’s suggested choices.
+
+### Fixes
+
+- Shell commands now enforce a hard deadline — 5 minutes by default, configurable up to 1 hour — stop the command and its child processes on timeout, and keep streamed output bounded. A stuck command or output flood can no longer stall a one-shot run or exhaust memory.
+- Shell output is decoded correctly when a UTF-8 character spans multiple pipe reads, and timeout failures now return a clear diagnostic instead of garbled or truncated output.
+- Model metadata now falls back to an alternate mirror when models.dev is unreachable, so context limits and capabilities still resolve on restricted networks.
+- OpenCode streaming and response errors now name the exact provider plane (Zen or Go), making failures easier to diagnose.
+
 ## 0.10.7 (2026-10-22)
 
 ### Added
