@@ -208,7 +208,7 @@ pub impl @posoco.CommandPort for CetasPtcMode with fn invoke(
         structured=Some(self.status_json()),
         ui_hint=None,
       )
-    Some("on") | Some("hybrid") | Some("off") as action => {
+    Some(action) if action == "on" || action == "off" || action == "hybrid" => {
       let next = match action {
         "on" => PtcOnly
         "off" => PtcDirect
