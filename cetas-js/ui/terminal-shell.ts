@@ -12,7 +12,7 @@ import type { Channel, PackageManager } from "../src/app/version.ts";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { enableCetasWorkflows, workflowsEnabled } from "../src/app/workflow-delivery.ts";
-import { openWorkflowBoard } from "./workflow-board-server.ts";
+import { openWorkflowBoard, closeWorkflowBoards } from "./workflow-board-server.ts";
 import { homedir } from "node:os";
 import {
   Container,
@@ -950,6 +950,7 @@ export class TerminalShell {
       this.messageDialog.hide();
       this.selectionDialog.hide();
       try {
+        await closeWorkflowBoards();
         if (this.app !== undefined) await this.app.shutdown();
       } finally {
         this.stopSwarmTicker();
@@ -2044,7 +2045,21 @@ export class TerminalShell {
         this.addTranscriptChild(errorNotice("Workflow goal exceeds 256 characters."));
         return;
       }
-      await this.invokeCommand("/workflow", goal.length ? JSON.stringify({ goal }) : "");
+      if (goal.length > 0) {
+        this.workflowCommandActive = true;
+        this.commandLock.acquire("planning workflow goal");
+        this.editor.disableSubmit = false;
+        try {
+          const outcome = parseCommandOutcome(
+            await this.requireApp().invokeCommand("workflow", JSON.stringify({ goal })),
+          );
+          this.renderOutcome(outcome, "/workflow");
+        } finally {
+          this.commandLock.release();
+        }
+      } else {
+        await this.invokeCommand("/workflow", "");
+      }
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice("/workflow: " + errorMessage(error)));
     }
