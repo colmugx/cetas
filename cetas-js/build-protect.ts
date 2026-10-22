@@ -203,13 +203,22 @@ export function protect(input: string): { code: string; stats: ProtectStats } {
   // astring re-indents; compact again (whitespace only — identifiers keep
   // their stage-0 minified names). The `minify` option exists at runtime
   // (verified) but is missing from this @types/bun revision.
-  const code = new Bun.Transpiler({
-    loader: "js",
-    target: "node",
-    minify: { whitespace: true, identifiers: false, syntax: false },
-  } as ConstructorParameters<typeof Bun.Transpiler>[0]).transformSync(encrypted.code);
-  // Syntax gate: the protected artifact must still parse as ESM.
-  parse(code, PARSE_OPTS);
+  // Bun's whitespace minifier can reject otherwise valid Astring output
+  // (notably computed property + encrypted string lookup combinations).
+  // Keep the encrypted/obfuscated code rather than publishing a broken CLI.
+  // This fallback never skips either protection stage or the final syntax gate.
+  let code: string;
+  try {
+    code = new Bun.Transpiler({
+      loader: "js",
+      target: "node",
+      minify: { whitespace: true, identifiers: false, syntax: false },
+    } as ConstructorParameters<typeof Bun.Transpiler>[0]).transformSync(encrypted.code);
+    parse(code, PARSE_OPTS);
+  } catch {
+    parse(encrypted.code, PARSE_OPTS);
+    code = encrypted.code;
+  }
   return {
     code,
     stats: { profile, bytesIn: Buffer.byteLength(input), bytesOut: Buffer.byteLength(code), msObfuscate, msEncrypt, sites: encrypted.sites, unique: encrypted.unique, skipped: encrypted.skipped },
