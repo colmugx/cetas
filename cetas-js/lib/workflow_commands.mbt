@@ -307,6 +307,7 @@ fn workflow_actions(view : @board.BoardWorkflowView) -> Array[(String, String)] 
                 ("run", "Run next eligible wave — explicit confirmation"),
               )
             }
+            choices.push(("continue", "Continue approved Tasks — prepare and execute one wave"))
             choices.push(("move", "Verify evidence and advance a Task legally"))
             if run.pending_proposal_id is None &&
               run.remaining_expansions > 0 &&
@@ -461,6 +462,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
         workflow_view_outcome(self.board.graph_decision(grant=true))
       "board.workflow.graph.reject" =>
         workflow_view_outcome(self.board.graph_decision(grant=false))
+      "board.workflow.continue" => self.continue_guided()
       "board.workflow.propose" => self.propose_guided()
       "board.workflow.prepare" => self.prepare_guided()
       "board.workflow.move" => self.move_guided()
