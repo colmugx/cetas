@@ -2,6 +2,44 @@
 
 [Configuration](configuration.md) · [Architecture](architecture.md)
 
+## Direct Cetas-JS product entry (final delivery)
+
+The interactive Cetas-JS host now registers `/workflow` and `/board` as
+discoverable **local commands**, even when Board workflows are disabled.
+
+Start with one highest-level goal:
+
+```text
+/workflow Implement the requested feature, add tests, and verify the changes
+```
+
+If the feature is disabled, the terminal offers to enable it while preserving
+your existing model/provider settings. You must explicitly approve that settings
+change; it does not grant tools or execution scope. The host recomposes the
+Agent, then invokes the existing Board workflow service.
+
+The goal is supplied once: Board confirms a bounded workflow start, executes
+a real planning Agent, and returns its proposed DAG. Use `/workflow` to inspect
+and separately approve the graph and its execution scope. Choose **Continue
+approved Tasks** to prepare authorized generated tasks and execute the next
+bounded Agent wave, with the existing host confirmations and permissions.
+The workflow does **not** automatically mark Task Done: verify evidence and
+advance tasks explicitly to unblock dependencies.
+
+`/board` launches a lightweight local Kanban dashboard against the **same
+in-process BoardWorkflows service**. It displays Tasks, dependencies, Attempts
+and actual Agent bindings in seven lanes, refreshes status periodically, and
+has Pause / Stop / Cancel controls. The localhost listener is randomized,
+token-protected and shuts down with the Cetas process. If your desktop has no
+supported browser opener, use a graphical environment; the dashboard is not
+a separate remotely accessible daemon.
+
+The direct command and the browser presentation are currently for **Cetas-JS
+(Node/Bun)**; native/ACP/run hosts are different products. The controlled
+operation preserves durable task state but does not restore in-process
+execution authority after restart.
+
+
 Board workflows are an **opt-in cetas-js feature**. They use Posoco Board's
 existing dynamic controller, parallel runner and owned Posoco Agents. They are
 not another Cetas scheduler, a `/plan` mode, or an automatic recursive agent.
@@ -38,8 +76,8 @@ retaining your existing provider settings, then restart cetas-js:
 }
 ```
 
-An absent section means disabled: no Board runtime, lock or commands are
-composed. Unknown fields and invalid budgets are configuration errors, even
+An absent section means disabled: no Board runtime or journal is composed.
+The Cetas-JS product entrance commands remain visible and offer explicit enablement. Unknown fields and invalid budgets are configuration errors, even
 when disabled. Execution count is 1–1000, concurrency 1–8, elapsed duration
 1–86400000 ms, execution timeout positive and no greater than elapsed duration,
 expansions 1–16, generated tasks 1–200, and graph depth 2–16. The initial values
@@ -61,7 +99,7 @@ model; afterwards it shows the pinned one.
 
 ## The state-aware /workflow menu
 
-`/workflow` (command id `board.workflow`) opens the product overview instead of
+`/workflow` (canonical command id `workflow`, routed to `board.workflow`) opens the product overview instead of
 Board's plain picker. Opening it is a read-only act: it fetches one fresh
 authoritative view and renders a readable summary — goal, phase, active
 Agents, remaining execution/expansion/time budgets, blocked Tasks, Board
