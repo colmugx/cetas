@@ -35,25 +35,26 @@ impl @posoco.Lifecycle for CetasWorkflowCommands with fn on_shutdown(_) {
 
 ///|
 impl @posoco.CommandPort for CetasWorkflowCommands with fn commands(self) {
-  let definitions = self.board.commands().map(def => {
-    if def.id == "board.workflow" {
-      {
-        ..def,
-        label: "Workflow — goal, approvals and progress",
-        description: "Open the workflow overview and guided next steps",
+  let definitions = self.board
+    .commands()
+    .map(def => {
+      if def.id == "board.workflow" {
+        {
+          ..def,
+          label: "Workflow — goal, approvals and progress",
+          description: "Open the workflow overview and guided next steps",
+        }
+      } else {
+        def
       }
-    } else {
-      def
-    }
-  })
+    })
   // Posoco routes by canonical command id, not by CommandDef aliases.
   // The literal /workflow command therefore needs its own registered id.
-  let entry = definitions.iter().find_first(def => def.id == "board.workflow").unwrap()
-  definitions.push({
-    ..entry,
-    id: "workflow",
-    aliases: [],
-  })
+  let entry = definitions
+    .iter()
+    .find_first(def => def.id == "board.workflow")
+    .unwrap()
+  definitions.push({ ..entry, id: "workflow", aliases: [], })
   definitions
 }
 
@@ -307,7 +308,11 @@ fn workflow_actions(view : @board.BoardWorkflowView) -> Array[(String, String)] 
                 ("run", "Run next eligible wave — explicit confirmation"),
               )
             }
-            choices.push(("continue", "Continue approved Tasks — prepare and execute one wave"))
+            choices.push(
+              (
+                "continue", "Continue approved Tasks — prepare and execute one wave",
+              ),
+            )
             choices.push(("move", "Verify evidence and advance a Task legally"))
             if run.pending_proposal_id is None &&
               run.remaining_expansions > 0 &&
@@ -389,16 +394,27 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
       return @posoco.CommandOutcome::Failure(reason="approval_denied")
     }
     let started = self.board.start(title=goal) catch {
-      _ => return @posoco.CommandOutcome::Failure(reason="workflow_start_failed_inspect_status")
+      _ =>
+        return @posoco.CommandOutcome::Failure(
+          reason="workflow_start_failed_inspect_status",
+        )
     }
     match started {
       Err(error) => return @posoco.CommandOutcome::Failure(reason=error.code())
       Ok(view) => {
         guard view.run is Some(run) && !run.scope.is_empty() else {
-          return @posoco.CommandOutcome::Failure(reason="workflow_start_missing_scope")
+          return @posoco.CommandOutcome::Failure(
+            reason="workflow_start_missing_scope",
+          )
         }
-        let proposed = self.board.propose(parent=run.scope[0], requirements=goal) catch {
-          _ => return @posoco.CommandOutcome::Failure(reason="planning_failed_inspect_status_no_retry")
+        let proposed = self.board.propose(
+          parent=run.scope[0],
+          requirements=goal,
+        ) catch {
+          _ =>
+            return @posoco.CommandOutcome::Failure(
+              reason="planning_failed_inspect_status_no_retry",
+            )
         }
         match proposed {
           Ok(preview) =>
@@ -409,8 +425,9 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
             )
           Err(error) =>
             return @posoco.CommandOutcome::Failure(
-              reason="workflow_started_planning_failed_" + error.code() +
-              "_inspect_status_no_retry",
+              reason="workflow_started_planning_failed_" +
+                error.code() +
+                "_inspect_status_no_retry",
             )
         }
       }
