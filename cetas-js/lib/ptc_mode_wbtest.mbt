@@ -12,7 +12,7 @@ impl @devkit.BusSubscriber for PtcStatusCapture with fn on_bus_event(
 }
 
 ///|
-test "ptc mode command, revisions and model tool visibility" {
+async test "ptc mode command, revisions and model tool visibility" {
   let mode = CetasPtcMode(nested_names=["read", "grep", "bash"])
   assert_eq(mode.mode(), PtcHybrid)
   assert_eq(mode.revision(), 0)
