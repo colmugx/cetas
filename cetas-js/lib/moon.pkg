@@ -15,7 +15,7 @@ import {
   "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-ratelimit" @ratelimit,
   "colmugx/posoco-ext-workspace" @workspace,
-  "moonbitlang/core/debug" @debug,
+  "moonbitlang/core/debug",
   "moonbitlang/async",
   "moonbitlang/async/aqueue",
   "moonbitlang/async/js_async",
