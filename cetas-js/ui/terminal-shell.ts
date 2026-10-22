@@ -11,6 +11,8 @@ import chalk from "chalk";
 import type { Channel, PackageManager } from "../src/app/version.ts";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { enableCetasWorkflows, workflowsEnabled } from "../src/app/workflow-delivery.ts";
+import { openWorkflowBoard } from "./workflow-board-server.ts";
 import { homedir } from "node:os";
 import {
   Container,
@@ -2006,7 +2008,57 @@ export class TerminalShell {
     status: (rawArgs) => this.runStatusCommand(rawArgs),
     pi: (rawArgs) => this.runPiCommand(rawArgs),
     goal: (rawArgs) => this.runGoalCommand(rawArgs),
+    workflow: (rawArgs) => this.runWorkflowEntrance(rawArgs),
+    board: () => this.runBoardEntrance(),
   };
+
+  /** Stable product commands even when the optional extension is disabled. */
+  private async ensureWorkflows(): Promise<boolean> {
+    if (await workflowsEnabled(this.home)) return true;
+    if (this.operationBusy || this.commandBusy) {
+      this.addTranscriptChild(errorNotice("Finish the current operation before enabling workflows."));
+      return false;
+    }
+    const choice = await this.authPromptOverlay.request({
+      type: "select", message: "Workflows are disabled. Enable the local Board workflow feature?",
+      options: [
+        { id: "enable", label: "Enable workflows", description: "Keeps provider settings; does not authorize execution" },
+        { id: "cancel", label: "Not now", description: "No settings change" },
+      ],
+    });
+    if (choice !== "enable") return false;
+    await enableCetasWorkflows(this.home);
+    const status = await this.requireApp().refreshSetup();
+    if (status.state !== "ready") {
+      this.addTranscriptChild(errorNotice("Workflows enabled; configure a provider with /model or restart to compose."));
+      return false;
+    }
+    return true;
+  }
+
+  private async runWorkflowEntrance(rawArgs: string): Promise<void> {
+    try {
+      if (!(await this.ensureWorkflows())) return;
+      const goal = rawArgs.trim();
+      if (goal.length > 256) {
+        this.addTranscriptChild(errorNotice("Workflow goal exceeds 256 characters."));
+        return;
+      }
+      await this.invokeCommand("/workflow", goal.length ? JSON.stringify({ goal }) : "");
+    } catch (error: unknown) {
+      this.addTranscriptChild(errorNotice("/workflow: " + errorMessage(error)));
+    }
+  }
+
+  private async runBoardEntrance(): Promise<void> {
+    try {
+      if (!(await this.ensureWorkflows())) return;
+      const address = await openWorkflowBoard(this.requireApp());
+      this.addTranscriptChild(systemNotice("Board opened: " + address));
+    } catch (error: unknown) {
+      this.addTranscriptChild(errorNotice("/board: " + errorMessage(error)));
+    }
+  }
 
   /** /goal <objective> | status | pause | resume — one controlled goal run. */
   private async runGoalCommand(rawArgs: string): Promise<void> {
@@ -3141,6 +3193,8 @@ const LOCAL_SLASH_ROUTES: readonly SlashRoute[] = [
   { id: "update", description: "Check for updates and install" },
   { id: "pi", description: "Manage pi packages (install/remove/list)" },
   { id: "goal", description: "Start, inspect, pause or resume a verified goal" },
+  { id: "workflow", description: "Start from one highest-level goal or manage work" },
+  { id: "board", description: "Open the live localhost Kanban dashboard" },
   { id: "login", description: "Authenticate with a provider or configure Magpie Gateway" },
   { id: "quota", description: "Show available quota information for the active manager" },
   { id: "status", description: "Show Agent, session, model and manager status" },
