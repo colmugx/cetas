@@ -2,6 +2,11 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.10.7 (2026-10-22)
+
+### Added
+- [cetas-js] feat(cetas-js): register shared renderer for bash and powershell (8464e36)
+
 ## 0.10.6 (2026-10-21)
 
 ## Bun Ver.（cetas-bun）
