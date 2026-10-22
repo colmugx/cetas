@@ -111,12 +111,37 @@ describe("local slash autocomplete", () => {
     expect(labels).toContain("/quota");
     expect(labels).toContain("/status");
     expect(labels).toContain("/goal");
+    expect(labels).toContain("/ptc");
     expect(new Set(labels).size).toBe(labels.length);
     for (const item of items) {
       expect(matchLocalSlash(item.label)).toBeDefined();
       expect(item.detail.length).toBeGreaterThan(0);
       expect(item.insert_text).toBe(item.label);
     }
+  });
+
+  test("/ptc choices are completed from the extension's declared action choices", () => {
+    const { shell } = makeShell();
+    (shell as any).attachApplication({
+      listCommands: () => [{
+        id: "ptc",
+        label: "PTC Mode",
+        description: "Select PTC mode",
+        category: "ptc",
+        ctype: "select",
+        params: [{
+          name: "action", label: "Mode", description: "PTC mode",
+          ptype: "str", required: false, positional: true,
+          choices: ["on", "hybrid", "off", "status"],
+        }],
+        aliases: [], visible: true,
+      }],
+    } as never);
+    expect((shell as any).commandArgItems("ptc", "o").map((item: { label: string }) => item.label))
+      .toEqual(["on", "off"]);
+    expect((shell as any).commandArgItems("ptc", "hy")).toEqual([
+      { label: "hybrid", detail: "ptc action — PTC mode", insert_text: "/ptc hybrid" },
+    ]);
   });
 
   test("quota refresh is offered without relying on extension commands", () => {
@@ -137,6 +162,7 @@ describe("matchLocalSlash", () => {
   test("/model is a local route; arg logic stays in the handler", () => {
     expect(matchLocalSlash("/model")?.id).toBe("model");
     expect(matchLocalSlash("/manager")?.id).toBe("manager");
+    expect(matchLocalSlash("/ptc")?.id).toBe("ptc");
     expect(matchLocalSlash("/quota")?.id).toBe("quota");
     expect(matchLocalSlash("/status")?.id).toBe("status");
     expect(matchLocalSlash("/skills")?.id).toBe("skills");

@@ -1519,11 +1519,12 @@ priv struct CetasLayeredCatalogSource {
   base_tools : Array[@posoco.ToolDef]
   mcp : @mcp.McpCatalogSource
   pi : @pi.PiCatalogSource
+  ptc_mode : CetasPtcMode
 }
 
 ///|
 impl @runtime.CatalogSource for CetasLayeredCatalogSource with fn revision(self) -> Int32 {
-  self.mcp.revision() + self.pi.revision()
+  self.mcp.revision() + self.pi.revision() + self.ptc_mode.revision()
 }
 
 ///|
@@ -1551,7 +1552,9 @@ impl @runtime.CatalogSource for CetasLayeredCatalogSource with fn tools(self) ->
       defs.push(tool)
     }
   }
-  defs
+  // Only the model-facing catalog changes: PTC's scoped nested providers
+  // stay installed and all leaf calls keep their original policy gates.
+  defs.filter(fn(def) { self.ptc_mode.model_sees(def.name.to_string()) })
 }
 
 ///|
@@ -2030,6 +2033,18 @@ pub fn cetas_js_runtime_create_agent(
               bus=event_bus,
               home=runtime.config.home,
             )
+            let nested_names = ptc_providers
+              .iter()
+              .flat_map(fn(provider) {
+                provider.list_tools().iter().map(fn(def) {
+                  def.name.to_string()
+                })
+              })
+              .collect()
+            let ptc_mode = CetasPtcMode(
+              bus=Some(event_bus),
+              nested_names~,
+            )
             let pi_runtime = @pi.PiRuntime(
               adaptor=pi,
               fallback=ptc_runtime as &@runtime.Runtime,
@@ -2039,10 +2054,12 @@ pub fn cetas_js_runtime_create_agent(
               base_defs.append(provider.list_tools())
             }
             exts.push(ptc_extension)
+            exts.push(ptc_mode as &@posoco.Extension)
             let catalog_source = CetasLayeredCatalogSource::{
               base_tools: base_defs,
               mcp: @mcp.McpCatalogSource(bridge=mcp_bridge),
               pi: @pi.PiCatalogSource(adaptor=pi),
+              ptc_mode,
             }
             let agent = @posoco.Agent::with_runtime(
               exts~,
