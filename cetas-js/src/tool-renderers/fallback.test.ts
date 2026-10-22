@@ -6,7 +6,7 @@ import {
   type ToolRenderResultPayload,
 } from "./registry.ts";
 import { fallbackRenderer } from "./fallback.ts";
-import { bashRenderer } from "./bash.ts";
+import { shellRenderer } from "./shell.ts";
 import { pickToolRenderer } from "./registry.ts";
 
 const ANSI = /\x1b\[[0-9;]*m/g;
@@ -124,14 +124,14 @@ describe("expanded flag reaches the other renderers", () => {
   test("bash: full multiline stdout when expanded, first line when not", () => {
     const ctx = makeCtx({ toolName: "bash", toolLabel: "bash", args: { cmd: "ls" } });
     const result: ToolRenderResultPayload = { content: "a\nb\nc\nd", isError: false };
-    const collapsed = bashRenderer.renderResult?.(
+    const collapsed = shellRenderer.renderResult?.(
       result,
       { expanded: false, isPartial: false },
       ctx,
     )?.render(80).map((l) => strip(l).trim()) ?? [];
     expect(collapsed).not.toContain("b");
 
-    const expanded = bashRenderer.renderResult?.(
+    const expanded = shellRenderer.renderResult?.(
       result,
       { expanded: true, isPartial: false },
       ctx,
@@ -158,5 +158,49 @@ describe("expanded flag reaches the other renderers", () => {
     )?.render(80).map((l) => strip(l).trim()) ?? [];
     expect(expanded).toContain("w1"); // newlines survive expansion
     expect(expanded).toContain("w4");
+  });
+});
+
+describe("shared shell renderer — Ran labels and commands", () => {
+  for (const [name, label, prompt] of [
+    ["bash", "Ran(bash)", "$"],
+    ["powershell", "Ran(ps1)", "PS>"],
+  ] as const) {
+    test(`${name}: renders command while running and after completion`, () => {
+      const ctx = makeCtx({
+        toolName: name,
+        toolLabel: name === "powershell" ? "ps1:powershell" : "bash",
+        args: { cmd: "echo hello" },
+      });
+      const running = shellRenderer.renderCall?.(ctx)?.render(80).map(strip).join("\n") ?? "";
+      expect(running).toContain(`${label} ${prompt} echo hello`);
+      const finished = shellRenderer.renderResult?.(
+        { content: "hello", isError: false },
+        { expanded: false, isPartial: false },
+        ctx,
+      )?.render(80).map(strip).join("\n") ?? "";
+      expect(finished).toContain(`${label} ${prompt} echo hello`);
+      expect(finished).toContain("hello");
+    });
+
+    test(`${name}: legacy command key and errors retain command`, () => {
+      const ctx = makeCtx({
+        toolName: name,
+        args: { command: "exit 2" },
+        isError: true,
+      });
+      const finished = shellRenderer.renderResult?.(
+        { content: "exit=2\nfailed", isError: true },
+        { expanded: false, isPartial: false },
+        ctx,
+      )?.render(80).map(strip).join("\n") ?? "";
+      expect(finished).toContain(`${label} ${prompt} exit 2`);
+      expect(finished).toContain("exit=2");
+    });
+  }
+
+  test("tool dispatcher uses the same renderer for both shells", () => {
+    expect(pickToolRenderer("bash")).toBe(shellRenderer);
+    expect(pickToolRenderer("powershell")).toBe(shellRenderer);
   });
 });
