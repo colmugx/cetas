@@ -111,30 +111,32 @@ describe("cetas_js_rewind wire format", () => {
         const sessionPath = join(sessionsDir, "rewind-session.jsonl");
         const before = jsonlLines(await Bun.file(sessionPath).text());
         // Persisted layout: line 0 metadata, then one line per message. The
-        // permission policy injects its <permission-context> mode reminder
-        // only in ReadOnly mode, so workspace_write turns persist:
-        // metadata | system | user1 | assistant1 | user2 | assistant2.
-        expect(before).toHaveLength(6);
+        // workspace_write has no permission reminder, but the PTC mode
+        // hook persists one <ptc-context> reminder. It is updated in place
+        // on later turns, so there is only one PTC context message:
+        // metadata | system | user1 | ptc-context | assistant1 | user2 | assistant2.
+        expect(before).toHaveLength(7);
         // Line 0 is the metadata record; posoco core persists its projected
         // context state there since 0.15.0.
         const metadata = JSON.parse(before[0]!) as Record<string, unknown>;
         expect(Object.hasOwn(metadata, "posoco.context_state")).toBe(true);
         expect(before[1]).toContain("\"role\":\"system\"");
         expect(before[2]).toContain("first question");
-        expect(before[3]).toContain("first reply");
-        expect(before[4]).toContain("follow-up");
-        expect(before[5]).toContain("second reply");
+        expect(before[3]).toContain("ptc-context");
+        expect(before[4]).toContain("first reply");
+        expect(before[5]).toContain("follow-up");
+        expect(before[6]).toContain("second reply");
 
-        // Rewind past the second exchange: keep messages [0, 3) =
-        // system + first question + first reply.
-        const rewound = await cetas_js_rewind(agent, "rewind-session", 3);
+        // Rewind past the second exchange: keep messages [0, 4) =
+        // system + first question + PTC context + first reply.
+        const rewound = await cetas_js_rewind(agent, "rewind-session", 4);
         expect(JSON.parse(rewound)).toMatchObject({ ok: true });
 
         const afterText = await Bun.file(sessionPath).text();
         const after = jsonlLines(afterText);
-        expect(after).toHaveLength(4);
+        expect(after).toHaveLength(5);
         // Byte-for-byte: kept lines are the original prefix, nothing else.
-        expect(afterText).toBe(`${before.slice(0, 4).join("\n")}\n`);
+        expect(afterText).toBe(`${before.slice(0, 5).join("\n")}\n`);
 
         // An out-of-range index clamps to the message count: a full rewrite
         // that still reproduces every line byte-for-byte.
@@ -142,7 +144,7 @@ describe("cetas_js_rewind wire format", () => {
         expect(JSON.parse(clamped)).toMatchObject({ ok: true });
         const afterClampText = await Bun.file(sessionPath).text();
         expect(afterClampText).toBe(afterText);
-        expect(jsonlLines(afterClampText)).toHaveLength(4);
+        expect(jsonlLines(afterClampText)).toHaveLength(5);
 
         // Storage-level failures ride the JSON envelope, not a rejection.
         const invalid = await cetas_js_rewind(agent, "..", 0);
