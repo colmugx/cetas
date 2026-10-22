@@ -35,19 +35,26 @@ impl @posoco.Lifecycle for CetasWorkflowCommands with fn on_shutdown(_) {
 
 ///|
 impl @posoco.CommandPort for CetasWorkflowCommands with fn commands(self) {
-  self.board
-  .commands()
-  .map(def => {
+  let definitions = self.board.commands().map(def => {
     if def.id == "board.workflow" {
       {
         ..def,
         label: "Workflow — goal, approvals and progress",
-        description: "Open the opt-in workflow overview and guided next steps; opening does not mutate Board state",
+        description: "Open the workflow overview and guided next steps",
       }
     } else {
       def
     }
   })
+  // Posoco routes by canonical command id, not by CommandDef aliases.
+  // The literal /workflow command therefore needs its own registered id.
+  let entry = definitions.iter().find_first(def => def.id == "board.workflow").unwrap()
+  definitions.push({
+    ..entry,
+    id: "workflow",
+    aliases: [],
+  })
+  definitions
 }
 
 ///|
