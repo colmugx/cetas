@@ -116,10 +116,7 @@ pub fn CetasPtcMode::model_sees(
 ///|
 /// Idempotent mode changes only produce an event and catalog revision when
 /// the effective mode actually changes.
-pub fn CetasPtcMode::set(
-  self : CetasPtcMode,
-  next : CetasPtcStatus,
-) -> Unit {
+pub fn CetasPtcMode::set(self : CetasPtcMode, next : CetasPtcStatus) -> Unit {
   if self.current_ != next {
     self.current_ = next
     self.revision_ += 1
@@ -134,11 +131,7 @@ pub impl @posoco.Extension for CetasPtcMode with fn extension_id(_self) -> Strin
 
 ///|
 pub impl @posoco.Extension for CetasPtcMode with fn manifest(self) -> @posoco.ExtensionManifest {
-  @posoco.ExtensionManifest(
-    id="cetas_ptc_mode",
-    commands=[self],
-    hooks=[self],
-  )
+  @posoco.ExtensionManifest(id="cetas_ptc_mode", commands=[self], hooks=[self])
 }
 
 ///|
@@ -229,7 +222,9 @@ pub impl @posoco.CommandPort for CetasPtcMode with fn invoke(
     }
     Some(other) =>
       @posoco.CommandOutcome::Failure(
-        reason="unknown PTC mode '" + other + "' (expected on/hybrid/off/status)",
+        reason="unknown PTC mode '" +
+          other +
+          "' (expected on/hybrid/off/status)",
       )
   }
 }
@@ -262,15 +257,17 @@ pub impl @posoco.PipelineHook for CetasPtcMode with fn before_model(
   for index, message in messages {
     match message {
       @posoco.Message::UserMessage(content=blocks) =>
-        if blocks.iter().any(fn(block) {
-          match block {
-            @posoco.Content::Text(value) => value.has_prefix("<ptc-context")
-            _ => false
-          }
-        }) {
-          messages[index] = @posoco.Message::UserMessage(
-            content=[@posoco.Content::Text(content)],
-          )
+        if blocks
+          .iter()
+          .any(fn(block) {
+            match block {
+              @posoco.Content::Text(value) => value.has_prefix("<ptc-context")
+              _ => false
+            }
+          }) {
+          messages[index] = @posoco.Message::UserMessage(content=[
+            @posoco.Content::Text(content),
+          ])
           return messages
         }
       _ => ()
