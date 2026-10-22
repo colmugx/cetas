@@ -84,6 +84,12 @@ jobs:
         working-directory: posoco/external/cetas
         run: moon test --target native --output-json
 
+      # Node 24 is Active LTS; pin it before all JS/Node distribution tests.
+      - name: Setup Node LTS for cetas-js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
 
@@ -100,11 +106,6 @@ jobs:
       - name: cetas-js test suite
         working-directory: posoco/external/cetas/cetas-js
         run: bun test --preload ./moonbit-preload.ts
-
-      - name: Setup Node for cetas-web
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
 
       - name: cetas-web typecheck + build
         working-directory: posoco/external/cetas/cetas-web/web
