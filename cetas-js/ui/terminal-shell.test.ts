@@ -1423,3 +1423,13 @@ describe("Gate 3 full-screen virtual transcript integration", () => {
     expect(doc.stats.totalItems).toBe(0);
   });
 });
+
+describe("final product command discovery", () => {
+  test("workflow and board are visible before Agent composition", () => {
+    const names = localSlashAutocompleteItems().map(entry => entry.label);
+    expect(names).toContain("/workflow");
+    expect(names).toContain("/board");
+    expect(matchLocalSlash("/workflow")?.id).toBe("workflow");
+    expect(matchLocalSlash("/board")?.id).toBe("board");
+  });
+});
