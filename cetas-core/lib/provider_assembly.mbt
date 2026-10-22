@@ -154,7 +154,12 @@ pub fn oauth_factories(
 ) -> Array[&@llm.OAuthFactory] {
   let kimi = @kimi.KimiProvider(ctx~, device_id~)
   let openai = @openai.OpenAIProvider()
-  [kimi as &@llm.OAuthFactory, openai as &@llm.OAuthFactory]
+  let opencode_go = @opencode_go.OpenCodeGoProvider(ctx~)
+  [
+    kimi as &@llm.OAuthFactory,
+    openai as &@llm.OAuthFactory,
+    opencode_go as &@llm.OAuthFactory,
+  ]
 }
 
 ///|

@@ -356,6 +356,7 @@ async fn build_provider_router(
   observer : &@posoco.Observer,
   bus~ : @devkit.EventBus? = None,
   extra_quota_sources~ : Map[String, &@devkit.QuotaSource] = Map::from_array([]),
+  background~ : @async.TaskGroup[Unit]? = None,
 ) -> @llm.RouterModelPort raise @posoco.CompositionError {
   let catalogs = cached_provider_catalogs(runtime)
   if catalogs.is_empty() {
@@ -407,6 +408,10 @@ async fn build_provider_router(
     auth_prompt=Some(auth as &@oauth.AuthPromptInteraction),
     extra_quota_sources~,
   )
+  match background {
+    Some(group) => router.attach_background(group)
+    None => ()
+  }
   match selection {
     Some({ effort: Some(effort), .. }) =>
       if restore is @cetas_core.Selected(slot~) {

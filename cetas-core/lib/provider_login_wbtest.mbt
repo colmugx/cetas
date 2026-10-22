@@ -64,10 +64,11 @@ test "factory registry exposes the eight registered providers in order" {
 test "oauth factory registry carries device_id through to kimi" {
   let ctx = @devkit.ExtContext::default()
   let factories = oauth_factories(ctx, device_id="test-device-id")
-  // Only kimi and openai expose OAuth.
-  assert_eq(factories.length(), 2)
+  // Kimi, OpenAI/Codex, and OpenCode Go expose OAuth.
+  assert_eq(factories.length(), 3)
   assert_eq(factories[0].provider_id(), "kimi")
   assert_eq(factories[1].provider_id(), "openai")
+  assert_eq(factories[2].provider_id(), "opencode-go")
 }
 
 ///|

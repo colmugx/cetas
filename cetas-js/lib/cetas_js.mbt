@@ -1626,6 +1626,7 @@ pub fn cetas_js_runtime_create_agent(
                   extra_quota_sources=Map::from_array([
                     ("openai", codex_quota_borrowed),
                   ]),
+                  background=Some(group),
                 )
                 Providers(router)
               }
@@ -1946,15 +1947,20 @@ pub fn cetas_js_runtime_create_agent(
             // access tokens before the probes connect. Best-effort per server
             // (see mcp_inject_stored_tokens) — one unreadable record or a dead
             // authorization server degrades to the 401 shown by `/mcp`, never a
-            // failed composition.
-            mcp_inject_stored_tokens(
-              mcp_bridge,
-              mcp_credential_store(context_fs, runtime.config.home),
-              @oauth.DefaultOAuthHttpTransport::DefaultOAuthHttpTransport(),
-              // @async.now() is epoch milliseconds; OAuth wants epoch seconds.
-              (@async.now() / 1000L).to_int(),
-            )
-            mcp_bridge.start_probes()
+            // failed composition. The whole sequence rides a background task:
+            // a dead token endpoint must not hold composition (up to 30s per
+            // expired credential); MCP tools are not needed for the first
+            // turn, and the layered catalog picks them up when probes land.
+            group.spawn_bg(() => {
+              mcp_inject_stored_tokens(
+                mcp_bridge,
+                mcp_credential_store(context_fs, runtime.config.home),
+                @oauth.DefaultOAuthHttpTransport::DefaultOAuthHttpTransport(),
+                // @async.now() is epoch milliseconds; OAuth wants epoch seconds.
+                (@async.now() / 1000L).to_int(),
+              )
+              mcp_bridge.start_probes()
+            })
             let routing : Map[String, &@posoco.ToolProvider] = Map::from_array([])
             let base_defs : Array[@posoco.ToolDef] = []
             for ext in exts {
