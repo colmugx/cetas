@@ -1,6 +1,6 @@
 name = "colmugx/cetas-run"
 
-version = "0.10.8"
+version = "0.10.9"
 
 readme = "README.mbt.md"
 

@@ -1,6 +1,6 @@
 name = "colmugx/cetas-native"
 
-version = "0.10.8"
+version = "0.10.9"
 
 readme = "README.md"
 

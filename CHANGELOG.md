@@ -2,6 +2,23 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.10.9 (2026-10-23)
+
+## Bun Ver.（cetas-bun）
+
+### Feats
+
+- Board tickets can now be executed: start a Ready ticket from the Board and Cetas runs it as a background worker, moves it through Running to In review, and files the outcome in the Board Inbox. One action starts the next Ready ticket, and finished results can be dismissed once handled.
+- Pending questions can be answered with the new `/questions` command and `/answer`: both open the same reply panel used for live asks, with the correct input, confirm, or option controls. `/board stop` closes all local Board servers.
+- Background shell sessions are now available: a long-running command can be started with `bash` in the background and checked, waited on, or stopped with `bash_status`, `bash_wait`, and `bash_kill` instead of blocking the turn.
+- PTC `run_code` now accepts a complete `.mbtx` program through `source` — including imports and `main` — in addition to the inline handler body, and gives a clear correction when both are supplied or when a function signature is sent as inline code.
+
+### Fixes
+
+- `/board` now serves the full interactive Board app from the Bun build instead of the earlier minimal snapshot page, so the same Kanban, ticket inbox, and ticket controls work in packaged installs.
+- OpenCode Zen responses that send explicit null `tool_calls` or null reasoning fields no longer fail with a response parse error; null is treated as an absent field and the normal fallback still applies.
+- The PTC status segment now shows `Hybrid` instead of `PTC: Hybrid`, matching the other mode labels.
+
 ## 0.10.8 (2026-10-23)
 
 ## General
