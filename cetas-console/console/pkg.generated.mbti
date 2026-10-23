@@ -59,6 +59,7 @@ pub async fn ConsoleRuntime::sessions_json(Self) -> Json
 pub fn ConsoleRuntime::set_permission(Self, String) -> Result[Unit, String]
 pub async fn ConsoleRuntime::shutdown_all(Self) -> Unit
 pub async fn ConsoleRuntime::skills_json(Self) -> Json
+pub fn ConsoleRuntime::spawn_background(Self, async () -> Unit) -> Unit
 pub async fn ConsoleRuntime::start_turn(Self, String, String?) -> Result[String, String] noraise
 pub async fn ConsoleRuntime::switch_model(Self, String, String?) -> Result[Unit, String] noraise
 pub async fn ConsoleRuntime::switch_session(Self, String) -> Result[String, String] noraise
