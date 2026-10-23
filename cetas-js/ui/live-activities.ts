@@ -6,11 +6,12 @@
  */
 import { type Component, truncateToWidth } from "@earendil-works/pi-tui";
 import type { SubagentActivity } from "../src/controllers/subagent-activity.ts";
+import type { BoardActivity } from "../src/controllers/board-activity.ts";
 import type { WakeupTicket } from "../src/controllers/wakeup-activity.ts";
 import { formatSubagentElapsed, subagentPhase } from "./subagent-header.ts";
 import { theme } from "./theme.ts";
 
-export type LiveActivityRole = "agent" | "question" | "user-question" | "wakeup" | "coordination" | "waiting" | "muted";
+export type LiveActivityRole = "agent" | "board" | "question" | "user-question" | "wakeup" | "coordination" | "waiting" | "muted";
 export type LiveActivityStyle = (role: LiveActivityRole, text: string) => string;
 
 /**
@@ -29,6 +30,7 @@ export interface PendingUserQuestion {
 
 export interface LiveActivitiesSource {
   readonly records: readonly SubagentActivity[];
+  readonly boardActivities?: readonly BoardActivity[];
   readonly wakeups: readonly WakeupTicket[];
   readonly resultsWaiting: number;
   readonly activeDecisions: number;
@@ -96,6 +98,19 @@ export function projectLiveActivities(source: LiveActivitiesSource): LiveActivit
       label: `⚡ subagent(${record.display_name}) · ${record.kind} ${formatSubagentElapsed(record.started_at, source.now)} · ${subagentPhase(record)}`,
     });
   }
+  for (const activity of source.boardActivities ?? []) {
+    const phase = activity.phase === "shape" ? "shaping" : "working";
+    const task = activity.task_id.length > 12
+      ? "…" + activity.task_id.slice(-8)
+      : activity.task_id;
+    const doing = activity.current_tool ?? activity.last_activity ??
+      (activity.preview.length > 0 ? questionPreview(activity.preview) : "thinking");
+    all.push({
+      key: `board:${activity.key}`,
+      role: "board",
+      label: `◆ board(${phase} ${task}) · ${activity.steps} step${activity.steps === 1 ? "" : "s"} ${formatSubagentElapsed(activity.started_at, source.now)} · ${doing}`,
+    });
+  }
   if (source.resultsWaiting > 0) {
     all.push({
       key: "background-results",
@@ -136,6 +151,7 @@ export const defaultActivityStyle: LiveActivityStyle = (role, text) => {
     case "question":
     case "user-question": return theme.warning(text);
     case "agent": return theme.accent(text);
+    case "board": return theme.info(text);
     case "wakeup": return theme.info(text);
     case "coordination": return theme.info(text);
     case "waiting": return theme.success(text);

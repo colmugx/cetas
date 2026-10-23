@@ -101,6 +101,7 @@ afterEach(async () => {
 test("serves the same Rabbita app and bridges the Board wire protocol", async () => {
   let opened = "";
   const activities: string[] = [];
+  const states: unknown[] = [];
   const app = mockApp();
   const base = await openWorkflowBoard(app, {
     onOpen: (url) => {
@@ -108,6 +109,9 @@ test("serves the same Rabbita app and bridges the Board wire protocol", async ()
     },
     onTicketActivity: (text) => {
       activities.push(text);
+    },
+    onTicketState: (state) => {
+      states.push(state);
     },
   });
 
@@ -154,6 +158,7 @@ test("serves the same Rabbita app and bridges the Board wire protocol", async ()
   expect(
     activities.some((text) => text.includes("Worker needs your answer")),
   ).toBe(true);
+  expect(states.length).toBeGreaterThan(0);
 
   socket.send(
     JSON.stringify({

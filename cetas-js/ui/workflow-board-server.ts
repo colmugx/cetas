@@ -176,6 +176,8 @@ export interface WorkflowBoardOptions {
   onOpen?: (url: string) => void;
   /** One concise line for the host transcript when ticket work changes. */
   onTicketActivity?: (text: string) => void;
+  /** Latest structured ticket state, for the host's live Activities header. */
+  onTicketState?: (state: unknown) => void;
 }
 
 export async function openWorkflowBoard(
@@ -287,6 +289,7 @@ export async function openWorkflowBoard(
     const structured = await invokeStructured(app, "board.ticket.state", {});
     const ticketState = JSON.stringify(structured);
     observeTicketState(ticketState);
+    options?.onTicketState?.(structured);
     return ticketState;
   }
 

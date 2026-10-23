@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { SubagentActivity } from "../src/controllers/subagent-activity.ts";
+import type { BoardActivity } from "../src/controllers/board-activity.ts";
 import { projectLiveActivities, questionPreview, renderLiveActivities, type LiveActivitiesSource } from "./live-activities.ts";
 
 function agent(extra: Partial<SubagentActivity> = {}): SubagentActivity {
@@ -60,8 +61,29 @@ describe("Live Activities replacement header", () => {
       expect(lines.every(line=>visibleWidth(line)<=width)).toBe(true);
     }
   });
-  test("a parked human question outranks agent rows and uses its short id", () => {
-    const src: LiveActivitiesSource = {
+  test("a running Board ticket shows its live phase in the Activities header", () => {
+    const board: BoardActivity = {
+      key: "task-123456789:shape",
+      task_id: "task-123456789",
+      phase: "shape",
+      status: "running",
+      steps: 3,
+      current_tool: "read",
+      preview: "Looking at the ticket flow",
+      reasoning: "Need more context",
+      last_activity: "Tool · read · src/ticket.mbt",
+      started_at: 0,
+      seq: 0,
+    };
+    const lines = renderLiveActivities(projectLiveActivities({
+      ...base([]), boardActivities: [board],
+    }), 120);
+    expect(lines.join("\n")).toContain("board(shaping");
+    expect(lines.join("\n")).toContain("3 steps");
+    expect(lines.join("\n")).toContain("read");
+  });
+
+  test("a parked human question outranks agent rows and uses its short id", () => {    const src: LiveActivitiesSource = {
       ...base([agent({ question: { id: "q-child", type: "input", text: "child q", asked_at: 0 } })]),
       userQuestions: [
         {

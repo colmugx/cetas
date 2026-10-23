@@ -1842,6 +1842,37 @@ pub fn cetas_js_runtime_create_agent(
             // the parent observer's array dispatch — wrapping the bare array
             // as "ev" would fail the TS parser's object check and drop every
             // child assistant message as a malformed event.
+            // Nested run_code calls ride the same JS callback: one
+            // `bunraku_call` envelope per settled guest ctx.call, hanging
+            // beneath the enclosing run_code call id. The BunrakuRuntime
+            // records the wiring; the extension emits after each call.
+            let bunraku_call_observers : Array[
+              (@bunraku.NestedCallEvent) -> Unit,
+            ] = [
+              fn(event) {
+                let payload = Json::object(
+                  Map::from_array([
+                    ("type", Json::string("bunraku_call")),
+                    ("parent_call", Json::string(event.parent_call)),
+                    (
+                      "ev",
+                      Json::object(
+                        Map::from_array([
+                          (
+                            "request_id",
+                            Json::number(event.request_id.to_double()),
+                          ),
+                          ("name", Json::string(event.name)),
+                          ("arguments", event.arguments),
+                          ("outcome", event.outcome),
+                        ]),
+                      ),
+                    ),
+                  ]),
+                )
+                observer_callback.invoke(payload.stringify())
+              },
+            ]
             let subagent_observers : Array[
               (@subagent_kit.SubagentEvent) -> Unit,
             ] = [
@@ -2037,6 +2068,7 @@ pub fn cetas_js_runtime_create_agent(
               tools=ptc_providers,
               hooks=[policy as &@posoco.PipelineHook],
               final_guards=[plan_mode as &@posoco.PipelineHook],
+              call_observers=bunraku_call_observers,
               bus=event_bus,
               home=runtime.config.home,
             )

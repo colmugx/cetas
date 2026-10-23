@@ -62,6 +62,7 @@ import {
 } from "../src/app/image-attachments.ts";
 import { EventRouter } from "../src/controllers/event-router.ts";
 import { SubagentActivityStore } from "../src/controllers/subagent-activity.ts";
+import { BoardActivityStore } from "../src/controllers/board-activity.ts";
 import { WakeupActivityStore } from "../src/controllers/wakeup-activity.ts";
 import { QuestionActivityStore, type PendingQuestion } from "../src/controllers/question-activity.ts";
 import {
@@ -262,6 +263,8 @@ export class TerminalShell {
   private cachedGitBranch?: string;
   private readonly router: EventRouter;
   private readonly subagents = new SubagentActivityStore();
+  /** Folded Board ticket state for the ambient Activities header. */
+  private readonly boardActivities = new BoardActivityStore();
   /** Folded `posoco.wakeup` projection for the ambient header. */
   private readonly wakeups = new WakeupActivityStore();
   /** Parked non-blocking questions (`notify_user`) of this shell. */
@@ -1380,7 +1383,11 @@ export class TerminalShell {
   }
 
   private ensureSwarmTicker(): void {
-    if (this.shutdownPromise !== undefined || this.subagents.running(this.sessionId).length === 0) {
+    if (
+      this.shutdownPromise !== undefined ||
+      (this.subagents.running(this.sessionId).length === 0 &&
+        this.boardActivities.running().length === 0)
+    ) {
       this.stopSwarmTicker();
       return;
     }
@@ -1471,6 +1478,7 @@ export class TerminalShell {
 
   private liveActivitiesSource(): LiveActivitiesSource {
     const records = this.subagents.running(this.sessionId);
+    const boardActivities = this.boardActivities.running();
     const wakeups = this.wakeups.executing(this.sessionId);
     const resultsWaiting = this.subagents.resultsWaiting(this.sessionId);
     const userQuestions = this.questions.pendingFor(this.sessionId);
@@ -1478,17 +1486,22 @@ export class TerminalShell {
     // The expensive chrome height estimation is unnecessary when the live
     // window is empty. Both statusbar and editor retain their existing layout.
     if (
-      records.length === 0 && wakeups.length === 0 && resultsWaiting === 0 &&
+      records.length === 0 && boardActivities.length === 0 &&
+      wakeups.length === 0 && resultsWaiting === 0 &&
       this.liveDecisions.size === 0 && userQuestions.length === 0
     ) {
-      return { records, wakeups, resultsWaiting, activeDecisions: 0, now: Date.now() };
+      return {
+        records, boardActivities, wakeups, resultsWaiting,
+        activeDecisions: 0, now: Date.now(),
+      };
     }
     const chrome = [
       this.statusWrapper, this.setupStatus, this.extensionStatus,
       this.extensionWidgets, this.askRegion, this.editor, this.statusBarMount,
     ];
     return {
-      records, wakeups, resultsWaiting, activeDecisions: this.liveDecisions.size,
+      records, boardActivities, wakeups, resultsWaiting,
+      activeDecisions: this.liveDecisions.size,
       userQuestions,
       now: Date.now(), height: this.tui.terminal.rows,
       bottomReserve: 4 + chrome.reduce((rows, component) => rows + component.render(width).length, 0),
@@ -2130,6 +2143,12 @@ export class TerminalShell {
           this.addTranscriptChild(systemNotice("Board · " + text));
           this.tui.requestRender();
         },
+        onTicketState: (state) => {
+          if (this.boardActivities.update(state)) {
+            this.refreshSwarmLine();
+            this.ensureSwarmTicker();
+          }
+        },
       });
       this.addTranscriptChild(systemNotice("Board opened: " + address));
     } catch (error: unknown) {
@@ -2145,6 +2164,10 @@ export class TerminalShell {
   private async runBoardStop(): Promise<void> {
     try {
       await closeWorkflowBoards();
+      if (this.boardActivities.clear()) {
+        this.refreshSwarmLine();
+        this.ensureSwarmTicker();
+      }
       const app = this.app;
       if (app !== undefined && app.listCommands().some(cmd => cmd.id === "board.close")) {
         await app.invokeCommand("board.close").catch(() => undefined);
