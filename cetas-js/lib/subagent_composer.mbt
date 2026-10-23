@@ -183,6 +183,9 @@ priv struct CetasChildComposer {
   feature_fs : &@workspace.WorkspaceFs
   cwd : String
   home : String
+  /// Host-owned serving group: child background shells join the same
+  /// scope the parent runtime lives in.
+  host_group : @async.TaskGroup[Unit]?
 }
 
 ///|
@@ -196,6 +199,7 @@ fn CetasChildComposer::CetasChildComposer(
   feature_fs~ : &@workspace.WorkspaceFs,
   cwd~ : String,
   home~ : String,
+  host_group~ : @async.TaskGroup[Unit]? = None,
 ) -> CetasChildComposer {
   {
     parent_manager,
@@ -208,6 +212,7 @@ fn CetasChildComposer::CetasChildComposer(
     feature_fs,
     cwd,
     home,
+    host_group,
   }
 }
 
@@ -231,6 +236,7 @@ fn CetasChildComposer::tool_extensions(
     ctx={ fs: self.feature_fs, cwd: self.cwd, home: self.home, },
     names,
     question~,
+    host_group=self.host_group,
   ) catch {
     error =>
       raise @subagent.ComposerError::Failed(
@@ -359,6 +365,7 @@ async fn build_cetas_subagents(
   feature_fs~ : &@workspace.WorkspaceFs,
   cwd~ : String,
   home~ : String,
+  host_group~ : @async.TaskGroup[Unit]? = None,
 ) -> &@posoco.Extension raise @posoco.CompositionError {
   let (config, extra_kinds) = load_cetas_subagent_settings(home~)
   // One broker serves both sides of the question round trip: the parent's
@@ -377,6 +384,7 @@ async fn build_cetas_subagents(
     feature_fs~,
     cwd~,
     home~,
+    host_group~,
   )
   let tools = @subagent.SubagentTools::SubagentTools(
     catalog=load_cetas_subagent_catalog(home~, cwd~, extra=extra_kinds),

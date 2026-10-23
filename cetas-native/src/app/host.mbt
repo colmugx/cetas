@@ -140,7 +140,7 @@ pub async fn NativeHost::compose(
   )
   let feature_exts = build_compiled_recipe_features(
     ctx={ fs, cwd, home, },
-    nmem_group=mcp_group,
+    host_group=mcp_group,
   )
   let event_bus = @devkit.EventBus()
   let session = @cetas_core.build_cetas_session(
@@ -177,6 +177,7 @@ pub async fn NativeHost::compose(
     feature_fs=fs,
     cwd~,
     home~,
+    host_group=mcp_group,
   )
   let host_exts : Array[&@posoco.Extension] = [
     observer as &@posoco.Extension,

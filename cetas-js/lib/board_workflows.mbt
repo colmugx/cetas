@@ -6,6 +6,8 @@ priv struct CetasWorkflowAgents {
   approval : &@permission.ApprovalSource?
   ctx : @cetas_core.HostContext
   selections : Map[String, (String, String?)]
+  /// Host-owned serving group for workflow agents' background shells.
+  host_group : @async.TaskGroup[Unit]?
 }
 
 ///|
@@ -50,7 +52,8 @@ impl @board.WorkflowAgentFactory for CetasWorkflowAgents with fn prepare(
         "bash"
       },
     ]
-    for ext in build_cetas_tools(ctx=self.ctx, names) {
+    for
+      ext in build_cetas_tools(ctx=self.ctx, names, host_group=self.host_group) {
       exts.push(ext)
     }
   }
@@ -97,6 +100,7 @@ async fn build_cetas_workflows(
     approval,
     ctx,
     selections: Map([]),
+    host_group: Some(group),
   }
   let board = @board.BoardWorkflows(
     directory=ctx.home +

@@ -1799,7 +1799,7 @@ pub fn cetas_js_runtime_create_agent(
                   cwd: runtime.config.cwd,
                   home: runtime.config.home,
                 },
-                nmem_group=Some(group),
+                host_group=Some(group),
                 host_help_note=if runtime.config.host_help_note == "" {
                   None
                 } else {
@@ -1876,6 +1876,7 @@ pub fn cetas_js_runtime_create_agent(
               feature_fs=context_fs,
               cwd=runtime.config.cwd,
               home=runtime.config.home,
+              host_group=Some(group),
             )
             exts.push(subagents)
 

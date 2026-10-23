@@ -54,6 +54,7 @@ fn canonical_cetas_tool_name(name : String) -> String {
 fn build_cetas_tools(
   ctx~ : @cetas_core.HostContext,
   names : Array[String],
+  host_group~ : @async.TaskGroup[Unit]? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
   let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
   let freshness = @devkit.FreshnessGuard::FreshnessGuard()
@@ -88,8 +89,14 @@ fn build_cetas_tools(
         exts.push(
           @astgrep.AstGrepTools(anchor=Some(anchor)) as &@posoco.Extension,
         )
-      "bash" =>
-        exts.push(@bash.ShellTools(anchor=Some(anchor)) as &@posoco.Extension)
+      "bash" => {
+        let shell = @bash.ShellTools(anchor=Some(anchor))
+        match host_group {
+          Some(group) => shell.attach(group)
+          None => ()
+        }
+        exts.push(shell as &@posoco.Extension)
+      }
       "ps1" =>
         if shell_platform_is_windows() {
           exts.push(
@@ -181,11 +188,10 @@ async fn build_cetas_skills(
 ///|
 async fn build_compiled_recipe_features(
   ctx~ : @cetas_core.HostContext,
-  nmem_group~ : @async.TaskGroup[Unit]? = None,
+  host_group~ : @async.TaskGroup[Unit]? = None,
   host_help_note~ : String? = None,
   obsidian_vault~ : String? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
-  let _ = nmem_group
   let _ = obsidian_vault
   let exts : Array[&@posoco.Extension] = []
   let episodic : Array[&@posoco.Extension] = []
@@ -223,7 +229,7 @@ async fn build_compiled_recipe_features(
       "webfetch" =>
         episodic.push(@webfetch.WebFetchTools() as &@posoco.Extension)
       "shell" =>
-        for shell in build_cetas_tools(ctx~, ["bash"]) {
+        for shell in build_cetas_tools(ctx~, ["bash"], host_group~) {
           exts.push(shell)
         }
       "skills" => {

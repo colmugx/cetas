@@ -74,6 +74,7 @@ fn build_cetas_tools(
   ctx~ : @cetas_core.HostContext,
   names : Array[String],
   question~ : &@askquestion.QuestionEndpoint? = None,
+  host_group~ : @async.TaskGroup[Unit]? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
   let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
   let freshness = @devkit.FreshnessGuard::FreshnessGuard()
@@ -108,8 +109,14 @@ fn build_cetas_tools(
         exts.push(
           @astgrep.AstGrepTools(anchor=Some(anchor)) as &@posoco.Extension,
         )
-      "bash" =>
-        exts.push(@bash.ShellTools(anchor=Some(anchor)) as &@posoco.Extension)
+      "bash" => {
+        let shell = @bash.ShellTools(anchor=Some(anchor))
+        match host_group {
+          Some(group) => shell.attach(group)
+          None => ()
+        }
+        exts.push(shell as &@posoco.Extension)
+      }
       "ps1" =>
         if shell_platform_is_windows() {
           exts.push(
@@ -207,7 +214,7 @@ async fn build_cetas_skills(
 ///|
 
 ///|
-fn build_compiled_zcode_ext(
+async fn build_compiled_zcode_ext(
   env~ : (String) -> String?,
   exists~ : async (String) -> Bool,
 ) -> &@posoco.Extension? {
@@ -217,7 +224,7 @@ fn build_compiled_zcode_ext(
 ///|
 async fn build_compiled_recipe_features(
   ctx~ : @cetas_core.HostContext,
-  nmem_group~ : @async.TaskGroup[Unit]? = None,
+  host_group~ : @async.TaskGroup[Unit]? = None,
   host_help_note~ : String? = None,
   obsidian_vault~ : String? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
@@ -257,7 +264,7 @@ async fn build_compiled_recipe_features(
       "webfetch" =>
         episodic.push(@webfetch.WebFetchTools() as &@posoco.Extension)
       "shell" =>
-        for shell in build_cetas_tools(ctx~, ["bash"]) {
+        for shell in build_cetas_tools(ctx~, ["bash"], host_group~) {
           exts.push(shell)
         }
       "skills" => {
@@ -293,7 +300,7 @@ async fn build_compiled_recipe_features(
     }
   }
 
-  append_my_extensions(nmem_group, obsidian_vault, episodic)
+  append_my_extensions(host_group, obsidian_vault, episodic)
   match compiled_recipe_packages.get("lazytools") {
     Some(_) =>
       match @lazytools.LazyTools::defer_extensions(exts=episodic) {

@@ -1476,7 +1476,7 @@ async fn build_session_agent(
   for
     feature in build_compiled_recipe_features(
       ctx={ fs: session_fs, cwd, home: platform.home, },
-      nmem_group=platform.mcp_group,
+      host_group=platform.mcp_group,
     ) {
     exts.push(feature)
   }

@@ -303,7 +303,7 @@ async fn compose_session_agent(
   }
   let feature_exts = build_compiled_recipe_features(
     ctx={ fs, cwd, home, },
-    nmem_group=Some(group),
+    host_group=Some(group),
   )
   let ui_port : &@posoco.UiPort = HubUiPort::new(hub, ui_registry, session_id)
   let approval : &@permission.ApprovalSource = UiBlockingApprovalSource::new(
@@ -703,7 +703,7 @@ async fn build_workspace(
   )
   let feature_exts = build_compiled_recipe_features(
     ctx={ fs, cwd, home, },
-    nmem_group=Some(group),
+    host_group=Some(group),
   )
   let session = @cetas_core.build_cetas_session(
     platform~,

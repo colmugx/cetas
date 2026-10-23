@@ -54,6 +54,7 @@ fn customer_factory(
     approval: None,
     ctx: { fs: @workspace.JsWorkspaceFs(), cwd: directory, home: directory, },
     selections: Map([]),
+    host_group: None,
   }
 }
 
