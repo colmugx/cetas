@@ -95,6 +95,8 @@ import {
   createUiRenderCallback,
   createUiRequestCallback,
   isPlanReviewRequest,
+  type UiRequest,
+  type UiResponse,
 } from "./extension-ui.ts";
 import { CommandLock } from "./command-lock.ts";
 import { CommandRunner } from "./command-runner.ts";
@@ -151,7 +153,7 @@ export const CETAS_TUI_HELP_NOTE = [
   "  @path — autocomplete a workspace file (Tab/Enter applies it; the agent reads it)",
   "  /permission <mode> works mid-turn (readonly | workspace_write | interactive | yolo)",
   "  If the agent asks you a question (? line above), just type the reply",
-  "  /answer — list pending questions, or /answer @q3 <reply> to answer one",
+  "  /questions — pick a pending question and answer it; /answer @q3 <reply> answers inline",
   "  ctrl+t — collapse/expand thinking blocks",
   "  ctrl+o — collapse/expand tool output",
 ].join("\n");
@@ -704,7 +706,7 @@ export class TerminalShell {
       if (response === undefined) {
         this.addTranscriptChild(
           systemNotice(
-            `${question.short_id || question.id} wants ${answerShapeHint(question.kind, question.options)} — e.g. @q${question.id.replace("question-", "")} <value>`,
+            `${question.short_id || question.id} wants ${answerShapeHint(question.kind, question.options)} — e.g. @q${question.id.replace("question-", "")} <value>, or /answer ${question.short_id || question.id}`,
           ),
         );
         return;
@@ -1363,7 +1365,7 @@ export class TerminalShell {
       const expired = this.questions.expire();
       for (const id of expired) {
         this.addTranscriptChild(
-          systemNotice(`⌛ question ${id.replace("question-", "@q")} expired before an answer arrived`),
+          systemNotice(`⌛ ${id.replace("question-", "@q")} expired before an answer arrived`),
         );
       }
       this.refreshSwarmLine();
@@ -1834,10 +1836,6 @@ export class TerminalShell {
   }
 
   private async dispatchSlash(input: string): Promise<void> {
-    if (input === "/answer" || input.startsWith("/answer ")) {
-      await this.runAnswerCommand(input === "/answer" ? "" : input.slice("/answer ".length).trim());
-      return;
-    }
     if (input === "/find-next" || input === "/find-prev") {
       this.navigateTranscriptSearch(input === "/find-prev");
       return;
@@ -1869,18 +1867,27 @@ export class TerminalShell {
    * invokeCommand.
    */
   /**
-   * `/answer [@qN] [text]` — answer a parked non-blocking question.
+   * `/answer [@qN] [text]` and `/questions` — answer a parked non-blocking
+   * question.
    *
-   * No argument with one question: answer it by typing the reply here.
-   * Several questions: a picker chooses which one (Esc leaves them all
-   * pending). `@qN text` answers that question directly. The picker is a
-   * modal, but the question itself never blocks the turn — it waits in the
-   * header until the user chooses to deal with it.
+   * No addressable text: open the reply panel above the editor (the same
+   * region plan review uses) — one question goes straight there, several
+   * first pick through a dialog (Esc leaves them all pending). `@qN` skips
+   * the picker. `@qN text` / bare text answers inline without a panel; text
+   * that cannot map to the question kind falls back to the panel. The
+   * question itself never blocks the turn — it waits in the header until
+   * the user chooses to deal with it.
    */
   private async runAnswerCommand(rawArgs: string): Promise<void> {
     const pending = this.questions.pendingFor(this.sessionId);
     if (pending.length === 0) {
-      this.addTranscriptChild(systemNotice("no questions are waiting for an answer"));
+      this.addTranscriptChild(systemNotice("no questions are waiting for an answer — /questions lists what the agent asked"));
+      return;
+    }
+    if (this.uiRequestBar.isActive()) {
+      this.addTranscriptChild(
+        systemNotice("another ask is on screen — answer or cancel it (Esc) first"),
+      );
       return;
     }
     let target = pending[0]!;
@@ -1890,7 +1897,7 @@ export class TerminalShell {
       const match = pending.find((question) => question.id === addressed.questionId);
       if (match === undefined) {
         this.addTranscriptChild(
-          errorNotice(`${addressed.questionId.replace("question-", "@q")} matches no pending question`),
+          errorNotice(`${addressed.questionId.replace("question-", "@q")} matches no pending question — /questions lists them`),
         );
         return;
       }
@@ -1903,27 +1910,62 @@ export class TerminalShell {
         description: describeChoices(question),
       }));
       const picked = await this.selectionDialog.choose<string>({
-        title: `pending questions (${pending.length})`,
+        title: `pending questions (${pending.length}) — Enter answers, Esc leaves all pending`,
         items: options,
       });
       if (picked === undefined) return;
       target = pending[Number(picked)] ?? target;
     }
-    const response = answerFromText(target.kind, freeText, target.options);
-    if (response === undefined) {
+    if (freeText.length > 0) {
+      const response = answerFromText(target.kind, freeText, target.options);
+      if (response !== undefined) {
+        await this.answerQuestion(
+          target.id,
+          response,
+          `${target.short_id || target.id}: ${displayAnswer(response, target)}`,
+        );
+        return;
+      }
       this.addTranscriptChild(
         systemNotice(
-          `${target.short_id || target.id} wants ${
-            answerShapeHint(target.kind, target.options)
-          } — e.g. /answer ${target.short_id || target.id} <value>`,
+          `${target.short_id || target.id} wants ${answerShapeHint(target.kind, target.options)}`,
+        ),
+      );
+    }
+    await this.openAnswerPanel(target);
+  }
+
+  /**
+   * Reply box for one parked question, mounted where blocking asks live
+   * (directly above the editor). Reuses AskPanel through a synthetic
+   * UiRequest: input kinds get a text field, confirm gets Yes/No, select
+   * gets the option list — Enter submits, Esc (or a superseding ask)
+   * keeps the question pending.
+   */
+  private async openAnswerPanel(question: PendingQuestion): Promise<void> {
+    if (question.kind === "select" && question.options.length === 0) {
+      this.addTranscriptChild(
+        systemNotice(
+          `${question.short_id || question.id} has no options to choose from — reply with /answer ${question.short_id || question.id} <text>`,
+        ),
+      );
+      return;
+    }
+    const response = await this.uiRequestBar.request(answerRequestFor(question));
+    const answer = panelResponseToAnswer(response, question);
+    if (answer === undefined) return;
+    if (answer === "empty") {
+      this.addTranscriptChild(
+        systemNotice(
+          `empty reply — ${question.short_id || question.id} stays pending`,
         ),
       );
       return;
     }
     await this.answerQuestion(
-      target.id,
-      response,
-      `${target.short_id || target.id}: ${displayAnswer(response, target)}`,
+      question.id,
+      answer,
+      `${question.short_id || question.id}: ${displayAnswer(answer, question)}`,
     );
   }
 
@@ -1979,6 +2021,8 @@ export class TerminalShell {
     Record<string, (rawArgs: string) => Promise<void> | void>
   > = {
     new: () => this.startNewSession(),
+    questions: () => this.runAnswerCommand(""),
+    answer: (rawArgs) => this.runAnswerCommand(rawArgs),
     sessions: () => this.openSessionsPicker(),
     rewind: () => this.openRewindPicker(),
     resume: () => this.runResumeCommand(),
@@ -2017,7 +2061,8 @@ export class TerminalShell {
     pi: (rawArgs) => this.runPiCommand(rawArgs),
     goal: (rawArgs) => this.runGoalCommand(rawArgs),
     workflow: (rawArgs) => this.runWorkflowEntrance(rawArgs),
-    board: () => this.runBoardEntrance(),
+    board: (rawArgs) => this.runBoardEntrance(rawArgs),
+    "board.stop": () => this.runBoardStop(),
   };
 
   /** Stable product commands even when the optional extension is disabled. */
@@ -2072,13 +2117,36 @@ export class TerminalShell {
     }
   }
 
-  private async runBoardEntrance(): Promise<void> {
+  private async runBoardEntrance(rawArgs: string): Promise<void> {
+    const action = rawArgs.trim();
+    if (action === "stop" || action === "close") {
+      await this.runBoardStop();
+      return;
+    }
     try {
       if (!(await this.ensureWorkflows())) return;
       const address = await openWorkflowBoard(this.requireApp());
       this.addTranscriptChild(systemNotice("Board opened: " + address));
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice("/board: " + errorMessage(error)));
+    }
+  }
+
+  /**
+   * Stop every in-process Board presentation. The workflow dashboard is owned
+   * by this host; the native BoardExtension, when composed by another product,
+   * owns its own listener and is closed through its canonical command.
+   */
+  private async runBoardStop(): Promise<void> {
+    try {
+      await closeWorkflowBoards();
+      const app = this.app;
+      if (app !== undefined && app.listCommands().some(cmd => cmd.id === "board.close")) {
+        await app.invokeCommand("board.close").catch(() => undefined);
+      }
+      this.addTranscriptChild(systemNotice("All local Board servers stopped."));
+    } catch (error: unknown) {
+      this.addTranscriptChild(errorNotice("/board.stop: " + errorMessage(error)));
     }
   }
 
@@ -3261,6 +3329,11 @@ export interface SlashRoute {
 // commands must remain discoverable even if no Agent/manager is configured.
 const LOCAL_SLASH_ROUTES: readonly SlashRoute[] = [
   { id: "new", description: "Start a new session" },
+  { id: "questions", description: "Review pending questions and answer one" },
+  {
+    id: "answer",
+    description: "Answer a pending question (/answer [@qN] [reply])",
+  },
   { id: "sessions", description: "Browse and resume past sessions" },
   { id: "rewind", description: "Rewind to an earlier message of this session" },
   { id: "resume", description: "Resume this session's interrupted turn" },
@@ -3274,6 +3347,7 @@ const LOCAL_SLASH_ROUTES: readonly SlashRoute[] = [
   { id: "goal", description: "Start, inspect, pause or resume a verified goal" },
   { id: "workflow", description: "Start from one highest-level goal or manage work" },
   { id: "board", description: "Open the live localhost Kanban dashboard" },
+  { id: "board.stop", description: "Stop all local Board servers" },
   { id: "login", description: "Authenticate with a provider or configure Magpie Gateway" },
   { id: "quota", description: "Show available quota information for the active manager" },
   { id: "status", description: "Show Agent, session, model and manager status" },
@@ -3469,6 +3543,53 @@ function displayAnswer(
   if ("confirm" in response) return response.confirm ? "yes" : "no";
   if ("index" in response) return question.options[response.index] ?? `option ${response.index}`;
   return response.text;
+}
+
+/**
+ * The reply-box ask for one parked question, shaped for AskPanel: the
+ * question (id-tagged) is the bold prompt; input kinds get a text field,
+ * confirm gets Yes/No, select gets the option list.
+ */
+export function answerRequestFor(question: PendingQuestion): UiRequest {
+  const label = question.short_id || question.id;
+  const prompt = `${label} ${question.text}`.trim();
+  if (question.kind === "confirm") {
+    return { type: "confirm", prompt, default_yes: true };
+  }
+  if (question.kind === "select") {
+    return { type: "select", title: prompt, options: [...question.options] };
+  }
+  return {
+    type: "input",
+    prompt,
+    placeholder: "type your reply · ⏎ submit · esc keeps the question pending",
+  };
+}
+
+/**
+ * Map an AskPanel settlement onto the answer shape the parked question
+ * expects. `undefined` = cancelled (question stays pending); `"empty"` =
+ * Enter on an empty reply (stays pending); otherwise the response mirrors
+ * the extension's `answer_async` payload.
+ */
+export function panelResponseToAnswer(
+  response: UiResponse,
+  question: PendingQuestion,
+): QuestionAnswerResponse | "empty" | undefined {
+  switch (response.type) {
+    case "yes":
+      return { confirm: true };
+    case "no":
+      return { confirm: false };
+    case "selected":
+      return { index: response.index };
+    case "cancelled":
+      return undefined;
+    case "text": {
+      const text = response.text.trim();
+      return text.length === 0 ? "empty" : { text };
+    }
+  }
 }
 
 /** The wire `type` tag of a parsed payload, bounded for short skip reasons. */

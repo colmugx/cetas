@@ -5,6 +5,7 @@ priv struct CetasWorkflowCommands {
   board : @board.BoardWorkflows
   agents : CetasWorkflowAgents
   settings : @cetas_core.CetasWorkflowSettings
+  tickets : TicketRuntime?
   mut ui : &@posoco.UiPort?
 }
 
@@ -56,6 +57,84 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn commands(self) {
     .find_first(def => def.id == "board.workflow")
     .unwrap()
   definitions.push({ ..entry, id: "workflow", aliases: [], })
+  definitions.push(@posoco.CommandDef::{
+    id: "board.wire.ready",
+    label: "Board wire ready",
+    description: "Internal: attach the Board backend before serving the dashboard",
+    category: "board",
+    ctype: @posoco.CommandType::Action,
+    params: [],
+    aliases: [],
+    shortcut: None,
+    icon: None,
+    visible: false,
+    metadata: None,
+  })
+  definitions.push(@posoco.CommandDef::{
+    id: "board.wire.snapshot",
+    label: "Board wire snapshot",
+    description: "Internal: authoritative Board snapshot for the dashboard",
+    category: "board",
+    ctype: @posoco.CommandType::Action,
+    params: [],
+    aliases: [],
+    shortcut: None,
+    icon: None,
+    visible: false,
+    metadata: None,
+  })
+  definitions.push(@posoco.CommandDef::{
+    id: "board.wire.command",
+    label: "Board wire command",
+    description: "Internal: one Board wire command from the dashboard",
+    category: "board",
+    ctype: @posoco.CommandType::Action,
+    params: [],
+    aliases: [],
+    shortcut: None,
+    icon: None,
+    visible: false,
+    metadata: None,
+  })
+  definitions.push(@posoco.CommandDef::{
+    id: "board.ticket.run_ready",
+    label: "Run next ready ticket",
+    description: "Start the next Ready Board ticket as a background worker session",
+    category: "board",
+    ctype: @posoco.CommandType::Action,
+    params: [],
+    aliases: [],
+    shortcut: None,
+    icon: None,
+    visible: true,
+    metadata: None,
+  })
+  definitions.push(@posoco.CommandDef::{
+    id: "board.ticket.state",
+    label: "Board ticket state",
+    description: "Internal: open ticket questions and background runs",
+    category: "board",
+    ctype: @posoco.CommandType::Action,
+    params: [],
+    aliases: [],
+    shortcut: None,
+    icon: None,
+    visible: false,
+    metadata: None,
+  })
+  definitions.push(@posoco.CommandDef::{
+    id: "board.ticket.answer",
+    label: "Answer ticket question",
+    description: "Internal: answer one Board ticket question",
+    category: "board",
+    ctype: @posoco.CommandType::Action,
+    params: [],
+    aliases: [],
+    shortcut: None,
+    icon: None,
+    visible: false,
+    metadata: None,
+  })
   definitions
 }
 
@@ -384,6 +463,130 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
   id,
   args,
 ) {
+  if id == "board.ticket.state" {
+    let tickets = match self.tickets {
+      Some(tickets) => tickets
+      None => return @posoco.CommandOutcome::Failure(reason="ticket_runtime_unavailable")
+    }
+    return @posoco.CommandOutcome::Success(
+      feedback="",
+      structured=Some(tickets.state_json()),
+      ui_hint=Some(@posoco.UiHint::None),
+    )
+  }
+  if id == "board.ticket.run_ready" {
+    let tickets = match self.tickets {
+      Some(tickets) => tickets
+      None => return @posoco.CommandOutcome::Failure(reason="ticket_runtime_unavailable")
+    }
+    let ran = tickets.run_ready() catch {
+      _ => return @posoco.CommandOutcome::Failure(reason="ticket_start_failed")
+    }
+    match ran {
+      Ok(_) =>
+        return @posoco.CommandOutcome::Success(
+          feedback="Ticket started in the background.",
+          structured=Some(tickets.state_json()),
+          ui_hint=Some(@posoco.UiHint::None),
+        )
+      Err(reason) => return @posoco.CommandOutcome::Failure(reason~)
+    }
+  }
+  if id == "board.ticket.answer" {
+    let tickets = match self.tickets {
+      Some(tickets) => tickets
+      None => return @posoco.CommandOutcome::Failure(reason="ticket_runtime_unavailable")
+    }
+    let fields = match args {
+      Object(fields) => fields
+      _ => return @posoco.CommandOutcome::Failure(reason="invalid_ticket_answer")
+    }
+    let question_id = match fields.get("question_id") {
+      Some(String(value)) => value
+      _ => return @posoco.CommandOutcome::Failure(reason="invalid_ticket_answer")
+    }
+    let response = match fields.get("text") {
+      Some(String(value)) => Some(@posoco.UiResponse::Text(value))
+      _ =>
+        match fields.get("confirm") {
+          Some(True) => Some(@posoco.UiResponse::Yes)
+          Some(False) => Some(@posoco.UiResponse::No)
+          _ =>
+            match fields.get("index") {
+              Some(Number(value, ..)) =>
+                Some(@posoco.UiResponse::Selected(value.to_int()))
+              _ => None
+            }
+        }
+    }
+    let response = match response {
+      Some(response) => response
+      None => return @posoco.CommandOutcome::Failure(reason="invalid_ticket_answer")
+    }
+    match tickets.questions.answer(question_id, response) {
+      Ok(_) =>
+        return @posoco.CommandOutcome::Success(
+          feedback="Answer sent.",
+          structured=Some(tickets.state_json()),
+          ui_hint=Some(@posoco.UiHint::None),
+        )
+      Err(reason) => return @posoco.CommandOutcome::Failure(reason~)
+    }
+  }
+  if id == "board.wire.ready" {
+    let ready = self.board.wire_ready() catch {
+      _ => return @posoco.CommandOutcome::Failure(reason="board_wire_unavailable")
+    }
+    match ready {
+      Ok(_) =>
+        return @posoco.CommandOutcome::Success(
+          feedback="",
+          structured=None,
+          ui_hint=Some(@posoco.UiHint::None),
+        )
+      Err(error) => return @posoco.CommandOutcome::Failure(reason=error.code())
+    }
+  }
+  if id == "board.wire.snapshot" {
+    let snapshot = self.board.wire_snapshot() catch {
+      _ => return @posoco.CommandOutcome::Failure(reason="board_wire_unavailable")
+    }
+    match snapshot {
+      Ok(frame) => {
+        let structured : Json = { "frame": Json::string(frame) }
+        return @posoco.CommandOutcome::Success(
+          feedback="",
+          structured=Some(structured),
+          ui_hint=Some(@posoco.UiHint::None),
+        )
+      }
+      Err(error) => return @posoco.CommandOutcome::Failure(reason=error.code())
+    }
+  }
+  if id == "board.wire.command" {
+    let raw = match args {
+      Object(fields) =>
+        match fields.get("frame") {
+          Some(String(value)) => value
+          _ => return @posoco.CommandOutcome::Failure(reason="invalid_board_frame")
+        }
+      _ => return @posoco.CommandOutcome::Failure(reason="invalid_board_frame")
+    }
+    let command = self.board.wire_command(raw) catch {
+      _ => return @posoco.CommandOutcome::Failure(reason="board_wire_unavailable")
+    }
+    match command {
+      Ok(frame) => {
+        let structured : Json = { "frame": Json::string(frame) }
+        return @posoco.CommandOutcome::Success(
+          feedback="",
+          structured=Some(structured),
+          ui_hint=Some(@posoco.UiHint::None),
+        )
+      }
+      Err(error) => return @posoco.CommandOutcome::Failure(reason=error.code())
+    }
+  }
   // The user supplies the highest-level goal once. Starting and planning
   // remain separately confirmed by the existing Board trusted UI.
   if (id == "workflow" || id == "board.workflow") &&

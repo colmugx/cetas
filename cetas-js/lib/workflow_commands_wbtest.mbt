@@ -58,6 +58,7 @@ async test "workflow menu cancellation is read-only and exposes no second Board 
       settings: @cetas_core.workflow_settings_from_json(
         "{\"workflow\":{\"enabled\":true}}",
       ),
+      tickets: None,
       ui: None,
     }
     let ui = WorkflowMenuUi::{ requests: [], failure: None, }
@@ -166,6 +167,7 @@ async test "readonly guided start refuses before any input or approval prompt" {
       settings: @cetas_core.workflow_settings_from_json(
         "{\"workflow\":{\"enabled\":true}}",
       ),
+      tickets: None,
       ui: None,
     }
     let ui = WorkflowMenuUi::{ requests: [], failure: None, }

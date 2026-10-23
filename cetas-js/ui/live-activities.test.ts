@@ -76,6 +76,7 @@ describe("Live Activities replacement header", () => {
     const lines = renderLiveActivities(projectLiveActivities(src), 120);
     expect(lines[0]).toContain("@q7 asks you");
     expect(lines[0]).toContain("Upgrade node to 22?");
+    expect(lines[0]).toContain("/answer @q7");
     expect(lines.join("\n")).toContain("agent(banana) asks main");
   });
   test("answered questions leave no header row at all", () => {

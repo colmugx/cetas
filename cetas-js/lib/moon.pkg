@@ -52,6 +52,7 @@ import {
   "colmugx/posoco-kit-model-management" @modelmgmt,
   "colmugx/posoco-ext-board" @board,
   "colmugx/posoco-ext-board/domain" @board_domain,
+  "colmugx/posoco-ext-board/protocol" @board_protocol,
   "colmugx/posoco-ext-board/workflow" @board_workflow,
 }
 

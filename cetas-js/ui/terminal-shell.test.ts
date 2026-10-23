@@ -1457,5 +1457,6 @@ describe("final product command discovery", () => {
     expect(names).toContain("/board");
     expect(matchLocalSlash("/workflow")?.id).toBe("workflow");
     expect(matchLocalSlash("/board")?.id).toBe("board");
+    expect(matchLocalSlash("/board.stop")?.id).toBe("board.stop");
   });
 });

@@ -40,14 +40,16 @@ import type { QuestionAnswerResponse } from "../controllers/question-answer.ts";
 const MID_TURN_COMMANDS = new Set(["permission", "status"]);
 
 /**
- * Board workflow sync-control ids (posoco-ext-board CommandPort). The Board
- * extension implements exactly these as prompt-free host-side reads
- * (`status`, `preview`) and admission flags (`pause`, `stop`, `cancel`) —
- * no Agent dispatch, no UiRequest, no session mutation — so a status glance
- * or a pause stays reachable while a long Board proposal/UI flow or a wave
- * occupies the lanes. Membership is exact: every other Board id (start,
- * propose, graph approve/reject, prepare, run, wait, …) keeps the normal
- * exclusive command path and is never admitted mid-turn or concurrently.
+ * Board sync-control ids (posoco-ext-board CommandPort). The Board extension
+ * implements these as prompt-free host-side reads (`status`, `preview`,
+ * `wire.snapshot`) and admission flags (`pause`, `stop`, `cancel`), plus the
+ * dashboard's single correlated wire command. None of them dispatches an
+ * Agent, opens a UiRequest or mutates the session, so a status glance, a
+ * snapshot refresh or a Board mutation stays reachable while a long Board
+ * proposal/UI flow or a wave occupies the lanes. Membership is exact: every
+ * other Board id (start, propose, graph approve/reject, prepare, run, wait, …)
+ * keeps the normal exclusive command path and is never admitted mid-turn or
+ * concurrently.
  */
 const BOARD_WORKFLOW_CONTROLS = new Set([
   "board.workflow.status",
@@ -55,6 +57,11 @@ const BOARD_WORKFLOW_CONTROLS = new Set([
   "board.workflow.pause",
   "board.workflow.stop",
   "board.workflow.cancel",
+  "board.wire.snapshot",
+  "board.wire.command",
+  "board.ticket.state",
+  "board.ticket.run_ready",
+  "board.ticket.answer",
 ]);
 
 /** Exact Board sync-control membership; shell routing reuses this gate. */

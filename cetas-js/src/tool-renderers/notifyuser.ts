@@ -3,8 +3,9 @@
  *
  * Call view:   `● asks <question>` plus the option list for select prompts
  *              (or a type hint for input/confirm).
- * Result view: `✓ asks <question>` with the short answer id — the question
- *              is still pending; the answer arrives as ordinary user input.
+ * Result view: `✓ asks <question>` with the short id plus the reply path —
+ *              the question is still pending; the answer arrives through
+ *              `/answer @qN` (reply box) or `/questions` (pick from all).
  *
  * This row is the durable transcript record: the live `? @qN asks you` line
  * above the editor disappears when the question is answered or expires,
@@ -71,9 +72,10 @@ export const notifyUserRenderer: ToolRenderer = {
         : undefined;
     const label =
       typeof rawId === "string" && rawId.length > 0 ? rawId : shortIdFromContent(result.content);
+    const target = label.length > 0 ? ` /answer ${label}` : " /answer";
     return new Text(
       `${statusBullet("success")} ${toolTitle("asks")} ${question}\n      ${theme.muted(
-        `${label.length > 0 ? `${label} ` : ""}submitted · answer whenever (the turn keeps running)`,
+        `${label.length > 0 ? `${label} ` : ""}submitted · awaiting your answer —${target} to reply · /questions lists all pending`,
       )}`,
       1,
       0,

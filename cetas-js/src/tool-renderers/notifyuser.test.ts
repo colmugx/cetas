@@ -60,6 +60,8 @@ describe("notify_user renderer", () => {
     );
     expect(text).toContain("submitted");
     expect(text).toContain("@q3");
+    expect(text).toContain("/answer @q3");
+    expect(text).toContain("/questions");
     expect(text.toLowerCase()).not.toContain("answered");
   });
 

@@ -179,6 +179,10 @@ priv struct CetasChildComposer {
   /// Parent question channel: children whose face includes ask_question
   /// get an `ask_question_child` tool answered by the parent agent.
   question : @subagent.ParentQuestionChannel?
+  /// Host-owned human question endpoint (Board tickets). Takes precedence
+  /// over `question` when present, so the answerer is the Board drawer
+  /// rather than the parent agent.
+  question_endpoint : &@askquestion.QuestionEndpoint?
   context_fs : &@workspace.WorkspaceFs
   feature_fs : &@workspace.WorkspaceFs
   cwd : String
@@ -195,6 +199,7 @@ fn CetasChildComposer::CetasChildComposer(
   approval~ : &@permission.ApprovalSource? = None,
   ui~ : &@posoco.UiPort? = None,
   question~ : @subagent.ParentQuestionChannel? = None,
+  question_endpoint~ : &@askquestion.QuestionEndpoint? = None,
   context_fs~ : &@workspace.WorkspaceFs,
   feature_fs~ : &@workspace.WorkspaceFs,
   cwd~ : String,
@@ -208,6 +213,7 @@ fn CetasChildComposer::CetasChildComposer(
     approval,
     ui,
     question,
+    question_endpoint,
     context_fs,
     feature_fs,
     cwd,
@@ -467,20 +473,24 @@ impl @subagent.ChildComposer for CetasChildComposer with fn compose(
   }
   // Interactive children (face includes ask_question, default face does)
   // get the parent-bound ask face instead of the human one.
-  let question : &@askquestion.QuestionEndpoint? = match self.question {
-    Some(channel) =>
-      if tool_names.contains("ask_question") {
-        Some(
-          CetasParentQuestionEndpoint::CetasParentQuestionEndpoint(
-            channel~,
-            child_session=spec.session_id,
-          )
-          as &@askquestion.QuestionEndpoint,
-        )
-      } else {
-        None
+  let question : &@askquestion.QuestionEndpoint? = match self.question_endpoint {
+    Some(endpoint) => Some(endpoint)
+    None =>
+      match self.question {
+        Some(channel) =>
+          if tool_names.contains("ask_question") {
+            Some(
+              CetasParentQuestionEndpoint::CetasParentQuestionEndpoint(
+                channel~,
+                child_session=spec.session_id,
+              )
+              as &@askquestion.QuestionEndpoint,
+            )
+          } else {
+            None
+          }
+        None => None
       }
-    None => None
   }
   for ext in self.tool_extensions(tool_names, question~) {
     exts.push(ext)

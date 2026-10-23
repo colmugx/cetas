@@ -1,37 +1,83 @@
 /**
- * Lightweight localhost presentation of the *existing* Cetas BoardWorkflows.
- * No second backend, no cached task mutations, no browser-side authority.
+ * Localhost presentation of the authoritative BoardWorkflows backend.
+ *
+ * The browser app is the same Rabbita build used by the native Board host;
+ * this file is only the Bun transport adapter. It serves the app, relays the
+ * Board wire protocol over WebSocket, and translates the shared backend's
+ * snapshots and commands. No second task projection lives here.
  */
 import { randomBytes } from "node:crypto";
-import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { spawn } from "node:child_process";
 import type { CetasApplication } from "../src/app/application.ts";
+import {
+  BOARD_CSS,
+  BOARD_HTML,
+  BOARD_JS,
+} from "./board-assets.generated.ts";
 
-interface BoardServer { server: Server; url: string; }
+interface BoardSocketData {
+  queue: Promise<void>;
+}
+
+interface BoardSocket {
+  send(data: string): void;
+  data: BoardSocketData;
+}
+
+interface BoardState {
+  clients: Set<BoardSocket>;
+  lastRevision: number | null;
+  lastTickets: string | null;
+  timer?: ReturnType<typeof setInterval>;
+  ticketTimer?: ReturnType<typeof setInterval>;
+}
+
+interface BoardServer {
+  server: ReturnType<typeof Bun.serve>;
+  url: string;
+  token: string;
+  state: BoardState;
+  closed: boolean;
+}
+
 const boards = new WeakMap<CetasApplication, BoardServer>();
 const owners = new Set<BoardServer>();
 
-function applyHeaders(res: ServerResponse): void {
-  res.setHeader("Cache-Control", "no-store");
-  res.setHeader("Referrer-Policy", "no-referrer");
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("Access-Control-Allow-Origin", "null");
+const SECURITY_HEADERS: Record<string, string> = {
+  "Cache-Control": "no-store",
+  "Referrer-Policy": "no-referrer",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Access-Control-Allow-Origin": "null",
+};
+
+const CSP =
+  "default-src 'none'; " +
+  "script-src 'self'; " +
+  "style-src 'self' 'unsafe-inline'; " +
+  "img-src 'self' data:; " +
+  "connect-src 'self' ws://127.0.0.1:* ws://localhost:*; " +
+  "base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
+function respond(
+  body: string,
+  contentType: string,
+  status = 200,
+): Response {
+  return new Response(body, {
+    status,
+    headers: { ...SECURITY_HEADERS, "Content-Type": contentType },
+  });
 }
-function fail(res: ServerResponse, code: number): void {
-  res.writeHead(code, { "Content-Type": "text/plain; charset=utf-8" });
-  res.end("Request denied");
+
+function fail(res: number): Response {
+  return respond("Request denied", "text/plain; charset=utf-8", res);
 }
-function isLoopbackHost(host: string | undefined, port: number): boolean {
+
+function isLoopbackHost(host: string | null, port: number): boolean {
   return host === "127.0.0.1:" + port || host === "localhost:" + port;
 }
-function parseOutcome(raw: string): unknown {
-  const response: unknown = JSON.parse(raw);
-  if (typeof response !== "object" || response === null) throw new Error("Invalid Board command response");
-  const value = response as Record<string, unknown>;
-  if (value.type !== "success") throw new Error("Board is unavailable: " + String(value.reason ?? "unknown"));
-  return value.structured;
-}
+
 function openInBrowser(url: string): void {
   const platform = process.platform;
   const executable = platform === "win32" ? "cmd" : platform === "darwin" ? "open" : "xdg-open";
@@ -40,139 +86,332 @@ function openInBrowser(url: string): void {
   child.on("error", () => undefined); // The printed URL is a usable fallback.
   child.unref();
 }
-const HTML = String.raw`<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Cetas Board</title>
-<style>
-:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#10141d;color:#e5ebf4}
-body{margin:0;padding:24px;max-width:1800px;margin-inline:auto}h1{font-size:24px;margin:0}
-header{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
-button{padding:9px 14px;border:1px solid #465268;background:#252f42;color:inherit;border-radius:8px;cursor:pointer}
-button:disabled{opacity:.45;cursor:not-allowed}#notice{margin:12px 0;min-height:22px;color:#b7cced}
-#meta{color:#acb9ca;margin:16px 0;white-space:pre-wrap}
-#lanes{display:grid;grid-template-columns:repeat(7,minmax(185px,1fr));gap:12px;overflow-x:auto;padding-bottom:24px}
-.lane{background:#192130;border:1px solid #313d4f;border-radius:10px;padding:10px;min-height:180px}
-.lane h2{font-size:15px;font-weight:600;margin:6px 0 12px}.card{background:#263248;border:1px solid #40506b;padding:12px;border-radius:8px;margin-bottom:10px;overflow-wrap:anywhere}
-.card h3{font-size:14px;margin:0 0 8px}.muted{color:#a9b8cc;font-size:12px;margin:4px 0}.active{border-color:#82baff}
-#details{white-space:pre-wrap;background:#192130;padding:12px;border-radius:8px;min-height:56px}
-@media(max-width:900px){#lanes{grid-template-columns:repeat(7,220px)}}
-</style></head><body><header><h1>Cetas · Board</h1><div>
-<button id="pause">Pause</button><button id="stop">Stop after wave</button><button id="cancel">Cancel agents</button>
-</div></header><p id="notice" role="status">Connecting to Cetas…</p><div id="meta"></div>
-<main id="lanes"></main><h2>Selected task</h2><div id="details">Select a task card.</div>
-<script nonce="__NONCE__">
-"use strict";
-const secret = new URLSearchParams(location.search).get("token");
-if(secret)history.replaceState(null,"",location.pathname);
-const stages=["Created","Refining","Ready","Running","Review","Done","Suspended"];
-const $ = id => document.getElementById(id);
-function text(parent,tag,value,className){const el=document.createElement(tag);el.textContent=String(value??"");if(className)el.className=className;parent.appendChild(el);return el;}
-function arr(value){return Array.isArray(value)?value:[];}
-function records(value){return arr(value).filter(x=>typeof x==="object"&&x!==null);}
-async function request(url,method="GET"){
- const response=await fetch(url,{method,headers:{"Authorization":"Bearer "+secret},cache:"no-store"});
- if(!response.ok)throw new Error("Board request failed ("+response.status+")");
- return response.json();
-}
-async function refresh(){
- try{
- const envelope=await request("/snapshot");const view=envelope.structured??envelope;
- const board=view.board??{};const flow=view.workflow??{};
- const tasks=records(board.tasks),attempts=records(board.attempts),executions=records(view.executions);
- $("notice").textContent=view.unresolved||view.mutation_uncertain?"Unresolved Board state: execution is blocked. Inspect Cetas.":"Connected · live authoritative Board (refresh 1.5s)";
- $("meta").textContent="Workflow: "+(flow.workflow_id??"none")+" · phase: "+(flow.phase??"idle")+
- " · revision: "+(board.revision??"?")+" · active Agents: "+executions.filter(e=>e.phase==="Running").length+
- " · Tasks: "+tasks.length+"\nBudget: "+JSON.stringify(flow.runner??flow.budgets??{})+
- (view.paused?" · paused":"");
- const lanes=$("lanes");lanes.replaceChildren();
- for(const stage of stages){
- const lane=text(lanes,"section","");lane.className="lane";
- const members=tasks.filter(t=>String(t.stage).toLowerCase()===stage.toLowerCase());
- text(lane,"h2",stage+" · "+members.length);
- for(const task of members){
- const card=text(lane,"button","");card.className="card";card.style.textAlign="left";card.style.width="100%";
- const a=attempts.filter(x=>x.task_id===task.id);
- const e=executions.filter(x=>x.task_id===task.id);
- if(e.some(x=>x.phase==="Running"))card.classList.add("active");
- text(card,"h3",task.title??task.id);
- text(card,"div","Priority: "+(task.priority??"normal"),"muted");
- text(card,"div","Dependencies: "+arr(task.dependencies).join(", "),"muted");
- text(card,"div","Attempts: "+a.map(x=>x.status).join(", "),"muted");
- text(card,"div","Agents: "+e.map(x=>x.phase).join(", "),"muted");
- card.addEventListener("click",()=>{
- $("details").textContent=JSON.stringify({task,attempts:a,executions:e},null,2);
- });
- }
- }
- }catch(error){$("notice").textContent="Disconnected / unable to read Board: "+String(error);}
-}
-for(const [id,command] of [["pause","pause"],["stop","stop"],["cancel","cancel"]]){
- $(id).addEventListener("click",async()=>{
- if(command==="cancel"&&!confirm("Cancel actual owned Agent executions?"))return;
- try{await request("/control/"+command,"POST");await refresh();}
- catch(error){$("notice").textContent=String(error);}
- });
-}
-refresh();setInterval(refresh,1500);
-</script></body></html>`;
 
-export async function openWorkflowBoard(app: CetasApplication): Promise<string> {
-  const previous = boards.get(app);
-  if (previous?.server.listening) { openInBrowser(previous.url); return previous.url.split("?")[0]!; }
-  const token = randomBytes(32).toString("hex");
-  const nonce = randomBytes(24).toString("base64");
-  let port = 0;
-  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    applyHeaders(res);
-    if (!isLoopbackHost(req.headers.host, port)) return fail(res, 403);
-    if (req.url?.startsWith("/?token=") && req.method==="GET") {
-      const url = new URL(req.url, "http://127.0.0.1:"+port);
-      if (url.searchParams.get("token") !== token) return fail(res, 403);
-      res.setHeader("Content-Security-Policy", "default-src 'none'; connect-src 'self'; script-src 'nonce-"+nonce+"'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
-      res.writeHead(200,{"Content-Type":"text/html; charset=utf-8"});
-      res.end(HTML.replace("__NONCE__",nonce));
-      return;
-    }
-    if (req.headers.authorization !== "Bearer "+token) return fail(res, 403);
-    if(req.headers.origin && req.headers.origin !== "http://127.0.0.1:"+port) return fail(res, 403);
-    if(req.url==="/snapshot"&&req.method==="GET"){
-      try {
-        const result=parseOutcome(await app.invokeCommand("board.workflow.status"));
-        res.writeHead(200,{"Content-Type":"application/json; charset=utf-8"});
-        res.end(JSON.stringify({structured:result}));
-      } catch { fail(res,503); }
-      return;
-    }
-    const controls: Record<string,string> = {
-      "/control/pause":"board.workflow.pause",
-      "/control/stop":"board.workflow.stop",
-      "/control/cancel":"board.workflow.cancel",
-    };
-    if(req.method==="POST"&&req.url && controls[req.url]){
-      try{
-        const result=parseOutcome(await app.invokeCommand(controls[req.url]!));
-        res.writeHead(200,{"Content-Type":"application/json; charset=utf-8"});
-        res.end(JSON.stringify({structured:result}));
-      }catch {fail(res,409);}
-      return;
-    }
-    fail(res,404);
-  });
-  try{
-    await new Promise<void>((resolve,reject)=>{
-      server.once("error",reject);
-      server.listen(0,"127.0.0.1",()=>{server.off("error",reject);resolve();});
-    });
-    const address=server.address();
-    if(!address||typeof address==="string")throw new Error("Board localhost binding failed");
-    port=address.port;
-    const url="http://127.0.0.1:"+port+"/?token="+token;
-    const owner={server,url};boards.set(app,owner);owners.add(owner);
-    server.on("close",()=>owners.delete(owner));
-    openInBrowser(url);
-    return "http://127.0.0.1:"+port+"/";
-  }catch(error){server.close();throw error;}
+function parseStructured(raw: string): Record<string, unknown> {
+  const outcome = JSON.parse(raw) as {
+    type?: string;
+    reason?: string;
+    structured?: unknown;
+  };
+  if (outcome.type !== "success") {
+    throw new Error(outcome.reason ?? "Board command failed");
+  }
+  if (
+    typeof outcome.structured !== "object" ||
+    outcome.structured === null ||
+    Array.isArray(outcome.structured)
+  ) {
+    throw new Error("Board command returned no structured payload");
+  }
+  return outcome.structured as Record<string, unknown>;
 }
+
+async function invokeStructured(
+  app: CetasApplication,
+  id: string,
+  args: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return parseStructured(await app.invokeCommand(id, JSON.stringify(args)));
+}
+
+async function invokeSuccess(
+  app: CetasApplication,
+  id: string,
+  args: Record<string, unknown>,
+): Promise<void> {
+  const outcome = JSON.parse(await app.invokeCommand(id, JSON.stringify(args))) as {
+    type?: string;
+    reason?: string;
+  };
+  if (outcome.type !== "success") {
+    throw new Error(outcome.reason ?? "Board command failed");
+  }
+}
+
+async function invokeFrame(
+  app: CetasApplication,
+  id: string,
+  args: Record<string, unknown>,
+): Promise<string> {
+  const structured = await invokeStructured(app, id, args);
+  const frame = structured.frame;
+  if (typeof frame !== "string") {
+    throw new Error("Board wire command returned no frame");
+  }
+  return frame;
+}
+
+async function readSnapshot(
+  app: CetasApplication,
+): Promise<{ frame: string; revision: number }> {
+  const frame = await invokeFrame(app, "board.wire.snapshot", {});
+  const parsed = JSON.parse(frame) as { board_revision?: unknown };
+  return {
+    frame,
+    revision: typeof parsed.board_revision === "number" ? parsed.board_revision : 0,
+  };
+}
+
+function failureFrame(raw: string, error: unknown): string {
+  let commandId = "";
+  try {
+    const parsed = JSON.parse(raw) as { command_id?: unknown };
+    if (typeof parsed.command_id === "string") commandId = parsed.command_id;
+  } catch {
+    // Keep the empty correlation id; the client ignores unmatched results.
+  }
+  return JSON.stringify({
+    type: "command_result",
+    command_id: commandId,
+    accepted: false,
+    error: "board_unavailable",
+    current_revision: null,
+    detail: error instanceof Error ? error.message : String(error),
+  });
+}
+
+export async function openWorkflowBoard(
+  app: CetasApplication,
+  options?: { onOpen?: (url: string) => void },
+): Promise<string> {
+  const previous = boards.get(app);
+  if (previous !== undefined && !previous.closed) {
+    if (options?.onOpen) options.onOpen(previous.url);
+    else openInBrowser(previous.url);
+    return previous.url.split("?")[0]!;
+  }
+
+  // Attach the shared backend before the first snapshot is requested. This is
+  // the same backend the planner and execution owner use; the dashboard is a
+  // view, never a second authority.
+  await invokeSuccess(app, "board.wire.ready", {});
+
+  const token = randomBytes(32).toString("hex");
+  const state: BoardState = {
+    clients: new Set(),
+    lastRevision: null,
+    lastTickets: null,
+  };
+
+  async function sendSnapshot(ws: BoardSocket, force: boolean): Promise<void> {
+    const snapshot = await readSnapshot(app);
+    if (!force && snapshot.revision === state.lastRevision) return;
+    state.lastRevision = snapshot.revision;
+    ws.send(snapshot.frame);
+  }
+
+  async function broadcastSnapshot(force: boolean): Promise<void> {
+    if (state.clients.size === 0) return;
+    const snapshot = await readSnapshot(app);
+    if (!force && snapshot.revision === state.lastRevision) return;
+    state.lastRevision = snapshot.revision;
+    for (const client of state.clients) client.send(snapshot.frame);
+  }
+
+  async function readTicketState(): Promise<string> {
+    const structured = await invokeStructured(app, "board.ticket.state", {});
+    return JSON.stringify(structured);
+  }
+
+  async function sendTickets(ws: BoardSocket, force: boolean): Promise<void> {
+    const ticketState = await readTicketState();
+    if (!force && ticketState === state.lastTickets) return;
+    state.lastTickets = ticketState;
+    ws.send(
+      JSON.stringify({
+        type: "ticket_state",
+        state: JSON.parse(ticketState) as unknown,
+      }),
+    );
+  }
+
+  async function broadcastTickets(force: boolean): Promise<void> {
+    if (state.clients.size === 0) return;
+    const ticketState = await readTicketState();
+    if (!force && ticketState === state.lastTickets) return;
+    state.lastTickets = ticketState;
+    const frame = JSON.stringify({
+      type: "ticket_state",
+      state: JSON.parse(ticketState) as unknown,
+    });
+    for (const client of state.clients) client.send(frame);
+  }
+
+  const server = Bun.serve<BoardSocketData>({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch(req, server) {
+      const port = server.port ?? 0;
+      if (!isLoopbackHost(req.headers.get("host"), port)) {
+        return fail(403);
+      }
+      const url = new URL(req.url);
+      if (url.pathname === "/ws") {
+        if (url.searchParams.get("token") !== token) return fail(403);
+        if (server.upgrade(req, { data: { queue: Promise.resolve() } })) {
+          return;
+        }
+        return fail(400);
+      }
+      if (url.pathname === "/" || url.pathname === "/index.html") {
+        if (url.searchParams.get("token") !== token) return fail(403);
+        return new Response(BOARD_HTML, {
+          headers: {
+            ...SECURITY_HEADERS,
+            "Content-Type": "text/html; charset=utf-8",
+            "Content-Security-Policy": CSP,
+          },
+        });
+      }
+      // The document is token-gated; its static code is public behind the
+      // exact loopback Host gate, exactly like the native Board host.
+      if (url.pathname === "/index.js") {
+        return respond(BOARD_JS, "text/javascript; charset=utf-8");
+      }
+      if (url.pathname === "/board.css") {
+        return respond(BOARD_CSS, "text/css; charset=utf-8");
+      }
+      if (url.pathname === "/health") {
+        return respond("ok", "text/plain; charset=utf-8");
+      }
+      return fail(404);
+    },
+    websocket: {
+      open(ws) {
+        state.clients.add(ws);
+      },
+      message(ws, message) {
+        const text =
+          typeof message === "string" ? message : new TextDecoder().decode(message);
+        ws.data.queue = ws.data.queue
+          .then(async () => {
+            let frame: unknown;
+            try {
+              frame = JSON.parse(text);
+            } catch {
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  code: "invalid_json",
+                  message: "Invalid frame",
+                }),
+              );
+              return;
+            }
+            if (
+              typeof frame === "object" &&
+              frame !== null &&
+              (frame as { type?: unknown }).type === "hello"
+            ) {
+              await sendSnapshot(ws, true);
+              await sendTickets(ws, true).catch(() => undefined);
+              return;
+            }
+            if (
+              typeof frame === "object" &&
+              frame !== null &&
+              (frame as { type?: unknown }).type === "ticket_command"
+            ) {
+              const ticket = frame as {
+                name?: unknown;
+                args?: unknown;
+              };
+              if (
+                typeof ticket.name !== "string" ||
+                !ticket.name.startsWith("board.ticket.")
+              ) {
+                ws.send(
+                  JSON.stringify({
+                    type: "ticket_result",
+                    ok: false,
+                    reason: "invalid_ticket_command",
+                  }),
+                );
+                return;
+              }
+              try {
+                const commandArgs =
+                  typeof ticket.args === "object" &&
+                  ticket.args !== null &&
+                  !Array.isArray(ticket.args)
+                    ? (ticket.args as Record<string, unknown>)
+                    : {};
+                const ticketState = await invokeStructured(
+                  app,
+                  ticket.name,
+                  commandArgs,
+                );
+                ws.send(
+                  JSON.stringify({
+                    type: "ticket_result",
+                    ok: true,
+                    state: ticketState,
+                  }),
+                );
+                await broadcastTickets(true);
+              } catch (error) {
+                ws.send(
+                  JSON.stringify({
+                    type: "ticket_result",
+                    ok: false,
+                    reason:
+                      error instanceof Error ? error.message : String(error),
+                  }),
+                );
+              }
+              return;
+            }
+            const encoded = await invokeFrame(app, "board.wire.command", {
+              frame: text,
+            });
+            ws.send(encoded);
+            // Commands commit through the shared backend; refresh every
+            // connected dashboard so all tabs converge on the same revision.
+            await broadcastSnapshot(true);
+          })
+          .catch((error: unknown) => {
+            ws.send(failureFrame(text, error));
+          });
+      },
+      close(ws) {
+        state.clients.delete(ws);
+      },
+    },
+  });
+
+  const url = "http://127.0.0.1:" + server.port + "/?token=" + token;
+  const owner: BoardServer = { server, url, token, state, closed: false };
+  state.timer = setInterval(() => {
+    broadcastSnapshot(false).catch(() => undefined);
+  }, 1500);
+  state.ticketTimer = setInterval(() => {
+    broadcastTickets(false).catch(() => undefined);
+  }, 1000);
+  // A presentation surface must never keep Cetas alive by itself.
+  (server as { unref?: () => void }).unref?.();
+  boards.set(app, owner);
+  owners.add(owner);
+  if (options?.onOpen) options.onOpen(url);
+  else openInBrowser(url);
+  return "http://127.0.0.1:" + server.port + "/";
+}
+
 export async function closeWorkflowBoards(): Promise<void> {
-  const all=[...owners];
-  await Promise.all(all.map(owner=>new Promise<void>(resolve=>owner.server.close(()=>resolve()))));
+  const all = [...owners];
+  owners.clear();
+  await Promise.all(
+    all.map(async (owner) => {
+      owner.closed = true;
+      if (owner.state.timer !== undefined) clearInterval(owner.state.timer);
+      if (owner.state.ticketTimer !== undefined) {
+        clearInterval(owner.state.ticketTimer);
+      }
+      owner.state.clients.clear();
+      try {
+        await owner.server.stop(true);
+      } catch {
+        // A already-closed server is still a stopped server.
+      }
+    }),
+  );
 }

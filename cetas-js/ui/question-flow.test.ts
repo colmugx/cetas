@@ -108,3 +108,64 @@ describe("non-blocking ask shell flow", () => {
     expect(((shell as any).questions as { size: number }).size).toBe(1);
   });
 });
+
+describe("/questions and the reply panel", () => {
+  test("/questions with nothing pending is a notice, not a panel", () => {
+    const shell = makeShell();
+    void (shell as any).submit("/questions");
+    expect(transcript(shell)).toContain("no questions are waiting");
+    expect((shell as any).askRegion.children).toHaveLength(0);
+  });
+
+  test("/answer @q1 opens the reply panel above the editor and submitting answers it", async () => {
+    const shell = makeShell();
+    (shell as any).handleObserverEvent(askedEvent("question-1", "@q1"));
+    const done = (shell as any).submit("/answer @q1") as Promise<void>;
+    // The panel mounts synchronously inside UiRequestBar.request().
+    const panel = (shell as any).askRegion.children[0];
+    expect(panel).toBeDefined();
+    expect((shell as any).askRegion.render(120).join("\n")).toContain("Upgrade node to 22?");
+    panel.settle({ type: "yes" });
+    await done;
+    // Headless: answerQuestion reaches requireApp() and fails into a notice,
+    // but the panel is gone and the attempt was made.
+    expect(transcript(shell)).toContain("answer failed:");
+    expect((shell as any).askRegion.children).toHaveLength(0);
+    expect(((shell as any).questions as { size: number }).size).toBe(1);
+  });
+
+  test("cancelling the panel leaves the question pending with no answer attempt", async () => {
+    const shell = makeShell();
+    (shell as any).handleObserverEvent(askedEvent("question-1", "@q1"));
+    const done = (shell as any).submit("/answer @q1") as Promise<void>;
+    const panel = (shell as any).askRegion.children[0];
+    panel.settle({ type: "cancelled" });
+    await done;
+    expect(transcript(shell)).not.toContain("answer failed:");
+    expect((shell as any).askRegion.children).toHaveLength(0);
+    expect(((shell as any).questions as { size: number }).size).toBe(1);
+  });
+
+  test("an empty text reply keeps the question pending", async () => {
+    const shell = makeShell();
+    (shell as any).handleObserverEvent(
+      askedEvent("question-1", "@q1").replace("confirm", "input"),
+    );
+    const done = (shell as any).submit("/answer @q1") as Promise<void>;
+    const panel = (shell as any).askRegion.children[0];
+    panel.settle({ type: "text", text: "   " });
+    await done;
+    expect(transcript(shell)).toContain("stays pending");
+    expect(transcript(shell)).not.toContain("answer failed:");
+    expect(((shell as any).questions as { size: number }).size).toBe(1);
+  });
+
+  test("/questions refuses while another ask owns the reply region", () => {
+    const shell = makeShell();
+    (shell as any).handleObserverEvent(askedEvent("question-1", "@q1"));
+    (shell as any).uiRequestBar = { isActive: () => true };
+    void (shell as any).submit("/questions");
+    expect(transcript(shell)).toContain("another ask is on screen");
+    expect((shell as any).askRegion.children).toHaveLength(0);
+  });
+});

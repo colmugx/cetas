@@ -121,8 +121,22 @@ async fn build_cetas_workflows(
       continue_on_confirmed_failure=settings.continue_on_confirmed_failure,
     ),
   )
+  let tickets = TicketRuntime::TicketRuntime(
+    board~,
+    manager~,
+    parent_mode~,
+    approval~,
+    ctx~,
+    group~,
+  )
   Some(
-    CetasWorkflowCommands::{ board, agents, settings, ui: None, }
+    CetasWorkflowCommands::{
+      board,
+      agents,
+      settings,
+      tickets: Some(tickets),
+      ui: None,
+    }
     as &@posoco.Extension,
   )
 }

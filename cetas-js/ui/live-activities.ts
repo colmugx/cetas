@@ -53,7 +53,8 @@ export interface LiveActivitiesProjection {
 
 const MAX_VISIBLE_ROWS = 4;
 const MIN_DETAILS_WIDTH = 24;
-const QUESTION_PREVIEW_CHARS = 80;
+/** Short preview so the trailing `/answer @qN` hint survives truncation. */
+const QUESTION_PREVIEW_CHARS = 56;
 
 /** Do not render raw control sequences or unbounded question text in the live header. */
 export function questionPreview(raw: string): string {
@@ -73,7 +74,7 @@ export function projectLiveActivities(source: LiveActivitiesSource): LiveActivit
     all.push({
       key: `user-question:${question.id}`,
       role: "user-question",
-      label: `? ${head} asks you · ${preview ? `"${preview}"` : "waiting for an answer"}`,
+      label: `? ${head} asks you · ${preview ? `"${preview}"` : "waiting for an answer"} · /answer ${head}`,
     });
   }
   // Questions have priority regardless of whether the child is a foreground
