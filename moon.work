@@ -29,7 +29,7 @@ members = [
   "./extension/posoco-ext-lazytools",
   "./extension/posoco-ext-llm",
   "./extension/posoco-ext-mbtx",
-  "./extension/posoco-ext-ptc",
+  "./extension/posoco-ext-bunraku",
   "./extension/posoco-ext-magpie",
   "./extension/posoco-ext-mcp",
   "./extension/posoco-ext-memoh",

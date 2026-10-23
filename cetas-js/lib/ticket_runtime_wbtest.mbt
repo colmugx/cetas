@@ -1,4 +1,12 @@
 ///|
+test "ticket system prompt carries the Cetas language policy" {
+  let prompt = ticket_system_prompt("/workspace", "You are a test role.")
+  assert_true(prompt.contains("same language as the user's current message"))
+  assert_true(prompt.contains("Language override for this Board ticket"))
+  assert_true(prompt.contains("ticket title/description"))
+}
+
+///|
 async test "ticket question waits for a Board answer" {
   @async.with_task_group(group => {
     let questions = TicketQuestions::TicketQuestions()

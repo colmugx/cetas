@@ -55,7 +55,7 @@ test "ptc status bus initializes, updates, unregisters, and ignores no-ops" {
   bus.subscribe(capture)
   let mode = CetasPtcMode(bus=Some(bus), nested_names=["read"])
   assert_eq(capture.events.length(), 1)
-  assert_eq(capture.events[0].source, "posoco_ext_ptc")
+  assert_eq(capture.events[0].source, "posoco_ext_bunraku")
   json_inspect(capture.events[0].data, content={
     "op": "register",
     "segment": "ptc",

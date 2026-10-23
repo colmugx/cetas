@@ -1,6 +1,6 @@
 import {
   "colmugx/posoco",
-  "colmugx/posoco-ext-ptc" @ptc,
+  "colmugx/posoco-ext-bunraku" @bunraku,
   "colmugx/posoco/error",
   "colmugx/posoco/port",
   "colmugx/posoco/runtime",

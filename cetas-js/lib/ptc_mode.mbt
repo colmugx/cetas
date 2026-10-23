@@ -1,5 +1,5 @@
 ///|
-/// Host-side PTC mode bridge. The runtime stays in posoco-ext-ptc; this adapter
+/// Host-side PTC mode bridge. The runtime stays in posoco-ext-bunraku; this adapter
 /// belongs to Cetas because its model-facing catalog combines base, Pi and MCP
 /// tools and its terminal owns the interactive picker.
 pub(all) enum CetasPtcStatus {
@@ -74,13 +74,13 @@ fn CetasPtcMode::publish_status(self : CetasPtcMode) -> Unit {
         PtcDirect =>
           @devkit.publish_status_unregister(
             bus,
-            source="posoco_ext_ptc",
+            source="posoco_ext_bunraku",
             segment="ptc",
           )
         PtcHybrid =>
           @devkit.publish_status_register(
             bus,
-            source="posoco_ext_ptc",
+            source="posoco_ext_bunraku",
             segment="ptc",
             priority=11,
             value="Hybrid",
@@ -89,7 +89,7 @@ fn CetasPtcMode::publish_status(self : CetasPtcMode) -> Unit {
         PtcOnly =>
           @devkit.publish_status_register(
             bus,
-            source="posoco_ext_ptc",
+            source="posoco_ext_bunraku",
             segment="ptc",
             priority=11,
             value="PTC",

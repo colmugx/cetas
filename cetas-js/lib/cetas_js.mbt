@@ -2032,7 +2032,7 @@ pub fn cetas_js_runtime_create_agent(
                 ptc_names.contains(defs[0].name.to_string())
               })
               .collect()
-            let ptc_runtime = @ptc.PtcRuntime(
+            let ptc_runtime = @bunraku.BunrakuRuntime(
               fallback=mcp_runtime as &@runtime.Runtime,
               tools=ptc_providers,
               hooks=[policy as &@posoco.PipelineHook],
