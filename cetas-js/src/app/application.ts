@@ -60,8 +60,10 @@ const BOARD_WORKFLOW_CONTROLS = new Set([
   "board.wire.snapshot",
   "board.wire.command",
   "board.ticket.state",
+  "board.ticket.run",
   "board.ticket.run_ready",
   "board.ticket.answer",
+  "board.ticket.dismiss",
 ]);
 
 /** Exact Board sync-control membership; shell routing reuses this gate. */

@@ -473,7 +473,8 @@ impl @subagent.ChildComposer for CetasChildComposer with fn compose(
   }
   // Interactive children (face includes ask_question, default face does)
   // get the parent-bound ask face instead of the human one.
-  let question : &@askquestion.QuestionEndpoint? = match self.question_endpoint {
+  let question : &@askquestion.QuestionEndpoint? = match
+    self.question_endpoint {
     Some(endpoint) => Some(endpoint)
     None =>
       match self.question {

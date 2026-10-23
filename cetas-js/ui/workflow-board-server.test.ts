@@ -53,6 +53,28 @@ function mockApp(): CetasApplication {
       if (id === "board.wire.command") {
         return JSON.stringify({ type: "success", structured: { frame: RESULT } });
       }
+      if (id === "board.ticket.state") {
+        return JSON.stringify({
+          type: "success",
+          structured: { questions: [], runs: [] },
+        });
+      }
+      if (id === "board.ticket.run_ready") {
+        return JSON.stringify({
+          type: "success",
+          structured: {
+            questions: [],
+            runs: [
+              {
+                task_id: "task-1",
+                session_id: "ticket-task-1-1",
+                status: "running",
+                error: null,
+              },
+            ],
+          },
+        });
+      }
       throw new Error("unexpected command: " + id);
     },
   } as unknown as CetasApplication;
@@ -126,5 +148,18 @@ test("serves the same Rabbita app and bridges the Board wire protocol", async ()
       setTimeout(() => reject(new Error("board command did not settle")), 5000),
     ),
   ]);
+
+  socket.send(
+    JSON.stringify({
+      type: "ticket_command",
+      name: "board.ticket.run_ready",
+      args: {},
+    }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const ticket = messages
+    .map((frame) => JSON.parse(frame) as { type?: string; ok?: boolean })
+    .find((frame) => frame.type === "ticket_result");
+  expect(ticket?.ok).toBe(true);
   socket.close();
 }, 10000);

@@ -121,8 +121,6 @@ pub fn BlockingApprovalSource::BlockingApprovalSource() -> Self
 pub async fn BlockingApprovalSource::ask(Self, @posoco-ext-permission.ApprovalRequest) -> @posoco-ext-permission.ApprovalDecision
 pub impl @posoco-ext-permission.ApprovalSource for BlockingApprovalSource
 
-type BoardQuestionEndpoint
-
 pub struct CetasGoalApprovalVerifier {
   ui : JsUiPort
 }
@@ -273,14 +271,6 @@ pub(all) struct PlanApprovalSource {
 pub fn PlanApprovalSource::PlanApprovalSource() -> Self
 pub async fn PlanApprovalSource::review(Self, @posoco-ext-plan.PlanReviewRequest) -> @posoco-ext-plan.PlanReviewDecision
 pub impl @posoco-ext-plan.PlanReviewSource for PlanApprovalSource
-
-type TicketQuestion
-
-type TicketQuestions
-
-type TicketRun
-
-type TicketRuntime
 
 pub(all) struct UiBridge {
   blocking : BlockingApprovalSource?
