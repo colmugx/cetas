@@ -7,17 +7,8 @@ import {
 } from "@earendil-works/pi-tui";
 import type { AppState } from "../src/app/types.ts";
 import type { Channel } from "../src/app/version.ts";
+import { MODULAR_CUT } from "./brand-mark.ts";
 import { theme } from "./theme.ts";
-
-// A six-row terminal cut of the Wakeful mark, using half-block cells.
-const WAKEFUL = [
-  "▄██████████▄",
-  "███▀▀███▀▀███",
-  "███▄▄███▄▄███",
-  "███████▀▀▀▀▀",
-  "███████▄▄▄▄ ",
-  "▀█████████▀ ",
-] as const;
 
 export interface WelcomeHeaderSource {
   cwd: string;
@@ -89,7 +80,7 @@ export function renderWelcomeHeader(
     "",
   ];
   const body = columns >= 64
-    ? context.map((value, i) => row(theme.brand(WAKEFUL[i]) + "   " + value))
+    ? context.map((value, i) => row(theme.brand(MODULAR_CUT[i]) + "   " + value))
     : [context[0], context[1], context[3], context[4]].map(row);
   const narrow = columns < 64;
   const guidance = starting

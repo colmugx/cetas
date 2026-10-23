@@ -42,4 +42,4 @@ The core keeps the product identity consistent. A shared Cetas home makes provid
 
 ## Visual identity
 
-The Cetas mark is the Wakeful character: a compact C silhouette with two eyes. The README uses light/dark SVG variants in [`docs/assets/`](assets/), and the JS welcome header uses a small terminal rendering of the same character. Branding remains presentation; the welcome screen reads safe application snapshots and never parses provider secrets.
+The Cetas mark is Modular Cut: a polygonal C built on an integer grid with 45° edges and two straight, equally wide cuts. The upper-left cut runs through the top edge. The README uses light/dark SVG variants in [`docs/assets/`](assets/); the documentation site uses an adaptive SVG and a favicon with wider cuts for small sizes. The JS welcome header uses a six-row half-block rendering of the same small-size cut. Regenerate these assets with `python3 scripts/update_brand.py`, or verify they match the shared geometry with `python3 scripts/update_brand.py --check`. Branding remains presentation; the welcome screen reads safe application snapshots and never parses provider secrets.
