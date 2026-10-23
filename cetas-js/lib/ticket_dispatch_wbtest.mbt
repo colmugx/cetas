@@ -276,6 +276,8 @@ async test "ticket shaping can split an oversized ticket into ready children" {
     assert_false(source_present)
     assert_eq(split_count, 3)
     assert_true(all_ready)
+    let ticket_state = tickets.state_json().stringify()
+    assert_true(ticket_state.contains("Step"))
   })
 }
 

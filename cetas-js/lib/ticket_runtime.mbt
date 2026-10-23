@@ -125,6 +125,13 @@ impl @askquestion.QuestionEndpoint for BoardQuestionEndpoint with fn request(
 }
 
 ///|
+priv struct TicketActivity {
+  at_ms : Int64
+  kind : String
+  text : String
+}
+
+///|
 /// One background ticket run in this process.
 priv struct TicketRun {
   task_id : String
@@ -133,6 +140,150 @@ priv struct TicketRun {
   mut status : String
   mut error : String?
   mut result : String?
+  mut steps : Int32
+  mut current_tool : String?
+  mut preview : String
+  mut reasoning : String
+  activities : Array[TicketActivity]
+}
+
+///|
+/// Child observer that turns one run's TurnEvents into a bounded activity log.
+/// The child cannot mutate the Board; this observer only reads its own events.
+priv struct TicketActivityObserver {
+  run : TicketRun
+}
+
+///|
+fn append_tail(current : String, addition : String, max : Int32) -> String {
+  let combined = current + addition
+  let chars : Array[Char] = []
+  for char in combined {
+    chars.push(char)
+  }
+  let start = if chars.length() > max { chars.length() - max } else { 0 }
+  let mut out = ""
+  for index in start..<chars.length() {
+    out = out + chars[index].to_string()
+  }
+  out
+}
+
+///|
+fn one_line_preview(text : String, max : Int32) -> String {
+  let mut out = ""
+  let mut pending_space = false
+  for char in text {
+    if char == ' ' || char == '\n' || char == '\t' || char == '\r' {
+      pending_space = out.length() > 0
+    } else {
+      if pending_space {
+        out = out + " "
+        pending_space = false
+      }
+      out = out + char.to_string()
+      if out.length() >= max {
+        break
+      }
+    }
+  }
+  out
+}
+
+///|
+fn TicketRun::activity(self : TicketRun, kind : String, text : String) -> Unit {
+  self.activities.push({ at_ms: @async.now(), kind, text, })
+  while self.activities.length() > 20 {
+    ignore(self.activities.remove(0))
+  }
+}
+
+///|
+impl @posoco.Observer for TicketActivityObserver with fn on_event(
+  self : TicketActivityObserver,
+  event : @posoco.TurnEvent,
+) -> Unit {
+  let run = self.run
+  match event {
+    TurnStarted => {
+      run.steps = run.steps + 1
+      run.activity("step", "Step \{run.steps} started")
+    }
+    ModelRequestStarted => run.activity("model", "Waiting for the model")
+    ModelResponseReceived(usage~, ..) => {
+      let detail = match usage {
+        Some(usage) =>
+          "Model responded (in \{usage.input_tokens.unwrap_or(0)}, out \{usage.output_tokens.unwrap_or(0)})"
+        None => "Model responded"
+      }
+      run.activity("model", detail)
+    }
+    ToolCallPending(call) =>
+      run.activity(
+        "tool",
+        "Tool · \{call.name.to_string()} · approval needed",
+      )
+    ToolCallApproved(call~, ..) =>
+      run.activity("tool", "Tool · \{call.name.to_string()} · approved")
+    ToolCallStarted(call~) => {
+      run.current_tool = Some(call.name.to_string())
+      let preview = one_line_preview(call.arguments.stringify(), 120)
+      let detail = if preview == "" {
+        "Tool · \{call.name.to_string()} · running"
+      } else {
+        "Tool · \{call.name.to_string()} · \{preview}"
+      }
+      run.activity("tool", detail)
+    }
+    ToolCallSucceeded(call~, content~, ..) => {
+      run.current_tool = None
+      let preview = one_line_preview(content, 120)
+      let detail = if preview == "" {
+        "Tool · \{call.name.to_string()} · done"
+      } else {
+        "Tool · \{call.name.to_string()} · done · \{preview}"
+      }
+      run.activity("tool", detail)
+    }
+    ToolCallFailed(call~, failure~) => {
+      run.current_tool = None
+      run.activity(
+        "error",
+        "Tool · \{call.name.to_string()} · failed · \{failure.summary()}",
+      )
+    }
+    ToolCallRejected(call~, reason~) => {
+      run.current_tool = None
+      run.activity(
+        "error",
+        "Tool · \{call.name.to_string()} · rejected · \{reason}",
+      )
+    }
+    ToolCallAbandoned(call~, reason~) => {
+      run.current_tool = None
+      run.activity(
+        "error",
+        "Tool · \{call.name.to_string()} · abandoned · \{reason}",
+      )
+    }
+    TurnCompleted => run.activity("step", "Step completed")
+    TurnFailed(message) => run.activity("error", "Step failed · \{message}")
+    StreamChunkReceived(chunk~) =>
+      match chunk {
+        TextDelta(token~) => run.preview = append_tail(run.preview, token, 600)
+        ReasoningDelta(token~) =>
+          run.reasoning = append_tail(run.reasoning, token, 600)
+        _ => ()
+      }
+    UserRequestStarted(prompt~, ..) =>
+      run.activity(
+        "question",
+        "Waiting for your answer · \{one_line_preview(prompt, 100)}",
+      )
+    UserRequestFinished(outcome~, ..) =>
+      run.activity("question", "Answer received · \{outcome}")
+    _ => ()
+  }
 }
 
 ///|
@@ -188,6 +339,22 @@ fn TicketRuntime::state_json(self : TicketRuntime) -> Json {
           Some(text) => Json::string(text)
           None => Json::null()
         },
+        "steps": Json::number(run.steps.to_double()),
+        "current_tool": match run.current_tool {
+          Some(text) => Json::string(text)
+          None => Json::null()
+        },
+        "preview": Json::string(run.preview),
+        "reasoning": Json::string(run.reasoning),
+        "activities": Json::array(
+          run.activities.map(activity => {
+            Json::object({
+              "at_ms": Json::number(activity.at_ms.to_double()),
+              "kind": Json::string(activity.kind),
+              "text": Json::string(activity.text),
+            })
+          }),
+        ),
       }),
     )
   }
@@ -833,8 +1000,17 @@ async fn TicketRuntime::shape(
     status: "running",
     error: None,
     result: None,
+    steps: 0,
+    current_tool: None,
+    preview: "",
+    reasoning: "",
+    activities: [],
   }
   let endpoint : BoardQuestionEndpoint = { questions: self.questions, task_id, }
+  let observer = TicketActivityObserver::{
+    run: self.runs.get(task_id).unwrap(),
+  }
+  observer.run.activity("start", "Started")
   let composer = CetasChildComposer::CetasChildComposer(
     parent_manager=self.manager,
     parent_mode=self.parent_mode,
@@ -875,7 +1051,7 @@ async fn TicketRuntime::shape(
     slot: self.manager.manager_active_model_id(),
     effort: self.manager.manager_active_effort(),
     context_files: false,
-    observers: [],
+    observers: [observer as &@posoco.Observer],
   }
   let agent = @subagent.ChildComposer::compose(composer, spec) catch {
     error => {
@@ -987,6 +1163,11 @@ async fn TicketRuntime::run(
     status: "running",
     error: None,
     result: None,
+    steps: 0,
+    current_tool: None,
+    preview: "",
+    reasoning: "",
+    activities: [],
   }
   match self.move_task(task_id, "running") {
     Ok(_) => ()
@@ -999,6 +1180,10 @@ async fn TicketRuntime::run(
     }
   }
   let endpoint : BoardQuestionEndpoint = { questions: self.questions, task_id, }
+  let observer = TicketActivityObserver::{
+    run: self.runs.get(task_id).unwrap(),
+  }
+  observer.run.activity("start", "Started")
   let composer = CetasChildComposer::CetasChildComposer(
     parent_manager=self.manager,
     parent_mode=self.parent_mode,
@@ -1052,7 +1237,7 @@ async fn TicketRuntime::run(
     slot: self.manager.manager_active_model_id(),
     effort: self.manager.manager_active_effort(),
     context_files: false,
-    observers: [],
+    observers: [observer as &@posoco.Observer],
   }
   let agent = @subagent.ChildComposer::compose(composer, spec) catch {
     error => {
