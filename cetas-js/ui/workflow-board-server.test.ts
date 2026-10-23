@@ -56,7 +56,19 @@ function mockApp(): CetasApplication {
       if (id === "board.ticket.state") {
         return JSON.stringify({
           type: "success",
-          structured: { questions: [], runs: [] },
+          structured: {
+            questions: [
+              {
+                id: "q1",
+                task_id: "task-1",
+                question: "Which path should the worker take?",
+                kind: "input",
+                options: [],
+                asked_at: 1,
+              },
+            ],
+            runs: [],
+          },
         });
       }
       if (id === "board.ticket.run_ready") {
@@ -68,8 +80,10 @@ function mockApp(): CetasApplication {
               {
                 task_id: "task-1",
                 session_id: "ticket-task-1-1",
+                phase: "work",
                 status: "running",
                 error: null,
+                result: null,
               },
             ],
           },
@@ -84,11 +98,16 @@ afterEach(async () => {
   await closeWorkflowBoards();
 });
 
-test("serves the same Rabbita app and bridges the Board wire protocol", async () => {  let opened = "";
+test("serves the same Rabbita app and bridges the Board wire protocol", async () => {
+  let opened = "";
+  const activities: string[] = [];
   const app = mockApp();
   const base = await openWorkflowBoard(app, {
     onOpen: (url) => {
       opened = url;
+    },
+    onTicketActivity: (text) => {
+      activities.push(text);
     },
   });
 
@@ -132,6 +151,9 @@ test("serves the same Rabbita app and bridges the Board wire protocol", async ()
   await new Promise((resolve) => setTimeout(resolve, 150));
   expect(messages.length).toBeGreaterThan(0);
   expect(JSON.parse(messages[0]!).type).toBe("snapshot");
+  expect(
+    activities.some((text) => text.includes("Worker needs your answer")),
+  ).toBe(true);
 
   socket.send(
     JSON.stringify({

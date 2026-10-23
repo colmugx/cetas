@@ -2125,7 +2125,12 @@ export class TerminalShell {
     }
     try {
       if (!(await this.ensureWorkflows())) return;
-      const address = await openWorkflowBoard(this.requireApp());
+      const address = await openWorkflowBoard(this.requireApp(), {
+        onTicketActivity: (text) => {
+          this.addTranscriptChild(systemNotice("Board · " + text));
+          this.tui.requestRender();
+        },
+      });
       this.addTranscriptChild(systemNotice("Board opened: " + address));
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice("/board: " + errorMessage(error)));

@@ -28,6 +28,8 @@ interface BoardState {
   clients: Set<BoardSocket>;
   lastRevision: number | null;
   lastTickets: string | null;
+  seenQuestions: Set<string>;
+  seenResults: Set<string>;
   timer?: ReturnType<typeof setInterval>;
   ticketTimer?: ReturnType<typeof setInterval>;
 }
@@ -170,9 +172,15 @@ function failureFrame(raw: string, error: unknown): string {
   });
 }
 
+export interface WorkflowBoardOptions {
+  onOpen?: (url: string) => void;
+  /** One concise line for the host transcript when ticket work changes. */
+  onTicketActivity?: (text: string) => void;
+}
+
 export async function openWorkflowBoard(
   app: CetasApplication,
-  options?: { onOpen?: (url: string) => void },
+  options?: WorkflowBoardOptions,
 ): Promise<string> {
   const previous = boards.get(app);
   if (previous !== undefined && !previous.closed) {
@@ -191,7 +199,72 @@ export async function openWorkflowBoard(
     clients: new Set(),
     lastRevision: null,
     lastTickets: null,
+    seenQuestions: new Set(),
+    seenResults: new Set(),
   };
+
+  function activity(text: string): void {
+    options?.onTicketActivity?.(text);
+  }
+
+  function shorten(text: string, max = 140): string {
+    const oneLine = text.replace(/\s+/g, " ").trim();
+    return oneLine.length <= max ? oneLine : oneLine.slice(0, max - 1) + "…";
+  }
+
+  function observeTicketState(raw: string): void {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (typeof parsed !== "object" || parsed === null) return;
+    const record = parsed as Record<string, unknown>;
+    const questions = record.questions;
+    if (Array.isArray(questions)) {
+      for (const item of questions) {
+        if (typeof item !== "object" || item === null) continue;
+        const question = item as Record<string, unknown>;
+        const id = typeof question.id === "string" ? question.id : "";
+        if (!id || state.seenQuestions.has(id)) continue;
+        state.seenQuestions.add(id);
+        const taskId = typeof question.task_id === "string" ? question.task_id : "ticket";
+        const prompt = typeof question.question === "string" ? question.question : "needs your answer";
+        activity(`Worker needs your answer on ${taskId}: ${shorten(prompt)}`);
+      }
+    }
+    const runs = record.runs;
+    if (Array.isArray(runs)) {
+      for (const item of runs) {
+        if (typeof item !== "object" || item === null) continue;
+        const run = item as Record<string, unknown>;
+        const taskId = typeof run.task_id === "string" ? run.task_id : "ticket";
+        const phase = typeof run.phase === "string" ? run.phase : "work";
+        const status = typeof run.status === "string" ? run.status : "";
+        const result = typeof run.result === "string" ? run.result : "";
+        if (result !== "") {
+          const key = `${taskId}:${phase}:${result}`;
+          if (!state.seenResults.has(key)) {
+            state.seenResults.add(key);
+            activity(
+              phase === "shape"
+                ? `Shaping finished for ${taskId}; the ticket is Ready. Review it in Board.`
+                : `Worker finished ${taskId}; the ticket is In review. Review it in Board.`,
+            );
+          }
+        }
+        const error = typeof run.error === "string" ? run.error : "";
+        if (status === "failed" && error !== "") {
+          const key = `${taskId}:${phase}:failed:${error}`;
+          if (!state.seenResults.has(key)) {
+            state.seenResults.add(key);
+            activity(`${phase === "shape" ? "Shaping" : "Worker"} failed for ${taskId}: ${shorten(error)}`);
+          }
+        }
+      }
+    }
+  }
 
   async function sendSnapshot(ws: BoardSocket, force: boolean): Promise<void> {
     const snapshot = await readSnapshot(app);
@@ -210,7 +283,9 @@ export async function openWorkflowBoard(
 
   async function readTicketState(): Promise<string> {
     const structured = await invokeStructured(app, "board.ticket.state", {});
-    return JSON.stringify(structured);
+    const ticketState = JSON.stringify(structured);
+    observeTicketState(ticketState);
+    return ticketState;
   }
 
   async function sendTickets(ws: BoardSocket, force: boolean): Promise<void> {
@@ -226,8 +301,8 @@ export async function openWorkflowBoard(
   }
 
   async function broadcastTickets(force: boolean): Promise<void> {
-    if (state.clients.size === 0) return;
     const ticketState = await readTicketState();
+    if (state.clients.size === 0) return;
     if (!force && ticketState === state.lastTickets) return;
     state.lastTickets = ticketState;
     const frame = JSON.stringify({
@@ -348,6 +423,23 @@ export async function openWorkflowBoard(
                     state: ticketState,
                   }),
                 );
+                const taskId =
+                  typeof commandArgs.task_id === "string"
+                    ? commandArgs.task_id
+                    : "";
+                if (ticket.name === "board.ticket.shape") {
+                  activity(
+                    `Shaping started for ${taskId || "ticket"}; questions will appear in the Board inbox.`,
+                  );
+                } else if (ticket.name === "board.ticket.run") {
+                  activity(
+                    `Worker started for ${taskId || "ticket"}; it runs in the background.`,
+                  );
+                } else if (ticket.name === "board.ticket.run_ready") {
+                  activity("Worker started for the next Ready ticket; it runs in the background.");
+                } else if (ticket.name === "board.ticket.answer") {
+                  activity("Answer sent to the waiting worker.");
+                }
                 await broadcastTickets(true);
               } catch (error) {
                 ws.send(
