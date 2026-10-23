@@ -947,6 +947,22 @@ pub fn ConsoleRuntime::detach_sink(self : ConsoleRuntime) -> Unit {
 }
 
 ///|
+/// Run one console action on the runtime's task group instead of the caller's
+/// loop.
+///
+/// Long actions that wait on the host (`ConsoleRuntime::login` parks on a
+/// `ui.request` until `resolve_ui` answers it) must not be awaited by a
+/// command loop: the loop is what delivers that answer, so awaiting in place
+/// would deadlock. The action reports its own result through the event hub,
+/// exactly as a turn reports through its observer.
+pub fn ConsoleRuntime::spawn_background(
+  self : ConsoleRuntime,
+  task : async () -> Unit,
+) -> Unit {
+  self.group.spawn_bg(task)
+}
+
+///|
 pub fn ConsoleRuntime::emit_event(
   self : ConsoleRuntime,
   session_id : String,
