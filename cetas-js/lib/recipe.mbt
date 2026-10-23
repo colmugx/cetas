@@ -214,7 +214,7 @@ async fn build_cetas_skills(
 ///|
 
 ///|
-async fn build_compiled_zcode_ext(
+fn build_compiled_zcode_ext(
   env~ : (String) -> String?,
   exists~ : async (String) -> Bool,
 ) -> &@posoco.Extension? {
