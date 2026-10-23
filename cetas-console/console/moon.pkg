@@ -28,6 +28,8 @@ import {
   "colmugx/posoco/types" @posoco_types,
   "posoco/ext-llm" @ext_llm,
   "colmugx/posoco-ext-fs-session" @fs_session,
+  "colmugx/posoco-ext-credentials" @credentials,
+  "posoco/ext-oauth" @oauth,
   "moonbitlang/core/debug",
   "moonbitlang/core/json",
   "moonbitlang/async",

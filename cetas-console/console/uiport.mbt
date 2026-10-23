@@ -88,10 +88,36 @@ impl @posoco.UiPort for HubUiPort with fn render(
     }
     _ => []
   }
+  // Text and Lines bodies carry the payload for the non-statusbar slots (a
+  // notice's message, provider-auth URLs and device codes); the host decides
+  // how to present them.
+  let lines : Array[Json] = match render.body {
+    @posoco.UiBody::Lines(items) => {
+      let list : Array[Json] = []
+      for item in items {
+        list.push(Json::string(item))
+      }
+      list
+    }
+    _ => []
+  }
+  let text : Json = match render.body {
+    @posoco.UiBody::Text(value) => Json::string(value)
+    _ => Json::null()
+  }
   self.hub.emit(self.session_id, "", "ui.render", extra=[
     ("key", Json::string(render.key)),
     ("slot", Json::string(@debug.to_string(render.slot))),
+    (
+      "title",
+      match render.title {
+        Some(title) => Json::string(title)
+        None => Json::null()
+      },
+    ),
     ("entries", Json::array(entries)),
+    ("text", text),
+    ("lines", Json::array(lines)),
   ])
 }
 
