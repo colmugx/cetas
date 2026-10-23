@@ -529,7 +529,9 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
         match fields.get("task_id") {
           Some(String(value)) => value
           _ =>
-            return @posoco.CommandOutcome::Failure(reason="invalid_ticket_shape")
+            return @posoco.CommandOutcome::Failure(
+              reason="invalid_ticket_shape",
+            )
         }
       _ => return @posoco.CommandOutcome::Failure(reason="invalid_ticket_shape")
     }

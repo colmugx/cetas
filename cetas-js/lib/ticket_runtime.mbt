@@ -260,6 +260,131 @@ async fn TicketRuntime::move_task(
 }
 
 ///|
+async fn TicketRuntime::board_command(
+  self : TicketRuntime,
+  name : String,
+  args : Json,
+  expected_revision : Int64,
+) -> Result[Unit, String] {
+  let command : @board_protocol.BoardClientCommand = {
+    command_id: "ticket-" + name + "-" + self.counter.to_string(),
+    name,
+    expected_revision,
+    args,
+  }
+  let encoded = match
+    self.board.wire_command(
+      @board_protocol.encode_client_frame(@board_protocol.Command(command)),
+    ) {
+    Ok(encoded) => encoded
+    Err(error) => return Err(error.code())
+  }
+  match @board_protocol.decode_server_frame(encoded) {
+    Ok(@board_protocol.CommandResult(result)) =>
+      if result.accepted {
+        Ok(())
+      } else {
+        Err(
+          match result.error {
+            Some(error) => error
+            None => "board command rejected"
+          },
+        )
+      }
+    _ => Err("board command result was invalid")
+  }
+}
+
+///|
+async fn TicketRuntime::create_task(
+  self : TicketRuntime,
+  task_id : String,
+  title : String,
+  description : String,
+  priority : String,
+  definition_of_done : Array[String],
+) -> Result[Unit, String] {
+  let snapshot = match self.snapshot() {
+    Ok(snapshot) => snapshot
+    Err(error) => return Err(error)
+  }
+  self.board_command(
+    "board.task.create",
+    {
+      "id": Json::string(task_id),
+      "title": Json::string(title),
+      "description": Json::string(description),
+      "priority": Json::string(priority),
+      "definition_of_done": Json::array(definition_of_done.map(Json::string)),
+      "dependencies": Json::array([]),
+    },
+    snapshot.board_revision,
+  )
+}
+
+///|
+async fn TicketRuntime::delete_task(
+  self : TicketRuntime,
+  task_id : String,
+) -> Result[Unit, String] {
+  let snapshot = match self.snapshot() {
+    Ok(snapshot) => snapshot
+    Err(error) => return Err(error)
+  }
+  self.board_command(
+    "board.task.delete",
+    { "id": Json::string(task_id) },
+    snapshot.board_revision,
+  )
+}
+
+///|
+async fn TicketRuntime::task_has_dependents(
+  self : TicketRuntime,
+  task_id : String,
+) -> Result[Bool, String] {
+  let snapshot = match self.snapshot() {
+    Ok(snapshot) => snapshot
+    Err(error) => return Err(error)
+  }
+  let tasks = match snapshot.payload {
+    Object(payload) =>
+      match payload.get("board") {
+        Some(Object(board)) =>
+          match board.get("tasks") {
+            Some(Array(tasks)) => tasks
+            _ => return Err("board snapshot has no task array")
+          }
+        _ => return Err("board snapshot has no board object")
+      }
+    _ => return Err("board snapshot payload is invalid")
+  }
+  for task in tasks {
+    match task {
+      Object(fields) =>
+        match fields.get("dependencies") {
+          Some(Array(dependencies)) =>
+            for dependency in dependencies {
+              if dependency is String(value) && value == task_id {
+                return Ok(true)
+              }
+            }
+          _ => ()
+        }
+      _ => ()
+    }
+  }
+  Ok(false)
+}
+
+///|
+priv struct ShapeChild {
+  title : String
+  description : String
+  definition_of_done : Array[String]
+}
+
+///|
 async fn TicketRuntime::finish(
   self : TicketRuntime,
   task_id : String,
@@ -348,9 +473,10 @@ async fn TicketRuntime::update_task(
     expected_revision: revision,
     args: Json::object(fields),
   }
-  let encoded = match self.board.wire_command(
-    @board_protocol.encode_client_frame(@board_protocol.Command(command)),
-  ) {
+  let encoded = match
+    self.board.wire_command(
+      @board_protocol.encode_client_frame(@board_protocol.Command(command)),
+    ) {
     Ok(encoded) => encoded
     Err(error) => return Err(error.code())
   }
@@ -386,10 +512,152 @@ fn extract_json_object(text : String) -> Json? {
   if start < 0 || end <= start {
     return None
   }
-  let parsed = @json.parse(trimmed[start:end + 1]) catch {
-    _ => return None
-  }
+  let parsed = @json.parse(trimmed[start:end + 1]) catch { _ => return None }
   Some(parsed)
+}
+
+///|
+fn parse_shape_children(value : Json?) -> Result[Array[ShapeChild], String] {
+  let items = match value {
+    Some(Array(items)) => items
+    _ => return Err("shaping split has no tasks array")
+  }
+  if items.length() < 2 {
+    return Err("a split needs at least two independent tickets")
+  }
+  if items.length() > 8 {
+    return Err("a split is limited to eight independent tickets")
+  }
+  let children : Array[ShapeChild] = []
+  for item in items {
+    let fields = match item {
+      Object(fields) => fields
+      _ => return Err("every split ticket must be an object")
+    }
+    let title = match fields.get("title") {
+      Some(String(value)) => value.trim().to_owned()
+      _ => ""
+    }
+    if title == "" {
+      return Err("every split ticket needs a title")
+    }
+    let description = match fields.get("description") {
+      Some(String(value)) => value
+      _ => ""
+    }
+    let definition_of_done = match fields.get("definition_of_done") {
+      Some(Array(values)) =>
+        values.filter_map(value => {
+          match value {
+            String(text) => Some(text)
+            _ => None
+          }
+        })
+      _ => []
+    }
+    children.push({ title, description, definition_of_done, })
+  }
+  Ok(children)
+}
+
+///|
+async fn TicketRuntime::rollback_split(
+  self : TicketRuntime,
+  created : Array[String],
+) -> String {
+  let failures : Array[String] = []
+  let mut index = created.length()
+  while index > 0 {
+    index = index - 1
+    match self.delete_task(created[index]) {
+      Ok(_) => ()
+      Err(error) => failures.push(created[index] + ": " + error)
+    }
+  }
+  if failures.is_empty() {
+    ""
+  } else {
+    "; rollback failed for " + failures.join("; ")
+  }
+}
+
+///|
+async fn TicketRuntime::split_ticket(
+  self : TicketRuntime,
+  source_id : String,
+  children : Array[ShapeChild],
+) -> Result[String, String] {
+  match self.task_has_dependents(source_id) {
+    Ok(true) =>
+      return Err(
+        "ticket is still a dependency of another task; remove that edge before splitting",
+      )
+    Ok(false) => ()
+    Err(error) => return Err(error)
+  }
+  let (source, _) = match self.task_snapshot(source_id) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  let priority = match task_field(source, "priority") {
+    "" => "normal"
+    value => value
+  }
+  let created : Array[String] = []
+  let stamp = @async.now()
+  for index, child in children {
+    let task_id = "split-" +
+      source_id +
+      "-" +
+      stamp.to_string() +
+      "-" +
+      index.to_string()
+    match
+      self.create_task(
+        task_id,
+        child.title,
+        child.description,
+        priority,
+        child.definition_of_done,
+      ) {
+      Ok(_) => ()
+      Err(error) => {
+        let rollback = self.rollback_split(created)
+        return Err("could not create split ticket: " + error + rollback)
+      }
+    }
+    created.push(task_id)
+    match self.move_task(task_id, "refining") {
+      Ok(_) => ()
+      Err(error) => {
+        let rollback = self.rollback_split(created)
+        return Err(
+          "could not move split ticket to Shaping: " + error + rollback,
+        )
+      }
+    }
+    match self.move_task(task_id, "ready") {
+      Ok(_) => ()
+      Err(error) => {
+        let rollback = self.rollback_split(created)
+        return Err("could not move split ticket to Ready: " + error + rollback)
+      }
+    }
+  }
+  match self.delete_task(source_id) {
+    Ok(_) => {
+      let titles = children.map(child => child.title).join(", ")
+      Ok("Split into \{children.length()} tickets: " + titles)
+    }
+    Err(error) => {
+      let rollback = self.rollback_split(created)
+      Err(
+        "split tickets were created but the source could not be deleted: " +
+        error +
+        rollback,
+      )
+    }
+  }
 }
 
 ///|
@@ -432,18 +700,52 @@ async fn TicketRuntime::finish_shape(
   let done = match parsed.get("definition_of_done") {
     Some(Array(items)) =>
       Some(
-        items.filter_map(item =>
+        items.filter_map(item => {
           match item {
             String(value) => Some(value)
             _ => None
           }
-        ),
+        }),
       )
     _ => None
   }
   let summary = match parsed.get("summary") {
     Some(String(value)) => value
     _ => "Ticket shaped"
+  }
+  if parsed.get("tasks") is Some(tasks) {
+    let children = match parse_shape_children(Some(tasks)) {
+      Ok(children) => children
+      Err(error) => {
+        match run {
+          Some(run) => {
+            run.status = "failed"
+            run.error = Some(error)
+          }
+          None => ()
+        }
+        return
+      }
+    }
+    match self.split_ticket(task_id, children) {
+      Ok(text) =>
+        match run {
+          Some(run) => {
+            run.status = "shaped"
+            run.result = Some(text)
+          }
+          None => ()
+        }
+      Err(error) =>
+        match run {
+          Some(run) => {
+            run.status = "failed"
+            run.error = Some(error)
+          }
+          None => ()
+        }
+    }
+    return
   }
   match self.update_task(task_id, description, done) {
     Ok(_) => ()
@@ -459,7 +761,7 @@ async fn TicketRuntime::finish_shape(
     }
   }
   match self.move_task(task_id, "ready") {
-    Ok(_) => {
+    Ok(_) =>
       match run {
         Some(run) => {
           run.status = "shaped"
@@ -467,8 +769,7 @@ async fn TicketRuntime::finish_shape(
         }
         None => ()
       }
-    }
-    Err(error) => {
+    Err(error) =>
       match run {
         Some(run) => {
           run.status = "failed"
@@ -476,7 +777,6 @@ async fn TicketRuntime::finish_shape(
         }
         None => ()
       }
-    }
   }
 }
 
@@ -493,10 +793,12 @@ async fn TicketRuntime::shape(
     Err(error) => return Err(error)
   }
   let stage = task_field(task, "stage")
-  if stage != "created" && stage != "refining" {
-    return Err("ticket must be Backlog or Shaping before it can be shaped")
+  if stage != "created" && stage != "refining" && stage != "ready" {
+    return Err(
+      "ticket must be Backlog, Shaping, or Ready before it can be shaped",
+    )
   }
-  if stage == "created" {
+  if stage == "created" || stage == "ready" {
     match self.move_task(task_id, "refining") {
       Ok(_) => ()
       Err(error) => return Err(error)
@@ -514,10 +816,7 @@ async fn TicketRuntime::shape(
     error: None,
     result: None,
   }
-  let endpoint : BoardQuestionEndpoint = {
-    questions: self.questions,
-    task_id,
-  }
+  let endpoint : BoardQuestionEndpoint = { questions: self.questions, task_id, }
   let composer = CetasChildComposer::CetasChildComposer(
     parent_manager=self.manager,
     parent_mode=self.parent_mode,
@@ -537,21 +836,18 @@ async fn TicketRuntime::shape(
     "\n\nCurrent description:\n" +
     description +
     "\n\nInspect relevant workspace files when useful. Ask the user with ask_question_child about ambiguities or missing acceptance criteria. Do not modify files and do not mutate the Board.\n\n" +
-    "Return only a JSON object with this shape:\n" +
+    "Decide whether this is one ticket or several independent tickets. If the request contains 2-8 independent deliverables, ask the user to confirm the split with ask_question_child first. The host applies the split and deletes the source ticket after your JSON is accepted.\n\n" +
+    "Return only one JSON object. One ticket:\n" +
     "{\"summary\":\"one sentence\",\"description\":\"clarified implementation scope\",\"definition_of_done\":[\"observable criterion\"]}\n" +
+    "Split:\n" +
+    "{\"summary\":\"why this is several tickets\",\"tasks\":[{\"title\":\"independent ticket\",\"description\":\"scope\",\"definition_of_done\":[\"observable criterion\"]}]}\n" +
     "Do not wrap it in Markdown."
   let spec : @subagent.ChildSpec = {
     task: prompt,
     kind_name: "shape",
     session_id,
     resuming: false,
-    tools: Some([
-      "read",
-      "glob",
-      "grep",
-      "astgrep",
-      "ask_question",
-    ]),
+    tools: Some(["read", "glob", "grep", "astgrep", "ask_question"]),
     skills: None,
     mode: (self.parent_mode)(),
     system_prompt: "You are a ticket shaper. Clarify the ticket, ask the user when a decision is needed with ask_question_child, and return one strict JSON object. Never modify files, never mutate the Board, never claim Done.",
@@ -576,29 +872,27 @@ async fn TicketRuntime::shape(
     }
   }
   self.group.spawn_bg(async fn() {
-    let outcome : Result[String, String] = Ok({
+    let outcome : Result[String, String] = Ok(
       agent.run_scoped(async fn(agent) {
         agent.set_active_session(Some(session_id))
         let result = agent.run_turn(
-          @posoco.Message::UserMessage(content=[
-            @posoco.Content::Text(prompt),
-          ]),
+          @posoco.Message::UserMessage(content=[@posoco.Content::Text(prompt)]),
           session_id,
         )
         match result.message {
           @posoco.Message::AssistantMessage(content=blocks, ..) =>
             blocks
-            .filter_map(block =>
+            .filter_map(block => {
               match block {
                 @posoco.Content::Text(value) => Some(value)
                 _ => None
               }
-            )
+            })
             .join("\n")
           _ => ""
         }
-      })
-    }) catch {
+      }),
+    ) catch {
       error => Err(error.to_string())
     }
     self.finish_shape(task_id, outcome)

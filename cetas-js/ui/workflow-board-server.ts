@@ -249,7 +249,9 @@ export async function openWorkflowBoard(
             state.seenResults.add(key);
             activity(
               phase === "shape"
-                ? `Shaping finished for ${taskId}; the ticket is Ready. Review it in Board.`
+                ? result.startsWith("Split into ")
+                  ? `Shaping split ${taskId} into independent Ready tickets: ${shorten(result)}`
+                  : `Shaping finished for ${taskId}; the ticket is Ready. Review it in Board.`
                 : `Worker finished ${taskId}; the ticket is In review. Review it in Board.`,
             );
           }

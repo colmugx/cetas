@@ -135,6 +135,151 @@ async test "ticket run dispatches a background child and moves the ticket to rev
 }
 
 ///|
+async test "ticket shaping can split an oversized ticket into ready children" {
+  let directory = @board_fixtures.temporary_directory()
+  defer @board_fixtures.cleanup(directory)
+  let model = @posoco.ScriptedModel([
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response(
+        "{\"summary\":\"Three independent tickets\",\"tasks\":[{\"title\":\"Alpha\",\"description\":\"A\",\"definition_of_done\":[\"A done\"]},{\"title\":\"Beta\",\"description\":\"B\",\"definition_of_done\":[\"B done\"]},{\"title\":\"Gamma\",\"description\":\"C\",\"definition_of_done\":[\"C done\"]}]}",
+      ),
+    ),
+  ])
+  let router = @llm.RouterModelPort(
+    slots=[subagent_test_slot("test/shape-split", model)],
+    default_slot_id="test/shape-split",
+  )
+  @async.with_task_group(group => {
+    let fs = @workspace.JsWorkspaceFs()
+    let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
+    let board = @board.BoardWorkflows(
+      directory~,
+      group~,
+      agents=customer_factory(router, directory, () => @permission.ReadOnly),
+      authorize=() => true,
+      policy=@board.BoardWorkflowPolicy(enabled=true),
+    )
+    defer ignore(board.shutdown())
+    let tickets = TicketRuntime::TicketRuntime(
+      board~,
+      manager=Providers(router),
+      parent_mode=() => @permission.ReadOnly,
+      approval=None,
+      ctx~,
+      group~,
+    )
+    let create : Json = {
+      "id": "task-1",
+      "title": "Oversized request",
+      "description": "Three things in one",
+      "priority": "normal",
+      "definition_of_done": [],
+      "dependencies": [],
+    }
+    ignore(
+      board.wire_command(
+        @board_protocol.encode_client_frame(
+          @board_protocol.Command({
+            command_id: "split-create-1",
+            name: "board.task.create",
+            expected_revision: 0L,
+            args: create,
+          }),
+        ),
+      ),
+    )
+    let refining = match
+      board.wire_command(
+        @board_protocol.encode_client_frame(
+          @board_protocol.Command({
+            command_id: "split-move-1",
+            name: "board.task.move",
+            expected_revision: 1L,
+            args: { "id": "task-1", "to": "refining" },
+          }),
+        ),
+      ) {
+      Ok(encoded) => encoded
+      Err(error) => fail("move command failed: " + error.code())
+    }
+    match @board_protocol.decode_server_frame(refining) {
+      Ok(@board_protocol.CommandResult(result)) => assert_true(result.accepted)
+      _ => fail("move command did not return a result")
+    }
+    let ready = match
+      board.wire_command(
+        @board_protocol.encode_client_frame(
+          @board_protocol.Command({
+            command_id: "split-move-2",
+            name: "board.task.move",
+            expected_revision: 2L,
+            args: { "id": "task-1", "to": "ready" },
+          }),
+        ),
+      ) {
+      Ok(encoded) => encoded
+      Err(error) => fail("ready command failed: " + error.code())
+    }
+    match @board_protocol.decode_server_frame(ready) {
+      Ok(@board_protocol.CommandResult(result)) => assert_true(result.accepted)
+      _ => fail("ready command did not return a result")
+    }
+    match tickets.shape("task-1") {
+      Ok(_) => ()
+      Err(error) => fail("ticket shape failed: " + error)
+    }
+    let mut source_present = true
+    let mut split_count = 0
+    let mut all_ready = false
+    for _ in 0..<150 {
+      let snapshot = match
+        @board_protocol.decode_server_frame(
+          match board.wire_snapshot() {
+            Ok(snapshot) => snapshot
+            Err(error) => fail("snapshot failed: " + error.code())
+          },
+        ) {
+        Ok(@board_protocol.Snapshot(snapshot)) => snapshot
+        _ => fail("snapshot was invalid")
+      }
+      let board_json = match snapshot.payload {
+        Object(payload) =>
+          match payload.get("board") {
+            Some(Object(board)) => board
+            _ => fail("snapshot has no board")
+          }
+        _ => fail("snapshot payload is not an object")
+      }
+      let tasks = match board_json.get("tasks") {
+        Some(Array(tasks)) => tasks
+        _ => fail("snapshot has no tasks")
+      }
+      source_present = false
+      split_count = 0
+      all_ready = true
+      for task in tasks {
+        let id = task_field(task, "id")
+        if id == "task-1" {
+          source_present = true
+        } else if id.length() >= 6 && id[0:6] == "split-" {
+          split_count = split_count + 1
+          if task_field(task, "stage") != "ready" {
+            all_ready = false
+          }
+        }
+      }
+      if !source_present && split_count == 3 && all_ready {
+        break
+      }
+      @async.sleep(20)
+    }
+    assert_false(source_present)
+    assert_eq(split_count, 3)
+    assert_true(all_ready)
+  })
+}
+
+///|
 async test "ticket shaping clarifies the ticket and moves it to ready" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
@@ -151,11 +296,7 @@ async test "ticket shaping clarifies the ticket and moves it to ready" {
   )
   @async.with_task_group(group => {
     let fs = @workspace.JsWorkspaceFs()
-    let ctx : @cetas_core.HostContext = {
-      fs,
-      cwd: directory,
-      home: directory,
-    }
+    let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
     let board = @board.BoardWorkflows(
       directory~,
       group~,
@@ -200,12 +341,13 @@ async test "ticket shaping clarifies the ticket and moves it to ready" {
     let mut description = ""
     let mut done = 0
     for _ in 0..<100 {
-      let snapshot = match @board_protocol.decode_server_frame(
-        match board.wire_snapshot() {
-          Ok(snapshot) => snapshot
-          Err(error) => fail("snapshot failed: " + error.code())
-        },
-      ) {
+      let snapshot = match
+        @board_protocol.decode_server_frame(
+          match board.wire_snapshot() {
+            Ok(snapshot) => snapshot
+            Err(error) => fail("snapshot failed: " + error.code())
+          },
+        ) {
         Ok(@board_protocol.Snapshot(snapshot)) => snapshot
         _ => fail("snapshot was invalid")
       }
