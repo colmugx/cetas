@@ -129,6 +129,7 @@ impl @askquestion.QuestionEndpoint for BoardQuestionEndpoint with fn request(
 priv struct TicketRun {
   task_id : String
   session_id : String
+  phase : String
   mut status : String
   mut error : String?
   mut result : String?
@@ -177,6 +178,7 @@ fn TicketRuntime::state_json(self : TicketRuntime) -> Json {
       Json::object({
         "task_id": Json::string(run.task_id),
         "session_id": Json::string(run.session_id),
+        "phase": Json::string(run.phase),
         "status": Json::string(run.status),
         "error": match run.error {
           Some(text) => Json::string(text)
@@ -289,6 +291,322 @@ async fn TicketRuntime::finish(
 }
 
 ///|
+async fn TicketRuntime::task_snapshot(
+  self : TicketRuntime,
+  task_id : String,
+) -> Result[(Json, Int64), String] {
+  let snapshot = match self.snapshot() {
+    Ok(snapshot) => snapshot
+    Err(error) => return Err(error)
+  }
+  let tasks = match snapshot.payload {
+    Object(payload) =>
+      match payload.get("board") {
+        Some(Object(board)) =>
+          match board.get("tasks") {
+            Some(Array(tasks)) => tasks
+            _ => return Err("board snapshot has no task array")
+          }
+        _ => return Err("board snapshot has no board object")
+      }
+    _ => return Err("board snapshot payload is invalid")
+  }
+  for task in tasks {
+    if task_field(task, "id") == task_id {
+      return Ok((task, snapshot.board_revision))
+    }
+  }
+  Err("ticket was not found")
+}
+
+///|
+async fn TicketRuntime::update_task(
+  self : TicketRuntime,
+  task_id : String,
+  description : String?,
+  definition_of_done : Array[String]?,
+) -> Result[Unit, String] {
+  let revision = match self.task_snapshot(task_id) {
+    Ok((_, revision)) => revision
+    Err(error) => return Err(error)
+  }
+  let fields : Map[String, Json] = Map::from_array([
+    ("id", Json::string(task_id)),
+  ])
+  match description {
+    Some(value) => fields["description"] = Json::string(value)
+    None => ()
+  }
+  match definition_of_done {
+    Some(values) =>
+      fields["definition_of_done"] = Json::array(values.map(Json::string))
+    None => ()
+  }
+  let command : @board_protocol.BoardClientCommand = {
+    command_id: "ticket-update-" + self.counter.to_string(),
+    name: "board.task.update",
+    expected_revision: revision,
+    args: Json::object(fields),
+  }
+  let encoded = match self.board.wire_command(
+    @board_protocol.encode_client_frame(@board_protocol.Command(command)),
+  ) {
+    Ok(encoded) => encoded
+    Err(error) => return Err(error.code())
+  }
+  match @board_protocol.decode_server_frame(encoded) {
+    Ok(@board_protocol.CommandResult(result)) =>
+      if result.accepted {
+        Ok(())
+      } else {
+        Err(
+          match result.error {
+            Some(error) => error
+            None => "board update rejected"
+          },
+        )
+      }
+    _ => Err("board update result was invalid")
+  }
+}
+
+///|
+fn extract_json_object(text : String) -> Json? {
+  let trimmed = text.trim()
+  let mut start = -1
+  let mut end = -1
+  for index in 0..<trimmed.length() {
+    if trimmed[index] == '{' && start < 0 {
+      start = index
+    }
+    if trimmed[index] == '}' {
+      end = index
+    }
+  }
+  if start < 0 || end <= start {
+    return None
+  }
+  let parsed = @json.parse(trimmed[start:end + 1]) catch {
+    _ => return None
+  }
+  Some(parsed)
+}
+
+///|
+async fn TicketRuntime::finish_shape(
+  self : TicketRuntime,
+  task_id : String,
+  outcome : Result[String, String],
+) -> Unit {
+  let run = self.runs.get(task_id)
+  let result = match outcome {
+    Ok(text) => text
+    Err(error) => {
+      match run {
+        Some(run) => {
+          run.status = "failed"
+          run.error = Some(error)
+        }
+        None => ()
+      }
+      return
+    }
+  }
+  let parsed = match extract_json_object(result) {
+    Some(Json::Object(fields)) => fields
+    _ => {
+      match run {
+        Some(run) => {
+          run.status = "failed"
+          run.error = Some("shaping output was not a JSON object")
+        }
+        None => ()
+      }
+      return
+    }
+  }
+  let description = match parsed.get("description") {
+    Some(String(value)) => Some(value)
+    _ => None
+  }
+  let done = match parsed.get("definition_of_done") {
+    Some(Array(items)) =>
+      Some(
+        items.filter_map(item =>
+          match item {
+            String(value) => Some(value)
+            _ => None
+          }
+        ),
+      )
+    _ => None
+  }
+  let summary = match parsed.get("summary") {
+    Some(String(value)) => value
+    _ => "Ticket shaped"
+  }
+  match self.update_task(task_id, description, done) {
+    Ok(_) => ()
+    Err(error) => {
+      match run {
+        Some(run) => {
+          run.status = "failed"
+          run.error = Some(error)
+        }
+        None => ()
+      }
+      return
+    }
+  }
+  match self.move_task(task_id, "ready") {
+    Ok(_) => {
+      match run {
+        Some(run) => {
+          run.status = "shaped"
+          run.result = Some(summary)
+        }
+        None => ()
+      }
+    }
+    Err(error) => {
+      match run {
+        Some(run) => {
+          run.status = "failed"
+          run.error = Some(error)
+        }
+        None => ()
+      }
+    }
+  }
+}
+
+///|
+async fn TicketRuntime::shape(
+  self : TicketRuntime,
+  task_id : String,
+) -> Result[Unit, String] {
+  if self.runs.get(task_id) is Some(run) && run.status == "running" {
+    return Err("ticket is already running")
+  }
+  let (task, _) = match self.task_snapshot(task_id) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  let stage = task_field(task, "stage")
+  if stage != "created" && stage != "refining" {
+    return Err("ticket must be Backlog or Shaping before it can be shaped")
+  }
+  if stage == "created" {
+    match self.move_task(task_id, "refining") {
+      Ok(_) => ()
+      Err(error) => return Err(error)
+    }
+  }
+  let title = task_field(task, "title")
+  let description = task_field(task, "description")
+  self.counter = self.counter + 1
+  let session_id = "shape-" + task_id + "-" + self.counter.to_string()
+  self.runs[task_id] = {
+    task_id,
+    session_id,
+    phase: "shape",
+    status: "running",
+    error: None,
+    result: None,
+  }
+  let endpoint : BoardQuestionEndpoint = {
+    questions: self.questions,
+    task_id,
+  }
+  let composer = CetasChildComposer::CetasChildComposer(
+    parent_manager=self.manager,
+    parent_mode=self.parent_mode,
+    approval=self.approval,
+    ui=None,
+    question=None,
+    question_endpoint=Some(endpoint as &@askquestion.QuestionEndpoint),
+    context_fs=self.ctx.fs,
+    feature_fs=self.ctx.fs,
+    cwd=self.ctx.cwd,
+    home=self.ctx.home,
+    host_group=Some(self.group),
+  )
+  let prompt = "Shape this Board ticket before any work starts.\n\n" +
+    "Title: " +
+    title +
+    "\n\nCurrent description:\n" +
+    description +
+    "\n\nInspect relevant workspace files when useful. Ask the user with ask_question_child about ambiguities or missing acceptance criteria. Do not modify files and do not mutate the Board.\n\n" +
+    "Return only a JSON object with this shape:\n" +
+    "{\"summary\":\"one sentence\",\"description\":\"clarified implementation scope\",\"definition_of_done\":[\"observable criterion\"]}\n" +
+    "Do not wrap it in Markdown."
+  let spec : @subagent.ChildSpec = {
+    task: prompt,
+    kind_name: "shape",
+    session_id,
+    resuming: false,
+    tools: Some([
+      "read",
+      "glob",
+      "grep",
+      "astgrep",
+      "ask_question",
+    ]),
+    skills: None,
+    mode: (self.parent_mode)(),
+    system_prompt: "You are a ticket shaper. Clarify the ticket, ask the user when a decision is needed with ask_question_child, and return one strict JSON object. Never modify files, never mutate the Board, never claim Done.",
+    slot: self.manager.manager_active_model_id(),
+    effort: self.manager.manager_active_effort(),
+    context_files: false,
+    observers: [],
+  }
+  let agent = @subagent.ChildComposer::compose(composer, spec) catch {
+    error => {
+      let detail = match error {
+        @subagent.Failed(detail) => detail
+      }
+      match self.runs.get(task_id) {
+        Some(run) => {
+          run.status = "failed"
+          run.error = Some(detail)
+        }
+        None => ()
+      }
+      return Err("shaping composition failed: " + detail)
+    }
+  }
+  self.group.spawn_bg(async fn() {
+    let outcome : Result[String, String] = Ok({
+      agent.run_scoped(async fn(agent) {
+        agent.set_active_session(Some(session_id))
+        let result = agent.run_turn(
+          @posoco.Message::UserMessage(content=[
+            @posoco.Content::Text(prompt),
+          ]),
+          session_id,
+        )
+        match result.message {
+          @posoco.Message::AssistantMessage(content=blocks, ..) =>
+            blocks
+            .filter_map(block =>
+              match block {
+                @posoco.Content::Text(value) => Some(value)
+                _ => None
+              }
+            )
+            .join("\n")
+          _ => ""
+        }
+      })
+    }) catch {
+      error => Err(error.to_string())
+    }
+    self.finish_shape(task_id, outcome)
+  })
+  Ok(())
+}
+
+///|
 async fn TicketRuntime::run(
   self : TicketRuntime,
   task_id : String,
@@ -350,6 +668,7 @@ async fn TicketRuntime::run(
   self.runs[task_id] = {
     task_id,
     session_id,
+    phase: "work",
     status: "running",
     error: None,
     result: None,

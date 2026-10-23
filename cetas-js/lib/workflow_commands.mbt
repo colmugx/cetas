@@ -136,6 +136,19 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn commands(self) {
     metadata: None,
   })
   definitions.push(@posoco.CommandDef::{
+    id: "board.ticket.shape",
+    label: "Shape ticket",
+    description: "Internal: clarify and refine one Board ticket before work",
+    category: "board",
+    ctype: @posoco.CommandType::Action,
+    params: [],
+    aliases: [],
+    shortcut: None,
+    icon: None,
+    visible: false,
+    metadata: None,
+  })
+  definitions.push(@posoco.CommandDef::{
     id: "board.ticket.run",
     label: "Run ticket",
     description: "Internal: start one Ready Board ticket as a background worker",
@@ -502,6 +515,36 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
       structured=Some(tickets.state_json()),
       ui_hint=Some(@posoco.UiHint::None),
     )
+  }
+  if id == "board.ticket.shape" {
+    let tickets = match self.tickets {
+      Some(tickets) => tickets
+      None =>
+        return @posoco.CommandOutcome::Failure(
+          reason="ticket_runtime_unavailable",
+        )
+    }
+    let task_id = match args {
+      Object(fields) =>
+        match fields.get("task_id") {
+          Some(String(value)) => value
+          _ =>
+            return @posoco.CommandOutcome::Failure(reason="invalid_ticket_shape")
+        }
+      _ => return @posoco.CommandOutcome::Failure(reason="invalid_ticket_shape")
+    }
+    let shaped = tickets.shape(task_id) catch {
+      _ => return @posoco.CommandOutcome::Failure(reason="ticket_shape_failed")
+    }
+    match shaped {
+      Ok(_) =>
+        return @posoco.CommandOutcome::Success(
+          feedback="Ticket shaping started in the background.",
+          structured=Some(tickets.state_json()),
+          ui_hint=Some(@posoco.UiHint::None),
+        )
+      Err(reason) => return @posoco.CommandOutcome::Failure(reason~)
+    }
   }
   if id == "board.ticket.run" {
     let tickets = match self.tickets {
