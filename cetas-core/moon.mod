@@ -21,6 +21,7 @@ import {
   "posoco/ext-llm@0.2.0",
   "posoco/ext-oauth@0.1.0",
   "colmugx/posoco-ext-deepseek@0.2.0",
+  "colmugx/posoco-ext-jev@0.1.0",
   "colmugx/posoco-ext-kimi@0.2.0",
   "colmugx/posoco-ext-openai@0.1.0",
   "colmugx/posoco-ext-openai-compatible@0.2.0",

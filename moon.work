@@ -24,6 +24,7 @@ members = [
   "./extension/posoco-ext-grep",
   "./extension/posoco-ext-handoff",
   "./extension/posoco-ext-herdr",
+  "./extension/posoco-ext-jev",
   "./extension/posoco-ext-kind",
   "./extension/posoco-ext-kimi",
   "./extension/posoco-ext-lazytools",
