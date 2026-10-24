@@ -39,12 +39,12 @@ const initialRawMode = process.stdin.isRaw ?? false;
 function reportUnhandledFault(kind: string, error: unknown): string {
   const detail =
     error instanceof Error
-      ? `${error.name}: ${error.message}\n${error.stack ?? ""}`
+      ? `${error.name}: ${error.message}\n${error.stack ?? ""}${error.cause === undefined ? "" : "\\ncause: " + (error.cause instanceof Error ? error.cause.stack ?? String(error.cause) : String(error.cause))}`
       : String(error);
   const crashPath = join(tmpdir(), "cetas-js-crash.log");
   appendFileSync(
     crashPath,
-    `[${new Date().toISOString()}] ${kind} pid=${process.pid} cetas=${cetasVersion()} channel=${detectChannel()} runtime=${process.version}\n${detail}\n\n`,
+    `[${new Date().toISOString()}] ${kind} pid=${process.pid} cetas=${cetasVersion()} channel=${detectChannel()} runtime=${process.version} bun=${process.versions.bun ?? "unknown"}\n${detail}\n\n`,
   );
   return `cetas: fatal host fault (${kind}) logged to ${crashPath}`;
 }
