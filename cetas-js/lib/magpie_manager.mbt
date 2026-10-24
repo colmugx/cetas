@@ -469,6 +469,35 @@ fn ModelManagerFace::manager_catalog_entries_json(
 }
 
 ///|
+/// Ticket-level model catalog: what a Board ticket is allowed to pin.
+///
+/// Ticket pins are dispatched through the ext-llm router, so only the
+/// providers manager is selectable. Magpie keeps its routing groups and
+/// effort ladders behind its own runtime commands; a ticket pinning a Magpie
+/// model id would name a slot the router cannot serve, so the picker reports
+/// `selectable=false` with no models instead of offering a selection that
+/// cannot work. This is a projection of current state, never persisted, and
+/// `models` is empty exactly when `selectable` is false.
+fn ModelManagerFace::manager_ticket_model_catalog_json(
+  self : ModelManagerFace,
+) -> Json {
+  match self {
+    Providers(router) =>
+      Json::object({
+        "selectable": Json::boolean(true),
+        "kind": Json::string("ext_llm"),
+        "models": Json::array(router.picker_catalog_json()),
+      })
+    Magpie(_) =>
+      Json::object({
+        "selectable": Json::boolean(false),
+        "kind": Json::string("magpie"),
+        "models": Json::array([]),
+      })
+  }
+}
+
+///|
 /// Pending-selection annotation for the catalog feedback line: a pending
 /// selection must stay visible instead of silently reading as applied.
 fn ModelManagerFace::manager_pending_note(self : ModelManagerFace) -> String {

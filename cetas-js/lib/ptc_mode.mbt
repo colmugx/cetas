@@ -114,6 +114,24 @@ pub fn CetasPtcMode::model_sees(
 }
 
 ///|
+/// PtcOnly hides nested declarations from the catalog; this enforces the
+/// same boundary on execution, because a model can still emit a call it
+/// remembers from an earlier hybrid turn. Reject feeds the reason back to
+/// the model and the run continues — a teaching moment, not an abort.
+pub impl @posoco.PipelineHook for CetasPtcMode with fn before_tool(
+  self : CetasPtcMode,
+  call : @posoco.ToolCall,
+) -> @posoco.ToolDecision {
+  if self.current_ is PtcOnly &&
+    self.nested_names.contains(call.name.to_string()) {
+    return @posoco.ToolDecision::Reject(
+      reason="'\{call.name.to_string()}' is nested under run_code in PTC-only mode — call run_code with code that does ctx.call(\"\{call.name.to_string()}\", ...). Tools outside its nested capability list remain directly callable.",
+    )
+  }
+  @posoco.ToolDecision::Approve(call~)
+}
+
+///|
 /// Idempotent mode changes only produce an event and catalog revision when
 /// the effective mode actually changes.
 pub fn CetasPtcMode::set(self : CetasPtcMode, next : CetasPtcStatus) -> Unit {

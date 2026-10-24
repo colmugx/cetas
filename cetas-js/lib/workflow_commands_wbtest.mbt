@@ -228,3 +228,21 @@ test "workflow menu treats the real Stopped phase as terminal" {
     assert_false(workflow_terminal(phase))
   }
 }
+
+///|
+test "ticket model command argument parses pin, inherit and malformed shapes" {
+  match parse_ticket_model_arg(Json::null()) {
+    Ok(None) => ()
+    _ => fail("null must mean inherit")
+  }
+  match parse_ticket_model_arg({ "slot": "openai/gpt-5.2", "effort": "high" }) {
+    Ok(Some(model)) => {
+      assert_eq(model.slot, "openai/gpt-5.2")
+      assert_eq(model.effort, Some("high"))
+    }
+    _ => fail("expected a pinned model")
+  }
+  assert_true(parse_ticket_model_arg({ "slot": "" }) is Err(_))
+  assert_true(parse_ticket_model_arg({ "slot": "x", "extra": 1 }) is Err(_))
+  assert_true(parse_ticket_model_arg("not-a-model") is Err(_))
+}

@@ -136,6 +136,19 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn commands(self) {
     metadata: None,
   })
   definitions.push(@posoco.CommandDef::{
+    id: "board.ticket.set_model",
+    label: "Pin ticket model",
+    description: "Internal: pin or clear one Board ticket's model and effort",
+    category: "board",
+    ctype: @posoco.CommandType::Action,
+    params: [],
+    aliases: [],
+    shortcut: None,
+    icon: None,
+    visible: false,
+    metadata: None,
+  })
+  definitions.push(@posoco.CommandDef::{
     id: "board.ticket.shape",
     label: "Shape ticket",
     description: "Internal: clarify and refine one Board ticket before work",
@@ -497,6 +510,36 @@ fn workflow_view_outcome(
 }
 
 ///|
+/// Parse the `board.ticket.set_model` model argument: `null` (explicit
+/// inherit) or `{"slot": "...", "effort": null|"..."}`. Unknown fields are
+/// rejected rather than dropped, so a host typo can never be written as a
+/// silent inheritance. Catalog membership is validated later, against the
+/// manager's current state — not here, where no catalog is available.
+fn parse_ticket_model_arg(value : Json) -> Result[TicketModelChoice?, String] {
+  match value {
+    Json::Null => Ok(None)
+    Json::Object(model) => {
+      for key in model.keys() {
+        if key != "slot" && key != "effort" {
+          return Err("unknown ticket model field: " + key)
+        }
+      }
+      let slot = match model.get("slot") {
+        Some(Json::String(value)) if !value.trim().is_empty() => value
+        _ => return Err("ticket model slot must be a non-empty string")
+      }
+      let effort = match model.get("effort") {
+        Some(Json::Null) | None => None
+        Some(Json::String(value)) if !value.trim().is_empty() => Some(value)
+        Some(_) => return Err("ticket model effort must be a string or null")
+      }
+      Ok(Some({ slot, effort, }))
+    }
+    _ => Err("ticket model must be an object or null")
+  }
+}
+
+///|
 impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
   self,
   id,
@@ -515,6 +558,56 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
       structured=Some(tickets.state_json()),
       ui_hint=Some(@posoco.UiHint::None),
     )
+  }
+  if id == "board.ticket.set_model" {
+    let tickets = match self.tickets {
+      Some(tickets) => tickets
+      None =>
+        return @posoco.CommandOutcome::Failure(
+          reason="ticket_runtime_unavailable",
+        )
+    }
+    let fields = match args {
+      Object(fields) => fields
+      _ =>
+        return @posoco.CommandOutcome::Failure(
+          reason="invalid_ticket_set_model",
+        )
+    }
+    let task_id = match fields.get("task_id") {
+      Some(String(value)) if !value.trim().is_empty() => value
+      _ =>
+        return @posoco.CommandOutcome::Failure(
+          reason="invalid_ticket_set_model",
+        )
+    }
+    // `model` must be stated: `null` is the explicit inherit ("clear the
+    // pin"), an object is the pin. A missing key is a malformed request, not
+    // an implicit clear.
+    let model = match fields.get("model") {
+      Some(value) =>
+        match parse_ticket_model_arg(value) {
+          Ok(model) => model
+          Err(reason) => return @posoco.CommandOutcome::Failure(reason~)
+        }
+      None =>
+        return @posoco.CommandOutcome::Failure(
+          reason="invalid_ticket_set_model",
+        )
+    }
+    let updated = tickets.set_model(task_id, model) catch {
+      _ =>
+        return @posoco.CommandOutcome::Failure(reason="ticket_set_model_failed")
+    }
+    match updated {
+      Ok(state) =>
+        return @posoco.CommandOutcome::Success(
+          feedback="Ticket model updated.",
+          structured=Some(state),
+          ui_hint=Some(@posoco.UiHint::None),
+        )
+      Err(reason) => return @posoco.CommandOutcome::Failure(reason~)
+    }
   }
   if id == "board.ticket.shape" {
     let tickets = match self.tickets {

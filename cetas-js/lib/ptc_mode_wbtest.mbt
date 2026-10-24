@@ -79,3 +79,31 @@ test "ptc status bus initializes, updates, unregisters, and ignores no-ops" {
     "segment": "ptc",
   })
 }
+
+///|
+async test "ptc only rejects direct calls to nested tools with guidance" {
+  let mode = CetasPtcMode(nested_names=["read", "bash"])
+  let call = @posoco.ToolCall::{
+    call_id: @posoco.CallId::unchecked("call_1"),
+    name: @posoco.ToolName::unchecked("bash"),
+    arguments: Json::object({ "cmd": Json::string("ls") }),
+  }
+  mode.set(PtcHybrid)
+  guard mode.before_tool(call) is @port.ToolDecision::Approve(call~) else {
+    fail("hybrid rejected a direct nested-tool call")
+  }
+  mode.set(PtcOnly)
+  guard mode.before_tool(call) is @port.ToolDecision::Reject(reason~) else {
+    fail("ptc only allowed a direct nested-tool call")
+  }
+  assert_true(reason.contains("run_code"))
+  assert_true(reason.contains("bash"))
+  let outsider = @posoco.ToolCall::{
+    call_id: @posoco.CallId::unchecked("call_2"),
+    name: @posoco.ToolName::unchecked("webfetch"),
+    arguments: Json::object({ "url": Json::string("https://example.com") }),
+  }
+  guard mode.before_tool(outsider) is @port.ToolDecision::Approve(..) else {
+    fail("ptc only rejected a non-nested tool")
+  }
+}
