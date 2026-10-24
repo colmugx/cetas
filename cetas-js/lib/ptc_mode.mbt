@@ -1,4 +1,52 @@
 ///|
+/// Scoped model-facing selection for providers exposing multiple tools.
+/// The original provider continues to own execution and cancellation; only
+/// the explicitly selected definitions enter Bunraku's governed dispatch.
+priv struct CetasPtcScopedProvider {
+  inner : &@posoco.ToolProvider
+  definitions : Array[@posoco.ToolDef]
+}
+
+///|
+impl @posoco.ToolProvider for CetasPtcScopedProvider with fn list_tools(
+  self : CetasPtcScopedProvider,
+) -> Array[@posoco.ToolDef] {
+  self.definitions.copy()
+}
+
+///|
+impl @posoco.ToolProvider for CetasPtcScopedProvider with fn execute(
+  self : CetasPtcScopedProvider,
+  ctx : @posoco.ToolCallContext,
+) -> @posoco.ToolOutcome raise @posoco.RuntimeError {
+  // Defense in depth: a dispatch rewrite may never widen the selected scope.
+  if !self.definitions.any(fn(def) { def.name == ctx.name }) {
+    return @posoco.ToolOutcome::ToolReportedError(
+      content="PTC tool is outside the selected provider scope: " +
+        ctx.name.to_string(),
+      structured=None,
+    )
+  }
+  self.inner.execute(ctx)
+}
+
+///|
+fn cetas_ptc_select_provider(
+  provider : &@posoco.ToolProvider,
+  allowed : Array[String],
+) -> &@posoco.ToolProvider? {
+  let selected = provider.list_tools().filter(fn(def) {
+    allowed.contains(def.name.to_string())
+  })
+  if selected.is_empty() {
+    None
+  } else {
+    Some(CetasPtcScopedProvider::{ inner: provider, definitions: selected, }
+      as &@posoco.ToolProvider)
+  }
+}
+
+///|
 /// Host-side PTC mode bridge. The runtime stays in posoco-ext-bunraku; this adapter
 /// belongs to Cetas because its model-facing catalog combines base, Pi and MCP
 /// tools and its terminal owns the interactive picker.

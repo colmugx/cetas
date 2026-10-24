@@ -2057,10 +2057,8 @@ pub fn cetas_js_runtime_create_agent(
             let ptc_providers : Array[&@posoco.ToolProvider] = exts
               .iter()
               .flat_map(fn(ext) { ext.manifest().tools.iter() })
-              .filter(fn(provider) {
-                let defs = provider.list_tools()
-                defs.length() == 1 &&
-                ptc_names.contains(defs[0].name.to_string())
+              .filter_map(fn(provider) {
+                cetas_ptc_select_provider(provider, ptc_names)
               })
               .collect()
             let ptc_runtime = @bunraku.BunrakuRuntime(
