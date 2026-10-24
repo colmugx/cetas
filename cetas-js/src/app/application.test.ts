@@ -255,6 +255,37 @@ describe("CetasApplication", () => {
     await app.shutdown();
   });
 
+  test("a throwing catalog-update subscriber does not leave a rejected background task", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    let releaseRefresh!: (raw: string) => void;
+    const pendingRefresh = new Promise<string>((resolve) => { releaseRefresh = resolve; });
+    let armed = false;
+    const app = new CetasApplication({
+      bridge: {
+        ...bridgeFor(agentComposingSetup(), counters),
+        refreshModelListsLive: async () => pendingRefresh,
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+      onStateChange: (snapshot) => {
+        if (armed && snapshot.state === "ready") {
+          throw new Error("subscriber render fault");
+        }
+      },
+    });
+
+    await app.start();
+    armed = true;
+    // Malformed background data causes the summary handler to publish an
+    // error snapshot. That subscriber throw must be consumed by the refresh
+    // task itself, including when publishing the fallback error also fails.
+    releaseRefresh("{invalid json");
+    await Bun.sleep(1);
+    await expect(app.shutdown()).resolves.toBeUndefined();
+    expect(counters.shutdowns).toBe(1);
+  });
+
   test("a zero-configured snapshot never launches the live refresh", async () => {
     const counters = { created: 0, runs: 0, shutdowns: 0 };
     const liveSelectors: string[] = [];
