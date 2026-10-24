@@ -35,7 +35,7 @@ def extract(path):
                     code = args.get("code") or args.get("source") or ""
                     run_codes.append(code)
                     import re
-                    for tool_name in re.findall(r'(?:ctx|ears)\\.call\\(\\s*["\\\']([^"\\\']+)', code):
+                    for tool_name in re.findall(r"""(?:ctx|ears)\.call\(\s*["']([^"']+)""", code):
                         nested_calls[tool_name] += 1
         if role == "tool":
             contents = row.get("content", [])
