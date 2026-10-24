@@ -467,7 +467,13 @@ export async function openWorkflowBoard(
             await broadcastSnapshot(true);
           })
           .catch((error: unknown) => {
-            ws.send(failureFrame(text, error));
+            try {
+              ws.send(failureFrame(text, error));
+            } catch (reportError: unknown) {
+              // The client may have disconnected while the command awaited.
+              // A throwing error reporter must not become an unhandled rejection.
+              console.error("cetas-js: Board websocket error reply failed", reportError);
+            }
           });
       },
       close(ws) {
