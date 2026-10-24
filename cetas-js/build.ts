@@ -156,6 +156,8 @@ if (nodeBundle) {
   process.exit(0);
 }
 
+// Keep release builds unchanged; opt in to a symbolizable local crash build.
+const debugBuild = process.env.CETAS_DEBUG_BUILD === "1";
 const group = process.env.CETAS_BUILD_GROUP ?? "";
 if (group === "") {
   // Parent pass: one child per OS group, preserving target platform settings.
@@ -199,7 +201,8 @@ for (const name of selected.filter((n) => osFor(n) === os)) {
     // repository's development MoonBit plugin) before its own entry point.
     compile: { target: TARGETS[name], outfile, autoloadBunfig: false, ...(executable ? { executablePath: executable } : {}) },
     define: VERSION_DEFINE,
-    minify: true,
+    minify: !debugBuild,
+    ...(debugBuild ? { sourcemap: "linked" as const } : {}),
   });
   if (!result.success) {
     console.error(`✗ ${name}`);
