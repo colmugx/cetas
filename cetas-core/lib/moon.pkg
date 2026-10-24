@@ -4,7 +4,7 @@ import {
   "posoco/ext-llm" @llm,
   "posoco/ext-oauth" @oauth,
   "colmugx/posoco-ext-deepseek" @deepseek,
-  "colmugx/posoco-ext-jev" @jev,
+  "colmugx/posoco-ext-typesafe" @typesafe,
   "colmugx/posoco-ext-kimi" @kimi,
   "colmugx/posoco-ext-openai" @openai,
   "colmugx/posoco-ext-openai-compatible" @openai_compatible,
