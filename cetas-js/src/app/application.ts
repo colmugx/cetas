@@ -1,3 +1,4 @@
+import { recordDiagnostic } from "../diagnostics.ts";
 import { readManagerSettings, restoreManagerSettings, writeManagerChoice, writeMagpieAddress, validateMagpieAddress, type ModelManagerChoice } from "./model-manager-settings.ts";
 import {
   CetasApplicationError,
@@ -679,7 +680,7 @@ export class CetasApplication<AgentHandle = unknown> {
           this.publish();
         } catch (reportError: unknown) {
           // Never turn a failure reporter into another unhandled rejection.
-          console.error("cetas-js: catalog refresh status publication failed", reportError);
+          recordDiagnostic("catalog refresh status publication failed", reportError);
         }
       });
     this.liveCatalogRefresh = { controller, settled };

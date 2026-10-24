@@ -9,6 +9,7 @@
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import type { CetasApplication } from "../src/app/application.ts";
+import { recordDiagnostic } from "../src/diagnostics.ts";
 import {
   BOARD_CSS,
   BOARD_HTML,
@@ -472,7 +473,7 @@ export async function openWorkflowBoard(
             } catch (reportError: unknown) {
               // The client may have disconnected while the command awaited.
               // A throwing error reporter must not become an unhandled rejection.
-              console.error("cetas-js: Board websocket error reply failed", reportError);
+              recordDiagnostic("Board websocket error reply failed", reportError);
             }
           });
       },

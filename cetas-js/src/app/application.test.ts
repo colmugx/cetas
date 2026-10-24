@@ -260,6 +260,9 @@ describe("CetasApplication", () => {
     let releaseRefresh!: (raw: string) => void;
     const pendingRefresh = new Promise<string>((resolve) => { releaseRefresh = resolve; });
     let armed = false;
+    let failedPublications = 0;
+    let resolveSecondFailure!: () => void;
+    const secondFailure = new Promise<void>((resolve) => { resolveSecondFailure = resolve; });
     const app = new CetasApplication({
       bridge: {
         ...bridgeFor(agentComposingSetup(), counters),
@@ -270,6 +273,8 @@ describe("CetasApplication", () => {
       initialSessionId: "session-1",
       onStateChange: (snapshot) => {
         if (armed && snapshot.state === "ready") {
+          failedPublications += 1;
+          if (failedPublications === 2) resolveSecondFailure();
           throw new Error("subscriber render fault");
         }
       },
@@ -281,8 +286,10 @@ describe("CetasApplication", () => {
     // error snapshot. That subscriber throw must be consumed by the refresh
     // task itself, including when publishing the fallback error also fails.
     releaseRefresh("{invalid json");
-    await Bun.sleep(1);
+    // Wait for both the failed summary publication and failed error reporter.
+    await secondFailure;
     await expect(app.shutdown()).resolves.toBeUndefined();
+    expect(failedPublications).toBe(2);
     expect(counters.shutdowns).toBe(1);
   });
 

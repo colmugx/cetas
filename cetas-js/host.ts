@@ -39,7 +39,7 @@ const initialRawMode = process.stdin.isRaw ?? false;
 function reportUnhandledFault(kind: string, error: unknown): string {
   const detail =
     error instanceof Error
-      ? `${error.name}: ${error.message}\n${error.stack ?? ""}${error.cause === undefined ? "" : "\\ncause: " + (error.cause instanceof Error ? error.cause.stack ?? String(error.cause) : String(error.cause))}`
+      ? `${error.name}: ${error.message}\n${error.stack ?? ""}${error.cause === undefined ? "" : "\ncause: " + (error.cause instanceof Error ? error.cause.stack ?? String(error.cause) : String(error.cause))}`
       : String(error);
   const crashPath = join(tmpdir(), "cetas-js-crash.log");
   appendFileSync(
