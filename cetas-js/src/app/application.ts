@@ -666,18 +666,22 @@ export class CetasApplication<AgentHandle = unknown> {
           controller.signal,
         ),
       )
-      .then(
-        (raw: string) => {
-          if (!controller.signal.aborted) this.handleLiveCatalogRefreshSummary(raw);
-        },
-        (error: unknown) => {
-          // The MoonBit entry resolves failures into its summary; a rejection
-          // can only be a bridge defect. Surface it without crashing the app.
-          if (controller.signal.aborted) return;
-          this.lastError = `live model catalog refresh failed: ${errorMessage(error)}`;
+      .then((raw: string) => {
+        if (!controller.signal.aborted) this.handleLiveCatalogRefreshSummary(raw);
+      })
+      .catch((error: unknown) => {
+        // The continuation may throw too (for example, an onStateChange
+        // callback during a catalog update). A two-argument .then() would
+        // leave that failure unhandled in this background task.
+        if (controller.signal.aborted) return;
+        this.lastError = `live model catalog refresh failed: ${errorMessage(error)}`;
+        try {
           this.publish();
-        },
-      );
+        } catch (reportError: unknown) {
+          // Never turn a failure reporter into another unhandled rejection.
+          console.error("cetas-js: catalog refresh status publication failed", reportError);
+        }
+      });
     this.liveCatalogRefresh = { controller, settled };
   }
 
