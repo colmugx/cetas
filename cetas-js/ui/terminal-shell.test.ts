@@ -394,6 +394,33 @@ describe("parseCetasEventLenient", () => {
     ).not.toThrow();
   });
 
+  test("a bunraku_call envelope parses as a known nested-call fact", () => {
+    const outcome = parseCetasEventLenient(
+      JSON.stringify({
+        type: "bunraku_call",
+        parent_call: "call_9",
+        ev: {
+          request_id: 3,
+          name: "bash",
+          arguments: { cmd: "ls" },
+          outcome: { kind: "success", content: "ok" },
+        },
+      }),
+    );
+    expect(outcome).toEqual({
+      event: {
+        type: "bunraku_call",
+        parent_call: "call_9",
+        ev: {
+          request_id: 3,
+          name: "bash",
+          arguments: { cmd: "ls" },
+          outcome: { kind: "success", content: "ok" },
+        },
+      },
+    });
+  });
+
   test("a malformed known type is skipped, never throws", () => {
     // turn_failed without its required fields; the real reason rides along.
     const outcome = parseCetasEventLenient('{"type":"turn_failed"}');

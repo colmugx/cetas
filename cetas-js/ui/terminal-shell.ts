@@ -1228,6 +1228,12 @@ export class TerminalShell {
       return;
     }
     const event = outcome.event;
+    if (event.type === "bunraku_call") {
+      // Known and structured: the transcript already shows the enclosing
+      // run_code row with its outcome, and per-nested-call rows would only
+      // spam it. Flow rendering over these envelopes belongs to scena.
+      return;
+    }
     if (event.type === "turn_started") {
       this.skippedBridgeEvents = 0;
       this.skippedEventsNoticed = false;

@@ -125,7 +125,7 @@ test("serves the same Rabbita app and bridges the Board wire protocol", async ()
   const js = await (await fetch(base + "index.js")).text();
   expect(js.length).toBeGreaterThan(1000);
   const css = await (await fetch(base + "board.css")).text();
-  expect(css).toContain("--canvas: #f4f4f1");
+  expect(css).toContain("--canvas: #ececea");
 
   const wsUrl = opened
     .replace("http://", "ws://")

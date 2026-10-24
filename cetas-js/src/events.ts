@@ -173,6 +173,23 @@ export type CetasEvent =
       ev: CetasEvent;
     }
   | {
+      /**
+       * One settled nested call inside a run_code invocation (posoco-ext-
+       * bunraku). `parent_call` is the enclosing run_code call id, so flow
+       * renderers can hang the guest's fan-out beneath the visible node.
+       * The terminal consumes these silently today; the sync GUI (scena)
+       * is the intended flow-rendering surface.
+       */
+      type: "bunraku_call";
+      parent_call: string;
+      ev: {
+        request_id: number;
+        name: string;
+        arguments: unknown;
+        outcome: unknown;
+      };
+    }
+  | {
       type: "config_changed";
       field: string;
       old: string;
@@ -502,6 +519,20 @@ export function parseCetasEvent(raw: unknown): CetasEvent | null {
           "subagent_event.parent_call",
         ),
         ev: inner,
+      };
+    }
+    case "bunraku_call": {
+      const inner = requireRecord(ev.ev, "bunraku_call.ev");
+      return {
+        type: "bunraku_call",
+        parent_call: requireString(ev.parent_call, "bunraku_call.parent_call"),
+        ev: {
+          request_id:
+            typeof inner.request_id === "number" ? inner.request_id : 0,
+          name: typeof inner.name === "string" ? inner.name : "",
+          arguments: inner.arguments,
+          outcome: inner.outcome,
+        },
       };
     }
     default:

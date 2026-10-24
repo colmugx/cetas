@@ -65,6 +65,7 @@ const BOARD_WORKFLOW_CONTROLS = new Set([
   "board.ticket.run_ready",
   "board.ticket.answer",
   "board.ticket.dismiss",
+  "board.ticket.set_model",
 ]);
 
 /** Exact Board sync-control membership; shell routing reuses this gate. */
