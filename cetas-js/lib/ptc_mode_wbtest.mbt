@@ -107,3 +107,66 @@ async test "ptc only rejects direct calls to nested tools with guidance" {
     fail("ptc only rejected a non-nested tool")
   }
 }
+
+///|
+priv struct PtcMultiToolProbe {
+  calls : Array[String]
+}
+
+///|
+impl @posoco.ToolProvider for PtcMultiToolProbe with fn list_tools(
+  _self : PtcMultiToolProbe,
+) -> Array[@posoco.ToolDef] {
+  [
+    @posoco.tk_tool_def("bash", "execute shell command"),
+    @posoco.tk_tool_def("bash_status", "query shell session"),
+    @posoco.tk_tool_def("bash_wait", "wait shell session"),
+    @posoco.tk_tool_def("bash_kill", "kill shell session"),
+  ]
+}
+
+///|
+impl @posoco.ToolProvider for PtcMultiToolProbe with fn execute(
+  self : PtcMultiToolProbe,
+  ctx : @posoco.ToolCallContext,
+) -> @posoco.ToolOutcome raise @posoco.RuntimeError {
+  self.calls.push(ctx.name.to_string())
+  @posoco.tk_ok_result("ok")
+}
+
+///|
+async test "PTC selection scopes a multi-tool provider to bash only" {
+  let provider = PtcMultiToolProbe::{ calls: [], }
+  let allowed = [
+    "read", "grep", "glob", "write", "edit", "apply_patch", "bash",
+  ]
+  let selected = cetas_ptc_select_provider(provider, allowed)
+  guard selected is Some(scoped) else {
+    fail("multi-tool bash provider was discarded")
+  }
+  let defs = scoped.list_tools()
+  assert_eq(defs.length(), 1)
+  assert_eq(defs[0].name.to_string(), "bash")
+  let nested_names = defs.map(fn(def) { def.name.to_string() })
+  let mode = CetasPtcMode(nested_names~)
+  mode.set(PtcOnly)
+  assert_false(mode.model_sees("bash"))
+  assert_true(mode.model_sees("bash_status"))
+  assert_true(mode.model_sees("run_code"))
+  let direct : @posoco.ToolCall = {
+    call_id: @posoco.CallId::unchecked("direct_1"),
+    name: @posoco.ToolName::unchecked("bash"),
+    arguments: { "cmd": "echo ok" },
+  }
+  assert_true(mode.before_tool(direct) is @posoco.ToolDecision::Reject(..))
+  let invoked = scoped.execute(
+    @posoco.tk_tool_call_ctx(name="bash", arguments={ "cmd": "echo ok" }),
+  )
+  assert_true(invoked is @posoco.ToolOutcome::Success(..))
+  assert_eq(provider.calls, ["bash"])
+  let denied = scoped.execute(
+    @posoco.tk_tool_call_ctx(name="bash_kill", arguments={}),
+  )
+  assert_true(denied is @posoco.ToolOutcome::ToolReportedError(..))
+  assert_eq(provider.calls, ["bash"])
+}
