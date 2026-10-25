@@ -2,6 +2,46 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.10.10 (2026-10-26)
+
+## General
+
+### Feats
+
+- A conversation model and a decision model can now be chosen independently: `/decision` lists the provider's decision slots (with the active marker), rejects a chat slot, `/model` rejects a decision slot, and the choice is stored next to `model` in `~/.cetas/settings.json` so the terminal and ACP hosts restore it on the next start.
+- Decision backends for more providers: OpenRouter `typesafe/jev-*` models, OpenCode Zen's SystemOne endpoint, and a dedicated Typesafe `jev` provider, each with its own credentials, timeout handling, and provider-specific errors instead of borrowing another provider's backend.
+
+### Fixes
+
+- A model-stream parse failure now reports the parse error plus the payload head and tail, so malformed tool arguments are diagnosable from the error itself.
+
+## Bun Ver.（cetas-bun）
+
+### Feats
+
+- `/board` now opens the Board dashboard in your browser, and each ticket runs as a background worker with its own durable session.
+- Follow Board work from the terminal: the Activities header shows the shaping or working ticket, its step count, elapsed time, and current tool or latest activity, without opening the dashboard.
+- The agent can answer "why does this code exist?": `board_work` reports current tickets, finds tickets whose committed review mentions a path or ticket id, and shows one ticket's review report and feedback; opening the Board also tells the agent once to check provenance before deleting or reverting work.
+- Splitting an oversized ticket now cancels the source ticket instead of deleting it, preserving its description and attempt history.
+
+### Fixes
+
+- Switching the model manager stops the open Board and says to reopen it with `/board`, instead of leaving a stale dashboard behind.
+- `run_code` now selects each scoped tool from multi-tool providers, can run `bash` inside the nested scope without exposing shell session helpers, caps model-visible compiler diagnostics at 8K characters, and rejects untransportable attachments with an explicit error instead of dropping them.
+- Failures in background work (live model-catalog refresh, Board command replies) are reported as errors instead of becoming unhandled rejections that take down the terminal.
+
+## ACP Ver.（cetas-acp）
+
+### Feats
+
+- The saved `/decision` model survives editor restarts: cetas-acp restores the decision slot on every new session, keeps it selected (decision off) when the provider is temporarily missing instead of silently switching backends, and tells you to switch with `/decision` once the provider returns.
+
+## Run Ver.（cetas-run）
+
+### Feats
+
+- The built-in `cetas-about` manual now carries the exact `cetas-run` version, so asking the agent which version it runs answers with the real distribution version.
+
 ## 0.10.9 (2026-10-23)
 
 ## Bun Ver.（cetas-bun）

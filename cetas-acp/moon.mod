@@ -7,7 +7,7 @@
 
 name = "colmugx/cetas-acp"
 
-version = "0.10.9"
+version = "0.10.10"
 
 readme = "README.mbt.md"
 
