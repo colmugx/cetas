@@ -1,4 +1,7 @@
 ///|
+extend TicketReportTools with @posoco.ToolProvider::{list_tools, execute}
+
+///|
 struct RecordingReportEndpoint {
   progress : Array[(String, String)]
   mut report : Json?

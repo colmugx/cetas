@@ -41,6 +41,9 @@ pub async fn CetasRunHost::CetasRunHost(
   home~ : String,
   cwd~ : String,
   mode~ : @permission.PermissionMode,
+  /// Distribution version surfaced through forme's /help and manuals;
+  /// empty means the model reports the version as unknown.
+  version~ : String = "",
   approval~ : &@permission.ApprovalSource?,
   ui~ : &@posoco.UiPort?,
   model_override~ : String = "",
@@ -83,6 +86,7 @@ pub async fn CetasRunHost::CetasRunHost(
   let feature_exts = build_compiled_recipe_features(
     ctx={ fs, cwd, home, },
     host_group=mcp_group,
+    host_version_note=if version == "" { None } else { Some(version) },
   )
   let session = @cetas_core.build_cetas_session(
     platform~,

@@ -133,6 +133,7 @@ fn cetas_skills_config() -> @skills.SkillsConfig {
 ///|
 async fn build_cetas_skills(
   ctx~ : @cetas_core.HostContext,
+  manuals~ : Array[@skills.SkillDescriptor],
   requested~ : Array[String]? = None,
 ) -> &@posoco.Extension? raise @posoco.CompositionError {
   let discovered : @skills.SkillCatalog = match
@@ -145,10 +146,7 @@ async fn build_cetas_skills(
     Some(skills) => skills.catalog()
     None => @skills.SkillCatalog::empty()
   }
-  let full = @skills.merge_builtin_skills(
-    discovered,
-    @forme.builtin_manual_skills(),
-  )
+  let full = @skills.merge_builtin_skills(discovered, manuals)
   let catalog = match requested {
     None => full
     Some(names) if names.is_empty() => full
@@ -232,7 +230,12 @@ async fn build_compiled_recipe_features(
           exts.push(shell)
         }
       "skills" => {
-        let skills = build_cetas_skills(ctx~) catch { _ => None }
+        let skills = build_cetas_skills(
+          ctx~,
+          manuals=@forme.Forme::Forme().builtin_manual_skills(),
+        ) catch {
+          _ => None
+        }
         match skills {
           Some(skills) => exts.push(skills)
           None => ()

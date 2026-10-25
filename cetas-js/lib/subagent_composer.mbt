@@ -89,7 +89,7 @@ fn child_session_snapshot(session : @posoco.Session) -> @posoco.Session {
 }
 
 ///|
-extend CetasChildSessionStore with @posoco.SessionStore::{load, save}
+extend CetasChildSessionStore with @posoco.SessionStore::{load}
 
 ///|
 impl @posoco.SessionStore for CetasChildSessionStore with fn load(

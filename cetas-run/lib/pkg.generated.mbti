@@ -64,7 +64,7 @@ pub struct CetasRunHost {
   session_id : String
   routing : Map[String, &@port.ToolProvider]
 }
-pub async fn CetasRunHost::CetasRunHost(home~ : String, cwd~ : String, mode~ : @posoco-ext-permission.PermissionMode, approval~ : &@posoco-ext-permission.ApprovalSource?, ui~ : &@port.UiPort?, model_override? : String, effort_override? : String, session_id? : String, tail_exts? : Array[&@port.Extension], fs? : &@posoco-ext-workspace.WorkspaceFs?, mcp_group? : @async.TaskGroup[Unit]?, label? : String, detect_herdr? : Bool, warn? : async (String) -> Unit noraise) -> Self raise @error.CompositionError
+pub async fn CetasRunHost::CetasRunHost(home~ : String, cwd~ : String, mode~ : @posoco-ext-permission.PermissionMode, version? : String, approval~ : &@posoco-ext-permission.ApprovalSource?, ui~ : &@port.UiPort?, model_override? : String, effort_override? : String, session_id? : String, tail_exts? : Array[&@port.Extension], fs? : &@posoco-ext-workspace.WorkspaceFs?, mcp_group? : @async.TaskGroup[Unit]?, label? : String, detect_herdr? : Bool, warn? : async (String) -> Unit noraise) -> Self raise @error.CompositionError
 
 pub(all) enum InvocationAction {
   Run(RunCli)

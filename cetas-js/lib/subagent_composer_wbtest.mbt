@@ -1,4 +1,7 @@
 ///|
+extend CetasChildSessionStore with @posoco.SessionStore::{save}
+
+///|
 fn subagent_test_slot(
   id : String,
   model : &@posoco.ModelPort,

@@ -438,9 +438,6 @@ fn parse_work_report_arguments(arguments : Json) -> Result[Json, String] {
 }
 
 ///|
-extend TicketReportTools with @posoco.ToolProvider::{list_tools, execute}
-
-///|
 impl @posoco.ToolProvider for TicketReportTools with fn list_tools(
   _self : TicketReportTools,
 ) -> Array[@posoco.ToolDef] {

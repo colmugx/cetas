@@ -264,6 +264,7 @@ async fn CetasChildComposer::skills_extension(
 ) -> &@posoco.Extension? raise @subagent.ComposerError {
   build_cetas_skills(
     ctx={ fs: self.feature_fs, cwd: self.cwd, home: self.home, },
+    manuals=@forme.Forme::Forme().builtin_manual_skills(),
     requested=Some(requested),
   ) catch {
     error =>

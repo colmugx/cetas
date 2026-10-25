@@ -217,6 +217,7 @@ async fn main {
   // that attached to it (nowledge-mem's flusher) stop with the scope.
   @async.with_task_group(group => {
     let host = @lib.CetasRunHost(
+      version=CETAS_RUN_VERSION,
       home~,
       cwd~,
       mode=@lib.resolve_permission_mode(cli),
