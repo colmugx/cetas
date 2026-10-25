@@ -1179,6 +1179,14 @@ priv struct Platform {
   /// The persisted selection is absent from the startup catalogs: the id
   /// stays active and requests fail visibly instead of switching models.
   default_slot_pending : Bool
+  /// Persisted active decision model (`decision_model` key): a
+  /// `kind = Decision` slot id restored onto every session's router. The
+  /// empty value is the explicit-off state.
+  default_decision_slot_id : String
+  /// The persisted decision selection is absent from the startup catalogs:
+  /// the id stays selected (decision explicitly off) instead of silently
+  /// switching to another decision backend.
+  default_decision_slot_pending : Bool
   /// Persisted reasoning effort restored onto every session's router.
   persisted_effort : String?
   /// Startup tool-approval posture, resolved at assembly and stamped on
@@ -1300,6 +1308,27 @@ async fn build_platform(
       )
     _ => ()
   }
+  let decision_selection = @cetas_core.read_active_decision_model_selection(
+    fs,
+    home~,
+  )
+  let decision_restore = @cetas_core.resolve_active_decision_model_restore(
+    catalogs, decision_selection,
+  )
+  let default_decision_slot_id = match decision_restore {
+    @cetas_core.NoSelection => ""
+    @cetas_core.Selected(slot~) => slot
+    @cetas_core.Pending(slot~) => slot
+  }
+  match decision_restore {
+    @cetas_core.Pending(slot~) =>
+      acp_warn(
+        "cetas-acp: persisted decision model slot '" +
+        slot +
+        "' is not in the startup catalog; keeping it selected — decision stays off until it appears (login/refresh), switch with /decision otherwise (entry kept in ~/.cetas/settings.json)\n",
+      )
+    _ => ()
+  }
   let persisted_effort = match selection {
     Some({ effort: Some(effort), .. }) => Some(effort)
     _ => None
@@ -1319,6 +1348,8 @@ async fn build_platform(
     model_metadata,
     default_slot_id,
     default_slot_pending: restore is @cetas_core.Pending(_),
+    default_decision_slot_id,
+    default_decision_slot_pending: decision_restore is @cetas_core.Pending(_),
     persisted_effort,
     permission_mode,
     credential_store: store,
@@ -1389,6 +1420,8 @@ async fn build_session_agent(
     model_metadata=Some(platform.model_metadata),
     default_slot_id=platform.default_slot_id,
     allow_missing_default=platform.default_slot_pending,
+    default_decision_slot_id=platform.default_decision_slot_id,
+    allow_missing_decision_default=platform.default_decision_slot_pending,
     provider_credential_store=Some(
       platform.credential_store as &@oauth.ProviderCredentialStore,
     ),
