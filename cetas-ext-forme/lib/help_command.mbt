@@ -35,11 +35,18 @@ pub impl @posoco.CommandPort for Forme with fn invoke(
   match id {
     "help" => {
       let b = StringBuilder()
+      match self.version_note {
+        Some(note) =>
+          b.write_string(
+            "cetas \{note} — a coding agent: it reads, edits, and searches your workspace, runs commands, and explains what it did.\n\n",
+          )
+        None =>
+          b.write_string(
+            "cetas is a coding agent: it reads, edits, and searches your workspace, runs commands, and explains what it did.\n\n",
+          )
+      }
       b.write_string(
-        "cetas is a coding agent: it reads, edits, and searches your workspace, runs commands, and explains what it did.\n\n",
-      )
-      b.write_string(
-        "Ask me directly for details — say \"what can you do\" or \"how do I ...\" and I will load the matching manual (cetas-about, cetas-usage, cetas-config).\n",
+        "Ask me directly for details — say \"what can you do\", \"how do I ...\", or \"help me configure ...\" and I will load the matching manual (cetas-config, cetas-usage, cetas-about).\n",
       )
       match self.host_note {
         Some(note) => b.write_string("\n" + note + "\n")

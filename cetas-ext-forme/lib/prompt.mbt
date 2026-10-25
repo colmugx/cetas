@@ -1,12 +1,12 @@
 ///|
-/// Routing note appended to the system prompt: capability/usage/config
-/// questions must go through the built-in manuals, not the model's memory of
-/// them. The manuals are inline skills registered under the host's skills
-/// extension, so activate_skill is the disclosure path.
+/// Routing note appended to the system prompt. Configuration is forme's
+/// primary goal, so cetas-config leads; the manuals are inline skills
+/// registered under the host's skills extension, and activate_skill is the
+/// disclosure path.
 pub impl @posoco.SystemPromptContributor for Forme with fn system_prompt(
   _self : Forme,
 ) -> String {
-  "For Cetas identity/capability/usage/config questions, call activate_skill for the matching built-in manual first: cetas-about, cetas-usage, or cetas-config; answer from it."
+  "Call activate_skill for the matching built-in manual first: cetas-config for setup/configuration, cetas-usage for usage, cetas-about for identity; answer from it, not memory."
 }
 
 ///|

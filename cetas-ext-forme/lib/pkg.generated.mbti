@@ -8,15 +8,16 @@ import {
 }
 
 // Values
-pub fn builtin_manual_skills() -> Array[@posoco-ext-skills.SkillDescriptor]
 
 // Errors
 
 // Types and methods
 pub(all) struct Forme {
   host_note : String?
+  version_note : String?
 }
-pub fn Forme::Forme(host_note? : String?) -> Self
+pub fn Forme::Forme(host_note? : String?, version_note? : String?) -> Self
+pub fn Forme::builtin_manual_skills(Self) -> Array[@posoco-ext-skills.SkillDescriptor]
 pub fn Forme::commands(Self) -> Array[@port.CommandDef]
 pub fn Forme::extension_id(Self) -> String
 pub async fn Forme::invoke(Self, String, Json) -> @port.CommandOutcome raise @error.CommandError
