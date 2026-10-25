@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { CetasApplication, CetasApplicationError } from "./index.ts";
+import { BOARD_ACTIVATION_NOTE } from "./application.ts";
 import type {
   AgentCallbacks,
   AppSnapshot,
@@ -2455,6 +2456,141 @@ describe("Goal host controls", () => {
     if (resolveGoal === undefined) throw new Error("goal was not dispatched");
     resolveGoal(JSON.stringify({ type: "success", feedback: "Goal: Paused" }));
     expect(JSON.parse(await run).feedback).toBe("Goal: Paused");
+    await app.shutdown();
+  });
+});
+
+/**
+ * The one-time Board activation note is a host-side pending note, not a
+ * per-turn Board summary: it rides exactly one admitted prompt and then the
+ * prompt stream returns to plain user text (prompt caching survives).
+ */
+describe("Board activation note", () => {
+  /** Ready app whose bridge records every prompt that reaches the Agent. */
+  function recordingApp(): {
+    app: CetasApplication<{ id: string }>;
+    prompts: string[];
+    followUps: string[];
+  } {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const prompts: string[] = [];
+    const followUps: string[] = [];
+    const app = new CetasApplication({
+      bridge: {
+        ...bridgeFor(agentComposingSetup(), counters),
+        runTurn: async (_agent, prompt) => {
+          prompts.push(prompt);
+          return `reply:${prompt}`;
+        },
+        enqueueFollowUp: (_agent, prompt) => {
+          followUps.push(prompt);
+          return "Accepted(run_id=w1)";
+        },
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+    return { app, prompts, followUps };
+  }
+
+  function activations(prompt: string): number {
+    return (prompt.match(/\[Board activated\]/g) ?? []).length;
+  }
+
+  test("the note is prepended to exactly one admitted prompt and then cleared", async () => {
+    const { app, prompts } = recordingApp();
+    await app.start();
+
+    app.noteBoardActivated();
+    const first = await app.submitUserInput("first");
+    expect(first.kind).toBe("started");
+    if (first.kind !== "started") throw new Error("expected a fresh turn");
+    await first.completion;
+
+    const second = await app.submitUserInput("second");
+    if (second.kind !== "started") throw new Error("expected a fresh turn");
+    await second.completion;
+
+    expect(prompts).toEqual([
+      `${BOARD_ACTIVATION_NOTE}\n\nfirst`,
+      "second",
+    ]);
+    await app.shutdown();
+  });
+
+  test("atomic admission reports started and the note never repeats on later turns", async () => {
+    const { app, prompts } = recordingApp();
+    await app.start();
+
+    app.noteBoardActivated();
+    for (const prompt of ["one", "two", "three"]) {
+      const submission = await app.submitUserInput(prompt);
+      if (submission.kind !== "started") throw new Error("expected a fresh turn");
+      await submission.completion;
+    }
+
+    expect(prompts.map(activations)).toEqual([1, 0, 0]);
+    await app.shutdown();
+  });
+
+  test("rejected empty input does not consume the note", async () => {
+    const { app, prompts } = recordingApp();
+    await app.start();
+
+    app.noteBoardActivated();
+    await expect(app.submitUserInput("")).rejects.toMatchObject({
+      code: "invalid_state",
+    });
+    expect(prompts).toEqual([]);
+
+    const submission = await app.submitUserInput("after the rejection");
+    if (submission.kind !== "started") throw new Error("expected a fresh turn");
+    await submission.completion;
+    expect(prompts).toEqual([`${BOARD_ACTIVATION_NOTE}\n\nafter the rejection`]);
+    await app.shutdown();
+  });
+
+  test("reopening the Board does not duplicate a note that is still pending", async () => {
+    const { app, prompts } = recordingApp();
+    await app.start();
+
+    app.noteBoardActivated();
+    app.noteBoardActivated();
+    const submission = await app.submitUserInput("inspect provenance");
+    if (submission.kind !== "started") throw new Error("expected a fresh turn");
+    await submission.completion;
+
+    expect(activations(prompts[0]!)).toBe(1);
+    expect(prompts[0]).toBe(`${BOARD_ACTIVATION_NOTE}\n\ninspect provenance`);
+    await app.shutdown();
+  });
+
+  test("a queued follow-up carries the note once and keeps the mirror in user words", async () => {
+    const { app, prompts, followUps } = recordingApp();
+    await app.start();
+
+    // Occupy the session with a host turn so the submission is a follow-up.
+    let releaseRun!: () => void;
+    const released = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    const running = app.runTurn("running turn");
+
+    app.noteBoardActivated();
+    const queued = await app.submitUserInput("follow-up");
+    expect(queued.kind).toBe("queued");
+    expect(followUps).toEqual([`${BOARD_ACTIVATION_NOTE}\n\nfollow-up`]);
+    // The pending mirror shows what the user typed, never the host note.
+    expect(app.pendingInputs).toEqual(["follow-up"]);
+
+    releaseRun();
+    await running;
+    prompts.length = 0;
+    const next = await app.submitUserInput("plain");
+    if (next.kind !== "started") throw new Error("expected a fresh turn");
+    await next.completion;
+    expect(prompts).toEqual(["plain"]);
     await app.shutdown();
   });
 });

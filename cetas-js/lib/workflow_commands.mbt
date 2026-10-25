@@ -19,6 +19,7 @@ impl @posoco.Extension for CetasWorkflowCommands with fn manifest(self) {
   @posoco.ExtensionManifest(
     id=self.board.extension_id(),
     commands=[self],
+    tools=[self],
     lifecycle=[self.board, self],
     requires=[@posoco.Capability::Ui],
   )
@@ -35,28 +36,27 @@ impl @posoco.Lifecycle for CetasWorkflowCommands with fn on_shutdown(_) {
 }
 
 ///|
+/// Board command ids are internal. `/board` is a terminal-local route, not a
+/// command, so every Board definition — including the workflow menu — stays
+/// registered and callable by canonical id while no longer being
+/// user-discoverable.
+fn is_board_command_id(id : String) -> Bool {
+  id == "board" || id.has_prefix("board.")
+}
+
+///|
 impl @posoco.CommandPort for CetasWorkflowCommands with fn commands(self) {
   let definitions = self.board
     .commands()
     .map(def => {
-      if def.id == "board.workflow" {
-        {
-          ..def,
-          label: "Workflow — goal, approvals and progress",
-          description: "Open the workflow overview and guided next steps",
-          aliases: [],
-        }
+      if is_board_command_id(def.id) {
+        { ..def, aliases: [], visible: false, }
       } else {
         def
       }
     })
-  // Posoco routes by canonical command id, not by CommandDef aliases.
-  // The literal /workflow command therefore needs its own registered id.
-  let entry = definitions
-    .iter()
-    .find_first(def => def.id == "board.workflow")
-    .unwrap()
-  definitions.push({ ..entry, id: "workflow", aliases: [], })
+  // Board command ids stay registered — the host and the dashboard invoke them
+  // by canonical id — but none of them is a user-facing slash command.
   definitions.push(@posoco.CommandDef::{
     id: "board.wire.ready",
     label: "Board wire ready",
@@ -99,14 +99,14 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn commands(self) {
   definitions.push(@posoco.CommandDef::{
     id: "board.ticket.run_ready",
     label: "Run next ready ticket",
-    description: "Start the next Ready Board ticket as a background worker session",
+    description: "Internal: start the next Ready Board ticket as a background worker session",
     category: "board",
     ctype: @posoco.CommandType::Action,
     params: [],
     aliases: [],
     shortcut: None,
     icon: None,
-    visible: true,
+    visible: false,
     metadata: None,
   })
   definitions.push(@posoco.CommandDef::{
@@ -165,6 +165,58 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn commands(self) {
     id: "board.ticket.run",
     label: "Run ticket",
     description: "Internal: start one Ready Board ticket as a background worker",
+    category: "board",
+    ctype: @posoco.CommandType::Action,
+    params: [],
+    aliases: [],
+    shortcut: None,
+    icon: None,
+    visible: false,
+    metadata: None,
+  })
+  definitions.push(@posoco.CommandDef::{
+    id: "board.ticket.retry",
+    label: "Retry ticket",
+    description: "Internal: restart one Ready, Review, or Suspended ticket as a fresh background worker",
+    category: "board",
+    ctype: @posoco.CommandType::Action,
+    params: [],
+    aliases: [],
+    shortcut: None,
+    icon: None,
+    visible: false,
+    metadata: None,
+  })
+  definitions.push(@posoco.CommandDef::{
+    id: "board.ticket.request_changes",
+    label: "Request ticket changes",
+    description: "Internal: send one Review ticket back to Ready with reviewer feedback and a fresh worker",
+    category: "board",
+    ctype: @posoco.CommandType::Action,
+    params: [],
+    aliases: [],
+    shortcut: None,
+    icon: None,
+    visible: false,
+    metadata: None,
+  })
+  definitions.push(@posoco.CommandDef::{
+    id: "board.ticket.resume",
+    label: "Resume ticket",
+    description: "Internal: continue one interrupted ticket from its durable child session",
+    category: "board",
+    ctype: @posoco.CommandType::Action,
+    params: [],
+    aliases: [],
+    shortcut: None,
+    icon: None,
+    visible: false,
+    metadata: None,
+  })
+  definitions.push(@posoco.CommandDef::{
+    id: "board.ticket.dismiss_progress",
+    label: "Dismiss ticket updates",
+    description: "Internal: clear Inbox progress updates without changing any ticket",
     category: "board",
     ctype: @posoco.CommandType::Action,
     params: [],
@@ -553,6 +605,9 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
           reason="ticket_runtime_unavailable",
         )
     }
+    tickets.reconcile_interrupted() catch {
+      _ => return @posoco.CommandOutcome::Failure(reason="ticket_state_failed")
+    }
     return @posoco.CommandOutcome::Success(
       feedback="",
       structured=Some(tickets.state_json()),
@@ -671,6 +726,140 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
       Err(reason) => return @posoco.CommandOutcome::Failure(reason~)
     }
   }
+  if id == "board.ticket.retry" {
+    let tickets = match self.tickets {
+      Some(tickets) => tickets
+      None =>
+        return @posoco.CommandOutcome::Failure(
+          reason="ticket_runtime_unavailable",
+        )
+    }
+    let task_id = match args {
+      Object(fields) =>
+        match fields.get("task_id") {
+          Some(String(value)) if !value.trim().is_empty() => value
+          _ =>
+            return @posoco.CommandOutcome::Failure(
+              reason="invalid_ticket_retry",
+            )
+        }
+      _ => return @posoco.CommandOutcome::Failure(reason="invalid_ticket_retry")
+    }
+    let retried = tickets.retry(task_id) catch {
+      _ => return @posoco.CommandOutcome::Failure(reason="ticket_retry_failed")
+    }
+    match retried {
+      Ok(state) =>
+        return @posoco.CommandOutcome::Success(
+          feedback="Ticket retried with a fresh background worker.",
+          structured=Some(state),
+          ui_hint=Some(@posoco.UiHint::None),
+        )
+      Err(reason) => return @posoco.CommandOutcome::Failure(reason~)
+    }
+  }
+  if id == "board.ticket.request_changes" {
+    let tickets = match self.tickets {
+      Some(tickets) => tickets
+      None =>
+        return @posoco.CommandOutcome::Failure(
+          reason="ticket_runtime_unavailable",
+        )
+    }
+    let fields = match args {
+      Object(fields) => fields
+      _ =>
+        return @posoco.CommandOutcome::Failure(
+          reason="invalid_ticket_request_changes",
+        )
+    }
+    let task_id = match fields.get("task_id") {
+      Some(String(value)) if !value.trim().is_empty() => value
+      _ =>
+        return @posoco.CommandOutcome::Failure(
+          reason="invalid_ticket_request_changes",
+        )
+    }
+    // Reviewer feedback is the requirement the next attempt must address; a
+    // missing or blank body is a malformed request, never an empty review.
+    let feedback = match fields.get("feedback") {
+      Some(String(value)) if !value.trim().is_empty() => value
+      _ =>
+        return @posoco.CommandOutcome::Failure(
+          reason="invalid_ticket_request_changes",
+        )
+    }
+    let updated = tickets.request_changes(task_id, feedback) catch {
+      _ =>
+        return @posoco.CommandOutcome::Failure(
+          reason="ticket_request_changes_failed",
+        )
+    }
+    match updated {
+      Ok(state) =>
+        return @posoco.CommandOutcome::Success(
+          feedback="Changes requested; the ticket is Ready for a fresh worker.",
+          structured=Some(state),
+          ui_hint=Some(@posoco.UiHint::None),
+        )
+      Err(reason) => return @posoco.CommandOutcome::Failure(reason~)
+    }
+  }
+  if id == "board.ticket.resume" {
+    let tickets = match self.tickets {
+      Some(tickets) => tickets
+      None =>
+        return @posoco.CommandOutcome::Failure(
+          reason="ticket_runtime_unavailable",
+        )
+    }
+    let task_id = match args {
+      Object(fields) =>
+        match fields.get("task_id") {
+          Some(String(value)) if !value.trim().is_empty() => value
+          _ =>
+            return @posoco.CommandOutcome::Failure(
+              reason="invalid_ticket_resume",
+            )
+        }
+      _ =>
+        return @posoco.CommandOutcome::Failure(reason="invalid_ticket_resume")
+    }
+    let resumed = tickets.resume(task_id) catch {
+      _ => return @posoco.CommandOutcome::Failure(reason="ticket_resume_failed")
+    }
+    match resumed {
+      Ok(state) =>
+        return @posoco.CommandOutcome::Success(
+          feedback="Ticket resumed from its durable session.",
+          structured=Some(state),
+          ui_hint=Some(@posoco.UiHint::None),
+        )
+      Err(reason) => return @posoco.CommandOutcome::Failure(reason~)
+    }
+  }
+  if id == "board.ticket.dismiss_progress" {
+    let tickets = match self.tickets {
+      Some(tickets) => tickets
+      None =>
+        return @posoco.CommandOutcome::Failure(
+          reason="ticket_runtime_unavailable",
+        )
+    }
+    let task_id = match args {
+      Object(fields) =>
+        match fields.get("task_id") {
+          Some(String(value)) if !value.trim().is_empty() => Some(value)
+          _ => None
+        }
+      _ => None
+    }
+    return @posoco.CommandOutcome::Success(
+      feedback="Updates dismissed.",
+      structured=Some(tickets.dismiss_progress(task_id)),
+      ui_hint=Some(@posoco.UiHint::None),
+    )
+  }
   if id == "board.ticket.dismiss" {
     let tickets = match self.tickets {
       Some(tickets) => tickets
@@ -712,7 +901,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     match ran {
       Ok(_) =>
         return @posoco.CommandOutcome::Success(
-          feedback="Ticket started in the background.",
+          feedback="Ready tickets started in the background.",
           structured=Some(tickets.state_json()),
           ui_hint=Some(@posoco.UiHint::None),
         )
@@ -826,8 +1015,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
   }
   // The user supplies the highest-level goal once. Starting and planning
   // remain separately confirmed by the existing Board trusted UI.
-  if (id == "workflow" || id == "board.workflow") &&
-    args is { "goal": String(goal), .. } {
+  if id == "board.workflow" && args is { "goal": String(goal), .. } {
     if goal.trim().is_empty() || goal.length() > 256 {
       return @posoco.CommandOutcome::Failure(reason="invalid_workflow_goal")
     }
@@ -860,7 +1048,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
         match proposed {
           Ok(preview) =>
             return @posoco.CommandOutcome::Success(
-              feedback="Planning complete. Review the graph proposal, then approve graph and execution scope separately using /workflow.",
+              feedback="Planning complete. Review the graph proposal, then approve graph and execution scope separately through the Board workflow commands.",
               structured=Some(preview),
               ui_hint=Some(@posoco.UiHint::None),
             )
@@ -878,7 +1066,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     return self.board.invoke(id, args)
   }
   try {
-    let action = if id == "workflow" || id == "board.workflow" {
+    let action = if id == "board.workflow" {
       let view = match self.board.view() {
         Ok(view) => view
         Err(error) =>
@@ -948,5 +1136,763 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
       @posoco.CommandOutcome::Failure(
         reason="workflow_host_operation_failed_inspect_status_no_retry",
       )
+  }
+}
+
+///|
+/// Read-only Board provenance for the parent Agent: one `board_work` tool with
+/// three queries — what the Board holds now, which ticket's committed
+/// ReviewReport mentions a path or a ticket id, and one ticket's report. It only
+/// reads the authoritative wire snapshot: no approval, no dispatch, no stage
+/// move, and no provenance invented for a ticket whose report mentions none.
+///
+/// The Board itself is unbounded; a tool reply is not, so every list answer is
+/// bounded by the limits below.
+let board_work_limit_default : Int32 = 10
+
+///|
+/// Hard ceiling on rendered tickets, whatever the model asks for.
+let board_work_limit_max : Int32 = 20
+
+///|
+/// The actions `board_work` accepts. Anything else is a reported tool error,
+/// never an implicit status read.
+let board_work_actions : Array[String] = ["status", "history", "review"]
+
+///|
+fn board_work_schema() -> Json {
+  Json::object({
+    "type": Json::string("object"),
+    "properties": Json::object({
+      "action": Json::object({
+        "type": Json::string("string"),
+        "enum": Json::array(board_work_actions.map(Json::string)),
+        "description": Json::string(
+          "status (current tickets), history (tickets whose committed review mentions a path or a ticket id), or review (one ticket's review report and review feedback)",
+        ),
+      }),
+      "path": Json::object({
+        "type": Json::string("string"),
+        "description": Json::string(
+          "history: case-insensitive substring matched against a review report's changes and artifacts",
+        ),
+      }),
+      "ticket": Json::object({
+        "type": Json::string("string"),
+        "description": Json::string(
+          "ticket id: required for review, and one way to select history",
+        ),
+      }),
+      "limit": Json::object({
+        "type": Json::string("number"),
+        "description": Json::string(
+          "maximum tickets rendered; default 10, clamped to 1..20",
+        ),
+      }),
+    }),
+    "required": Json::array([Json::string("action")]),
+  })
+}
+
+///|
+fn board_work_tool_def() -> @posoco.ToolDef {
+  @posoco.ToolDef::{
+    name: @posoco.ToolName::unchecked("board_work"),
+    description: "Read Board provenance. action=status lists current tickets (id, title, stage, priority, review summary); action=history finds tickets whose committed review changes or artifacts mention a path (case-insensitive) or a ticket id; action=review returns one ticket's review report and review feedback. Read-only: it never creates, moves, runs, approves or retires Board work, and a ticket with no report has no file provenance.",
+    input_schema: board_work_schema(),
+    owner: @posoco.OwnerId::unchecked("cetas_board"),
+    policy: @posoco.ExecutionPolicy::Sequential,
+    provenance: Some("cetas_board"),
+  }
+}
+
+///|
+impl @posoco.ToolProvider for CetasWorkflowCommands with fn list_tools(
+  _self : CetasWorkflowCommands,
+) -> Array[@posoco.ToolDef] {
+  [board_work_tool_def()]
+}
+
+///|
+/// One parsed `board_work` call. `limit` is already clamped to the declared
+/// range.
+priv struct BoardWorkQuery {
+  action : String
+  path : String?
+  ticket : String?
+  limit : Int32
+}
+
+///|
+fn parse_board_work_arguments(
+  arguments : Json,
+) -> Result[BoardWorkQuery, String] {
+  let fields = match arguments {
+    Object(fields) => fields
+    _ => return Err("board_work: arguments must be a JSON object")
+  }
+  let action = match fields.get("action") {
+    Some(String(value)) => value.trim().to_owned()
+    Some(_) => return Err("board_work: 'action' must be a string")
+    None => return Err("board_work: 'action' is required")
+  }
+  if !board_work_actions.contains(action) {
+    return Err(
+      "board_work: 'action' must be one of " + board_work_actions.join(", "),
+    )
+  }
+  let path = match fields.get("path") {
+    None | Some(Null) => None
+    Some(String(value)) =>
+      if value.trim().is_empty() {
+        return Err("board_work: 'path' must be a non-empty string")
+      } else {
+        Some(value.trim().to_owned())
+      }
+    Some(_) => return Err("board_work: 'path' must be a string")
+  }
+  let ticket = match fields.get("ticket") {
+    None | Some(Null) => None
+    Some(String(value)) =>
+      if value.trim().is_empty() {
+        return Err("board_work: 'ticket' must be a non-empty string")
+      } else {
+        Some(value.trim().to_owned())
+      }
+    Some(_) => return Err("board_work: 'ticket' must be a string")
+  }
+  let limit = match fields.get("limit") {
+    None | Some(Null) => board_work_limit_default
+    Some(Number(value, ..)) => {
+      let requested = value.to_int()
+      if requested < 1 {
+        1
+      } else if requested > board_work_limit_max {
+        board_work_limit_max
+      } else {
+        requested
+      }
+    }
+    Some(_) => return Err("board_work: 'limit' must be a number")
+  }
+  // A history with no filter would be a whole-board dump; the caller must
+  // name what it is looking for.
+  if action == "history" && path is None && ticket is None {
+    return Err("board_work: 'history' needs 'path' or 'ticket'")
+  }
+  Ok({ action, path, ticket, limit, })
+}
+
+///|
+/// One committed Board ticket as `board_work` reads it. Everything here comes
+/// from the authoritative snapshot: a ticket with no report has no provenance,
+/// and none is inferred from its title, stage or a transcript.
+priv struct BoardWorkTicket {
+  id : String
+  title : String
+  stage : String
+  priority : String
+  review : Json?
+  review_feedback : String?
+}
+
+///|
+/// One string field of a committed task. A wrong type or a missing key is a
+/// malformed snapshot, not a silent default.
+fn board_work_task_string(
+  fields : Map[String, Json],
+  key : String,
+) -> Result[String, String] {
+  match fields.get(key) {
+    Some(String(value)) => Ok(value)
+    Some(_) =>
+      Err("board_work: Board snapshot task '" + key + "' is not a string")
+    None => Err("board_work: Board snapshot task has no '" + key + "'")
+  }
+}
+
+///|
+/// The committed ReviewReport of one ticket, validated only where `board_work`
+/// interprets it: the outcome and summary are strings, `changes` is a string
+/// array and every artifact names its kind, label and reference. The rest of
+/// the report passes through exactly as the Board committed it.
+fn board_work_task_review(value : Json) -> Result[Json, String] {
+  let fields = match value {
+    Object(fields) => fields
+    _ => return Err("board_work: Board snapshot task review is not an object")
+  }
+  for key in ["outcome", "summary"] {
+    match fields.get(key) {
+      Some(String(_)) => ()
+      _ =>
+        return Err(
+          "board_work: Board snapshot task review has no string '" + key + "'",
+        )
+    }
+  }
+  match fields.get("changes") {
+    Some(Array(changes)) =>
+      for change in changes {
+        if !(change is String(_)) {
+          return Err(
+            "board_work: Board snapshot task review 'changes' entry is not a string",
+          )
+        }
+      }
+    _ =>
+      return Err(
+        "board_work: Board snapshot task review has no 'changes' array",
+      )
+  }
+  match fields.get("artifacts") {
+    Some(Array(artifacts)) =>
+      for artifact in artifacts {
+        match artifact {
+          Object(artifact_fields) =>
+            for key in ["kind", "label", "uri_or_digest"] {
+              match artifact_fields.get(key) {
+                Some(String(_)) => ()
+                _ =>
+                  return Err(
+                    "board_work: Board snapshot task review artifact has no string '" +
+                    key +
+                    "'",
+                  )
+              }
+            }
+          _ =>
+            return Err(
+              "board_work: Board snapshot task review artifact is not an object",
+            )
+        }
+      }
+    _ =>
+      return Err(
+        "board_work: Board snapshot task review has no 'artifacts' array",
+      )
+  }
+  Ok(value)
+}
+
+///|
+fn board_work_ticket(value : Json) -> Result[BoardWorkTicket, String] {
+  let fields = match value {
+    Object(fields) => fields
+    _ => return Err("board_work: Board snapshot task is not an object")
+  }
+  let id = match board_work_task_string(fields, "id") {
+    Ok(value) => value
+    Err(reason) => return Err(reason)
+  }
+  let title = match board_work_task_string(fields, "title") {
+    Ok(value) => value
+    Err(reason) => return Err(reason)
+  }
+  let stage = match board_work_task_string(fields, "stage") {
+    Ok(value) => value
+    Err(reason) => return Err(reason)
+  }
+  let priority = match board_work_task_string(fields, "priority") {
+    Ok(value) => value
+    Err(reason) => return Err(reason)
+  }
+  let review : Json? = match fields.get("review") {
+    None | Some(Null) => None
+    Some(report) =>
+      match board_work_task_review(report) {
+        Ok(report) => Some(report)
+        Err(reason) => return Err(reason)
+      }
+  }
+  let review_feedback : String? = match fields.get("review_feedback") {
+    None | Some(Null) => None
+    Some(String(text)) => Some(text)
+    Some(_) =>
+      return Err(
+        "board_work: Board snapshot task review_feedback is not a string",
+      )
+  }
+  Ok({ id, title, stage, priority, review, review_feedback, })
+}
+
+///|
+/// The durable Board state one `board_work` call reads: the committed revision
+/// and its tickets.
+priv struct BoardWorkSnapshot {
+  revision : Json
+  tickets : Array[BoardWorkTicket]
+}
+
+///|
+/// Parse `payload.board.tasks` out of one encoded snapshot frame. The frame is
+/// the only source: a frame that is not a snapshot carrying a board task array
+/// is an error the model must see, never an empty board.
+fn board_work_snapshot(frame : String) -> Result[BoardWorkSnapshot, String] {
+  let root = @json.parse(frame) catch {
+    _ => return Err("board_work: Board snapshot is not valid JSON")
+  }
+  let payload = match root {
+    Object(fields) =>
+      match fields.get("payload") {
+        Some(Object(payload)) => payload
+        _ => return Err("board_work: Board snapshot has no payload object")
+      }
+    _ => return Err("board_work: Board snapshot is not an object")
+  }
+  let board = match payload.get("board") {
+    Some(Object(board)) => board
+    _ => return Err("board_work: Board snapshot payload has no board object")
+  }
+  let revision = board.get("revision").unwrap_or(Json::null())
+  let tasks = match board.get("tasks") {
+    Some(Array(tasks)) => tasks
+    _ => return Err("board_work: Board snapshot board has no tasks array")
+  }
+  let tickets : Array[BoardWorkTicket] = []
+  for task in tasks {
+    match board_work_ticket(task) {
+      Ok(ticket) => tickets.push(ticket)
+      Err(reason) => return Err(reason)
+    }
+  }
+  Ok({ revision, tickets, })
+}
+
+///|
+/// One string field of a committed review report, if the ticket has a report.
+fn board_work_review_text(review : Json?, key : String) -> String? {
+  match review {
+    Some(Object(fields)) =>
+      match fields.get(key) {
+        Some(String(value)) => Some(value)
+        _ => None
+      }
+    _ => None
+  }
+}
+
+///|
+/// The string entries of one string-array review field.
+fn board_work_review_strings(review : Json?, key : String) -> Array[String] {
+  let entries : Array[String] = []
+  match review {
+    Some(Object(fields)) =>
+      match fields.get(key) {
+        Some(Array(values)) =>
+          for value in values {
+            match value {
+              String(text) => entries.push(text)
+              _ => ()
+            }
+          }
+        _ => ()
+      }
+    _ => ()
+  }
+  entries
+}
+
+///|
+/// The committed artifacts of one review report, in committed order.
+fn board_work_review_artifacts(review : Json?) -> Array[Json] {
+  match review {
+    Some(Object(fields)) =>
+      match fields.get("artifacts") {
+        Some(Array(artifacts)) => artifacts
+        _ => []
+      }
+    _ => []
+  }
+}
+
+///|
+/// Whether one committed review report mentions `needle` (already lowercase) in
+/// a change or in an artifact reference. Nothing else is searched: provenance
+/// comes from the report the Board committed, never from a title or a
+/// transcript.
+fn board_work_mentions(review : Json?, needle : String) -> Bool {
+  for change in board_work_review_strings(review, "changes") {
+    if change.to_lower().contains(needle) {
+      return true
+    }
+  }
+  for artifact in board_work_review_artifacts(review) {
+    match artifact {
+      Object(fields) =>
+        for key in ["label", "uri_or_digest"] {
+          match fields.get(key) {
+            Some(String(value)) =>
+              if value.to_lower().contains(needle) {
+                return true
+              }
+            _ => ()
+          }
+        }
+      _ => ()
+    }
+  }
+  false
+}
+
+///|
+/// One artifact rendered as a short, terminal-safe reference.
+fn board_work_artifact_label(artifact : Json) -> String {
+  match artifact {
+    Object(fields) => {
+      let kind = match fields.get("kind") {
+        Some(String(value)) => value
+        _ => "artifact"
+      }
+      let label = match fields.get("label") {
+        Some(String(value)) => value
+        _ => ""
+      }
+      let reference = match fields.get("uri_or_digest") {
+        Some(String(value)) => value
+        _ => ""
+      }
+      workflow_label(kind + " " + label + " (" + reference + ")")
+    }
+    _ => "artifact"
+  }
+}
+
+///|
+/// The human-readable description of the history filter, mirrored in the text
+/// reply so the model can see exactly what it asked for.
+fn board_work_filter_label(path : String?, ticket : String?) -> String {
+  let parts : Array[String] = []
+  match path {
+    Some(value) => parts.push("path \"" + workflow_label(value) + "\"")
+    None => ()
+  }
+  match ticket {
+    Some(value) => parts.push("ticket \"" + workflow_label(value) + "\"")
+    None => ()
+  }
+  if parts.is_empty() {
+    "no filter"
+  } else {
+    parts.join(" or ")
+  }
+}
+
+///|
+/// One bounded status row: identity, stage, priority and the review summary the
+/// Board committed, if any.
+fn board_work_status_row(ticket : BoardWorkTicket) -> Json {
+  Json::object({
+    "id": Json::string(ticket.id),
+    "title": Json::string(ticket.title),
+    "stage": Json::string(ticket.stage),
+    "priority": Json::string(ticket.priority),
+    "review_summary": match board_work_review_text(ticket.review, "summary") {
+      Some(summary) => Json::string(summary)
+      None => Json::null()
+    },
+  })
+}
+
+///|
+fn board_work_status(
+  snapshot : BoardWorkSnapshot,
+  limit : Int32,
+) -> (Json, String) {
+  let total = snapshot.tickets.length()
+  let returned = if total < limit { total } else { limit }
+  let revision = snapshot.revision.stringify()
+  let text = StringBuilder()
+  if total == 0 {
+    text.write_string(
+      "Board revision " + revision + ": no tickets. Nothing was changed.\n",
+    )
+  } else {
+    text.write_string(
+      "Board revision " +
+      revision +
+      ": showing " +
+      returned.to_string() +
+      " of " +
+      total.to_string() +
+      " tickets. Nothing was changed.\n",
+    )
+  }
+  let rows : Array[Json] = []
+  for index in 0..<returned {
+    let ticket = snapshot.tickets[index]
+    rows.push(board_work_status_row(ticket))
+    text.write_string(
+      "- " +
+      workflow_label(ticket.id) +
+      " [" +
+      ticket.stage +
+      "] " +
+      ticket.priority +
+      " — " +
+      workflow_label(ticket.title) +
+      "\n",
+    )
+    match board_work_review_text(ticket.review, "summary") {
+      Some(summary) =>
+        text.write_string("  review: " + workflow_label(summary) + "\n")
+      None => ()
+    }
+  }
+  (
+    Json::object({
+      "action": Json::string("status"),
+      "revision": snapshot.revision,
+      "total": Json::number(total.to_double()),
+      "returned": Json::number(returned.to_double()),
+      "limit": Json::number(limit.to_double()),
+      "tasks": Json::array(rows),
+    }),
+    text.to_string(),
+  )
+}
+
+///|
+fn board_work_history(
+  snapshot : BoardWorkSnapshot,
+  limit : Int32,
+  path : String?,
+  ticket : String?,
+) -> (Json, String) {
+  let needle = match path {
+    Some(value) => Some(value.to_lower())
+    None => None
+  }
+  let matched : Array[BoardWorkTicket] = []
+  for entry in snapshot.tickets {
+    let by_ticket = match ticket {
+      Some(id) => entry.id == id
+      None => false
+    }
+    let by_path = match needle {
+      Some(needle) => board_work_mentions(entry.review, needle)
+      None => false
+    }
+    if by_ticket || by_path {
+      matched.push(entry)
+    }
+  }
+  let returned = if matched.length() < limit { matched.length() } else { limit }
+  let filter = board_work_filter_label(path, ticket)
+  let text = StringBuilder()
+  if matched.is_empty() {
+    text.write_string(
+      "No committed Board review matches " + filter + ". Nothing was changed.\n",
+    )
+  } else {
+    text.write_string(
+      "Board history matching " +
+      filter +
+      ": showing " +
+      returned.to_string() +
+      " of " +
+      matched.length().to_string() +
+      " tickets. Nothing was changed.\n",
+    )
+  }
+  let rows : Array[Json] = []
+  for index in 0..<returned {
+    let entry = matched[index]
+    rows.push(
+      Json::object({
+        "ticket": Json::string(entry.id),
+        "title": Json::string(entry.title),
+        "stage": Json::string(entry.stage),
+        "review_summary": match
+          board_work_review_text(entry.review, "summary") {
+          Some(summary) => Json::string(summary)
+          None => Json::null()
+        },
+        "changes": Json::array(
+          board_work_review_strings(entry.review, "changes").map(Json::string),
+        ),
+        "artifacts": Json::array(board_work_review_artifacts(entry.review)),
+        "review_feedback": match entry.review_feedback {
+          Some(feedback) => Json::string(feedback)
+          None => Json::null()
+        },
+      }),
+    )
+    text.write_string(
+      "- " +
+      workflow_label(entry.id) +
+      " [" +
+      entry.stage +
+      "] " +
+      workflow_label(entry.title) +
+      "\n",
+    )
+    match board_work_review_text(entry.review, "summary") {
+      Some(summary) =>
+        text.write_string("  review: " + workflow_label(summary) + "\n")
+      None => ()
+    }
+    for change in board_work_review_strings(entry.review, "changes") {
+      text.write_string("  change: " + workflow_label(change) + "\n")
+    }
+    for artifact in board_work_review_artifacts(entry.review) {
+      text.write_string(
+        "  artifact: " + board_work_artifact_label(artifact) + "\n",
+      )
+    }
+    match entry.review_feedback {
+      Some(feedback) =>
+        text.write_string("  feedback: " + workflow_label(feedback) + "\n")
+      None => ()
+    }
+  }
+  (
+    Json::object({
+      "action": Json::string("history"),
+      "revision": snapshot.revision,
+      "path": match path {
+        Some(value) => Json::string(value)
+        None => Json::null()
+      },
+      "ticket": match ticket {
+        Some(value) => Json::string(value)
+        None => Json::null()
+      },
+      "returned": Json::number(returned.to_double()),
+      "matches": Json::array(rows),
+    }),
+    text.to_string(),
+  )
+}
+
+///|
+/// One ticket's committed ReviewReport and review feedback. A ticket the Board
+/// does not hold is a reported error, not an empty report.
+fn board_work_review(
+  snapshot : BoardWorkSnapshot,
+  ticket : String,
+) -> Result[(Json, String), String] {
+  let entry = match
+    snapshot.tickets.iter().find_first(entry => entry.id == ticket) {
+    Some(entry) => entry
+    None =>
+      return Err(
+        "board_work: no Board ticket with id '" + workflow_label(ticket) + "'",
+      )
+  }
+  let text = StringBuilder()
+  text.write_string(
+    "Ticket " +
+    workflow_label(entry.id) +
+    " [" +
+    entry.stage +
+    "] " +
+    workflow_label(entry.title) +
+    "\n",
+  )
+  match entry.review {
+    Some(_) => {
+      match board_work_review_text(entry.review, "outcome") {
+        Some(outcome) =>
+          text.write_string("outcome: " + workflow_label(outcome) + "\n")
+        None => ()
+      }
+      match board_work_review_text(entry.review, "summary") {
+        Some(summary) =>
+          text.write_string("summary: " + workflow_label(summary) + "\n")
+        None => ()
+      }
+      for change in board_work_review_strings(entry.review, "changes") {
+        text.write_string("change: " + workflow_label(change) + "\n")
+      }
+      for artifact in board_work_review_artifacts(entry.review) {
+        text.write_string(
+          "artifact: " + board_work_artifact_label(artifact) + "\n",
+        )
+      }
+    }
+    None =>
+      text.write_string("No review report is committed for this ticket.\n")
+  }
+  match entry.review_feedback {
+    Some(feedback) =>
+      text.write_string("review_feedback: " + workflow_label(feedback) + "\n")
+    None => ()
+  }
+  Ok(
+    (
+      Json::object({
+        "action": Json::string("review"),
+        "ticket": Json::string(entry.id),
+        "title": Json::string(entry.title),
+        "stage": Json::string(entry.stage),
+        "review": match entry.review {
+          Some(report) => report
+          None => Json::null()
+        },
+        "review_feedback": match entry.review_feedback {
+          Some(feedback) => Json::string(feedback)
+          None => Json::null()
+        },
+      }),
+      text.to_string(),
+    ),
+  )
+}
+
+///|
+/// One business-level failure the model can read and correct. Nothing was
+/// changed by the failed call, and the Board is never repaired on its behalf.
+fn board_work_reported(reason : String) -> @posoco.ToolOutcome {
+  @posoco.ToolOutcome::ToolReportedError(content=reason, structured=None)
+}
+
+///|
+impl @posoco.ToolProvider for CetasWorkflowCommands with fn execute(
+  self : CetasWorkflowCommands,
+  ctx : @posoco.ToolCallContext,
+) -> @posoco.ToolOutcome raise @posoco.RuntimeError {
+  let name = ctx.name.to_string()
+  if name != "board_work" {
+    raise @posoco.RuntimeError::UnknownTool(
+      "cetas_board: unknown tool '" + name + "'",
+    )
+  }
+  let query = match parse_board_work_arguments(ctx.arguments) {
+    Ok(query) => query
+    Err(reason) => return board_work_reported(reason)
+  }
+  // The dashboard's own snapshot: durable committed Board data, read only.
+  let frame = self.board.wire_snapshot() catch {
+    _ => return board_work_reported("board_work: Board snapshot unavailable")
+  }
+  let frame = match frame {
+    Ok(frame) => frame
+    Err(error) =>
+      return board_work_reported(
+        "board_work: Board snapshot unavailable (" + error.code() + ")",
+      )
+  }
+  let snapshot = match board_work_snapshot(frame) {
+    Ok(snapshot) => snapshot
+    Err(reason) => return board_work_reported(reason)
+  }
+  let rendered : Result[(Json, String), String] = match query.action {
+    "status" => Ok(board_work_status(snapshot, query.limit))
+    "history" =>
+      Ok(board_work_history(snapshot, query.limit, query.path, query.ticket))
+    "review" =>
+      match query.ticket {
+        Some(ticket) => board_work_review(snapshot, ticket)
+        None => Err("board_work: 'review' needs a 'ticket' id")
+      }
+    _ =>
+      Err(
+        "board_work: 'action' must be one of " + board_work_actions.join(", "),
+      )
+  }
+  match rendered {
+    Ok((structured, content)) =>
+      @posoco.ToolOutcome::Success(content~, structured=Some(structured))
+    Err(reason) => board_work_reported(reason)
   }
 }

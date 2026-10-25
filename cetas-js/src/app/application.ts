@@ -62,6 +62,10 @@ const BOARD_WORKFLOW_CONTROLS = new Set([
   "board.ticket.state",
   "board.ticket.shape",
   "board.ticket.run",
+  "board.ticket.retry",
+  "board.ticket.request_changes",
+  "board.ticket.dismiss_progress",
+  "board.ticket.resume",
   "board.ticket.run_ready",
   "board.ticket.answer",
   "board.ticket.dismiss",
@@ -72,6 +76,18 @@ const BOARD_WORKFLOW_CONTROLS = new Set([
 export function isBoardWorkflowControl(id: string): boolean {
   return BOARD_WORKFLOW_CONTROLS.has(id);
 }
+
+/**
+ * One-time activation note prepended to the next admitted user prompt after a
+ * host opens the Board. It is a host-side note, not a per-turn Board summary:
+ * the model learns once that provenance exists and how to query it, and every
+ * later turn keeps its plain prompt (prompt caching survives the one message).
+ */
+export const BOARD_ACTIVATION_NOTE = [
+  "[Board activated]",
+  "Board work provenance is available through the `board_work` tool.",
+  "Before deleting, reverting, or explaining why code exists, query it.",
+].join("\n");
 
 /**
  * Bridges exposing the Agent-level server compaction entry. An intersection
@@ -167,6 +183,13 @@ export class CetasApplication<AgentHandle = unknown> {
     prompt: string;
     images?: readonly ImageAttachment[];
   }> = [];
+  /**
+   * Host-side one-shot Board activation note. Set at most once per activation
+   * (re-noting while pending is a no-op), prepended to the next admitted
+   * prompt, and cleared the moment that prompt is admitted — so it never
+   * repeats per turn and never rides a rejected submission.
+   */
+  private pendingBoardActivationNote: string | undefined;
   private readonly cancellation = new ApplicationCancellation();
   private shutdownPromise: Promise<void> | undefined;
   private piPackages: PiPackagesSummary | undefined;
@@ -925,6 +948,27 @@ export class CetasApplication<AgentHandle = unknown> {
   }
 
   /**
+   * Arm the one-time Board activation note. The host calls this once when the
+   * Board actually opens; a second call while the note is still pending is a
+   * no-op, so reopening the dashboard before the next turn cannot duplicate it.
+   */
+  noteBoardActivated(): void {
+    if (this.pendingBoardActivationNote !== undefined) return;
+    this.pendingBoardActivationNote = BOARD_ACTIVATION_NOTE;
+  }
+
+  /** The prompt the model receives, with the pending activation note in front. */
+  private promptWithBoardActivationNote(prompt: string): string {
+    const note = this.pendingBoardActivationNote;
+    return note === undefined ? prompt : `${note}\n\n${prompt}`;
+  }
+
+  /** Clear the note exactly when the prompt carrying it is admitted. */
+  private clearBoardActivationNote(): void {
+    this.pendingBoardActivationNote = undefined;
+  }
+
+  /**
    * Execute one turn through the single long-lived Agent handle.
    *
    * A lost core admission is not a failed turn: the prompt never reached the
@@ -1146,6 +1190,10 @@ export class CetasApplication<AgentHandle = unknown> {
    * whether input becomes an Agent follow-up or the next fresh turn. A stale
    * lower-layer run lease waits for the owning host operation to finalize
    * before retrying; it is never treated as proof that the host is idle.
+   *
+   * A pending Board activation note rides exactly one admitted prompt — fresh
+   * turn or queued follow-up — and is cleared only on admission, so a rejected
+   * submission never spends it.
    */
   async submitUserInput(
     prompt: string,
@@ -1220,8 +1268,15 @@ export class CetasApplication<AgentHandle = unknown> {
               operation.kind === "recovery" ||
               operation.kind === "wakeup")
           ) {
-            const queued = this.queueFollowUp(prompt, images);
-            if (queued === "accepted") return { kind: "queued" };
+            const queued = this.queueFollowUp(
+              prompt,
+              images,
+              this.promptWithBoardActivationNote(prompt),
+            );
+            if (queued === "accepted") {
+              this.clearBoardActivationNote();
+              return { kind: "queued" };
+            }
             if (queued === "full") return { kind: "full" };
             // RejectedStale is a lower-layer boundary race. Wait for the
             // operation lease that still owns host state, then retry admission.
@@ -1233,16 +1288,28 @@ export class CetasApplication<AgentHandle = unknown> {
           await this.operations.waitUntilAvailable();
           continue;
         }
-        const completion = this.runTurn(prompt, sessionId, images);
+        const completion = this.runTurn(
+          this.promptWithBoardActivationNote(prompt),
+          sessionId,
+          images,
+        );
+        this.clearBoardActivationNote();
         return { kind: "started", completion };
       }
     });
   }
 
-  /** Queue a user message on the active Agent run. */
+  /**
+   * Queue a user message on the active Agent run.
+   *
+   * `sentPrompt` defaults to `prompt`; it is what the Agent receives when the
+   * host prepends a one-time note, while the mirror keeps the user's own words
+   * for pending-input rendering.
+   */
   queueFollowUp(
     prompt: string,
     images?: readonly ImageAttachment[],
+    sentPrompt = prompt,
   ): "accepted" | "stale" | "full" {
     if (prompt.length === 0) {
       throw new CetasApplicationError("invalid_state", "prompt must not be empty");
@@ -1263,7 +1330,7 @@ export class CetasApplication<AgentHandle = unknown> {
     if (this.options.bridge.enqueueFollowUp === undefined) {
       throw new CetasApplicationError("bridge_failure", "bridge does not support follow-up queuing");
     }
-    const raw = this.options.bridge.enqueueFollowUp(this.agent, prompt, images);
+    const raw = this.options.bridge.enqueueFollowUp(this.agent, sentPrompt, images);
     if (raw.startsWith("Accepted")) {
       if (activeKind === "recovery") this.operations.incrementRecoveryFollowUp();
       this.pendingFollowUps.push({ prompt, images });

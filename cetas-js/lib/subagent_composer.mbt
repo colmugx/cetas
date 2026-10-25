@@ -48,13 +48,39 @@ async fn load_cetas_subagent_catalog(
 }
 
 ///|
+/// Child transcript state is memory-only by default. A ticket runtime can
+/// inject a durable store so one ticket keeps its session across host restarts.
 priv struct CetasChildSessionStore {
   sessions : Map[String, @posoco.Session]
+  durable : @fs_session.JsonlSessionStore?
 }
 
 ///|
 fn CetasChildSessionStore::CetasChildSessionStore() -> CetasChildSessionStore {
-  { sessions: Map::from_array([]), }
+  { sessions: Map::from_array([]), durable: None, }
+}
+
+///|
+fn CetasChildSessionStore::with_root(root : String) -> CetasChildSessionStore {
+  {
+    sessions: Map::from_array([]),
+    durable: Some(@fs_session.JsonlSessionStore(root)),
+  }
+}
+
+///|
+async fn CetasChildSessionStore::clear_session(
+  self : CetasChildSessionStore,
+  id : String,
+) -> Unit raise @posoco.SessionError {
+  self.sessions.remove(id)
+  match self.durable {
+    Some(store) => {
+      let session = store.load(id)
+      store.save(id, { messages: [], metadata: session.metadata, })
+    }
+    None => ()
+  }
 }
 
 ///|
@@ -66,10 +92,14 @@ fn child_session_snapshot(session : @posoco.Session) -> @posoco.Session {
 impl @posoco.SessionStore for CetasChildSessionStore with fn load(
   self,
   id : String,
-) -> @posoco.Session {
-  match self.sessions.get(id) {
-    Some(session) => child_session_snapshot(session)
-    None => { messages: [], metadata: Map::from_array([]), }
+) -> @posoco.Session raise @posoco.SessionError {
+  match self.durable {
+    Some(store) => store.load(id)
+    None =>
+      match self.sessions.get(id) {
+        Some(session) => child_session_snapshot(session)
+        None => { messages: [], metadata: Map::from_array([]), }
+      }
   }
 }
 
@@ -78,26 +108,34 @@ impl @posoco.SessionStore for CetasChildSessionStore with fn save(
   self,
   id : String,
   session : @posoco.Session,
-) -> Unit {
-  self.sessions[id] = child_session_snapshot(session)
+) -> Unit raise @posoco.SessionError {
+  match self.durable {
+    Some(store) => store.save(id, session)
+    None => self.sessions[id] = child_session_snapshot(session)
+  }
 }
 
 ///|
 impl @posoco.SessionStore for CetasChildSessionStore with fn append_messages(
   self,
   id : String,
-  _from_index : Int32,
+  from_index : Int32,
   messages : ArrayView[@posoco.Message],
-) -> Unit {
-  let session = match self.sessions.get(id) {
-    Some(value) => child_session_snapshot(value)
-    None => { messages: [], metadata: Map::from_array([]), }
+) -> Unit raise @posoco.SessionError {
+  match self.durable {
+    Some(store) => store.append_messages(id, from_index, messages)
+    None => {
+      let session = match self.sessions.get(id) {
+        Some(value) => child_session_snapshot(value)
+        None => { messages: [], metadata: Map::from_array([]), }
+      }
+      let merged = session.messages.copy()
+      for message in messages {
+        merged.push(message)
+      }
+      self.sessions[id] = { messages: merged, metadata: session.metadata, }
+    }
   }
-  let merged = session.messages.copy()
-  for message in messages {
-    merged.push(message)
-  }
-  self.sessions[id] = { messages: merged, metadata: session.metadata, }
 }
 
 ///|
@@ -105,30 +143,48 @@ impl @posoco.SessionStore for CetasChildSessionStore with fn truncate(
   self,
   id : String,
   from_index : Int32,
-) -> Unit {
-  let session = match self.sessions.get(id) {
-    Some(value) => child_session_snapshot(value)
-    None => { messages: [], metadata: Map::from_array([]), }
-  }
-  let len = session.messages.length()
-  let keep = if from_index < 0 {
-    0
-  } else if from_index > len {
-    len
-  } else {
-    from_index
-  }
-  self.sessions[id] = {
-    messages: session.messages[:keep].to_owned(),
-    metadata: session.metadata,
+) -> Unit raise @posoco.SessionError {
+  match self.durable {
+    Some(store) => {
+      let session = store.load(id)
+      let len = session.messages.length()
+      let keep = if from_index < 0 {
+        0
+      } else if from_index > len {
+        len
+      } else {
+        from_index
+      }
+      store.save(id, {
+        messages: session.messages[:keep].to_owned(),
+        metadata: session.metadata,
+      })
+    }
+    None => {
+      let session = match self.sessions.get(id) {
+        Some(value) => child_session_snapshot(value)
+        None => { messages: [], metadata: Map::from_array([]), }
+      }
+      let len = session.messages.length()
+      let keep = if from_index < 0 {
+        0
+      } else if from_index > len {
+        len
+      } else {
+        from_index
+      }
+      self.sessions[id] = {
+        messages: session.messages[:keep].to_owned(),
+        metadata: session.metadata,
+      }
+    }
   }
 }
 
 ///|
-/// Child transcript state is intentionally memory-only. The subagent resume
-/// registry is also Agent-lifetime state, so persisting transcripts beyond the
-/// registry would make a fresh process accidentally reuse stale `subagent-1`
-/// data while being unable to resume that old child deliberately.
+/// Child transcript state is memory-only unless the ticket runtime injects a
+/// durable store. The generic subagent resume registry remains Agent-lifetime,
+/// so a fresh process does not accidentally reuse stale `subagent-1` data.
 priv struct CetasChildIo {
   store : CetasChildSessionStore
   observers : Array[&@posoco.Observer]
@@ -183,6 +239,10 @@ priv struct CetasChildComposer {
   /// over `question` when present, so the answerer is the Board drawer
   /// rather than the parent agent.
   question_endpoint : &@askquestion.QuestionEndpoint?
+  /// Host-owned worker reporting endpoint (Board tickets). When present the
+  /// child gets the `report_progress` / `submit_work_report` face; when absent
+  /// it gets neither, because a non-ticket child has no ticket to report on.
+  reporting : &TicketReportEndpoint?
   context_fs : &@workspace.WorkspaceFs
   feature_fs : &@workspace.WorkspaceFs
   cwd : String
@@ -196,10 +256,12 @@ priv struct CetasChildComposer {
 fn CetasChildComposer::CetasChildComposer(
   parent_manager~ : ModelManagerFace,
   parent_mode~ : () -> @permission.PermissionMode,
+  child_store~ : CetasChildSessionStore? = None,
   approval~ : &@permission.ApprovalSource? = None,
   ui~ : &@posoco.UiPort? = None,
   question~ : @subagent.ParentQuestionChannel? = None,
   question_endpoint~ : &@askquestion.QuestionEndpoint? = None,
+  reporting~ : &TicketReportEndpoint? = None,
   context_fs~ : &@workspace.WorkspaceFs,
   feature_fs~ : &@workspace.WorkspaceFs,
   cwd~ : String,
@@ -209,11 +271,15 @@ fn CetasChildComposer::CetasChildComposer(
   {
     parent_manager,
     parent_mode,
-    child_store: CetasChildSessionStore::CetasChildSessionStore(),
+    child_store: match child_store {
+      Some(store) => store
+      None => CetasChildSessionStore::CetasChildSessionStore()
+    },
     approval,
     ui,
     question,
     question_endpoint,
+    reporting,
     context_fs,
     feature_fs,
     cwd,
@@ -495,6 +561,16 @@ impl @subagent.ChildComposer for CetasChildComposer with fn compose(
   }
   for ext in self.tool_extensions(tool_names, question~) {
     exts.push(ext)
+  }
+  // Worker reporting is a ticket face, not a generic child face: the ticket
+  // binding lives in the host endpoint, so a child composed without one gets
+  // no `report_progress` / `submit_work_report` tools at all.
+  match self.reporting {
+    Some(endpoint) =>
+      exts.push(
+        TicketReportTools::TicketReportTools(endpoint~) as &@posoco.Extension,
+      )
+    None => ()
   }
   match self.ui {
     Some(ui) =>

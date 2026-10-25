@@ -378,6 +378,24 @@ async fn build_provider_router(
       )
     _ => ()
   }
+  let decision_selection = @cetas_core.read_active_decision_model_selection(
+    @workspace.JsWorkspaceFs(),
+    home=runtime.config.home,
+  )
+  let decision_restore = @cetas_core.resolve_active_decision_model_restore(
+    catalogs, decision_selection,
+  )
+  match decision_restore {
+    @cetas_core.Pending(slot~) =>
+      active_model_warning(
+        observer,
+        "active_model_restore_warning",
+        "Persisted decision model slot '" +
+        slot +
+        "' is not in the startup catalog; keeping it selected — decision stays off until it appears (login/refresh), switch with /decision otherwise. The entry stays in ~/.cetas/settings.json until the next selection overwrites it.",
+      )
+    _ => ()
+  }
   if runtime.model_metadata is None {
     runtime.model_metadata = Some(
       @llm.ModelMetadata(
@@ -402,6 +420,12 @@ async fn build_provider_router(
       @cetas_core.Pending(slot~) => slot
     },
     allow_missing_default=restore is @cetas_core.Pending(_),
+    default_decision_slot_id=match decision_restore {
+      @cetas_core.NoSelection => ""
+      @cetas_core.Selected(slot~) => slot
+      @cetas_core.Pending(slot~) => slot
+    },
+    allow_missing_decision_default=decision_restore is @cetas_core.Pending(_),
     bus~,
     provider_credential_store=Some(store as &@oauth.ProviderCredentialStore),
     auth_interaction=Some(auth as &@oauth.AuthInteraction),

@@ -287,3 +287,7 @@ pub impl @port.Lifecycle for UiBridge
 // Type aliases
 
 // Traits
+pub(open) trait TicketReportEndpoint {
+  fn report_progress(Self, String, String) -> Unit
+  fn submit_work_report(Self, Json) -> Result[Unit, String]
+}

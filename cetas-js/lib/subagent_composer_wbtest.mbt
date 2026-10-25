@@ -290,3 +290,32 @@ test "subagent_settings_from_json_rejects_bad_kind_entry" {
     _ => fail("expected the subagent kinds entry to be rejected")
   }
 }
+
+///|
+async test "durable child session store survives a new store instance and clears" {
+  let directory = @board_fixtures.temporary_directory()
+  defer @board_fixtures.cleanup(directory)
+  let root = directory + "/sessions"
+  let id = "ticket-durable"
+  let store = CetasChildSessionStore::with_root(root)
+  let session : @posoco.Session = {
+    messages: [@posoco.tk_user_msg("hello")],
+    metadata: Map::from_array([("ticket", Json::string("t1"))]),
+  }
+  store.save(id, session) catch {
+    error => fail("durable save failed: " + error.to_string())
+  }
+  let reopened = CetasChildSessionStore::with_root(root)
+  let loaded = reopened.load(id) catch {
+    error => fail("durable load failed: " + error.to_string())
+  }
+  assert_eq(loaded.messages.length(), 1)
+  assert_eq(loaded.metadata.get("ticket"), Some(Json::string("t1")))
+  reopened.clear_session(id) catch {
+    error => fail("durable clear failed: " + error.to_string())
+  }
+  let cleared = reopened.load(id) catch {
+    error => fail("durable reload failed: " + error.to_string())
+  }
+  assert_eq(cleared.messages.length(), 0)
+}

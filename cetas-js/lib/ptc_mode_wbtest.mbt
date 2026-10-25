@@ -137,9 +137,7 @@ impl @posoco.ToolProvider for PtcMultiToolProbe with fn execute(
 ///|
 async test "PTC selection scopes a multi-tool provider to bash only" {
   let provider = PtcMultiToolProbe::{ calls: [], }
-  let allowed = [
-    "read", "grep", "glob", "write", "edit", "apply_patch", "bash",
-  ]
+  let allowed = ["read", "grep", "glob", "write", "edit", "apply_patch", "bash"]
   let selected = cetas_ptc_select_provider(provider, allowed)
   guard selected is Some(scoped) else {
     fail("multi-tool bash provider was discarded")

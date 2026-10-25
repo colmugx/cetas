@@ -80,7 +80,7 @@ function isLoopbackHost(host: string | null, port: number): boolean {
   return host === "127.0.0.1:" + port || host === "localhost:" + port;
 }
 
-function openInBrowser(url: string): void {
+export function openInBrowser(url: string): void {
   const platform = process.platform;
   const executable = platform === "win32" ? "cmd" : platform === "darwin" ? "open" : "xdg-open";
   const args = platform === "win32" ? ["/c", "start", "", url] : [url];
@@ -180,6 +180,7 @@ export interface WorkflowBoardOptions {
   onTicketState?: (state: unknown) => void;
 }
 
+/** Browser launch is a caller-owned side effect, never a library one. */
 export async function openWorkflowBoard(
   app: CetasApplication,
   options?: WorkflowBoardOptions,
@@ -187,7 +188,6 @@ export async function openWorkflowBoard(
   const previous = boards.get(app);
   if (previous !== undefined && !previous.closed) {
     if (options?.onOpen) options.onOpen(previous.url);
-    else openInBrowser(previous.url);
     return previous.url.split("?")[0]!;
   }
 
@@ -495,8 +495,11 @@ export async function openWorkflowBoard(
   boards.set(app, owner);
   owners.add(owner);
   if (options?.onOpen) options.onOpen(url);
-  else openInBrowser(url);
   return "http://127.0.0.1:" + server.port + "/";
+}
+
+export function hasOpenWorkflowBoards(): boolean {
+  return owners.size > 0;
 }
 
 export async function closeWorkflowBoards(): Promise<void> {

@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TUI, TuiMainScreen, TuiAltScreen } from "@earendil-works/pi-tui";
@@ -21,6 +21,11 @@ import {
   statusRouteTarget,
   TerminalShell,
 } from "./terminal-shell.ts";
+import { closeWorkflowBoards } from "./workflow-board-server.ts";
+import {
+  BOARD_ACTIVATION_NOTE,
+  CetasApplication,
+} from "../src/app/application.ts";
 import type { CommandDescriptor } from "../src/app/index.ts";
 
 /** Swap console.warn for a recorder; call restore() when done. */
@@ -39,7 +44,7 @@ function captureWarn(): { warns: string[]; restore(): void } {
 }
 
 /** Shell + headless TUI pair; the session transcript has one rewind point. */
-function makeShell(prompt = "hello"): {
+function makeShell(prompt = "hello", home?: string): {
   shell: TerminalShell;
   tui: TUI;
   sessionsDir: string;
@@ -72,6 +77,7 @@ function makeShell(prompt = "hello"): {
     sessionsDir,
     maxToolRounds: 8,
     initialSessionId: sessionId,
+    ...(home === undefined ? {} : { home }),
   });
   return { shell, tui, sessionsDir };
 }
@@ -1478,12 +1484,141 @@ describe("Gate 3 full-screen virtual transcript integration", () => {
 });
 
 describe("final product command discovery", () => {
-  test("workflow and board are visible before Agent composition", () => {
+  test("/board is visible before Agent composition and /workflow is not a local route", () => {
     const names = localSlashAutocompleteItems().map(entry => entry.label);
-    expect(names).toContain("/workflow");
     expect(names).toContain("/board");
-    expect(matchLocalSlash("/workflow")?.id).toBe("workflow");
+    expect(names).not.toContain("/workflow");
     expect(matchLocalSlash("/board")?.id).toBe("board");
     expect(matchLocalSlash("/board.stop")?.id).toBe("board.stop");
+    // The Board keeps its internal `board.workflow` command; only the
+    // user-facing /workflow spelling is gone.
+    expect(matchLocalSlash("/workflow")).toBeUndefined();
+  });
+
+  test("typing /workflow is an ordinary unknown command, not a second workflow UI", async () => {
+    const { shell } = makeShell();
+    const invocations: Array<{ command: string; args: string }> = [];
+    (shell as any).attachApplication({
+      listCommands: () => [],
+      invokeCommand: async (command: string, args: string) => {
+        invocations.push({ command, args });
+        return JSON.stringify({ type: "failure", reason: "unknown_command" });
+      },
+      operationSnapshot: {
+        busy: false,
+        phase: "idle",
+        interruptible: true,
+        followUpsQueued: 0,
+        compactPending: false,
+        shuttingDown: false,
+      },
+    });
+
+    await (shell as any).dispatchSlash("/workflow");
+
+    // Ordinary extension fallback: the local shell never opens a workflow UI.
+    expect(invocations).toEqual([{ command: "workflow", args: "{}" }]);
+  });
+});
+
+describe("/board activation note", () => {
+  /** A started application whose bridge records the prompts the model sees. */
+  function activationApp(home: string, prompts: string[]): CetasApplication {
+    return new CetasApplication({
+      bridge: {
+        describeSetup: async () => ({
+          providers: [
+            {
+              id: "deepseek/chat",
+              label: "DeepSeek Chat",
+              provider: "deepseek",
+              model: "deepseek-chat",
+              active: true,
+              efforts: [],
+              oauth: false,
+            },
+          ],
+          oauthProviders: [],
+          activeModelId: "deepseek/chat",
+        }),
+        createAgent: async () => ({ id: "agent" }),
+        runTurn: async (_agent, prompt) => {
+          prompts.push(prompt);
+          return "reply";
+        },
+        cancelPendingRateLimit: () => undefined,
+        shutdown: async () => undefined,
+        listCommands: () => [],
+        invokeCommand: async () =>
+          JSON.stringify({ type: "success", structured: {} }),
+        rewind: async () => undefined,
+      },
+      config: { cwd: "/tmp", maxToolRounds: 4, home },
+      callbacks: {
+        observerCallback: () => undefined,
+        renderCallback: () => undefined,
+        requestCallback: async () => "",
+      },
+      initialSessionId: "session-board",
+    });
+  }
+
+  function workflowsHome(): string {
+    const home = mkdtempSync(join(tmpdir(), "cetas-board-home-"));
+    mkdirSync(join(home, ".cetas"), { recursive: true });
+    writeFileSync(
+      join(home, ".cetas", "settings.json"),
+      JSON.stringify({ workflow: { enabled: true } }),
+    );
+    return home;
+  }
+
+  test("opening the Board arms one note that a reopen does not duplicate", async () => {
+    const home = workflowsHome();
+    const prompts: string[] = [];
+    const app = activationApp(home, prompts);
+    const { shell } = makeShell("hello", home);
+    await app.start();
+    shell.attachApplication(app);
+    try {
+      await (shell as any).runBoardEntrance("");
+      // Reopening the dashboard before the next turn keeps the same pending
+      // note: activation is a one-time event for the prompt stream.
+      await (shell as any).runBoardEntrance("");
+
+      const submission = await app.submitUserInput("inspect provenance");
+      if (submission.kind !== "started") throw new Error("expected a fresh turn");
+      await submission.completion;
+
+      expect(prompts).toEqual([`${BOARD_ACTIVATION_NOTE}\n\ninspect provenance`]);
+      const activations = prompts[0]!.match(/\[Board activated\]/g) ?? [];
+      expect(activations).toHaveLength(1);
+    } finally {
+      await closeWorkflowBoards();
+      await app.shutdown();
+    }
+  });
+
+  test("a Board that never opens does not arm the note", async () => {
+    const home = mkdtempSync(join(tmpdir(), "cetas-board-home-off-"));
+    const prompts: string[] = [];
+    const app = activationApp(home, prompts);
+    const { shell } = makeShell("hello", home);
+    await app.start();
+    shell.attachApplication(app);
+    // Workflows stay disabled; the enable prompt is dismissed, so no Board and
+    // no note.
+    (shell as any).authPromptOverlay = {
+      request: async () => "cancel",
+    };
+    try {
+      await (shell as any).runBoardEntrance("");
+      const submission = await app.submitUserInput("plain");
+      if (submission.kind !== "started") throw new Error("expected a fresh turn");
+      await submission.completion;
+      expect(prompts).toEqual(["plain"]);
+    } finally {
+      await app.shutdown();
+    }
   });
 });

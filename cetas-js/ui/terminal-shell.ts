@@ -12,7 +12,7 @@ import type { Channel, PackageManager } from "../src/app/version.ts";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { enableCetasWorkflows, workflowsEnabled } from "../src/app/workflow-delivery.ts";
-import { openWorkflowBoard, closeWorkflowBoards } from "./workflow-board-server.ts";
+import { openWorkflowBoard, closeWorkflowBoards, hasOpenWorkflowBoards } from "./workflow-board-server.ts";
 import { homedir } from "node:os";
 import {
   Container,
@@ -188,6 +188,11 @@ export interface TerminalShellOptions {
   /** Host-owned process exit hook; tests can leave it undefined. */
   onExit?: (code: number) => void;
   /**
+   * Host-owned browser opener. The library never launches a browser; tests
+   * leave it undefined and production passes `openInBrowser`.
+   */
+  openBoardUrl?: (url: string) => void;
+  /**
    * Graceful-shutdown watchdog: when it fires (or a second shutdown request
    * arrives first) the shell forces the exit hook. Default 10s.
    */
@@ -239,6 +244,7 @@ export class TerminalShell {
   private readonly home: string;
   private readonly piCommands: PiCommands;
   private readonly onExit: (code: number) => void;
+  private readonly openBoardUrl?: (url: string) => void;
   private readonly updateOverlay: UpdateOverlay;
   private readonly updateWorkflow: UpdateWorkflow;
   /** Set by "Update now"; exit() runs it after teardown instead of onExit. */
@@ -385,6 +391,7 @@ export class TerminalShell {
     });
     this.sessionId = options.initialSessionId;
     this.onExit = options.onExit ?? (() => {});
+    this.openBoardUrl = options.openBoardUrl;
     this.forceExitDelayMs = options.forceExitDelayMs ?? 10_000;
     this.callbacks = {
       observerCallback: (eventJson) => {
@@ -2079,7 +2086,6 @@ export class TerminalShell {
     status: (rawArgs) => this.runStatusCommand(rawArgs),
     pi: (rawArgs) => this.runPiCommand(rawArgs),
     goal: (rawArgs) => this.runGoalCommand(rawArgs),
-    workflow: (rawArgs) => this.runWorkflowEntrance(rawArgs),
     board: (rawArgs) => this.runBoardEntrance(rawArgs),
     "board.stop": () => this.runBoardStop(),
   };
@@ -2108,34 +2114,6 @@ export class TerminalShell {
     return true;
   }
 
-  private async runWorkflowEntrance(rawArgs: string): Promise<void> {
-    try {
-      if (!(await this.ensureWorkflows())) return;
-      const goal = rawArgs.trim();
-      if (goal.length > 256) {
-        this.addTranscriptChild(errorNotice("Workflow goal exceeds 256 characters."));
-        return;
-      }
-      if (goal.length > 0) {
-        this.workflowCommandActive = true;
-        this.commandLock.acquire("planning workflow goal");
-        this.editor.disableSubmit = false;
-        try {
-          const outcome = parseCommandOutcome(
-            await this.requireApp().invokeCommand("workflow", JSON.stringify({ goal })),
-          );
-          this.renderOutcome(outcome, "/workflow");
-        } finally {
-          this.commandLock.release();
-        }
-      } else {
-        await this.invokeCommand("/workflow", "");
-      }
-    } catch (error: unknown) {
-      this.addTranscriptChild(errorNotice("/workflow: " + errorMessage(error)));
-    }
-  }
-
   private async runBoardEntrance(rawArgs: string): Promise<void> {
     const action = rawArgs.trim();
     if (action === "stop" || action === "close") {
@@ -2144,7 +2122,9 @@ export class TerminalShell {
     }
     try {
       if (!(await this.ensureWorkflows())) return;
-      const address = await openWorkflowBoard(this.requireApp(), {
+      const app = this.requireApp();
+      const address = await openWorkflowBoard(app, {
+        onOpen: (url) => this.openBoardUrl?.(url),
         onTicketActivity: (text) => {
           this.addTranscriptChild(systemNotice("Board · " + text));
           this.tui.requestRender();
@@ -2156,6 +2136,9 @@ export class TerminalShell {
           }
         },
       });
+      // One-time provenance note: it rides the next admitted prompt only, so
+      // reopening the Board before that turn cannot duplicate it.
+      app.noteBoardActivated();
       this.addTranscriptChild(systemNotice("Board opened: " + address));
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice("/board: " + errorMessage(error)));
@@ -2417,9 +2400,17 @@ export class TerminalShell {
         onSelect: (manager) => {
           void (async () => {
             try {
+              const boardWasOpen = hasOpenWorkflowBoards();
               const snapshot = await this.requireApp().switchModelManager(manager);
               this.handleSnapshot(snapshot);
-              this.addTranscriptChild(systemNotice(`model manager: ${manager}`));
+              if (boardWasOpen) {
+                await this.runBoardStop();
+                this.addTranscriptChild(systemNotice(
+                  `Board service stopped because the model manager switched to ${manager}. Reopen it with /board.`,
+                ));
+              } else {
+                this.addTranscriptChild(systemNotice(`model manager: ${manager}`));
+              }
             } catch (error: unknown) {
               this.addTranscriptChild(errorNotice(`/manager failed: ${errorMessage(error)}`));
               if (this.app !== undefined) this.handleSnapshot(this.app.snapshot());
@@ -3240,7 +3231,7 @@ export class TerminalShell {
       return;
     }
     if (!boardControl) {
-      this.workflowCommandActive = command === "/workflow" || command.startsWith("/board.workflow");
+      this.workflowCommandActive = command.startsWith("/board.workflow");
       this.commandLock.acquire(`running ${command}`);
       if (this.workflowCommandActive) this.editor.disableSubmit = false;
     }
@@ -3379,7 +3370,6 @@ const LOCAL_SLASH_ROUTES: readonly SlashRoute[] = [
   { id: "update", description: "Check for updates and install" },
   { id: "pi", description: "Manage pi packages (install/remove/list)" },
   { id: "goal", description: "Start, inspect, pause or resume a verified goal" },
-  { id: "workflow", description: "Start from one highest-level goal or manage work" },
   { id: "board", description: "Open the live localhost Kanban dashboard" },
   { id: "board.stop", description: "Stop all local Board servers" },
   { id: "login", description: "Authenticate with a provider or configure Magpie Gateway" },

@@ -30,6 +30,7 @@ import {
 import { newSessionId } from "./src/app/session-id.ts";
 import { disposeSharedPiModuleMirror } from "./src/app/pi-module-mirror.ts";
 import { TerminalShell, CETAS_TUI_HELP_NOTE } from "./ui/terminal-shell.ts";
+import { openInBrowser } from "./ui/workflow-board-server.ts";
 
 // Recoverable failures belong to the Agent/tool boundary. A fault escaping
 // that boundary cannot safely resume the scheduler or repaint the TUI.
@@ -115,6 +116,7 @@ async function main(): Promise<void> {
     initialSessionId: sessionId,
     toolLabels,
     versionInfo,
+    openBoardUrl: openInBrowser,
     onExit: (code) => {
       disposeSharedPiModuleMirror();
       process.exit(code);

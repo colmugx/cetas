@@ -253,6 +253,29 @@ fn ModelManagerFace::manager_control(
 }
 
 ///|
+/// Read-only status projection for host panels. Providers uses the same
+/// `/status` payload as the terminal command. Magpie exposes the facts it owns;
+/// quota is left null because ext-magpie quota cards are a separate command.
+fn ModelManagerFace::manager_status_json(self : ModelManagerFace) -> Json {
+  match self {
+    Providers(router) => router.status_json()
+    Magpie(binding) => {
+      let selection = binding.runtime.manager().active_selection()
+      Json::object({
+        "provider": Json::string(MAGPIE_PICKER_PROVIDER),
+        "model": Json::string(selection.model_id),
+        "effort": match selection.effort {
+          Some(effort) => Json::string(effort)
+          None => Json::null()
+        },
+        "context_window": Json::null(),
+        "quota": Json::object(Map([])),
+      })
+    }
+  }
+}
+
+///|
 fn ModelManagerFace::manager_active_model_id(self : ModelManagerFace) -> String {
   self.manager_control().active_selection().model_id
 }
@@ -526,6 +549,9 @@ fn magpie_setup_entry_json(binding : MagpieBinding) -> Json {
     "label": Json::string("Magpie"),
     "provider": Json::string(MAGPIE_PICKER_PROVIDER),
     "model": Json::string(selection.model_id),
+    // The Magpie bridge serves the conversation selection only; there is no
+    // decision slot behind it.
+    "kind": Json::string("chat"),
     "active": Json::boolean(true),
     "efforts": Json::array([]),
     "oauth": Json::boolean(false),

@@ -35,14 +35,16 @@ fn cetas_ptc_select_provider(
   provider : &@posoco.ToolProvider,
   allowed : Array[String],
 ) -> &@posoco.ToolProvider? {
-  let selected = provider.list_tools().filter(fn(def) {
-    allowed.contains(def.name.to_string())
-  })
+  let selected = provider
+    .list_tools()
+    .filter(fn(def) { allowed.contains(def.name.to_string()) })
   if selected.is_empty() {
     None
   } else {
-    Some(CetasPtcScopedProvider::{ inner: provider, definitions: selected, }
-      as &@posoco.ToolProvider)
+    Some(
+      CetasPtcScopedProvider::{ inner: provider, definitions: selected, }
+      as &@posoco.ToolProvider,
+    )
   }
 }
 

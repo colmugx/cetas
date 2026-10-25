@@ -128,6 +128,11 @@ async fn build_cetas_workflows(
     approval~,
     ctx~,
     group~,
+    session_root=Some(
+      ctx.home +
+      "/.cetas/ticket-sessions/" +
+      @fs_session.project_dir_name(ctx.cwd),
+    ),
   )
   Some(
     CetasWorkflowCommands::{

@@ -3099,9 +3099,12 @@ pub fn cetas_js_tool_catalog(handle : CetasJsAgent) -> String {
 
 ///|
 /// Persist the router's current selection into `~/.cetas/settings.json` after
-/// a successful `/model` or `/effort` so it survives restarts. A persistence
-/// failure never overturns the already-committed in-memory switch: it surfaces
-/// as one observer `Custom` warning and the command result stands.
+/// a successful `/model`, `/effort`, or `/decision` so it survives restarts.
+/// The conversation keys (`model`, `reasoning_effort`) and the decision key
+/// (`decision_model`) are written independently; each merge preserves the
+/// other's key. A persistence failure never overturns the already-committed
+/// in-memory switch: it surfaces as one observer `Custom` warning and the
+/// command result stands.
 async fn persist_active_model_selection(handle : CetasJsAgent) -> Unit noraise {
   @cetas_core.write_active_model_selection(
     @workspace.JsWorkspaceFs(),
@@ -3128,6 +3131,39 @@ async fn persist_active_model_selection(handle : CetasJsAgent) -> Unit noraise {
           ),
         ),
       )
+  }
+  // The decision selection exists only on the providers manager; a Magpie
+  // session never touches the key, so the providers decision choice survives
+  // a Magpie `/model` persist untouched.
+  match handle.manager {
+    Providers(router) =>
+      @cetas_core.write_active_decision_model_selection(
+        @workspace.JsWorkspaceFs(),
+        home=handle.home,
+        match router.active_decision_slot_id() {
+          "" => None
+          slot_id => Some(@cetas_core.ActiveDecisionSelection(slot_id))
+        },
+      ) catch {
+        _ =>
+          handle.observer.on_event(
+            Custom(
+              source="cetas-js.bridge",
+              label="active_model_persist_failed",
+              data=Json::object(
+                Map::from_array([
+                  (
+                    "message",
+                    Json::string(
+                      "Failed to persist the decision model selection to ~/.cetas/settings.json; the change is active for this session only.",
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          )
+      }
+    Magpie(_) => ()
   }
 }
 
@@ -3338,7 +3374,7 @@ pub fn cetas_js_invoke_command(
         if owns {
           let outcome = port.invoke(id, args)
           result_json = command_outcome_to_json(outcome).stringify()
-          if id == "model" || id == "effort" {
+          if id == "model" || id == "effort" || id == "decision" {
             match outcome {
               Success(..) => {
                 persist_active_model_selection(handle)
