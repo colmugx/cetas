@@ -39,7 +39,7 @@ import {
   "colmugx/posoco-ext-workspace@0.1.0",
   "moonbitlang/async@0.22.5",
   // recipe-deps:begin
-  "colmugx/cetas-ext-forme@0.1.0",
+  "colmugx/cetas-ext-forme@0.2.0",
   "colmugx/posoco-ext-read@0.2.0",
   "colmugx/posoco-ext-write@0.2.0",
   "colmugx/posoco-ext-edit@0.2.0",

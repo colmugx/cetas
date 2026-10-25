@@ -138,6 +138,7 @@ fn cetas_skills_config() -> @skills.SkillsConfig {
 ///|
 async fn build_cetas_skills(
   ctx~ : @cetas_core.HostContext,
+  manuals~ : Array[@skills.SkillDescriptor],
   requested~ : Array[String]? = None,
 ) -> &@posoco.Extension? raise @posoco.CompositionError {
   let discovered : @skills.SkillCatalog = match
@@ -150,10 +151,7 @@ async fn build_cetas_skills(
     Some(skills) => skills.catalog()
     None => @skills.SkillCatalog::empty()
   }
-  let full = @skills.merge_builtin_skills(
-    discovered,
-    @forme.builtin_manual_skills(),
-  )
+  let full = @skills.merge_builtin_skills(discovered, manuals)
   let catalog = match requested {
     None => full
     Some(names) if names.is_empty() => full
@@ -204,6 +202,7 @@ async fn build_compiled_recipe_features(
   ctx~ : @cetas_core.HostContext,
   host_group~ : @async.TaskGroup[Unit]? = None,
   host_help_note~ : String? = None,
+  host_version_note~ : String? = None,
   obsidian_vault~ : String? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
   let _ = obsidian_vault
@@ -211,13 +210,15 @@ async fn build_compiled_recipe_features(
   let episodic : Array[&@posoco.Extension] = []
   let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
   let freshness = @devkit.FreshnessGuard::FreshnessGuard()
-
+  // One Forme value feeds both surfaces: the /help command and the builtin
+  // manuals merged into the skills catalog below.
+  let forme = @forme.Forme::Forme(
+    host_note=host_help_note,
+    version_note=host_version_note,
+  )
   for key in compiled_recipe {
     match key {
-      "forme" =>
-        exts.push(
-          @forme.Forme::Forme(host_note=host_help_note) as &@posoco.Extension,
-        )
+      "forme" => exts.push(forme as &@posoco.Extension)
       "read" =>
         exts.push(
           @read.ReadTools(freshness~, anchor=Some(anchor), fs=Some(ctx.fs))
@@ -247,7 +248,12 @@ async fn build_compiled_recipe_features(
           exts.push(shell)
         }
       "skills" => {
-        let skills = build_cetas_skills(ctx~) catch { _ => None }
+        let skills = build_cetas_skills(
+          ctx~,
+          manuals=forme.builtin_manual_skills(),
+        ) catch {
+          _ => None
+        }
         match skills {
           Some(skills) => exts.push(skills)
           None => ()

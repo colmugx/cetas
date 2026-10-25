@@ -203,6 +203,7 @@ pub async fn CetasAcpHost::CetasAcpHost(
       build_session_agent(
         platform~,
         cwd~,
+        agent_version~,
         session_id~,
         session_store=store,
         mcp_servers=params.mcp_servers,
@@ -1405,6 +1406,7 @@ async fn read_credential_snapshot(
 async fn build_session_agent(
   platform~ : Platform,
   cwd~ : String,
+  agent_version~ : String = "0.1.0",
   session_id~ : String = "",
   session_store~ : @fs_session.JsonlSessionStore = @fs_session.JsonlSessionStore(
     client_sessions_dir(platform.home, "acp"),
@@ -1510,6 +1512,7 @@ async fn build_session_agent(
     feature in build_compiled_recipe_features(
       ctx={ fs: session_fs, cwd, home: platform.home, },
       host_group=platform.mcp_group,
+      host_version_note=Some(agent_version),
     ) {
     exts.push(feature)
   }
