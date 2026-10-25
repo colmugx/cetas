@@ -394,3 +394,72 @@ async test "a live persisted selection composes without the pending flag" {
   let router = build_cetas_router(platform~)
   assert_eq(router.active_slot_id(), "opencode/gpt-5.1-codex")
 }
+
+///|
+async test "a persisted decision selection keeps a drifted slot pending and visible" {
+  let fs = FakeFs()
+  let warnings : Array[String] = []
+  fs.files["/home/.cetas/settings.json"] = "{\"providers\":{\"opencode\":{\"api_key\":\"sk-zen-test\"}},\"model\":\"opencode/gpt-5.1-codex\",\"decision_model\":\"gone/judge\"}"
+  fs.files["/home/.cetas/model_lists.json"] = "{\"opencode\":[{\"model_id\":\"gpt-5.1-codex\",\"thinking_efforts\":[],\"default_effort\":null,\"context_window\":null}]}"
+  let platform = build_cetas_platform(
+    home="/home",
+    cwd="/",
+    fs,
+    permission_mode=@permission.WorkspaceWrite,
+    warn=tk_capturing_warn(warnings),
+  )
+  // The chat selection is untouched; the decision selection keeps the
+  // drifted id (decision explicitly off) instead of silently re-picking.
+  assert_eq(platform.default_slot_id, "opencode/gpt-5.1-codex")
+  assert_eq(platform.default_decision_slot_id, "gone/judge")
+  assert_true(platform.default_decision_slot_pending)
+  let router = build_cetas_router(platform~)
+  assert_eq(router.active_decision_slot_id(), "gone/judge")
+  let mut saw_drift_warn = false
+  for message in warnings {
+    if message.contains(
+        "persisted decision model slot 'gone/judge' is not in the startup catalog",
+      ) {
+      saw_drift_warn = true
+    }
+  }
+  assert_true(saw_drift_warn)
+}
+
+///|
+async test "a malformed decision_model key fails composition loudly" {
+  let fs = FakeFs()
+  fs.files["/home/.cetas/settings.json"] = "{\"providers\":{\"opencode\":{\"api_key\":\"sk-zen-test\"}},\"decision_model\":42}"
+  try
+    build_cetas_platform(
+      home="/home",
+      cwd="/",
+      fs,
+      permission_mode=@permission.WorkspaceWrite,
+    )
+  catch {
+    @posoco.CompositionError::ManifestSchemaError(detail~, ..) =>
+      assert_true(detail.contains("settings.decision_model must be a string"))
+    _ => fail("expected ManifestSchemaError for decision_model shape")
+  } noraise {
+    _ => fail("expected decision_model shape to fail composition")
+  }
+}
+
+///|
+async test "no persisted decision selection composes with decision off" {
+  let fs = FakeFs()
+  fs.files["/home/.cetas/settings.json"] = "{\"providers\":{\"opencode\":{\"api_key\":\"sk-zen-test\"}},\"model\":\"opencode/gpt-5.1-codex\"}"
+  fs.files["/home/.cetas/model_lists.json"] = "{\"opencode\":[{\"model_id\":\"gpt-5.1-codex\",\"thinking_efforts\":[],\"default_effort\":null,\"context_window\":null}]}"
+  let platform = build_cetas_platform(
+    home="/home",
+    cwd="/",
+    fs,
+    permission_mode=@permission.WorkspaceWrite,
+  )
+  // The empty value is the explicit-off state: no decision model is picked.
+  assert_eq(platform.default_decision_slot_id, "")
+  assert_false(platform.default_decision_slot_pending)
+  let router = build_cetas_router(platform~)
+  assert_eq(router.active_decision_slot_id(), "")
+}

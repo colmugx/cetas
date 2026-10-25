@@ -35,6 +35,11 @@ pub fn build_cetas_router(
     platform.catalogs,
     default_slot_id=platform.default_slot_id,
     allow_missing_default=platform.default_slot_pending,
+    // The decision selection restores independently: an empty platform
+    // value is the explicit-off state, and a pending id keeps the decision
+    // capability off instead of silently picking another backend.
+    default_decision_slot_id=platform.default_decision_slot_id,
+    allow_missing_decision_default=platform.default_decision_slot_pending,
     bus=event_bus,
     model_metadata=Some(platform.model_metadata),
     provider_credential_store=Some(

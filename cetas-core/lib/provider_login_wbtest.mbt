@@ -21,6 +21,42 @@ test "provider login method inference is provider-neutral and fail-fast" {
 }
 
 ///|
+test "typesafe resolves api_key login and the jev id stays unregistered" {
+  // `/login typesafe` reaches the api_key flow without a method argument.
+  assert_eq(resolve_login_method("typesafe", ""), "api_key")
+  // The provider id is fixed to typesafe: `/login jev` has no factory.
+  let jev = Ok(resolve_login_method("jev", "")) catch { err => Err(err) }
+  match jev {
+    Err(@posoco.CommandError::ExecutionFailed(message)) =>
+      assert_true(message.contains("no registered authentication provider"))
+    _ => fail("the legacy jev id must not resolve a login method")
+  }
+  // Setup discovery advertises typesafe with exactly the api_key method.
+  let json = @json.parse(provider_setup_json([]))
+  guard json is Json::Object(fields) else {
+    fail("setup json must be an object")
+  }
+  guard fields.get("authProviders") is Some(Json::Array(entries)) else {
+    fail("authProviders must be an array")
+  }
+  let mut found = false
+  for entry in entries {
+    if entry
+      is Json::Object(
+        {
+          "provider": Json::String("typesafe"),
+          "methods": Json::Array(methods),
+          ..
+        }
+      ) {
+      found = true
+      assert_eq(methods, [Json::string("api_key")])
+    }
+  }
+  assert_true(found)
+}
+
+///|
 test "model refresh selector validates provider ids and deduplicates requests" {
   match parse_refresh_provider_ids("") {
     None => ()
@@ -46,10 +82,10 @@ test "model refresh selector validates provider ids and deduplicates requests" {
 }
 
 ///|
-test "factory registry exposes the eight registered providers in order" {
+test "factory registry exposes the nine registered providers in order" {
   let ctx = @devkit.ExtContext::default()
   let factories = provider_factories(ctx)
-  assert_eq(factories.length(), 8)
+  assert_eq(factories.length(), 9)
   assert_eq(factories[0].provider_id(), "deepseek")
   assert_eq(factories[1].provider_id(), "kimi")
   assert_eq(factories[2].provider_id(), "openai")
@@ -58,6 +94,7 @@ test "factory registry exposes the eight registered providers in order" {
   assert_eq(factories[5].provider_id(), "zai")
   assert_eq(factories[6].provider_id(), "zai-coding-plan")
   assert_eq(factories[7].provider_id(), "openrouter")
+  assert_eq(factories[8].provider_id(), "typesafe")
 }
 
 ///|
@@ -277,4 +314,78 @@ test "provider_setup_json without a selection marks nothing active" {
   let (count, echoed) = active_entries(provider_setup_json(catalogs))
   assert_eq(count, 0)
   assert_eq(echoed, None)
+}
+
+///|
+priv struct TypesafeScriptedPrompt {
+  response : String
+}
+
+///|
+impl @oauth.AuthPromptInteraction for TypesafeScriptedPrompt with fn prompt(
+  self : TypesafeScriptedPrompt,
+  _request : @oauth.AuthPromptRequest,
+) -> String raise @oauth.OAuthError {
+  self.response
+}
+
+///|
+async test "login_provider runs the typesafe api_key flow end to end" {
+  let outcome = login_provider(
+    "typesafe",
+    "",
+    @oauth.NoopAuthInteraction::NoopAuthInteraction() as &@oauth.AuthInteraction,
+    TypesafeScriptedPrompt::{ response: "sk-jev-key", }
+    as &@oauth.AuthPromptInteraction,
+  )
+  assert_eq(outcome.provider_id, "typesafe")
+  assert_eq(outcome.login_method, "api_key")
+  assert_true(outcome.credential is @oauth.ProviderCredential::ApiKey(_))
+}
+
+///|
+async test "login_provider reports a failed typesafe login explicitly" {
+  let outcome = Ok(
+    login_provider(
+      "typesafe",
+      "",
+      @oauth.NoopAuthInteraction::NoopAuthInteraction()
+      as &@oauth.AuthInteraction,
+      TypesafeScriptedPrompt::{ response: "  ", }
+      as &@oauth.AuthPromptInteraction,
+    ),
+  ) catch {
+    err => Err(err)
+  }
+  match outcome {
+    Err(@posoco.CommandError::ExecutionFailed(message)) => {
+      assert_true(message.contains("API-key login failed for typesafe"))
+      assert_true(message.contains("must not be empty"))
+    }
+    _ => fail("an empty typesafe key must fail the login explicitly")
+  }
+}
+
+///|
+test "provider_setup_json exposes the slot kind on every entry" {
+  let catalogs = [tk_catalog([tk_slot("a/one"), tk_decision_slot("a/judge")])]
+  let json = @json.parse(provider_setup_json(catalogs)) catch {
+    _ => fail("setup json must parse")
+  }
+  guard json is Json::Object(fields) else {
+    fail("setup json must be an object")
+  }
+  guard fields.get("providers") is Some(Json::Array(entries)) else {
+    fail("providers must be an array")
+  }
+  assert_eq(entries.length(), 2)
+  guard entries[0] is Json::Object(chat) else {
+    fail("entry must be an object")
+  }
+  // Absent-from-JSON kinds read as chat, and the wire id says so.
+  assert_eq(chat.get("kind"), Some(Json::string("chat")))
+  guard entries[1] is Json::Object(decision) else {
+    fail("entry must be an object")
+  }
+  assert_eq(decision.get("kind"), Some(Json::string("decision")))
 }

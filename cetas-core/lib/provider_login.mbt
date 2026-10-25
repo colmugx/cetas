@@ -308,6 +308,7 @@ pub fn provider_setup_json(
             ("label", Json::string(slot.label)),
             ("provider", Json::string(slot.provider_id)),
             ("model", Json::string(slot.model_id)),
+            ("kind", Json::string(slot.kind.to_id())),
             ("active", Json::boolean(is_active)),
             ("efforts", Json::array(efforts)),
             ("oauth", Json::boolean(slot.oauth is Some(_))),

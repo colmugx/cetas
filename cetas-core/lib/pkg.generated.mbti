@@ -75,6 +75,8 @@ pub async fn login_provider(String, String, settings? : Map[String, Json], devic
 
 pub fn mcp_config_path(String) -> String
 
+pub fn merge_active_decision_model_selection(Json, ActiveDecisionSelection?) -> Json raise @error.CompositionError
+
 pub fn merge_active_model_selection(Json, ActiveModelSelection) -> Json raise @error.CompositionError
 
 pub fn merge_model_list_cache(Json, String, Json) -> Json
@@ -87,6 +89,8 @@ pub fn oauth_error_text(@ext-oauth.OAuthError) -> String
 
 pub fn oauth_factories(@devkit.ExtContext, device_id? : String) -> Array[&@posoco-kit-provider.OAuthFactory]
 
+pub fn parse_active_decision_model_selection(Json) -> ActiveDecisionSelection? raise @error.CompositionError
+
 pub fn parse_active_model_selection(Json) -> ActiveModelSelection? raise @error.CompositionError
 
 pub fn parse_model_list_cache(Json) -> Map[String, Json]
@@ -98,6 +102,8 @@ pub fn parse_settings_json(String, manifest_id~ : String) -> Json raise @error.C
 pub fn provider_factories(@devkit.ExtContext) -> Array[&@posoco-kit-provider.ProviderFactory]
 
 pub fn provider_setup_json(Array[@posoco-kit-provider.ProviderModelCatalog], settings? : Map[String, Json], issues? : Array[CatalogBuildIssue], active_model_id? : String?) -> String
+
+pub async fn read_active_decision_model_selection(&@posoco-ext-workspace.WorkspaceFs, home~ : String) -> ActiveDecisionSelection? raise @error.CompositionError
 
 pub async fn read_active_model_selection(&@posoco-ext-workspace.WorkspaceFs, home~ : String) -> ActiveModelSelection? raise @error.CompositionError
 
@@ -112,6 +118,8 @@ pub async fn read_session_sidecar(&@posoco-ext-workspace.WorkspaceFs, home~ : St
 pub async fn refresh_provider_catalog(&@posoco-kit-provider.RefreshableProviderFactory, ProviderCredentialSnapshot) -> @posoco-kit-provider.ProviderModelCatalog? raise @error.CompositionError
 
 pub fn refreshable_factories(@devkit.ExtContext, device_id? : String) -> Array[&@posoco-kit-provider.RefreshableProviderFactory]
+
+pub fn resolve_active_decision_model_restore(Array[@posoco-kit-provider.ProviderModelCatalog], ActiveDecisionSelection?) -> ActiveModelRestore
 
 pub fn resolve_active_model_restore(Array[@posoco-kit-provider.ProviderModelCatalog], ActiveModelSelection?) -> ActiveModelRestore
 
@@ -149,6 +157,8 @@ pub fn validate_provider_settings(Map[String, Json], Array[&@posoco-kit-provider
 
 pub fn workflow_settings_from_json(String) -> CetasWorkflowSettings raise @error.CompositionError
 
+pub async fn write_active_decision_model_selection(&@posoco-ext-workspace.WorkspaceFs, home~ : String, ActiveDecisionSelection?) -> Unit raise @error.CompositionError
+
 pub async fn write_active_model_selection(&@posoco-ext-workspace.WorkspaceFs, home~ : String, ActiveModelSelection) -> Unit raise @error.CompositionError
 
 pub async fn write_model_list_cache(&@posoco-ext-workspace.WorkspaceFs, home~ : String, String, Json) -> Unit raise @error.CompositionError
@@ -156,6 +166,11 @@ pub async fn write_model_list_cache(&@posoco-ext-workspace.WorkspaceFs, home~ : 
 // Errors
 
 // Types and methods
+pub struct ActiveDecisionSelection {
+  slot : String
+}
+pub fn ActiveDecisionSelection::ActiveDecisionSelection(String) -> Self
+
 pub(all) enum ActiveModelRestore {
   NoSelection
   Selected(slot~ : String)
@@ -190,6 +205,8 @@ pub(all) struct CetasPlatform {
   model_metadata : @ext-llm.ModelMetadata
   default_slot_id : String
   default_slot_pending : Bool
+  default_decision_slot_id : String
+  default_decision_slot_pending : Bool
   persisted_effort : String?
   permission_mode : @posoco-ext-permission.PermissionMode
   credential_store : @posoco-ext-credentials.FileProviderCredentialStore

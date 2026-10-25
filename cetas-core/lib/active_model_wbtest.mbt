@@ -333,3 +333,137 @@ async test "write: fs failures surface as loud composition errors" {
     _ => fail("expected fs read failure to raise")
   }
 }
+
+// ------------------------------------------------------- decision selection
+
+///|
+/// A `kind = Decision` slot carrying its provider-owned decision port, as
+/// every decision slot in a real catalog must.
+fn tk_decision_slot(id : String) -> @llm.ModelSlot {
+  @llm.ModelSlot::ModelSlot(
+    id~,
+    label=id,
+    provider_id="test",
+    model_id=id,
+    port=@posoco.ScriptedModel([]),
+    kind=@llm.ModelKind::Decision,
+    decision_port=Some(@posoco.ScriptedDecisionPort([])),
+  )
+}
+
+///|
+test "decision parse: missing key means no selection, wrong shape is loud" {
+  let quiet = @json.parse("{\"providers\":{}}") catch {
+    _ => fail("fixture must parse")
+  }
+  assert_true(parse_active_decision_model_selection(quiet) is None)
+  let good = @json.parse("{\"decision_model\":\"zai/judge\"}") catch {
+    _ => fail("fixture must parse")
+  }
+  match parse_active_decision_model_selection(good) {
+    Some({ slot, }) => assert_eq(slot, "zai/judge")
+    None => fail("expected a decision selection")
+  }
+  let bad = @json.parse("{\"decision_model\":42}") catch {
+    _ => fail("fixture must parse")
+  }
+  try parse_active_decision_model_selection(bad) catch {
+    @posoco.CompositionError::ManifestSchemaError(detail~, ..) =>
+      assert_true(detail.contains("settings.decision_model must be a string"))
+    _ => fail("expected ManifestSchemaError for decision_model shape")
+  } noraise {
+    _ => fail("expected decision_model shape to raise")
+  }
+}
+
+///|
+test "decision resolve: only decision-kind slots resolve to Selected" {
+  let catalogs = [
+    tk_catalog([tk_slot("test/chat"), tk_decision_slot("test/judge")]),
+  ]
+  assert_true(
+    resolve_active_decision_model_restore(catalogs, None) is NoSelection,
+  )
+  match
+    resolve_active_decision_model_restore(
+      catalogs,
+      Some(ActiveDecisionSelection("test/judge")),
+    ) {
+    Selected(slot~) => assert_eq(slot, "test/judge")
+    _ => fail("expected Selected(test/judge)")
+  }
+  // A chat slot id never resolves as a decision selection: the two
+  // selections never cross kinds, so it degrades to pending (off).
+  match
+    resolve_active_decision_model_restore(
+      catalogs,
+      Some(ActiveDecisionSelection("test/chat")),
+    ) {
+    Pending(slot~) => assert_eq(slot, "test/chat")
+    _ => fail("a chat slot must not serve as the decision selection")
+  }
+  match
+    resolve_active_decision_model_restore(
+      catalogs,
+      Some(ActiveDecisionSelection("gone/judge")),
+    ) {
+    Pending(slot~) => assert_eq(slot, "gone/judge")
+    _ => fail("a drifted decision slot stays pending")
+  }
+}
+
+///|
+async test "decision write/read round-trip keeps model keys and removes on None" {
+  let fs = FakeFs()
+  fs.files["/h/.cetas/settings.json"] = "{\"model\":\"qwen/glm-4.6\",\"reasoning_effort\":\"high\",\"decision_model\":\"old/judge\"}"
+  write_active_decision_model_selection(
+    fs,
+    home="/h",
+    Some(ActiveDecisionSelection("zai/judge")),
+  )
+  match read_active_decision_model_selection(fs, home="/h") {
+    Some({ slot, }) => assert_eq(slot, "zai/judge")
+    None => fail("expected to read back the written decision selection")
+  }
+  let written = @json.parse(fs.files["/h/.cetas/settings.json"]) catch {
+    _ => fail("written settings must parse")
+  }
+  let fields = tk_object_fields(written, what="written settings")
+  assert_true(fields.get("model") is Some(Json::String("qwen/glm-4.6")))
+  assert_true(fields.get("reasoning_effort") is Some(Json::String("high")))
+  assert_true(fields.get("decision_model") is Some(Json::String("zai/judge")))
+  // None removes the key instead of writing a null; the model keys survive.
+  write_active_decision_model_selection(fs, home="/h", None)
+  let cleared = @json.parse(fs.files["/h/.cetas/settings.json"]) catch {
+    _ => fail("written settings must parse")
+  }
+  let cleared_fields = tk_object_fields(cleared, what="cleared settings")
+  assert_true(cleared_fields.get("decision_model") is None)
+  assert_true(cleared_fields.get("model") is Some(Json::String("qwen/glm-4.6")))
+}
+
+///|
+async test "decision write: missing file starts fresh and malformed file is loud" {
+  let fs = FakeFs()
+  write_active_decision_model_selection(
+    fs,
+    home="/h",
+    Some(ActiveDecisionSelection("zai/judge")),
+  )
+  assert_true(read_active_decision_model_selection(fs, home="/h") is Some(_))
+  fs.files["/h/.cetas/settings.json"] = "{broken"
+  try
+    write_active_decision_model_selection(
+      fs,
+      home="/h",
+      Some(ActiveDecisionSelection("zai/judge")),
+    )
+  catch {
+    @posoco.CompositionError::ManifestSchemaError(detail~, ..) =>
+      assert_true(detail.contains("not valid JSON"))
+    _ => fail("expected ManifestSchemaError for malformed file")
+  } noraise {
+    _ => fail("expected malformed file to make the write raise")
+  }
+  assert_eq(fs.files["/h/.cetas/settings.json"], "{broken")
+}

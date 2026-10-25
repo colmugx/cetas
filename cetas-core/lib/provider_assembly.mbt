@@ -29,6 +29,7 @@ pub fn provider_factories(
   let zai = @zai.ZaiProvider(ctx~)
   let zai_coding_plan = @zai_coding_plan.ZaiCodingPlanProvider(ctx~)
   let openrouter = @openrouter.OpenRouterProvider(ctx~)
+  let typesafe = @typesafe.TypesafeProvider()
   [
     deepseek as &@llm.ProviderFactory,
     kimi as &@llm.ProviderFactory,
@@ -38,6 +39,7 @@ pub fn provider_factories(
     zai as &@llm.ProviderFactory,
     zai_coding_plan as &@llm.ProviderFactory,
     openrouter as &@llm.ProviderFactory,
+    typesafe as &@llm.ProviderFactory,
   ]
 }
 
@@ -131,6 +133,7 @@ pub fn api_key_factories(
   let zai = @zai.ZaiProvider(ctx~)
   let zai_coding_plan = @zai_coding_plan.ZaiCodingPlanProvider(ctx~)
   let openrouter = @openrouter.OpenRouterApiKeyFactory()
+  let typesafe = @typesafe.TypesafeProvider()
   [
     deepseek as &@llm.ApiKeyFactory,
     kimi as &@llm.ApiKeyFactory,
@@ -140,6 +143,7 @@ pub fn api_key_factories(
     zai as &@llm.ApiKeyFactory,
     zai_coding_plan as &@llm.ApiKeyFactory,
     openrouter as &@llm.ApiKeyFactory,
+    typesafe as &@llm.ApiKeyFactory,
   ]
 }
 

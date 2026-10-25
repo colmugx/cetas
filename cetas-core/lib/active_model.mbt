@@ -6,15 +6,18 @@
 /// next to `providers`:
 ///
 /// ```json
-/// { "providers": { ... }, "model": "qwen/glm-4.6", "reasoning_effort": "high" }
+/// { "providers": { ... }, "model": "qwen/glm-4.6", "reasoning_effort": "high", "decision_model": "zai/glm-4.6-air" }
 /// ```
 ///
-/// `model` holds the router slot id (`provider/model`); `reasoning_effort`
-/// is optional and falls back to the slot's advertised default when absent or
-/// no longer supported. Hosts read the selection at composition; cetas-js
-/// writes it back after every successful `/model` or `/effort`, and cetas-acp
-/// after every successful `session/set_config_option`, so the choice survives
-/// restarts instead of resetting to the first catalog slot.
+/// `model` holds the router slot id (`provider/model`) of the conversation
+/// selection; `reasoning_effort` is optional and falls back to the slot's
+/// advertised default when absent or no longer supported. `decision_model`
+/// holds the `kind = Decision` slot id of the `/decision` selection and is
+/// independent of `model`: the two selections never cross kinds. Hosts read
+/// the selections at composition; cetas-js writes them back after every
+/// successful `/model` or `/effort` (and `/decision` for the decision key),
+/// and cetas-acp after every successful `session/set_config_option`, so the
+/// choices survive restarts instead of resetting to the first catalog slot.
 
 ///|
 /// The persisted selection: router slot id plus an optional effort override.
@@ -196,4 +199,155 @@ pub async fn write_active_model_selection(
         detail=".cetas/settings.json write failed: " + message,
       )
   }
+}
+
+///|
+/// The persisted active decision model: the `kind = Decision` router slot id
+/// written to the top-level `decision_model` key. It sits next to `model` and
+/// follows the same contract — the two selections never cross kinds, so a
+/// chat slot id must never appear here.
+pub struct ActiveDecisionSelection {
+  slot : String
+}
+
+///|
+pub fn ActiveDecisionSelection::ActiveDecisionSelection(
+  slot : String,
+) -> ActiveDecisionSelection {
+  { slot, }
+}
+
+///|
+let active_decision_manifest_id : String = "cetas.active_decision_model"
+
+///|
+/// Parse the flat `decision_model` key from the top-level settings JSON. A
+/// missing key means no persisted decision selection (the normal state when
+/// the decision capability has never been used); a present key with the
+/// wrong shape fails loudly instead of being sanitized into a default.
+pub fn parse_active_decision_model_selection(
+  settings : Json,
+) -> ActiveDecisionSelection? raise @posoco.CompositionError {
+  let fields = match settings {
+    Json::Object(fields) => fields
+    _ =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id=active_decision_manifest_id,
+        detail="settings.json must be an object",
+      )
+  }
+  match fields.get("decision_model") {
+    None => None
+    Some(Json::String(slot)) => Some({ slot, })
+    Some(_) =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id=active_decision_manifest_id,
+        detail="settings.decision_model must be a string",
+      )
+  }
+}
+
+///|
+/// Return the settings JSON with the `decision_model` key replaced. Every
+/// other key (including `model` and `reasoning_effort`) survives untouched;
+/// a `None` selection removes the key instead of writing a null. The input
+/// must be an object — a malformed root fails loudly so the write path never
+/// clobbers the file with a fresh `{}` over unreadable content.
+pub fn merge_active_decision_model_selection(
+  settings : Json,
+  selection : ActiveDecisionSelection?,
+) -> Json raise @posoco.CompositionError {
+  match settings {
+    Json::Object(fields) => {
+      match selection {
+        Some(selected) => fields["decision_model"] = Json::string(selected.slot)
+        None => ignore(fields.remove("decision_model"))
+      }
+      Json::object(fields)
+    }
+    _ =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id=active_decision_manifest_id,
+        detail="settings.json must be an object",
+      )
+  }
+}
+
+///|
+/// Read the persisted decision selection from `~/.cetas/settings.json`. A
+/// missing file is a normal no-selection state; unreadable or malformed
+/// content fails loudly.
+pub async fn read_active_decision_model_selection(
+  fs : &@workspace.WorkspaceFs,
+  home~ : String,
+) -> ActiveDecisionSelection? raise @posoco.CompositionError {
+  match @workspace.read_file_result(fs, settings_path(home)) {
+    Missing => None
+    Failed(message) =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id=active_decision_manifest_id,
+        detail=".cetas/settings.json read failed: " + message,
+      )
+    Content(text) => {
+      let json = parse_settings_json(
+        text,
+        manifest_id=active_decision_manifest_id,
+      )
+      parse_active_decision_model_selection(json)
+    }
+  }
+}
+
+///|
+/// Persist the decision selection into `~/.cetas/settings.json`, preserving
+/// every unrelated key, with an atomic write. A missing file starts from
+/// `{}`; a `None` selection removes the `decision_model` key.
+pub async fn write_active_decision_model_selection(
+  fs : &@workspace.WorkspaceFs,
+  home~ : String,
+  selection : ActiveDecisionSelection?,
+) -> Unit raise @posoco.CompositionError {
+  let path = settings_path(home)
+  let current = match @workspace.read_file_result(fs, path) {
+    Missing => Json::object(Map::from_array([]))
+    Failed(message) =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id=active_decision_manifest_id,
+        detail=".cetas/settings.json read failed: " + message,
+      )
+    Content(text) =>
+      parse_settings_json(text, manifest_id=active_decision_manifest_id)
+  }
+  let merged = merge_active_decision_model_selection(current, selection)
+  fs.write_file_atomic(path, merged.stringify(indent=2) + "\n") catch {
+    @workspace.WorkspaceFsError::WorkspaceFsError(message) =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id=active_decision_manifest_id,
+        detail=".cetas/settings.json write failed: " + message,
+      )
+  }
+}
+
+///|
+/// Resolve the persisted decision selection against the startup catalogs.
+/// Same vocabulary as `resolve_active_model_restore`: a slot resolves to
+/// `Selected` only when some catalog still advertises it as a
+/// `kind = Decision` slot; otherwise it degrades to `Pending` — never to a
+/// different decision backend.
+pub fn resolve_active_decision_model_restore(
+  catalogs : Array[@llm.ProviderModelCatalog],
+  selection : ActiveDecisionSelection?,
+) -> ActiveModelRestore {
+  let selected = match selection {
+    None => return NoSelection
+    Some(selected) => selected
+  }
+  for catalog in catalogs {
+    for slot in catalog.slots {
+      if slot.id == selected.slot && slot.is_decision() {
+        return Selected(slot=selected.slot)
+      }
+    }
+  }
+  Pending(slot=selected.slot)
 }
