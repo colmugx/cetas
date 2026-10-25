@@ -155,8 +155,9 @@ pub(all) struct CetasJsConfig {
   permission_mode : String
   sessions_dir : String
   host_help_note : String
+  host_version_note : String
 }
-pub fn CetasJsConfig::CetasJsConfig(String, Int32, String, String, String, String) -> Self
+pub fn CetasJsConfig::CetasJsConfig(String, Int32, String, String, String, String, String) -> Self
 
 pub(all) struct CetasJsRuntime {
   config : CetasJsConfig

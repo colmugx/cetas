@@ -92,7 +92,13 @@ async function main(): Promise<void> {
     console.log(`cetas-js ${versionInfo.version} (${versionInfo.channel})`);
     return;
   }
-  const config = buildCetasHostConfig({ hostHelpNote: CETAS_TUI_HELP_NOTE });
+  // Distribution label for the agent-facing version line: the release
+  // channel calls itself a binary; npm/dev keep their own names.
+  const versionNote = `${versionInfo.version} (${versionInfo.channel === "release" ? "binary" : versionInfo.channel})`;
+  const config = buildCetasHostConfig({
+    hostHelpNote: CETAS_TUI_HELP_NOTE,
+    versionNote,
+  });
   await bootstrapSettings(config.home);
   const sessionId = newSessionId();
   const bridge = new MoonbitCetasAgentBridge(config);

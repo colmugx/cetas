@@ -1969,7 +1969,7 @@ async fn TicketRuntime::run(
 /// Continue one interrupted ticket from its durable child session. This is
 /// deliberately different from `retry`: Resume keeps the recorded context and
 /// does not clear the session; Retry discards it and starts fresh.
-async fn TicketRuntime::resume(
+async fn TicketRuntime::resume_ticket(
   self : TicketRuntime,
   task_id : String,
 ) -> Result[Json, String] {

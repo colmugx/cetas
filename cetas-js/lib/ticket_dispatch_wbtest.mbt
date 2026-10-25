@@ -1127,7 +1127,7 @@ async test "ticket resume continues the durable child session" {
       error => fail(error.to_string())
     }
     assert_true(tickets.state_json().stringify().contains("interrupted"))
-    match tickets.resume("task-1") {
+    match tickets.resume_ticket("task-1") {
       Ok(_) => ()
       Err(error) => fail("ticket resume failed: " + error)
     }

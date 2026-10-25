@@ -825,7 +825,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
       _ =>
         return @posoco.CommandOutcome::Failure(reason="invalid_ticket_resume")
     }
-    let resumed = tickets.resume(task_id) catch {
+    let resumed = tickets.resume_ticket(task_id) catch {
       _ => return @posoco.CommandOutcome::Failure(reason="ticket_resume_failed")
     }
     match resumed {
@@ -1861,7 +1861,8 @@ impl @posoco.ToolProvider for CetasWorkflowCommands with fn execute(
     Ok(query) => query
     Err(reason) => return board_work_reported(reason)
   }
-  // The dashboard's own snapshot: durable committed Board data, read only.
+  // The same authoritative snapshot the Board dashboard reads: durable
+  // committed data, read only. A missing snapshot is a visible error.
   let frame = self.board.wire_snapshot() catch {
     _ => return board_work_reported("board_work: Board snapshot unavailable")
   }

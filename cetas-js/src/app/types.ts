@@ -68,6 +68,12 @@ export interface CetasHostConfig {
    * (keybindings and input conventions). Omitted or empty means no note.
    */
   hostHelpNote?: string;
+  /**
+   * Host distribution and version line (e.g. "0.10.9 (npm)") surfaced
+   * through forme's /help output and the cetas-about manual. Omitted or
+   * empty means no version line; the model then reports it as unknown.
+   */
+  versionNote?: string;
 }
 
 export interface ProviderModelCapability {

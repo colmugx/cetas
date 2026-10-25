@@ -89,6 +89,9 @@ fn child_session_snapshot(session : @posoco.Session) -> @posoco.Session {
 }
 
 ///|
+extend CetasChildSessionStore with @posoco.SessionStore::{load, save}
+
+///|
 impl @posoco.SessionStore for CetasChildSessionStore with fn load(
   self,
   id : String,
@@ -324,6 +327,7 @@ async fn CetasChildComposer::skills_extension(
 ) -> &@posoco.Extension? raise @subagent.ComposerError {
   build_cetas_skills(
     ctx={ fs: self.feature_fs, cwd: self.cwd, home: self.home, },
+    manuals=@forme.Forme::Forme().builtin_manual_skills(),
     requested=Some(requested),
   ) catch {
     error =>

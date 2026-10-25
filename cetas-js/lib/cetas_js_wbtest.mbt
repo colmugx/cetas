@@ -135,7 +135,7 @@ test "model refresh selector validates provider ids and deduplicates requests" {
 ///|
 test "CetasJsConfig empty sessions_dir falls back to the per-project bucket" {
   let config = CetasJsConfig::CetasJsConfig(
-    "/work", 0, "/home/u", "workspace_write", "", "",
+    "/work", 0, "/home/u", "workspace_write", "", "", "",
   )
   assert_eq(
     config.sessions_dir,
@@ -148,7 +148,7 @@ test "CetasJsConfig empty sessions_dir falls back to the per-project bucket" {
 ///|
 test "CetasJsConfig keeps an explicit sessions_dir" {
   let config = CetasJsConfig::CetasJsConfig(
-    "/work", 0, "/home/u", "yolo", "/home/u/.cetas/sessions/--work--", "",
+    "/work", 0, "/home/u", "yolo", "/home/u/.cetas/sessions/--work--", "", "",
   )
   assert_eq(config.sessions_dir, "/home/u/.cetas/sessions/--work--")
 }
@@ -806,7 +806,7 @@ async test "live refresh swaps the composed router and persists the cache" {
   let refreshable : &@llm.RefreshableProviderFactory = fixture
   let plain : &@llm.ProviderFactory = fixture
   let runtime = CetasJsRuntime::CetasJsRuntime(
-    CetasJsConfig::CetasJsConfig(home, 0, home, "workspace_write", "", ""),
+    CetasJsConfig::CetasJsConfig(home, 0, home, "workspace_write", "", "", ""),
   )
   // Pre-seed the process cache with the OLD catalog and a composed router.
   runtime.catalog_cache["liveprov"] = old_catalog
@@ -898,7 +898,7 @@ async test "live refresh failure keeps the stale catalog and records an issue" {
   let refreshable : &@llm.RefreshableProviderFactory = fixture
   let plain : &@llm.ProviderFactory = fixture
   let runtime = CetasJsRuntime::CetasJsRuntime(
-    CetasJsConfig::CetasJsConfig(home, 0, home, "workspace_write", "", ""),
+    CetasJsConfig::CetasJsConfig(home, 0, home, "workspace_write", "", "", ""),
   )
   runtime.catalog_cache["liveprov"] = old_catalog
   runtime.live_router = Some(router)
@@ -959,7 +959,7 @@ async test "live refresh without a composed agent skips the swap" {
   let refreshable : &@llm.RefreshableProviderFactory = fixture
   let plain : &@llm.ProviderFactory = fixture
   let runtime = CetasJsRuntime::CetasJsRuntime(
-    CetasJsConfig::CetasJsConfig(home, 0, home, "workspace_write", "", ""),
+    CetasJsConfig::CetasJsConfig(home, 0, home, "workspace_write", "", "", ""),
   )
   runtime.catalog_cache["liveprov"] = old_catalog
   runtime.live_router = None
@@ -1000,7 +1000,7 @@ async test "live refresh selector refreshes all, and silently skips not-refresha
   let snapshot = @cetas_core.ProviderCredentialSnapshot::ProviderCredentialSnapshot()
   let make_runtime = fn() -> CetasJsRuntime {
     CetasJsRuntime::CetasJsRuntime(
-      CetasJsConfig::CetasJsConfig(home, 0, home, "workspace_write", "", ""),
+      CetasJsConfig::CetasJsConfig(home, 0, home, "workspace_write", "", "", ""),
     )
   }
   // "" = every refreshable provider; the non-refreshable one stays out.
@@ -1057,7 +1057,7 @@ async test "live refresh summary carries a bad selector failure" {
   let runtime = CetasJsRuntime::CetasJsRuntime(
     CetasJsConfig::CetasJsConfig(
       "/tmp/cetas-js-live-refresh-bad-selector", 0, "/tmp/cetas-js-live-refresh-bad-selector",
-      "workspace_write", "", "",
+      "workspace_write", "", "", "",
     ),
   )
   let summary = refresh_model_lists_live(runtime, "not-json")
@@ -1098,7 +1098,7 @@ async test "live refresh skips selector ids without a refresh seam" {
   let plain_fixture = FakeLivePlainFactory::{ fixed_id: "plainprov", }
   let plain : &@llm.ProviderFactory = plain_fixture
   let runtime = CetasJsRuntime::CetasJsRuntime(
-    CetasJsConfig::CetasJsConfig(home, 0, home, "workspace_write", "", ""),
+    CetasJsConfig::CetasJsConfig(home, 0, home, "workspace_write", "", "", ""),
   )
   runtime.catalog_cache["liveprov"] = old_catalog
   runtime.live_router = Some(router)
@@ -1154,7 +1154,7 @@ async test "live refresh selector of only non-refreshable ids stays empty and si
   let plain : &@llm.ProviderFactory = plain_fixture
   let no_refreshables : Array[&@llm.RefreshableProviderFactory] = []
   let runtime = CetasJsRuntime::CetasJsRuntime(
-    CetasJsConfig::CetasJsConfig(home, 0, home, "workspace_write", "", ""),
+    CetasJsConfig::CetasJsConfig(home, 0, home, "workspace_write", "", "", ""),
   )
   let summary = refresh_model_lists_live_with(
     runtime,
@@ -1182,7 +1182,7 @@ async test "live refresh selector of only non-refreshable ids stays empty and si
 async test "live refresh drops settings-only provider ids from the selector" {
   let home = live_refresh_test_home("mtplx")
   let runtime = CetasJsRuntime::CetasJsRuntime(
-    CetasJsConfig::CetasJsConfig(home, 0, home, "workspace_write", "", ""),
+    CetasJsConfig::CetasJsConfig(home, 0, home, "workspace_write", "", "", ""),
   )
   let summary = refresh_model_lists_live(runtime, "[\"openai\",\"mtplx\"]")
   let entries = live_refresh_summary_entries(summary)

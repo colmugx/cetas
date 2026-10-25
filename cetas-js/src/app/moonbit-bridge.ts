@@ -80,6 +80,8 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
       config.sessionsDir ?? "",
       // Same empty-string convention for the /help host note.
       config.hostHelpNote ?? "",
+      // Same empty-string convention for the version/distribution line.
+      config.versionNote ?? "",
     );
     this.runtimeValue = new moonbit.CetasJsRuntime(this.configValue);
   }

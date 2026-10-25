@@ -1029,6 +1029,10 @@ pub(all) struct CetasJsConfig {
   /// means no note; cetas-js owns this content because the kernel cannot know
   /// the host's keybindings.
   host_help_note : String
+  /// Host distribution and version line (e.g. "0.10.9 (npm)") surfaced
+  /// through forme's /help output and cetas-about manual. Empty string means
+  /// no version line; the model then reports the version as unknown.
+  host_version_note : String
 }
 
 ///|
@@ -1039,6 +1043,7 @@ pub(all) struct CetasJsConfig {
 /// composition fails otherwise. An empty `sessions_dir` falls back to the per-project bucket
 /// `project_sessions_dir(home, cwd)` so each project's transcripts stay in
 /// their own directory. An empty `host_help_note` contributes no note.
+/// An empty `host_version_note` contributes no version line.
 pub fn CetasJsConfig::CetasJsConfig(
   cwd : String,
   max_tool_rounds : Int32,
@@ -1046,6 +1051,7 @@ pub fn CetasJsConfig::CetasJsConfig(
   permission_mode : String,
   sessions_dir : String,
   host_help_note : String,
+  host_version_note : String,
 ) -> CetasJsConfig {
   let resolved_sessions_dir = if sessions_dir == "" {
     @fs_session.project_sessions_dir(home, cwd)
@@ -1059,6 +1065,7 @@ pub fn CetasJsConfig::CetasJsConfig(
     permission_mode,
     sessions_dir: resolved_sessions_dir,
     host_help_note,
+    host_version_note,
   }
 }
 
@@ -1804,6 +1811,11 @@ pub fn cetas_js_runtime_create_agent(
                   None
                 } else {
                   Some(runtime.config.host_help_note)
+                },
+                host_version_note=if runtime.config.host_version_note == "" {
+                  None
+                } else {
+                  Some(runtime.config.host_version_note)
                 },
               ) {
               exts.push(feature)

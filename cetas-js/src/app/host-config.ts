@@ -16,6 +16,8 @@ export interface CetasHostConfigOverrides {
   sessionsDir?: string;
   /** Host /help note; see `CetasHostConfig.hostHelpNote`. */
   hostHelpNote?: string;
+  /** Host version/distribution line; see `CetasHostConfig.versionNote`. */
+  versionNote?: string;
 }
 
 /**
@@ -43,5 +45,8 @@ export function buildCetasHostConfig(
     ...(overrides.hostHelpNote === undefined || overrides.hostHelpNote === ""
       ? {}
       : { hostHelpNote: overrides.hostHelpNote }),
+    ...(overrides.versionNote === undefined || overrides.versionNote === ""
+      ? {}
+      : { versionNote: overrides.versionNote }),
   };
 }
