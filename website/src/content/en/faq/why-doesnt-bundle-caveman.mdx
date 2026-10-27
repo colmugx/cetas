@@ -1,0 +1,94 @@
+---
+title: Why doesn't Cetas bundle Caveman?
+description: Of caveman's six features, which have counterparts in cetas, which do not, and how to install caveman's skills directly.
+sidebar:
+  order: 151
+---
+
+**Short answer: Cetas and Caveman share some optimization goals, but Cetas focuses on improving how the agent works rather than adding another proxy layer by default. You can still use the Caveman skill with Cetas.**
+
+[Caveman](https://github.com/JuliusBrussee/caveman) is an open-source project designed to reduce token usage in AI coding agents. Its features include shorter responses, smaller tool outputs, model routing, and reusable scripts.
+
+These are worthwhile ideas. But not every feature needs to be integrated into Cetas in the same way.
+
+## What does Cetas already do?
+
+### Keep unnecessary information out of context in the first place
+
+With `run_code`, Cetas can execute MoonBit programs in a sandbox. The program can call multiple tools, iterate over results, and filter data before returning a final answer to the model.
+
+Intermediate results do not need to enter the conversation context at all.
+
+Cetas can also delegate independent investigations to subagents, keeping the main conversation focused on the findings rather than every intermediate step.
+
+### Manage context during long conversations
+
+Cetas supports automatic and manual context compaction.
+
+As a conversation approaches the model's context limit, Cetas can summarize earlier work to make room for subsequent steps without requiring you to start over.
+
+### Reduce unnecessary tool and webpage content
+
+Cetas uses lazy tool loading to avoid exposing every available tool at once.
+
+Its built-in `webfetch` also removes some irrelevant HTML, converts pages into model-friendly Markdown, supports paginated reading, and caches fetched documents.
+
+These mechanisms are not identical to Caveman's implementations, but they address a similar problem: keeping irrelevant information out of the model's working context.
+
+## What's still missing?
+
+There is a meaningful gap, especially in **automatic compression of tool results**.
+
+Imagine a build producing tens of thousands of log lines when only a handful of errors matter. Cetas does not yet have a universal, recoverable compression mechanism for every type of tool output.
+
+That is an area we want to improve.
+
+However, we do not want to shorten output by silently removing information that the model may need. Omitted content should be recoverable, error diagnostics should remain accessible, and improvements should be measured against the cost and success rate of complete tasks.
+
+A smaller tool response is useful only when it helps the agent finish the job reliably.
+
+## Why doesn't Cetas automatically choose models?
+
+This is a deliberate product decision.
+
+Models differ in cost, speed, context capacity, and behavior. But there is no dependable rule that guarantees one particular model is always the right choice for a particular category of task.
+
+Even seemingly similar tasks can demand different capabilities depending on the codebase, constraints, and your preferences.
+
+**Cetas therefore leaves model selection and reasoning effort under your control.**
+
+We can help you understand model capabilities and costs, but we do not automatically replace your chosen model for each request.
+
+Our job is to make the model you choose work more effectively, not to decide which model you should use.
+
+## Can I still use Caveman?
+
+Yes.
+
+If you prefer Caveman's shorter, more direct response style, you can install its skill:
+
+```sh
+npx skills add JuliusBrussee/caveman
+```
+
+Cetas supports agent skills. Once installed, you can check that the skill is available through `/skills` and activate it when needed.
+
+Keep in mind that **installing the skill is not the same as installing Caveman's full proxy**. The skill mainly influences response style; it does not automatically enable Caveman's runtime-level tool-result compression.
+
+You can use the parts that suit your workflow without waiting for Cetas to bundle them.
+
+## Am I missing significant token savings by not installing Caveman?
+
+That depends on your workload.
+
+If your tasks involve repeated file searches, code inspection, or programmatic data processing, Cetas already offers ways to avoid unnecessary context through `run_code`, subagents, and context management.
+
+If your workflow frequently produces large logs, JSON responses, or test output, Caveman's compression techniques may provide additional value. This is also where Cetas has room to improve.
+
+But shorter output does not always mean lower total cost.
+
+If a model has to rerun commands, reread files, or make additional calls because important details were removed, the final task may cost more—not less.
+
+**Our goal is not to make every tool response as short as possible. It is to reduce unnecessary token usage without compromising the agent's ability to complete the task.**
+
+That is why Cetas does not bundle Caveman today, while remaining open to incorporating its most useful ideas directly into the agent runtime.
