@@ -254,11 +254,11 @@ async test "js mcp login flow and startup token injection" {
 ///|
 /// Effect context for direct bridge execute calls (no-op registrar).
 fn mcp_login_ctx(call : @posoco.ToolCall) -> @posoco.ToolCallContext {
-  {
-    effect_id: @kernel.EffectId::{ value: 1, },
-    call_id: call.call_id,
-    name: call.name,
-    arguments: call.arguments,
-    register_cancel: fn(_ : &@posoco.ToolCancellable) { () },
-  }
+  @posoco.ToolCallContext(
+    effect_id=@kernel.EffectId::{ value: 1, },
+    call_id=call.call_id,
+    name=call.name,
+    arguments=call.arguments,
+    register_cancel=fn(_ : &@posoco.ToolCancellable) { () },
+  )
 }

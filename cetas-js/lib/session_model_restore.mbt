@@ -95,6 +95,7 @@ async fn restore_session_model_selection(
     handle.manager,
     warn=fn(message) {
       handle.observer.on_event(
+        None,
         Custom(
           source="cetas-js.bridge",
           label="session_model_restore_warning",
@@ -112,6 +113,7 @@ async fn restore_session_model_selection(
     // manager owns no status publisher of its own.
     handle.manager.manager_publish_status(handle.manager_bus)
     handle.observer.on_event(
+      None,
       Custom(
         source="cetas-js.bridge",
         label="session_model_restored",

@@ -79,6 +79,8 @@ async test "ticket run dispatches a background child and moves the ticket to rev
       "priority": "normal",
       "definition_of_done": ["Evidence"],
       "dependencies": [],
+      "user_story": "As a user, I want this ticket, so that it delivers value.",
+      "implementation_suggestions": "Start with the acceptance criteria.",
     }
     let created = match
       board.wire_command(
@@ -210,7 +212,7 @@ async test "ticket shaping can split an oversized ticket into ready children and
   let model = @posoco.ScriptedModel([
     @posoco.ScriptedModelStep::Respond(
       @posoco.tk_stop_response(
-        "{\"summary\":\"Three independent tickets\",\"tasks\":[{\"title\":\"Alpha\",\"description\":\"A\",\"definition_of_done\":[\"A done\"]},{\"title\":\"Beta\",\"description\":\"B\",\"definition_of_done\":[\"B done\"]},{\"title\":\"Gamma\",\"description\":\"C\",\"definition_of_done\":[\"C done\"]}]}",
+        "{\"summary\":\"Three independent tickets\",\"tasks\":[{\"title\":\"Alpha\",\"user_story\":\"As a user, I want Alpha, so that A.\",\"description\":\"A\",\"implementation_suggestions\":\"Start with A\",\"definition_of_done\":[\"A done\"],\"priority\":\"p1\"},{\"title\":\"Beta\",\"user_story\":\"As a user, I want Beta, so that B.\",\"description\":\"B\",\"implementation_suggestions\":\"Start with B\",\"definition_of_done\":[\"B done\"],\"priority\":\"p2\"},{\"title\":\"Gamma\",\"user_story\":\"As a user, I want Gamma, so that C.\",\"description\":\"C\",\"implementation_suggestions\":\"Start with C\",\"definition_of_done\":[\"C done\"],\"priority\":\"p3\"}]}",
       ),
     ),
   ])
@@ -244,6 +246,8 @@ async test "ticket shaping can split an oversized ticket into ready children and
       "priority": "normal",
       "definition_of_done": [],
       "dependencies": [],
+      "user_story": "As a user, I want this ticket, so that it delivers value.",
+      "implementation_suggestions": "Start with the acceptance criteria.",
     }
     ignore(
       board.wire_command(
@@ -322,6 +326,7 @@ async test "ticket shaping can split an oversized ticket into ready children and
     let mut source_stage = ""
     let mut split_count = 0
     let mut all_ready = false
+    let mut all_shaped = true
     let mut all_pinned = true
     for _ in 0..<150 {
       let snapshot = match
@@ -350,6 +355,7 @@ async test "ticket shaping can split an oversized ticket into ready children and
       source_stage = ""
       split_count = 0
       all_ready = true
+      all_shaped = true
       all_pinned = true
       for task in tasks {
         let id = task_field(task, "id")
@@ -361,6 +367,10 @@ async test "ticket shaping can split an oversized ticket into ready children and
           if task_field(task, "stage") != "ready" {
             all_ready = false
           }
+          if task_field(task, "user_story") == "" ||
+            task_field(task, "implementation_suggestions") == "" {
+            all_shaped = false
+          }
           if task_model_slot(task) != "test/shape-split" {
             all_pinned = false
           }
@@ -370,6 +380,7 @@ async test "ticket shaping can split an oversized ticket into ready children and
         source_stage == "cancelled" &&
         split_count == 3 &&
         all_ready &&
+        all_shaped &&
         all_pinned {
         break
       }
@@ -379,6 +390,7 @@ async test "ticket shaping can split an oversized ticket into ready children and
     assert_eq(source_stage, "cancelled")
     assert_eq(split_count, 3)
     assert_true(all_ready)
+    assert_true(all_shaped)
     assert_true(all_pinned)
     let ticket_state = tickets.state_json().stringify()
     assert_true(ticket_state.contains("Step"))
@@ -392,7 +404,7 @@ async test "ticket shaping clarifies the ticket and moves it to ready" {
   let model = @posoco.ScriptedModel([
     @posoco.ScriptedModelStep::Respond(
       @posoco.tk_stop_response(
-        "{\"summary\":\"Scope clarified\",\"description\":\"Clarified scope\",\"definition_of_done\":[\"A\",\"B\"]}",
+        "{\"summary\":\"Scope clarified\",\"title\":\"Clarified ticket\",\"user_story\":\"As a user, I want the clarified ticket, so that the scope is clear.\",\"description\":\"Clarified scope\",\"implementation_suggestions\":\"Start with the clarified scope\",\"definition_of_done\":[\"A\",\"B\"],\"priority\":\"p1\"}",
       ),
     ),
   ])
@@ -426,6 +438,8 @@ async test "ticket shaping clarifies the ticket and moves it to ready" {
       "priority": "normal",
       "definition_of_done": [],
       "dependencies": [],
+      "user_story": "As a user, I want this ticket, so that it delivers value.",
+      "implementation_suggestions": "Start with the acceptance criteria.",
     }
     ignore(
       board.wire_command(
@@ -446,6 +460,9 @@ async test "ticket shaping clarifies the ticket and moves it to ready" {
     let mut stage = ""
     let mut description = ""
     let mut done = 0
+    let mut story = ""
+    let mut suggestions = ""
+    let mut priority = ""
     for _ in 0..<100 {
       let snapshot = match
         @board_protocol.decode_server_frame(
@@ -473,6 +490,9 @@ async test "ticket shaping clarifies the ticket and moves it to ready" {
         if task_field(task, "id") == "task-1" {
           stage = task_field(task, "stage")
           description = task_field(task, "description")
+          story = task_field(task, "user_story")
+          suggestions = task_field(task, "implementation_suggestions")
+          priority = task_field(task, "priority")
           done = match task {
             Object(fields) =>
               match fields.get("definition_of_done") {
@@ -491,6 +511,9 @@ async test "ticket shaping clarifies the ticket and moves it to ready" {
     assert_eq(stage, "ready")
     assert_eq(description, "Clarified scope")
     assert_eq(done, 2)
+    assert_true(story.contains("As a user"))
+    assert_eq(suggestions, "Start with the clarified scope")
+    assert_eq(priority, "high")
   })
 }
 
@@ -541,6 +564,8 @@ async test "ticket run uses the pinned model instead of the current active model
       "priority": "normal",
       "definition_of_done": ["Evidence"],
       "dependencies": [],
+      "user_story": "As a user, I want this ticket, so that it delivers value.",
+      "implementation_suggestions": "Start with the acceptance criteria.",
     }
     ignore(
       board.wire_command(
@@ -783,6 +808,8 @@ async test "ticket retry from review starts a fresh child session" {
       "priority": "normal",
       "definition_of_done": ["Evidence"],
       "dependencies": [],
+      "user_story": "As a user, I want this ticket, so that it delivers value.",
+      "implementation_suggestions": "Start with the acceptance criteria.",
     }
     accept_board_command(
       board, "retry-review-create", "board.task.create", 0L, create,
@@ -865,6 +892,8 @@ async test "ticket retry from suspended starts a fresh child session" {
       "priority": "normal",
       "definition_of_done": ["Evidence"],
       "dependencies": [],
+      "user_story": "As a user, I want this ticket, so that it delivers value.",
+      "implementation_suggestions": "Start with the acceptance criteria.",
     }
     accept_board_command(
       board, "retry-suspended-create", "board.task.create", 0L, create,
@@ -953,6 +982,8 @@ async test "ticket retry is rejected while the ticket is running" {
       "priority": "normal",
       "definition_of_done": ["Evidence"],
       "dependencies": [],
+      "user_story": "As a user, I want this ticket, so that it delivers value.",
+      "implementation_suggestions": "Start with the acceptance criteria.",
     }
     accept_board_command(
       board, "retry-running-create", "board.task.create", 0L, create,
@@ -996,6 +1027,7 @@ async test "ticket retry is rejected while the ticket is running" {
       tickets.questions.answer(
         question_id,
         @posoco.UiResponse::Text("Use the public API"),
+        "product_owner",
       ) {
       Ok(_) => ()
       Err(error) => fail("answering the ticket question failed: " + error)
@@ -1042,6 +1074,8 @@ async test "ticket retry is rejected from a stage that is not retryable" {
       "priority": "normal",
       "definition_of_done": [],
       "dependencies": [],
+      "user_story": "As a user, I want this ticket, so that it delivers value.",
+      "implementation_suggestions": "Start with the acceptance criteria.",
     }
     accept_board_command(
       board, "retry-invalid-create", "board.task.create", 0L, create,
@@ -1099,6 +1133,8 @@ async test "ticket resume continues the durable child session" {
       "priority": "normal",
       "definition_of_done": ["Evidence"],
       "dependencies": [],
+      "user_story": "As a user, I want this ticket, so that it delivers value.",
+      "implementation_suggestions": "Start with the acceptance criteria.",
     }
     accept_board_command(
       board, "resume-create", "board.task.create", 0L, create,
@@ -1308,6 +1344,8 @@ async test "ticket request changes records the feedback, returns the ticket to R
       "priority": "normal",
       "definition_of_done": ["Evidence"],
       "dependencies": [],
+      "user_story": "As a user, I want this ticket, so that it delivers value.",
+      "implementation_suggestions": "Start with the acceptance criteria.",
     }
     accept_board_command(board, "rc-create", "board.task.create", 0L, create)
     accept_board_command(board, "rc-refining", "board.task.move", 1L, {
@@ -1396,6 +1434,8 @@ async test "ticket request changes rejects empty feedback and a ticket without a
       "priority": "normal",
       "definition_of_done": ["Evidence"],
       "dependencies": [],
+      "user_story": "As a user, I want this ticket, so that it delivers value.",
+      "implementation_suggestions": "Start with the acceptance criteria.",
     }
     accept_board_command(
       board, "rc-reject-create-1", "board.task.create", 0L, reviewed,
@@ -1428,6 +1468,8 @@ async test "ticket request changes rejects empty feedback and a ticket without a
       "priority": "normal",
       "definition_of_done": ["Evidence"],
       "dependencies": [],
+      "user_story": "As a user, I want this ticket, so that it delivers value.",
+      "implementation_suggestions": "Start with the acceptance criteria.",
     }
     let created = board_revision_now(board)
     accept_board_command(
@@ -1523,6 +1565,8 @@ async test "ticket worker prompt carries the reviewer feedback on the new attemp
       "priority": "normal",
       "definition_of_done": ["Evidence"],
       "dependencies": [],
+      "user_story": "As a user, I want this ticket, so that it delivers value.",
+      "implementation_suggestions": "Start with the acceptance criteria.",
     }
     accept_board_command(
       board, "rc-prompt-create", "board.task.create", 0L, create,
@@ -1602,13 +1646,13 @@ fn ticket_report_call(
   name : String,
   arguments : Json,
 ) -> @posoco.ToolCallContext {
-  {
-    effect_id: @kernel.EffectId::{ value: 11, },
-    call_id: @posoco.CallId::unchecked("call-" + name),
-    name: @posoco.ToolName::unchecked(name),
-    arguments,
-    register_cancel: fn(_ : &@posoco.ToolCancellable) { () },
-  }
+  @posoco.ToolCallContext(
+    effect_id=@kernel.EffectId::{ value: 11, },
+    call_id=@posoco.CallId::unchecked("call-" + name),
+    name=@posoco.ToolName::unchecked(name),
+    arguments~,
+    register_cancel=fn(_ : &@posoco.ToolCancellable) { () },
+  )
 }
 
 ///|
@@ -2100,6 +2144,8 @@ async test "ticket run persists the submitted work report instead of the minimal
       "priority": "normal",
       "definition_of_done": ["Evidence"],
       "dependencies": [],
+      "user_story": "As a user, I want this ticket, so that it delivers value.",
+      "implementation_suggestions": "Start with the acceptance criteria.",
     }
     accept_board_command(
       board, "report-create", "board.task.create", 0L, create,
@@ -2195,6 +2241,8 @@ async test "ticket finish fails visibly when the Board rejects the report" {
       "priority": "normal",
       "definition_of_done": ["Evidence"],
       "dependencies": [],
+      "user_story": "As a user, I want this ticket, so that it delivers value.",
+      "implementation_suggestions": "Start with the acceptance criteria.",
     }
     accept_board_command(
       board, "reject-create", "board.task.create", 0L, create,

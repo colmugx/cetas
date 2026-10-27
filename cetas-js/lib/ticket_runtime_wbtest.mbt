@@ -15,6 +15,8 @@ async test "ticket question waits for a Board answer" {
         questions.ask(
           "task-1",
           "call-1",
+          "worker",
+          "product_owner",
           @posoco.UiRequest::Input(prompt="Which path?", default=None),
         ),
       ) catch {
@@ -23,10 +25,15 @@ async test "ticket question waits for a Board answer" {
       answer
     })
     @async.sleep(10)
+    let open = questions.questions.get("ticket-question-1").unwrap()
+    assert_eq(open.asked_by, "worker")
+    assert_eq(open.audience, "product_owner")
+    assert_eq(open.status, "open")
     assert_true(
       questions.answer(
         "ticket-question-1",
         @posoco.UiResponse::Text("the safe path"),
+        "product_owner",
       )
       is Ok(_),
     )
@@ -41,5 +48,8 @@ async test "ticket question waits for a Board answer" {
 ///|
 test "unknown ticket question answers are rejected" {
   let questions = TicketQuestions::TicketQuestions()
-  assert_true(questions.answer("missing", @posoco.UiResponse::Yes) is Err(_))
+  assert_true(
+    questions.answer("missing", @posoco.UiResponse::Yes, "product_owner")
+    is Err(_),
+  )
 }

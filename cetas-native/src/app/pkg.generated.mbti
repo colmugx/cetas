@@ -316,8 +316,7 @@ pub struct NativeShellObserver {
 pub fn NativeShellObserver::extension_id(Self) -> String
 pub fn NativeShellObserver::manifest(Self) -> @port.ExtensionManifest
 pub fn NativeShellObserver::new(NativeShell, session_state? : NativeSessionState?) -> Self
-pub fn NativeShellObserver::on_event(Self, @types.TurnEvent) -> Unit
-pub fn NativeShellObserver::on_event_at(Self, @types.EventScope?, @types.TurnEvent) -> Unit
+pub fn NativeShellObserver::on_event(Self, @types.EventScope?, @types.TurnEvent) -> Unit
 pub impl @port.Extension for NativeShellObserver
 pub impl @port.Observer for NativeShellObserver
 

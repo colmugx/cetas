@@ -332,7 +332,7 @@ fn active_model_warning(
     label~,
     data=Json::object(Map::from_array([("message", Json::string(message))])),
   )
-  observer.on_event(event)
+  observer.on_event(None, event)
 }
 
 ///|
@@ -360,7 +360,10 @@ async fn build_provider_router(
 ) -> @llm.RouterModelPort raise @posoco.CompositionError {
   let catalogs = cached_provider_catalogs(runtime)
   if catalogs.is_empty() {
-    raise @posoco.CompositionError::EmptyPort("cetas-js.providers")
+    raise @posoco.CompositionError::ExtensionComposeFailed(
+      manifest_id="cetas-js",
+      detail="providers: no configured model provider",
+    )
   }
   let selection = @cetas_core.read_active_model_selection(
     @workspace.JsWorkspaceFs(),

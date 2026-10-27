@@ -170,6 +170,7 @@ async test "native host adopts typed session redirects immediately" {
   )
 
   observer.on_event(
+    None,
     @posoco.TurnEvent::SessionRedirect(
       from="session-old",
       to="session-new",

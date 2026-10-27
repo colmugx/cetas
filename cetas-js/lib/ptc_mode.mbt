@@ -1,54 +1,4 @@
 ///|
-/// Scoped model-facing selection for providers exposing multiple tools.
-/// The original provider continues to own execution and cancellation; only
-/// the explicitly selected definitions enter Bunraku's governed dispatch.
-priv struct CetasPtcScopedProvider {
-  inner : &@posoco.ToolProvider
-  definitions : Array[@posoco.ToolDef]
-}
-
-///|
-impl @posoco.ToolProvider for CetasPtcScopedProvider with fn list_tools(
-  self : CetasPtcScopedProvider,
-) -> Array[@posoco.ToolDef] {
-  self.definitions.copy()
-}
-
-///|
-impl @posoco.ToolProvider for CetasPtcScopedProvider with fn execute(
-  self : CetasPtcScopedProvider,
-  ctx : @posoco.ToolCallContext,
-) -> @posoco.ToolOutcome raise @posoco.RuntimeError {
-  // Defense in depth: a dispatch rewrite may never widen the selected scope.
-  if !self.definitions.any(fn(def) { def.name == ctx.name }) {
-    return @posoco.ToolOutcome::ToolReportedError(
-      content="PTC tool is outside the selected provider scope: " +
-        ctx.name.to_string(),
-      structured=None,
-    )
-  }
-  self.inner.execute(ctx)
-}
-
-///|
-fn cetas_ptc_select_provider(
-  provider : &@posoco.ToolProvider,
-  allowed : Array[String],
-) -> &@posoco.ToolProvider? {
-  let selected = provider
-    .list_tools()
-    .filter(fn(def) { allowed.contains(def.name.to_string()) })
-  if selected.is_empty() {
-    None
-  } else {
-    Some(
-      CetasPtcScopedProvider::{ inner: provider, definitions: selected, }
-      as &@posoco.ToolProvider,
-    )
-  }
-}
-
-///|
 /// Host-side PTC mode bridge. The runtime stays in posoco-ext-bunraku; this adapter
 /// belongs to Cetas because its model-facing catalog combines base, Pi and MCP
 /// tools and its terminal owns the interactive picker.
@@ -67,7 +17,6 @@ pub extend CetasPtcStatus with @moonbitlang/core/debug.Debug::{to_repr}
 ///|
 pub struct CetasPtcMode {
   bus : @devkit.EventBus?
-  nested_names : Array[String]
   mut current_ : CetasPtcStatus
   mut revision_ : Int32
 }
@@ -75,14 +24,8 @@ pub struct CetasPtcMode {
 ///|
 pub fn CetasPtcMode::CetasPtcMode(
   bus~ : @devkit.EventBus? = None,
-  nested_names~ : Array[String] = [],
 ) -> CetasPtcMode {
-  let self = {
-    bus,
-    nested_names: nested_names.copy(),
-    current_: PtcHybrid,
-    revision_: 0,
-  }
+  let self = { bus, current_: PtcHybrid, revision_: 0, }
   // The statusbar is already subscribed when the host composes this mode.
   self.publish_status()
   self
@@ -150,35 +93,39 @@ fn CetasPtcMode::publish_status(self : CetasPtcMode) -> Unit {
 }
 
 ///|
-/// The catalog hides tool *declarations*, never the scoped PTC dispatch.
-/// Unknown, Pi and MCP capabilities not owned by PTC remain directly visible.
-pub fn CetasPtcMode::model_sees(
+/// Visibility is a declarative projection now: the kernel narrows each
+/// captured definition by this hook (hooks can only narrow, never widen).
+/// `off` withdraws the transport itself; `on` folds the nested face —
+/// owners taken from bunraku's single `tool_call_owners` source, the same
+/// list the kernel enforces for guest calls — into `Deferred`: not offered
+/// to the model, still callable by approved programs. The old `model_sees`
+/// name filter and the PtcOnly `before_tool` rejection are retired; the
+/// kernel's `NotExecuted(NotOffered)` covers a model that emits a
+/// remembered name.
+pub impl @posoco.PipelineHook for CetasPtcMode with fn tool_exposure(
   self : CetasPtcMode,
-  tool_name : String,
-) -> Bool {
+  definition : @posoco.ToolDef,
+) -> @posoco.ToolExposure {
+  let name = definition.name.to_string()
   match self.current_ {
-    PtcDirect => tool_name != "run_code"
-    PtcHybrid => true
-    PtcOnly => !self.nested_names.contains(tool_name)
+    PtcDirect =>
+      if name == "run_code" {
+        @posoco.ToolExposure::Disabled
+      } else {
+        definition.exposure
+      }
+    PtcHybrid => definition.exposure
+    PtcOnly =>
+      if name == "run_code" {
+        definition.exposure
+      } else if @bunraku.bunraku_nested_source_owners().contains(
+          definition.owner.to_string(),
+        ) {
+        @posoco.ToolExposure::Deferred
+      } else {
+        definition.exposure
+      }
   }
-}
-
-///|
-/// PtcOnly hides nested declarations from the catalog; this enforces the
-/// same boundary on execution, because a model can still emit a call it
-/// remembers from an earlier hybrid turn. Reject feeds the reason back to
-/// the model and the run continues — a teaching moment, not an abort.
-pub impl @posoco.PipelineHook for CetasPtcMode with fn before_tool(
-  self : CetasPtcMode,
-  call : @posoco.ToolCall,
-) -> @posoco.ToolDecision {
-  if self.current_ is PtcOnly &&
-    self.nested_names.contains(call.name.to_string()) {
-    return @posoco.ToolDecision::Reject(
-      reason="'\{call.name.to_string()}' is nested under run_code in PTC-only mode — call run_code with code that does ctx.call(\"\{call.name.to_string()}\", ...). Tools outside its nested capability list remain directly callable.",
-    )
-  }
-  @posoco.ToolDecision::Approve(call~)
 }
 
 ///|
@@ -307,7 +254,7 @@ fn CetasPtcMode::mode_guidance(self : CetasPtcMode) -> String {
     PtcHybrid =>
       "PTC is hybrid. Native tools and run_code are available. Use run_code only for predictable batches whose intermediate results can stay out of context."
     PtcOnly =>
-      "PTC Only is active. Use run_code for read/search/write/edit/bash operations exposed through ctx.call. Tools not in its nested capability list remain directly callable. Do not assume run_code bypasses plan mode or permission policy."
+      "PTC Only is active. Use run_code for read/search/write/edit/bash operations exposed through ctx.call. Only the tool owners run_code declares (read/grep/glob/write/edit/bash) fold into it; every other tool remains directly callable. Do not assume run_code bypasses plan mode or permission policy."
   }
 }
 
@@ -357,8 +304,8 @@ pub extend CetasPtcMode with @posoco.CommandPort::{commands, invoke}
 pub extend CetasPtcMode with @posoco.PipelineHook::{
   on_post_event,
   on_turn_begin,
-  on_post_event_at,
   before_model,
   before_tool,
+  tool_exposure,
   on_turn_end,
 }

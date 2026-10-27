@@ -128,9 +128,9 @@ pub async fn build_cetas_platform(
     }
   }
   if catalogs.is_empty() {
-    raise @posoco.CompositionError::EmptyPort(
-      label +
-      ".providers: no configured model provider — configure one in ~/.cetas/settings.json or log in via cetas first",
+    raise @posoco.CompositionError::ExtensionComposeFailed(
+      manifest_id=label,
+      detail="providers: no configured model provider — configure one in ~/.cetas/settings.json or log in via cetas first",
     )
   }
   // No OAuth surface in a headless/stdio process; token refresh works for

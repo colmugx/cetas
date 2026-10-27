@@ -442,22 +442,22 @@ impl @posoco.ToolProvider for TicketReportTools with fn list_tools(
   _self : TicketReportTools,
 ) -> Array[@posoco.ToolDef] {
   [
-    @posoco.ToolDef::{
-      name: @posoco.ToolName::unchecked("report_progress"),
-      description: "Post a short, non-blocking progress update for this ticket. It appears beside the run and expects no reply: call it at the start, after each significant milestone, when investigating a problem, and before your final answer. Use kind \"attention\" or \"blocked\" only for a real risk or blockage. Questions still go through ask_question_child.",
-      input_schema: report_progress_schema(),
-      owner: @posoco.OwnerId::unchecked("cetas_ticket"),
-      policy: @posoco.ExecutionPolicy::Sequential,
-      provenance: Some("cetas_ticket"),
-    },
-    @posoco.ToolDef::{
-      name: @posoco.ToolName::unchecked("submit_work_report"),
-      description: "Submit the curated final work report for this ticket: outcome, what changed, verification evidence, risks, notes, open questions and artifacts. Call it before your final answer once evidence exists. The host records it as this attempt's review report; an invalid report fails visibly.",
-      input_schema: work_report_schema(),
-      owner: @posoco.OwnerId::unchecked("cetas_ticket"),
-      policy: @posoco.ExecutionPolicy::Sequential,
-      provenance: Some("cetas_ticket"),
-    },
+    @posoco.ToolDef(
+      name=@posoco.ToolName::unchecked("report_progress"),
+      description="Post a short, non-blocking progress update for this ticket. It appears beside the run and expects no reply: call it at the start, after each significant milestone, when investigating a problem, and before your final answer. Use kind \"attention\" or \"blocked\" only for a real risk or blockage. Questions still go through ask_question_child.",
+      input_schema=report_progress_schema(),
+      owner=@posoco.OwnerId::unchecked("cetas_ticket"),
+      policy=@posoco.ExecutionPolicy::Sequential,
+      provenance=Some("cetas_ticket"),
+    ),
+    @posoco.ToolDef(
+      name=@posoco.ToolName::unchecked("submit_work_report"),
+      description="Submit the curated final work report for this ticket: outcome, what changed, verification evidence, risks, notes, open questions and artifacts. Call it before your final answer once evidence exists. The host records it as this attempt's review report; an invalid report fails visibly.",
+      input_schema=work_report_schema(),
+      owner=@posoco.OwnerId::unchecked("cetas_ticket"),
+      policy=@posoco.ExecutionPolicy::Sequential,
+      provenance=Some("cetas_ticket"),
+    ),
   ]
 }
 

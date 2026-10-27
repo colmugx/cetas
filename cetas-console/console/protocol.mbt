@@ -229,6 +229,7 @@ fn ConsoleObserver::emit_abort_result(
 ///|
 impl @posoco.Observer for ConsoleObserver with fn on_event(
   self,
+  _scope : @posoco.EventScope?,
   event : @posoco.TurnEvent,
 ) -> Unit {
   match event {

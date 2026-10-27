@@ -588,7 +588,12 @@ test "turn_event_to_json projects the terminal tool-call nodes onto tool_call_co
   assert_eq(reported_fields["is_error"], Json::boolean(true))
   let rejected_fields = decoded[3]
   assert_eq(rejected_fields["tool_call_id"], Json::string("c-4"))
-  assert_eq(rejected_fields["result"], Json::string("not executed"))
+  // Rejections carry their structured reason; NotOffered renders the PTC
+  // teaching text instead (see the NotOffered arm in turn_event_to_json).
+  assert_eq(
+    rejected_fields["result"],
+    Json::string("not executed (UnknownTool)"),
+  )
   assert_eq(rejected_fields["is_error"], Json::boolean(true))
   let abandoned_fields = decoded[4]
   assert_eq(abandoned_fields["tool_call_id"], Json::string("c-5"))

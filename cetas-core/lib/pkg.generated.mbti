@@ -53,7 +53,7 @@ pub fn cetas_system_prompt(cwd~ : String) -> String
 
 pub fn compatible_provider_factories(Map[String, Json], @devkit.ExtContext) -> Array[@posoco-ext-openai-compatible.OpenAICompatibleProvider]
 
-pub fn compose_cetas_agent(session~ : CetasSession, tail_exts? : Array[&@port.Extension], runtime? : &@runtime.Runtime?, catalog_source? : &@runtime.CatalogSource?, runtime_group? : @async.TaskGroup[Unit]?) -> @posoco.Agent raise @error.CompositionError
+pub fn compose_cetas_agent(session~ : CetasSession, tail_exts? : Array[&@port.Extension], runtime? : &@runtime.Runtime?, runtime_group? : @async.TaskGroup[Unit]?) -> @posoco.Agent raise @error.CompositionError
 
 pub fn credentials_path(String) -> String
 
@@ -63,7 +63,7 @@ pub fn debug_dir(String) -> String
 
 pub fn debug_wire_path(String, String) -> String
 
-pub fn default_agent_config(max_tool_rounds? : Int32?, system_prompt? : String?) -> @posoco.AgentConfig
+pub fn default_agent_config(max_tool_rounds? : Int32?, max_tool_depth? : Int32?, system_prompt? : String?) -> @posoco.AgentConfig
 
 pub fn list_persisted_rewind_points(String) -> Array[PersistedRewindPoint]
 

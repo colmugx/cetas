@@ -18,18 +18,20 @@ async test "recipe bash attaches host group for background sessions" {
       [provider, ..] => provider
       _ => fail("bash extension exposes no tool provider")
     }
-    let outcome = provider.execute({
-      effect_id: @kernel.EffectId::{ value: 1, },
-      call_id: @posoco.CallId::unchecked("tc_bg"),
-      name: @posoco.ToolName::unchecked("bash"),
-      arguments: Json::object(
-        Map::from_array([
-          ("cmd", Json::string("echo recipe-bg")),
-          ("background", Json::boolean(true)),
-        ]),
+    let outcome = provider.execute(
+      @posoco.ToolCallContext(
+        effect_id=@kernel.EffectId::{ value: 1, },
+        call_id=@posoco.CallId::unchecked("tc_bg"),
+        name=@posoco.ToolName::unchecked("bash"),
+        arguments=Json::object(
+          Map::from_array([
+            ("cmd", Json::string("echo recipe-bg")),
+            ("background", Json::boolean(true)),
+          ]),
+        ),
+        register_cancel=fn(_self : &@posoco.ToolCancellable) { () },
       ),
-      register_cancel: fn(_self : &@posoco.ToolCancellable) { () },
-    })
+    )
     match outcome {
       @posoco.ToolOutcome::Success(content~, ..) =>
         assert_true(content.contains("session_id"))

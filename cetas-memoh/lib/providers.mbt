@@ -172,11 +172,12 @@ pub async fn build_provider_platform(
   }
 
   if catalogs.is_empty() {
-    raise @posoco.CompositionError::EmptyPort(
-      "cetas-memoh.providers: no configured model provider; configure " +
-      providers_path(home) +
-      " and provider credentials under " +
-      credentials_path(home),
+    raise @posoco.CompositionError::ExtensionComposeFailed(
+      manifest_id="cetas-memoh",
+      detail="providers: no configured model provider; configure " +
+        providers_path(home) +
+        " and provider credentials under " +
+        credentials_path(home),
     )
   }
   { catalogs, credential_store: store, issues, }

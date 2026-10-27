@@ -261,13 +261,13 @@ fn board_work_named_call(
   name : String,
   arguments : Json,
 ) -> @posoco.ToolCallContext {
-  {
-    effect_id: @kernel.EffectId::{ value: 21, },
-    call_id: @posoco.CallId::unchecked("call-" + name),
-    name: @posoco.ToolName::unchecked(name),
-    arguments,
-    register_cancel: fn(_ : &@posoco.ToolCancellable) { () },
-  }
+  @posoco.ToolCallContext(
+    effect_id=@kernel.EffectId::{ value: 21, },
+    call_id=@posoco.CallId::unchecked("call-" + name),
+    name=@posoco.ToolName::unchecked(name),
+    arguments~,
+    register_cancel=fn(_ : &@posoco.ToolCancellable) { () },
+  )
 }
 
 ///|

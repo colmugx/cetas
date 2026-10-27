@@ -271,15 +271,24 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
       }
       Json::object(Map::from_array(fields))
     }
-    @posoco.TurnEvent::ToolCallRejected(call~, ..) =>
+    @posoco.TurnEvent::ToolCallRejected(call~, reason~) => {
+      // PTC-only mode folds the nested face into Deferred; a model emitting
+      // a remembered name gets the kernel's NotOffered. Keep the teaching
+      // moment the retired before_tool rejection used to provide.
+      let result = match reason {
+        NotOffered =>
+          "'\{call.name.to_string()}' is not offered in the current tool view — in PTC-only mode nested tools must be called through run_code (ctx.call(\"\{call.name.to_string()}\", ...))"
+        other => "not executed (" + other.to_string() + ")"
+      }
       Json::object(
         Map::from_array([
           ("type", Json::string("tool_call_completed")),
           ("tool_call_id", Json::string(call.call_id.to_string())),
-          ("result", Json::string("not executed")),
+          ("result", Json::string(result)),
           ("is_error", Json::boolean(true)),
         ]),
       )
+    }
     @posoco.TurnEvent::ToolCallAbandoned(call~, ..) =>
       Json::object(
         Map::from_array([
@@ -485,6 +494,10 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
     // its unknown-type skip notice.
     @posoco.TurnEvent::UserRequestStarted(..) => Json::null()
     @posoco.TurnEvent::UserRequestFinished(..) => Json::null()
+    // 0.23.0: tool child declaration and catalog changes carry no wire tag;
+    // the TS host projects its own tool surface.
+    @posoco.TurnEvent::ToolChildDeclared(..) => Json::null()
+    @posoco.TurnEvent::ToolCatalogChanged(..) => Json::null()
   }
   json
 }
@@ -496,6 +509,7 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
 /// router sees a single event per call.
 pub impl @posoco.Observer for JsCallbackObserver with fn on_event(
   self,
+  _scope : @posoco.EventScope?,
   event : @posoco.TurnEvent,
 ) -> Unit {
   // Invoke is `extern "js"` and statically cannot raise; if the JS callback
@@ -536,7 +550,7 @@ pub impl @posoco.Extension for JsCallbackObserver with fn manifest(
 pub extend JsCallbackObserver with @posoco.Extension::{extension_id, manifest}
 
 ///|
-pub extend JsCallbackObserver with @posoco.Observer::{on_event, on_event_at}
+pub extend JsCallbackObserver with @posoco.Observer::{on_event}
 
 ///|
 /// AuthInteraction adapter for MCP server login: device codes, login URLs,
@@ -585,7 +599,7 @@ pub impl @oauth.AuthInteraction for JsMcpAuthInteraction with fn notify(
         data=Json::object(Map::from_array([("message", Json::string(msg))])),
       )
   }
-  self.observer.on_event(event)
+  self.observer.on_event(None, event)
 }
 
 ///|
@@ -1222,7 +1236,7 @@ async fn warn_legacy_project_cetas(
       ]),
     ),
   )
-  observer.on_event(event)
+  observer.on_event(None, event)
 }
 
 ///|
@@ -1514,54 +1528,7 @@ fn warn_pi_custom_entries(
       ]),
     ),
   )
-  handle.observer.on_event(event)
-}
-
-///|
-/// Agent-wide tool catalog for composition: base defs served once, then the
-/// bridge's live MCP tools and the adaptor's live pi tools. Pi layers on top
-/// of the MCP source (instead of replacing it) because lazily-connected MCP
-/// tools would otherwise drop out of the model catalog.
-priv struct CetasLayeredCatalogSource {
-  base_tools : Array[@posoco.ToolDef]
-  mcp : @mcp.McpCatalogSource
-  pi : @pi.PiCatalogSource
-  ptc_mode : CetasPtcMode
-}
-
-///|
-impl @runtime.CatalogSource for CetasLayeredCatalogSource with fn revision(self) -> Int32 {
-  self.mcp.revision() + self.pi.revision() + self.ptc_mode.revision()
-}
-
-///|
-impl @runtime.CatalogSource for CetasLayeredCatalogSource with fn tools(self) -> Array[
-  @posoco.ToolDef,
-] {
-  let defs : Array[@posoco.ToolDef] = []
-  for tool in self.base_tools {
-    defs.push(tool)
-  }
-  let taken : Map[String, Bool] = Map::from_array([])
-  for tool in defs {
-    taken[tool.name.to_string()] = true
-  }
-  for tool in self.mcp.tools() {
-    defs.push(tool)
-    taken[tool.name.to_string()] = true
-  }
-  // Shadow-hide: a pi tool colliding with a base or live-MCP name stays
-  // hidden (base wins — pi re-declaring base capability is out of boundary).
-  // Revision stays the sum of the sources, so it keeps moving monotonically
-  // whenever the filtered output can change.
-  for tool in self.pi.tools() {
-    if !taken.contains(tool.name.to_string()) {
-      defs.push(tool)
-    }
-  }
-  // Only the model-facing catalog changes: PTC's scoped nested providers
-  // stay installed and all leaf calls keep their original policy gates.
-  defs.filter(fn(def) { self.ptc_mode.model_sees(def.name.to_string()) })
+  handle.observer.on_event(None, event)
 }
 
 ///|
@@ -1786,6 +1753,7 @@ pub fn cetas_js_runtime_create_agent(
               bus=Some(event_bus),
               trace=fn(message : String) {
                 observer.on_event(
+                  None,
                   @posoco.TurnEvent::Custom(
                     source="posoco_ext_ratelimit",
                     label="recovery_trace",
@@ -1858,6 +1826,11 @@ pub fn cetas_js_runtime_create_agent(
             // `bunraku_call` envelope per settled guest ctx.call, hanging
             // beneath the enclosing run_code call id. The BunrakuRuntime
             // records the wiring; the extension emits after each call.
+            // Since nested calls re-enter the kernel child pipeline these
+            // envelopes are a SECOND, guest-view stream on top of the
+            // kernel's own ToolCall* child events: the terminal drops the
+            // envelopes by design (row spam); scena keeps them for flow
+            // rendering with parent linkage.
             let bunraku_call_observers : Array[
               (@bunraku.NestedCallEvent) -> Unit,
             ] = [
@@ -2018,13 +1991,13 @@ pub fn cetas_js_runtime_create_agent(
             exts.push(mcp_bridge as &@posoco.Extension)
             // The pi adaptor joins the composition as a real extension so its
             // manifest observer rides along and its tools join the title catalog.
-            // Pushed after the routing snapshot: the layered catalog source already
-            // serves live pi tools, so manifest-derived routing must not double-add.
+            // The pi adaptor publishes its live tools as its own contribution
+            // group, so manifest-derived defs must not double-add them.
             let pi = ensure_pi_adaptor(runtime)
             // Base wins: pi tools named like a base tool are hidden before composition
             // so the core's manifest-aggregate ToolCollision check keeps the base
-            // tool. Live-MCP names cannot collide at composition (lazy connect); those
-            // are shadowed at catalog level by CetasLayeredCatalogSource below.
+            // tool. Live-MCP names cannot collide at composition (lazy connect);
+            // the bridge's published group replaces lazily at the next boundary.
             let protected_names = [
               for def in base_defs => Json::string(def.name.to_string())
             ]
@@ -2042,72 +2015,47 @@ pub fn cetas_js_runtime_create_agent(
             } else {
               Some(runtime.config.max_tool_rounds)
             }
-            // Lazy MCP activation changes the tool set mid-life, so the catalog is
-            // owned by the runtime-seam source; MCP tool execution routes through
-            // the decorator, everything else through the default port runtime. Pi
-            // wraps MCP as the outermost runtime and shares the layered catalog so
-            // base, live MCP, and live pi tools all reach the model. Shell
-            // cancellation is port-level now: the composed ShellTools registers
-            // a ToolCancellable facet, so an aborted turn kills the spawned
-            // `sh -c` child without a host-side runtime decorator.
+            // Lazy MCP activation changes the tool set mid-life, so live MCP
+            // tools enter the catalog as the bridge's own contribution group
+            // (reserved names below keep static tools winning name
+            // collisions). Pi does the same for its live tools. Shell
+            // cancellation is port-level now: the composed ShellTools
+            // registers a ToolCancellable facet, so an aborted turn kills the
+            // spawned `sh -c` child without a host-side runtime decorator.
+            @mcp.mcp_bridge_set_reserved_tools_json(
+              mcp_bridge,
+              Json::array(protected_names).stringify(),
+            )
             let model_port : &@posoco.ModelPort = match model {
               Providers(router) => router as &@posoco.ModelPort
               Magpie(binding) =>
                 binding.runtime.model_port() as &@posoco.ModelPort
             }
-            let base_runtime = @runtime.PortRuntime(
-              model=model_port,
-              tools=routing,
-            )
+            let base_runtime = @runtime.PortRuntime(model=model_port)
             let mcp_runtime = @mcp.McpRuntime(
               bridge=mcp_bridge,
               fallback=base_runtime as &@runtime.Runtime,
             )
-            let ptc_names = [
-              "read", "grep", "glob", "write", "edit", "apply_patch", "bash",
-            ]
-            let ptc_providers : Array[&@posoco.ToolProvider] = exts
-              .iter()
-              .flat_map(fn(ext) { ext.manifest().tools.iter() })
-              .filter_map(fn(provider) {
-                cetas_ptc_select_provider(provider, ptc_names)
-              })
-              .collect()
+            // PTC: run_code is an ordinary manifest tool whose fixed binding
+            // the kernel captures per operation; nested guest calls go
+            // through the kernel child pipeline — schema validation, the
+            // owner gate from bunraku's manifest `tool_call_owners`, the
+            // composed hook chain (policy/plan_mode are regular extension
+            // hooks), budget/depth, cancellation, attribution. The host owns
+            // no name lists and hands no providers.
             let ptc_runtime = @bunraku.BunrakuRuntime(
               fallback=mcp_runtime as &@runtime.Runtime,
-              tools=ptc_providers,
-              hooks=[policy as &@posoco.PipelineHook],
-              final_guards=[plan_mode as &@posoco.PipelineHook],
               call_observers=bunraku_call_observers,
               bus=event_bus,
               home=runtime.config.home,
             )
-            let nested_names = ptc_providers
-              .iter()
-              .flat_map(fn(provider) {
-                provider
-                .list_tools()
-                .iter()
-                .map(fn(def) { def.name.to_string() })
-              })
-              .collect()
-            let ptc_mode = CetasPtcMode(bus=Some(event_bus), nested_names~)
+            let ptc_mode = CetasPtcMode(bus=Some(event_bus))
             let pi_runtime = @pi.PiRuntime(
               adaptor=pi,
               fallback=ptc_runtime as &@runtime.Runtime,
             )
-            let ptc_extension = ptc_runtime.extension()
-            for provider in ptc_extension.manifest().tools {
-              base_defs.append(provider.list_tools())
-            }
-            exts.push(ptc_extension)
+            exts.push(ptc_runtime.extension())
             exts.push(ptc_mode as &@posoco.Extension)
-            let catalog_source = CetasLayeredCatalogSource::{
-              base_tools: base_defs,
-              mcp: @mcp.McpCatalogSource(bridge=mcp_bridge),
-              pi: @pi.PiCatalogSource(adaptor=pi),
-              ptc_mode,
-            }
             let agent = @posoco.Agent::with_runtime(
               exts~,
               config=@cetas_core.default_agent_config(
@@ -2117,7 +2065,6 @@ pub fn cetas_js_runtime_create_agent(
                 ),
               ),
               runtime=pi_runtime as &@runtime.Runtime,
-              catalog_source=catalog_source as &@runtime.CatalogSource,
             )
             pi_runtime.attach_control(agent.control())
             // pi custom session entries: every appendEntry projects as an observer
@@ -2133,7 +2080,7 @@ pub fn cetas_js_runtime_create_agent(
                 label=custom_type,
                 data=@json.parse(data_json) catch { _ => Json::null() },
               )
-              observer.on_event(event)
+              observer.on_event(None, event)
             })
             // Pi ui bridge: ctx.ui rides the same TS callback pair JsUiPort uses, so
             // ui_request/ui_response/ui_render wire shapes match byte for byte and the
@@ -2222,7 +2169,7 @@ pub fn cetas_js_runtime_create_agent(
                         ]),
                       ),
                     )
-                    handle.observer.on_event(event)
+                    handle.observer.on_event(None, event)
                     cetas_js_herdr_release()
                     Ok(())
                   }
@@ -3128,6 +3075,7 @@ async fn persist_active_model_selection(handle : CetasJsAgent) -> Unit noraise {
   ) catch {
     _ =>
       handle.observer.on_event(
+        None,
         Custom(
           source="cetas-js.bridge",
           label="active_model_persist_failed",
@@ -3159,6 +3107,7 @@ async fn persist_active_model_selection(handle : CetasJsAgent) -> Unit noraise {
       ) catch {
         _ =>
           handle.observer.on_event(
+            None,
             Custom(
               source="cetas-js.bridge",
               label="active_model_persist_failed",

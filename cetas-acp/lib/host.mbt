@@ -1287,8 +1287,9 @@ async fn build_platform(
     }
   }
   if catalogs.is_empty() {
-    raise @posoco.CompositionError::EmptyPort(
-      "cetas-acp.providers: no configured model provider — configure one in ~/.cetas/settings.json or log in via cetas first",
+    raise @posoco.CompositionError::ExtensionComposeFailed(
+      manifest_id="cetas-acp",
+      detail="providers: no configured model provider — configure one in ~/.cetas/settings.json or log in via cetas first",
     )
   }
   // No OAuth surface in a headless/stdio process; token refresh works for
@@ -1526,15 +1527,13 @@ async fn build_session_agent(
     None => ()
   }
 
-  // The routing table and catalog base are captured BEFORE the MCP bridge
-  // joins: the bridge's decorator source appends its own live tools, so
-  // including them here would duplicate every name.
-  let routing : Map[String, &@posoco.ToolProvider] = Map::from_array([])
+  // The catalog base (static manifest tools) is captured BEFORE the MCP
+  // bridge joins: the bridge publishes its own live tool group, so including
+  // it here would duplicate every name.
   let base_defs : Array[@posoco.ToolDef] = []
   for ext in exts {
     for provider in ext.manifest().tools {
       for def in provider.list_tools() {
-        routing[def.name.to_string()] = provider
         base_defs.push(def)
       }
     }
@@ -1592,30 +1591,23 @@ async fn build_session_agent(
       mcp_servers.is_empty() => mcp_bridge.start_probes()
     _ => ()
   }
-  // Lazy activation changes the tool set mid-life, so the catalog is owned
-  // by the runtime-seam source; MCP execution routes through the decorator.
-  // Shell cancellation is port-level now: the composed ShellTools registers
-  // a ToolCancellable facet, so a cancelled turn (session/cancel
+  // Lazy activation changes the tool set mid-life: the bridge publishes and
+  // replaces its own tool contribution group, and the kernel adopts it at the
+  // next operation boundary. MCP execution routes through the runtime
+  // decorator. Shell cancellation is port-level now: the composed ShellTools
+  // registers a ToolCancellable facet, so a cancelled turn (session/cancel
   // interrupting the in-flight turn task) terminates the spawned `sh -c`
   // child without a host-side runtime decorator.
-  let base_runtime = @runtime.PortRuntime(
-    model=router as &@posoco.ModelPort,
-    tools=routing,
-  )
+  let base_runtime = @runtime.PortRuntime(model=router as &@posoco.ModelPort)
   let runtime = @mcp.McpRuntime(
     bridge=mcp_bridge,
     fallback=base_runtime as &@runtime.Runtime,
-  )
-  let catalog_source = @mcp.McpCatalogSource(
-    bridge=mcp_bridge,
-    base_tools=base_defs,
   )
   exts.push(mcp_bridge as &@posoco.Extension)
   let agent = @posoco.Agent::with_runtime(
     exts~,
     config~,
     runtime=runtime as &@runtime.Runtime,
-    catalog_source=catalog_source as &@runtime.CatalogSource,
   )
   // The Fuwaroid recovery runtime shares the host task-group lifetime.
   match platform.mcp_group {

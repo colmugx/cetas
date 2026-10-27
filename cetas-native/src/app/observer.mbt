@@ -42,6 +42,7 @@ fn assistant_message_payload(message : @posoco.Message) -> (String, String)? {
 ///|
 pub impl @posoco.Observer for NativeShellObserver with fn on_event(
   self,
+  _scope : @posoco.EventScope?,
   event : @posoco.TurnEvent,
 ) -> Unit {
   match event {
@@ -122,7 +123,7 @@ pub impl @posoco.Extension for NativeShellObserver with fn manifest(
 }
 
 ///|
-pub extend NativeShellObserver with @posoco.Observer::{on_event, on_event_at}
+pub extend NativeShellObserver with @posoco.Observer::{on_event}
 
 ///|
 pub extend NativeShellObserver with @posoco.Extension::{extension_id, manifest}
@@ -132,22 +133,27 @@ pub fn typed_observer_validation_marker() -> Int32 {
   let shell = NativeShell::new()
   let observer = NativeShellObserver::new(shell)
 
-  observer.on_event(@posoco.TurnEvent::TurnStarted)
+  observer.on_event(None, @posoco.TurnEvent::TurnStarted)
 
   let reasoning : @posoco.StreamChunk = ReasoningDelta(token="r")
-  observer.on_event(@posoco.TurnEvent::StreamChunkReceived(chunk=reasoning))
+  observer.on_event(
+    None,
+    @posoco.TurnEvent::StreamChunkReceived(chunk=reasoning),
+  )
 
   let text : @posoco.StreamChunk = TextDelta(token="a")
-  observer.on_event(@posoco.TurnEvent::StreamChunkReceived(chunk=text))
+  observer.on_event(None, @posoco.TurnEvent::StreamChunkReceived(chunk=text))
 
-  observer.on_event(@posoco.TurnEvent::TurnCompleted)
+  observer.on_event(None, @posoco.TurnEvent::TurnCompleted)
 
   let lifecycle_shell = NativeShell::new()
   let lifecycle_observer = NativeShellObserver::new(lifecycle_shell)
   lifecycle_observer.on_event(
+    None,
     @posoco.TurnEvent::CompactStarted(trigger="manual"),
   )
   lifecycle_observer.on_event(
+    None,
     @posoco.TurnEvent::CompactFinished(
       trigger="manual",
       mode="Replace",
@@ -156,6 +162,7 @@ pub fn typed_observer_validation_marker() -> Int32 {
     ),
   )
   lifecycle_observer.on_event(
+    None,
     @posoco.TurnEvent::OperationFinalized(
       operation="compact",
       outcome="cancelled",
@@ -179,6 +186,7 @@ pub fn typed_observer_validation_marker() -> Int32 {
     session_state=Some(state),
   )
   redirected.on_event(
+    None,
     @posoco.TurnEvent::SessionRedirect(
       from="s_old",
       to="s_new",

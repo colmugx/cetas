@@ -178,10 +178,18 @@ pub fn cetas_skills_max_instruction_chars() -> Int32 {
 /// for deterministic coding turns instead of provider-side defaults
 /// (modelports that forbid temperature, e.g. kimi k2.6 thinking, strip it
 /// themselves). Host-owned knobs pass through: `max_tool_rounds~ : None` is
-/// unbounded.
+/// unbounded. `max_tool_depth` bounds tool-in-tool nesting only (kernel
+/// child calls, e.g. run_code guests); a guest chain that exceeds it gets
+/// `NotExecuted(InvocationLimit)` instead of recursing without end.
 pub fn default_agent_config(
   max_tool_rounds~ : Int32? = None,
+  max_tool_depth~ : Int32? = Some(4),
   system_prompt~ : String? = None,
 ) -> @posoco.AgentConfig {
-  @posoco.agent_config(max_tool_rounds~, temperature=Some(0.0), system_prompt~)
+  @posoco.agent_config(
+    max_tool_rounds~,
+    max_tool_depth~,
+    temperature=Some(0.0),
+    system_prompt~,
+  )
 }

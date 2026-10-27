@@ -98,7 +98,7 @@ pub fn StreamPrinter::final_reasoning(self : StreamPrinter) -> String {
 }
 
 ///|
-pub impl @posoco.Observer for StreamPrinter with fn on_event_at(
+pub impl @posoco.Observer for StreamPrinter with fn on_event(
   self,
   _scope : @posoco.EventScope?,
   event : @posoco.TurnEvent,
@@ -137,9 +137,6 @@ pub impl @posoco.Observer for StreamPrinter with fn on_event_at(
     _ => ()
   }
 }
-
-///|
-pub extend StreamPrinter with @posoco.Observer::{on_event}
 
 ///|
 /// Self-report the observer as an extension so it can ride `tail_exts` into

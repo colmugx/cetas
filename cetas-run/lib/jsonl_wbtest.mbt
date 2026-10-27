@@ -42,15 +42,15 @@ fn tk_reasoning_msg(text~ : String, reasoning~ : String) -> @posoco.Message {
 test "jsonl observer projects tool results with error polarity and folds usage" {
   let observer = JsonlObserver::JsonlObserver()
   observer.begin_turn(turn_no=3, session_id="s-3")
-  observer.on_event_at(None, @posoco.TurnEvent::TurnStarted)
-  observer.on_event_at(
+  observer.on_event(None, @posoco.TurnEvent::TurnStarted)
+  observer.on_event(
     None,
     @posoco.TurnEvent::ToolCallFailed(
       call=tk_observer_call(name="bash", call_id="c-9"),
       failure=ReportedError(content="boom", structured=None),
     ),
   )
-  observer.on_event_at(
+  observer.on_event(
     None,
     @posoco.TurnEvent::ToolCallSucceeded(
       call=tk_observer_call(name="read", call_id="c-10"),
@@ -59,14 +59,14 @@ test "jsonl observer projects tool results with error polarity and folds usage" 
       attachments=[],
     ),
   )
-  observer.on_event_at(
+  observer.on_event(
     None,
     @posoco.TurnEvent::ModelResponseReceived(
       message=@posoco.tk_user_msg("ignored"),
       usage=Some(tk_observer_usage(input=4, output=2)),
     ),
   )
-  observer.on_event_at(None, @posoco.TurnEvent::TurnCompleted)
+  observer.on_event(None, @posoco.TurnEvent::TurnCompleted)
   observer.emit_turn_completed(summary="all done", marker=turn_marker(3))
   assert_eq(observer.take_lines(), [
     "{\"type\":\"turn_started\",\"turn\":3,\"session\":\"s-3\"}", "{\"type\":\"tool_result\",\"turn\":3,\"name\":\"bash\",\"call_id\":\"c-9\",\"is_error\":true,\"outcome\":\"tool_error\",\"content\":\"boom\",\"truncated\":false}",
@@ -88,8 +88,8 @@ test "jsonl observer projects the process: tool_call with arguments and committe
       Map::from_array([("path", Json::string("src/main.mbt"))]),
     ),
   }
-  observer.on_event_at(None, @posoco.TurnEvent::ToolCallPending(call))
-  observer.on_event_at(
+  observer.on_event(None, @posoco.TurnEvent::ToolCallPending(call))
+  observer.on_event(
     None,
     @posoco.TurnEvent::ModelResponseReceived(
       message=tk_reasoning_msg(text="", reasoning="check the file first"),
@@ -106,21 +106,21 @@ test "jsonl observer projects the process: tool_call with arguments and committe
 test "jsonl observer maps every terminal failure node to a wire tag with its payload" {
   let observer = JsonlObserver::JsonlObserver()
   observer.begin_turn(turn_no=2, session_id="s-out")
-  observer.on_event_at(
+  observer.on_event(
     None,
     @posoco.TurnEvent::ToolCallFailed(
       call=tk_observer_call(name="bash", call_id="c-r"),
       failure=Runtime(category="adapter", message="io broke"),
     ),
   )
-  observer.on_event_at(
+  observer.on_event(
     None,
     @posoco.TurnEvent::ToolCallRejected(
       call=tk_observer_call(name="ghost", call_id="c-n"),
       reason=UnknownTool,
     ),
   )
-  observer.on_event_at(
+  observer.on_event(
     None,
     @posoco.TurnEvent::ToolCallAbandoned(
       call=tk_observer_call(name="write", call_id="c-a"),
@@ -143,7 +143,7 @@ test "jsonl observer clips content and reasoning previews at the cap" {
     builder.write_char('x')
   }
   let big = builder.to_string()
-  observer.on_event_at(
+  observer.on_event(
     None,
     @posoco.TurnEvent::ToolCallSucceeded(
       call=tk_observer_call(name="read", call_id="c-big"),
@@ -152,7 +152,7 @@ test "jsonl observer clips content and reasoning previews at the cap" {
       attachments=[],
     ),
   )
-  observer.on_event_at(
+  observer.on_event(
     None,
     @posoco.TurnEvent::ModelResponseReceived(
       message=tk_reasoning_msg(text="", reasoning=big),
@@ -179,16 +179,16 @@ test "jsonl observer emits delta telemetry only under stream and keeps committed
   let streaming = JsonlObserver::JsonlObserver(stream=true)
   streaming.begin_turn(turn_no=1, session_id="s-d")
   let reasoning_chunk : @posoco.StreamChunk = ReasoningDelta(token="thin")
-  streaming.on_event_at(
+  streaming.on_event(
     None,
     @posoco.TurnEvent::StreamChunkReceived(chunk=reasoning_chunk),
   )
   let text_chunk : @posoco.StreamChunk = TextDelta(token="king")
-  streaming.on_event_at(
+  streaming.on_event(
     None,
     @posoco.TurnEvent::StreamChunkReceived(chunk=text_chunk),
   )
-  streaming.on_event_at(
+  streaming.on_event(
     None,
     @posoco.TurnEvent::ModelResponseReceived(
       message=tk_reasoning_msg(text="final", reasoning="thinking"),
@@ -202,7 +202,7 @@ test "jsonl observer emits delta telemetry only under stream and keeps committed
   // Without --stream the same chunks are invisible: committed events only.
   let plain = JsonlObserver::JsonlObserver()
   plain.begin_turn(turn_no=1, session_id="s-d")
-  plain.on_event_at(
+  plain.on_event(
     None,
     @posoco.TurnEvent::StreamChunkReceived(chunk=reasoning_chunk),
   )
@@ -215,7 +215,7 @@ test "jsonl observer live sink receives each line the moment it is built" {
   observer.begin_turn(turn_no=1, session_id="s-live")
   let delivered : Array[String] = []
   observer.set_live_sink(fn(line : String) { delivered.push(line) })
-  observer.on_event_at(None, @posoco.TurnEvent::TurnStarted)
+  observer.on_event(None, @posoco.TurnEvent::TurnStarted)
   // The sink got the line immediately; the buffer stays empty.
   assert_eq(delivered, [
     "{\"type\":\"turn_started\",\"turn\":1,\"session\":\"s-live\"}",
@@ -227,14 +227,14 @@ test "jsonl observer live sink receives each line the moment it is built" {
 test "jsonl observer resets the usage window at each begin_turn and reports absent usage as zeros" {
   let observer = JsonlObserver::JsonlObserver()
   observer.begin_turn(turn_no=1, session_id="s-1")
-  observer.on_event_at(
+  observer.on_event(
     None,
     @posoco.TurnEvent::ModelResponseReceived(
       message=@posoco.tk_user_msg("m"),
       usage=Some(tk_observer_usage(input=100, output=50)),
     ),
   )
-  observer.on_event_at(
+  observer.on_event(
     None,
     @posoco.TurnEvent::ModelResponseReceived(
       message=@posoco.tk_user_msg("m"),
@@ -248,7 +248,7 @@ test "jsonl observer resets the usage window at each begin_turn and reports abse
   // New turn: window resets; a response without usage stays at zeros
   // (unknown usage is never coerced, but the wire schema is ints).
   observer.begin_turn(turn_no=2, session_id="s-1")
-  observer.on_event_at(
+  observer.on_event(
     None,
     @posoco.TurnEvent::ModelResponseReceived(
       message=@posoco.tk_user_msg("m"),

@@ -236,7 +236,7 @@ pub fn JsonlObserver::emit_turn_failed(
 }
 
 ///|
-pub impl @posoco.Observer for JsonlObserver with fn on_event_at(
+pub impl @posoco.Observer for JsonlObserver with fn on_event(
   self,
   _scope : @posoco.EventScope?,
   event : @posoco.TurnEvent,
@@ -361,9 +361,6 @@ pub impl @posoco.Observer for JsonlObserver with fn on_event_at(
     _ => ()
   }
 }
-
-///|
-pub extend JsonlObserver with @posoco.Observer::{on_event}
 
 ///|
 /// Self-report the observer as an extension so it can ride `tail_exts` into

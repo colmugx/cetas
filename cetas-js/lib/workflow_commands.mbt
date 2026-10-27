@@ -136,6 +136,19 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn commands(self) {
     metadata: None,
   })
   definitions.push(@posoco.CommandDef::{
+    id: "board.ticket.set_team",
+    label: "Customize team names",
+    description: "Internal: set lightweight display names for the Board team roles",
+    category: "board",
+    ctype: @posoco.CommandType::Action,
+    params: [],
+    aliases: [],
+    shortcut: None,
+    icon: None,
+    visible: false,
+    metadata: None,
+  })
+  definitions.push(@posoco.CommandDef::{
     id: "board.ticket.set_model",
     label: "Pin ticket model",
     description: "Internal: pin or clear one Board ticket's model and effort",
@@ -945,7 +958,11 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
       None =>
         return @posoco.CommandOutcome::Failure(reason="invalid_ticket_answer")
     }
-    match tickets.questions.answer(question_id, response) {
+    let answered_by = match fields.get("answered_by") {
+      Some(String(value)) if !value.trim().is_empty() => value
+      _ => "product_owner"
+    }
+    match tickets.answer_question(question_id, response, answered_by) {
       Ok(_) =>
         return @posoco.CommandOutcome::Success(
           feedback="Answer sent.",
@@ -954,6 +971,21 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
         )
       Err(reason) => return @posoco.CommandOutcome::Failure(reason~)
     }
+  }
+  if id == "board.ticket.set_team" {
+    let tickets = match self.tickets {
+      Some(tickets) => tickets
+      None =>
+        return @posoco.CommandOutcome::Failure(
+          reason="ticket_runtime_unavailable",
+        )
+    }
+    let names = TeamNames::from_json(args)
+    return @posoco.CommandOutcome::Success(
+      feedback="Team names updated.",
+      structured=Some(tickets.set_team(names)),
+      ui_hint=Some(@posoco.UiHint::None),
+    )
   }
   if id == "board.wire.ready" {
     let ready = self.board.wire_ready() catch {
@@ -1196,14 +1228,14 @@ fn board_work_schema() -> Json {
 
 ///|
 fn board_work_tool_def() -> @posoco.ToolDef {
-  @posoco.ToolDef::{
-    name: @posoco.ToolName::unchecked("board_work"),
-    description: "Read Board provenance. action=status lists current tickets (id, title, stage, priority, review summary); action=history finds tickets whose committed review changes or artifacts mention a path (case-insensitive) or a ticket id; action=review returns one ticket's review report and review feedback. Read-only: it never creates, moves, runs, approves or retires Board work, and a ticket with no report has no file provenance.",
-    input_schema: board_work_schema(),
-    owner: @posoco.OwnerId::unchecked("cetas_board"),
-    policy: @posoco.ExecutionPolicy::Sequential,
-    provenance: Some("cetas_board"),
-  }
+  @posoco.ToolDef(
+    name=@posoco.ToolName::unchecked("board_work"),
+    description="Read Board provenance. action=status lists current tickets (id, title, stage, priority, review summary); action=history finds tickets whose committed review changes or artifacts mention a path (case-insensitive) or a ticket id; action=review returns one ticket's review report and review feedback. Read-only: it never creates, moves, runs, approves or retires Board work, and a ticket with no report has no file provenance.",
+    input_schema=board_work_schema(),
+    owner=@posoco.OwnerId::unchecked("cetas_board"),
+    policy=@posoco.ExecutionPolicy::Sequential,
+    provenance=Some("cetas_board"),
+  )
 }
 
 ///|

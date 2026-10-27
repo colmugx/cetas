@@ -109,7 +109,13 @@ pub fn cetas_js_tool_catalog(CetasJsAgent) -> String
 
 pub fn cetas_js_user_replied(CetasJsAgent) -> String
 
+pub fn development_system_prompt(String, String) -> String
+
+pub fn project_name(String) -> String
+
 pub fn question_event_to_json(@posoco-ext-askquestion.QuestionEvent) -> Json
+
+pub fn refiner_system_prompt(String) -> String
 
 // Errors
 
@@ -174,11 +180,10 @@ pub fn CetasJsRuntime::CetasJsRuntime(CetasJsConfig) -> Self
 
 pub struct CetasPtcMode {
   bus : @devkit.EventBus?
-  nested_names : Array[String]
   mut current_ : CetasPtcStatus
   mut revision_ : Int32
 }
-pub fn CetasPtcMode::CetasPtcMode(bus? : @devkit.EventBus?, nested_names? : Array[String]) -> Self
+pub fn CetasPtcMode::CetasPtcMode(bus? : @devkit.EventBus?) -> Self
 pub async fn CetasPtcMode::before_model(Self, Array[@kernel.Message]) -> Array[@kernel.Message] raise @port.HookAbort
 pub async fn CetasPtcMode::before_tool(Self, @kernel.ToolCall) -> @port.ToolDecision
 pub fn CetasPtcMode::commands(Self) -> Array[@port.CommandDef]
@@ -186,13 +191,12 @@ pub fn CetasPtcMode::extension_id(Self) -> String
 pub async fn CetasPtcMode::invoke(Self, String, Json) -> @port.CommandOutcome raise @error.CommandError
 pub fn CetasPtcMode::manifest(Self) -> @port.ExtensionManifest
 pub fn CetasPtcMode::mode(Self) -> CetasPtcStatus
-pub fn CetasPtcMode::model_sees(Self, String) -> Bool
-pub async fn CetasPtcMode::on_post_event(Self, @port.HookStage) -> Unit noraise
-pub async fn CetasPtcMode::on_post_event_at(Self, @types.EventScope?, @port.HookStage) -> Unit noraise
+pub async fn CetasPtcMode::on_post_event(Self, @types.EventScope?, @port.HookStage) -> Unit noraise
 pub async fn CetasPtcMode::on_turn_begin(Self) -> Unit
 pub async fn CetasPtcMode::on_turn_end(Self) -> Unit
 pub fn CetasPtcMode::revision(Self) -> Int32
 pub fn CetasPtcMode::set(Self, CetasPtcStatus) -> Unit
+pub fn CetasPtcMode::tool_exposure(Self, @kernel.ToolDef) -> @kernel.ToolExposure
 pub impl @port.CommandPort for CetasPtcMode
 pub impl @port.Extension for CetasPtcMode
 pub impl @port.PipelineHook for CetasPtcMode
@@ -222,8 +226,7 @@ pub(all) struct JsCallbackObserver {
 pub fn JsCallbackObserver::JsCallbackObserver(JsCallback) -> Self
 pub fn JsCallbackObserver::extension_id(Self) -> String
 pub fn JsCallbackObserver::manifest(Self) -> @port.ExtensionManifest
-pub fn JsCallbackObserver::on_event(Self, @types.TurnEvent) -> Unit
-pub fn JsCallbackObserver::on_event_at(Self, @types.EventScope?, @types.TurnEvent) -> Unit
+pub fn JsCallbackObserver::on_event(Self, @types.EventScope?, @types.TurnEvent) -> Unit
 pub impl @port.Extension for JsCallbackObserver
 pub impl @port.Observer for JsCallbackObserver
 
@@ -272,6 +275,17 @@ pub(all) struct PlanApprovalSource {
 pub fn PlanApprovalSource::PlanApprovalSource() -> Self
 pub async fn PlanApprovalSource::review(Self, @posoco-ext-plan.PlanReviewRequest) -> @posoco-ext-plan.PlanReviewDecision
 pub impl @posoco-ext-plan.PlanReviewSource for PlanApprovalSource
+
+pub struct TeamNames {
+  refiner : String
+  rd : String
+  set : String
+  te : String
+}
+pub fn TeamNames::copy(Self) -> Self
+pub fn TeamNames::defaults() -> Self
+pub fn TeamNames::from_json(Json) -> Self
+pub fn TeamNames::to_json(Self) -> Json
 
 pub(all) struct UiBridge {
   blocking : BlockingApprovalSource?

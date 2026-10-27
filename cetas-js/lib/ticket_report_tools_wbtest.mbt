@@ -32,13 +32,13 @@ impl TicketReportEndpoint for RecordingReportEndpoint with fn submit_work_report
 
 ///|
 fn report_test_ctx(name : String, arguments : Json) -> @posoco.ToolCallContext {
-  {
-    effect_id: @kernel.EffectId::{ value: 1, },
-    call_id: @posoco.CallId::unchecked("report-test"),
-    name: @posoco.ToolName::unchecked(name),
-    arguments,
-    register_cancel: fn(_ : &@posoco.ToolCancellable) { () },
-  }
+  @posoco.ToolCallContext(
+    effect_id=@kernel.EffectId::{ value: 1, },
+    call_id=@posoco.CallId::unchecked("report-test"),
+    name=@posoco.ToolName::unchecked(name),
+    arguments~,
+    register_cancel=fn(_ : &@posoco.ToolCancellable) { () },
+  )
 }
 
 ///|

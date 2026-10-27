@@ -201,8 +201,8 @@ async test "the platform assembly seeds catalogs from the model cache and swaps 
     error => Err(error)
   }
   match failed {
-    Err(@posoco.CompositionError::EmptyPort(message)) =>
-      assert_true(message.contains("no configured model provider"))
+    Err(@posoco.CompositionError::ExtensionComposeFailed(detail~, ..)) =>
+      assert_true(detail.contains("no configured model provider"))
     _ => fail("an empty provider roster must fail composition")
   }
 }

@@ -218,35 +218,28 @@ pub async fn build_cetas_session(
 ///|
 /// Compose the Agent from the session pieces. Hosts that decorate tool
 /// execution append their decorator extensions via `tail_exts~` (ACP: the
-/// MCP bridge) and pass the wrapping `runtime~`/`catalog_source~`; a plain
-/// host composes the default runtime. `runtime_group~` attaches the quota
-/// guard to the composed agent and starts its rate-limit runtime on the
-/// host lifetime; production hosts should always provide it.
+/// MCP bridge) and pass the wrapping `runtime~`; a plain host composes the
+/// default runtime. Dynamic tool faces are extension-owned contribution
+/// groups now — the retired `catalog_source~` seam is gone. `runtime_group~`
+/// attaches the quota guard to the composed agent and starts its rate-limit
+/// runtime on the host lifetime; production hosts should always provide it.
 pub fn compose_cetas_agent(
   session~ : CetasSession,
   tail_exts~ : Array[&@posoco.Extension] = [],
   runtime~ : &@runtime.Runtime? = None,
-  catalog_source~ : &@runtime.CatalogSource? = None,
   runtime_group~ : @async.TaskGroup[Unit]? = None,
 ) -> @posoco.Agent raise @posoco.CompositionError {
   for ext in tail_exts {
     session.exts.push(ext)
   }
-  let agent = match (runtime, catalog_source) {
-    (Some(runtime), Some(source)) =>
-      @posoco.Agent::with_runtime(
-        exts=session.exts,
-        config=session.config,
-        runtime~,
-        catalog_source=source,
-      )
-    (Some(runtime), None) =>
+  let agent = match runtime {
+    Some(runtime) =>
       @posoco.Agent::with_runtime(
         exts=session.exts,
         config=session.config,
         runtime~,
       )
-    (None, _) => @posoco.Agent(exts=session.exts, config=session.config)
+    None => @posoco.Agent(exts=session.exts, config=session.config)
   }
   // Recovery owns its mutable state and async effects inside the host task
   // group. Tests and embedders without a lifetime group simply compose the

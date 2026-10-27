@@ -90,8 +90,7 @@ pub fn JsonlObserver::emit_turn_completed(Self, summary~ : String, marker~ : Str
 pub fn JsonlObserver::emit_turn_failed(Self, error~ : String, marker~ : String) -> Unit
 pub fn JsonlObserver::extension_id(Self) -> String
 pub fn JsonlObserver::manifest(Self) -> @port.ExtensionManifest
-pub fn JsonlObserver::on_event(Self, @types.TurnEvent) -> Unit
-pub fn JsonlObserver::on_event_at(Self, @types.EventScope?, @types.TurnEvent) -> Unit
+pub fn JsonlObserver::on_event(Self, @types.EventScope?, @types.TurnEvent) -> Unit
 pub fn JsonlObserver::set_live_sink(Self, (String) -> Unit) -> Unit
 pub fn JsonlObserver::take_lines(Self) -> Array[String]
 pub impl @port.Extension for JsonlObserver
@@ -128,8 +127,7 @@ pub fn StreamPrinter::StreamPrinter(stream~ : Bool, show_thinking~ : Bool) -> Se
 pub fn StreamPrinter::extension_id(Self) -> String
 pub fn StreamPrinter::final_reasoning(Self) -> String
 pub fn StreamPrinter::manifest(Self) -> @port.ExtensionManifest
-pub fn StreamPrinter::on_event(Self, @types.TurnEvent) -> Unit
-pub fn StreamPrinter::on_event_at(Self, @types.EventScope?, @types.TurnEvent) -> Unit
+pub fn StreamPrinter::on_event(Self, @types.EventScope?, @types.TurnEvent) -> Unit
 pub fn StreamPrinter::set_text_sink(Self, (String) -> Unit) -> Unit
 pub fn StreamPrinter::set_thinking_sink(Self, (String) -> Unit) -> Unit
 pub fn StreamPrinter::streamed_text(Self) -> Bool
