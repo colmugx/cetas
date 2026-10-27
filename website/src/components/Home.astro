@@ -23,7 +23,7 @@ const copy = {
     title: "Cetas",
     description: "运行在你终端、编辑器与脚本里的编码 agent。",
     lead:
-      "一个 agent，打通所有入口。终端、编辑器、脚本化的一次性调用，组合的是同一个内核和同一份持久状态 —— 配置一次，从哪个入口进来都在。",
+      "一个 agent，三个入口。终端、编辑器、脚本化的一次性调用，组合的是同一个内核和同一份持久状态 —— 配置一次，从哪个入口进来都在。",
     startHeading: "从这里开始",
     startHere: [
       {
@@ -44,7 +44,7 @@ const copy = {
     ],
     whyHeading: "为什么是 Cetas",
     cards: [
-      { id: "introduction", label: "简介", blurb: "Cetas 是什么，以及它凭什么被选上。" },
+      { id: "introduction", label: "简介", blurb: "Cetas 是什么，以及为什么选它。" },
       {
         id: "getting-started/installation",
         label: "安装与首次运行",
@@ -66,19 +66,19 @@ const copy = {
     ],
     reasons: [
       {
-        lead: "干过的活，查得到出处。",
+        lead: "干过的活查得到出处",
         body: "Board 上建任务、排依赖、验收看的是 diff 和测试证据；记录落在本地，你的 agent 自己也查得回来。",
       },
       {
-        lead: "评审改代码？那扇门没装。",
-        body: "子代理的工具面和权限档位写在定义文件里；调研只回摘要，不还上下文的债。",
+        lead: "评审的人改不了代码",
+        body: "子代理的工具面和权限档位写在定义文件里；调研只回摘要，不占主窗口的上下文。",
       },
       {
-        lead: "中间过程不进你的窗口。",
+        lead: "中间过程不进你的窗口",
         body: "循环和过滤交给 Wasm 沙箱里的小程序，只把结果带回对话——没产生过的内容，也就没产生过费用。",
       },
       {
-        lead: "人和 agent 读同一份文档。",
+        lead: "人和 agent 读同一份文档",
         body: "全站 llms.txt、每页 .md 源文件——装之前就能让另一个 agent 替你读完。",
       },
     ],
@@ -258,7 +258,7 @@ const otherLocaleHref = withBase(locale === "en" ? "/" : "/en/", import.meta.env
         <ul class="mt-5 list-none space-y-4 p-0">
           {copy.reasons.map((reason) => (
             <li class="text-muted-foreground leading-relaxed">
-              <strong class="font-medium text-foreground">{reason.lead}</strong>{" "}
+              <strong class="font-medium text-foreground">{reason.lead}</strong>{locale === "zh" ? "：" : " "}
               {reason.body}
             </li>
           ))}
