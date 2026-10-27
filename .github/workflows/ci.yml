@@ -24,25 +24,12 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      CETAS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
-      - name: Checkout posoco parent (recursively)
+      # cetas is the main project; extension is its only submodule.
+      - name: Checkout cetas (with extension submodule)
         uses: actions/checkout@v4
         with:
-          repository: colmugx/posoco
-          ref: main
-          path: posoco
           submodules: recursive
-
-      - name: Switch cetas submodule to event commit
-        shell: bash
-        working-directory: posoco/external/cetas
-        run: |
-          git fetch --depth=1 origin "${CETAS_SHA}"
-          git checkout "${CETAS_SHA}"
-          # nested extension/ gitlinks come from the cetas commit under test
-          git submodule update --init --recursive
 
       - name: Install moon (Unix)
         run: |
@@ -53,27 +40,20 @@ jobs:
         run: moon version --all
 
       - name: Version-sync gate
-        working-directory: posoco/external/cetas
         run: python3 scripts/release.py check --scope core
 
       - name: npm staging tests
-        working-directory: posoco/external/cetas
         run: python3 -m unittest scripts/test_npm_stage.py
 
       - name: moon check (public)
-        working-directory: posoco/external/cetas
         run: |
           moon update
           moon check --deny-warn --output-json
 
       - name: moon fmt
-        working-directory: posoco/external/cetas
         run: moon fmt
 
-      # drift gate scoped to the cetas dirs; the posoco root is at main and
-      # not ours to gate
       - name: moon info + interface drift gate
-        working-directory: posoco/external/cetas
         run: |
           # Interface drift is checked against the public graph.
           moon info
@@ -81,7 +61,6 @@ jobs:
 
       - name: moon test
         id: test
-        working-directory: posoco/external/cetas
         run: moon test --target native --output-json
 
       # Node 24 is Active LTS; pin it before all JS/Node distribution tests.
@@ -94,7 +73,7 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       - name: cetas-js typecheck
-        working-directory: posoco/external/cetas/cetas-js
+        working-directory: cetas-js
         run: |
           bun install
           bun build.ts --dts-only
@@ -104,11 +83,11 @@ jobs:
       # adaptor scenarios. Running everything (not a subset) is the point —
       # subset-only CI is how tests rotted unnoticed before.
       - name: cetas-js test suite
-        working-directory: posoco/external/cetas/cetas-js
+        working-directory: cetas-js
         run: bun test --preload ./moonbit-preload.ts
 
       - name: cetas-web typecheck + build
-        working-directory: posoco/external/cetas/cetas-web/web
+        working-directory: cetas-web/web
         run: |
           npm install --no-audit --no-fund
           npm run check
