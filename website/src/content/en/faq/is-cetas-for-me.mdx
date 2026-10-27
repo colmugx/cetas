@@ -1,0 +1,56 @@
+---
+title: Is Cetas for me?
+description: An answer per starting point — non-coders, developers switching agents, and experts who read source.
+sidebar:
+  order: 153
+---
+
+Cetas is a coding agent that runs on your own machine: you state what you want
+in plain language, it reads files, edits code, and runs commands, showing you
+everything it does. That sentence holds for everyone; whether it *fits* depends
+on where you start. This page answers per starting point.
+
+## I don't write code — can I still use it?
+
+Yes, and no programming experience is required. What individual creators do
+with it differs from what engineers do, but the path is the same:
+
+- Have it build a small tool or a personal website: you describe the result, it
+  writes, you look and ask for changes;
+- Have it organise a batch of local files (renaming, sorting, reformatting) —
+  stating the rules is enough;
+- Have it read a long document or a folder and summarise or search it for you.
+
+You need four things, each explained in the glossary: a computer, a
+[terminal](/en/getting-started/glossary/#terminal),
+[Node.js](/en/getting-started/glossary/#nodejs), and an account with a model
+[provider](/en/getting-started/glossary/#provider). Then follow
+[Installation & First Run](/en/getting-started/installation/) — when a word is
+unfamiliar, look it up in the [glossary](/en/getting-started/glossary/).
+
+One thing to be clear about: it edits files; it is not magic. You can see every
+step it took, and you can rewind — which is exactly why it fits real work
+better than copy-pasting AI answers.
+
+## I write code and I'm switching from another agent
+
+See the next page: [How is Cetas different from other coding
+agents?](/en/faq/how-different/) — four structural differences, and when
+switching is worth it.
+
+## I know this space better than the author does
+
+The docs state what there is to state and stay out of your way:
+
+- A machine-readable site: [/llms.txt](/llms.txt) and
+  [/llms-full.txt](/llms-full.txt), plus a `.md` and `.mdx` source for every
+  docs page;
+- Auditable state: one [home directory](/en/configuration/cetas-home/) holding
+  configuration, credentials, and sessions on disk — no second place for state
+  to hide;
+- Five [permission postures](/en/configuration/permissions/) and
+  session rewind, so widening or narrowing needs no
+  product changes.
+
+Its experimental nature is stated plainly: the npm build is the stable one —
+pin a version, read the [changelog](/en/changelog/), upgrade deliberately.

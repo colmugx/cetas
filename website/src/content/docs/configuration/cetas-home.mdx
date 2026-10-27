@@ -1,28 +1,47 @@
 ---
 title: Cetas Home
-description: Durable state shared by the terminal, editor, and automation hosts.
+description: 承载配置、凭据、缓存与会话的那一个目录。
 sidebar:
-  order: 100
+  order: 110
 ---
 
-Cetas resolves one home directory for durable state. A non-empty `CETAS_HOME` overrides the platform user home; otherwise Cetas uses the platform home (`USERPROFILE`, then `HOMEDRIVE`+`HOMEPATH` on Windows; `HOME` elsewhere) and falls back to the current directory only when no home can be resolved.
+Cetas 只解析一个 home 目录来放持久状态。你所有的配置都在这里，所有入口都读它。
 
-The durable-state root is `<home>/.cetas`:
+非空的 `CETAS_HOME`（环境变量）会覆盖平台用户 home；否则用平台 home（Windows 上是 `USERPROFILE`，然后 `HOMEDRIVE` + `HOMEPATH`；其他平台是 `HOME`），只有在都解析不出来时才退回当前目录。本文档用 `<CETAS_HOME>` 指这个解析出来的用户 home，持久状态的根是 `<CETAS_HOME>/.cetas`：
 
 ```text
-~/.cetas/
-├── settings.json
-├── credentials/
-├── model_lists.json
-├── mcp.json
-├── sessions/
-└── debug/
+<CETAS_HOME>/.cetas/
+├── settings.json        # 供应商、选择项、工作流、子代理
+├── credentials/         # 由 /login 写入 —— 不要手改
+├── model_lists.json     # 拉到的模型目录，按供应商分开
+├── mcp.json             # MCP 服务器
+├── sessions/            # 按客户端分开的会话记录
+└── debug/               # 只在开了 CETAS_DEBUG_* 时出现
 ```
 
-<Aside type="note" title="Override granularity">
-`CETAS_HOME` replaces the **parent** home, not the `.cetas` directory. `CETAS_HOME=/tmp/cetas-user` puts state in `/tmp/cetas-user/.cetas/`.
+`debug/` 默认不会创建：只有打开 `CETAS_DEBUG_WIRE` 或 `CETAS_DEBUG_MCP_CATALOG` 才出现。
+
+<Aside type="note" title="覆盖的粒度">
+`CETAS_HOME` 替换的是**父级** home，不是 `.cetas` 目录本身。
+`CETAS_HOME=/tmp/cetas-user` 会把状态放进 `/tmp/cetas-user/.cetas/`。
 </Aside>
 
-The native, ACP, and runner hosts honor `CETAS_HOME`. The JS terminal host currently resolves the platform home through its host configuration.
+## 哪些入口认这个覆盖
 
-Because this directory is shared, model selection, credentials, MCP configuration, and stored sessions are part of the same Cetas identity across hosts. Individual hosts can also use project-local configuration where documented — for example `<cwd>/.mcp.json` overriding the user-level MCP file.
+| 入口 | `CETAS_HOME` |
+| --- | --- |
+| 编辑器（`cetas-acp`） | 认 |
+| 自动化（`cetas-run`） | 认 |
+| 终端（`cetas` / `cetas-bun`） | **不读** —— 直接解析平台 home |
+
+这一点在写脚本之前值得知道：在一台你为了隔离工作而设了 `CETAS_HOME` 环境变量的机器上，终端入口不认它，仍然解析平台 home 下的 `.cetas`。排查"配置不见了"之前，先确认这个会话实际用的 home。
+
+## 这里放了什么，为什么共享
+
+模型选择、凭据、MCP 配置、缓存、以及存下来的会话，共同构成了跨入口的同一个 Cetas 身份 —— 这份共享正是重点。共享状态并不承诺行为一致：每个入口有自己的交互模型、自己的续接能力。见[入口（Surfaces）](/concepts/surfaces/)。
+
+项目也可以使用文档中写明的项目级配置 —— 例如 `<cwd>/.mcp.json` 覆盖用户级 MCP 文件，以及 `<cwd>/.cetas/agents/` 放项目作用域的子代理 kind。
+
+## 备份
+
+把目录整个复制走就行。`settings.json` 和 `sessions/` 是最值得留的；`credentials/` 也要一起搬，但要当密钥库对待；`model_lists.json` 只是缓存，会自己重建。

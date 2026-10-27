@@ -1,0 +1,133 @@
+---
+title: Glossary
+description: Every term you need for the first run — terminal, npm, provider, API key — explained without assuming a coding background.
+sidebar:
+  order: 22
+---
+
+This page does one thing: explain, without a coding background, every term you
+meet on the way from install to your first message. Three groups, in the order
+you meet them. When a word is unfamiliar, look it up here and continue.
+
+## Before installing
+
+### Terminal
+
+The window where you talk by typing: on macOS it is called Terminal (search it
+in Spotlight), on Windows use PowerShell (search the Start menu), and on Linux
+you almost certainly have one. Cetas lives there.
+
+### Node.js
+
+The runtime that makes Cetas go — think of it as the engine. You need version
+24 or newer; if you have never installed it, download the LTS build from
+[nodejs.org](https://nodejs.org/) and follow the installer. Installing Node.js
+also gives you the `npm` command.
+
+### npm
+
+The package manager that ships with Node.js — think an app store for developer
+tools. `npm install -g @posoco/cetas` means: install Cetas from that store, so
+it is available everywhere on this machine.
+
+### Project directory (workspace)
+
+The **one folder** you want Cetas to work in. Reads, edits, and shell commands
+all happen inside that folder — which is why you enter it before starting. No
+project yet? A freshly created empty folder works fine.
+
+### Repository
+
+A code or documentation folder under version control (usually git). If you do
+not have one yet, ignore this word: an empty folder is enough to start.
+
+## Models and providers
+
+### Provider
+
+The company that supplies the model, such as DeepSeek, OpenAI, or Kimi. Cetas
+does not ship a model of its own; it calls the provider you pick. First-time
+users need an account with one of them.
+
+### API key
+
+A string the provider issues to you — think key and account in one: it proves
+the calls are yours and bills them to you. Create it on the provider's "API
+Keys" page. Cetas stores it only on your own machine.
+
+### OAuth
+
+The other way to sign in: instead of copying a key, you approve once in the
+browser and the provider hands the credentials to Cetas directly. If `/login`
+offers a browser option, that is OAuth.
+
+### Model
+
+The "brain" a provider supplies, such as `deepseek/deepseek-flash`. One
+provider usually offers several, differing in capability and price; `/model`
+picks between them.
+
+### Reasoning effort
+
+How hard the same model thinks: higher effort is smarter, slower, and pricier.
+
+### Decision model
+
+A separate small model that serves judgment calls (such as the permission
+gate), kept apart from the conversation model. You can ignore it on day one.
+
+### Tokens and context
+
+Models meter and bill by tokens — roughly one Chinese character or half an
+English word each. The context is everything the model can "see" in one
+session; when it fills up, Cetas compacts it automatically.
+
+## While using it
+
+### Permission posture
+
+The session-level safety switch that decides whether the agent asks before it
+acts: `readonly` look only, `workspace_write` confirm before writing,
+`interactive` / `auto` / `yolo` progressively looser. `workspace_write` is the
+right setting for day one — see [Permissions](/en/configuration/permissions/).
+
+### Session
+
+One full conversation with the agent, automatically journaled under
+`<CETAS_HOME>/.cetas/sessions/`. `/sessions` reopens an old one and `/rewind` walks it
+back to before a mistake — nothing needs "saving".
+
+### Slash command
+
+A command starting with `/` (`/login`, `/model`, `/help`). It executes
+immediately, without going through the model.
+
+### Cetas home (`<CETAS_HOME>/.cetas`)
+
+The single directory holding all durable state: configuration, credentials,
+sessions, caches. `<CETAS_HOME>` means your user directory — `%USERPROFILE%` on
+Windows, `/Users/you` or `/home/you` on macOS and Linux; a non-empty
+`CETAS_HOME` environment variable moves it elsewhere. Backing up means copying
+this directory — see [Cetas Home](/en/configuration/cetas-home/).
+
+### MCP
+
+The protocol for attaching external tool servers (databases, ticket systems,
+internal APIs) to the agent; configured in `mcp.json`. Not needed on day one —
+see [MCP](/en/configuration/mcp/).
+
+### ACP
+
+The Agent Client Protocol — how editors such as Zed talk to an agent. You only
+need it for the editor surface — see the [Editor](/en/editor/).
+
+### Skill
+
+A folder with a `SKILL.md` holding instructions for one kind of work, loaded
+only when a task needs it — see [Skills](/en/configuration/skills/).
+
+### Subagent
+
+A child agent the main session spins up for one bounded piece of work, with
+narrower tools and permissions than the parent — a read-only reviewer, for
+example. See [Subagents](/en/configuration/subagents/).

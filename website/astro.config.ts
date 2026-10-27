@@ -9,7 +9,7 @@ const nimbusConfig = defineNimbusConfig({
   site: "https://colmugx.github.io",
   title: "Cetas",
   description: "A coding agent for your terminal, editor, and scripts.",
-  locale: "en",
+  locale: "zh-CN",
   github: "https://github.com/colmugx/cetas",
   socialImageAlt: "Cetas documentation preview",
 });

@@ -1,0 +1,68 @@
+---
+title: Skills
+description: Load reusable instruction packs only when a task needs them.
+sidebar:
+  order: 97
+---
+
+A skill is a directory with a `SKILL.md`: frontmatter plus instructions the agent
+can follow for a specific kind of work. Skills are how Cetas gets domain
+competence without putting all of it in the prompt — and access to how Cetas
+itself is configured and used.
+
+```text
+/skills
+```
+
+lists what was discovered in this session.
+
+## Three tiers of disclosure
+
+Loading everything at startup would be wasteful and noisy, so skills open in
+stages:
+
+1. **Catalog** — at discovery, Cetas validates each `SKILL.md` and keeps only its
+   metadata. The instruction body never enters the context.
+2. **Activation** — when the task calls for it, the agent activates exactly one
+   skill by name. Cetas re-reads and re-validates that file and returns its
+   instructions, listing bundled resources without reading them.
+3. **Resource read** — the agent opens one named resource inside that skill's
+   directory, on demand.
+
+That last boundary is enforced: a resource path is resolved through canonical
+real paths and must stay inside the skill directory.
+
+## Where skills are found
+
+| Scope | Path |
+| --- | --- |
+| User | `<CETAS_HOME>/.agents/skills/<skill>/SKILL.md` |
+| Repository | `.agents/skills/<skill>/SKILL.md`, walking ancestor directories up to the repository root |
+
+Repository skills come from a checkout, which is untrusted input by
+definition — the same caution you would apply to any script in a repository
+applies here. A host can exclude repository skills entirely; Cetas does not
+invent a trust decision on your behalf.
+
+Skill directories may be symlinks, but the resolved package must stay inside the
+repository boundary unless the host opts into external packages.
+
+## Writing one
+
+```markdown
+---
+name: repo-map
+description: How to navigate this repository
+---
+
+## Layout
+...
+```
+
+The frontmatter is validated at discovery: a skill that fails validation is
+skipped rather than partially loaded, and name collisions are resolved
+deterministically instead of depending on directory order.
+
+Because bodies are only read on activation, a long skill costs nothing until
+someone uses it. Write the frontmatter for discovery — the description is what
+decides whether the agent ever opens the file.

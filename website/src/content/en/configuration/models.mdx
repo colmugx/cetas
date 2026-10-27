@@ -1,0 +1,54 @@
+---
+title: Models
+description: Model slots, effort, and the decision model selection.
+sidebar:
+  order: 80
+---
+
+Cetas identifies a model slot with a `provider/model` id, for example
+`deepseek/deepseek-flash` or `moonshot/kimi-k3`.
+
+## Two slots, never interchangeable
+
+The conversation model and the decision model cannot be swapped, and the two
+pickers enforce it:
+
+```text
+/model      # conversation slots; rejects a decision slot
+/decision   # decision slots, with the active one marked; rejects a chat slot
+```
+
+`/decision` with no argument lists what the configured providers offer. A build
+that ships no decision backend simply has nothing to offer here.
+
+The decision model matters for one setting in particular: `permission auto`
+routes every non-read tool call through a semantic gate, and that gate needs a
+decision model to judge — see
+[Permissions](/en/configuration/permissions/).
+
+## Where the selection lives, and who changes it
+
+The active selection lives in settings — fields in the
+[Settings reference](/en/reference/settings/). Three ways to change it:
+
+| Surface | Behavior |
+| --- | --- |
+| Terminal | Successful `/model`, `/effort`, `/decision` changes are persisted |
+| Editor (ACP) | Successful `model` / `effort` config-option changes are persisted |
+| Automation (`cetas-run`) | `--model` and `--effort` are run-scoped overrides and are **not** persisted |
+
+If provider configuration changes make the previous selection unavailable,
+Cetas falls back to an available default instead of refusing to compose.
+
+## Model lists
+
+Discovered model catalogs are cached in `<CETAS_HOME>/.cetas/model_lists.json`, one record
+array per provider. Pickers keep working from a warm cache, and a provider's
+cached list is refreshed when it is re-discovered.
+
+## Custom models
+
+A provider that is not one of the built-ins is an OpenAI-compatible endpoint you
+declare yourself, and model capabilities (context window, image input, efforts)
+are declared in the same place. See
+[Custom and self-hosted models](/en/configuration/custom-models/).

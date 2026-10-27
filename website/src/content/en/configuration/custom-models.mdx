@@ -1,0 +1,105 @@
+---
+title: Custom & Self-Hosted Models
+description: Point Cetas at a private endpoint, gateway, or in-house deployment.
+sidebar:
+  order: 82
+---
+
+Teams rarely adopt a coding agent against a public API. The usual shape is a
+gateway in front of models you already run, with the key managed by
+infrastructure rather than by each developer. Cetas treats that as a first-class
+provider, not a workaround.
+
+## How it works
+
+Every `providers` key that is not already claimed by a built-in provider becomes
+an **OpenAI-compatible provider**. There is nothing to register and no plugin to
+build: the key is the provider id, and the provider participates exactly like a
+built-in one — `/login`, `/model`, catalog refresh, the model cache, and the
+editor host all see it.
+
+## Minimal configuration
+
+```json
+{
+  "providers": {
+    "my-gateway": {
+      "base_url": "https://llm.internal.example/v1",
+      "api_key": "sk-...",
+      "models": [
+        { "id": "qwen3-32b", "context_window": 131072 }
+      ]
+    }
+  }
+}
+```
+
+- `base_url` — required. Include `/v1` when the server expects it; most
+  OpenAI-shaped servers bake the version into the base URL.
+- `api_key` — required in practice. You can also omit it here and run
+  `/login my-gateway` instead, which writes the credential to
+  `<CETAS_HOME>/.cetas/credentials/` and keeps the secret out of the settings file.
+- `models` — required and must not be empty. Each entry needs an `id`; ids must
+  be unique.
+
+`endpoint_prefix` exists for the case where `base_url` is a bare host
+(`http://10.0.0.4:8080`) and the API lives under `/v1`. Prefer putting the prefix
+in `base_url` and leaving this unset.
+
+## Declare what the model can do
+
+The picker can only offer what you declare. Everything except `id` is optional,
+and omitting a value is safer than guessing it:
+
+| Field | On | Effect |
+| --- | --- | --- |
+| `context_window` | model | Capacity in tokens; without it, auto-compaction stays off for that model |
+| `compact_threshold` | model | Trigger point as a fraction of the window, `> 0` and `<= 1` (default `0.88`) |
+| `image_input` | model or provider | Accepts image input; provider-level value is the default for its models |
+| `reasoning_effort` | model or provider | One fixed effort level — no picker |
+| `reasoning_efforts` | model or provider | The levels to offer in the picker |
+
+```json
+{
+  "providers": {
+    "my-gateway": {
+      "base_url": "https://llm.internal.example/v1",
+      "models": [
+        {
+          "id": "qwen3-235b",
+          "context_window": 262144,
+          "compact_threshold": 0.85,
+          "reasoning_efforts": ["low", "medium", "high"],
+          "image_input": false
+        }
+      ]
+    }
+  }
+}
+```
+
+## Secure it
+
+- Prefer `/login my-gateway` over an inline `api_key`: credentials live in
+  `<CETAS_HOME>/.cetas/credentials/`, out of the file people paste into tickets.
+- A gateway that rejects `prompt_cache_key` is handled: Cetas learns the
+  rejection per process and stops sending it, instead of failing the turn.
+- Nothing about a custom provider is refreshed from a public model registry.
+  Its catalog is exactly what you declared — which is also why a wrong
+  `context_window` silently degrades compaction rather than erroring.
+
+## Verify it
+
+```text
+/login my-gateway
+/model
+```
+
+Then send one message. If `/model` is empty, the provider either failed to
+compose (check the id is valid and not a built-in) or the `models` array was
+rejected — a malformed section fails composition loudly rather than being
+repaired.
+
+The same configuration is picked up by the editor and the runner: nothing needs
+to be repeated per surface. See [Providers](/en/configuration/providers/) for the
+built-in ids that take precedence over a compatible key.

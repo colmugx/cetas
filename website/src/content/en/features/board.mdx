@@ -1,0 +1,47 @@
+---
+title: Board
+description: A local board where you create tickets, line up dependencies, run waves, and accept the work — with a record of every step.
+sidebar:
+  order: 137
+---
+
+Monday's standup leaves one heavy item: migrate auth from session cookies to JWT. You type `/board`, and a board opens in your browser.
+
+You break the goal into eight tickets: replace the session reader, change the middleware, move three callers, add regression tests. Each ticket carries more than a title and description — you can write the user story and the definition of done. "Tests are green" and "old cookie paths keep a compatibility layer" are two different kinds of finished. For tickets you cannot shape yet, a shaping agent refines them before work starts.
+
+Then you wire the dependencies: until the migration ticket finishes, the caller tickets stay in line. You hit run. Only the first wave moves; the blocked tickets wait quietly in Ready. The board shows where every ticket is, which agent is on it, how many attempts it took — all recorded.
+
+Forty minutes later the first wave settles. You open a ticket, read the diff and the test evidence. One is not right, so you request changes and it reworks; the rest you accept, and they move on. The next wave unlocks. By noon the work is visible on the board, not buried in a terminal's scrollback.
+
+## What a ticket looks like
+
+A ticket has a title, a description, a user story, implementation suggestions, a priority, and a definition of done. These fields do real work: the execution agent receives the definition of done you wrote, and you accept the ticket against the same one.
+
+Tickets you cannot write clearly yet do not have to stay vague. Let the shaping agents (product owner, refiner) read the code and fill them in, then edit two lines yourself — machine drafts, you decide.
+
+## Once it is running
+
+- **Dependencies are the scheduler.** A downstream ticket is not released until its upstream finishes; there is no "halfway through, the prerequisite wasn't done".
+- **Every ticket can run on its own model**: the rename on a cheap one, the hard kernel work on a strong one.
+- **Failure retries; interruption resumes.** An agent stuck on a ticket gets a retry with a different path; after a machine restart, unfinished tickets resume.
+- **Running is not finished.** A ticket rests at Review until you accept it — by design. An attempt succeeding is an execution fact; completion is your decision.
+
+## When something goes wrong
+
+The board has three brakes. Pause withdraws the queued and lets running work settle; Stop ends the session's authorizations outright; Cancel precisely cancels a single execution. When unsure, Pause. Done with the board? `/board.stop` closes every local server.
+
+## When to reach for it
+
+Work whose steps depend on each other and can each be accepted on its own shows the board at its best: migrations, multi-step features, batched refactors with regression tests. The ticket graph and its records are the handover document — next morning you open the board and continue where the tickets stand.
+
+A one-or-two-line change is faster said directly in the session. Don't board it.
+
+## The switch and the budgets
+
+The first `/board` asks whether to enable the feature; confirming touches
+nothing but that setting — your model and provider configuration stay as they
+are. To set budgets by hand, every `workflow` limit is listed in the
+[Settings reference](/en/reference/settings/). Tickets and records live
+under `<CETAS_HOME>/.cetas/board/`, one namespace per workspace; the agent can query those
+records itself (`board_work`), which is why it can answer "why does this code
+exist" — and why it checks provenance before deleting or reverting code.

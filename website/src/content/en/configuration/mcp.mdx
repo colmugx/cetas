@@ -1,0 +1,57 @@
+---
+title: MCP
+description: Connect external tool servers, at user or project scope.
+sidebar:
+  order: 105
+---
+
+MCP servers extend what the agent can do — a database, an issue tracker, an
+internal API. Cetas reads their configuration from two places:
+
+```text
+<CETAS_HOME>/.cetas/mcp.json     # user level
+<cwd>/.mcp.json       # project level
+```
+
+Project entries win for matching server names, so a repository can pin the
+server set it needs without touching anyone's home directory.
+
+<Aside type="caution" title="The schema belongs to the server">
+This page deliberately does not define an MCP JSON schema. Server fields are
+interpreted by the MCP extension (and, for editor-supplied servers, by your
+editor). Copy the shape from the server's own documentation rather than from a
+generic example here.
+</Aside>
+
+## When servers connect
+
+| Surface | Default | Change |
+| --- | --- | --- |
+| Terminal | Connected on the first turn | — |
+| Editor (ACP) | Connected lazily on the first turn | `CETAS_MCP_MODE=eager` connects at startup |
+| Editor-supplied | Always eager | The editor owns those servers |
+
+Lazy is the default because startup should not block on a server you may not
+use this session. A server that fails to connect surfaces as a tool failure, not
+as a broken launch.
+
+## Which servers a surface sees
+
+- The terminal and the editor compose the MCP extension, so both read the two
+  files above.
+- An editor can additionally supply server definitions over ACP. Those belong to
+  the editor: Cetas does not write them back, and they are not visible to the
+  terminal.
+
+## Debugging a connection
+
+```bash
+CETAS_DEBUG_MCP_CATALOG=1 cetas-acp
+```
+
+writes each session's tool catalog to `<CETAS_HOME>/.cetas/debug/<session-id>-catalog.json`
+at assembly time — the fastest way to answer "did the server connect, and what
+did it actually expose?". For wire-level detail use `CETAS_DEBUG_WIRE=1`.
+
+Start with the catalog: a server that connects but exposes no tools is a server
+problem, not a Cetas problem, and the catalog makes that distinction obvious.

@@ -1,0 +1,74 @@
+---
+title: Providers
+description: The provider extensions Cetas can compose, their ids, and how login works.
+sidebar:
+  order: 75
+---
+
+Provider configuration lives under `providers` in `<CETAS_HOME>/.cetas/settings.json`.
+Cetas supplies the settings and credential sources; each provider extension owns
+its endpoints, protocol details, model capabilities, and login behaviour.
+
+## Registered providers
+
+These ids are registered by the core. They are also the ids you pass to
+`/login` and use as the first half of a `provider/model` slot.
+
+| Id | Provider | Login methods |
+| --- | --- | --- |
+| `deepseek` | DeepSeek | API key |
+| `kimi` | Kimi | API key, OAuth |
+| `openai` | OpenAI | API key, OAuth |
+| `opencode` | OpenCode Zen | API key |
+| `opencode-go` | OpenCode Go | OAuth |
+| `zai` | Z.ai | API key |
+| `zai-coding-plan` | Z.ai Coding Plan | API key |
+| `openrouter` | OpenRouter | API key |
+| `typesafe` | Typesafe `jev` decision backend | API key |
+
+A provider that owns several login methods gets a method picker; a provider with
+only one skips the picker and asks for the credential directly.
+
+## Provider ids
+
+Ids are restricted to letters, digits, `_`, and `-`, because they are also used
+in settings keys, credential filenames, and login targets.
+
+`opencode` is claimed by OpenCode Zen, so a `providers.opencode` settings entry
+resolves to that factory rather than falling through to the compatible adapter.
+
+## Everything else is OpenAI-compatible
+
+Any `providers` key that is neither registered above nor a collision becomes an
+OpenAI-compatible provider. That is the supported route for a gateway, a proxy,
+or a self-hosted deployment with an OpenAI-shaped API — see
+[Custom and self-hosted models](/en/configuration/custom-models/).
+
+Because the compatible factory list is built from settings, custom providers
+participate exactly like built-in ones: `/login`, `/model`, catalog refresh, and
+the model cache all treat them the same.
+
+## Login
+
+```text
+/login
+```
+
+The picker lists providers this build can compose. For a custom provider, log in
+against its id:
+
+```text
+/login my-gateway
+```
+
+Credential files are written under `<CETAS_HOME>/.cetas/credentials/` and shared by every
+surface. On a machine with no terminal handy, `cetas-run --login` does the same
+for the runner.
+
+## On schemas
+
+There is no single generic JSON schema covering every provider, and this page
+does not invent provider-specific keys. Prefer `/login` and `/model`; treat the
+settings file as the extension's business. For a private endpoint, the
+compatible adapter's small shape is documented in
+[Custom models](/en/configuration/custom-models/).

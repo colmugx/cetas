@@ -1,0 +1,44 @@
+---
+title: Model selection
+description: "See it before you choose: who has quota left, and what is genuinely cheaper."
+sidebar:
+  order: 139
+---
+
+## Most choosing is done from memory
+
+Two wastes show up in every team. One keeps the priciest model on rename tasks; the other puts the smallest model on architecture work, then concludes the agent is bad. Both happen when nothing is visible at choice time.
+
+Cetas puts the information in front of the choice.
+
+## Quota you can see before you pick
+
+```text
+/model quick-pick
+```
+
+Three groups open up. **Limit** holds providers with a remaining usage window, ranked by what is left, colored by the worst window. **Balance** holds providers with money left. **Other** holds the rest. Exhausted rows sink to the bottom, disabled, so you cannot select a model that is bound to fail.
+
+The numbers are the provider's own, never estimated. A provider whose read times out drops out of the list; one name missing beats one number invented.
+
+## Value, decided by data
+
+```text
+/model openai pick
+```
+
+It ranks that provider's models by measured intelligence efficiency: real IQ minus the cost of tokens, dollars, and runtime, weighted 1.0, 2.0, and 0.5 per million tokens, per dollar, and per 10 minutes. Candidates need at least 30 measured samples to enter, and anything dominated on all three axes is dropped.
+
+No data from a provider means no ranking, and when it switches models it says so.
+
+## Everyday browsing, enterprise gateways
+
+```text
+/model
+```
+
+Tabs per provider, fuzzy search as you type, effort levels after you pick. A self-hosted gateway works the same way: add a key to `providers` and it becomes an ordinary tab beside `openai`. See [Custom models](/en/configuration/custom-models/).
+
+## Conversation and decisions, two ledgers
+
+`/model` chooses the conversation model; `/decision` chooses the decision model that backs `permission auto` and judgment-shaped builds. A strong model to talk, a cheap one to judge, two budgets kept apart. `/manager` switches between the provider set and the Magpie gateway, each side remembering its own pick.

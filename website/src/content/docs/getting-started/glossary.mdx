@@ -1,0 +1,95 @@
+---
+title: 词汇表
+description: 零基础起步需要的每个词 —— 终端、npm、供应商、API key，一次讲清。
+sidebar:
+  order: 22
+  label: 词汇表
+---
+
+这一页只做一件事：把走完「从安装到第一条消息」会用到的每个词，用不需要编程背景的话讲一遍。按出现顺序分三组。遇到不认识的词回到这里查，查完接着走。
+
+## 装之前
+
+### 终端
+
+那个靠打字对话的窗口：macOS 上叫「终端」（聚焦搜索里输"终端"就能打开），Windows 上是 PowerShell（开始菜单搜 PowerShell），Linux 上你大概率已经有了。Cetas 平时就住在里面。
+
+### Node.js
+
+让 Cetas 跑起来的运行时 —— 可以理解成"引擎"。版本要 24 或更高；没装过就去 [nodejs.org](https://nodejs.org/) 下载 LTS 版本，一路下一步。装完 Node.js，`npm` 命令也就有了。
+
+### npm
+
+Node.js 自带的包管理器，角色类似手机上的应用商店，只是装的是开发者工具。`npm install -g @posoco/cetas` 的意思就是：从这个商店把 Cetas 装成全机可用。
+
+### 项目目录（工作区）
+
+你打算让 Cetas 干活的那**一个**文件夹。它读文件、改文件、执行命令，都只发生在这个文件夹里 —— 所以启动前要先进入它。没有现成的项目，新建一个空文件夹也完全可以。
+
+### 仓库
+
+受版本管理（通常是 git）的代码或文档目录。如果你还没有仓库，忽略这个词：空文件夹一样能开始。
+
+## 模型与供应商
+
+### 供应商（Provider）
+
+给你提供模型的公司，比如 DeepSeek、OpenAI、Kimi。Cetas 本身不带模型，它调用你选的供应商。第一次用，需要去其中一家注册账号。
+
+### API key
+
+供应商发给你的一串字符，相当于「钥匙 + 账号」：证明这些调用是你发起的，费用记在你的账上。在供应商网站的「API Keys」页面创建。Cetas 只把它存到你自己的电脑上。
+
+### OAuth
+
+另一种登录方式：不用复制 key，点一下浏览器登录，供应商直接把凭据交给 Cetas。`/login` 里出现"用浏览器打开"选项的就是它。
+
+### 模型
+
+供应商提供的那个"大脑"，比如 `deepseek/deepseek-flash`。同一家供应商通常有多个模型，能力和价格不同，`/model` 负责挑。
+
+### 推理档位（effort）
+
+同一个模型"想多深"的档位：越高越聪明，也越慢、越贵。
+
+### 决策模型
+
+一个独立的小模型，专门服务"做判断"的场合（比如权限闸门），和对话用的模型分开记账。第一次用可以完全不管它。
+
+### token 与上下文
+
+模型按 token 计量和计费，大约一个汉字或小半个英文单词。上下文是一次会话里模型能"看见"的全部内容，超了会自动压缩，不用你管。
+
+## 用的时候
+
+### 权限姿态
+
+会话级的安全开关，决定 agent 动手前要不要问你：`readonly` 只准看、`workspace_write` 写之前要确认、`interactive` / `auto` / `yolo` 逐步放手。第一天用 `workspace_write` 就好，见[权限](/configuration/permissions/)。
+
+### 会话
+
+你和 agent 的一次完整对话，自动记录在 `<CETAS_HOME>/.cetas/sessions/` 下。`/sessions` 重开一段旧对话，`/rewind` 把它退回到出错之前 —— 不需要"保存"。
+
+### 斜杠命令
+
+以 `/` 开头的命令（`/login`、`/model`、`/help`）。它们立即执行，不经过模型，是确定性操作。
+
+### Cetas home（`<CETAS_HOME>/.cetas`）
+
+所有持久状态的唯一目录：配置、凭据、会话、缓存全在这。`<CETAS_HOME>` 指你的用户目录——Windows 上是 `%USERPROFILE%`，macOS 和 Linux 上是 `/Users/你` 或 `/home/你`；环境变量 `CETAS_HOME` 非空时换到别处。备份 = 复制这个目录，见 [Cetas Home](/configuration/cetas-home/)。
+
+### MCP
+
+把外部工具服务器（数据库、工单系统、内部 API）接进 agent 的协议，配置放 `mcp.json`。第一天不需要，见 [MCP](/configuration/mcp/)。
+
+### ACP
+
+Agent Client Protocol —— 编辑器（比如 Zed）和 agent 之间的对话协议。想在编辑器里用 Cetas 时才需要，见[编辑器](/editor/)。
+
+### 技能（Skill）
+
+一个带 `SKILL.md` 的文件夹，装着"某类活怎么干"的指令，任务需要时才加载，见[技能](/configuration/skills/)。
+
+### 子代理
+
+主会话派出去干一件有边界工作的子 agent，工具和权限可以比主会话更窄 —— 比如"只读评审"，见[子代理](/configuration/subagents/)。

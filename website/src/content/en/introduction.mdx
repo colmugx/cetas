@@ -1,0 +1,110 @@
+---
+title: Cetas
+description: A coding agent for your terminal, your editor, and your scripts — one agent, one home, one identity.
+sidebar:
+  order: 10
+  label: Introduction
+---
+
+Cetas is a coding agent that runs on your machine. You talk to it in plain
+language; it reads and edits files, searches the workspace, runs commands, and
+shows you what it did. It is built on [Posoco](https://github.com/colmugx/posoco),
+an agent framework for MoonBit.
+
+Single-machine is a design decision. The board, sessions, configuration, and
+credentials all live in one home directory on your machine; there is no cloud
+sync and no shared sessions. One person gets the complete product.
+
+## Why people adopt it
+
+When a coding agent gets vetted, the first thing tested is rarely how smart it
+is — it is whether the work it did can be traced. All four points below can be
+verified by hand once installed; no marketing required.
+
+**Work you can trace.** Turn one requirement into a ticket graph: tickets
+whose dependencies are not done wait quietly, finished ones stop at the review
+gate for your call — and what you review is the diff and the test evidence,
+not the agent's retelling. The records stay local, and your agent can look
+them up itself: ask it two weeks later why a piece of code exists, and it can
+answer. The tickets and their records are the handoff document. See
+[Board](/en/features/board/).
+
+**The door for "reviewer edits code" was never installed.** When an agent
+reviews its own changes, "report only, touch nothing" rests on a verbal
+promise. Subagents turn that promise into configuration: the tool list and
+permission posture live in the agent's definition file — it cannot see
+`write`, cannot run `bash`, and stays powerless even when the parent session
+runs `yolo`. Sending it to research three modules takes the same road: three
+sub-sessions read in parallel, your main window receives three summaries. See
+[Subagents](/en/features/subagents/).
+
+**Middle steps never enter your window.** Finding 3 references across 40 files
+the ordinary way means paying for 40 tool calls. Have the model write a small
+program instead: it loops and filters, and only the 3 hits return to the
+conversation — content that was never generated never cost anything. The
+program runs in a Wasm sandbox and cannot touch the file system or the
+network. See [Bunraku](/en/features/bunraku/).
+
+**Humans and agents read the same docs.** The site ships `llms.txt` and
+`llms-full.txt`, and every page has a `.md` source. Having
+another agent read the docs before deciding to install is a supported way to
+use them.
+
+The foundations are all there too: five permission postures, every turn
+journaled with precise `/rewind`, all state in one home directory, and model
+choice that shows you who still has quota and what is actually cheaper before
+you pick. Each has its own page under [Features](/en/features/) and
+[Configuration](/en/configuration/); they are not re-sold here.
+
+## The three surfaces
+
+| Surface | Best for | Entry point |
+| --- | --- | --- |
+| **Terminal** | Day-to-day work: streaming turns, model and login pickers, sessions, rewind | `cetas` from npm, or the `cetas-bun` binary |
+| **Editor** | Working where the code already is, over ACP | `cetas-acp` |
+| **Automation** | One task per invocation, from a script or CI | `cetas-run` |
+
+These are not separate agents. Each one composes the same core, uses the same
+home directory, and answers to the same identity. See
+[Surfaces](/en/concepts/surfaces/).
+
+Start with [Installation & First Run](/en/getting-started/installation/).
+
+## Why Posoco
+
+If you build agents, or are choosing an agent framework, this section is for
+you. If you just want to get work done with Cetas, skip it freely.
+
+Posoco's difference is not a slogan; it is four things you can verify.
+
+**On upgrade, the compiler tells you what broke.** The agent loop's event
+stream is a closed enum. When the kernel adds an event kind, every match that
+has not kept up becomes a compile error, named one by one. Upgrading does not
+mean reading a changelog and guessing behavior — the mismatch between your
+code and the kernel surfaces at compile time.
+
+**A rejection is not an apology.** When a tool call is denied, what comes back
+is not prose but a structured reason: not offered, owner not allowed, revoked,
+schema mismatch, rejected by a hook. People writing UIs and observers get
+facts they can match on, not prompts to parse with regex.
+
+**The capability catalog carries ownership, and can be narrowed.** Every
+capability registers with an owner and can be claimed by another extension and
+narrowed into "hidden but still callable" — out of the catalog, the call path
+still exists. Catalog, ownership, and narrowing are one snapshot; there is no
+second place for state to disagree.
+
+**Providers are independent extensions.** There is no unified router shaving
+every provider down to a common denominator; each provider's full potential is
+released in its own extension package — which is how Cetas' provider list
+grew.
+
+These claims need evidence, and the evidence is Cetas itself: three surfaces
+with different transports compose one core, with no forked agent loop.
+Breaking Posoco upgrades ship with an explicit migration table — what to
+change and what to change it to, item by item, no reverse-engineering diffs.
+The first claim stands on MoonBit: a closed enum plus exhaustiveness checking
+is what earns the compiler the role of "tells you what broke".
+
+Posoco gives you the protocol and the ports. Cetas is what it looks like when
+someone carries a real workload on top of them.

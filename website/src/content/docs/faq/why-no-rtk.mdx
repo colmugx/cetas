@@ -1,0 +1,37 @@
+---
+title: 为什么现在不带 rtk 了？
+description: cetas 集成过 rtk。一份独立实测解释了为什么不带它，以及想用时怎么接回去。
+sidebar:
+  order: 152
+---
+
+rtk（Rust Token Killer）是一个命令行代理：把 `pnpm test`、`go test -v ./...` 这类命令重写成 `rtk test` 之类的形式，输出在进上下文之前就被压缩，README 承诺省 60–90% token。对整天跟测试输出和构建日志打交道的团队，这个承诺很有吸引力。
+
+cetas 集成过它。仓库里的 [posoco-ext-rtk](https://github.com/colmugx/cetas/tree/main/extension/posoco-ext-rtk) 就是为这件事写的：一个工具调用钩子，把 agent 发起的 shell 命令交给 `rtk rewrite` 处理，重写后的命令才真正执行。
+
+后来我们不再随包带它。原因不在集成侧，钩子至今还在、测试至今还过；原因在 rtk 的前提本身。
+
+## 压缩是有代价的
+
+rtk 压缩输出，本质上是在替模型做编辑判断：哪些行重要，哪些可以扔。问题在于它经常扔错。
+
+[JetBrains 的独立实测](https://blog.jetbrains.com/ai/2026/07/rtk-claude-code-token-savings/)把这件事量化了：Claude Code 加 rtk 跑 SkillsBench 的 86 个任务，配对 A/B，425 次计费试验。广告里的 60–90% 没有出现；低推理档下每个任务反而**贵了 7.6%**（p=0.004），轮数多 13.8%。质量倒是没有变化，模型被截断的信息逼着重跑命令、重读文件，把省下来的 token 又烧了回去。高推理档下差距归零，但两种档位下 rtk 都没有省过。
+
+文章里最能说明问题的是 rtk 自己的记分牌：整轮跑完，`rtk gain` 报告省了 9620 万 token，而同一批试验的真实账单是上涨的。记分牌拿"压缩前的原始输出"当对照，可那些输出大多本来就会被宿主截断或被缓存折价，模型从来没收到过。原文的结论值得抄在这里：
+
+> a tool's self-reported savings are a claim about its counterfactual, not about your bill.
+
+工具自报的节省，说的是它假想的对照，不是你的账单。
+
+所以我们不带它。一个会无故截断信息、再让模型花更多轮数把信息找回来的工具，省的是展示数字，费的是真实成本。
+
+## 还想用，两步
+
+```sh
+# 装 rtk 本体（brew 装，或按它的仓库指引）
+rtk --help
+
+# 接上 cetas 的钩子扩展
+```
+
+钩子的接法在 posoco-ext-rtk 的源码和测试里有完整示例。接上之后 agent 跑的每条 shell 命令都会先过一遍 `rtk rewrite`，能重写的就重写，重写不了的照原样执行。是否值得，JetBrains 那篇的方法论可以直接借用：配对着跑，量真实账单，别看工具自己的记分牌。

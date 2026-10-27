@@ -1,0 +1,49 @@
+---
+title: 特色功能
+description: 装完就在的五样东西，各自值回票价的地方。
+sidebar:
+  order: 135
+  label: 特色功能
+---
+
+`npm install -g @posoco/cetas` 装完就是全部安装过程。下面五样不用装、不用配，每页只讲一件事：它帮你把什么活干成。
+
+<CardGrid>
+  <Card title="子代理" icon="ph:users-three">
+    评审代码的人改不了代码。权限写在它的定义里。
+  </Card>
+  <Card title="Board" icon="ph:kanban">
+    一句需求变成一张可以审的图，每一步都有记录。
+  </Card>
+  <Card title="Bunraku" icon="ph:code">
+    40 个文件里找 3 处引用，上下文里只出现那 3 处。
+  </Card>
+  <Card title="选模型" icon="ph:sliders-horizontal">
+    选之前先看见：哪家还有额度，哪个更划算。
+  </Card>
+  <Card title="限流守卫" icon="ph:hourglass-medium">
+    凌晨三点的 429，自己等到重置点接着跑。
+  </Card>
+</CardGrid>
+
+## 出厂就在的地基
+
+还有一批能力，单页讲它们反而耽误你，这里一并交代。
+
+权限有五档。`readonly` 到 `yolo` 之间，值得注意的是 `auto`：每个非只读调用交给决策模型逐次判定，有风险的拦下，安全的放行，全程不用人守。它要求先配好决策模型，否则拒绝开启。见[权限](/configuration/permissions/)。
+
+计划模式在批准之前一个字节都写不进去。
+
+技能按三层展开，目录里只带元数据，正文激活时才读。装十个技能，提示不会跟着膨胀十份。
+
+会话全程落盘。`/sessions` 翻历史，`/rewind` 退回出错前，重启接着聊。
+
+工具面里有 astgrep。它按代码结构搜，重构前问"这个接口还有哪里在用"，得到的是调用点。
+
+## 建议的上手顺序
+
+1. [选模型](/features/model-selection/)，成本和质量都在这一步定，当天见效。
+2. [子代理](/features/subagents/)，从只读的活开始，风险最低。
+3. [Board](/features/board/)，流程稳定后再上，那时你在管一条流水线。
+
+相关问题的来龙去脉收在[问答](/faq/)。

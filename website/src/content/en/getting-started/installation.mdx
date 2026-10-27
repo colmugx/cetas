@@ -1,0 +1,121 @@
+---
+title: Installation & First Run
+description: Install Cetas and get to your first message.
+sidebar:
+  order: 20
+  label: Install & First Run
+---
+
+<Aside type="note">
+All of Cetas is developed with Cetas — the npm build, specifically.
+</Aside>
+
+## Install from npm (recommended)
+
+```bash
+npm install -g @posoco/cetas
+```
+
+Requires Node.js 24 or newer — grab the LTS build from
+[nodejs.org](https://nodejs.org/) if you have never installed it (`npm` comes
+with Node; terms in the [glossary](/en/getting-started/glossary/#nodejs)).
+Then check it works:
+
+```bash
+cetas --version
+```
+
+Rather not install Node? Use the released binaries below.
+
+## Or: download a released binary
+
+All three surfaces ship as compiled archives (macOS · Apple Silicon /
+Linux · x64 / Windows · x64). Extract and run — no Node needed:
+
+| Surface | macOS · Apple Silicon | Linux · x64 | Windows · x64 |
+| --- | --- | --- | --- |
+| **Terminal** (`cetas-bun`) | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-bun-darwin-arm64.tar.gz) | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-bun-linux-x64.tar.gz) | [zip](https://github.com/colmugx/cetas/releases/latest/download/cetas-bun-windows-x64.zip) |
+| **Editor · ACP** (`cetas-acp`) | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-acp-darwin-arm64.tar.gz) | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-acp-linux-x64.tar.gz) | [zip](https://github.com/colmugx/cetas/releases/latest/download/cetas-acp-windows-x64.zip) |
+| **Automation** (`cetas-run`) | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-run-darwin-arm64.tar.gz) | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-run-linux-x64.tar.gz) | [zip](https://github.com/colmugx/cetas/releases/latest/download/cetas-run-windows-x64.zip) |
+
+Checksums for every archive are in
+[SHA256SUMS](https://github.com/colmugx/cetas/releases/latest/download/SHA256SUMS);
+upgrading a binary means downloading a newer archive.
+
+## From install to your first message
+
+Four steps.
+
+### 1. Run it in your project directory
+
+```bash
+cd /path/to/your/project
+cetas
+```
+
+Everything it reads, edits, or executes is relative to this directory. No
+project yet? A freshly created empty folder works just as well.
+
+### 2. Sign in with a provider
+
+Cetas ships no model of its own — it calls a provider (a company that supplies
+models, like DeepSeek or OpenAI). Register on the provider's site, create an
+API key, then:
+
+```text
+/login
+```
+
+Pick the provider, paste the key (or use browser sign-in where it is offered),
+done. Seeing fewer options than expected? See
+[Providers](/en/configuration/providers/).
+
+### 3. Pick a model
+
+```text
+/model
+```
+
+The list comes from the provider you just signed in with. Pick one and you are
+set.
+
+### 4. Say the first thing
+
+```text
+Explain how authentication works in this repository.
+```
+
+No repository? Any sentence works — a streaming reply means you are through.
+Keys worth knowing on day one:
+
+- `@path` attaches a workspace file, <kbd>Tab</kbd> completes;
+- <kbd>Esc</kbd> interrupts the running turn; typing while it runs queues a
+  follow-up;
+- before you fully trust it, `/permission readonly` drops the session to
+  read-only — see [Permissions](/en/configuration/permissions/);
+- `/help` lists the commands this build actually has.
+
+Sessions are kept automatically: `/sessions` reopens one, `/rewind` walks back
+to before a mistake — there is no "save" step.
+
+## Using your company's own endpoint?
+
+Cetas supports self-hosted OpenAI-compatible endpoints natively; the
+walkthrough is at [Custom models](/en/configuration/custom-models/).
+
+## Stuck?
+
+| Symptom | Fix |
+| --- | --- |
+| Node version too old at install | Upgrade Node, or use the released binaries |
+| `/login` or `/model` list is empty | Run `/login` again, then `/model`; still stuck, see [Providers](/en/configuration/providers/) |
+| The first message errors out | The sign-in usually never finished — run `/login` again |
+| Everything gets refused | The session is read-only; `/permission workspace_write` allows writes |
+
+Credentials, your model pick, and past sessions all land in one home directory
+automatically — nothing to manage day to day. Curious what it looks like or
+how to back it up? See [Cetas Home](/en/configuration/cetas-home/).
+
+Next: [Custom models](/en/configuration/custom-models/),
+[Permissions](/en/configuration/permissions/), or the
+[command reference](/en/reference/commands/).

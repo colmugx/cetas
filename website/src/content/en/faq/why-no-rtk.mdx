@@ -1,0 +1,61 @@
+---
+title: Why does cetas no longer ship rtk?
+description: cetas once integrated rtk. An independent benchmark explains why it is not shipped, and how to wire it back if you want it.
+sidebar:
+  order: 152
+---
+
+rtk (Rust Token Killer) is a command-line proxy: it rewrites commands like
+`pnpm test` or `go test -v ./...` into `rtk test`-style forms, compressing
+output before it enters the context. Its README promises 60–90% token savings —
+an attractive promise for anyone living in test output and build logs.
+
+cetas integrated it once. The repository's
+[posoco-ext-rtk](https://github.com/colmugx/cetas/tree/main/extension/posoco-ext-rtk)
+was written for exactly that: a tool-call hook handing every agent-initiated
+shell command to `rtk rewrite`, with the rewritten command then executed.
+
+We stopped shipping it. The reason is not the integration — the hook still
+works and the tests still pass — but rtk's premise itself.
+
+## Compression has a price
+
+Compressing output means rtk makes editing judgments on the model's behalf:
+which lines matter, which can be dropped. It frequently drops the wrong ones.
+
+[JetBrains' independent benchmark](https://blog.jetbrains.com/ai/2026/07/rtk-claude-code-token-savings/)
+put numbers on it: Claude Code with rtk ran SkillsBench's 86 tasks in a paired
+A/B over 425 billed trials. The advertised 60–90% did not appear; at low
+reasoning effort each task was **7.6% more expensive** (p=0.004) with 13.8%
+more turns. Quality was unchanged — the model, fed truncated information,
+re-ran commands and re-read files, burning the savings back. At high reasoning
+effort the gap closed to zero, but rtk saved nothing at either level.
+
+The most telling detail is rtk's own scoreboard: across the whole run, `rtk
+gain` reported 96.2 million tokens saved while the actual bill for the same
+trials went up. The scoreboard measures against "raw output before
+compression", but most of that output would have been truncated by the host or
+discounted by caching anyway — the model never received it. The original
+article's conclusion is worth quoting:
+
+> a tool's self-reported savings are a claim about its counterfactual, not
+> about your bill.
+
+So we do not ship it. A tool that silently truncates information and then makes
+the model spend more turns recovering it saves display numbers and costs real
+money.
+
+## Still want it? Two steps
+
+```sh
+# Install rtk itself (brew, or per its repository)
+rtk --help
+
+# Wire up the cetas hook extension
+```
+
+The hook's wiring is fully demonstrated in the posoco-ext-rtk source and tests.
+Once connected, every shell command the agent runs passes through `rtk rewrite`
+first: rewritten when possible, executed verbatim otherwise. Whether it is
+worth it, borrow JetBrains' methodology: run it paired, measure the real bill,
+and ignore the tool's own scoreboard.

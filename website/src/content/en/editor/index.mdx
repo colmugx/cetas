@@ -1,0 +1,106 @@
+---
+title: Editor (ACP)
+description: Drive the same Cetas agent from an Agent Client Protocol editor — Zed and Lody walkthroughs.
+sidebar:
+  order: 120
+  label: Editor (ACP)
+---
+
+`cetas-acp` serves Cetas over the [Agent Client Protocol](https://agentclientprotocol.com/)
+on stdio. Any ACP client can launch it, so the same agent you know from the
+terminal shows up inside your editor with its own permission UI.
+
+## Before you connect
+
+The editor host reads the same home directory as every other surface, and it
+refuses to start without a provider — an agent with no model cannot serve a
+prompt. So configure once, in the terminal:
+
+```text
+/login
+/model
+```
+
+Then get the binary: extract `cetas-acp` from a
+[release archive](/en/getting-started/installation/), or build it from a checkout.
+
+## Zed
+
+Add a top-level `agent_servers` entry to Zed's settings:
+
+```json
+{
+  "agent_servers": {
+    "Cetas": {
+      "type": "custom",
+      "command": "/absolute/path/to/cetas-acp",
+      "args": [],
+      "env": {}
+    }
+  }
+}
+```
+
+Use `cetas-acp.exe` on Windows. If your Zed version expects a different schema,
+follow [Zed's custom agent instructions](https://zed.dev/docs/ai/external-agents#custom-agents).
+
+Then open the agent panel and pick **Cetas**. Zed identifies itself during
+`initialize`, so this session's transcript files under
+`<CETAS_HOME>/.cetas/sessions/zed/`.
+
+## Lody
+
+Lody treats external agents as an *Agent Config* with a launch command. Register
+Cetas once:
+
+1. Open **Settings → Agent Config** and add a config.
+2. Name it `Cetas`.
+3. Set **CLI Type** to **Custom ACP**.
+4. Put the absolute path in **Launch command** — `/absolute/path/to/cetas-acp`.
+5. Add environment variables you need in the same Agent Config (see below).
+6. Click **Test**. Lody launches the agent and reads its capabilities and model
+   list; a provider must already be configured or this step fails.
+7. Save, then pick the config when you start a conversation.
+
+Lody parses the launch command into a command plus arguments — quotes are
+supported, but pipes, redirects, globs, and `$VARS` are not evaluated. Put
+environment variables in the Agent Config instead of the command.
+
+Lody sessions land in `<CETAS_HOME>/.cetas/sessions/lody/`.
+
+## What each session gets
+
+Every ACP session gets its own agent and its own mutable machinery — model
+router, permission policy, MCP bridge, transcript store, in-flight turn — so
+prompts on different sessions run concurrently without cross-wiring approvals.
+Provider settings and model catalogs are assembled once and shared read-only.
+
+The client owns the chat record: it stores the conversation and the session id,
+and hands the id back on `session/resume`. Cetas persists the committed
+transcript to disk so a restart resumes from there rather than from memory.
+
+## Session configuration
+
+ACP advertises config options for:
+
+- `model` — a successful change is persisted as the next launch's selection.
+- `effort` — persisted when the active model exposes reasoning-effort choices.
+- `permission` — runtime-only and session-scoped; deliberately not persisted.
+
+Changes arrive through `session/set_config_option`. For connection failures,
+read the editor's ACP log first, then the agent's stderr — all diagnostics go
+there, because stdout carries JSON-RPC frames only.
+
+## Environment
+
+| Variable | Effect |
+| --- | --- |
+| `CETAS_HOME` | Overrides the platform home; state lands in `<CETAS_HOME>/.cetas` |
+| `CETAS_PERMISSION_MODE` | Startup posture: `readonly`, `workspace_write`, `interactive`, `auto`, `yolo`. Unset means `yolo`; an unrecognized value warns once and falls back to `workspace_write` |
+| `CETAS_MCP_MODE=eager` | Connect configured MCP servers at startup instead of on the first turn |
+| `CETAS_DELEGATE_FS=host` | Route file reads and writes through the editor's `fs/*` reverse calls instead of the local filesystem |
+| `CETAS_DEBUG_WIRE=1` | Append the session's wire traffic to `<CETAS_HOME>/.cetas/debug/<session-id>-wire.jsonl` |
+| `CETAS_DEBUG_MCP_CATALOG=1` | Dump the session's tool catalog to `<CETAS_HOME>/.cetas/debug/<session-id>-catalog.json` |
+
+MCP setup is covered in [MCP](/en/configuration/mcp/); the full variable reference
+is in [Environment Variables](/en/reference/environment-variables/).

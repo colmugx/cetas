@@ -1,0 +1,55 @@
+---
+title: Rate-limit guard
+description: A limit is waited out on its own — with a reset time, the run resumes by itself.
+sidebar:
+  order: 140
+---
+
+## It is automatic
+
+When the current model comes from a subscription, the provider's limit signal
+carries a reset time. Cetas notes that time and resumes work on its own when it
+arrives — no alarm to set, no "try later" to remember, no progress bar to
+babysit.
+
+The boundary, stated just as plainly: the Cetas process is still running and
+the session has not changed. Walking away, sleeping, working on something else
+while it waits — all fine. Quit the process or switch sessions, and there is
+nothing to resume.
+
+## 3 a.m., and nobody is watching
+
+Without the guard, long tasks die in a stupid place. Ninety minutes in, the
+provider answers 429, the agent says "quota exhausted, try later", and the
+message sits unread until breakfast. Five hours gone, and the task needs a full
+re-brief. The guard makes "try later" its own job.
+
+A limit without a reset time — most metered API keys — is probed on a capped
+backoff. You sleep.
+
+## The wait does not lose your work
+
+Waiting is only useful if everything is still there on waking. The failed turn
+is written to disk before the session is marked recoverable; the other order
+returns a truncated context at the worst moment. While it waits you do
+something else, and when it resumes the task continues and the history keeps
+growing. You never re-describe anything.
+
+## Do you need it
+
+Three questions:
+
+- Have you run tasks longer than an hour?
+- Does your provider meter quota in five-hour windows, with tasks that
+  routinely cross one?
+- Have you ever set an alarm to come re-send a task?
+
+One yes and it is worth configuring. None, and you can leave it; installed, it
+stays out of the way.
+
+## Two things it does not do
+
+It never moves your run to another provider or model on its own; that is
+`/model quick-pick`'s job, and the two do not reach into each other. And after
+enough failed attempts it stops and hands you the conclusion rather than
+knocking on the same door all night.

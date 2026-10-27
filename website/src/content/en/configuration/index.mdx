@@ -1,0 +1,63 @@
+---
+title: Configuration
+description: How Cetas is configured — in conversation, with commands, or by hand.
+sidebar:
+  order: 70
+---
+
+## Try the lowest-effort path first
+
+Once it is installed, describe the change in the session and let the agent
+write the settings:
+
+```text
+Add a provider named my-gateway at https://llm.internal.example/v1,
+declare the model qwen3-32b, and make it my model.
+```
+
+Ask for a diff of what it wrote. Provider entries, model metadata, subagent
+kinds, workflow budgets — all of it can be configured this way, and for most
+changes this is where the work ends. See
+[Natural-language configuration](/en/configuration/natural-language/).
+
+## What a picker covers, do with commands
+
+`/login`, `/model`, `/decision`, and `/effort` write the shape the selected
+provider expects, so no schema to learn. The full list is in the
+[command reference](/en/reference/commands/).
+
+## Reference pages for editing the file
+
+To check fields one by one, copy configuration between machines, or provision a
+batch of environments, these pages follow the structure of settings.json:
+
+- [Settings reference](/en/reference/settings/) — the complete field
+  reference: every key, its type, its default, expanded by nesting level;
+- [Providers](/en/configuration/providers/) — the built-in provider set and
+  login;
+- [Models](/en/configuration/models/) — slots, `/model`, and `/decision`;
+- [Custom and self-hosted models](/en/configuration/custom-models/) — the entry
+  shape for private endpoints and gateways;
+- [Subagents](/en/configuration/subagents/) — kind definitions and tool
+  whitelists;
+- [Permissions](/en/configuration/permissions/) — what the agent may touch;
+- [Skills](/en/configuration/skills/) — load reusable instruction packs;
+- [MCP](/en/configuration/mcp/) — connect external tool servers;
+- [Cetas Home](/en/configuration/cetas-home/) — the directory itself.
+
+## What is shared, and what is not
+
+Sharing one home means every surface reads the same configuration, credentials,
+and session store. It does **not** mean every surface behaves identically: the
+terminal has pickers, the editor has ACP config options, and the runner takes
+flags. Each surface page states what it supports.
+
+Selections made in one surface are visible to the next: `/model` in the terminal
+is what the editor restores on its next start.
+
+<Aside type="note" title="Changes land in the next session">
+The system prompt is assembled once per session and frozen. Settings that affect
+it — instructions, provider identity, skill catalog — take effect when you start
+a new session, not on the running one. Selections such as `/model` and `/effort`
+apply immediately.
+</Aside>

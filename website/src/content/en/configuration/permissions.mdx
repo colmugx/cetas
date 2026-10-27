@@ -1,0 +1,82 @@
+---
+title: Permissions
+description: The five postures that decide what the agent may touch, and how to roll them out.
+sidebar:
+  order: 90
+---
+
+Every session runs under exactly one permission posture. It is the single most
+important knob you will set, because it decides what happens when the agent
+wants to do something rather than read something.
+
+```text
+/permission readonly
+```
+
+The switch works mid-turn. The posture belongs to the session — a cautious
+choice does not have to be a global decision.
+
+## The five modes
+
+| Mode | Reads | Writes, shell, unknown tools |
+| --- | --- | --- |
+| `readonly` | Pre-approved, including provably read-only shell | **Rejected** — no prompt, no override |
+| `workspace_write` | Pre-approved | Gated through the approval prompt |
+| `interactive` | Pre-approved | Gated through the approval prompt, including inspection-level side effects |
+| `auto` | Pre-approved | Judged per call by the decision model; a decline is steering, not an error |
+| `yolo` | Pre-approved | Pre-approved — the approval prompt is never shown |
+
+Two of these deserve detail.
+
+**`readonly` is silent and absolute.** It needs no UI and no human: mutation and
+non-read shell are simply refused. Use it for review jobs, reporting, and the
+first week of a team rollout.
+
+**`auto` is a semantic gate, not a rubber stamp.** Each non-read call goes to the
+composed decision model; a likely-risky operation or a low grant probability is
+rejected. There is no deterministic fallback: without a decision model the mode
+cannot compose, and `/permission auto` refuses the switch. Set the backend with
+`/decision` — see [Models](/en/configuration/models/).
+
+**`yolo` covers tool execution only.** It never approves a submitted plan; plan
+verdicts stay with the review flow.
+
+## What "approved" remembers
+
+When a prompt is answered *Yes for this session*, the grant is cached for the
+rest of that agent's lifetime — nothing is persisted to disk:
+
+- write-class and unknown tools cache **per tool name** — approving `edit` once
+  approves every later `edit`
+- shell tools cache **per command-segment scope**: the command is split on
+  `&`, `|`, `;` and newlines and each segment scopes to its first word, so
+  approving `moon check` does not approve `rm -rf` in the same pipeline
+
+A new session starts with an empty grant cache.
+
+## Choosing a posture per surface
+
+| Surface | How to set it |
+| --- | --- |
+| Terminal | `/permission <mode>` |
+| Editor (ACP) | Session config option `permission`, or `CETAS_PERMISSION_MODE` at startup |
+| Automation | `--permission <mode>`, or `--yolo` |
+| Unset at startup | `yolo` for the ACP host |
+
+`CETAS_PERMISSION_MODE` is deliberately tolerant in one direction only: an
+unrecognised value warns once and falls back to `workspace_write`. A typo never
+widens the posture.
+
+## A rollout that does not need a meeting
+
+1. `readonly` for everyone. Prove that reading behaviour is sane and that the
+   answers are worth acting on.
+2. `workspace_write` for the people who asked to act on them. Now every write is
+   a prompt, and the prompts become the review habit.
+3. `interactive` or `auto` for teams that want steering instead of confirmation.
+   `auto` needs a decision model, so this is where `/decision` earns its keep.
+4. `yolo` only for unattended, bounded work — CI with `readonly`, or a purpose-
+   built automation with a narrow task.
+
+The failure mode to avoid is starting at `yolo` because it is quiet. It is quiet
+until it is not.

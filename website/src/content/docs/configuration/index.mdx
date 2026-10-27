@@ -1,0 +1,45 @@
+---
+title: 配置
+description: Cetas 怎么配：用对话、用命令，或手写文件。
+sidebar:
+  order: 70
+---
+
+## 先试最省事的一条路
+
+装好后直接在会话里描述你要的改动，agent 替你写 settings：
+
+```text
+加一个叫 my-gateway 的供应商，接到 https://llm.internal.example/v1，
+声明模型 qwen3-32b，然后把它设成我的模型。
+```
+
+改完可以让它把 diff 给你看。供应商条目、模型元数据、子代理 kind、工作流预算，都能这么配——多数配置到这一步就完成了，见[用对话做配置](/configuration/natural-language/)。
+
+## 选择器覆盖的，用命令
+
+`/login`、`/model`、`/decision`、`/effort` 写的是当前供应商期望的形状，不用你学 schema。命令清单在[命令速查](/reference/commands/)。
+
+## 手写文件的参考页
+
+要逐项核对字段、在机器之间复制配置、或者给一批环境开通时，下面这些页面按 settings.json 的结构组织：
+
+- [Settings 参考](/reference/settings/) —— settings.json 的完整字段：每个 key、类型、默认值，按嵌套层级展开；
+- [供应商](/configuration/providers/) —— 内置供应商 id 与登录；
+- [模型](/configuration/models/) —— 槽位、`/model` 与 `/decision`；
+- [自定义与私有化模型](/configuration/custom-models/) —— 私有端点与网关的条目形状；
+- [子代理](/configuration/subagents/) —— kind 定义与工具白名单；
+- [权限](/configuration/permissions/) —— agent 能碰什么；
+- [技能](/configuration/skills/) —— 按需加载可复用的指令包；
+- [MCP](/configuration/mcp/) —— 接入外部工具服务器；
+- [Cetas Home](/configuration/cetas-home/) —— 目录本身。
+
+## 什么共享，什么不共享
+
+共享一个 home 意味着所有入口读同一份配置、凭据和会话库。但它**不**意味着所有入口行为一致：终端有选择器，编辑器有 ACP 配置项，runner 走命令行参数。每个入口的页面会写清它支持什么。
+
+在某个入口做的选择，下一个入口看得见：终端里的 `/model`，就是编辑器下次启动时恢复的那个。
+
+<Aside type="note" title="改动在下一个会话生效">
+系统提示每个会话组装一次，之后冻结。会影响提示的配置 —— 指令、供应商身份、技能目录 —— 要等你开一个新会话才生效；`/model`、`/effort` 这类选择则立刻生效。
+</Aside>

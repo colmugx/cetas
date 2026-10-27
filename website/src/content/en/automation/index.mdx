@@ -1,0 +1,105 @@
+---
+title: Automation
+description: One Cetas turn per process, for scripts, CI, and pipelines.
+sidebar:
+  order: 130
+  label: Automation (cetas-run)
+---
+
+`cetas-run` is the one-shot host: one process invocation runs exactly one user
+turn. It composes the same core as the terminal and editor hosts, and it is the
+entrance to use when the caller is a script rather than a person.
+
+## Command shape
+
+```text
+cetas-run [--model <provider/model>] [--effort <level>] [--session <id>]
+          [--yolo | --permission <readonly|workspace_write|interactive|auto>]
+          [--stream] [--verbose] [--show-thinking] [--jsonl]
+          [-- "<task>"]
+```
+
+Pass the task after `--`. If argv carries no task, Cetas reads exactly one line
+from stdin. Two further forms:
+
+```text
+cetas-run --login [provider]
+cetas-run --help | -h | --version
+```
+
+Help and version write no config, read no stdin, and contact no provider.
+
+## Output contract
+
+In text modes stdout carries the answer and nothing else. Diagnostics follow a
+fixed split, which is what makes the output pipeable:
+
+| Mode | stdout | stderr |
+| --- | --- | --- |
+| default | final answer | session metadata, lifecycle markers, approval prompts |
+| `--stream` | answer deltas as they arrive | events and markers |
+| `--verbose` | answer | events and markers, verbosely |
+| `--show-thinking` | answer | reasoning, then events |
+| `--jsonl` | structured event stream | markers |
+
+`--jsonl` takes precedence over the text modes.
+
+## Sessions
+
+Without `--session`, each invocation creates a fresh session id and reports it
+on stderr. Re-run with `--session <id>` to continue that session:
+
+```bash
+cetas-run -- "explain this repository"
+cetas-run --session cetas-42 -- "now fix the failing test"
+```
+
+This is same-host resume. It does not imply that a conversation can move between
+surfaces — see [Surfaces](/en/concepts/surfaces/).
+
+## Permissions
+
+`--permission` accepts `readonly`, `workspace_write`, `interactive`, or `auto`.
+`--yolo` is the unattended mode and cannot be combined with `--permission`.
+`--model` and `--effort` are run-scoped overrides: they are never persisted, so
+a scheduled job cannot silently change what a person sees next time they open
+the terminal.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | The turn completed |
+| `1` | The turn ran but failed |
+| `2` | Startup, usage, or login failure |
+
+Distinguishing `1` from `2` is what lets a pipeline retry a genuine failure
+without retrying a misconfiguration forever.
+
+## Configuration
+
+Provider settings and credentials come from the shared home, normally
+`<CETAS_HOME>/.cetas/`; `CETAS_HOME` overrides the platform home (the *parent* of
+`.cetas`, not the directory itself). Credentials are shared with the other
+surfaces: if you are already logged in, just run the task.
+
+For a first login on a machine with no terminal session, native builds can run
+`cetas-run --login`.
+
+## From Mooncakes
+
+The runner is also published as a Mooncakes module:
+
+```bash
+moonx colmugx/cetas-run -- -- "fix the failing tests"
+moonx colmugx/cetas-run -- --session <id> -- "continue"
+```
+
+## In CI
+
+Two habits that keep automated runs boring:
+
+- Pin the version you install (`npm install -g @posoco/cetas@<version>`) and bump
+  it deliberately — read the [changelog](/en/changelog/) first.
+- Use `--permission readonly` for review and reporting jobs; it makes an
+  unexpected write attempt a hard stop rather than a surprise commit.

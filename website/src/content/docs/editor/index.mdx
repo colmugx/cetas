@@ -1,0 +1,86 @@
+---
+title: 编辑器（ACP）
+description: 在支持 Agent Client Protocol 的编辑器里用同一个 Cetas —— Zed 与 Lody 的配置步骤。
+sidebar:
+  order: 120
+  label: 编辑器（ACP）
+---
+
+`cetas-acp` 通过 stdio 把 Cetas 以 [Agent Client Protocol](https://agentclientprotocol.com/) 暴露出来。任何 ACP 客户端都能拉起它，于是你在终端里认识的那个 agent，会带着编辑器自己的权限 UI 出现在编辑器里。
+
+## 接入之前
+
+编辑器入口读的是和其他入口同一个 home 目录，而且**没有供应商就拒绝启动** —— 没有模型的 agent 服务不了任何 prompt。所以先在终端里配好：
+
+```text
+/login
+/model
+```
+
+然后拿到二进制：从[发布归档](/getting-started/installation/)里解出 `cetas-acp`，或者自己从源码构建。
+
+## Zed
+
+在 Zed 的 settings 里加一条顶层 `agent_servers`：
+
+```json
+{
+  "agent_servers": {
+    "Cetas": {
+      "type": "custom",
+      "command": "/absolute/path/to/cetas-acp",
+      "args": [],
+      "env": {}
+    }
+  }
+}
+```
+
+Windows 上用 `cetas-acp.exe`。如果你的 Zed 版本要求不同的 schema，按 [Zed 的自定义 agent 文档](https://zed.dev/docs/ai/external-agents#custom-agents)来。
+
+然后打开 agent 面板，选 **Cetas**。Zed 在 `initialize` 时会自报身份，所以这个会话的记录会落在 `<CETAS_HOME>/.cetas/sessions/zed/`。
+
+## Lody
+
+Lody 把外部 agent 当作一份 *Agent Config* 来管，靠一条启动命令注册。Cetas 只需要登记一次：
+
+1. 打开 **Settings → Agent Config**，新增一条配置。
+2. 命名为 `Cetas`。
+3. **CLI Type** 选 **Custom ACP**。
+4. **Launch command** 填绝对路径 —— `/absolute/path/to/cetas-acp`。
+5. 需要的话，在同一个 Agent Config 里补环境变量（见下面的表）。
+6. 点 **Test**。Lody 会拉起 agent、读取它的能力和模型列表；这一步失败基本就是供应商还没配好。
+7. 保存，然后在新建会话时选择这条配置。
+
+Lody 会把启动命令拆成"命令 + 参数"直接 spawn —— 引号支持，但管道、重定向、glob 和 `$VARS` 都不会被求值。所以环境变量写在 Agent Config 里，别塞进命令。
+
+Lody 的会话落在 `<CETAS_HOME>/.cetas/sessions/lody/`。
+
+## 每个会话拿到什么
+
+每个 ACP 会话都有自己的一套可变机制 —— 模型路由、权限策略、MCP 桥、记录存储、正在跑的回合 —— 所以不同会话上的 prompt 可以并发执行，而不会串权限、串审批。供应商配置和模型目录只组装一次，之后只读共享。
+
+对话记录归客户端所有：客户端存会话内容和 session id，`session/resume` 时把 id 递回来。Cetas 把已提交的记录落盘，是为了重启之后从磁盘恢复，而不是靠内存。
+
+## 会话级配置项
+
+ACP 会广告这几项：
+
+- `model` —— 改成功后会持久化，作为下次启动的选择。
+- `effort` —— 当前模型有推理档位时会持久化。
+- `permission` —— 只在运行时、只属于这个会话，**故意不持久化**。
+
+变更通过 `session/set_config_option` 进来。连不上时，先看编辑器的 ACP 日志，再看 agent 的 stderr —— 所有诊断都在 stderr，因为 stdout 上只有 JSON-RPC 帧。
+
+## 环境变量
+
+| 变量 | 作用 |
+| --- | --- |
+| `CETAS_HOME` | 覆盖平台 home；状态落在 `<CETAS_HOME>/.cetas` |
+| `CETAS_PERMISSION_MODE` | 启动姿态：`readonly`、`workspace_write`、`interactive`、`auto`、`yolo`。不设是 `yolo`；取值不认识会警告一次并降回 `workspace_write` |
+| `CETAS_MCP_MODE=eager` | 启动时就连配置好的 MCP 服务器，而不是等到第一个回合 |
+| `CETAS_DELEGATE_FS=host` | 文件读写走编辑器的 `fs/*` 反向调用，而不是本地文件系统 |
+| `CETAS_DEBUG_WIRE=1` | 把这个会话的线上流量追加到 `<CETAS_HOME>/.cetas/debug/<session-id>-wire.jsonl` |
+| `CETAS_DEBUG_MCP_CATALOG=1` | 把这个会话的工具目录 dump 到 `<CETAS_HOME>/.cetas/debug/<session-id>-catalog.json` |
+
+MCP 的配置见 [MCP](/configuration/mcp/)；完整的变量清单见[环境变量](/reference/environment-variables/)。

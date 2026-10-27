@@ -18,9 +18,11 @@ import type { TOCItem } from "@cloudflare/nimbus-docs/types";
 
 interface Props extends HTMLAttributes<"nav"> {
   headings: TOCItem[];
+  /** Control label. Localized by the layout; defaults to English. */
+  label?: string;
 }
 
-const { headings, class: className, ...attrs } = Astro.props;
+const { headings, label = "On this page", class: className, ...attrs } = Astro.props;
 
 const hasHeadings = headings.length > 0;
 ---
@@ -29,7 +31,7 @@ const hasHeadings = headings.length > 0;
   hasHeadings && (
     <nav
       data-nb-mobile-toc
-      aria-label="On this page"
+      aria-label={label}
       class={cn("relative", className)}
       {...attrs}
     >

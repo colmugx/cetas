@@ -1,0 +1,34 @@
+---
+title: 为什么不集成 caveman？
+description: caveman 六块功能里，cetas 有哪些对应实现，缺哪些，想用怎么装。
+sidebar:
+  order: 151
+---
+
+先说结论：caveman 是个正经工具，[caveman.so](https://caveman.so) 和 [GitHub 仓库](https://github.com/JuliusBrussee/caveman)（Apache-2.0）都在认真维护，官方测过整场会话输入 token 少 33.2%，另一个例子把一条 63 token 的回复压到 20。它分两次安装，skill 管输出（回复更短），proxy 管输入（日志、JSON、测试输出在进模型前压缩）。
+
+cetas 没有把它打包进来，但这六块功能里有一半你在 cetas 里能找到对应实现。
+
+## 有对应的部分
+
+**少读（压输入）。** caveman 把日志和 JSON 压缩之后给模型读。cetas 走的是另一条路：`run_code` 让模型写一段 MoonBit 程序，循环和过滤发生在程序里，中间结果压根不进上下文；大范围调研交给子代理，回到主会话的只有摘要。目标相同，机制不同。压缩是事后补救，避免是源头减法。
+
+**Auto（按任务选模型）。** caveman 会替你挑模型和档位。cetas 的 `/model openai pick` 按实测数据给模型排序（IQ 减去 token、成本、耗时三笔账），`/decision` 再配一个独立的决策模型。差别在 pick 由你发起，不是每问自动路由。
+
+**Blocks（脚本写一次反复用）。** `run_code` 的 `source` 参数接受完整的 `.mbtx` 程序，反复执行的脚本不必每次重写。
+
+**短回复（压输出）。** cetas 没有内置这个风格，但下面会说到，你装上就有。
+
+## 没有的部分
+
+工具输出进上下文前的自动压缩、暂停时保温提示缓存、浪费定位、网页压缩，这四样 cetas 没有。一次 `cat` 大日志，cetas 会原样收进上下文，到阈值才压缩。如果你的工作流天天和这种输出打交道，这个差距对你就是实打实的。
+
+## 想用 caveman？装上就能用
+
+caveman 的 skill 就是一个带 `SKILL.md` 的目录，cetas 的技能系统直接认：
+
+```sh
+npx skills add JuliusBrussee/caveman
+```
+
+装到项目的 `.agents/skills/` 下跟仓库走，装到 `<CETAS_HOME>/.agents/skills/` 下全机器可用。`/skills` 里能看到它，之后 `/caveman` 就生效。不用等我们做任何适配。

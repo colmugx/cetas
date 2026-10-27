@@ -1,0 +1,62 @@
+---
+title: How is Cetas different from other coding agents?
+description: Four structural differences — when switching is worth it, and when it is not yet.
+sidebar:
+  order: 154
+---
+
+This page does not compare individual products. It states four structural
+differences, each verifiable by hand once installed — no marketing required.
+
+## Work leaves a trail, and handoffs rest on it
+
+Board turns one requirement into a ticket graph: tickets with unmet
+dependencies hold still, finished ones stop at the review gate. Every ticket
+keeps its diff, its test evidence, and its history; the records are local, and
+your agent can query them itself — ask why a piece of code exists and it can
+answer. Reopen the board the next day and continue; the tickets are still
+there. The records are the handoff document. See [Board](/en/features/board/).
+
+## Boundaries are configuration, not pleas
+
+A subagent's tool list and permission posture live in its definition file:
+three properties make a read-only reviewer, and it stays powerless even under
+a `yolo` parent. The five permission postures are your per-session decision,
+from `readonly` to `yolo`; plan mode writes nothing until you approve. See
+[Subagents](/en/features/subagents/) and [Permissions](/en/configuration/permissions/).
+
+## The context bill follows a different algorithm
+
+Research goes to subagents and your main window receives summaries; loops and
+filters go to a sandboxed program and intermediate results never enter context
+at all. The same batch of work, billed as a different thing entirely. See
+[Subagents](/en/features/subagents/) and [Bunraku](/en/features/bunraku/).
+
+## Machine-readable is the docs' default form
+
+The site ships `llms.txt` and `llms-full.txt`, and every page has a `.md`
+source. Letting another agent read the docs before deciding to install is a
+supported way to use them. See [/llms.txt](/llms.txt).
+
+## When switching is worth it, and when it is not yet
+
+**Worth it**: you want to know where its past work can be checked; you want
+reviewers that structurally cannot edit; you care about the context bill; you
+have scripting or CI scenarios — `cetas-run` is one turn per process, and
+success is an exit code.
+
+**Not yet** — these do not exist today, so do not force it:
+
+- `/sessions` lists sessions for the current project only; there is no
+  cross-project view, and resuming across surfaces is planned behavior, not
+  something to rely on today;
+- no graphical interface — the terminal is the first-class entry;
+- no team-collaboration features: no shared sessions, no org management, no
+  centralized permissions; every piece of state lives on its own machine;
+- it does not manage provider accounts for you — models are yours to register
+  and connect;
+- it says so itself: experimental. The npm build is the stable one; pin
+  versions, read the [changelog](/en/changelog/), upgrade deliberately.
+
+For the deeper argument — what makes this kernel carry weight — see the
+"Why Posoco" section of the [Introduction](/en/introduction/).

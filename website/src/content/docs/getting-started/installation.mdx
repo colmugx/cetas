@@ -1,82 +1,100 @@
 ---
-title: Installation
-description: Install a released Cetas build, or build a host from a source checkout.
+title: 安装与首次运行
+description: 装好 Cetas，走到第一条消息。
 sidebar:
   order: 20
+  label: 安装与首次运行
 ---
 
-## Released builds
+<Aside type="note">
+整个 Cetas 都是用 Cetas 开发的，具体说是 npm 那份。
+</Aside>
 
-Tagged releases publish prebuilt archives for three hosts, each on `darwin-arm64`, `linux-x64`, and `windows-x64`:
-
-| Host | Archives |
-| --- | --- |
-| Interactive terminal (`cetas-js`) | `cetas-bun-<target>.tar.gz` · `cetas-bun-windows-x64.zip` |
-| Editor (`cetas-acp`) | `cetas-acp-<target>.tar.gz` · `cetas-acp-windows-x64.zip` |
-| Automation (`cetas-run`) | `cetas-run-<target>.tar.gz` · `cetas-run-windows-x64.zip` |
-
-Releases also publish `SHA256SUMS` covering those archives, so you can verify what you downloaded. Use the [latest GitHub Release](https://github.com/colmugx/cetas/releases/latest) to pick the artifact for your platform.
-
-The terminal archive bundles the Bun runtime and pi-tui's native prebuilds, so `cetas-bun` needs no Bun or MoonBit installation. Extract it and launch the executable **from the project you want to work on**:
-
-```bash
-cd /path/to/your/project
-/path/to/extracted/cetas-bun
-```
-
-On Windows, use the extracted `cetas-bun.exe`.
-
-## npm
-
-The terminal host is also published to npm as a platform-independent Node.js bundle:
+## 用 npm 安装（推荐）
 
 ```bash
 npm install -g @posoco/cetas
 ```
 
-This installs a `cetas` command and requires Node.js 24 or newer.
-
-<Aside type="note">
-The Bun-compiled `cetas-bun` archive and the npm bundle are two packagings of the same terminal host. Neither needs MoonBit.
-</Aside>
-
-## MoonX
-
-`cetas-run` is published to Mooncakes, so the automation host needs no download:
+需要 Node.js 24 或更高版本，没装过去 [nodejs.org](https://nodejs.org/) 拿 LTS 版本（`npm` 随 Node 自带；名词见[词汇表](/getting-started/glossary/#nodejs)）。装完验证：
 
 ```bash
-moonx colmugx/cetas-run -- -- "explain this repository"
+cetas --version
 ```
 
-## Build from source
+不想装 Node？直接用发布制品。
 
-The repository expects the [MoonBit toolchain](https://docs.moonbitlang.com), and `cetas-js` additionally requires [Bun](https://bun.sh).
+## 或者：下载发布制品
 
-### Interactive terminal (`cetas-js`)
+三个入口都有编译好的归档（macOS · Apple Silicon / Linux · x64 / Windows · x64），解压即用，不需要装 Node：
+
+| 入口 | macOS · Apple Silicon | Linux · x64 | Windows · x64 |
+| --- | --- | --- | --- |
+| **终端**（`cetas-bun`） | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-bun-darwin-arm64.tar.gz) | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-bun-linux-x64.tar.gz) | [zip](https://github.com/colmugx/cetas/releases/latest/download/cetas-bun-windows-x64.zip) |
+| **编辑器 · ACP**（`cetas-acp`） | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-acp-darwin-arm64.tar.gz) | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-acp-linux-x64.tar.gz) | [zip](https://github.com/colmugx/cetas/releases/latest/download/cetas-acp-windows-x64.zip) |
+| **自动化**（`cetas-run`） | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-run-darwin-arm64.tar.gz) | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-run-linux-x64.tar.gz) | [zip](https://github.com/colmugx/cetas/releases/latest/download/cetas-run-windows-x64.zip) |
+
+每个归档的校验和在 [SHA256SUMS](https://github.com/colmugx/cetas/releases/latest/download/SHA256SUMS)；二进制的升级方式就是下载新归档。
+
+## 从装好到第一条消息
+
+四步。
+
+### 1. 在你的项目目录里启动
 
 ```bash
-cd cetas-js
-bun install
-bun run start     # run from source
-bun run build     # produce a cetas-bun binary
+cd /path/to/your/project
+cetas
 ```
 
-### Editor (`cetas-acp`)
+它读、改、执行的每一样东西都相对这个目录。还没有项目？新建一个空文件夹，进去一样能开始。
 
-```bash
-cd cetas-acp
-moon build --target native --release
+### 2. 登录一家供应商
+
+Cetas 不带模型，调用的是供应商（DeepSeek、OpenAI 这类提供模型的公司）的接口。去供应商官网注册账号、建一个 API key，然后：
+
+```text
+/login
 ```
 
-### Automation (`cetas-run`)
+选供应商，粘贴 key（或走它支持的浏览器授权），完成。列表比你预期的短？见[供应商](/configuration/providers/)。
 
-```bash
-cd cetas-run
-moon build --target native --release
+### 3. 选一个模型
+
+```text
+/model
 ```
 
-<Aside type="caution" title="cetas-headless is not released">
-The repository also contains `cetas-headless`, a one-shot stdio host with the same one-turn shape. No release archive packages it and no composition recipe registers it, so `cetas-run` is the supported automation entrance. Build `cetas-headless` from source only if you specifically need it.
-</Aside>
+列表来自你刚登录的供应商，选一个就能用了。
 
-Continue with the [Quick Start](/getting-started/quick-start/) to configure a provider before your first prompt.
+### 4. 说第一句话
+
+```text
+这个仓库的鉴权是怎么工作的？
+```
+
+没有仓库也一样，说什么都行——它能流式回答，就算通了。第一天用得上的几个键：
+
+- `@路径` 挂一个工作区文件，<kbd>Tab</kbd> 补全；
+- <kbd>Esc</kbd> 打断当前回合，运行中接着打字会排队；
+- 完全信任它之前，`/permission readonly` 先把会话降到只读，见[权限](/configuration/permissions/)；
+- `/help` 列出这份构建真正有的命令。
+
+会话自动保留：`/sessions` 随时重开，`/rewind` 退回出错之前——没有"保存"这一步。
+
+## 要用自己公司的端点？
+
+Cetas 原生支持私有化部署的 OpenAI 兼容端点，走法在[自定义模型](/configuration/custom-models/)。
+
+## 卡住了
+
+| 现象 | 处理 |
+| --- | --- |
+| 安装时报 Node 版本太旧 | 升级 Node，或改用发布制品 |
+| `/login` 或 `/model` 列表是空的 | 重新 `/login` 再 `/model`；还不行见[供应商](/configuration/providers/) |
+| 第一句话就报错 | 多半是登录没完成，重来一遍 `/login` |
+| 说什么都被拒绝 | 权限在只读档，`/permission workspace_write` 放开写入 |
+
+登录的凭据、选好的模型、聊过的会话，都自动收在一个 home 目录里，平时不用管；好奇它长什么样、怎么备份，见 [Cetas Home](/configuration/cetas-home/)。
+
+接下来：[自定义模型](/configuration/custom-models/)、[权限](/configuration/permissions/)、[命令速查](/reference/commands/)。

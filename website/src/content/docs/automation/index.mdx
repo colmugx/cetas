@@ -1,0 +1,90 @@
+---
+title: 自动化
+description: 一次进程一个回合，给脚本、CI 和流水线用。
+sidebar:
+  order: 130
+  label: 自动化（cetas-run）
+---
+
+`cetas-run` 是一次性入口：一次进程调用，只跑一个用户回合。它和终端、编辑器入口组合同一个内核，适合"调用方是脚本而不是人"的场景。
+
+## 命令形状
+
+```text
+cetas-run [--model <provider/model>] [--effort <level>] [--session <id>]
+          [--yolo | --permission <readonly|workspace_write|interactive|auto>]
+          [--stream] [--verbose] [--show-thinking] [--jsonl]
+          [-- "<task>"]
+```
+
+任务写在 `--` 之后。如果 argv 里没有任务，Cetas 会从 stdin 读恰好一行。另外两种形式：
+
+```text
+cetas-run --login [provider]
+cetas-run --help | -h | --version
+```
+
+help 和 version 不写配置、不读 stdin、不联系任何供应商。
+
+## 输出契约
+
+文本模式下，stdout 上只有答案，别的一律不掺。诊断按固定规则分流，这也是它能被管道处理的原因：
+
+| 模式 | stdout | stderr |
+| --- | --- | --- |
+| 默认 | 最终答案 | 会话元数据、生命周期标记、审批提示 |
+| `--stream` | 答案增量，边到边发 | 事件与标记 |
+| `--verbose` | 答案 | 事件与标记（更啰嗦） |
+| `--show-thinking` | 答案 | 推理过程，然后是事件 |
+| `--jsonl` | 结构化事件流 | 标记 |
+
+`--jsonl` 优先于所有文本模式。
+
+## 会话
+
+不带 `--session` 时，每次调用都会新建一个会话 id，并在 stderr 上报出来。用 `--session <id>` 接着跑：
+
+```bash
+cetas-run -- "讲一下这个仓库"
+cetas-run --session cetas-42 -- "现在把挂掉的测试修好"
+```
+
+这是同宿主内的续接，不代表一个对话能在不同入口之间搬 —— 见[入口（Surfaces）](/concepts/surfaces/)。
+
+## 权限
+
+`--permission` 接受 `readonly`、`workspace_write`、`interactive`、`auto`。`--yolo` 是无人值守模式，不能和 `--permission` 同时用。
+
+`--model` 和 `--effort` 是本次运行内的覆盖：不落盘，所以定时任务不会悄悄改掉下一个人打开终端时看到的配置。
+
+## 退出码
+
+| 码 | 含义 |
+| --- | --- |
+| `0` | 回合完成 |
+| `1` | 跑完了但失败 |
+| `2` | 启动、用法或登录失败 |
+
+把 `1` 和 `2` 分开，是为了让管线能重试真正的失败，而不会把一个配置错误无限重试下去。
+
+## 配置
+
+供应商配置和凭据来自共享 home，通常是 `<CETAS_HOME>/.cetas/`；`CETAS_HOME` 覆盖的是平台 home（也就是 `.cetas` 的**父目录**，不是它本身）。凭据和其他入口共用：已经登录过了，那就直接跑。
+
+机器上没有终端会话时，原生构建可以用 `cetas-run --login` 完成首次登录。
+
+## 从 Mooncakes 运行
+
+runner 同时以 Mooncakes 模块发布：
+
+```bash
+moonx colmugx/cetas-run -- -- "把挂掉的测试修好"
+moonx colmugx/cetas-run -- --session <id> -- "继续"
+```
+
+## 在 CI 里
+
+两个让自动运行保持无聊的习惯：
+
+- 锁住装的版本（`npm install -g @posoco/cetas@<version>`），升版本是一个有意的动作 —— 升之前先读[更新日志](/changelog/)。
+- 审阅类、汇报类的任务用 `--permission readonly`；这样一次意外的写尝试会硬停，而不是变成一次惊吓式提交。

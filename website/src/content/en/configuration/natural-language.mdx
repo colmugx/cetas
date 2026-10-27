@@ -1,0 +1,76 @@
+---
+title: Configure by Conversation
+description: Describe the change in your own words and let the agent write the settings.
+sidebar:
+  order: 88
+---
+
+There is no configuration DSL to learn. A Cetas session has file tools, and the
+settings file is a file — so the fastest path to a configuration change you
+cannot remember the shape of is to describe it:
+
+```text
+Add a provider called my-gateway pointing at https://llm.internal.example/v1,
+declare the qwen3-32b model with a 128k context window, and set it as my model.
+```
+
+The agent reads the settings, makes the edit, and reports what it
+changed. This is the intended path for anything a picker does not cover:
+provider entries, model metadata, subagent kinds, workflow budgets.
+
+## Why this works
+
+The configuration is ordinary JSON in one file, and Cetas ships a manual for
+configuring itself — so the agent answers setup questions from that manual
+rather than from a memorised guess about somebody's settings schema. That is
+also why you should not expect it to invent provider-specific keys: it is
+supposed to tell you when it does not know the shape.
+
+## Ask for the diff
+
+Configuration mistakes are cheap to review and expensive to debug. Ask for the
+change, then ask what changed:
+
+```text
+Show me the diff of what you just wrote.
+```
+
+Prefer this over accepting a "done" for anything that touches `providers`,
+`workflow`, or the selected model.
+
+## Verify with a command
+
+Anything with a command should be confirmed by the command, not by prose. The
+command reads the file back through the same code the product uses:
+
+| Change | Verify with |
+| --- | --- |
+| Provider or credential | `/login <provider>` |
+| Models available | `/model` |
+| Decision slot | `/decision` |
+| Effort | `/effort` |
+| Permission posture | `/permission` |
+
+## What the agent still cannot do
+
+Tool permissions are not suspended for configuration. If the session is
+`readonly`, the agent cannot write the settings file either — switch posture
+first with `/permission workspace_write`, or make the change yourself.
+
+Two more boundaries worth knowing:
+
+- A change that affects the system prompt — instructions, provider identity, the
+  skill catalog — lands in the **next** session. The running one keeps the
+  prompt it started with.
+- The session will not start and the settings look suspect? A malformed settings
+  file is never auto-repaired — fix or restore it; see
+  [Settings reference](/en/reference/settings/).
+
+## When to use it, and when not to
+
+Use conversation for: new providers, model metadata, subagent kinds, workflow
+budgets, anything one-off or unfamiliar.
+
+Edit the file directly (or copy it between machines) when you are provisioning a
+team, reviewing a change, or matching a known-good configuration — and prefer
+`/login` over an inline `api_key` so secrets stay in the credential store.

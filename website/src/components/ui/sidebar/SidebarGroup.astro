@@ -21,8 +21,10 @@ interface Props extends HTMLAttributes<"details"> {
   collapsed?: boolean;
   badge?: SidebarBadge;
   /** Landing-page URL when the group has an `index.mdx`. Renders as the
-   *  group's first child row, labelled "Overview". */
+   *  group's first child row, labelled by `indexLabel`. */
   indexHref?: string;
+  /** Row label for the group's landing page. Defaults to "Overview". */
+  indexLabel?: string;
   /** True when the landing page is the current route. */
   indexIsCurrent?: boolean;
   /** True when `indexHref` is an off-site URL — render with target="_blank" rel="noopener". */
@@ -37,6 +39,7 @@ const {
   collapsed,
   badge,
   indexHref,
+  indexLabel = "Overview",
   indexIsCurrent,
   indexIsExternal,
   icon,
@@ -70,7 +73,7 @@ const isOpen = Boolean(hasActive || collapsed === false || collapsed === undefin
     {indexHref && (
       <li>
         <SidebarLink
-          label="Overview"
+          label={indexLabel}
           href={indexHref}
           isCurrent={indexIsCurrent}
           target={indexIsExternal ? "_blank" : undefined}

@@ -1,0 +1,269 @@
+---
+/**
+ * Home page, per locale.
+ *
+ * One component for both languages so the layout can never drift between them:
+ * only the copy and the entry collection change. `/` renders `zh`, `/en/`
+ * renders `en`.
+ */
+import BaseLayout from "@/layouts/BaseLayout.astro";
+import Header from "@/components/Header.astro";
+import { Code } from "@/components/ui/code";
+import { getIndexedEntries, withBase } from "@cloudflare/nimbus-docs/runtime";
+
+interface Props {
+  locale: "zh" | "en";
+}
+
+const { locale } = Astro.props;
+const collection = locale === "en" ? "en" : "docs";
+
+const copy = {
+  zh: {
+    title: "Cetas",
+    description: "运行在你终端、编辑器与脚本里的编码 agent。",
+    lead:
+      "一个 agent，打通所有入口。终端、编辑器、脚本化的一次性调用，组合的是同一个内核和同一份持久状态 —— 配置一次，从哪个入口进来都在。",
+    startHeading: "从这里开始",
+    startHere: [
+      {
+        id: "getting-started",
+        label: "第一次接触编码 agent",
+        blurb: "不写代码也能走到第一条消息：要准备什么，每个词是什么意思。",
+      },
+      {
+        id: "faq/how-different",
+        label: "从别的编码 agent 换过来",
+        blurb: "四条结构性差异，什么时候值得换，什么时候先别换。",
+      },
+      {
+        id: "concepts/surfaces",
+        label: "三个入口，一个内核",
+        blurb: "终端、编辑器、自动化怎么组合同一个 agent，各自的边界在哪。",
+      },
+    ],
+    whyHeading: "为什么是 Cetas",
+    cards: [
+      { id: "introduction", label: "简介", blurb: "Cetas 是什么，以及它凭什么被选上。" },
+      {
+        id: "getting-started/installation",
+        label: "安装与首次运行",
+        blurb: "npm、发布制品，以及走到第一条消息的每一步。",
+      },
+      {
+        id: "configuration/custom-models",
+        label: "自定义模型",
+        blurb: "接到私有化端点或你们自己的网关。",
+      },
+      {
+        id: "configuration/permissions",
+        label: "权限",
+        blurb: "五种权限姿态，以及怎么分阶段放开。",
+      },
+      { id: "editor", label: "编辑器（ACP）", blurb: "Zed 与 Lody 的配置步骤。" },
+      { id: "automation", label: "自动化", blurb: "一次进程一个回合，给脚本用。" },
+      { id: "configuration", label: "配置", blurb: "设置、供应商与共享状态。" },
+    ],
+    reasons: [
+      {
+        lead: "干过的活，查得到出处。",
+        body: "Board 上建任务、排依赖、验收看的是 diff 和测试证据；记录落在本地，你的 agent 自己也查得回来。",
+      },
+      {
+        lead: "评审改代码？那扇门没装。",
+        body: "子代理的工具面和权限档位写在定义文件里；调研只回摘要，不还上下文的债。",
+      },
+      {
+        lead: "中间过程不进你的窗口。",
+        body: "循环和过滤交给 Wasm 沙箱里的小程序，只把结果带回对话——没产生过的内容，也就没产生过费用。",
+      },
+      {
+        lead: "人和 agent 读同一份文档。",
+        body: "全站 llms.txt、每页 .md 源文件——装之前就能让另一个 agent 替你读完。",
+      },
+    ],
+    nodeNote: "需要 Node.js 24 或更高版本。想要自带运行时的单体可执行文件？用",
+    binaryLabel: "发布制品",
+    agentNote: "，agent 可以从",
+    followUp: "开始读。",
+    glossaryNote: "不认识 npm 或 Node.js？先读",
+    glossaryLabel: "词汇表",
+    glossaryTail: "。",
+    switchHint: "English version",
+  },
+  en: {
+    title: "Cetas",
+    description: "A coding agent for your terminal, your editor, and your scripts.",
+    lead:
+      "One agent, every surface. The terminal, your editor, and a scripted one-shot all compose the same core and the same durable state — so configuration you set once is there wherever you enter.",
+    startHeading: "Start here",
+    startHere: [
+      {
+        id: "getting-started",
+        label: "New to coding agents",
+        blurb: "Reach your first message without writing code: what to prepare, and what every term means.",
+      },
+      {
+        id: "faq/how-different",
+        label: "Switching from another agent",
+        blurb: "Four structural differences; when switching is worth it, and when not yet.",
+      },
+      {
+        id: "concepts/surfaces",
+        label: "Three surfaces, one core",
+        blurb: "How the terminal, the editor, and automation compose one agent — and where each ends.",
+      },
+    ],
+    whyHeading: "Why Cetas",
+    cards: [
+      { id: "introduction", label: "Introduction", blurb: "What Cetas is, and what actually sets it apart." },
+      {
+        id: "getting-started/installation",
+        label: "Install & First Run",
+        blurb: "npm, the released binaries, and the walk to your first message.",
+      },
+      {
+        id: "configuration/custom-models",
+        label: "Custom Models",
+        blurb: "Point it at a private endpoint or your own gateway.",
+      },
+      {
+        id: "configuration/permissions",
+        label: "Permissions",
+        blurb: "The five postures, and how to roll them out.",
+      },
+      { id: "editor", label: "Editor (ACP)", blurb: "Zed and Lody setup, step by step." },
+      { id: "automation", label: "Automation", blurb: "One Cetas turn per process, for scripts." },
+      { id: "configuration", label: "Configuration", blurb: "Settings, providers, and shared state." },
+    ],
+    reasons: [
+      {
+        lead: "Work you can trace.",
+        body: "Tickets, dependencies, and a review gate on a local board; what you review is the diff and the test evidence, and your agent can look the provenance up itself.",
+      },
+      {
+        lead: "The reviewer cannot touch the code.",
+        body: "A subagent's tools and permission posture live in its definition file. Research comes back as summaries, never as context debt.",
+      },
+      {
+        lead: "Middle steps never enter your window.",
+        body: "Loops and filters run in a Wasm-sandboxed program; only the result returns to the conversation. Content that was never generated never cost anything.",
+      },
+      {
+        lead: "Humans and agents read the same docs.",
+        body: "Site-wide llms.txt and a .md source for every page — another agent can read it all for you before you install.",
+      },
+    ],
+    nodeNote: "Requires Node.js 24 or newer. Prefer a self-contained binary? Use a",
+    binaryLabel: "released build",
+    agentNote: ". Agents can start from",
+    followUp: ".",
+    glossaryNote: "New to npm or Node.js? Read the ",
+    glossaryLabel: "glossary",
+    glossaryTail: " first.",
+    switchHint: "中文版",
+  },
+}[locale];
+
+// Link through each page's entry: its `url` follows the site's
+// `trailingSlash`, and a link whose page is gone drops out instead of 404ing.
+const entries = await getIndexedEntries();
+const hrefFor = (id: string) => {
+  const entry = entries.find((e) => e.collection === collection && e.entry.id === id);
+  return entry ? withBase(entry.url, import.meta.env.BASE_URL) : undefined;
+};
+
+const install = "npm install -g @posoco/cetas";
+const otherLocaleHref = withBase(locale === "en" ? "/" : "/en/", import.meta.env.BASE_URL);
+---
+
+<BaseLayout title={copy.title} description={copy.description} collection={collection}>
+  <div class="flex flex-col min-h-screen">
+    <Header />
+    <main id="main-content" tabindex="-1" class="flex-1 mx-auto max-w-4xl w-full px-6 py-20">
+      <section class="max-w-2xl">
+        <h1
+          class="text-foreground leading-tight"
+          style="font-size: var(--nb-h1-size); font-weight: var(--nb-h1-weight); letter-spacing: var(--nb-h1-tracking);"
+        >
+          {copy.title}
+        </h1>
+        <p class="mt-2 text-[1.0625rem] text-muted-foreground leading-relaxed">
+          {copy.description}
+        </p>
+        <p class="mt-4 text-[1.0625rem] text-muted-foreground leading-relaxed">
+          {copy.lead}
+        </p>
+      </section>
+
+      <section class="mt-8 max-w-2xl">
+        <h2
+          class="text-foreground leading-tight"
+          style="font-size: var(--nb-h2-size); font-weight: var(--nb-h2-weight); letter-spacing: var(--nb-h2-tracking);"
+        >
+          {copy.startHeading}
+        </h2>
+        <ul class="mt-4 list-none space-y-3 p-0">
+          {copy.startHere.map((item) => {
+            const href = hrefFor(item.id);
+            return href ? (
+              <li class="text-muted-foreground leading-relaxed">
+                <a
+                  class="font-medium text-foreground underline underline-offset-2 hover:text-primary"
+                  href={href}
+                >
+                  {item.label}
+                </a>{" — "}{item.blurb}
+              </li>
+            ) : null;
+          })}
+        </ul>
+      </section>
+
+      <section class="mt-8 max-w-2xl">
+        <Code code={install} lang="bash" />
+        <p class="mt-3 text-sm text-muted-foreground leading-relaxed">
+          {copy.nodeNote}{" "}
+          {hrefFor("getting-started/installation") ? (
+            <a class="underline underline-offset-2 hover:text-foreground" href={hrefFor("getting-started/installation")}>
+              {copy.binaryLabel}
+            </a>
+          ) : (
+            copy.binaryLabel
+          )}{copy.agentNote}{" "}
+          <a class="underline underline-offset-2 hover:text-foreground" href={withBase("/llms.txt", import.meta.env.BASE_URL)}>
+            /llms.txt
+          </a>
+          {copy.followUp}
+        </p>
+        {hrefFor("getting-started/glossary") && (
+          <p class="mt-2 text-sm text-muted-foreground leading-relaxed">
+            {copy.glossaryNote}<a class="underline underline-offset-2 hover:text-foreground" href={hrefFor("getting-started/glossary")}>{copy.glossaryLabel}</a>{copy.glossaryTail}
+          </p>
+        )}
+        <p class="mt-2 text-sm text-muted-foreground leading-relaxed">
+          <a class="underline underline-offset-2 hover:text-foreground" href={otherLocaleHref}>
+            {copy.switchHint}
+          </a>
+        </p>
+      </section>
+
+      <section class="mt-16">
+        <h2
+          class="text-foreground leading-tight"
+          style="font-size: var(--nb-h2-size); font-weight: var(--nb-h2-weight); letter-spacing: var(--nb-h2-tracking);"
+        >
+          {copy.whyHeading}
+        </h2>
+        <ul class="mt-5 list-none space-y-4 p-0">
+          {copy.reasons.map((reason) => (
+            <li class="text-muted-foreground leading-relaxed">
+              <strong class="font-medium text-foreground">{reason.lead}</strong>{" "}
+              {reason.body}
+            </li>
+          ))}
+        </ul>
+      </section>
+    </main>
+  </div>
+</BaseLayout>

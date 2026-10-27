@@ -1,0 +1,85 @@
+---
+title: Commands
+description: The terminal host's slash commands and keys, and what each one changes.
+sidebar:
+  order: 165
+---
+
+Slash commands are the deterministic path: they act immediately, without a model
+turn. `/help` is the authority for the build you are running — this page
+explains the ones worth knowing.
+
+## Session and history
+
+| Command | What it does |
+| --- | --- |
+| `/new` | Start a new session |
+| `/sessions` | Browse and resume a past session |
+| `/rewind` | Walk this conversation back to an earlier message |
+| `/resume` | Resume this session's interrupted turn |
+| `/compact` | Compact the current context |
+
+`/rewind` is the recovery keystroke: when a turn goes wrong, go back to the point
+before it rather than arguing with the model about it.
+
+## Models and providers
+
+| Command | What it does |
+| --- | --- |
+| `/login` | Authenticate a provider (API key or OAuth) |
+| `/model` | Pick the conversation model and its effort |
+| `/decision` | Pick the decision model — separate from `/model` |
+| `/effort` | Pick reasoning effort for the active model |
+| `/manager` | Switch between the provider set and Magpie |
+| `/quota` | Show quota information for the active manager |
+| `/status` | Show agent, session, model, and manager status |
+
+## Permission and context
+
+| Command | What it does |
+| --- | --- |
+| `/permission` | Set the session's posture — see [Permissions](/en/configuration/permissions/) |
+| `/ptc` | Select the programmatic tool-calling mode |
+| `/skills` | Browse discovered skills by scope |
+
+## Work
+
+| Command | What it does |
+| --- | --- |
+| `/questions` | Review pending questions and answer one |
+| `/answer` | Answer a pending question inline: `/answer @q3 yes` |
+| `/goal` | Start, inspect, pause, or resume a verified goal |
+| `/board` | Open the Board dashboard in your browser (offers to enable workflows on first use) |
+| `/board.stop` | Stop all local Board servers |
+
+## Housekeeping
+
+| Command | What it does |
+| --- | --- |
+| `/update` | Check for and install updates — npm installs only |
+| `/pi` | Manage pi packages |
+| `/exit`, `/quit` | Quit |
+
+<Aside type="note" title="Not every command exists in every build">
+`/effort`, `/permission`, `/decision`, and `/help` come from
+composed extensions, so a build without that capability does not offer them.
+The shell-owned commands above are always present. `/help` reflects the actual
+set.
+</Aside>
+
+## Keys
+
+| Key | Effect |
+| --- | --- |
+| <kbd>Esc</kbd> | Interrupt the running turn (denies a pending approval first) |
+| <kbd>Esc</kbd> <kbd>Esc</kbd> (idle) | First clears the input, second opens `/rewind` |
+| <kbd>Enter</kbd> while running | Queues the typed message as a follow-up |
+| <kbd>Tab</kbd> / <kbd>Enter</kbd> | Apply the highlighted `@path` completion |
+| <kbd>Ctrl</kbd>+<kbd>T</kbd> | Collapse or expand thinking blocks |
+| <kbd>Ctrl</kbd>+<kbd>O</kbd> | Collapse or expand tool output |
+
+If the agent asks a question, type the reply directly — `/questions` and
+`/answer` are for the case where you want to pick one out of several.
+
+`/permission <mode>` works mid-turn, which makes it the one command worth
+memorising: it is how you clamp a session that is doing more than you expected.

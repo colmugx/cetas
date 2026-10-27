@@ -1,24 +1,31 @@
 ---
-title: Surfaces
-description: The ways to access the same Cetas agent, and what is shared between them.
+title: 入口（Surfaces）
+description: 触达同一个 agent 的三种方式，以及它们共享什么。
 sidebar:
-  order: 130
+  order: 145
 ---
 
-| Host | Package | Interaction model | Status |
+| 入口 | 包 | 交互模型 | 安装 |
 | --- | --- | --- | --- |
-| Terminal | `cetas-js` | Interactive terminal UI, shipped as `cetas-bun` / `cetas` | Released |
-| Editor | `cetas-acp` | Agent Client Protocol host | Released |
-| Automation | `cetas-run` | One user turn per process over argv/stdin | Released |
-| Native terminal | `cetas-native` | MoonBit + Rust terminal | Under development |
-| Web | `cetas-web` | Browser host | Under development |
+| 终端 | `cetas-js` | 交互式终端 UI，形态是 `cetas`（npm）或 `cetas-bun`（二进制） | [优先 npm](/getting-started/installation/) |
+| 编辑器 | `cetas-acp` | 基于 stdio 的 Agent Client Protocol 宿主 | [发布归档](/getting-started/installation/)或源码 |
+| 自动化 | `cetas-run` | 一次进程一个用户回合 | [发布归档](/getting-started/installation/)或 Mooncakes |
 
-Every released host composes the same `cetas-core` assembly and participates in the same Cetas identity and durable-state conventions.
+每个入口都组合同一个内核，并且遵循同一套身份、配置和持久状态约定。
 
-## What is shared today
+## 共享的部分
 
-Provider configuration, credentials, MCP configuration, persisted model and effort selection, and session storage all live under the shared Cetas home — see [Cetas Home](/configuration/cetas-home/).
+供应商配置、凭据、模型与档位选择、MCP 配置、缓存、会话存储，全都在共享的 [Cetas home](/configuration/cetas-home/) 里。配一次，下一个入口就从同一个地方开始。
 
-## What is not claimed yet
+## 不同的部分
 
-The repository explicitly distinguishes shared durable state from continuing one conversation seamlessly across different hosts. Cross-host session resume is the next piece of the product definition, not a capability to advertise today. [Sessions](/concepts/sessions/) states the current boundary.
+| | 终端 | 编辑器 | 自动化 |
+| --- | --- | --- | --- |
+| 选择项 | `/model`、`/decision`、`/effort` 持久化 | ACP 配置项持久化 | `--model`、`--effort` 只对本次运行生效 |
+| 权限姿态 | `/permission` | 配置项或 `CETAS_PERMISSION_MODE` | `--permission` / `--yolo` |
+| 会话 | 浏览、续接、回退 | 客户端拥有记录，Cetas 保留记录文件 | `--session <id>` 续接 |
+| 界面 | TUI、选择器、审批 | 编辑器 UI、ACP 审批 | stdout 给答案、stderr 给诊断、退出码 |
+
+## 不做承诺的部分
+
+共享持久状态，不等于一个对话能在不同入口之间搬。每个入口只在自己内部续接；跨入口续接不是受支持的契约，写自动化时把它当不存在。

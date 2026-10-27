@@ -1,0 +1,39 @@
+---
+title: Subagents
+description: The reviewer cannot edit code, and research never bills your context window.
+sidebar:
+  order: 136
+---
+
+## A reviewer that cannot edit
+
+Ask an agent to review its own changes and you hit an old problem: it holds every tool you hold, and "report only, don't fix" is a polite request. Subagents make it configuration.
+
+Create `reviewer.md` under the project's `.cetas/agents/`:
+
+```markdown
+---
+name: reviewer
+description: Read-only reviewer for diffs
+tools: read, grep, glob
+mode: readonly
+---
+
+You review changes without touching the working tree.
+```
+
+Three fields of front matter define a read-only reviewer. It cannot see `write` and cannot run `bash`; there is no door to reach through. A `yolo` parent changes nothing, because the posture belongs to the child.
+
+## Research that never bills your window
+
+"Trace the auth flow across auth, billing, and jobs." The usual way reads sixty files into your context, then you pay for `/compact` three times.
+
+Hand it to subagents. Three child sessions read in parallel and the main window receives three summaries. Those sixty files never enter your context, and you are never billed for them.
+
+## Three lines to get started
+
+- `<CETAS_HOME>/.cetas/agents/` for your whole machine, the project's `.cetas/agents/` to travel with the repository.
+- `tools` omitted inherits the defaults; `[]` means none; a list means exactly those.
+- Concurrency and totals have defaults (16 per wave, 4 concurrent, 64 spawns per session), tunable in `subagent.limits`. A plan gone wrong stops at the limit.
+
+There is no special command. Say what you want: "Use reviewer on my uncommitted changes, report only." When it needs a call it stops and asks; the answer lands in the same session.

@@ -1,21 +1,44 @@
 ---
 title: MCP
-description: Configure MCP servers for Cetas.
+description: 按用户级或项目级接入外部工具服务器。
 sidebar:
-  order: 110
+  order: 105
 ---
 
-Cetas reads MCP server configuration from two locations:
+MCP 服务器扩展 agent 能做的事 —— 一个数据库、一个工单系统、一个内部 API。Cetas 从两处读取它们的配置：
 
 ```text
-~/.cetas/mcp.json     # user level
-<cwd>/.mcp.json       # project level
+<CETAS_HOME>/.cetas/mcp.json     # 用户级
+<cwd>/.mcp.json       # 项目级
 ```
 
-Project entries take precedence for matching server names.
+同名的服务器以项目级为准，所以一个仓库可以钉住它需要的那套服务器，而不去动别人 home 目录里的东西。
 
-The interactive terminal and the ACP host compose the MCP extension. In ACP, locally configured servers connect lazily on the first turn by default; set `CETAS_MCP_MODE=eager` to connect them at startup instead. An editor can additionally supply MCP server definitions over ACP, in which case the editor owns those servers.
-
-<Aside type="caution">
-This page intentionally does not define an MCP JSON schema. Server fields are interpreted by the MCP extension and, for editor-supplied servers, by your editor.
+<Aside type="caution" title="schema 归服务器自己">
+本页故意不定义 MCP 的 JSON schema。服务器字段由 MCP 扩展解释（编辑器提供的服务器则由编辑器解释）。请照着该服务器自己的文档抄形状，而不是照这里的通用示例。
 </Aside>
+
+## 什么时候连
+
+| 入口 | 默认 | 改动方式 |
+| --- | --- | --- |
+| 终端 | 第一个回合时连 | — |
+| 编辑器（ACP） | 第一个回合时懒加载 | `CETAS_MCP_MODE=eager` 改为启动时连 |
+| 编辑器提供的服务器 | 始终 eager | 这些服务器归编辑器所有 |
+
+默认懒加载，是因为启动不该被你这轮根本不用的服务器卡住。连不上的服务器表现为工具失败，而不是启动失败。
+
+## 各入口能看到哪些服务器
+
+- 终端和编辑器都组合了 MCP 扩展，所以两者都读上面两个文件。
+- 编辑器还可以通过 ACP 直接提供服务器定义。那些服务器归编辑器：Cetas 不会写回去，终端也看不到。
+
+## 排查连接问题
+
+```bash
+CETAS_DEBUG_MCP_CATALOG=1 cetas-acp
+```
+
+会把每个会话在组装时的工具目录 dump 到 `<CETAS_HOME>/.cetas/debug/<session-id>-catalog.json` —— 回答"服务器连上了吗？它到底暴露了什么？"最快的方式。要看线上细节，用 `CETAS_DEBUG_WIRE=1`。
+
+先看目录：一个连上了但没暴露工具的服务器，是服务器的问题，不是 Cetas 的问题，而目录能让这个区分一目了然。

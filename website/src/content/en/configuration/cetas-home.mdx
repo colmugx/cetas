@@ -1,0 +1,64 @@
+---
+title: Cetas Home
+description: The one directory that holds settings, credentials, caches, and sessions.
+sidebar:
+  order: 110
+---
+
+Cetas resolves one home directory for durable state. It is the only place your
+configuration lives, and every surface reads it.
+
+A non-empty `CETAS_HOME` (an environment variable) overrides the platform user
+home; otherwise Cetas uses the platform home (`USERPROFILE`, then `HOMEDRIVE` +
+`HOMEPATH` on Windows; `HOME` elsewhere), falling back to the current directory
+only when no home can be resolved. In the docs, `<CETAS_HOME>` means this
+resolved user home, and the durable-state root is `<CETAS_HOME>/.cetas`:
+
+```text
+<CETAS_HOME>/.cetas/
+├── settings.json        # providers, selections, workflow, subagents
+├── credentials/         # written by /login — never hand-edit
+├── model_lists.json     # discovered model catalogs, per provider
+├── mcp.json             # MCP servers
+├── sessions/            # per-client session transcripts
+└── debug/               # only when a CETAS_DEBUG_* flag is on
+```
+
+`debug/` is not created by default: it appears when you enable
+`CETAS_DEBUG_WIRE` or `CETAS_DEBUG_MCP_CATALOG`.
+
+<Aside type="note" title="Override granularity">
+`CETAS_HOME` replaces the **parent** home, not the `.cetas` directory.
+`CETAS_HOME=/tmp/cetas-user` puts state in `/tmp/cetas-user/.cetas/`.
+</Aside>
+
+## Which hosts honour the override
+
+| Surface | `CETAS_HOME` |
+| --- | --- |
+| Editor (`cetas-acp`) | Honoured |
+| Automation (`cetas-run`) | Honoured |
+| Terminal (`cetas` / `cetas-bun`) | **Not read** — resolves the platform home |
+
+This is worth knowing before you script anything: on a machine where you set
+`CETAS_HOME` to keep work separated, the terminal host ignores it and still
+resolves `.cetas` under the platform home. Check the home a session actually
+uses before debugging a "missing" configuration.
+
+## What lives here, and why it is shared
+
+Model selection, credentials, MCP configuration, caches, and stored sessions are
+part of the same Cetas identity across surfaces — that sharing is the point.
+Sharing state does not promise identical behaviour: each surface has its own
+interaction model and its own support for resume. See
+[Surfaces](/en/concepts/surfaces/).
+
+Projects can also use project-local configuration where documented — for
+example `<cwd>/.mcp.json` overriding the user-level MCP file, and
+`<cwd>/.cetas/agents/` for project-scoped subagent kinds.
+
+## Backing it up
+
+Copy the directory. `settings.json` and `sessions/` are the parts worth keeping;
+`credentials/` moves too, but treat it as a secret store, and `model_lists.json`
+is a cache that rebuilds itself.

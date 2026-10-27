@@ -1,0 +1,40 @@
+---
+title: Bunraku (run_code)
+description: Let the program do the looping; keep the context for people.
+sidebar:
+  order: 138
+---
+
+## Why pay for 40 files when you need 3
+
+A conventional agent reads one at a time. Forty tool calls and forty results recorded in context, even when the answer is three of them. You pay for all forty either way.
+
+`run_code` turns it around. The model writes a small MoonBit program; the program loops and filters itself, and only the 3 hits reach the conversation:
+
+```moonbit
+let hits = []
+for path in paths {
+  match ctx.call("grep", {"pattern": "OldAuth", "path": path}) {
+    {"error": _, ..} => ()
+    result => hits.push({ "path": path, "hit": result })
+  }
+}
+{ "count": hits.length(), "hits": hits }
+```
+
+The intermediate results live and die inside the program. They never enter the context, so they never reach the bill. This is not compression; the content was never produced at all.
+
+## Model-written code, run safely
+
+Every customer asks this, and it deserves a real answer.
+
+The program runs in a Wasm sandbox where filesystem, network, and process access are all denied. The only thing it can do is call the tools you allow; anything outside the list is an explicit error, never a quiet success.
+
+Programs are compiled. A type error is a compile error before anything runs, returned to the model as a bounded diagnostic (8K characters) it can fix itself.
+
+Return values are size-capped and programs can be cancelled. A loop written wrong does not become an invoice.
+
+
+## When not to use it
+
+Two or three tool calls are faster made directly. The payoff starts with loops and filtering. Nested calls are serial for now, so this is not the tool for firing concurrent requests.

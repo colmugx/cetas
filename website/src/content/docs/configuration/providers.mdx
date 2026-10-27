@@ -1,32 +1,56 @@
 ---
-title: Providers
-description: How provider extensions participate in Cetas composition.
+title: 供应商
+description: Cetas 能组合的供应商扩展、它们的 id，以及登录怎么工作。
 sidebar:
-  order: 80
+  order: 75
 ---
 
-Provider configuration lives under `providers` in `~/.cetas/settings.json`. Cetas supplies the settings and credential sources; each provider extension owns its own defaults, endpoints, protocol details, model capabilities, and login behavior.
+供应商配置在 `<CETAS_HOME>/.cetas/settings.json` 的 `providers` 下。Cetas 提供配置与凭据来源；端点、协议细节、模型能力、登录行为，都由各自的供应商扩展自己负责。
 
-## Registered providers
+## 内置供应商
 
-The core registers provider factories for:
+下面这些 id 由内核注册。它们同时也是你传给 `/login` 的 id，以及 `provider/model` 槽位的前半段。
 
-- DeepSeek
-- Kimi
-- OpenAI
-- OpenCode Zen
-- Z.ai
-- Z.ai Coding Plan
-- OpenRouter
+| Id | 供应商 | 登录方式 |
+| --- | --- | --- |
+| `deepseek` | DeepSeek | API key |
+| `kimi` | Kimi | API key、OAuth |
+| `openai` | OpenAI | API key、OAuth |
+| `opencode` | OpenCode Zen | API key |
+| `opencode-go` | OpenCode Go | OAuth |
+| `zai` | Z.ai | API key |
+| `zai-coding-plan` | Z.ai Coding Plan | API key |
+| `openrouter` | OpenRouter | API key |
+| `typesafe` | Typesafe `jev` 决策后端 | API key |
 
-Additional settings keys can participate through the OpenAI-compatible provider adapter, provided their provider ids are valid and do not collide with a statically registered provider. OpenCode Zen claims the `opencode` id, so a `providers.opencode` entry resolves to the Zen factory rather than falling through to the compatible adapter.
+拥有多种登录方式的供应商会出现方式选择器；只有一种的会跳过选择器，直接要凭据。
 
-Provider ids are restricted to letters, digits, `_`, and `-`, because they are also used in settings, credential filenames, and login targets.
+## 供应商 id 的规则
 
-## Login
+id 只允许字母、数字、`_` 和 `-`，因为它同时出现在 settings key、凭据文件名和登录目标里。
 
-`/login` in the terminal host presents the authentication methods the provider owns. DeepSeek, for example, exposes only API-key login, so the method selector is skipped for it; providers that support OAuth offer that too.
+`opencode` 这个 id 归 OpenCode Zen，所以 `providers.opencode` 会解析到 Zen，而不会掉到兼容适配器里。
 
-## On schemas
+## 其他一切走 OpenAI 兼容
 
-There is no single generic JSON schema covering every provider, and this page does not invent provider-specific keys. Prefer the `/login` and `/model` flows, and treat the settings file as the extension's business.
+`providers` 里任何既不在上表、也不撞 id 的 key，都会变成一个 OpenAI 兼容供应商。这是网关、代理、以及自家部署的 OpenAI 形状 API 的官方支持路径 —— 见[自定义与私有化模型](/configuration/custom-models/)。
+
+因为兼容工厂列表是从 settings 现算的，自定义供应商和内置供应商享受完全一样的待遇：`/login`、`/model`、目录刷新、模型缓存都一视同仁。
+
+## 登录
+
+```text
+/login
+```
+
+选择器列出的是这一份构建能组合出来的供应商。要登录自定义供应商，对着它的 id 登：
+
+```text
+/login my-gateway
+```
+
+凭据文件写到 `<CETAS_HOME>/.cetas/credentials/`，所有入口共用。手边没有终端时，`cetas-run --login` 也能对 runner 完成同样的事。
+
+## 关于 schema
+
+不存在一套覆盖所有供应商的通用 JSON schema，本页也不会凭空编造供应商专属的 key。优先用 `/login` 和 `/model`；把 settings 文件当成扩展自己的地盘。私有端点那种小形状，写在[自定义模型](/configuration/custom-models/)里。

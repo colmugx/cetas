@@ -10,14 +10,16 @@ import type { TOCItem } from "@cloudflare/nimbus-docs/types";
 
 interface Props extends HTMLAttributes<"div"> {
   headings: TOCItem[];
+  /** Rail heading. Localized by the layout; defaults to English. */
+  label?: string;
 }
 
-const { headings, class: className, ...attrs } = Astro.props;
+const { headings, label = "On this page", class: className, ...attrs } = Astro.props;
 ---
 
 {headings.length > 0 && (
   <div data-nb-toc class={cn("toc-container", className)} {...attrs}>
-    <h2 class="mb-2 text-sm font-semibold text-foreground">On this page</h2>
+    <h2 class="mb-2 text-sm font-semibold text-foreground">{label}</h2>
     <nav aria-label="Table of contents" class="relative">
       <svg
         data-nb-toc-rail

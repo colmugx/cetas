@@ -1,0 +1,49 @@
+---
+title: Features
+description: Five things in the box, and what each one gets done for you.
+sidebar:
+  order: 135
+  label: Overview
+---
+
+`npm install -g @posoco/cetas` is the whole install. The five things below need no setup and no plugins. Each page covers one question: what work does it get done.
+
+<CardGrid>
+  <Card title="Subagents" icon="ph:users-three">
+    The reviewer cannot edit your code. That is in its definition, not a polite request.
+  </Card>
+  <Card title="Board" icon="ph:kanban">
+    One request becomes a graph you can review, with a record of every step.
+  </Card>
+  <Card title="Bunraku (run_code)" icon="ph:code">
+    Find 3 references in 40 files; your context only ever sees the 3.
+  </Card>
+  <Card title="Model selection" icon="ph:sliders-horizontal">
+    See who still has quota and what is genuinely cheaper, before you choose.
+  </Card>
+  <Card title="Rate-limit guard" icon="ph:hourglass-medium">
+    A 429 at 3 a.m. waits for the reset and keeps going.
+  </Card>
+</CardGrid>
+
+## The foundation in the box
+
+A second batch of capabilities gets no pages of its own; here they are in a few paragraphs.
+
+Permissions come in five postures. Between `readonly` and `yolo` sits `auto`: every non-read call goes to the decision model, risky ones declined, safe ones passed, no human babysitting. It requires a configured decision model and refuses to turn on without one. See [Permissions](/en/configuration/permissions/).
+
+Plan mode writes nothing until you approve.
+
+Skills open in three tiers; the catalog carries metadata, the body is read on activation. Ten skills do not add ten manuals to the prompt.
+
+Sessions land on disk throughout. `/sessions` browses, `/rewind` goes back to before a mistake, a restart continues where you were.
+
+The tool face includes astgrep, which searches code structure rather than text. Before a refactor, "where else is this interface used" returns call sites.
+
+## Suggested order
+
+1. [Model selection](/en/features/model-selection/) — cost and quality are decided here; you see numbers the same day.
+2. [Subagents](/en/features/subagents/) — start with read-only work, the lowest risk.
+3. [Board](/en/features/board/) — bring it in once the flow is stable, when you are running a pipeline.
+
+Related questions are answered in the [FAQ](/en/faq/).

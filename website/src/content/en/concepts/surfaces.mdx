@@ -1,0 +1,37 @@
+---
+title: Surfaces
+description: The three ways to reach the same agent, and what they share.
+sidebar:
+  order: 145
+---
+
+| Surface | Package | Interaction model | Install |
+| --- | --- | --- | --- |
+| Terminal | `cetas-js` | Interactive terminal UI, as `cetas` (npm) or `cetas-bun` (binary) | [npm first](/en/getting-started/installation/) |
+| Editor | `cetas-acp` | Agent Client Protocol host over stdio | [Release archive](/en/getting-started/installation/) or source |
+| Automation | `cetas-run` | One user turn per process | [Release archive](/en/getting-started/installation/) or Mooncakes |
+
+Every surface composes the same core and participates in the same identity,
+configuration, and durable-state conventions.
+
+## What is shared
+
+Provider configuration, credentials, model selection and effort, MCP
+configuration, caches, and session storage all live under the shared
+[Cetas home](/en/configuration/cetas-home/). Configure once, and the next surface
+starts from the same place.
+
+## What differs
+
+| | Terminal | Editor | Automation |
+| --- | --- | --- | --- |
+| Selections | `/model`, `/decision`, `/effort` persist | ACP config options persist | `--model`, `--effort` are run-scoped only |
+| Permission posture | `/permission` | Config option or `CETAS_PERMISSION_MODE` | `--permission` / `--yolo` |
+| Sessions | Browse, resume, rewind | Client owns the record; Cetas keeps the transcript | `--session <id>` to continue |
+| Interface | TUI, pickers, approvals | Editor UI, ACP approvals | stdout answer, stderr diagnostics, exit codes |
+
+## What is not claimed
+
+Sharing durable state is not the same as moving one conversation between
+surfaces. Each surface resumes within itself; cross-surface resume is not a
+supported contract — write automation as if it does not exist.

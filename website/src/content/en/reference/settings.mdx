@@ -1,0 +1,132 @@
+---
+title: Settings Reference
+description: The complete field reference for <CETAS_HOME>/.cetas/settings.json — every key, its type, and its default, organized by nesting level.
+sidebar:
+  order: 168
+  label: Settings
+  hidden: true
+---
+
+`<CETAS_HOME>/.cetas/settings.json` is one JSON object. Cetas writes it atomically and
+preserves every key it does not own, so keys added by other tools (or by a
+future version) survive a model switch. On startup, a **missing** file is
+created with an empty `providers` object. An **existing** file is never
+overwritten — including an empty or malformed one. A broken settings file is a
+loud failure, not something Cetas quietly repairs.
+
+## Top-level keys
+
+| Key | Type | Purpose |
+| --- | --- | --- |
+| `model` | string | The active conversation slot, `provider/model` |
+| `reasoning_effort` | string, optional | Reasoning effort; absent means the slot's default |
+| `decision_model` | string, optional | The decision slot, independent of `model` |
+| `providers` | object | Provider settings; each entry is interpreted by its extension |
+| `subagent` | object | Subagent default model, effort, and limits |
+| `workflow` | object | Budgets for the Board multi-ticket execution loop |
+| `model_manager` | string | The terminal host's model-manager choice |
+| `manager_selections` | object | What each manager last had selected |
+| `magpie` | object | Magpie gateway settings |
+
+Expanded level by level below.
+
+## model / reasoning_effort / decision_model
+
+| Key | Read by | Notes |
+| --- | --- | --- |
+| `model` | Every surface | The conversation slot; written by `/model` |
+| `reasoning_effort` | Every surface | Absent means the slot's advertised default; written by `/effort` |
+| `decision_model` | Terminal and editor | The decision slot; written by `/decision` |
+
+Unrelated keys are preserved verbatim when a selection is updated. If provider
+configuration changes make the previous selection unavailable, Cetas falls back
+to an available default instead of refusing to compose.
+
+## providers
+
+Entries map a provider id to its settings. Each entry is interpreted by that
+provider's extension; this page does not answer for them:
+
+- Built-in ids and login methods: [Providers](/en/configuration/providers/).
+- An id that is not built-in becomes an OpenAI-compatible provider; the entry
+  shape (`base_url`, `models`, model metadata) is in
+  [Custom models](/en/configuration/custom-models/).
+
+A `gateway_key` on the entry with id `magpie` is **ignored**: gateway
+credentials belong in the shared credential store (written by `/login`), and
+Cetas warns when it finds one here.
+
+## subagent
+
+```json
+{
+  "subagent": {
+    "default_model": "zai/glm-5.3",
+    "default_effort": "low",
+    "limits": {
+      "swarm_items": 16,
+      "concurrency": 4,
+      "global_concurrency": 20,
+      "timeout_ms": 1800000,
+      "spawn_budget": 64,
+      "answer_timeout_ms": 600000
+    },
+    "kinds": []
+  }
+}
+```
+
+| Key | Default | Notes |
+| --- | --- | --- |
+| `default_model` | — (inherit parent) | Default conversation slot for kinds that bind no model |
+| `default_effort` | — | Same, for reasoning effort |
+| `limits.swarm_items` | `16` | Maximum items in one parallel wave |
+| `limits.concurrency` | `4` | Children running at once in a wave |
+| `limits.global_concurrency` | `20` | Children running at once overall |
+| `limits.timeout_ms` | `1800000` | Wall clock per child (30 minutes) |
+| `limits.spawn_budget` | `64` | Children a session may spawn in total |
+| `limits.answer_timeout_ms` | `600000` | How long a child's question may wait for the parent (`0` disables) |
+| `kinds` | `[]` | Kind entries carried directly in settings, same fields as the `.md` frontmatter — see [Subagents](/en/configuration/subagents/) |
+
+Every field is optional; an absent section means defaults and no extra kinds.
+The model-selection precedence chain: explicit argument → kind binding →
+`default_model` → the parent's live selection.
+
+## workflow
+
+Controls the Board multi-ticket execution loop. Disabled unless
+`enabled` is `true`.
+
+| Key | Default | Range |
+| --- | --- | --- |
+| `enabled` | `false` | boolean |
+| `max_executions` | `8` | 1–1000 |
+| `max_elapsed_ms` | `600000` | 1–86400000 |
+| `execution_timeout_ms` | `60000` | 1–86400000, and ≤ `max_elapsed_ms` |
+| `max_concurrency` | `2` | 1–8 |
+| `max_expansions` | `2` | 1–16 |
+| `max_generated_tasks` | `20` | 1–200 |
+| `max_depth` | `16` | 2–16 |
+| `continue_on_confirmed_failure` | `false` | boolean |
+
+This section is strict on purpose: an unknown key is a composition error, and a
+wrong type or out-of-range number is rejected. A typo in a budget must not
+silently become a different budget.
+
+## model_manager / manager_selections / magpie
+
+Terminal host only: these remember which model manager you chose and what each
+manager last had selected, so switching back restores the previous slots.
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `model_manager` | `"providers"` or `"magpie"` | Active manager; absent means `"providers"` |
+| `manager_selections` | object | manager → `{ model, reasoning_effort }`, kept separately per manager |
+| `magpie.base_url` | string | The Magpie gateway address |
+| `magpie.enabled` | boolean | Whether Magpie is enabled |
+
+<Aside type="caution" title="Type checks are not advice">
+Wrong types fail loudly. `model_manager` must be exactly `providers` or
+`magpie`; `magpie.enabled` must be a boolean. A value that merely looks right is
+not accepted.
+</Aside>

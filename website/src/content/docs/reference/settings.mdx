@@ -1,0 +1,112 @@
+---
+title: Settings 参考
+description: <CETAS_HOME>/.cetas/settings.json 的完整字段 —— 每个 key、类型、默认值，按嵌套层级组织。
+sidebar:
+  order: 168
+  label: Settings
+  hidden: true
+---
+
+`<CETAS_HOME>/.cetas/settings.json` 是一个 JSON 对象。Cetas 原子写入，并保留它不负责的每一个 key——别的工具（或将来版本）写进去的东西，不会因为一次切模型就被抹掉。启动时，**缺失**的文件会带着空的 `providers` 对象被创建；**已存在**的文件永远不会被覆盖——包括空的或坏掉的。settings 坏掉是一个响亮的失败，不是 Cetas 悄悄替你修好。
+
+## 顶层 key
+
+| Key | 类型 | 作用 |
+| --- | --- | --- |
+| `model` | 字符串 | 当前对话槽位，`provider/model` |
+| `reasoning_effort` | 字符串，可选 | 推理档位；不填用槽位默认 |
+| `decision_model` | 字符串，可选 | 决策槽位，与 `model` 相互独立 |
+| `providers` | 对象 | 供应商配置，条目由各供应商扩展解释 |
+| `subagent` | 对象 | 子代理的默认模型、推理档位与限额 |
+| `workflow` | 对象 | Board 多任务执行的预算 |
+| `model_manager` | 字符串 | 终端入口的模型管理器选择 |
+| `manager_selections` | 对象 | 各管理器记住的上次选择 |
+| `magpie` | 对象 | Magpie 网关设置 |
+
+下面按层级展开。
+
+## model / reasoning_effort / decision_model
+
+| Key | 谁读 | 说明 |
+| --- | --- | --- |
+| `model` | 所有入口 | 对话槽位；`/model` 写它 |
+| `reasoning_effort` | 所有入口 | 不填用该槽位广告的默认档位；`/effort` 写它 |
+| `decision_model` | 终端与编辑器 | 决策槽位；`/decision` 写它 |
+
+更新选择时，无关的 key 原样保留。供应商配置变化导致原选择不可用时，Cetas 退回可用的默认值，不会因为旧选择漂走了就拒绝组装。
+
+## providers
+
+条目是"供应商 id → 供应商配置"。每个条目由对应扩展解释，本页不代答：
+
+- 内置 id 与登录方式：[供应商](/configuration/providers/)；
+- 非内置 id 会成为 OpenAI 兼容供应商，条目形状（`base_url`、`models`、模型元数据）见[自定义模型](/configuration/custom-models/)。
+
+`providers` 里 id 为 `magpie` 的条目如果带了 `gateway_key`，会被**忽略**：网关凭据属于共享凭据库（`/login` 写入），Cetas 发现它在这里会给一条警告。
+
+## subagent
+
+```json
+{
+  "subagent": {
+    "default_model": "zai/glm-5.3",
+    "default_effort": "low",
+    "limits": {
+      "swarm_items": 16,
+      "concurrency": 4,
+      "global_concurrency": 20,
+      "timeout_ms": 1800000,
+      "spawn_budget": 64,
+      "answer_timeout_ms": 600000
+    },
+    "kinds": []
+  }
+}
+```
+
+| Key | 默认 | 说明 |
+| --- | --- | --- |
+| `default_model` | —（继承父级） | 所有未绑定模型的 kind 的默认对话槽位 |
+| `default_effort` | — | 同上的推理档位 |
+| `limits.swarm_items` | `16` | 一波并行里最多几项 |
+| `limits.concurrency` | `4` | 一波里同时跑几个 |
+| `limits.global_concurrency` | `20` | 全局同时跑几个 |
+| `limits.timeout_ms` | `1800000` | 单个子代理的实际耗时上限（30 分钟） |
+| `limits.spawn_budget` | `64` | 一个会话总共能拉起多少个子代理 |
+| `limits.answer_timeout_ms` | `600000` | 子代理的提问最多等父级多久（`0` 表示不限） |
+| `kinds` | `[]` | 直接写在 settings 里的 kind 条目，字段与 `.md` frontmatter 一致，见[子代理](/configuration/subagents/) |
+
+每个字段都可选；整段不存在就是"用默认值、不额外加 kind"。模型选择的优先级链：显式传参 → kind 绑定 → `default_model` → 父级当前选择。
+
+## workflow
+
+控制 Board 的多任务执行循环。不写 `enabled: true` 就是关闭。
+
+| Key | 默认 | 范围 |
+| --- | --- | --- |
+| `enabled` | `false` | 布尔 |
+| `max_executions` | `8` | 1–1000 |
+| `max_elapsed_ms` | `600000` | 1–86400000 |
+| `execution_timeout_ms` | `60000` | 1–86400000，且 ≤ `max_elapsed_ms` |
+| `max_concurrency` | `2` | 1–8 |
+| `max_expansions` | `2` | 1–16 |
+| `max_generated_tasks` | `20` | 1–200 |
+| `max_depth` | `16` | 2–16 |
+| `continue_on_confirmed_failure` | `false` | 布尔 |
+
+这一段故意严格：未知 key、类型不对、越界，都是组装错误——预算里的一个笔误，不能悄悄变成另一个预算。
+
+## model_manager / manager_selections / magpie
+
+只属于终端入口：记住你选了哪个模型管理器、以及各自上次选了什么，切回来时能恢复原来的槽位。
+
+| Key | 类型 | 说明 |
+| --- | --- | --- |
+| `model_manager` | `"providers"` 或 `"magpie"` | 当前管理器；不写等于 `"providers"` |
+| `manager_selections` | 对象 | 管理器 → `{ model, reasoning_effort }`，各记各的 |
+| `magpie.base_url` | 字符串 | Magpie 网关地址 |
+| `magpie.enabled` | 布尔 | 是否启用 Magpie |
+
+<Aside type="caution" title="类型校验不是建议">
+类型不对就是直接失败。`model_manager` 必须正好是 `providers` 或 `magpie`；`magpie.enabled` 必须是布尔。看着像对的取值，不会被接受。
+</Aside>

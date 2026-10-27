@@ -1,0 +1,277 @@
+---
+/**
+ * Changelog — rendered from the repository's CHANGELOG.md at build time.
+ *
+ * The file is written by scripts/release.py at release time, so reading it
+ * here is the whole point: the page can never drift from the release history.
+ * Nothing is copied by hand, and there is no second source to keep in sync.
+ */
+import fs from "node:fs";
+import path from "node:path";
+import BaseLayout from "../layouts/BaseLayout.astro";
+import Header from "./Header.astro";
+import { TOC } from "./ui/toc";
+import { withBase } from "@cloudflare/nimbus-docs/runtime";
+
+interface Props {
+  locale: "zh" | "en";
+}
+
+const { locale } = Astro.props;
+const collection = locale === "en" ? "en" : "docs";
+
+const copy = {
+  zh: {
+    title: "更新日志",
+    description: "Cetas 的全部版本记录，最新在前 —— 构建时从仓库 changelog 读取。",
+    lead: "本页在构建时读取仓库的",
+    leadTail: "，因此永远与已发布的 tag 一致。条目覆盖内核与各发布入口。",
+    latest: "最新：",
+    install: "安装这个版本",
+    channelLabels: {
+      General: "通用",
+      "Bun Ver.（cetas-bun）": "Bun 版（cetas-bun）",
+      "ACP Ver.（cetas-acp）": "ACP 版（cetas-acp）",
+      "Run Ver.（cetas-run）": "Run 版（cetas-run）",
+      Feats: "新特性",
+      Fixes: "修复",
+    },
+  },
+  en: {
+    title: "Changelog",
+    description:
+      "Every Cetas release, newest first — read from the repository changelog at build time.",
+    lead: "This page is generated from",
+    leadTail: "at build time, so it always matches the released tags. Entries cover the core and each released surface.",
+    latest: "Latest:",
+    install: "install this version",
+    channelLabels: {} as Record<string, string>,
+  },
+}[locale];
+
+const localizedLabel = (label: string): string =>
+  (copy.channelLabels as Record<string, string>)[label] ?? label;
+
+const SOURCE = (() => {
+  // The build runs from `website/`, so the repository changelog is one level
+  // up. `import.meta.url` is not usable here: this module is bundled into
+  // `dist/.prerender/`, where a relative URL no longer points at the checkout.
+  const candidates = [
+    path.resolve(process.cwd(), "../CHANGELOG.md"),
+    path.resolve(process.cwd(), "CHANGELOG.md"),
+    path.resolve(process.cwd(), "../../CHANGELOG.md"),
+  ];
+  const found = candidates.find((candidate) => fs.existsSync(candidate));
+  if (found === undefined) {
+    throw new Error(
+      `changelog.astro: no CHANGELOG.md found. Looked in:\n${candidates
+        .map((candidate) => `  - ${candidate}`)
+        .join("\n")}\nThis page renders the Cetas changelog and must be built from a repository checkout.`,
+    );
+  }
+  return found;
+})();
+const REPO_CHANGELOG =
+  "https://github.com/colmugx/cetas/blob/main/CHANGELOG.md";
+
+interface Section {
+  label: string;
+  bullets: string[];
+}
+
+interface Channel {
+  label: string;
+  sections: Section[];
+}
+
+interface Entry {
+  version: string;
+  date: string;
+  channels: Channel[];
+}
+
+const text = fs.readFileSync(SOURCE, "utf8");
+const entries: Entry[] = [];
+const preamble: string[] = [];
+
+let entry: Entry | null = null;
+let channel: Channel | null = null;
+let section: Section | null = null;
+
+const pushBullet = (line: string) => {
+  if (!entry) {
+    // Text before the first version heading is prose, not a release note.
+    preamble.push(line.trim());
+    return;
+  }
+  if (!channel) {
+    channel = { label: "General", sections: [] };
+    entry.channels.push(channel);
+  }
+  if (!section) {
+    section = { label: "Changes", bullets: [] };
+    channel.sections.push(section);
+  }
+  section.bullets.push(line.trim());
+};
+
+for (const raw of text.split("\n")) {
+  const line = raw.trimEnd();
+
+  // `## 1.2.3 (YYYY-MM-DD)` opens a release.
+  const version = /^##\s+(\d+\.\d+\.\d+)\s+\((\d{4}-\d{2}-\d{2})\)\s*$/.exec(line);
+  if (version) {
+    entry = { version: version[1], date: version[2], channels: [] };
+    entries.push(entry);
+    channel = null;
+    section = null;
+    continue;
+  }
+
+  // Any other `##` inside a release names a shipping channel (`Bun Ver.`,
+  // `ACP Ver.`, `Run Ver.`, `General`).
+  const h2 = /^##\s+(.+?)\s*$/.exec(line);
+  if (h2 && entry) {
+    channel = { label: h2[1], sections: [] };
+    entry.channels.push(channel);
+    section = null;
+    continue;
+  }
+
+  // `### Feats` / `### Fixes`.
+  const h3 = /^###\s+(.+?)\s*$/.exec(line);
+  if (h3 && entry) {
+    if (!channel) {
+      channel = { label: "General", sections: [] };
+      entry.channels.push(channel);
+    }
+    section = { label: h3[1], bullets: [] };
+    channel.sections.push(section);
+    continue;
+  }
+
+  // A wrapped bullet continues on the following indented line.
+  if (/^\s+\S/.test(line) && section && section.bullets.length > 0) {
+    section.bullets[section.bullets.length - 1] += ` ${line.trim()}`;
+    continue;
+  }
+
+  const bullet = /^[-*]\s+(.+)$/.exec(line);
+  if (bullet) {
+    pushBullet(bullet[1]);
+    continue;
+  }
+
+  if (line === "" || line.startsWith("# ")) continue;
+  if (entry) {
+    // Stray paragraph inside a release: keep it with the current section.
+    pushBullet(line);
+  } else {
+    preamble.push(line.trim());
+  }
+}
+
+// Bullets are written as Markdown with inline code spans. Render those spans
+// as <code> instead of showing literal backticks; everything else is text.
+const inlineParts = (value: string) =>
+  value.split("`").map((part, index) => ({ code: index % 2 === 1, text: part }));
+
+const head = entries[0];
+
+// The rail lists releases, newest first: 25 versions is too many for a static
+// column but fine as a scrolling one.
+const tocHeadings = entries.map((item) => ({
+  depth: 2,
+  text: item.version,
+  slug: `v${item.version}`,
+}));
+---
+
+<BaseLayout title={copy.title} description={copy.description} collection={collection}>
+  <div class="flex flex-col min-h-screen">
+    <Header showSidebar={false} />
+    <main
+      id="main-content"
+      tabindex="-1"
+      class="flex-1 min-w-0 xl:pr-(--nb-toc-width)"
+      data-pagefind-body
+    >
+      <div class="mx-auto max-w-3xl w-full px-6 py-14">
+      <div class="docs-content">
+        <h1>{copy.title}</h1>
+        <p>
+          {copy.lead}{" "}
+          <a href={REPO_CHANGELOG} target="_blank" rel="noopener">CHANGELOG.md</a>
+          {" "}{copy.leadTail}
+        </p>
+        {preamble.length > 0 && (
+          <p>
+            {inlineParts(preamble.join(" ")).map((part) =>
+              part.code ? <code>{part.text}</code> : part.text,
+            )}
+          </p>
+        )}
+
+        {head && (
+          <p class="text-sm">
+            <strong>{copy.latest}</strong> {head.version} · {head.date} ·{" "}
+            <a
+              href={withBase(
+                locale === "en"
+                  ? "/en/getting-started/installation/"
+                  : "/getting-started/installation/",
+                import.meta.env.BASE_URL,
+              )}
+            >
+              {copy.install}
+            </a>
+          </p>
+        )}
+
+        {entries.map((item) => (
+          <section id={`v${item.version}`} class="not-prose pt-6 border-t border-border">
+            <h2 id={`v${item.version}-heading`}>
+              {item.version}
+              <span class="ml-2 text-sm font-normal text-muted-foreground">
+                {item.date}
+              </span>
+            </h2>
+            {item.channels.map((itemChannel) => (
+              <div class="mt-5 first:mt-0">
+                <h3 class="text-[0.8125rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {localizedLabel(itemChannel.label)}
+                </h3>
+                {itemChannel.sections.map((itemSection) => (
+                  <div class="mt-3">
+                    <p class="text-sm font-medium text-foreground">
+                      {localizedLabel(itemSection.label)}
+                    </p>
+                    <ul class="mt-2 space-y-2 text-[0.9375rem] leading-relaxed text-muted-foreground">
+                      {itemSection.bullets.map((bullet) => (
+                        <li>
+                          {inlineParts(bullet).map((part) =>
+                            part.code ? <code>{part.text}</code> : part.text,
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </section>
+        ))}
+      </div>
+      </div>
+    </main>
+
+    <aside
+      data-nb-toc-scroll-host
+      class="hidden xl:block fixed right-0 top-14 w-(--nb-toc-width) h-[calc(100vh-3.5rem)] overflow-y-auto"
+    >
+      <div class="pt-6 pb-8 pl-8 pr-6">
+        <TOC headings={tocHeadings} label={locale === "en" ? "On this page" : "本页目录"} />
+      </div>
+    </aside>
+  </div>
+</BaseLayout>

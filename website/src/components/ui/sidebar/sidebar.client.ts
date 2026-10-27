@@ -42,8 +42,6 @@ function initSidebar(root: HTMLElement): () => void {
 
 function initFilter(root: HTMLElement): (() => void) | null {
   const input = root.querySelector<HTMLInputElement>("[data-nb-sidebar-filter-input]");
-  // SidebarFilter is rendered *next to* Sidebar (sibling), so also look in
-  // the parent — preserves the existing layout where filter sits above.
   const inputElement =
     input ?? root.parentElement?.querySelector<HTMLInputElement>("[data-nb-sidebar-filter-input]") ?? null;
   if (!inputElement) return null;

@@ -1,0 +1,31 @@
+---
+title: Environment Variables
+description: The environment variables Cetas hosts read, and their scope.
+sidebar:
+  order: 170
+---
+
+| Variable | Scope | Behavior |
+| --- | --- | --- |
+| `CETAS_HOME` | Editor, automation | Overrides the platform user home — the **parent** of `.cetas`, not the directory itself. The terminal host does not read it. |
+| `CETAS_PERMISSION_MODE` | Editor (ACP) | Startup posture: `readonly`, `workspace_write`, `interactive`, `auto`, or `yolo`. Unset means `yolo`. An unrecognized value warns once and falls back to `workspace_write`, so a typo never widens the posture. |
+| `CETAS_MCP_MODE` | Editor (ACP) | `eager` connects configured MCP servers at startup instead of lazily on the first turn. |
+| `CETAS_DELEGATE_FS` | Editor (ACP) | `host` routes tool-facing filesystem reads and writes through the editor's `fs/*` reverse calls instead of the local filesystem. Unrecognized values warn and stay `local`. |
+| `CETAS_DEBUG_WIRE` | Editor (ACP) | `1` appends the session's wire traffic to `<CETAS_HOME>/.cetas/debug/<session-id>-wire.jsonl`. |
+| `CETAS_DEBUG_MCP_CATALOG` | Editor (ACP) | `1` dumps the session's tool catalog to `<CETAS_HOME>/.cetas/debug/<session-id>-catalog.json`. |
+| `CETAS_REGISTRY` | Terminal | Overrides the npm registry used by `/update` — for an internal mirror. |
+| `CETAS_MEMOH_HOME` | Memoh runtime | Relocates the separately versioned Memoh runtime's own state directory. |
+
+The automation host expresses model, effort, permission, and unattended
+behaviour through command-line flags rather than these variables — see
+[Automation](/en/automation/).
+
+## Notes
+
+- **`CETAS_HOME` is not universal.** The terminal host resolves the platform
+  home directly, so a scripted `CETAS_HOME` affects `cetas-acp` and `cetas-run`
+  but not `cetas`. See [Cetas Home](/en/configuration/cetas-home/).
+- **Debug flags are per session.** They create `debug/` on first use; there is
+  nothing to clean up beforehand.
+- **A typo fails toward safety** for permission values, and toward "off" for
+  debug flags: only `1` enables a tap.

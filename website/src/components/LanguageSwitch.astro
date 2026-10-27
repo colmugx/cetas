@@ -1,0 +1,66 @@
+---
+/**
+ * Language switch — 中文 / EN.
+ *
+ * The two locales share slugs (`/introduction/` ↔ `/en/introduction/`), so the
+ * switch is a prefix swap rather than a translation lookup table: whatever page
+ * you are on, the other locale's URL is the same slug with `/en` added or
+ * removed. `withBase` runs exactly once, on the finished path.
+ */
+import { stripBase, withBase } from "@cloudflare/nimbus-docs/runtime";
+
+interface Props {
+  /**
+   * Href for the EN entry when this page has no English counterpart
+   * (e.g. zh-only pages like /faq/). Falls back to the English home
+   * instead of a dead prefix-swapped URL.
+   */
+  enFallback?: string;
+}
+
+const { enFallback } = Astro.props;
+
+const slug = stripBase(Astro.url.pathname, import.meta.env.BASE_URL).replace(
+  /\/$/,
+  "",
+);
+
+const isEnglish = slug === "/en" || slug.startsWith("/en/");
+// "" at the root, otherwise a leading-slash path with no trailing slash.
+const rest = isEnglish ? slug.slice("/en".length) : slug;
+
+const zhPath = rest === "" ? "/" : `${rest}/`;
+const enPath = rest === "" ? "/en/" : `/en${rest}/`;
+
+const locales = [
+  { id: "zh", label: "中文", path: zhPath, current: !isEnglish },
+  { id: "en", label: "EN", path: enPath, current: isEnglish },
+].map((locale) => ({
+  ...locale,
+  href: withBase(
+    locale.id === "en" && enFallback && !isEnglish ? enFallback : locale.path,
+    import.meta.env.BASE_URL,
+  ),
+}));
+---
+
+<nav
+  aria-label="Language"
+  class="flex items-center gap-0.5 rounded-md border border-border p-0.5"
+>
+  {locales.map((locale) => (
+    <a
+      href={locale.href}
+      hreflang={locale.id}
+      aria-current={locale.current ? "true" : undefined}
+      class:list={[
+        "px-1.5 py-0.5 rounded text-[0.75rem] font-medium no-underline transition-colors whitespace-nowrap",
+        locale.current
+          ? "bg-accent text-foreground"
+          : "text-muted-foreground hover:text-foreground",
+      ]}
+    >
+      {locale.label}
+    </a>
+  ))}
+</nav>

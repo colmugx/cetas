@@ -1,0 +1,88 @@
+---
+title: Subagents
+description: Delegate work to child agents with their own tools, model, and permission posture.
+sidebar:
+  order: 95
+---
+
+A subagent is a child agent the main session spawns for a bounded piece of work.
+It gets a fresh model selection, a fresh permission posture, and its own
+read-before-write state — and it cannot reach around the parent: only core tools
+the host can reconstruct are inherited.
+
+Typical uses: a read-only reviewer over a diff, a narrow fixer with two tools, a
+research child that may fetch but never write, or several children in parallel
+when the work splits cleanly.
+
+## How work is handed out
+
+The agent spawns children through its `subagent` tool. Children that are
+independent can run as one parallel wave, and long ones can run in the
+background so the parent keeps working. Parent and child can exchange questions
+throughout: a child that needs a decision asks, and the answer arrives in the
+same session.
+
+Each child's transcript lives in memory for the lifetime of the parent session,
+so a resumed conversation can pick the child back up rather than restart it.
+
+## Kinds: reusable presets
+
+A *kind* is one subagent preset — name, description, tool whitelist, model,
+effort, permission mode, and a prompt template. Two places define them.
+
+**Files** live in `.cetas/agents/<name>.md`, either per user or per project:
+
+```markdown
+---
+name: reviewer
+description: Read-only reviewer for diffs
+tools: read, grep, glob
+effort: low
+mode: readonly
+---
+
+You review changes without touching the working tree.
+
+Instructions from the caller:
+<fillin>
+{{instructions}}
+</fillin>
+```
+
+The frontmatter `name` must match the file stem. Unknown keys are ignored; a
+missing `name` / `description`, a bad list item, an unterminated block, or an
+unknown `mode` is a parse error — bad frontmatter is rejected, never repaired.
+Lists accept a comma-separated string or a dash list.
+
+**Settings entries** are lighter and live in `settings.json` under
+`subagent.kinds`, with the same field names in JSON. A `body` may be omitted, in
+which case a generic template is built from `name` and `description`.
+
+Precedence per kind name: project `.md` → user `.md` → settings kinds → built-in.
+
+## Tool whitelists
+
+Three states, deliberately distinct:
+
+| `tools` | Meaning |
+| --- | --- |
+| omitted | Inherit the host's default core tool set |
+| `[]` | No tools at all |
+| a list | Exactly those tools |
+
+## Defaults and limits
+
+The subagent's default model, effort, and every limit live in the `subagent`
+section of settings; each field's default is in the
+[Settings reference](/en/reference/settings/). Unconfigured means defaults.
+The model-selection precedence chain: explicit argument → kind binding →
+`default_model` → the parent's live selection.
+
+## Notes
+
+- Children do not inherit host-dynamic tools or decorators. A kind that needs a
+  tool names it explicitly and gets it if the host can reconstruct it.
+- A child's permission posture is its own. A `readonly` child cannot write even
+  when the parent is `yolo`.
+- `spawn_budget` is the guard rail that stops a runaway plan from turning into a
+  hundred agents; raise it deliberately, not reflexively.

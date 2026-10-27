@@ -5,8 +5,14 @@ import { Button } from "./ui/button";
 import { LinkButton } from "./ui/link-button";
 import { ThemeToggle } from "./ui/theme-toggle";
 import SearchTrigger from "./ui/search/SearchTrigger.astro";
+import LanguageSwitch from "./LanguageSwitch.astro";
 import { config } from "virtual:nimbus/config";
-import { getSidebarSections, stripBase, withBase } from "@cloudflare/nimbus-docs/runtime";
+import { getCollection } from "astro:content";
+import {
+  getSidebarSections,
+  stripBase,
+  withBase,
+} from "@cloudflare/nimbus-docs/runtime";
 
 interface Props {
   /** Astro collection id for the current page, forwarded from DocsLayout. */
@@ -27,18 +33,52 @@ interface Props {
 // destructure to avoid an unused-var warning.
 const { collection, showSidebar = true, sections: sectionsProp } = Astro.props;
 
+// Pages with no English counterpart get a language switch that lands on the
+// English home instead of a dead prefix-swapped URL.
+const enEntryIds = new Set((await getCollection("en")).map((entry) => entry.id));
+const entryId = Astro.props.entryId;
+const enFallback =
+  entryId && !enEntryIds.has(entryId) && collection !== "en" ? "/en/" : undefined;
+
 // Normalize trailing slash so isActive matches sidebar hrefs.
-const currentSlug = stripBase(Astro.url.pathname, import.meta.env.BASE_URL).replace(/\/$/, "") || "/";
+const currentSlug =
+  stripBase(Astro.url.pathname, import.meta.env.BASE_URL).replace(/\/$/, "") ||
+  "/";
 const sections =
   sectionsProp ?? (await getSidebarSections(currentSlug, { collection }));
 const showSections = sections.length >= 2;
 const homeHref = withBase("/", import.meta.env.BASE_URL);
 const resolveSectionHref = (href: string): string =>
   withBase(href, import.meta.env.BASE_URL);
+
+// Quick entries on the left: the docs entry point, the settings reference,
+// and the release log — the three places people leave the reading path for.
+// They follow the active locale: `/en` pages keep you in English.
+const english = currentSlug === "/en" || currentSlug.startsWith("/en/");
+const prefix = english ? "/en" : "";
+const quickLinks = [
+  { label: english ? "Docs" : "文档", href: `${prefix}/introduction/` },
+  {
+    label: english ? "Settings" : "设置",
+    href: `${prefix}/reference/settings/`,
+  },
+  { label: english ? "Changelog" : "更新日志", href: `${prefix}/changelog/` },
+].map((link) => {
+  const slug = link.href.replace(/\/$/, "");
+  return {
+    ...link,
+    href: withBase(link.href, import.meta.env.BASE_URL),
+    isCurrent: currentSlug === slug,
+  };
+});
 ---
 
-<header class="sticky top-0 z-30 border-b border-border bg-card/80 backdrop-blur-lg">
-  <div class="mx-auto flex items-center justify-between gap-3 h-14 px-4 lg:px-6">
+<header
+  class="sticky top-0 z-30 border-b border-border bg-card/80 backdrop-blur-lg"
+>
+  <div
+    class="mx-auto flex items-center justify-between gap-3 h-14 px-4 lg:px-6"
+  >
     <div class="flex items-center gap-3 min-w-0">
       <slot name="brand">
         <a href={homeHref} class="group shrink-0 flex items-center gap-2">
@@ -47,63 +87,94 @@ const resolveSectionHref = (href: string): string =>
             alt=""
             width="22"
             height="22"
-            class="h-[22px] w-[22px] shrink-0"
+            class="h-5.5 w-5.5 shrink-0"
           />
-          <span class="font-semibold text-sm text-foreground group-hover:text-primary transition-colors">
+          <span
+            class="font-semibold text-sm text-foreground group-hover:text-primary transition-colors"
+          >
             {config.title}
           </span>
         </a>
       </slot>
 
-      {showSections && (
-        <nav aria-label="Sections" class="hidden md:flex items-center gap-1 ml-4 pl-4 border-l border-border h-6 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {sections.map((section) => (
+      <nav aria-label="Quick links" class="flex items-center gap-1 shrink-0">
+        {
+          quickLinks.map((link) => (
             <a
-              href={resolveSectionHref(section.href)}
-              aria-current={section.isActive ? "page" : undefined}
+              href={link.href}
+              aria-current={link.isCurrent ? "page" : undefined}
               class:list={[
-                "px-2 py-1 rounded-md text-[0.8125rem] font-medium no-underline transition-colors shrink-0 whitespace-nowrap",
-                section.isActive
+                "px-2 py-1 rounded-md text-[0.8125rem] font-medium no-underline transition-colors whitespace-nowrap",
+                link.isCurrent
                   ? "text-foreground bg-accent"
                   : "text-muted-foreground hover:text-foreground hover:bg-accent/60",
               ]}
             >
-              {section.label}
+              {link.label}
             </a>
-          ))}
-        </nav>
-      )}
+          ))
+        }
+      </nav>
+
+      {
+        showSections && (
+          <nav
+            aria-label="Sections"
+            class="hidden md:flex items-center gap-1 ml-4 pl-4 border-l border-border h-6 min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {sections.map((section) => (
+              <a
+                href={resolveSectionHref(section.href)}
+                aria-current={section.isActive ? "page" : undefined}
+                class:list={[
+                  "px-2 py-1 rounded-md text-[0.8125rem] font-medium no-underline transition-colors shrink-0 whitespace-nowrap",
+                  section.isActive
+                    ? "text-foreground bg-accent"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent/60",
+                ]}
+              >
+                {section.label}
+              </a>
+            ))}
+          </nav>
+        )
+      }
     </div>
 
     <div class="flex items-center gap-2 shrink-0">
       <slot name="actions" />
       {config.search !== false && <SearchTrigger />}
-      {config.github && (
-        <LinkButton
-          href={config.github}
-          variant="minimal"
-          shape="square"
-          size="sm"
-          aria-label="GitHub"
-          target="_blank"
-          rel="noopener"
-          class="text-muted-foreground"
-        >
-          <Icon name="ph:github-logo" class="w-4 h-4" />
-        </LinkButton>
-      )}
+      <LanguageSwitch enFallback={enFallback} />
+      {
+        config.github && (
+          <LinkButton
+            href={config.github}
+            variant="minimal"
+            shape="square"
+            size="sm"
+            aria-label="GitHub"
+            target="_blank"
+            rel="noopener"
+            class="text-muted-foreground"
+          >
+            <Icon name="ph:github-logo" class="w-4 h-4" />
+          </LinkButton>
+        )
+      }
       <ThemeToggle />
-      {showSidebar && (
-        <Button
-          variant="ghost"
-          shape="square"
-          size="sm"
-          icon="ph:list"
-          aria-label="Open navigation"
-          data-menu-btn
-          class="md:hidden text-muted-foreground"
-        />
-      )}
+      {
+        showSidebar && (
+          <Button
+            variant="ghost"
+            shape="square"
+            size="sm"
+            icon="ph:list"
+            aria-label="Open navigation"
+            data-menu-btn
+            class="md:hidden text-muted-foreground"
+          />
+        )
+      }
     </div>
   </div>
 </header>

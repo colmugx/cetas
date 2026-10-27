@@ -32,7 +32,8 @@ const {
   coordinate,
 } = Astro.props;
 
-const lang = config.locale ?? "en";
+const lang =
+  collection === "en" ? "en" : (config.locale ?? "zh-CN");
 // Per-page agent-index pointer. For pages in non-primary or version
 // collections, this resolves to `/<prefix>/llms.txt` (e.g. `/v0/llms.txt`
 // for a v0 docs page, `/blog/llms.txt` for a blog post). Falls back to

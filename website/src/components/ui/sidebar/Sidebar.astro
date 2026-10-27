@@ -15,9 +15,11 @@ interface Props extends HTMLAttributes<"div"> {
   items: SidebarItem[];
   /** Persist open/scroll state to sessionStorage. Desktop sidebar only. */
   persist?: boolean;
+  /** Row label for a group's landing page. Defaults to "Overview". */
+  indexLabel?: string;
 }
 
-const { items, persist = false, class: className, ...attrs } = Astro.props;
+const { items, persist = false, indexLabel, class: className, ...attrs } = Astro.props;
 const hash = sidebarHash(items);
 ---
 
@@ -39,6 +41,7 @@ const hash = sidebarHash(items);
             badge={item.badge}
             icon={item.icon}
             indexHref={item.indexHref}
+            indexLabel={indexLabel}
             indexIsCurrent={item.indexIsCurrent}
             indexIsExternal={item.indexIsExternal}
           />

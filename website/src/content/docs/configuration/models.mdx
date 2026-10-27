@@ -1,34 +1,42 @@
 ---
-title: Models
-description: Model slots and the shared active model selection.
+title: 模型
+description: 模型槽位、推理档位，以及决策模型的选择。
 sidebar:
-  order: 90
+  order: 80
 ---
 
-Cetas identifies a model slot with a `provider/model` id.
+Cetas 用 `provider/model` 形式的 id 标识一个模型槽位，例如
+`deepseek/deepseek-flash` 或 `moonshot/kimi-k3`。
 
-The shared active selection is persisted as top-level keys in `~/.cetas/settings.json`, alongside `providers`:
+## 两个槽位，互不相通
 
-```json
-{
-  "providers": {},
-  "model": "provider/model",
-  "reasoning_effort": "high"
-}
+对话模型和决策模型永远不能互换，两个选择器各自守住这条线：
+
+```text
+/model      # 对话槽位；拒绝决策槽位
+/decision   # 决策槽位，并标出当前那个；拒绝对话槽位
 ```
 
-`reasoning_effort` is optional. When it is absent, the active model's advertised default applies.
+`/decision` 不带参数时，列出当前供应商能提供的决策槽位。构建里没有决策后端的，这里自然就没东西可选。
 
-Cetas preserves unrelated settings keys when it updates the selection. If a previously selected model is no longer available because provider configuration changed, Cetas falls back to the router's available default instead of refusing to compose purely because the old selection drifted away.
+决策模型对 `permission auto` 尤其重要：语义闸门逐调用判断，而闸门自己需要一个决策模型来做判断——见[权限](/configuration/permissions/)。
 
-## Who persists what
+## 选择存在哪、谁能改
 
-| Host | Behavior |
+当前选择存在 settings 里，字段见 [Settings 参考](/reference/settings/)。三条改法：
+
+| 入口 | 行为 |
 | --- | --- |
-| Terminal (`cetas-js`) | Successful `/model` and `/effort` changes are persisted |
-| Editor (`cetas-acp`) | Successful `model` / `effort` config-option changes are persisted |
-| Automation (`cetas-run`) | `--model` and `--effort` are run-scoped overrides and are **not** persisted |
+| 终端 | `/model`、`/effort`、`/decision` 改成功就持久化 |
+| 编辑器（ACP） | `model` / `effort` 配置项改成功就持久化 |
+| 自动化（`cetas-run`） | `--model`、`--effort` 只对本次运行生效，**不**持久化 |
 
-## Model lists
+供应商配置变化导致原选择不可用时，Cetas 退回可用的默认值，不会因为旧选择漂走了就拒绝组装。
 
-Discovered model catalogs are cached in `~/.cetas/model_lists.json`, one record array per provider. Model and effort pickers therefore keep working from a warm cache, and a provider's cached list is refreshed when it is re-discovered.
+## 模型列表
+
+拉到的模型目录缓存在 `<CETAS_HOME>/.cetas/model_lists.json`，每个供应商一个记录数组。选择器靠这份热缓存就能工作，供应商重新发现时其缓存列表会被刷新。
+
+## 自定义模型
+
+不是内置之一的供应商，就是你自己声明的 OpenAI 兼容端点，模型能力（上下文窗口、图像输入、档位）也在同一处声明。见[自定义与私有化模型](/configuration/custom-models/)。
