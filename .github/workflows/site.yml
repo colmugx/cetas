@@ -48,29 +48,21 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
 
-      - name: setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 12.6.0
-
-      - name: setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: pnpm
-          cache-dependency-path: website/pnpm-lock.yaml
+      # The site is bun-managed (bun.lock); pnpm artifacts no longer exist.
+      - name: setup bun
+        uses: oven-sh/setup-bun@v2
 
       - name: install
-        run: pnpm install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       - name: typecheck
-        run: pnpm run typecheck
+        run: bun run typecheck
 
       - name: build
-        run: pnpm run build
+        run: bun run build
 
       - name: lint docs
-        run: pnpm run lint:docs
+        run: bun run lint:docs
 
       - name: configure pages
         uses: actions/configure-pages@v5
