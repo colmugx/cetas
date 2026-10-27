@@ -574,11 +574,13 @@ describe("long-lived cetas-js bridge", () => {
           throw new Error("turn did not settle after abort");
         }),
       ]);
-      // Give the killed child a moment to be reaped, then prove it is gone:
-      // no probe process and no post-sleep marker.
-      await Bun.sleep(1500);
-      const survivors = Bun.spawnSync(["pgrep", "-f", token]);
-      expect(survivors.exitCode).not.toBe(0);
+      // Prove the child is gone by polling: the SIGTERM escalation kills
+      // `sleep` within tens of milliseconds, so a fixed grace sleep would
+      // only burn wall clock. The post-sleep marker must never appear.
+      await waitFor(
+        () => Bun.spawnSync(["pgrep", "-f", token]).exitCode !== 0,
+        "bash child survived the abort",
+      );
       expect(existsSync(survivedMarker)).toBe(false);
       // A hard-cancelled turn may either release the single-turn guard
       // immediately or leave the next turn rejected as busy. Both outcomes
