@@ -245,8 +245,11 @@ describe("long-lived cetas-js bridge", () => {
       expect(persisted).toBe(true);
       expect(events.length).toBeGreaterThan(0);
     } finally {
-      await cetas_js_shutdown(agent);
-      globalThis.fetch = originalFetch;
+      try {
+        await cetas_js_shutdown(agent);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     }
   });
 
@@ -452,8 +455,11 @@ describe("long-lived cetas-js bridge", () => {
       expect(reply).toContain("after abort reply");
       expect(requests).toHaveLength(2);
     } finally {
-      await cetas_js_shutdown(agent);
-      globalThis.fetch = originalFetch;
+      try {
+        await cetas_js_shutdown(agent);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     }
   });
 
@@ -589,8 +595,11 @@ describe("long-lived cetas-js bridge", () => {
         expect(String(nextOutcome.error)).toContain("agent turn busy");
       }
     } finally {
-      await cetas_js_shutdown(agent);
-      globalThis.fetch = originalFetch;
+      try {
+        await cetas_js_shutdown(agent);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     }
   }, 30000);
 
