@@ -20,6 +20,6 @@ sidebar:
 
 ## 说明
 
-- **`CETAS_HOME` 不是通用的。** 终端入口直接解析平台 home，所以脚本里设的 `CETAS_HOME` 只影响 `cetas-acp` 和 `cetas-run`，不影响 `cetas`。见 [Cetas Home](/configuration/cetas-home/)。
-- **调试开关是按会话的。** 它们首次使用时才创建 `debug/`，事前不需要清理任何东西。
-- **笔误一律往安全侧失败**：权限取值错了退回更窄的姿态，调试开关错了就当没开（只有 `1` 才开启）。
+- `CETAS_HOME` 不是通用的：终端入口直接解析平台 home，所以脚本里设的 `CETAS_HOME` 只影响 `cetas-acp` 和 `cetas-run`，不影响 `cetas`。见 [Cetas Home](/configuration/cetas-home/)。
+- 调试开关是按会话的：首次使用时才创建 `debug/`，事前不需要清理任何东西。
+- 笔误一律往安全侧失败：权限取值错了退回更窄的姿态，调试开关错了就当没开（只有 `1` 才开启）。

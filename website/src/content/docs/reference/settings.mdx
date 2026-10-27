@@ -7,7 +7,7 @@ sidebar:
   hidden: true
 ---
 
-`<CETAS_HOME>/.cetas/settings.json` 是一个 JSON 对象。Cetas 原子写入，并保留它不负责的每一个 key——别的工具（或将来版本）写进去的东西，不会因为一次切模型就被抹掉。启动时，**缺失**的文件会带着空的 `providers` 对象被创建；**已存在**的文件永远不会被覆盖——包括空的或坏掉的。settings 坏掉是一个响亮的失败，不是 Cetas 悄悄替你修好。
+`<CETAS_HOME>/.cetas/settings.json` 是一个 JSON 对象。Cetas 原子写入，并保留它不负责的每一个 key——别的工具（或将来版本）写进去的东西，不会因为一次切模型就被抹掉。启动时，**缺失**的文件会带着空的 `providers` 对象被创建；**已存在**的文件永远不会被覆盖——包括空的或坏掉的。settings 坏掉会直接报错，Cetas 不会悄悄替你修好。
 
 ## 顶层 key
 
@@ -33,7 +33,7 @@ sidebar:
 | `reasoning_effort` | 所有入口 | 不填用该槽位广告的默认档位；`/effort` 写它 |
 | `decision_model` | 终端与编辑器 | 决策槽位；`/decision` 写它 |
 
-更新选择时，无关的 key 原样保留。供应商配置变化导致原选择不可用时，Cetas 退回可用的默认值，不会因为旧选择漂走了就拒绝组装。
+更新选择时，无关的 key 原样保留。供应商配置变化导致原选择不可用时，Cetas 退回可用的默认值，不会卡在失效的旧选择上。
 
 ## providers
 
@@ -108,5 +108,5 @@ sidebar:
 | `magpie.enabled` | 布尔 | 是否启用 Magpie |
 
 <Aside type="caution" title="类型校验不是建议">
-类型不对就是直接失败。`model_manager` 必须正好是 `providers` 或 `magpie`；`magpie.enabled` 必须是布尔。看着像对的取值，不会被接受。
+类型不对就是直接失败。`model_manager` 必须正好是 `providers` 或 `magpie`；`magpie.enabled` 必须是布尔。看似合理的取值也不会被接受。
 </Aside>
