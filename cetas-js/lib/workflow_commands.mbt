@@ -136,6 +136,19 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn commands(self) {
     metadata: None,
   })
   definitions.push(@posoco.CommandDef::{
+    id: "board.ticket.answer_as_refiner",
+    label: "Ask Refiner to answer",
+    description: "Internal: let a Refiner child answer one open Board ticket question",
+    category: "board",
+    ctype: @posoco.CommandType::Action,
+    params: [],
+    aliases: [],
+    shortcut: None,
+    icon: None,
+    visible: false,
+    metadata: None,
+  })
+  definitions.push(@posoco.CommandDef::{
     id: "board.ticket.set_team",
     label: "Customize team names",
     description: "Internal: set lightweight display names for the Board team roles",
@@ -972,6 +985,36 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
       Err(reason) => return @posoco.CommandOutcome::Failure(reason~)
     }
   }
+  if id == "board.ticket.answer_as_refiner" {
+    let tickets = match self.tickets {
+      Some(tickets) => tickets
+      None =>
+        return @posoco.CommandOutcome::Failure(
+          reason="ticket_runtime_unavailable",
+        )
+    }
+    let question_id = match args {
+      Object(fields) =>
+        match fields.get("question_id") {
+          Some(String(value)) if !value.trim().is_empty() => value
+          _ =>
+            return @posoco.CommandOutcome::Failure(
+              reason="invalid_ticket_answer",
+            )
+        }
+      _ =>
+        return @posoco.CommandOutcome::Failure(reason="invalid_ticket_answer")
+    }
+    match tickets.answer_as_refiner(question_id) {
+      Ok(_) =>
+        return @posoco.CommandOutcome::Success(
+          feedback="Refiner is answering.",
+          structured=Some(tickets.state_json()),
+          ui_hint=Some(@posoco.UiHint::None),
+        )
+      Err(reason) => return @posoco.CommandOutcome::Failure(reason~)
+    }
+  }
   if id == "board.ticket.set_team" {
     let tickets = match self.tickets {
       Some(tickets) => tickets
@@ -981,9 +1024,17 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
         )
     }
     let names = TeamNames::from_json(args)
+    let profile = match args {
+      Object(fields) =>
+        match fields.get("work_profile") {
+          Some(String(id)) => WorkProfile::from_id(id)
+          _ => WorkProfile::software()
+        }
+      _ => WorkProfile::software()
+    }
     return @posoco.CommandOutcome::Success(
       feedback="Team names updated.",
-      structured=Some(tickets.set_team(names)),
+      structured=Some(tickets.set_team(names, profile)),
       ui_hint=Some(@posoco.UiHint::None),
     )
   }

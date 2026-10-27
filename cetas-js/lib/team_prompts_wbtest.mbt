@@ -22,6 +22,14 @@ test "team names trim controls and keep defaults for blanks" {
 ///|
 test "role prompt carries the customized name" {
   assert_true(refiner_system_prompt("Ada").contains("Ada"))
-  assert_true(development_system_prompt("Grace", "SET").contains("Grace"))
-  assert_true(development_system_prompt("Grace", "SET").contains("SET"))
+  assert_true(
+    development_system_prompt("Grace", "SET", WorkProfile::software()).contains(
+      "Grace",
+    ),
+  )
+  assert_true(
+    development_system_prompt("Grace", "SET", WorkProfile::software()).contains(
+      "SET",
+    ),
+  )
 }

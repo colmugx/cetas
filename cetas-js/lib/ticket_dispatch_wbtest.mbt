@@ -44,7 +44,17 @@ fn review_field(review : Json, key : String) -> String {
 async test "ticket run dispatches a background child and moves the ticket to review" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
+  // RD and SET start together, so the first two stops are interchangeable;
+  // TE runs last and its result is the review report.
   let model = @posoco.ScriptedModel([
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response(
+        "Product change ready for independent verification.",
+      ),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("Independent verification passed."),
+    ),
     @posoco.ScriptedModelStep::Respond(
       @posoco.tk_stop_response("Ticket work completed with evidence."),
     ),
@@ -530,6 +540,12 @@ async test "ticket run uses the pinned model instead of the current active model
     @posoco.ScriptedModelStep::Respond(
       @posoco.tk_stop_response("pinned model result"),
     ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("pinned model result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("pinned model result"),
+    ),
   ])
   let router = @llm.RouterModelPort(
     slots=[
@@ -735,7 +751,7 @@ async fn wait_ticket_stage(
 ///|
 /// The session id of the ticket runtime's current run for one task, or "".
 fn ticket_run_session(tickets : TicketRuntime, task_id : String) -> String {
-  match tickets.runs.get(task_id) {
+  match tickets.run_for(task_id) {
     Some(run) => run.session_id
     None => ""
   }
@@ -744,8 +760,21 @@ fn ticket_run_session(tickets : TicketRuntime, task_id : String) -> String {
 ///|
 /// The status of the ticket runtime's current run for one task, or "".
 fn ticket_run_status(tickets : TicketRuntime, task_id : String) -> String {
-  match tickets.runs.get(task_id) {
+  match tickets.run_for(task_id) {
     Some(run) => run.status
+    None => ""
+  }
+}
+
+///|
+/// The result text of the ticket runtime's current run for one task, or "".
+fn ticket_run_result(tickets : TicketRuntime, task_id : String) -> String {
+  match tickets.run_for(task_id) {
+    Some(run) =>
+      match run.result {
+        Some(result) => result
+        None => ""
+      }
     None => ""
   }
 }
@@ -770,12 +799,25 @@ async fn wait_ticket_question(tickets : TicketRuntime) -> String {
 async test "ticket retry from review starts a fresh child session" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
+  // One attempt is RD + SET (racing) and then TE; the retry repeats all three.
   let model = @posoco.ScriptedModel([
     @posoco.ScriptedModelStep::Respond(
       @posoco.tk_stop_response("first attempt result"),
     ),
     @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("first attempt result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("first attempt verification result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
       @posoco.tk_stop_response("retry attempt result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("retry attempt result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("retry attempt verification result"),
     ),
   ])
   let router = @llm.RouterModelPort(
@@ -833,19 +875,20 @@ async test "ticket retry from review starts a fresh child session" {
     let first_session = ticket_run_session(tickets, "task-1")
     assert_true(first_session != "")
     assert_eq(ticket_run_status(tickets, "task-1"), "review")
-    // Review is retryable: the ticket moves back to Ready and a new child
-    // session starts instead of resuming the completed one.
+    // Review is retryable: the ticket moves back to Ready and fresh RD/SET/TE
+    // runs start instead of resuming the completed ones.
     let retried = match tickets.retry("task-1") {
       Ok(state) => state
       Err(error) => fail("ticket retry failed: " + error)
     }
     let retry_session = ticket_run_session(tickets, "task-1")
-    // The durable session id is stable per ticket; retry clears its transcript
-    // and starts a fresh run under the same id, so identity is not the proof.
-    assert_eq(retry_session, first_session)
     assert_eq(ticket_run_status(tickets, "task-1"), "running")
     assert_true(retried.stringify().contains(retry_session))
     assert_eq(wait_ticket_stage(board, "task-1", "review"), "review")
+    // The durable session id is stable per ticket role; retry clears the
+    // transcripts and starts fresh runs under the same ids, so identity is not
+    // the proof that a completed session was resumed.
+    assert_eq(ticket_run_session(tickets, "task-1"), first_session)
     assert_true(
       tickets.state_json().stringify().contains("retry attempt result"),
     )
@@ -857,9 +900,17 @@ async test "ticket retry from review starts a fresh child session" {
 async test "ticket retry from suspended starts a fresh child session" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
+  // A retry starts RD and SET together and TE after both, so one attempt
+  // needs three stops; the first two are interchangeable.
   let model = @posoco.ScriptedModel([
     @posoco.ScriptedModelStep::Respond(
       @posoco.tk_stop_response("retried after suspension"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("retried after suspension"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("retried after suspension, verification passed"),
     ),
   ])
   let router = @llm.RouterModelPort(
@@ -938,6 +989,8 @@ async test "ticket retry is rejected while the ticket is running" {
   defer @board_fixtures.cleanup(directory)
   // The question parks the worker inside its turn, so the run is genuinely in
   // flight while retry is attempted.
+  // RD and SET run together, so one of them parks on the question while the
+  // other stops; the parked one continues after the answer and TE verifies.
   let model = @posoco.ScriptedModel([
     @posoco.ScriptedModelStep::Respond(
       @posoco.tk_tool_call_response(
@@ -947,7 +1000,13 @@ async test "ticket retry is rejected while the ticket is running" {
       ),
     ),
     @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("result from the worker that did not ask"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
       @posoco.tk_stop_response("answered worker result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("verification after the answer"),
     ),
   ])
   let router = @llm.RouterModelPort(
@@ -1082,7 +1141,7 @@ async test "ticket retry is rejected from a stage that is not retryable" {
     )
     match tickets.retry("task-1") {
       Ok(_) => fail("retry must be rejected before the ticket can run")
-      Err(error) => assert_true(error.contains("Ready, Review, Suspended"))
+      Err(error) => assert_true(error.contains("Ready, Verification, Review"))
     }
     // Nothing started and the Board stage did not move.
     assert_true(tickets.runs.get("task-1") is None)
@@ -1094,12 +1153,26 @@ async test "ticket retry is rejected from a stage that is not retryable" {
 async test "ticket resume continues the durable child session" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
+  // One attempt is RD + SET (racing) and then TE; resuming continues the same
+  // three durable sessions, so it needs three more stops.
   let model = @posoco.ScriptedModel([
     @posoco.ScriptedModelStep::Respond(
       @posoco.tk_stop_response("first durable result"),
     ),
     @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("first durable result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("first durable verification result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
       @posoco.tk_stop_response("resumed result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("resumed result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("resumed result, verification passed"),
     ),
   ])
   let router = @llm.RouterModelPort(
@@ -1167,8 +1240,10 @@ async test "ticket resume continues the durable child session" {
       Ok(_) => ()
       Err(error) => fail("ticket resume failed: " + error)
     }
-    assert_eq(ticket_run_session(tickets, "task-1"), first_session)
     assert_eq(wait_ticket_stage(board, "task-1", "review"), "review")
+    // The durable session ids are stable per ticket role; resume continues the
+    // recorded sessions instead of minting new ones.
+    assert_eq(ticket_run_session(tickets, "task-1"), first_session)
     assert_true(tickets.state_json().stringify().contains("resumed result"))
   })
 }
@@ -1306,12 +1381,26 @@ async fn start_review_attempt(
 async test "ticket request changes records the feedback, returns the ticket to Ready and starts a fresh run" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
+  // One attempt is RD + SET (racing) and then TE; requesting changes repeats
+  // all three, so the second attempt needs its own three stops.
   let model = @posoco.ScriptedModel([
     @posoco.ScriptedModelStep::Respond(
       @posoco.tk_stop_response("first attempt result"),
     ),
     @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("first attempt result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("first attempt verification result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
       @posoco.tk_stop_response("revised attempt result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("revised attempt result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("revised attempt verification result"),
     ),
   ])
   let router = @llm.RouterModelPort(
@@ -1384,11 +1473,23 @@ async test "ticket request changes records the feedback, returns the ticket to R
     )
     assert_eq(wait_ticket_stage(board, "task-1", "review"), "review")
     // Request changes starts a new attempt instead of resuming the reviewed
-    // one: the run carries the second worker's result and none of the first.
+    // one: the run the drawer reads first carries the second worker's result
+    // and none of the first. Every role of the reviewed attempt keeps its own
+    // run in the host log, so this holds for the current run, not the whole
+    // state.
     let ticket_state = tickets.state_json().stringify()
-    assert_eq(model.call_count(), 2)
-    assert_true(ticket_state.contains("revised attempt result"))
-    assert_false(ticket_state.contains("first attempt result"))
+    assert_eq(model.call_count(), 6)
+    assert_true(ticket_state.contains("revised attempt verification result"))
+    assert_true(
+      ticket_run_result(tickets, "task-1").contains(
+        "revised attempt verification result",
+      ),
+    )
+    assert_false(
+      ticket_run_result(tickets, "task-1").contains(
+        "first attempt verification result",
+      ),
+    )
     assert_eq(ticket_run_status(tickets, "task-1"), "review")
   })
 }
@@ -1397,9 +1498,17 @@ async test "ticket request changes records the feedback, returns the ticket to R
 async test "ticket request changes rejects empty feedback and a ticket without a running review attempt" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
+  // The first attempt runs RD and SET together and TE after both; the rejected
+  // request changes must not start a fourth call.
   let model = @posoco.ScriptedModel([
     @posoco.ScriptedModelStep::Respond(
       @posoco.tk_stop_response("first attempt result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("first attempt result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("first attempt verification result"),
     ),
   ])
   let router = @llm.RouterModelPort(
@@ -1511,7 +1620,8 @@ async test "ticket request changes rejects empty feedback and a ticket without a
     // still the one that was under review.
     assert_eq(ticket_run_status(tickets, "task-1"), "review")
     assert_eq(snapshot_task_text(board, "task-1", "stage"), "review")
-    assert_eq(model.call_count(), 1)
+    // RD, SET and TE each called the model once for the only attempt.
+    assert_eq(model.call_count(), 3)
     match tickets.request_changes("task-2", "Tighten the scope.") {
       Ok(_) =>
         fail("a ticket without a running review attempt must be rejected")
@@ -1519,7 +1629,7 @@ async test "ticket request changes rejects empty feedback and a ticket without a
     }
     assert_true(tickets.runs.get("task-2") is None)
     assert_eq(snapshot_task_text(board, "task-2", "stage"), "review")
-    assert_eq(model.call_count(), 1)
+    assert_eq(model.call_count(), 3)
   })
 }
 
@@ -1527,12 +1637,26 @@ async test "ticket request changes rejects empty feedback and a ticket without a
 async test "ticket worker prompt carries the reviewer feedback on the new attempt" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
+  // One attempt is RD + SET (racing) and then TE; the follow-up attempt after
+  // the feedback needs its own three stops.
   let model = @posoco.ScriptedModel([
     @posoco.ScriptedModelStep::Respond(
       @posoco.tk_stop_response("first attempt result"),
     ),
     @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("first attempt result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("first attempt verification result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
       @posoco.tk_stop_response("revised attempt result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("revised attempt result"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("revised attempt verification result"),
     ),
   ])
   let router = @llm.RouterModelPort(
@@ -1585,9 +1709,16 @@ async test "ticket worker prompt carries the reviewer feedback on the new attemp
     }
     assert_eq(wait_ticket_stage(board, "task-1", "review"), "review")
     start_review_attempt(board, "task-1", "attempt-review-1")
-    // The first attempt is ordinary work: it never saw reviewer feedback.
+    // The first attempt is ordinary work: none of its three workers saw
+    // reviewer feedback.
     assert_false(
       model_user_text(model, 0).contains("Add the missing regression test."),
+    )
+    assert_false(
+      model_user_text(model, 1).contains("Add the missing regression test."),
+    )
+    assert_false(
+      model_user_text(model, 2).contains("Add the missing regression test."),
     )
     match
       tickets.request_changes("task-1", "Add the missing regression test.") {
@@ -1595,13 +1726,14 @@ async test "ticket worker prompt carries the reviewer feedback on the new attemp
       Err(error) => fail("request changes failed: " + error)
     }
     assert_eq(wait_ticket_stage(board, "task-1", "review"), "review")
-    assert_eq(model.call_count(), 2)
-    let prompt = model_user_text(model, 1)
+    assert_eq(model.call_count(), 6)
+    // The follow-up attempt opens with RD and SET, both carrying the feedback.
+    let prompt = model_user_text(model, 3)
     assert_true(prompt.contains("Reviewer feedback"))
     assert_true(prompt.contains("Add the missing regression test."))
     assert_true(prompt.contains("must address it"))
     // The prompt is still the ticket worker contract.
-    assert_true(prompt.contains("Work on this Board ticket only."))
+    assert_true(prompt.contains("Work on this Board ticket as "))
     assert_true(prompt.contains("Definition of done:"))
     assert_true(
       tickets.state_json().stringify().contains("revised attempt result"),
@@ -2082,7 +2214,15 @@ async test "ticket progress state json keeps a bounded per-ticket log" {
 async test "ticket run persists the submitted work report instead of the minimal one" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
+  // RD and SET only stop; the durable report the Board keeps is TE's, so TE
+  // reports progress, submits the structured report and then answers.
   let model = @posoco.ScriptedModel([
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("product change ready for verification"),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("independent verification ready"),
+    ),
     @posoco.ScriptedModelStep::Respond(
       @posoco.tk_tool_call_response("report_progress", "call-progress-1", {
         "kind": "milestone",
@@ -2168,7 +2308,7 @@ async test "ticket run persists the submitted work report instead of the minimal
     assert_true(prompt.contains("Reporting contract"))
     assert_true(prompt.contains("report_progress"))
     assert_true(prompt.contains("submit_work_report"))
-    assert_true(prompt.contains("ask_question_child, never through"))
+    assert_true(prompt.contains("audience=\"refiner\""))
     let review = match snapshot_task_review(board, "task-1") {
       Some(review) => review
       None => fail("the ticket reached Review without a durable report")
@@ -2261,34 +2401,37 @@ async test "ticket finish fails visibly when the Board rejects the report" {
     })
     // A report the Board's own validation rejects: an empty outcome. The
     // runtime must fail the run instead of falling back to the minimal report.
-    tickets.runs["task-1"] = {
-      task_id: "task-1",
-      session_id: work_session_id("task-1"),
-      phase: "work",
-      status: "running",
-      error: None,
-      result: None,
-      report: Some(
-        Json::object({
-          "outcome": Json::string(""),
-          "summary": Json::string("empty outcome"),
-          "changes": Json::array([]),
-          "verification": Json::array([]),
-          "risks": Json::array([]),
-          "notes": Json::array([]),
-          "open_questions": Json::array([]),
-          "artifacts": Json::array([]),
-        }),
-      ),
-      steps: 0,
-      current_tool: None,
-      preview: "",
-      reasoning: "",
-      activities: [],
-    }
-    tickets.finish("task-1", Ok("worker final answer"))
+    tickets.runs["task-1"] = [
+      {
+        task_id: "task-1",
+        session_id: work_session_id("task-1", "te"),
+        phase: "work",
+        role: "te",
+        status: "running",
+        error: None,
+        result: None,
+        report: Some(
+          Json::object({
+            "outcome": Json::string(""),
+            "summary": Json::string("empty outcome"),
+            "changes": Json::array([]),
+            "verification": Json::array([]),
+            "risks": Json::array([]),
+            "notes": Json::array([]),
+            "open_questions": Json::array([]),
+            "artifacts": Json::array([]),
+          }),
+        ),
+        steps: 0,
+        current_tool: None,
+        preview: "",
+        reasoning: "",
+        activities: [],
+      },
+    ]
+    tickets.finish_work("task-1", "te", Ok("worker final answer"))
     assert_eq(ticket_run_status(tickets, "task-1"), "failed")
-    let error = match tickets.runs.get("task-1") {
+    let error = match tickets.run_for("task-1") {
       Some(run) =>
         match run.error {
           Some(error) => error

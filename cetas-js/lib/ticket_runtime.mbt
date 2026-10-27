@@ -1,11 +1,7 @@
 ///|
-/// V1 ticket loop: one Board task -> one background child session.
-///
-/// This is deliberately a thin host runtime, not a second Board projection.
-/// It reads the authoritative Board snapshot, moves the ticket through
-/// Running/Review, and parks `ask_question` calls in a Board-owned question
-/// registry until the drawer answers them. V2 replaces this with one session
-/// per independent question; v1 exists only to validate the ticket workflow.
+/// One Board work item owns role-scoped child runs. The runtime reads the
+/// authoritative snapshot, parks questions, and commits results only after the
+/// Board accepts the corresponding stage/report command.
 priv struct TicketQuestion {
   id : String
   task_id : String
@@ -201,6 +197,16 @@ impl @askquestion.QuestionEndpoint for BoardQuestionEndpoint with fn request(
 }
 
 ///|
+impl @askquestion.QuestionEndpoint for BoardQuestionEndpoint with fn request_with_audience(
+  self,
+  origin_call~,
+  audience~,
+  req~,
+) -> @posoco.UiResponse raise @askquestion.QuestionError {
+  self.questions.ask(self.task_id, origin_call, self.asked_by, audience, req)
+}
+
+///|
 priv struct TicketActivity {
   at_ms : Int64
   kind : String
@@ -213,6 +219,7 @@ priv struct TicketRun {
   task_id : String
   session_id : String
   phase : String
+  role : String
   mut status : String
   mut error : String?
   mut result : String?
@@ -387,13 +394,14 @@ priv struct TicketRuntime {
   ctx : @cetas_core.HostContext
   group : @async.TaskGroup[Unit]
   questions : TicketQuestions
-  runs : Map[String, TicketRun]
+  runs : Map[String, Array[TicketRun]]
   mut progress : Map[String, Array[TicketProgress]]
   child_store : CetasChildSessionStore
   mut counter : Int32
   mut reconciled : Bool
   mut resuming_task : String?
   mut team : TeamNames
+  mut profile : WorkProfile
 }
 
 ///|
@@ -424,7 +432,97 @@ fn TicketRuntime::TicketRuntime(
     reconciled: false,
     resuming_task: None,
     team: TeamNames::defaults(),
+    profile: WorkProfile::software(),
   }
+}
+
+///|
+fn TicketRuntime::runs_for(
+  self : TicketRuntime,
+  task_id : String,
+) -> Array[TicketRun] {
+  match self.runs.get(task_id) {
+    Some(runs) => runs
+    None => {
+      let runs : Array[TicketRun] = []
+      self.runs[task_id] = runs
+      runs
+    }
+  }
+}
+
+///|
+/// The run the task-level UI reads first: a live role wins, otherwise the most
+/// recently added role.
+fn TicketRuntime::run_for(self : TicketRuntime, task_id : String) -> TicketRun? {
+  let runs = match self.runs.get(task_id) {
+    Some(runs) => runs
+    None => return None
+  }
+  for run in runs {
+    if run.status == "running" {
+      return Some(run)
+    }
+  }
+  runs.get(runs.length() - 1)
+}
+
+///|
+fn TicketRuntime::run_role(
+  self : TicketRuntime,
+  task_id : String,
+  role : String,
+) -> TicketRun? {
+  match self.runs.get(task_id) {
+    Some(runs) => {
+      let mut found : TicketRun? = None
+      for run in runs {
+        if run.role == role {
+          found = Some(run)
+        }
+      }
+      found
+    }
+    None => None
+  }
+}
+
+///|
+fn TicketRuntime::all_runs(self : TicketRuntime) -> Array[TicketRun] {
+  let out : Array[TicketRun] = []
+  for runs in self.runs.values() {
+    for run in runs {
+      out.push(run)
+    }
+  }
+  out
+}
+
+///|
+fn TicketRuntime::add_run(
+  self : TicketRuntime,
+  task_id : String,
+  session_id : String,
+  phase : String,
+  role : String,
+) -> TicketRun {
+  let run : TicketRun = {
+    task_id,
+    session_id,
+    phase,
+    role,
+    status: "running",
+    error: None,
+    result: None,
+    report: None,
+    steps: 0,
+    current_tool: None,
+    preview: "",
+    reasoning: "",
+    activities: [],
+  }
+  self.runs_for(task_id).push(run)
+  run
 }
 
 ///|
@@ -476,8 +574,164 @@ fn TicketRuntime::answer_question(
 }
 
 ///|
-fn TicketRuntime::set_team(self : TicketRuntime, names : TeamNames) -> Json {
+/// Ask a Refiner child to answer one open Product Owner question. The original
+/// worker stays parked; a failure leaves the question open for a human Refiner.
+fn TicketRuntime::answer_as_refiner(
+  self : TicketRuntime,
+  question_id : String,
+) -> Result[Unit, String] {
+  match self.questions.questions.get(question_id) {
+    Some(question) if question.status == "open" => {
+      let _ = question
+      self.group.spawn_bg(async fn() {
+        ignore(self.refiner_answer(question_id))
+      })
+      Ok(())
+    }
+    _ => Err("question is no longer open")
+  }
+}
+
+///|
+async fn TicketRuntime::refiner_answer(
+  self : TicketRuntime,
+  question_id : String,
+) -> Result[Unit, String] {
+  let question = match self.questions.questions.get(question_id) {
+    Some(question) if question.status == "open" => question
+    Some(_) => return Err("question is no longer open")
+    None => return Err("question is no longer open")
+  }
+  let prompt = match question.req {
+    @posoco.UiRequest::Input(prompt~, ..) => prompt
+    @posoco.UiRequest::Confirm(prompt~) => prompt
+    @posoco.UiRequest::Select(prompt~, ..) => prompt
+  }
+  let (task, _) = match self.task_snapshot(question.task_id) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  let title = task_field(task, "title")
+  let description = task_field(task, "description")
+  let session_id = "ticket-question-" + question_id
+  let composer = CetasChildComposer::CetasChildComposer(
+    parent_manager=self.manager,
+    parent_mode=self.parent_mode,
+    child_store=Some(self.child_store),
+    approval=self.approval,
+    ui=None,
+    question=None,
+    question_endpoint=None,
+    context_fs=self.ctx.fs,
+    feature_fs=self.ctx.fs,
+    cwd=self.ctx.cwd,
+    home=self.ctx.home,
+    host_group=Some(self.group),
+  )
+  let spec : @subagent.ChildSpec = {
+    task: "Answer this question for the development group as the Refiner.\n\nTicket: " +
+    title +
+    "\n\nTicket description:\n" +
+    description +
+    "\n\nQuestion:\n" +
+    prompt +
+    "\n\nGive the shortest correct answer. Do not modify files.",
+    kind_name: "refiner-answer",
+    session_id,
+    resuming: false,
+    tools: Some(["read", "glob", "grep"]),
+    skills: None,
+    mode: (self.parent_mode)(),
+    system_prompt: ticket_system_prompt(
+      self.ctx.cwd,
+      refiner_system_prompt(self.team.refiner),
+    ),
+    slot: self.manager.manager_active_model_id(),
+    effort: self.manager.manager_active_effort(),
+    context_files: false,
+    observers: [],
+  }
+  let agent = @subagent.ChildComposer::compose(composer, spec) catch {
+    error => {
+      let detail = match error {
+        @subagent.Failed(detail) => detail
+      }
+      self.record_progress(
+        question.task_id,
+        "attention",
+        "Refiner could not answer: " + detail,
+      )
+      return Err(detail)
+    }
+  }
+  let task_id = question.task_id
+  self.group.spawn_bg(async fn() {
+    let answer : Result[String, String] = Ok(
+      agent.run_scoped(async fn(agent) {
+        let result = agent.run_turn(
+          @posoco.Message::UserMessage(content=[@posoco.Content::Text(prompt)]),
+          session_id,
+        )
+        match result.message {
+          @posoco.Message::AssistantMessage(content=blocks, ..) =>
+            blocks
+            .filter_map(block => {
+              match block {
+                @posoco.Content::Text(value) => Some(value)
+                _ => None
+              }
+            })
+            .join("\n")
+          _ => ""
+        }
+      }),
+    ) catch {
+      error => Err(error.to_string())
+    }
+    match answer {
+      Ok(text) if !text.trim().is_empty() =>
+        match
+          self.questions.answer(
+            question_id,
+            @posoco.UiResponse::Text(text),
+            "refiner",
+          ) {
+          Ok((task_id, asked_by, answer)) =>
+            self.record_progress(
+              task_id,
+              "question_answered",
+              "refiner answered " + asked_by + ": " + answer,
+            )
+          Err(reason) =>
+            self.record_progress(
+              task_id,
+              "attention",
+              "Refiner answer failed: " + reason,
+            )
+        }
+      Ok(_) =>
+        self.record_progress(
+          task_id, "attention", "Refiner returned an empty answer; question is still open.",
+        )
+      Err(error) =>
+        self.record_progress(
+          task_id,
+          "attention",
+          "Refiner could not answer: " + error,
+        )
+    }
+  })
+  Ok(())
+}
+
+///|
+fn TicketRuntime::set_team(
+  self : TicketRuntime,
+  names : TeamNames,
+  profile : WorkProfile,
+) -> Json {
   self.team = names
+  self.profile = profile
   self.state_json()
 }
 
@@ -502,9 +756,10 @@ fn TicketRuntime::dismiss_progress(
 fn TicketRuntime::record_work_report(
   self : TicketRuntime,
   task_id : String,
+  role : String,
   report : Json,
 ) -> Result[Unit, String] {
-  let run = match self.runs.get(task_id) {
+  let run = match self.run_role(task_id, role) {
     Some(run) => run
     None => return Err("ticket run is no longer active")
   }
@@ -529,6 +784,7 @@ fn TicketRuntime::record_work_report(
 priv struct TicketReportAdapter {
   runtime : TicketRuntime
   task_id : String
+  role : String
 }
 
 ///|
@@ -545,7 +801,7 @@ impl TicketReportEndpoint for TicketReportAdapter with fn submit_work_report(
   self,
   report,
 ) -> Result[Unit, String] {
-  self.runtime.record_work_report(self.task_id, report)
+  self.runtime.record_work_report(self.task_id, self.role, report)
 }
 
 ///|
@@ -588,7 +844,7 @@ async fn TicketRuntime::reconcile_interrupted(self : TicketRuntime) -> Unit {
     _ => return
   }
   for task in tasks {
-    if self.runs.get(task_field(task, "id")) is Some(_) {
+    if self.run_for(task_field(task, "id")) is Some(_) {
       continue
     }
     let stage = task_field(task, "stage")
@@ -599,33 +855,21 @@ async fn TicketRuntime::reconcile_interrupted(self : TicketRuntime) -> Unit {
     if task_id == "" {
       continue
     }
-    let session_id = work_session_id(task_id)
+    let session_id = work_session_id(task_id, "rd")
     let session = self.child_store.load(session_id) catch { _ => continue }
     if session.messages.is_empty() {
       continue
     }
-    self.runs[task_id] = {
-      task_id,
-      session_id,
-      phase: "work",
-      status: "interrupted",
-      error: Some(
-        "Host restarted before this run finished. Resume continues the durable session.",
-      ),
-      result: None,
-      report: None,
-      steps: 0,
-      current_tool: None,
-      preview: "",
-      reasoning: "",
-      activities: [
-        {
-          at_ms: @async.now(),
-          kind: "recover",
-          text: "Durable session found; run marked interrupted",
-        },
-      ],
-    }
+    let run = self.add_run(task_id, session_id, "work", "rd")
+    run.status = "interrupted"
+    run.error = Some(
+      "Host restarted before this run finished. Resume continues the durable session.",
+    )
+    run.activities.push({
+      at_ms: @async.now(),
+      kind: "recover",
+      text: "Durable session found; run marked interrupted",
+    })
   }
 }
 
@@ -636,12 +880,13 @@ async fn TicketRuntime::reconcile_interrupted(self : TicketRuntime) -> Unit {
 /// the host keeping an unbounded transcript.
 fn TicketRuntime::state_json(self : TicketRuntime) -> Json {
   let runs : Array[Json] = []
-  for run in self.runs.values() {
+  for run in self.all_runs() {
     runs.push(
       Json::object({
         "task_id": Json::string(run.task_id),
         "session_id": Json::string(run.session_id),
         "phase": Json::string(run.phase),
+        "role": Json::string(run.role),
         "status": Json::string(run.status),
         "error": match run.error {
           Some(text) => Json::string(text)
@@ -693,9 +938,36 @@ fn TicketRuntime::state_json(self : TicketRuntime) -> Json {
       }
     _ => "unknown"
   }
+  let mut running = 0
+  for run in self.all_runs() {
+    if run.status == "running" {
+      running = running + 1
+    }
+  }
+  let mut waiting_input = 0
+  for question in self.questions.questions.values() {
+    if question.status == "open" {
+      waiting_input = waiting_input + 1
+    }
+  }
+  let mut attention = 0
+  for updates in self.progress.values() {
+    if updates.any(update => {
+        update.kind == "attention" || update.kind == "blocked"
+      }) {
+      attention = attention + 1
+    }
+  }
+  let presence = @board_presence.BoardPresence::project(
+    running~,
+    waiting_input~,
+    attention~,
+  )
   Json::object({
     "project": Json::string(project_name(self.ctx.cwd)),
     "team": self.team.to_json(),
+    "work_profile": self.profile.to_json(),
+    "presence": presence.to_json(),
     "questions": self.questions.json(),
     "runs": Json::array(runs),
     "progress": Json::array(progress_items),
@@ -791,8 +1063,8 @@ fn latest_running_review_attempt(
 }
 
 ///|
-fn work_session_id(task_id : String) -> String {
-  "ticket-" + task_id
+fn work_session_id(task_id : String, role : String) -> String {
+  "ticket-" + task_id + "-" + role
 }
 
 ///|
@@ -827,6 +1099,65 @@ fn task_model(task : Json) -> TicketModelChoice? {
     _ => None
   }
   Some({ slot, effort, })
+}
+
+///|
+async fn TicketRuntime::assign_role(
+  self : TicketRuntime,
+  task_id : String,
+  role : String,
+  member_id : String,
+) -> Result[Unit, String] {
+  let snapshot = match self.snapshot() {
+    Ok(snapshot) => snapshot
+    Err(error) => return Err(error)
+  }
+  self.counter = self.counter + 1
+  let command : @board_protocol.BoardClientCommand = {
+    command_id: "ticket-assign-" + self.counter.to_string(),
+    name: "board.task.assign_role",
+    expected_revision: snapshot.board_revision,
+    args: {
+      "id": Json::string(task_id),
+      "role": Json::string(role),
+      "member_id": Json::string(member_id),
+    },
+  }
+  let encoded = match
+    self.board.wire_command(
+      @board_protocol.encode_client_frame(@board_protocol.Command(command)),
+    ) {
+    Ok(encoded) => encoded
+    Err(error) => return Err(error.code())
+  }
+  match @board_protocol.decode_server_frame(encoded) {
+    Ok(@board_protocol.CommandResult(result)) =>
+      if result.accepted {
+        Ok(())
+      } else {
+        Err(
+          match result.error {
+            Some(error) => error
+            None => "board command rejected"
+          },
+        )
+      }
+    _ => Err("board command result was invalid")
+  }
+}
+
+///|
+async fn TicketRuntime::assign_development_team(
+  self : TicketRuntime,
+  task_id : String,
+) -> Result[Unit, String] {
+  for role in ["rd", "set", "te"] {
+    match self.assign_role(task_id, role, role) {
+      Ok(_) => ()
+      Err(error) => return Err("could not assign " + role + ": " + error)
+    }
+  }
+  Ok(())
 }
 
 ///|
@@ -1211,10 +1542,11 @@ async fn TicketRuntime::set_review_report(
 fn TicketRuntime::set_run_status(
   self : TicketRuntime,
   task_id : String,
+  role : String,
   status : String,
   error : String?,
 ) -> Unit {
-  match self.runs.get(task_id) {
+  match self.run_role(task_id, role) {
     Some(run) => {
       run.status = status
       run.error = error
@@ -1232,64 +1564,107 @@ fn TicketRuntime::set_run_status(
 fn TicketRuntime::park_run(
   self : TicketRuntime,
   task_id : String,
+  role : String,
   status : String,
   error : String,
 ) -> Unit {
-  self.set_run_status(task_id, status, Some(error))
+  self.set_run_status(task_id, role, status, Some(error))
 }
 
 ///|
-async fn TicketRuntime::finish(
+fn TicketRuntime::team_complete(self : TicketRuntime, task_id : String) -> Bool {
+  let rd = match self.run_role(task_id, "rd") {
+    Some(run) => run.status == "completed"
+    None => false
+  }
+  let set = match self.run_role(task_id, "set") {
+    Some(run) => run.status == "completed"
+    None => false
+  }
+  rd && set
+}
+
+///|
+async fn TicketRuntime::finish_work(
   self : TicketRuntime,
   task_id : String,
+  role : String,
   outcome : Result[String, String],
 ) -> Unit {
+  let run = match self.run_role(task_id, role) {
+    Some(run) => run
+    None => return
+  }
   match outcome {
     Ok(result) => {
-      // The worker's structured report is the durable evidence of this
-      // attempt. The minimal fallback is used only when no report was
-      // submitted; the Board still validates whichever payload arrives.
-      let report = match self.runs.get(task_id) {
-        Some(run) =>
-          match run.report {
-            Some(report) => report
-            None => minimal_review_report(result)
+      run.result = Some(result)
+      if role == "te" {
+        let report = match run.report {
+          Some(report) => report
+          None => minimal_review_report(result)
+        }
+        match self.set_review_report(task_id, report) {
+          Ok(_) => ()
+          Err(error) => {
+            self.park_run(
+              task_id,
+              role,
+              "failed",
+              "review report was not recorded: " + error,
+            )
+            return
           }
-        None => minimal_review_report(result)
-      }
-      match self.set_review_report(task_id, report) {
-        Ok(_) => ()
-        Err(error) => {
-          self.park_run(
-            task_id,
-            "failed",
-            "review report was not recorded: " + error,
-          )
-          return
+        }
+        match self.move_task(task_id, "review") {
+          Ok(_) => {
+            run.status = "review"
+            run.error = None
+          }
+          Err(error) =>
+            self.park_run(
+              task_id,
+              role,
+              "failed",
+              "review move was not accepted: " + error,
+            )
+        }
+      } else {
+        run.status = "completed"
+        run.error = None
+        if self.team_complete(task_id) {
+          match self.move_task(task_id, "verification") {
+            Ok(_) => {
+              let task = match self.task_snapshot(task_id) {
+                Ok((task, _)) => task
+                Err(error) => {
+                  self.park_run(task_id, "rd", "failed", error)
+                  return
+                }
+              }
+              match self.start_role(task_id, task, "te", false) {
+                Ok(_) => ()
+                Err(error) => self.park_run(task_id, "te", "failed", error)
+              }
+            }
+            Err(error) => {
+              self.park_run(
+                task_id,
+                "rd",
+                "failed",
+                "verification move failed: " + error,
+              )
+              self.park_run(
+                task_id,
+                "set",
+                "failed",
+                "verification move failed: " + error,
+              )
+            }
+          }
         }
       }
-      // Review is only claimed after the Board accepts the move. A rejected
-      // move parks the ticket on Suspended and fails the run, so `run.status`
-      // never says "review" while the Board says otherwise.
-      match self.move_task(task_id, "review") {
-        Ok(_) =>
-          match self.runs.get(task_id) {
-            Some(run) => {
-              run.status = "review"
-              run.error = None
-              run.result = Some(result)
-            }
-            None => ()
-          }
-        Err(error) =>
-          self.park_run(
-            task_id,
-            "failed",
-            "review move was not accepted: " + error,
-          )
-      }
     }
-    Err(error) => self.park_run(task_id, "failed", error)
+    Err(error) => self.park_run(task_id, role, "failed", error)
   }
 }
 
@@ -1627,6 +2002,13 @@ async fn TicketRuntime::split_ticket(
         }
       None => ()
     }
+    match self.assign_development_team(task_id) {
+      Ok(_) => ()
+      Err(error) => {
+        let rollback = self.rollback_split(created)
+        return Err("could not assign split ticket team: " + error + rollback)
+      }
+    }
     match self.move_task(task_id, "refining") {
       Ok(_) => ()
       Err(error) => {
@@ -1666,7 +2048,7 @@ async fn TicketRuntime::finish_shape(
   task_id : String,
   outcome : Result[String, String],
 ) -> Unit {
-  let run = self.runs.get(task_id)
+  let run = self.run_for(task_id)
   let result = match outcome {
     Ok(text) => text
     Err(error) => {
@@ -1787,6 +2169,19 @@ async fn TicketRuntime::finish_shape(
       return
     }
   }
+  match self.assign_development_team(task_id) {
+    Ok(_) => ()
+    Err(error) => {
+      match run {
+        Some(run) => {
+          run.status = "failed"
+          run.error = Some(error)
+        }
+        None => ()
+      }
+      return
+    }
+  }
   match self.move_task(task_id, "ready") {
     Ok(_) =>
       match run {
@@ -1812,7 +2207,7 @@ async fn TicketRuntime::shape(
   self : TicketRuntime,
   task_id : String,
 ) -> Result[Unit, String] {
-  if self.runs.get(task_id) is Some(run) && run.status == "running" {
+  if self.run_for(task_id) is Some(run) && run.status == "running" {
     return Err("ticket is already running")
   }
   let (task, _) = match self.task_snapshot(task_id) {
@@ -1849,20 +2244,7 @@ async fn TicketRuntime::shape(
         "could not clear the previous shaping session: " + error.to_string(),
       )
   }
-  self.runs[task_id] = {
-    task_id,
-    session_id,
-    phase: "shape",
-    status: "running",
-    error: None,
-    result: None,
-    report: None,
-    steps: 0,
-    current_tool: None,
-    preview: "",
-    reasoning: "",
-    activities: [],
-  }
+  let _run = self.add_run(task_id, session_id, "shape", "refiner")
   let endpoint : BoardQuestionEndpoint = {
     questions: self.questions,
     task_id,
@@ -1870,7 +2252,7 @@ async fn TicketRuntime::shape(
     audience: "product_owner",
   }
   let observer = TicketActivityObserver::{
-    run: self.runs.get(task_id).unwrap(),
+    run: self.run_for(task_id).unwrap(),
   }
   observer.run.activity("start", "Started")
   let composer = CetasChildComposer::CetasChildComposer(
@@ -1921,7 +2303,7 @@ async fn TicketRuntime::shape(
       let detail = match error {
         @subagent.Failed(detail) => detail
       }
-      match self.runs.get(task_id) {
+      match self.run_for(task_id) {
         Some(run) => {
           run.status = "failed"
           run.error = Some(detail)
@@ -1961,84 +2343,131 @@ async fn TicketRuntime::shape(
 }
 
 ///|
-async fn TicketRuntime::run(
-  self : TicketRuntime,
-  task_id : String,
-) -> Result[Unit, String] {
-  let resuming = match self.resuming_task {
-    Some(id) => id == task_id
-    None => false
-  }
-  if self.runs.get(task_id) is Some(run) && run.status == "running" {
-    return Err("ticket is already running")
-  }
-  let snapshot = match self.snapshot() {
-    Ok(snapshot) => snapshot
-    Err(error) => return Err(error)
-  }
-  let tasks = match snapshot.payload {
-    Object(payload) =>
-      match payload.get("board") {
-        Some(Object(board)) =>
-          match board.get("tasks") {
-            Some(Array(tasks)) => tasks
-            _ => return Err("board snapshot has no task array")
-          }
-        _ => return Err("board snapshot has no board object")
-      }
-    _ => return Err("board snapshot payload is invalid")
-  }
-  let mut found : Json? = None
-  for item in tasks {
-    if task_field(item, "id") == task_id {
-      found = Some(item)
-      break
-    }
-  }
-  let task = match found {
-    Some(task) => task
-    None => return Err("ticket was not found")
-  }
-  let stage = task_field(task, "stage")
-  if stage != "ready" && !(resuming && stage == "running") {
-    return Err("ticket must be Ready before it can run")
-  }
-  let title = task_field(task, "title")
-  let description = task_field(task, "description")
-  if !resuming {
-    if task_field(task, "user_story").trim() == "" {
-      return Err("Ready ticket needs a user story; shape it first")
-    }
-    if description.trim() == "" {
-      return Err("Ready ticket needs a detailed description; shape it first")
-    }
-    if task_field(task, "implementation_suggestions").trim() == "" {
-      return Err(
-        "Ready ticket needs implementation suggestions; shape it first",
-      )
-    }
-  }
-  let done = match task {
+fn task_definition_of_done(task : Json) -> Array[String] {
+  match task {
     Object(fields) =>
       match fields.get("definition_of_done") {
         Some(Array(items)) =>
-          items
-          .map(item => {
+          items.filter_map(item => {
             match item {
-              String(text) => text
-              _ => ""
+              String(text) if text != "" => Some(text)
+              _ => None
             }
           })
-          .filter(text => text != "")
         _ => []
       }
     _ => []
   }
-  if !resuming && done.is_empty() {
-    return Err("Ready ticket needs a definition of done; shape it first")
+}
+
+///|
+fn worker_tools(role : String) -> Array[String] {
+  if role == "te" {
+    ["read", "glob", "grep", "astgrep", "ask_question"]
+  } else {
+    [
+      "read",
+      "glob",
+      "grep",
+      "astgrep",
+      "write",
+      "edit",
+      if shell_platform_is_windows() {
+        "ps1"
+      } else {
+        "bash"
+      },
+      "ask_question",
+    ]
   }
-  if !resuming && done.is_empty() {
-    return Err("Ready ticket needs a definition of done; shape it first")
+}
+
+///|
+fn worker_prompt(
+  task : Json,
+  role : String,
+  resuming : Bool,
+  prior : Array[TicketRun],
+) -> String {
+  let title = task_field(task, "title")
+  let description = task_field(task, "description")
+  let done = task_definition_of_done(task)
+  let feedback = match task_review_feedback(task) {
+    Some(text) =>
+      "\n\nReviewer feedback — this attempt must address it:\n" + text
+    None => ""
+  }
+  let evidence = if role == "te" {
+    let lines : Array[String] = []
+    for run in prior {
+      if run.role != "te" {
+        lines.push(
+          run.role +
+          " (" +
+          run.status +
+          "): " +
+          (match run.result {
+            Some(result) => result
+            None => "(no result)"
+          }),
+        )
+      }
+    }
+    if lines.is_empty() {
+      ""
+    } else {
+      "\n\nDevelopment handoff:\n" + lines.join("\n")
+    }
+  } else {
+    ""
+  }
+  let opening = if resuming {
+    "Resume this Board ticket after the host restarted. Continue from the recorded session; do not repeat work that is already complete.\n\n"
+  } else {
+    match role {
+      "rd" => "Work on this Board ticket as RD. Produce the product change.\n\n"
+      "set" =>
+        "Work on this Board ticket as SET. Build independent verification against the user story.\n\n"
+      _ =>
+        "Work on this Board ticket as TE. Verify RD using SET's independent evidence.\n\n"
+    }
+  }
+  opening +
+  "Title: " +
+  title +
+  "\n\nDescription:\n" +
+  description +
+  "\n\nDefinition of done:\n" +
+  (if done.is_empty() {
+    "(none recorded)"
+  } else {
+    done.map(item => "- " + item).join("\n")
+  }) +
+  feedback +
+  evidence +
+  "\n\nReporting contract:\n" +
+  "- Call report_progress when you start, after each significant milestone, when you investigate a problem, and before your final answer.\n" +
+  "- Call submit_work_report with outcome, summary, changes, verification, risks, notes, open questions and artifacts before your final answer.\n" +
+  "- Use ask_question_child with audience=\"refiner\" for requirement/design questions and audience=\"product_owner\" for business trade-offs; never use report_progress for questions.\n\n" +
+  "Do not mutate the Board. End with a concise result and the evidence you verified."
+}
+
+///|
+async fn TicketRuntime::start_role(
+  self : TicketRuntime,
+  task_id : String,
+  task : Json,
+  role : String,
+  resuming : Bool,
+) -> Result[Unit, String] {
+  let session_id = work_session_id(task_id, role)
+  if !resuming {
+    self.child_store.clear_session(session_id) catch {
+      error =>
+        return Err(
+          "could not clear the " + role + " session: " + error.to_string(),
+        )
+    }
   }
   let (slot, effort) = match task_model(task) {
     Some(model) => (model.slot, model.effort)
@@ -2048,59 +2477,16 @@ async fn TicketRuntime::run(
         self.manager.manager_active_effort(),
       )
   }
-  self.counter = self.counter + 1
-  let session_id = work_session_id(task_id)
-  self.runs[task_id] = {
-    task_id,
-    session_id,
-    phase: "work",
-    status: "running",
-    error: None,
-    result: None,
-    report: None,
-    steps: 0,
-    current_tool: None,
-    preview: "",
-    reasoning: "",
-    activities: [],
-  }
-  if !(resuming && stage == "running") {
-    match self.move_task(task_id, "running") {
-      Ok(_) => ()
-      Err(error) => {
-        match self.runs.get(task_id) {
-          Some(run) => run.status = "failed"
-          None => ()
-        }
-        return Err(error)
-      }
-    }
-  }
-  if !resuming {
-    self.child_store.clear_session(session_id) catch {
-      error => {
-        self.park_run(
-          task_id,
-          "failed",
-          "could not clear the previous work session: " + error.to_string(),
-        )
-        return Err(
-          "could not clear the previous work session: " + error.to_string(),
-        )
-      }
-    }
-  }
+  let run = self.add_run(task_id, session_id, "work", role)
   let endpoint : BoardQuestionEndpoint = {
     questions: self.questions,
     task_id,
-    asked_by: "development_group",
-    audience: "product_owner",
+    asked_by: role,
+    audience: "refiner",
   }
-  let reporting : TicketReportAdapter = { runtime: self, task_id, }
-  let observer = TicketActivityObserver::{
-    run: self.runs.get(task_id).unwrap(),
-  }
-  observer.run.activity("start", "Started")
+  let reporting : TicketReportAdapter = { runtime: self, task_id, role, }
+  let observer = TicketActivityObserver::{ run, }
+  observer.run.activity("start", "Started as " + role)
   let composer = CetasChildComposer::CetasChildComposer(
     parent_manager=self.manager,
     parent_mode=self.parent_mode,
@@ -2116,61 +2502,23 @@ async fn TicketRuntime::run(
     home=self.ctx.home,
     host_group=Some(self.group),
   )
-  // A ticket carrying reviewer feedback is on a follow-up attempt: the Board
-  // put it back on Ready with that text, so the worker must treat it as a
-  // requirement of this attempt, not as background.
-  let feedback = match task_review_feedback(task) {
-    Some(text) =>
-      "\n\nReviewer feedback — this attempt must address it:\n" + text
-    None => ""
+  let prompt = worker_prompt(task, role, resuming, self.runs_for(task_id))
+  let name = match role {
+    "rd" => self.team.rd
+    "set" => self.team.set
+    _ => self.team.te
   }
-  let prompt = (if resuming {
-      "Resume this Board ticket after the host restarted. Continue from the recorded session; do not repeat work that is already complete.\n\n"
-    } else {
-      "Work on this Board ticket only.\n\n"
-    }) +
-    "Title: " +
-    title +
-    "\n\nDescription:\n" +
-    description +
-    "\n\nDefinition of done:\n" +
-    (if done.is_empty() {
-      "(none recorded)"
-    } else {
-      done.map(item => "- " + item).join("\n")
-    }) +
-    feedback +
-    "\n\nReporting contract:\n" +
-    "- Call report_progress when you start, after each significant milestone, when you investigate a problem, and before your final answer. It is non-blocking and expects no reply.\n" +
-    "- Use kind=\"attention\" or kind=\"blocked\" only for a real risk or a real blockage; everything else is \"normal\" (a milestone is \"milestone\").\n" +
-    "- Keep every progress message short and user-facing; use the language of the ticket.\n" +
-    "- Call submit_work_report with outcome, summary, changes, verification, risks, notes, open questions and artifacts before your final answer, once you have evidence.\n" +
-    "- Questions for a human still go through ask_question_child, never through report_progress.\n\n" +
-    "Ask the user with ask_question_child if the ticket is ambiguous or you need a decision. Do not use notify_user in this ticket worker. Do not mutate the Board. End with a concise result and the evidence you verified. Use the language of the ticket and the latest Inbox answer for user-facing text; keep code, paths, commands, and quoted errors verbatim."
   let spec : @subagent.ChildSpec = {
     task: prompt,
-    kind_name: "ticket",
+    kind_name: "ticket-" + role,
     session_id,
     resuming,
-    tools: Some([
-      "read",
-      "glob",
-      "grep",
-      "astgrep",
-      "write",
-      "edit",
-      if shell_platform_is_windows() {
-        "ps1"
-      } else {
-        "bash"
-      },
-      "ask_question",
-    ]),
+    tools: Some(worker_tools(role)),
     skills: None,
     mode: (self.parent_mode)(),
     system_prompt: ticket_system_prompt(
       self.ctx.cwd,
-      development_system_prompt(self.team.rd, "RD"),
+      development_system_prompt(name, role, self.profile),
     ),
     slot,
     effort,
@@ -2182,15 +2530,9 @@ async fn TicketRuntime::run(
       let detail = match error {
         @subagent.Failed(detail) => detail
       }
-      match self.runs.get(task_id) {
-        Some(run) => {
-          run.status = "failed"
-          run.error = Some(detail)
-        }
-        None => ()
-      }
-      ignore(self.move_task(task_id, "suspended"))
-      return Err("child composition failed: " + detail)
+      run.status = "failed"
+      run.error = Some(detail)
+      return Err(role + " composition failed: " + detail)
     }
   }
   self.group.spawn_bg(async fn() {
@@ -2202,38 +2544,89 @@ async fn TicketRuntime::run(
           session_id,
         )
         match result.message {
-          @posoco.Message::AssistantMessage(content=blocks, ..) => {
-            let text = blocks
-              .filter_map(block => {
-                match block {
-                  @posoco.Content::Text(value) => Some(value)
-                  _ => None
-                }
-              })
-              .join("\n")
-            text
-          }
+          @posoco.Message::AssistantMessage(content=blocks, ..) =>
+            blocks
+            .filter_map(block => {
+              match block {
+                @posoco.Content::Text(value) => Some(value)
+                _ => None
+              }
+            })
+            .join("\n")
           _ => "ticket turn completed"
         }
       }),
     ) catch {
       error => Err(error.to_string())
     }
-    self.finish(task_id, outcome)
+    self.finish_work(task_id, role, outcome)
   })
+  Ok(())
+}
+
+///|
+async fn TicketRuntime::run(
+  self : TicketRuntime,
+  task_id : String,
+) -> Result[Unit, String] {
+  let resuming = match self.resuming_task {
+    Some(id) => id == task_id
+    None => false
+  }
+  if self.run_for(task_id) is Some(run) && run.status == "running" {
+    return Err("ticket is already running")
+  }
+  let (task, _) = match self.task_snapshot(task_id) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  let stage = task_field(task, "stage")
+  if stage != "ready" && !(resuming && stage == "running") {
+    return Err("ticket must be Ready before it can run")
+  }
+  if !resuming {
+    if task_field(task, "user_story").trim() == "" {
+      return Err("Ready ticket needs a user story; shape it first")
+    }
+    if task_field(task, "description").trim() == "" {
+      return Err("Ready ticket needs a detailed description; shape it first")
+    }
+    if task_field(task, "implementation_suggestions").trim() == "" {
+      return Err(
+        "Ready ticket needs implementation suggestions; shape it first",
+      )
+    }
+    if task_definition_of_done(task).is_empty() {
+      return Err("Ready ticket needs a definition of done; shape it first")
+    }
+  }
+  if !(resuming && stage == "running") {
+    match self.move_task(task_id, "running") {
+      Ok(_) => ()
+      Err(error) => return Err(error)
+    }
+  }
+  for role in ["rd", "set"] {
+    match self.start_role(task_id, task, role, resuming) {
+      Ok(_) => ()
+      Err(error) => {
+        for other in ["rd", "set"] {
+          self.park_run(task_id, other, "failed", error)
+        }
+        return Err(error)
+      }
+    }
+  }
   self.resuming_task = None
   Ok(())
 }
 
 ///|
-/// Continue one interrupted ticket from its durable child session. This is
-/// deliberately different from `retry`: Resume keeps the recorded context and
-/// does not clear the session; Retry discards it and starts fresh.
 async fn TicketRuntime::resume_ticket(
   self : TicketRuntime,
   task_id : String,
 ) -> Result[Json, String] {
-  if self.runs.get(task_id) is Some(run) && run.status == "running" {
+  if self.run_for(task_id) is Some(run) && run.status == "running" {
     return Err("ticket is already running")
   }
   let (task, _) = match self.task_snapshot(task_id) {
@@ -2246,7 +2639,7 @@ async fn TicketRuntime::resume_ticket(
       "ticket must be Ready, Running, or Suspended before it can be resumed",
     )
   }
-  let session_id = work_session_id(task_id)
+  let session_id = work_session_id(task_id, "rd")
   let session = self.child_store.load(session_id) catch {
     error =>
       return Err(
@@ -2379,7 +2772,7 @@ async fn TicketRuntime::retry(
   self : TicketRuntime,
   task_id : String,
 ) -> Result[Json, String] {
-  if self.runs.get(task_id) is Some(run) && run.status == "running" {
+  if self.run_for(task_id) is Some(run) && run.status == "running" {
     return Err("ticket is already running")
   }
   let (task, _) = match self.task_snapshot(task_id) {
@@ -2388,11 +2781,12 @@ async fn TicketRuntime::retry(
   }
   let stage = task_field(task, "stage")
   if stage != "ready" &&
+    stage != "verification" &&
     stage != "review" &&
     stage != "suspended" &&
     stage != "running" {
     return Err(
-      "ticket must be Ready, Review, Suspended, or a failed Running ticket before it can be retried",
+      "ticket must be Ready, Verification, Review, Suspended, or a failed Running ticket before it can be retried",
     )
   }
   if stage == "running" {

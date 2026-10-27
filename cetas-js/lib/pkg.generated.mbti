@@ -109,13 +109,15 @@ pub fn cetas_js_tool_catalog(CetasJsAgent) -> String
 
 pub fn cetas_js_user_replied(CetasJsAgent) -> String
 
-pub fn development_system_prompt(String, String) -> String
+pub fn development_system_prompt(String, String, WorkProfile) -> String
 
 pub fn project_name(String) -> String
 
 pub fn question_event_to_json(@posoco-ext-askquestion.QuestionEvent) -> Json
 
 pub fn refiner_system_prompt(String) -> String
+
+pub fn work_profiles() -> Array[WorkProfile]
 
 // Errors
 
@@ -298,6 +300,17 @@ pub async fn UiBridge::on_shutdown(Self) -> Unit
 pub async fn UiBridge::on_start(Self) -> Unit
 pub impl @port.Extension for UiBridge
 pub impl @port.Lifecycle for UiBridge
+
+pub struct WorkProfile {
+  id : String
+  label : String
+  work_product : String
+}
+pub fn WorkProfile::analysis() -> Self
+pub fn WorkProfile::document() -> Self
+pub fn WorkProfile::from_id(String) -> Self
+pub fn WorkProfile::software() -> Self
+pub fn WorkProfile::to_json(Self) -> Json
 
 // Type aliases
 
