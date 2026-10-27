@@ -1,4 +1,4 @@
-# Builds the Cetas documentation site (cetas-website/) and deploys it to
+# Builds the Cetas documentation site (website/) and deploys it to
 # GitHub Pages.
 #
 # One-time setup on the GitHub repository: Settings -> Pages -> Build and
@@ -19,11 +19,11 @@ on:
   push:
     branches: [main]
     paths:
-      - "cetas-website/**"
+      - "website/**"
       - ".github/workflows/site.yml"
   pull_request:
     paths:
-      - "cetas-website/**"
+      - "website/**"
       - ".github/workflows/site.yml"
   workflow_dispatch:
 
@@ -43,7 +43,7 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: cetas-website
+        working-directory: website
     steps:
       - name: checkout
         uses: actions/checkout@v4
@@ -58,7 +58,7 @@ jobs:
         with:
           node-version: "24"
           cache: pnpm
-          cache-dependency-path: cetas-website/pnpm-lock.yaml
+          cache-dependency-path: website/pnpm-lock.yaml
 
       - name: install
         run: pnpm install --frozen-lockfile
@@ -78,7 +78,7 @@ jobs:
       - name: upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: cetas-website/dist
+          path: website/dist
 
   deploy:
     name: deploy
