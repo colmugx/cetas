@@ -8,7 +8,7 @@
 extern "C" fn exit(code : Int32) = "exit"
 
 ///|
-const CETAS_NATIVE_VERSION = "0.10.10"
+const CETAS_NATIVE_VERSION = "0.10.11"
 
 ///|
 fn mint_login_device_id() -> String raise @posoco.CommandError {

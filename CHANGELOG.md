@@ -2,6 +2,27 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.10.11 (2026-10-27)
+
+## General
+
+### Fixes
+
+- Nested tool calls made from inside `run_code` are now bounded to a fixed depth: a runaway chain stops with an invocation-limit result instead of recursing without end.
+- Tool arguments are now checked against the full JSON Schema 2020-12 profile before a tool runs. Tools whose schemas use `oneOf`/`anyOf`/`$ref`, `pattern`, or numeric bounds now load correctly, and arguments that violate the schema are reported up front instead of failing inside the tool.
+
+## Bun Ver.（cetas-bun）
+
+### Feats
+
+- A ticket can no longer be marked Ready until the story, description, implementation suggestions, and at least one definition-of-done item all exist — the Board tells you which field is still missing.
+- Board questions now show who asked them and who they are addressed to, and answers record who answered; answering from the Board also posts an "answered" entry in the run's progress feed.
+
+### Fixes
+
+- Cancelling a turn now verifies the shell command actually stopped: a graceful signal, then a hard kill with a bounded confirmation wait. Commands that ignore the graceful signal are killed and reported as stopped instead of leaving a live process (and its concurrency slot) behind.
+- In PTC-only mode, calling a tool that is folded into `run_code` now returns guidance telling the model to call it through `ctx.call(...)`, instead of a bare "not executed".
+
 ## 0.10.10 (2026-10-26)
 
 ## General
