@@ -1978,12 +1978,10 @@ pub fn cetas_js_runtime_create_agent(
               )
               mcp_bridge.start_probes()
             })
-            let routing : Map[String, &@posoco.ToolProvider] = Map::from_array([])
             let base_defs : Array[@posoco.ToolDef] = []
             for ext in exts {
               for provider in ext.manifest().tools {
                 for def in provider.list_tools() {
-                  routing[def.name.to_string()] = provider
                   base_defs.push(def)
                 }
               }
