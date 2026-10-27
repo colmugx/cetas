@@ -59,9 +59,9 @@ jobs:
           moon info
           git -c diff.ignoreSubmodules=dirty diff --exit-code -- . ./cetas-js ./cetas-core ./cetas-run ./cetas-acp ./cetas-ext-forme
 
-      - name: moon test (native process diagnostics)
+      - name: moon test
         id: test
-        run: bash scripts/monitor_moon_native_tests.sh
+        run: moon test --target native --output-json
 
       # Node 24 is Active LTS; pin it before all JS/Node distribution tests.
       - name: Setup Node LTS for cetas-js
