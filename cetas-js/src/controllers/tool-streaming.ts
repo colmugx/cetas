@@ -10,9 +10,9 @@
  *     dropped): accumulated args may have gaps. Display is best-effort;
  *     `tool_call_started` carries the complete authoritative args and
  *     REPLACES the accumulated state on adoption.
- *   - Pending calls are keyed by wire id when known, else `#<index>` until
- *     an id-bearing fragment re-keys them. Concurrent calls are
- *     disambiguated by index upstream; keys make them distinct here.
+ *   - Pending calls are indexed independently by upstream index and wire id,
+ *     avoiding string-key collisions and linear searches on continuation
+ *     fragments. The committed id is authoritative at adoption time.
  *   - `onCallStarted` returns the adopted ToolRow so the router can take
  *     over result routing; unknown started ids return null and the router
  *     builds a fresh row exactly as in the non-streaming path (history
@@ -47,7 +47,10 @@ interface PendingCall {
 }
 
 export class ToolStreamingController {
-  private pending = new Map<string, PendingCall>();
+  /** Index is present even when the lossy stream omitted the call id. */
+  private readonly pendingByIndex = new Map<number, PendingCall>();
+  /** Known wire ids are indexed separately to avoid collisions with indices. */
+  private readonly pendingById = new Map<string, PendingCall>();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
@@ -69,16 +72,23 @@ export class ToolStreamingController {
     name: string | undefined,
     delta: string | undefined,
   ): void {
-    let entry = this.findPending(index, id);
-    if (!entry) {
+    // Continuations normally carry only the index. Both paths are O(1).
+    let entry =
+      (id === undefined ? undefined : this.pendingById.get(id)) ??
+      this.pendingByIndex.get(index);
+    if (entry === undefined) {
       entry = {
-        id,
         index,
         name,
         rawArgs: "",
         row: this.factory.createStreamingRow(index, id, name),
       };
-      this.pending.set(this.key(id, index), entry);
+      this.pendingByIndex.set(index, entry);
+    }
+    if (id !== undefined && entry.id !== id) {
+      if (entry.id !== undefined) this.pendingById.delete(entry.id);
+      entry.id = id;
+      this.pendingById.set(id, entry);
     }
     if (delta !== undefined && delta.length > 0) {
       entry.rawArgs += delta;
@@ -102,17 +112,20 @@ export class ToolStreamingController {
     toolName: string,
     args: unknown,
   ): ToolRow | null {
-    // A single unmatched *identified* call belongs to someone else. The
-    // fragment channel is lossy: another call can start before its own delta
-    // was seen. Only an id-less provisional row can be claimed by fallback.
-    let entry = this.pending.get(toolCallId);
-    if (entry === undefined && this.pending.size === 1) {
-      const sole = this.pending.values().next().value;
-      if (sole?.id === undefined) entry = sole;
+    // The authoritative id wins. Never claim a different identified row.
+    // Only one id-less provisional row may be adopted, and a known streamed
+    // tool name must agree with the committed name.
+    let entry = this.pendingById.get(toolCallId);
+    if (entry === undefined && this.pendingByIndex.size === 1) {
+      const sole = this.pendingByIndex.values().next().value;
+      if (
+        sole?.id === undefined &&
+        (sole.name === undefined || sole.name === toolName)
+      ) entry = sole;
     }
     if (entry === undefined) return null;
-    // Adoption consumes the entry regardless of which key held it.
-    this.pending.delete(this.key(entry.id, entry.index));
+    this.pendingByIndex.delete(entry.index);
+    if (entry.id !== undefined) this.pendingById.delete(entry.id);
     entry.row.markCallStarted(args, toolName);
     return entry.row;
   }
@@ -129,50 +142,11 @@ export class ToolStreamingController {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
-    this.pending.clear();
+    this.pendingByIndex.clear();
+    this.pendingById.clear();
   }
 
   // -- internal -------------------------------------------------------------
-
-  private key(id: string | undefined, index: number): string {
-    return id ?? `#${index}`;
-  }
-
-  /**
-   * Locate the pending call a fragment belongs to. Direct key hits first,
-   * then the unique pending entry at this index — continuation fragments
-   * normally carry ONLY the index (OpenAI convention), so they must find
-   * rows originally keyed by the id-bearing first fragment. An id-bearing
-   * fragment claims its index-mate and re-keys it.
-   */
-  private findPending(
-    index: number,
-    id: string | undefined,
-  ): PendingCall | undefined {
-    let entry =
-      id !== undefined ? this.pending.get(id) : undefined;
-    if (!entry) {
-      entry = this.pending.get(`#${index}`);
-    }
-    if (!entry) {
-      for (const candidate of this.pending.values()) {
-        if (candidate.index === index) {
-          entry = candidate;
-          break;
-        }
-      }
-    }
-    if (entry && id !== undefined) this.reKeyIfNeeded(entry, id);
-    return entry;
-  }
-
-  /** Move an index-keyed entry under its newly learned id. */
-  private reKeyIfNeeded(entry: PendingCall, id: string): void {
-    if (entry.id === id) return;
-    this.pending.delete(this.key(entry.id, entry.index));
-    entry.id = id;
-    this.pending.set(id, entry);
-  }
 
   private scheduleFlush(): void {
     if (this.flushTimer) return;
@@ -183,8 +157,8 @@ export class ToolStreamingController {
   }
 
   private flushNow(): void {
-    if (this.pending.size === 0) return;
-    for (const entry of this.pending.values()) {
+    if (this.pendingByIndex.size === 0) return;
+    for (const entry of this.pendingByIndex.values()) {
       // Lossiness may leave even the final buffer unparsable at its tail —
       // parsePartialJsonObject degrades gracefully either way.
       entry.row.setStreamingArgs(parsePartialJsonObject(entry.rawArgs), entry.name);
