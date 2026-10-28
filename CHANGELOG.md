@@ -2,6 +2,21 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.10.12 (2026-10-28)
+
+## Bun Ver.（cetas-bun）
+
+### Feats
+
+- A Board ticket is now carried by three accountable roles instead of one anonymous worker.
+- Your configured MCP servers now reach Board team members.
+- Board team settings are now per role and per project.
+- A work profile (Software / Document / Analysis) changes what the team produces — the deliverable, the checks designed against it, and what verification means — without changing the team structure.
+- Team questions now name their audience: requirement and design questions go to the Refiner, business trade-offs to you as Product Owner, and the inbox shows the route by member name instead of raw role ids.
+- A new backlog item starts from a plain-language idea ("What do you want to build?"); the Refiner turns it into a three-line user story, rewrites the title, and fills in definition of done and priority.
+- Work reports are recorded against the role that produced them, and Review falls back to the TE's result when no structured report was submitted, so a finished ticket never opens with an empty report.
+- Opening the Board now tells you, in the session, that cetas is acting as your Product Owner for that Board and will coordinate your questions and requirements with the team.
+
 ## 0.10.11 (2026-10-27)
 
 ## General
