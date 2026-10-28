@@ -1,7 +1,7 @@
 /**
  * Contracts locked here:
- *   - deltas mount exactly ONE row per call, keyed `#index` until an id
- *     fragment re-keys it;
+ *   - deltas mount exactly ONE row per call, indexed by wire id and index;
+ *     later id fragments attach to the same row;
  *   - throttled flushes push parsed partial JSON into the row;
  *   - `onCallStarted` adoption REPLACES accumulated args with the
  *     authoritative ones (chunk channel is lossy under backpressure);
@@ -165,7 +165,7 @@ describe("ToolStreamingController", () => {
   test("unmatched started id does not steal the sole identified pending call", () => {
     const { transcript, controller } = makeHarness();
     controller.onArgsDelta(0, "call_A", "write", '{"path":"a.md"');
-    const original = transcript.children[0];
+    const original = transcript.children.filter((c): c is ToolRow => c instanceof ToolRow)[0]!;
 
     // Call B's arg fragments were dropped. A still belongs to call_A.
     expect(controller.onCallStarted("call_B", "read", { path: "b.md" })).toBeNull();
@@ -176,11 +176,31 @@ describe("ToolStreamingController", () => {
   test("sole index-only pending call can still adopt a newly learned id", () => {
     const { transcript, controller } = makeHarness();
     controller.onArgsDelta(3, undefined, "write", '{"path":"draft.md"');
-    const original = transcript.children[0];
+    const original = transcript.children.filter((c): c is ToolRow => c instanceof ToolRow)[0]!;
 
     expect(controller.onCallStarted("committed", "write", { path: "draft.md" })).toBe(original);
     expect(controller.onCallStarted("unrelated", "read", {})).toBeNull();
     expect(transcript.children).toHaveLength(1);
+  });
+
+  test("a different named start cannot claim an id-less provisional row", () => {
+    const { transcript, controller } = makeHarness();
+    controller.onArgsDelta(0, undefined, "write", '{"path":"draft.md"');
+    const original = transcript.children.filter((c): c is ToolRow => c instanceof ToolRow)[0]!;
+
+    expect(controller.onCallStarted("unrelated", "read", { path: "b.md" })).toBeNull();
+    expect(controller.onCallStarted("actual", "write", { path: "draft.md" })).toBe(original);
+  });
+
+  test("wire id resembling an index key does not collide with another call", () => {
+    const { transcript, controller } = makeHarness();
+    controller.onArgsDelta(0, undefined, "write", '{"path":"a.md"');
+    controller.onArgsDelta(1, "#0", "read", '{"path":"b.md"');
+    const rows = transcript.children.filter((c): c is ToolRow => c instanceof ToolRow);
+
+    expect(rows).toHaveLength(2);
+    expect(controller.onCallStarted("#0", "read", { path: "b.md" })).toBe(rows[1]);
+    expect(controller.onCallStarted("real-A", "write", { path: "a.md" })).toBe(rows[0]);
   });
 
   test("unknown tool_call_started with no pending state falls through", () => {
