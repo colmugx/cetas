@@ -102,12 +102,15 @@ export class ToolStreamingController {
     toolName: string,
     args: unknown,
   ): ToolRow | null {
-    const entry =
-      this.pending.get(toolCallId) ??
-      (this.pending.size === 1
-        ? this.pending.values().next().value
-        : undefined);
-    if (!entry) return null;
+    // A single unmatched *identified* call belongs to someone else. The
+    // fragment channel is lossy: another call can start before its own delta
+    // was seen. Only an id-less provisional row can be claimed by fallback.
+    let entry = this.pending.get(toolCallId);
+    if (entry === undefined && this.pending.size === 1) {
+      const sole = this.pending.values().next().value;
+      if (sole?.id === undefined) entry = sole;
+    }
+    if (entry === undefined) return null;
     // Adoption consumes the entry regardless of which key held it.
     this.pending.delete(this.key(entry.id, entry.index));
     entry.row.markCallStarted(args, toolName);
