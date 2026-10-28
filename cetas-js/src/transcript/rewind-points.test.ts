@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { listRewindPoints, readUserMessage } from "./rewind-points.ts";
+import { parseSessionReplay } from "./replay.ts";
 
 const META = JSON.stringify({ format: "cetas-session", version: 1 });
 
@@ -13,6 +14,33 @@ function assistantMsg(text: string): string {
 }
 
 describe("rewind point enumeration", () => {
+  test("replay and rewind decode mixed blocks consistently without shifting physical indices", () => {
+    const jsonl = [
+      META,
+      JSON.stringify({ role: "user", content: [
+        null, { type: "text", text: "first" }, { type: "text", text: 42 },
+        { type: "image" }, { type: "text", text: "second" },
+      ] }),
+      assistantMsg("other"),
+      "{invalid",
+      "",
+      userMsg("<permission-context type=\"mode\">hidden</permission-context>"),
+      userMsg("real prompt"),
+    ].join("\n");
+    expect(listRewindPoints(jsonl)).toEqual([
+      { messageIndex: 0, preview: "first second (image)" },
+      { messageIndex: 5, preview: "real prompt" },
+    ]);
+    expect(readUserMessage(jsonl, 0)).toBe("first\nsecond");
+    expect(readUserMessage(jsonl, 2)).toBeNull();
+    expect(readUserMessage(jsonl, 4)).toBeNull();
+    expect(readUserMessage(jsonl, 5)).toBe("real prompt");
+    expect(parseSessionReplay(jsonl).filter((item) => item.kind === "user")).toEqual([
+      { kind: "user", text: "first\nsecond", hasImage: true },
+      { kind: "user", text: "real prompt", hasImage: false },
+    ]);
+  });
+
   test("collects user messages in order across mixed roles", () => {
     const jsonl = [
       META,

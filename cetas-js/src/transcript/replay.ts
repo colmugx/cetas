@@ -9,6 +9,8 @@
  * that record, never the replay.
  */
 
+import { isRecord, textOfContent } from "./message-content.ts";
+
 export type ReplayItem =
   | { kind: "user"; text: string; hasImage: boolean }
   | { kind: "wakeup"; text: string }
@@ -28,21 +30,6 @@ export type ReplayItem =
       isError: boolean;
     };
 
-function textOfContent(content: unknown): { text: string; hasImage: boolean } {
-  if (!Array.isArray(content)) return { text: "", hasImage: false };
-  const parts: string[] = [];
-  let hasImage = false;
-  for (const block of content) {
-    if (typeof block !== "object" || block === null) continue;
-    const b = block as Record<string, unknown>;
-    if (b.type === "text" && typeof b.text === "string") {
-      parts.push(b.text);
-    } else if (b.type === "image") {
-      hasImage = true;
-    }
-  }
-  return { text: parts.join("\n"), hasImage };
-}
 
 // Machine-injected context, not user speech. Shapes that reach the disk as
 // role:"user" records: posoco-devkit context envelopes that PipelineHook /
@@ -71,9 +58,6 @@ export function isSyntheticUserText(text: string): boolean {
   );
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /** Tool results arrive after their call; carry the pending name forward. */
 export function parseSessionReplay(jsonl: string): ReplayItem[] {

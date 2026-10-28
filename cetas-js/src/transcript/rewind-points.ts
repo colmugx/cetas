@@ -11,6 +11,7 @@
  */
 
 import { isSyntheticUserText } from "./replay.ts";
+import { isRecord, textOfContent, type MessageContent } from "./message-content.ts";
 
 export interface RewindPoint {
   /** Index into the session's `messages` array (physical line minus the metadata header). */
@@ -21,24 +22,20 @@ export interface RewindPoint {
 
 const PREVIEW_MAX = 60;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
-function textOfContent(content: unknown): { text: string; hasImage: boolean } {
-  if (!Array.isArray(content)) return { text: "", hasImage: false };
-  const parts: string[] = [];
-  let hasImage = false;
-  for (const block of content) {
-    if (typeof block !== "object" || block === null) continue;
-    const b = block as Record<string, unknown>;
-    if (b.type === "text" && typeof b.text === "string") {
-      parts.push(b.text);
-    } else if (b.type === "image") {
-      hasImage = true;
-    }
+
+/** Shared filtering for both rewind listing and editor refill. */
+function readUserContent(line: string): MessageContent | undefined {
+  if (line.trim().length === 0) return undefined;
+  let rec: unknown;
+  try {
+    rec = JSON.parse(line);
+  } catch {
+    return undefined;
   }
-  return { text: parts.join("\n"), hasImage };
+  if (!isRecord(rec) || rec.role !== "user") return undefined;
+  const content = textOfContent(rec.content);
+  return isSyntheticUserText(content.text) ? undefined : content;
 }
 
 function previewOf(text: string, hasImage: boolean): string {
@@ -57,18 +54,8 @@ function previewOf(text: string, hasImage: boolean): string {
  * yields "" (there is no text to refill).
  */
 export function readUserMessage(jsonl: string, messageIndex: number): string | null {
-  const line = jsonl.split("\n")[messageIndex + 1]?.trim();
-  if (line === undefined || line.length === 0) return null;
-  let rec: unknown;
-  try {
-    rec = JSON.parse(line);
-  } catch {
-    return null;
-  }
-  if (!isRecord(rec) || rec.role !== "user") return null;
-  const text = textOfContent(rec.content).text;
-  if (isSyntheticUserText(text)) return null;
-  return text;
+  const line = jsonl.split("\n")[messageIndex + 1];
+  return line === undefined ? null : (readUserContent(line)?.text ?? null);
 }
 
 /** User-message rewind points in transcript order, addressed by message index. */
@@ -77,21 +64,10 @@ export function listRewindPoints(jsonl: string): RewindPoint[] {
   const lines = jsonl.split("\n");
   // Physical line 0 is the metadata header, never a message.
   for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (line.length === 0) continue;
-    let rec: unknown;
-    try {
-      rec = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (!isRecord(rec) || rec.role !== "user") continue;
-    const { text, hasImage } = textOfContent(rec.content);
-    // Synthetic context envelopes occupy a physical line (index addressing
-    // below still counts them) but are never rewind targets.
-    if (isSyntheticUserText(text)) continue;
+    const content = readUserContent(lines[i]!);
+    if (content === undefined) continue;
     // Guard on the flattened preview so whitespace-only rows don't render blank.
-    const preview = previewOf(text, hasImage);
+    const preview = previewOf(content.text, content.hasImage);
     if (preview.length === 0) continue;
     points.push({ messageIndex: i - 1, preview });
   }
