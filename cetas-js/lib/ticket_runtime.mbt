@@ -401,7 +401,11 @@ priv struct TicketRuntime {
   mut reconciled : Bool
   mut resuming_task : String?
   mut team : TeamNames
+  mut team_mcp : Map[String, TeamMcp]
+  mut team_skills : Map[String, TeamSkills]
   mut profile : WorkProfile
+  mcp : BoardMcp?
+  skills : Array[BoardSkill]
 }
 
 ///|
@@ -413,7 +417,14 @@ fn TicketRuntime::TicketRuntime(
   ctx~ : @cetas_core.HostContext,
   group~ : @async.TaskGroup[Unit],
   session_root~ : String? = None,
+  mcp~ : BoardMcp? = None,
+  skills~ : Array[BoardSkill] = [],
+  config~ : TeamConfig? = None,
 ) -> TicketRuntime {
+  let config = match config {
+    Some(value) => value
+    None => TeamConfig::defaults()
+  }
   {
     board,
     manager,
@@ -431,8 +442,12 @@ fn TicketRuntime::TicketRuntime(
     counter: 0,
     reconciled: false,
     resuming_task: None,
-    team: TeamNames::defaults(),
-    profile: WorkProfile::software(),
+    team: config.names,
+    team_mcp: config.mcp,
+    team_skills: config.skills,
+    profile: config.profile,
+    mcp,
+    skills,
   }
 }
 
@@ -554,6 +569,70 @@ fn TicketRuntime::record_progress(
 }
 
 ///|
+fn TicketRuntime::mcp_face(
+  self : TicketRuntime,
+  role : String,
+) -> (Array[&@posoco.Extension], Array[String]) {
+  let config = match self.team_mcp.get(role) {
+    Some(value) => value
+    None => TeamMcp::defaults()
+  }
+  match self.mcp {
+    Some(mcp) => {
+      let exts : Array[&@posoco.Extension] = []
+      match mcp.extension(role, config) {
+        Some(ext) => exts.push(ext)
+        None => ()
+      }
+      // MCP tools are not pre-approved as reads: a browser or GitHub server
+      // can expose mutations, so the normal permission gate decides. The
+      // Board still filters which servers a role may see.
+      (exts, [])
+    }
+    None => ([], [])
+  }
+}
+
+///|
+fn TicketRuntime::skill_face(
+  self : TicketRuntime,
+  role : String,
+) -> Array[String]? {
+  let config = match self.team_skills.get(role) {
+    Some(value) => value
+    None => TeamSkills::defaults()
+  }
+  if !config.enabled {
+    return None
+  }
+  let chosen = if config.all {
+    self.skills.map(skill => skill.name)
+  } else {
+    config.skills
+  }
+  let available = self.skills.map(skill => skill.name)
+  let names = chosen.filter(name => available.contains(name))
+  if names.is_empty() {
+    None
+  } else {
+    Some(names)
+  }
+}
+
+///|
+fn TicketRuntime::team_label(self : TicketRuntime, role : String) -> String {
+  match role {
+    "product_owner" | "po" => "USER"
+    "refiner" => self.team.refiner
+    "rd" => self.team.rd
+    "set" => self.team.set
+    "te" => self.team.te
+    "development_group" | "worker" => "Development"
+    _ => role
+  }
+}
+
+///|
 fn TicketRuntime::answer_question(
   self : TicketRuntime,
   question_id : String,
@@ -565,7 +644,11 @@ fn TicketRuntime::answer_question(
       self.record_progress(
         task_id,
         "question_answered",
-        answered_by + " answered " + asked_by + ": " + answer,
+        self.team_label(answered_by) +
+        " answered " +
+        self.team_label(asked_by) +
+        ": " +
+        answer,
       )
       Ok(())
     }
@@ -614,6 +697,7 @@ async fn TicketRuntime::refiner_answer(
   let title = task_field(task, "title")
   let description = task_field(task, "description")
   let session_id = "ticket-question-" + question_id
+  let (mcp_exts, mcp_reads) = self.mcp_face("refiner")
   let composer = CetasChildComposer::CetasChildComposer(
     parent_manager=self.manager,
     parent_mode=self.parent_mode,
@@ -622,6 +706,8 @@ async fn TicketRuntime::refiner_answer(
     ui=None,
     question=None,
     question_endpoint=None,
+    extra_exts=mcp_exts,
+    extra_read_tools=mcp_reads,
     context_fs=self.ctx.fs,
     feature_fs=self.ctx.fs,
     cwd=self.ctx.cwd,
@@ -640,7 +726,7 @@ async fn TicketRuntime::refiner_answer(
     session_id,
     resuming: false,
     tools: Some(["read", "glob", "grep"]),
-    skills: None,
+    skills: self.skill_face("refiner"),
     mode: (self.parent_mode)(),
     system_prompt: ticket_system_prompt(
       self.ctx.cwd,
@@ -700,7 +786,11 @@ async fn TicketRuntime::refiner_answer(
             self.record_progress(
               task_id,
               "question_answered",
-              "refiner answered " + asked_by + ": " + answer,
+              self.team_label("refiner") +
+              " answered " +
+              self.team_label(asked_by) +
+              ": " +
+              answer,
             )
           Err(reason) =>
             self.record_progress(
@@ -725,14 +815,33 @@ async fn TicketRuntime::refiner_answer(
 }
 
 ///|
-fn TicketRuntime::set_team(
+fn team_config_path(ctx : @cetas_core.HostContext) -> String {
+  ctx.home +
+  "/.cetas/board-team-" +
+  @fs_session.project_dir_name(ctx.cwd) +
+  ".json"
+}
+
+///|
+async fn TicketRuntime::set_team(
   self : TicketRuntime,
   names : TeamNames,
+  mcp : Map[String, TeamMcp],
+  skills : Map[String, TeamSkills],
   profile : WorkProfile,
-) -> Json {
+) -> Result[Json, String] noraise {
+  let config : TeamConfig = { names, mcp, skills, profile, }
+  self.ctx.fs.write_file_atomic(
+    team_config_path(self.ctx),
+    config.to_json().stringify(),
+  ) catch {
+    error => return Err("team settings persist failed: " + error.to_string())
+  }
   self.team = names
+  self.team_mcp = mcp
+  self.team_skills = skills
   self.profile = profile
-  self.state_json()
+  Ok(self.state_json())
 }
 
 ///|
@@ -966,6 +1075,13 @@ fn TicketRuntime::state_json(self : TicketRuntime) -> Json {
   Json::object({
     "project": Json::string(project_name(self.ctx.cwd)),
     "team": self.team.to_json(),
+    "team_mcp": TeamMcp::to_json_map(self.team_mcp),
+    "team_skills": TeamSkills::to_json_map(self.team_skills),
+    "skills": Json::array(self.skills.map(BoardSkill::to_json)),
+    "mcp_servers": match self.mcp {
+      Some(mcp) => mcp.catalog_json()
+      None => Json::object({ "servers": Json::array([]) })
+    },
     "work_profile": self.profile.to_json(),
     "presence": presence.to_json(),
     "questions": self.questions.json(),
@@ -1701,6 +1817,7 @@ async fn TicketRuntime::task_snapshot(
 async fn TicketRuntime::update_task(
   self : TicketRuntime,
   task_id : String,
+  title : String?,
   user_story : String?,
   description : String?,
   implementation_suggestions : String?,
@@ -1714,6 +1831,10 @@ async fn TicketRuntime::update_task(
   let fields : Map[String, Json] = Map::from_array([
     ("id", Json::string(task_id)),
   ])
+  match title {
+    Some(value) => fields["title"] = Json::string(value)
+    None => ()
+  }
   match user_story {
     Some(value) => fields["user_story"] = Json::string(value)
     None => ()
@@ -2151,6 +2272,7 @@ async fn TicketRuntime::finish_shape(
   match
     self.update_task(
       task_id,
+      Some(child.title),
       Some(child.user_story),
       Some(child.description),
       Some(child.implementation_suggestions),
@@ -2255,6 +2377,7 @@ async fn TicketRuntime::shape(
     run: self.run_for(task_id).unwrap(),
   }
   observer.run.activity("start", "Started")
+  let (mcp_exts, mcp_reads) = self.mcp_face("refiner")
   let composer = CetasChildComposer::CetasChildComposer(
     parent_manager=self.manager,
     parent_mode=self.parent_mode,
@@ -2263,6 +2386,8 @@ async fn TicketRuntime::shape(
     ui=None,
     question=None,
     question_endpoint=Some(endpoint as &@askquestion.QuestionEndpoint),
+    extra_exts=mcp_exts,
+    extra_read_tools=mcp_reads,
     context_fs=self.ctx.fs,
     feature_fs=self.ctx.fs,
     cwd=self.ctx.cwd,
@@ -2275,11 +2400,11 @@ async fn TicketRuntime::shape(
     "\n\nCurrent description:\n" +
     description +
     "\n\nInspect relevant workspace files when useful. Ask the Product Owner with ask_question_child about genuinely ambiguous business intent. Do not modify files and do not mutate the Board.\n\n" +
-    "Rewrite the request as a standard user story: \"As a <role>, I want <capability>, so that <benefit>.\" Add a detailed description, concrete implementation suggestions, and observable acceptance criteria. Set a P0-P3 priority (P0 first). If the request is actually several independent user stories, split it into 2-8 complete stories; do not split a single story just to make it smaller. Each story must be independently implementable and testable.\n\n" +
+    "Rewrite the request as a standard user story in exactly three lines: \"As a <role>\\nI want <capability>\\nSo that <benefit>\". The user_story JSON value must contain two newline escapes (\\n), not a comma-separated sentence. Add a detailed description, concrete implementation suggestions, and observable acceptance criteria. Set a P0-P3 priority (P0 first). If the request is actually several independent user stories, split it into 2-8 complete stories; do not split a single story just to make it smaller. Each story must be independently implementable and testable.\n\n" +
     "Return only one JSON object. One story:\n" +
-    "{\"summary\":\"one sentence\",\"title\":\"short title\",\"user_story\":\"As a ..., I want ..., so that ...\",\"description\":\"detailed scope and constraints\",\"implementation_suggestions\":\"starting points, not a mandate\",\"definition_of_done\":[\"observable criterion\"],\"priority\":\"p1\"}\n" +
+    "{\"summary\":\"one sentence\",\"title\":\"short title\",\"user_story\":\"As a ...\\nI want ...\\nSo that ...\",\"description\":\"detailed scope and constraints\",\"implementation_suggestions\":\"starting points, not a mandate\",\"definition_of_done\":[\"observable criterion\"],\"priority\":\"p1\"}\n" +
     "Split:\n" +
-    "{\"summary\":\"why these are independent stories\",\"tasks\":[{\"title\":\"short title\",\"user_story\":\"As a ..., I want ..., so that ...\",\"description\":\"scope\",\"implementation_suggestions\":\"starting points\",\"definition_of_done\":[\"observable criterion\"],\"priority\":\"p1\"}]}\n" +
+    "{\"summary\":\"why these are independent stories\",\"tasks\":[{\"title\":\"short title\",\"user_story\":\"As a ...\\nI want ...\\nSo that ...\",\"description\":\"scope\",\"implementation_suggestions\":\"starting points\",\"definition_of_done\":[\"observable criterion\"],\"priority\":\"p1\"}]}\n" +
     "Every field is required. Use the language of the ticket title/description for every value; JSON keys stay English. Do not wrap it in Markdown."
   let spec : @subagent.ChildSpec = {
     task: prompt,
@@ -2287,7 +2412,7 @@ async fn TicketRuntime::shape(
     session_id,
     resuming: false,
     tools: Some(["read", "glob", "grep", "astgrep", "ask_question"]),
-    skills: None,
+    skills: self.skill_face("refiner"),
     mode: (self.parent_mode)(),
     system_prompt: ticket_system_prompt(
       self.ctx.cwd,
@@ -2487,6 +2612,7 @@ async fn TicketRuntime::start_role(
   let reporting : TicketReportAdapter = { runtime: self, task_id, role, }
   let observer = TicketActivityObserver::{ run, }
   observer.run.activity("start", "Started as " + role)
+  let (mcp_exts, mcp_reads) = self.mcp_face(role)
   let composer = CetasChildComposer::CetasChildComposer(
     parent_manager=self.manager,
     parent_mode=self.parent_mode,
@@ -2496,6 +2622,8 @@ async fn TicketRuntime::start_role(
     question=None,
     question_endpoint=Some(endpoint as &@askquestion.QuestionEndpoint),
     reporting=Some(reporting as &TicketReportEndpoint),
+    extra_exts=mcp_exts,
+    extra_read_tools=mcp_reads,
     context_fs=self.ctx.fs,
     feature_fs=self.ctx.fs,
     cwd=self.ctx.cwd,
@@ -2514,7 +2642,7 @@ async fn TicketRuntime::start_role(
     session_id,
     resuming,
     tools: Some(worker_tools(role)),
-    skills: None,
+    skills: self.skill_face(role),
     mode: (self.parent_mode)(),
     system_prompt: ticket_system_prompt(
       self.ctx.cwd,

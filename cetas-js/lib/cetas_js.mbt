@@ -1789,9 +1789,37 @@ pub fn cetas_js_runtime_create_agent(
               exts.push(feature)
             }
 
+            // The Board shares the host's MCP bridge so ticket children use
+            // the servers the user actually configured. The bridge is created
+            // before workflow agents; its live tools still join `exts` only
+            // after the base catalog snapshot below.
+            let mcp_bridge = match
+              @mcp.MCPToolBridge::discover(
+                cwd=runtime.config.cwd,
+                user_mcp_json=runtime.config.home + "/.cetas/mcp.json",
+                mode=@mcp.LoadMode::Lazy,
+              ) {
+              Ok(bridge) => bridge
+              Err(message) =>
+                raise @posoco.CompositionError::ManifestSchemaError(
+                  manifest_id="cetas-js.mcp",
+                  detail=message,
+                )
+            }
+            mcp_bridge.attach(group)
+            group.spawn_bg(() => {
+              mcp_inject_stored_tokens(
+                mcp_bridge,
+                mcp_credential_store(context_fs, runtime.config.home),
+                @oauth.DefaultOAuthHttpTransport::DefaultOAuthHttpTransport(),
+                // @async.now() is epoch milliseconds; OAuth wants epoch seconds.
+                (@async.now() / 1000L).to_int(),
+              )
+              mcp_bridge.start_probes()
+            })
             // Subagents inherit only the reconstructable Cetas core face.
-            // Dynamic MCP/Pi/herdr/zcode providers remain parent-only so a
-            // child never borrows mutable decorator/runtime state.
+            // Dynamic Pi/herdr/zcode providers remain parent-only; MCP is
+            // passed explicitly as a filtered Board face.
             let child_approval : &@permission.ApprovalSource? = match
               approval_source {
               Some(source) => Some(source as &@permission.ApprovalSource)
@@ -1807,6 +1835,7 @@ pub fn cetas_js_runtime_create_agent(
                   home: runtime.config.home,
                 },
                 group~,
+                mcp_bridge~,
               )
               is Some(workflows) {
               exts.push(workflows)
@@ -1936,48 +1965,6 @@ pub fn cetas_js_runtime_create_agent(
               Some(ext) => exts.push(ext)
               None => ()
             }
-            // MCP servers from mcp.json (`<cwd>/.mcp.json` overriding
-            // `<home>/.cetas/mcp.json`), connected by composition-time
-            // background probes (`start_probes`): the bridge rides the
-            // agent-lifetime group so probe connections and stdio child
-            // processes survive past composition. The on_start activation
-            // (fired when the serving scope opens, no longer on the first
-            // turn) remains only as the fallback for bridges that never
-            // started probes. The static routing table and catalog base are
-            // captured BEFORE the bridge joins exts (the catalog source
-            // already appends the bridge's live tools).
-            let mcp_bridge = match
-              @mcp.MCPToolBridge::discover(
-                cwd=runtime.config.cwd,
-                user_mcp_json=runtime.config.home + "/.cetas/mcp.json",
-                mode=@mcp.LoadMode::Lazy,
-              ) {
-              Ok(bridge) => bridge
-              Err(message) =>
-                raise @posoco.CompositionError::ManifestSchemaError(
-                  manifest_id="cetas-js.mcp",
-                  detail=message,
-                )
-            }
-            mcp_bridge.attach(group)
-            // Stored MCP OAuth credentials: refresh expired ones, then inject the
-            // access tokens before the probes connect. Best-effort per server
-            // (see mcp_inject_stored_tokens) — one unreadable record or a dead
-            // authorization server degrades to the 401 shown by `/mcp`, never a
-            // failed composition. The whole sequence rides a background task:
-            // a dead token endpoint must not hold composition (up to 30s per
-            // expired credential); MCP tools are not needed for the first
-            // turn, and the layered catalog picks them up when probes land.
-            group.spawn_bg(() => {
-              mcp_inject_stored_tokens(
-                mcp_bridge,
-                mcp_credential_store(context_fs, runtime.config.home),
-                @oauth.DefaultOAuthHttpTransport::DefaultOAuthHttpTransport(),
-                // @async.now() is epoch milliseconds; OAuth wants epoch seconds.
-                (@async.now() / 1000L).to_int(),
-              )
-              mcp_bridge.start_probes()
-            })
             let base_defs : Array[@posoco.ToolDef] = []
             for ext in exts {
               for provider in ext.manifest().tools {

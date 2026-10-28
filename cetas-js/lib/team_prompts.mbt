@@ -64,6 +64,283 @@ pub fn TeamNames::from_json(value : Json) -> TeamNames {
 }
 
 ///|
+/// MCP access is a per-role capability, not an Agile Coach privilege: a
+/// frontend TE may need a browser MCP while an RD needs GitHub. `all` means
+/// every host-configured server; `servers` is used only when `all` is false.
+pub struct TeamMcp {
+  enabled : Bool
+  all : Bool
+  servers : Array[String]
+}
+
+///|
+pub fn TeamMcp::defaults() -> TeamMcp {
+  { enabled: false, all: true, servers: [], }
+}
+
+///|
+pub fn TeamMcp::to_json(self : TeamMcp) -> Json {
+  Json::object({
+    "enabled": Json::boolean(self.enabled),
+    "all": Json::boolean(self.all),
+    "servers": Json::array(self.servers.map(Json::string)),
+  })
+}
+
+///|
+pub fn TeamMcp::from_json(value : Json) -> TeamMcp {
+  let defaults = TeamMcp::defaults()
+  match value {
+    Object(fields) => {
+      let enabled = match fields.get("enabled") {
+        Some(Json::True) => true
+        Some(Json::False) => false
+        _ => defaults.enabled
+      }
+      let all = match fields.get("all") {
+        Some(Json::True) => true
+        Some(Json::False) => false
+        _ => defaults.all
+      }
+      let servers : Array[String] = []
+      match fields.get("servers") {
+        Some(Array(items)) =>
+          for item in items {
+            match item {
+              String(name) if name != "" && !servers.contains(name) =>
+                servers.push(name)
+              _ => ()
+            }
+          }
+        _ => ()
+      }
+      { enabled, all, servers, }
+    }
+    _ => defaults
+  }
+}
+
+///|
+/// One fixed set of roles; absent roles read as disabled with all servers.
+pub fn default_team_mcp() -> Map[String, TeamMcp] {
+  Map::from_array([
+    ("refiner", TeamMcp::defaults()),
+    ("rd", TeamMcp::defaults()),
+    ("set", TeamMcp::defaults()),
+    ("te", TeamMcp::defaults()),
+  ])
+}
+
+///|
+pub fn TeamMcp::to_json_map(mcp : Map[String, TeamMcp]) -> Json {
+  let fields : Map[String, Json] = Map([])
+  for role in ["refiner", "rd", "set", "te"] {
+    fields[role] = match mcp.get(role) {
+      Some(value) => value.to_json()
+      None => TeamMcp::defaults().to_json()
+    }
+  }
+  Json::object(fields)
+}
+
+///|
+pub fn TeamMcp::from_json_map(value : Json) -> Map[String, TeamMcp] {
+  let out = default_team_mcp()
+  match value {
+    Object(fields) =>
+      for role in ["refiner", "rd", "set", "te"] {
+        match fields.get(role) {
+          Some(item) => out[role] = TeamMcp::from_json(item)
+          None => ()
+        }
+      }
+    _ => ()
+  }
+  out
+}
+
+///|
+/// Per-role skills. Skills are instruction packs, not external tools; `all`
+/// means every host-discovered skill.
+pub struct TeamSkills {
+  enabled : Bool
+  all : Bool
+  skills : Array[String]
+}
+
+///|
+pub fn TeamSkills::defaults() -> TeamSkills {
+  { enabled: false, all: true, skills: [], }
+}
+
+///|
+pub fn TeamSkills::to_json(self : TeamSkills) -> Json {
+  Json::object({
+    "enabled": Json::boolean(self.enabled),
+    "all": Json::boolean(self.all),
+    "skills": Json::array(self.skills.map(Json::string)),
+  })
+}
+
+///|
+pub fn TeamSkills::from_json(value : Json) -> TeamSkills {
+  let defaults = TeamSkills::defaults()
+  match value {
+    Object(fields) => {
+      let enabled = match fields.get("enabled") {
+        Some(Json::True) => true
+        Some(Json::False) => false
+        _ => defaults.enabled
+      }
+      let all = match fields.get("all") {
+        Some(Json::True) => true
+        Some(Json::False) => false
+        _ => defaults.all
+      }
+      let skills : Array[String] = []
+      match fields.get("skills") {
+        Some(Array(items)) =>
+          for item in items {
+            match item {
+              String(name) if name != "" && !skills.contains(name) =>
+                skills.push(name)
+              _ => ()
+            }
+          }
+        _ => ()
+      }
+      { enabled, all, skills, }
+    }
+    _ => defaults
+  }
+}
+
+///|
+pub fn default_team_skills() -> Map[String, TeamSkills] {
+  Map::from_array([
+    ("refiner", TeamSkills::defaults()),
+    ("rd", TeamSkills::defaults()),
+    ("set", TeamSkills::defaults()),
+    ("te", TeamSkills::defaults()),
+  ])
+}
+
+///|
+pub fn TeamSkills::to_json_map(skills : Map[String, TeamSkills]) -> Json {
+  let fields : Map[String, Json] = Map([])
+  for role in ["refiner", "rd", "set", "te"] {
+    fields[role] = match skills.get(role) {
+      Some(value) => value.to_json()
+      None => TeamSkills::defaults().to_json()
+    }
+  }
+  Json::object(fields)
+}
+
+///|
+pub fn TeamSkills::from_json_map(value : Json) -> Map[String, TeamSkills] {
+  let out = default_team_skills()
+  match value {
+    Object(fields) =>
+      for role in ["refiner", "rd", "set", "te"] {
+        match fields.get(role) {
+          Some(item) => out[role] = TeamSkills::from_json(item)
+          None => ()
+        }
+      }
+    _ => ()
+  }
+  out
+}
+
+///|
+/// Durable Board team configuration. The host owns the file; the Board owns
+/// the semantics. Paths and skill bodies never enter this record.
+pub struct TeamConfig {
+  names : TeamNames
+  mcp : Map[String, TeamMcp]
+  skills : Map[String, TeamSkills]
+  profile : WorkProfile
+}
+
+///|
+pub fn TeamConfig::defaults() -> TeamConfig {
+  {
+    names: TeamNames::defaults(),
+    mcp: default_team_mcp(),
+    skills: default_team_skills(),
+    profile: WorkProfile::software(),
+  }
+}
+
+///|
+pub fn TeamConfig::to_json(self : TeamConfig) -> Json {
+  Json::object({
+    "names": self.names.to_json(),
+    "mcp": TeamMcp::to_json_map(self.mcp),
+    "skills": TeamSkills::to_json_map(self.skills),
+    "profile": self.profile.to_json(),
+  })
+}
+
+///|
+pub fn TeamConfig::from_json(value : Json) -> TeamConfig {
+  let defaults = TeamConfig::defaults()
+  match value {
+    Object(fields) => {
+      let names = match fields.get("names") {
+        Some(value) => TeamNames::from_json(value)
+        None => defaults.names
+      }
+      let mcp = match fields.get("mcp") {
+        Some(value) => TeamMcp::from_json_map(value)
+        None => defaults.mcp
+      }
+      let skills = match fields.get("skills") {
+        Some(value) => TeamSkills::from_json_map(value)
+        None => defaults.skills
+      }
+      let profile = match fields.get("profile") {
+        Some(value) =>
+          match value {
+            Object(profile) =>
+              match profile.get("id") {
+                Some(String(id)) => WorkProfile::from_id(id)
+                _ => defaults.profile
+              }
+            _ => defaults.profile
+          }
+        None => defaults.profile
+      }
+      { names, mcp, skills, profile, }
+    }
+    _ => defaults
+  }
+}
+
+///|
+/// One host-discovered skill, projected to the Board without paths or bodies.
+pub struct BoardSkill {
+  name : String
+  description : String
+}
+
+///|
+pub fn BoardSkill::to_json(self : BoardSkill) -> Json {
+  Json::object({
+    "name": Json::string(self.name),
+    "description": Json::string(self.description),
+  })
+}
+
+///|
+pub fn BoardSkill::from_descriptor(
+  descriptor : @skills.SkillDescriptor,
+) -> BoardSkill {
+  { name: descriptor.name, description: descriptor.description, }
+}
+
+///|
 /// A domain profile changes vocabulary, not the internal role ids. RD/SET/TE
 /// remain the stable accountability slots; the profile says what they produce.
 pub struct WorkProfile {
@@ -138,7 +415,7 @@ pub fn project_name(cwd : String) -> String {
 
 ///|
 pub fn refiner_system_prompt(name : String) -> String {
-  "You are \{name}, the Refiner on this Board ticket. You are the domain expert, agile coach and scrum facilitator for the team. Turn a rough backlog request into a standard user story with a detailed description, implementation suggestions, observable acceptance criteria and a P0-P3 priority. Ask the Product Owner when business intent is genuinely ambiguous. Never modify files and never claim work is done."
+  "You are \{name}, the Refiner on this Board ticket. You are the domain expert, agile coach and scrum facilitator for the team. Turn a rough backlog request into a standard user story written as exactly three lines: the role, what the user wants, and why. Then add a detailed description, implementation suggestions, observable acceptance criteria and a P0-P3 priority. Ask the Product Owner when business intent is genuinely ambiguous. Never modify files and never claim work is done."
 }
 
 ///|

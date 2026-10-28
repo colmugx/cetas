@@ -12,6 +12,7 @@ import {
   "colmugx/posoco-ext-pi-adaptor",
   "colmugx/posoco-ext-plan",
   "colmugx/posoco-ext-ratelimit",
+  "colmugx/posoco-ext-skills",
   "colmugx/posoco-ext-workspace",
   "colmugx/posoco-kit-provider",
   "colmugx/posoco/error",
@@ -109,6 +110,10 @@ pub fn cetas_js_tool_catalog(CetasJsAgent) -> String
 
 pub fn cetas_js_user_replied(CetasJsAgent) -> String
 
+pub fn default_team_mcp() -> Map[String, TeamMcp]
+
+pub fn default_team_skills() -> Map[String, TeamSkills]
+
 pub fn development_system_prompt(String, String, WorkProfile) -> String
 
 pub fn project_name(String) -> String
@@ -128,6 +133,13 @@ pub(all) struct BlockingApprovalSource {
 pub fn BlockingApprovalSource::BlockingApprovalSource() -> Self
 pub async fn BlockingApprovalSource::ask(Self, @posoco-ext-permission.ApprovalRequest) -> @posoco-ext-permission.ApprovalDecision
 pub impl @posoco-ext-permission.ApprovalSource for BlockingApprovalSource
+
+pub struct BoardSkill {
+  name : String
+  description : String
+}
+pub fn BoardSkill::from_descriptor(@posoco-ext-skills.SkillDescriptor) -> Self
+pub fn BoardSkill::to_json(Self) -> Json
 
 pub struct CetasGoalApprovalVerifier {
   ui : JsUiPort
@@ -278,6 +290,27 @@ pub fn PlanApprovalSource::PlanApprovalSource() -> Self
 pub async fn PlanApprovalSource::review(Self, @posoco-ext-plan.PlanReviewRequest) -> @posoco-ext-plan.PlanReviewDecision
 pub impl @posoco-ext-plan.PlanReviewSource for PlanApprovalSource
 
+pub struct TeamConfig {
+  names : TeamNames
+  mcp : Map[String, TeamMcp]
+  skills : Map[String, TeamSkills]
+  profile : WorkProfile
+}
+pub fn TeamConfig::defaults() -> Self
+pub fn TeamConfig::from_json(Json) -> Self
+pub fn TeamConfig::to_json(Self) -> Json
+
+pub struct TeamMcp {
+  enabled : Bool
+  all : Bool
+  servers : Array[String]
+}
+pub fn TeamMcp::defaults() -> Self
+pub fn TeamMcp::from_json(Json) -> Self
+pub fn TeamMcp::from_json_map(Json) -> Map[String, Self]
+pub fn TeamMcp::to_json(Self) -> Json
+pub fn TeamMcp::to_json_map(Map[String, Self]) -> Json
+
 pub struct TeamNames {
   refiner : String
   rd : String
@@ -288,6 +321,17 @@ pub fn TeamNames::copy(Self) -> Self
 pub fn TeamNames::defaults() -> Self
 pub fn TeamNames::from_json(Json) -> Self
 pub fn TeamNames::to_json(Self) -> Json
+
+pub struct TeamSkills {
+  enabled : Bool
+  all : Bool
+  skills : Array[String]
+}
+pub fn TeamSkills::defaults() -> Self
+pub fn TeamSkills::from_json(Json) -> Self
+pub fn TeamSkills::from_json_map(Json) -> Map[String, Self]
+pub fn TeamSkills::to_json(Self) -> Json
+pub fn TeamSkills::to_json_map(Map[String, Self]) -> Json
 
 pub(all) struct UiBridge {
   blocking : BlockingApprovalSource?

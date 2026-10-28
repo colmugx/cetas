@@ -1024,6 +1024,22 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
         )
     }
     let names = TeamNames::from_json(args)
+    let mcp = match args {
+      Object(fields) =>
+        match fields.get("mcp") {
+          Some(value) => TeamMcp::from_json_map(value)
+          None => default_team_mcp()
+        }
+      _ => default_team_mcp()
+    }
+    let skills = match args {
+      Object(fields) =>
+        match fields.get("skills") {
+          Some(value) => TeamSkills::from_json_map(value)
+          None => default_team_skills()
+        }
+      _ => default_team_skills()
+    }
     let profile = match args {
       Object(fields) =>
         match fields.get("work_profile") {
@@ -1032,11 +1048,15 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
         }
       _ => WorkProfile::software()
     }
-    return @posoco.CommandOutcome::Success(
-      feedback="Team names updated.",
-      structured=Some(tickets.set_team(names, profile)),
-      ui_hint=Some(@posoco.UiHint::None),
-    )
+    match tickets.set_team(names, mcp, skills, profile) {
+      Ok(state) =>
+        return @posoco.CommandOutcome::Success(
+          feedback="Team settings updated.",
+          structured=Some(state),
+          ui_hint=Some(@posoco.UiHint::None),
+        )
+      Err(reason) => return @posoco.CommandOutcome::Failure(reason~)
+    }
   }
   if id == "board.wire.ready" {
     let ready = self.board.wire_ready() catch {

@@ -73,12 +73,37 @@ impl @board.WorkflowAgentFactory for CetasWorkflowAgents with fn prepare(
 }
 
 ///|
+async fn read_team_config(
+  ctx : @cetas_core.HostContext,
+) -> TeamConfig? raise @posoco.CompositionError {
+  let path = team_config_path(ctx)
+  let text = match @workspace.read_file_result(ctx.fs, path) {
+    Missing => return None
+    Failed(message) =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id="cetas.workflow",
+        detail="team settings read failed: " + message,
+      )
+    Content(text) => text
+  }
+  let parsed = @json.parse(text) catch {
+    _ =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id="cetas.workflow",
+        detail="team settings file is not valid JSON",
+      )
+  }
+  Some(TeamConfig::from_json(parsed))
+}
+
+///|
 async fn build_cetas_workflows(
   manager~ : ModelManagerFace,
   parent_mode~ : () -> @permission.PermissionMode,
   approval~ : &@permission.ApprovalSource?,
   ctx~ : @cetas_core.HostContext,
   group~ : @async.TaskGroup[Unit],
+  mcp_bridge~ : @mcp.MCPToolBridge,
 ) -> &@posoco.Extension? raise @posoco.CompositionError {
   let text = match
     @workspace.read_file_result(ctx.fs, ctx.home + "/.cetas/settings.json") {
@@ -121,6 +146,12 @@ async fn build_cetas_workflows(
       continue_on_confirmed_failure=settings.continue_on_confirmed_failure,
     ),
   )
+  let skill_catalog = cetas_skill_catalog(
+    ctx~,
+    manuals=@forme.Forme::Forme().builtin_manual_skills(),
+  )
+  let board_skills = skill_catalog.skills.map(BoardSkill::from_descriptor)
+  let team_config = read_team_config(ctx)
   let tickets = TicketRuntime::TicketRuntime(
     board~,
     manager~,
@@ -133,6 +164,9 @@ async fn build_cetas_workflows(
       "/.cetas/ticket-sessions/" +
       @fs_session.project_dir_name(ctx.cwd),
     ),
+    mcp=Some(BoardMcp::BoardMcp(bridge=mcp_bridge)),
+    skills=board_skills,
+    config=team_config,
   )
   Some(
     CetasWorkflowCommands::{

@@ -185,6 +185,7 @@ async test "Cetas Board is absent by default and readonly cannot acquire workflo
         approval=None,
         ctx~,
         group~,
+        mcp_bridge=@mcp.MCPToolBridge::MCPToolBridge(),
       )
       is None,
     )
