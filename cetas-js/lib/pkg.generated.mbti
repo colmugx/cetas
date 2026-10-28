@@ -98,6 +98,8 @@ pub fn cetas_js_runtime_refresh_model_catalogs(CetasJsRuntime, String) -> @js_as
 
 pub fn cetas_js_runtime_refresh_model_lists_live(CetasJsRuntime, String, @js_async.AbortSignal) -> @js_async.Promise[String]
 
+pub fn cetas_js_session_catalog(String) -> @js_async.Promise[String]
+
 pub fn cetas_js_session_titles(String) -> @js_async.Promise[String]
 
 pub fn cetas_js_sessions_dir(String, String) -> String

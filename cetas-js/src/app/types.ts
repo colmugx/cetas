@@ -344,6 +344,13 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
    * Stateless and Agent-free. Optional; callers degrade to id-based labels.
    */
   sessionTitles?(sessionsDir: string): Promise<string>;
+  /**
+   * Every persisted session of every project bucket under `home` as a JSON
+   * array of `SessionCatalogRow`s (id, title, bucket, dir, folder, cwd) — the
+   * `/sessions` "All" view. Stateless and Agent-free. Optional; a host
+   * without it shows the current folder only.
+   */
+  sessionCatalog?(home: string): Promise<string>;
 }
 
 export interface CommandParameter {
@@ -361,6 +368,16 @@ export interface CommandParameter {
 export interface SessionTitle {
   id: string;
   title: string;
+}
+
+/** One row of the cross-project session catalog (MoonBit wire shape). */
+export interface SessionCatalogRow {
+  readonly id: string;
+  readonly title: string;
+  readonly bucket: string;
+  readonly dir: string;
+  readonly folder: string;
+  readonly cwd?: string;
 }
 
 export interface CommandDescriptor {

@@ -18,7 +18,7 @@ import { ProcessTerminal } from "@earendil-works/pi-tui";
 import { TuiAltScreen } from "@earendil-works/pi-tui";
 import * as moonbit from "mbt:colmugx/cetas-js/lib";
 
-import { buildCetasHostConfig, CetasApplication } from "./src/app/index.ts";
+import { buildCetasHostConfig, CetasApplication, type CetasHostConfig } from "./src/app/index.ts";
 import { bootstrapSettings } from "./src/app/settings-bootstrap.ts";
 import { runUpdateCheck, updateNoticeMessage } from "./src/app/update-check.ts";
 import { cetasVersion, detectChannel, detectPackageManager } from "./src/app/version.ts";
@@ -101,43 +101,83 @@ async function main(): Promise<void> {
   });
   await bootstrapSettings(config.home);
   const sessionId = newSessionId();
-  const bridge = new MoonbitCetasAgentBridge(config);
   // The shell is constructed before the agent exists, so it receives the
-  // mutable Map and the bridge's catalog is merged in on every state change
-  // (first "ready" publication and later recompositions). Tool rows only
-  // render during turns, which require the agent — late fill is safe.
+  // mutable Map and the active bridge's catalog is merged in on every state
+  // change (first "ready" publication and later recompositions). Tool rows
+  // only render during turns, which require the agent — late fill is safe.
   const toolLabels = new Map<string, string>();
+  let activeBridge = new MoonbitCetasAgentBridge(config);
   const syncToolLabels = (): void => {
-    for (const [name, ext] of Object.entries(bridge.toolLabels)) {
+    for (const [name, ext] of Object.entries(activeBridge.toolLabels)) {
       toolLabels.set(name, ext);
     }
   };
   const tui = new TuiAltScreen(new ProcessTerminal(), false, undefined, { mouse: true, scrollToEndIndicator: () => "↓ newer messages" });
-  const shell = new TerminalShell({
+  let shell: TerminalShell;
+  /**
+   * Compose one application for `hostConfig`. Also the seam a cross-folder
+   * `/sessions` resume uses: the fresh application's tools, workspace anchor,
+   * system prompt and session bucket all follow that config's `cwd`. A
+   * superseded application never repaints the shell — its shutdown state
+   * publishes while the replacement is already active.
+   */
+  const composeApplication = (
+    hostConfig: CetasHostConfig,
+    initialSession: string,
+  ): CetasApplication => {
+    const bridge = new MoonbitCetasAgentBridge(hostConfig);
+    activeBridge = bridge;
+    return new CetasApplication({
+      bridge,
+      config: hostConfig,
+      callbacks: shell.callbacks,
+      initialSessionId: initialSession,
+      onStateChange: (snapshot) => {
+        if (activeBridge !== bridge) return;
+        syncToolLabels();
+        shell.handleSnapshot(snapshot);
+      },
+    });
+  };
+  shell = new TerminalShell({
     tui,
     cwd: config.cwd,
     // Resolved through the MoonBit bucket formula, never re-derived in TS.
     sessionsDir: resolvedSessionsDir(config),
+    // `/sessions` → All walks `<home>/.cetas/sessions`, so the shell must
+    // agree with the config's home instead of assuming the OS default.
+    home: config.home,
     maxToolRounds: config.maxToolRounds,
     initialSessionId: sessionId,
     toolLabels,
     versionInfo,
     openBoardUrl: openInBrowser,
+    // `/sessions` → All → a row from another project: build that project's
+    // application so the following turns run in its directory. The shell
+    // releases the previous application once this resolves.
+    switchProject: async (cwd) => {
+      const nextConfig = buildCetasHostConfig({
+        cwd,
+        home: config.home,
+        maxToolRounds: config.maxToolRounds,
+        ...(config.permissionMode === undefined
+          ? {}
+          : { permissionMode: config.permissionMode }),
+        ...(config.hostHelpNote === undefined
+          ? {}
+          : { hostHelpNote: config.hostHelpNote }),
+        ...(config.versionNote === undefined ? {} : { versionNote: config.versionNote }),
+      });
+      const app = composeApplication(nextConfig, newSessionId());
+      await app.start();
+      return { app, sessionsDir: resolvedSessionsDir(nextConfig) };
+    },
     onExit: (code) => {
       disposeSharedPiModuleMirror();
       process.exit(code);
     },
   });
-  const app = new CetasApplication({
-    bridge,
-    config,
-    callbacks: shell.callbacks,
-    initialSessionId: sessionId,
-    onStateChange: (snapshot) => {
-      syncToolLabels();
-      shell.handleSnapshot(snapshot);
-    },
-  });
+  const app = composeApplication(config, sessionId);
   shell.attachApplication(app);
   stopSurface = (outputBroken) => shell.stopForHostFault(outputBroken);
   process.on("SIGINT", () => shell.requestShutdown(0));

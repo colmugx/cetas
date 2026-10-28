@@ -137,8 +137,21 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn commands(self) {
   })
   definitions.push(@posoco.CommandDef::{
     id: "board.ticket.answer_as_refiner",
-    label: "Ask Refiner to answer",
+    label: "Ask the team Refiner to answer",
     description: "Internal: let a Refiner child answer one open Board ticket question",
+    category: "board",
+    ctype: @posoco.CommandType::Action,
+    params: [],
+    aliases: [],
+    shortcut: None,
+    icon: None,
+    visible: false,
+    metadata: None,
+  })
+  definitions.push(@posoco.CommandDef::{
+    id: "board.ticket.set_required_roles",
+    label: "Set ticket role plan",
+    description: "Internal: choose which delivery roles run for one Board ticket",
     category: "board",
     ctype: @posoco.CommandType::Action,
     params: [],
@@ -1009,6 +1022,60 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
       Ok(_) =>
         return @posoco.CommandOutcome::Success(
           feedback="Refiner is answering.",
+          structured=Some(tickets.state_json()),
+          ui_hint=Some(@posoco.UiHint::None),
+        )
+      Err(reason) => return @posoco.CommandOutcome::Failure(reason~)
+    }
+  }
+  if id == "board.ticket.set_required_roles" {
+    let tickets = match self.tickets {
+      Some(tickets) => tickets
+      None =>
+        return @posoco.CommandOutcome::Failure(
+          reason="ticket_runtime_unavailable",
+        )
+    }
+    let (task_id, roles) = match args {
+      Object(fields) => {
+        let task_id = match fields.get("id") {
+          Some(String(value)) => value
+          _ =>
+            return @posoco.CommandOutcome::Failure(
+              reason="board.ticket.set_required_roles needs a task id",
+            )
+        }
+        let roles : Array[String] = []
+        match fields.get("roles") {
+          Some(Array(values)) =>
+            for value in values {
+              match value {
+                String(role) => roles.push(role)
+                _ =>
+                  return @posoco.CommandOutcome::Failure(
+                    reason="role plan must contain only role ids",
+                  )
+              }
+            }
+          _ =>
+            return @posoco.CommandOutcome::Failure(
+              reason="board.ticket.set_required_roles needs roles",
+            )
+        }
+        (task_id, roles)
+      }
+      _ =>
+        return @posoco.CommandOutcome::Failure(
+          reason="board.ticket.set_required_roles needs an object",
+        )
+    }
+    let updated = tickets.set_required_roles(task_id, roles) catch {
+      error => return @posoco.CommandOutcome::Failure(reason=error.to_string())
+    }
+    match updated {
+      Ok(_) =>
+        return @posoco.CommandOutcome::Success(
+          feedback="Role plan updated.",
           structured=Some(tickets.state_json()),
           ui_hint=Some(@posoco.UiHint::None),
         )

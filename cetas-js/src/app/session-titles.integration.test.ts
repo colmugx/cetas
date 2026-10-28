@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  cetas_js_session_catalog,
   cetas_js_session_titles,
   cetas_js_sessions_dir,
 } from "mbt:colmugx/cetas-js/lib";
@@ -74,5 +75,64 @@ describe("cetas_js_session_titles wire format", () => {
     expect(dir.startsWith(`${home}/.cetas/sessions/session_`)).toBe(true);
     // Sibling paths a slug alone would collide get distinct buckets.
     expect(dir).not.toBe(cetas_js_sessions_dir(home, "/some/project/dir"));
+  });
+});
+
+/**
+ * The catalog export is the `/sessions` "All" view's source of truth: it walks
+ * every project bucket under `home`, reports the folder each session recorded
+ * (`cetas.cwd`) and the bucket slug that stands in for legacy journals.
+ */
+describe("cetas_js_session_catalog wire format", () => {
+  test("walks every bucket and reports the recorded cwd, or null for legacy rows", async () => {
+    const home = await mkdtemp(join(tmpdir(), "cetas-js-catalog-home-"));
+    cleanup.push(home);
+    const bucketA = cetas_js_sessions_dir(home, "/work/project-a").split("/").at(-1)!;
+    const bucketB = cetas_js_sessions_dir(home, "/work/project-b").split("/").at(-1)!;
+    const dirA = join(home, ".cetas", "sessions", bucketA);
+    const dirB = join(home, ".cetas", "sessions", bucketB);
+    await mkdir(dirA, { recursive: true });
+    await mkdir(dirB, { recursive: true });
+    await writeFile(
+      join(dirA, "2026-09-10T10-00-00-000Z_new.jsonl"),
+      [
+        JSON.stringify({ "posoco.title": "Project A work", "cetas.cwd": "/work/project-a" }),
+        JSON.stringify({ role: "user", content: [{ type: "text", text: "hello" }] }),
+      ].join("\n") + "\n",
+    );
+    // Legacy journal: no cwd recorded, so the bucket slug is all there is.
+    await writeFile(
+      join(dirB, "2026-09-11T10-00-00-000Z_old.jsonl"),
+      [
+        JSON.stringify({ "posoco.title": "Legacy work" }),
+        JSON.stringify({ role: "user", content: [{ type: "text", text: "old" }] }),
+      ].join("\n") + "\n",
+    );
+
+    const rows = JSON.parse(await cetas_js_session_catalog(home)) as Array<{
+      id: string;
+      title: string;
+      bucket: string;
+      dir: string;
+      folder: string;
+      cwd: string | null;
+    }>;
+    expect(rows).toHaveLength(2);
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const fresh = byId.get("2026-09-10T10-00-00-000Z_new");
+    expect(fresh?.cwd).toBe("/work/project-a");
+    expect(fresh?.dir).toBe(dirA);
+    expect(fresh?.bucket).toBe(bucketA);
+    expect(fresh?.title).toBe("Project A work");
+    const legacy = byId.get("2026-09-11T10-00-00-000Z_old");
+    expect(legacy?.cwd).toBeNull();
+    expect(legacy?.folder).toBe("project-b");
+    expect(legacy?.dir).toBe(dirB);
+  });
+
+  test("a missing sessions root is an empty catalog", async () => {
+    const home = await mkdtemp(join(tmpdir(), "cetas-js-catalog-empty-"));
+    cleanup.push(home);
+    expect(JSON.parse(await cetas_js_session_catalog(home))).toEqual([]);
   });
 });

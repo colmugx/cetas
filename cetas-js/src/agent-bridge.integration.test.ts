@@ -239,10 +239,16 @@ describe("long-lived cetas-js bridge", () => {
       expect(JSON.stringify(secondMessages)).toContain("follow-up");
       // An empty sessionsDir resolves to the per-project bucket; its path
       // comes from the MoonBit export, never re-derived here.
-      const persisted = await Bun.file(
-        join(cetas_js_sessions_dir(home, cwd), "integration-session.jsonl"),
-      ).exists();
+      const sessionPath = join(
+        cetas_js_sessions_dir(home, cwd),
+        "integration-session.jsonl",
+      );
+      const persisted = await Bun.file(sessionPath).exists();
       expect(persisted).toBe(true);
+      // The metadata line records the project directory, which is the only
+      // way the `/sessions` All view can label a bucket whose name is a hash.
+      const firstLine = (await Bun.file(sessionPath).text()).split("\n")[0] ?? "";
+      expect(JSON.parse(firstLine)).toMatchObject({ "cetas.cwd": cwd });
       expect(events.length).toBeGreaterThan(0);
     } finally {
       try {

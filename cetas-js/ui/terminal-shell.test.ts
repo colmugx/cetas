@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TUI, TuiMainScreen, TuiAltScreen } from "@earendil-works/pi-tui";
@@ -1620,5 +1620,179 @@ describe("/board activation note", () => {
     } finally {
       await app.shutdown();
     }
+  });
+});
+
+describe("/sessions folder scope and cross-folder resume", () => {
+  /** App double whose catalog/titles/setSession calls are recorded. */
+  function attachSessionApp(
+    shell: TerminalShell,
+    options: { catalog?: unknown; titles?: unknown } = {},
+  ): { setSessions: string[]; shutdown: number } {
+    const setSessions: string[] = [];
+    const state = { shutdown: 0 };
+    const app = {
+      listCommands: () => [],
+      state: "ready",
+      snapshot: () => ({ state: "ready", setup: { providers: [], warnings: [] } }),
+      setSession: (id: string) => setSessions.push(id),
+      shutdown: async () => {
+        state.shutdown += 1;
+      },
+      sessionTitles: async () => options.titles ?? [],
+      ...(options.catalog === undefined
+        ? {}
+        : { sessionCatalog: async () => options.catalog }),
+    };
+    (shell as any).attachApplication(app);
+    return {
+      setSessions,
+      get shutdown() {
+        return state.shutdown;
+      },
+    };
+  }
+
+  const transcriptOf = (shell: TerminalShell): string =>
+    (shell as any).transcript.render(200).join("\n");
+
+  /** A foreign entry pointing at `cwd` (undefined = legacy, no metadata). */
+  function foreign(id: string, cwd?: string) {
+    return {
+      id,
+      modifiedAt: new Date(),
+      sizeBytes: 10,
+      current: false,
+      title: `title ${id}`,
+      folder: "other-project",
+      inCurrentFolder: false,
+      ...(cwd === undefined ? {} : { cwd }),
+    };
+  }
+
+  test("the picker keeps the current folder by default", async () => {
+    const { shell, sessionsDir } = makeShell();
+    const dir = mkdtempSync(join(tmpdir(), "cetas-shell-other-"));
+    try {
+      const otherId = "2026-09-02T00-00-00-000Z_feedface";
+      writeFileSync(join(dir, `${otherId}.jsonl`), "{}\n");
+      const records = attachSessionApp(shell);
+      const entries = await (shell as any).sessionPickerEntries([
+        {
+          id: "2026-09-01T00-00-00-000Z_deadbeef",
+          title: "Current work",
+          bucket: "session_tmp_000000000000",
+          dir: sessionsDir,
+          folder: "tmp",
+          cwd: "/tmp",
+        },
+        {
+          id: otherId,
+          title: "Other work",
+          bucket: "session_other_111111111111",
+          dir,
+          folder: "other",
+          cwd: "/work/other",
+        },
+      ]);
+      // Current folder only: the foreign row is hidden by the default scope.
+      const currentScope = entries.filter((entry: any) => entry.inCurrentFolder !== false);
+      expect(currentScope.map((entry: any) => entry.id)).toEqual([
+        "2026-09-01T00-00-00-000Z_deadbeef",
+      ]);
+      expect(entries).toHaveLength(2);
+      expect(records.setSessions).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a foreign session without a recorded folder is refused with an explanation", async () => {
+    const { shell } = makeShell();
+    const records = attachSessionApp(shell);
+    const before = (shell as any).sessionId;
+    await (shell as any).resumeSessionFromOtherFolder(foreign("legacy-1"));
+    expect(transcriptOf(shell)).toContain("no recorded folder");
+    expect(records.setSessions).toEqual([]);
+    expect((shell as any).sessionId).toBe(before);
+  });
+
+  test("a recorded folder that no longer exists keeps the current session", async () => {
+    const { shell } = makeShell();
+    const records = attachSessionApp(shell);
+    const before = (shell as any).sessionId;
+    await (shell as any).resumeSessionFromOtherFolder(
+      foreign("gone-1", join(tmpdir(), `cetas-missing-${Date.now()}`)),
+    );
+    expect(transcriptOf(shell)).toContain("no longer exists");
+    expect(records.setSessions).toEqual([]);
+    expect((shell as any).sessionId).toBe(before);
+  });
+
+  test("resuming from another folder swaps in that project's app and directory", async () => {
+    const { shell } = makeShell();
+    attachSessionApp(shell, {});
+    const targetCwd = mkdtempSync(join(tmpdir(), "cetas-shell-project-"));
+    const targetSessions = mkdtempSync(join(tmpdir(), "cetas-shell-project-sessions-"));
+    const targetId = "2026-09-03T00-00-00-000Z_cafebabe";
+    const switched: string[] = [];
+    const nextSetSessions: string[] = [];
+    const nextApp = {
+      listCommands: () => [],
+      state: "ready",
+      snapshot: () => ({ state: "ready", setup: { providers: [], warnings: [] } }),
+      setSession: (id: string) => nextSetSessions.push(id),
+    };
+    (shell as any).switchProject = async (cwd: string) => {
+      switched.push(cwd);
+      return { app: nextApp, sessionsDir: targetSessions };
+    };
+    try {
+      writeFileSync(
+        join(targetSessions, `${targetId}.jsonl`),
+        [
+          JSON.stringify({ version: 1 }),
+          JSON.stringify({ role: "user", content: [{ type: "text", text: "other project turn" }] }),
+        ].join("\n") + "\n",
+      );
+      await (shell as any).resumeSessionFromOtherFolder(foreign(targetId, targetCwd));
+      expect(switched).toEqual([targetCwd]);
+      // The shell now points at the other project: directory, bucket, session.
+      expect((shell as any).cwd).toBe(targetCwd);
+      expect((shell as any).sessionsDir).toBe(targetSessions);
+      expect((shell as any).sessionId).toBe(targetId);
+      expect(nextSetSessions).toEqual([targetId]);
+      const transcript = transcriptOf(shell);
+      expect(transcript).toContain(`switched to ${targetCwd}`);
+      expect(transcript).toContain("other project turn");
+    } finally {
+      rmSync(targetCwd, { recursive: true, force: true });
+      rmSync(targetSessions, { recursive: true, force: true });
+    }
+  });
+
+  test("a host without switchProject says so instead of resuming in place", async () => {
+    const { shell } = makeShell();
+    const records = attachSessionApp(shell);
+    const cwd = mkdtempSync(join(tmpdir(), "cetas-shell-no-switch-"));
+    try {
+      const before = (shell as any).sessionId;
+      await (shell as any).resumeSessionFromOtherFolder(foreign("foreign-1", cwd));
+      expect(transcriptOf(shell)).toContain("cannot switch project directories");
+      expect(records.setSessions).toEqual([]);
+      expect((shell as any).sessionId).toBe(before);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("a bridge without a catalog keeps the previous single-folder listing", async () => {
+    const { shell } = makeShell();
+    attachSessionApp(shell, { titles: [{ id: "2026-09-01T00-00-00-000Z_deadbeef", title: "Named" }] });
+    const entries = await (shell as any).sessionPickerEntries(undefined);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].title).toBe("Named");
+    expect(entries[0].inCurrentFolder).toBe(true);
+    expect(entries[0].folder).toBe("/tmp");
   });
 });

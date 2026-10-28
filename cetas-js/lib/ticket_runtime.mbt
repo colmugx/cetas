@@ -935,6 +935,74 @@ async fn TicketRuntime::assign_role(
 }
 
 ///|
+fn required_roles(task : Json) -> Array[String] {
+  let fields = match task {
+    Object(fields) => fields
+    _ => return ["rd", "set", "te"]
+  }
+  match fields.get("required_roles") {
+    Some(Array(values)) => {
+      let roles : Array[String] = []
+      for value in values {
+        match value {
+          String(role) if !roles.contains(role) => roles.push(role)
+          _ => ()
+        }
+      }
+      if roles.contains("rd") {
+        roles
+      } else {
+        ["rd", "set", "te"]
+      }
+    }
+    _ => ["rd", "set", "te"]
+  }
+}
+
+///|
+async fn TicketRuntime::set_required_roles(
+  self : TicketRuntime,
+  task_id : String,
+  roles : Array[String],
+) -> Result[Unit, String] {
+  let snapshot = match self.snapshot() {
+    Ok(snapshot) => snapshot
+    Err(error) => return Err(error)
+  }
+  self.counter = self.counter + 1
+  let command : @board_protocol.BoardClientCommand = {
+    command_id: "ticket-roles-" + self.counter.to_string(),
+    name: "board.task.set_required_roles",
+    expected_revision: snapshot.board_revision,
+    args: {
+      "id": Json::string(task_id),
+      "roles": Json::array(roles.map(Json::string)),
+    },
+  }
+  let encoded = match
+    self.board.wire_command(
+      @board_protocol.encode_client_frame(@board_protocol.Command(command)),
+    ) {
+    Ok(encoded) => encoded
+    Err(error) => return Err(error.code())
+  }
+  match @board_protocol.decode_server_frame(encoded) {
+    Ok(@board_protocol.CommandResult(result)) =>
+      if result.accepted {
+        Ok(())
+      } else {
+        Err(
+          match result.error {
+            Some(error) => error
+            None => "board command rejected"
+          },
+        )
+      }
+    _ => Err("board command result was invalid")
+  }
+}
+
+///|
 async fn TicketRuntime::assign_development_team(
   self : TicketRuntime,
   task_id : String,
@@ -1270,8 +1338,13 @@ fn TicketRuntime::park_run(
 }
 
 ///|
-fn TicketRuntime::team_complete(self : TicketRuntime, task_id : String) -> Bool {
-  self.runs.roles_completed(task_id, ["rd", "set"])
+fn TicketRuntime::team_complete(
+  self : TicketRuntime,
+  task_id : String,
+  roles : Array[String],
+) -> Bool {
+  let gates = roles.filter(role => role == "rd" || role == "set")
+  self.runs.roles_completed(task_id, gates)
 }
 
 ///|
@@ -1321,34 +1394,59 @@ async fn TicketRuntime::finish_work(
       } else {
         run.status = "completed"
         run.error = None
-        if self.team_complete(task_id) {
-          match self.move_task(task_id, "verification") {
-            Ok(_) => {
-              let task = match self.task_snapshot(task_id) {
-                Ok((task, _)) => task
-                Err(error) => {
-                  self.park_run(task_id, "rd", "failed", error)
-                  return
+        let task = match self.task_snapshot(task_id) {
+          Ok((task, _)) => task
+          Err(error) => {
+            self.park_run(task_id, role, "failed", error)
+            return
+          }
+        }
+        let roles = required_roles(task)
+        if self.team_complete(task_id, roles) {
+          if roles.contains("te") {
+            match self.move_task(task_id, "verification") {
+              Ok(_) =>
+                match self.start_role(task_id, task, "te", false) {
+                  Ok(_) => ()
+                  Err(error) => self.park_run(task_id, "te", "failed", error)
                 }
-              }
-              match self.start_role(task_id, task, "te", false) {
-                Ok(_) => ()
-                Err(error) => self.park_run(task_id, "te", "failed", error)
+              Err(error) =>
+                self.park_run(
+                  task_id,
+                  role,
+                  "failed",
+                  "verification move failed: " + error,
+                )
+            }
+          } else {
+            let report = match run.report {
+              Some(report) => report
+              None => @work.minimal_review_report(result)
+            }
+            match self.set_review_report(task_id, report) {
+              Ok(_) => ()
+              Err(error) => {
+                self.park_run(
+                  task_id,
+                  role,
+                  "failed",
+                  "review report was not recorded: " + error,
+                )
+                return
               }
             }
-            Err(error) => {
-              self.park_run(
-                task_id,
-                "rd",
-                "failed",
-                "verification move failed: " + error,
-              )
-              self.park_run(
-                task_id,
-                "set",
-                "failed",
-                "verification move failed: " + error,
-              )
+            match self.move_task(task_id, "review") {
+              Ok(_) => {
+                run.status = "review"
+                run.error = None
+              }
+              Err(error) =>
+                self.park_run(
+                  task_id,
+                  role,
+                  "failed",
+                  "review move was not accepted: " + error,
+                )
             }
           }
         }
@@ -1553,6 +1651,13 @@ async fn TicketRuntime::split_ticket(
         return Err("could not assign split ticket team: " + error + rollback)
       }
     }
+    match self.set_required_roles(task_id, child.required_roles) {
+      Ok(_) => ()
+      Err(error) => {
+        let rollback = self.rollback_split(created)
+        return Err("could not set split ticket role plan: " + error + rollback)
+      }
+    }
     match self.move_task(task_id, "refining") {
       Ok(_) => ()
       Err(error) => {
@@ -1728,6 +1833,19 @@ async fn TicketRuntime::finish_shape(
       return
     }
   }
+  match self.set_required_roles(task_id, child.required_roles) {
+    Ok(_) => ()
+    Err(error) => {
+      match run {
+        Some(run) => {
+          run.status = "failed"
+          run.error = Some(error)
+        }
+        None => ()
+      }
+      return
+    }
+  }
   match self.move_task(task_id, "ready") {
     Ok(_) =>
       match run {
@@ -1824,11 +1942,11 @@ async fn TicketRuntime::shape(
     "\n\nCurrent description:\n" +
     description +
     "\n\nInspect relevant workspace files when useful. Ask the Product Owner with ask_question_child about genuinely ambiguous business intent. Do not modify files and do not mutate the Board.\n\n" +
-    "Rewrite the request as a standard user story in exactly three lines: \"As a <role>\\nI want <capability>\\nSo that <benefit>\". The user_story JSON value must contain two newline escapes (\\n), not a comma-separated sentence. Add a detailed description, concrete implementation suggestions, and observable acceptance criteria. Set a P0-P3 priority (P0 first). If the request is actually several independent user stories, split it into 2-8 complete stories; do not split a single story just to make it smaller. Each story must be independently implementable and testable.\n\n" +
+    "Set required_roles to [\"rd\"] for research, audit, spike, analysis or report tickets; use [\"rd\",\"set\",\"te\"] only when implementation, independent verification and final verification all add value. Rewrite the request as a standard user story in exactly three lines: \"As a <role>\\nI want <capability>\\nSo that <benefit>\". The user_story JSON value must contain two newline escapes (\\n), not a comma-separated sentence. Add a detailed description, concrete implementation suggestions, and observable acceptance criteria. Set a P0-P3 priority (P0 first). If the request is actually several independent user stories, split it into 2-8 complete stories; do not split a single story just to make it smaller. Each story must be independently implementable and testable.\n\n" +
     "Return only one JSON object. One story:\n" +
-    "{\"summary\":\"one sentence\",\"title\":\"short title\",\"user_story\":\"As a ...\\nI want ...\\nSo that ...\",\"description\":\"detailed scope and constraints\",\"implementation_suggestions\":\"starting points, not a mandate\",\"definition_of_done\":[\"observable criterion\"],\"priority\":\"p1\"}\n" +
+    "{\"summary\":\"one sentence\",\"title\":\"short title\",\"user_story\":\"As a ...\\nI want ...\\nSo that ...\",\"description\":\"detailed scope and constraints\",\"implementation_suggestions\":\"starting points, not a mandate\",\"definition_of_done\":[\"observable criterion\"],\"priority\":\"p1\",\"required_roles\":[\"rd\",\"set\",\"te\"]}\n" +
     "Split:\n" +
-    "{\"summary\":\"why these are independent stories\",\"tasks\":[{\"title\":\"short title\",\"user_story\":\"As a ...\\nI want ...\\nSo that ...\",\"description\":\"scope\",\"implementation_suggestions\":\"starting points\",\"definition_of_done\":[\"observable criterion\"],\"priority\":\"p1\"}]}\n" +
+    "{\"summary\":\"why these are independent stories\",\"tasks\":[{\"title\":\"short title\",\"user_story\":\"As a ...\\nI want ...\\nSo that ...\",\"description\":\"scope\",\"implementation_suggestions\":\"starting points\",\"definition_of_done\":[\"observable criterion\"],\"priority\":\"p1\",\"required_roles\":[\"rd\",\"set\",\"te\"]}]}\n" +
     "Every field is required. Use the language of the ticket title/description for every value; JSON keys stay English. Do not wrap it in Markdown."
   let spec : @subagent.ChildSpec = {
     task: prompt,
@@ -2140,11 +2258,16 @@ async fn TicketRuntime::run(
       Err(error) => return Err(error)
     }
   }
-  for role in ["rd", "set"] {
+  let roles = required_roles(task)
+  if !roles.contains("rd") {
+    return Err("Ready ticket needs RD in its role plan")
+  }
+  let starters = roles.filter(role => role == "rd" || role == "set")
+  for role in starters {
     match self.start_role(task_id, task, role, resuming) {
       Ok(_) => ()
       Err(error) => {
-        for other in ["rd", "set"] {
+        for other in starters {
           self.park_run(task_id, other, "failed", error)
         }
         return Err(error)

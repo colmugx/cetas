@@ -2437,3 +2437,142 @@ async test "ticket finish fails visibly when the Board rejects the report" {
     assert_true(snapshot_task_review(board, "task-1") is None)
   })
 }
+
+///|
+async test "RD-only role plan reaches review without starting SET or TE" {
+  let directory = @board_fixtures.temporary_directory()
+  defer @board_fixtures.cleanup(directory)
+  let model = @posoco.ScriptedModel([
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("SEO audit completed."),
+    ),
+  ])
+  let router = @llm.RouterModelPort(
+    slots=[subagent_test_slot("test/ticket", model)],
+    default_slot_id="test/ticket",
+  )
+  @async.with_task_group(group => {
+    let fs = @workspace.JsWorkspaceFs()
+    let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
+    let board = @board.BoardWorkflows(
+      directory~,
+      group~,
+      agents=customer_factory(router, directory, () => @permission.ReadOnly),
+      authorize=() => true,
+      policy=@board.BoardWorkflowPolicy(enabled=true),
+    )
+    defer ignore(board.shutdown())
+    let tickets = TicketRuntime::TicketRuntime(
+      board~,
+      manager=Providers(router),
+      parent_mode=() => @permission.ReadOnly,
+      approval=None,
+      ctx~,
+      group~,
+    )
+    let create : Json = {
+      "id": "task-1",
+      "title": "Audit SEO",
+      "description": "Audit the current site",
+      "priority": "normal",
+      "definition_of_done": ["Report"],
+      "dependencies": [],
+      "user_story": "As a maintainer\nI want an audit\nSo that I know the gaps",
+      "implementation_suggestions": "Inspect the built site.",
+    }
+    match
+      board.wire_command(
+        @board_protocol.encode_client_frame(
+          @board_protocol.Command({
+            command_id: "rd-only-create",
+            name: "board.task.create",
+            expected_revision: 0L,
+            args: create,
+          }),
+        ),
+      ) {
+      Ok(encoded) =>
+        match @board_protocol.decode_server_frame(encoded) {
+          Ok(@board_protocol.CommandResult(result)) =>
+            assert_true(result.accepted)
+          _ => fail("create did not settle")
+        }
+      Err(error) => fail(error.code())
+    }
+    match
+      board.wire_command(
+        @board_protocol.encode_client_frame(
+          @board_protocol.Command({
+            command_id: "rd-only-roles",
+            name: "board.task.set_required_roles",
+            expected_revision: 1L,
+            args: { "id": "task-1", "roles": ["rd"] },
+          }),
+        ),
+      ) {
+      Ok(encoded) =>
+        match @board_protocol.decode_server_frame(encoded) {
+          Ok(@board_protocol.CommandResult(result)) =>
+            assert_true(result.accepted)
+          _ => fail("role plan did not settle")
+        }
+      Err(error) => fail(error.code())
+    }
+    match
+      board.wire_command(
+        @board_protocol.encode_client_frame(
+          @board_protocol.Command({
+            command_id: "rd-only-refining",
+            name: "board.task.move",
+            expected_revision: 2L,
+            args: { "id": "task-1", "to": "refining" },
+          }),
+        ),
+      ) {
+      Ok(encoded) =>
+        match @board_protocol.decode_server_frame(encoded) {
+          Ok(@board_protocol.CommandResult(result)) =>
+            assert_true(result.accepted)
+          _ => fail("refining move did not settle")
+        }
+      Err(error) => fail(error.code())
+    }
+    match
+      board.wire_command(
+        @board_protocol.encode_client_frame(
+          @board_protocol.Command({
+            command_id: "rd-only-ready",
+            name: "board.task.move",
+            expected_revision: 3L,
+            args: { "id": "task-1", "to": "ready" },
+          }),
+        ),
+      ) {
+      Ok(encoded) =>
+        match @board_protocol.decode_server_frame(encoded) {
+          Ok(@board_protocol.CommandResult(result)) =>
+            assert_true(result.accepted)
+          _ => fail("ready move did not settle")
+        }
+      Err(error) => fail(error.code())
+    }
+    match tickets.run("task-1") {
+      Ok(_) => ()
+      Err(error) => fail("RD-only run failed: " + error)
+    }
+    let mut reached = false
+    for _ in 0..<100 {
+      match tickets.task_snapshot("task-1") {
+        Ok((task, _)) =>
+          if @work.task_field(task, "stage") == "review" {
+            reached = true
+            break
+          }
+        Err(_) => ()
+      }
+      @async.sleep(20)
+    }
+    assert_true(reached)
+    assert_eq(tickets.runs_for("task-1").map(run => run.role), ["rd"])
+  })
+}

@@ -13,6 +13,7 @@ import {
   type OperationKind,
   type OperationSnapshot,
   type ProviderSetupSnapshot,
+  type SessionCatalogRow,
   type SessionTitle,
   type UserInputSubmission,
 } from "./types.ts";
@@ -1638,6 +1639,58 @@ export class CetasApplication<AgentHandle = unknown> {
         );
       }
       return { id: record.id, title: record.title };
+    });
+  }
+
+  /**
+   * Cross-project session catalog for the `/sessions` "All" view: every
+   * persisted session of every project bucket under `home`, with the project
+   * directory recorded in its metadata. Stateless and Agent-free like
+   * `sessionTitles`; a bridge without the catalog returns an empty list so
+   * the picker stays on the current folder.
+   */
+  async sessionCatalog(home: string): Promise<readonly SessionCatalogRow[]> {
+    if (this.state === "shutting_down") {
+      throw new CetasApplicationError(
+        "shutting_down",
+        "cannot list the session catalog after shutdown has begun",
+      );
+    }
+    const bridge = this.options.bridge;
+    if (bridge.sessionCatalog === undefined) return [];
+    const raw = await bridge.sessionCatalog.call(bridge, home);
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      throw new CetasApplicationError(
+        "bridge_failure",
+        "session catalog response must be a JSON array",
+      );
+    }
+    return parsed.map((entry, index) => {
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+        throw new CetasApplicationError(
+          "bridge_failure",
+          `session catalog entry ${index} must be an object`,
+        );
+      }
+      const record = entry as Record<string, unknown>;
+      for (const key of ["id", "title", "bucket", "dir", "folder"] as const) {
+        if (typeof record[key] !== "string") {
+          throw new CetasApplicationError(
+            "bridge_failure",
+            `session catalog entry ${index} must carry a string ${key}`,
+          );
+        }
+      }
+      const cwd = record.cwd;
+      return {
+        id: record.id as string,
+        title: record.title as string,
+        bucket: record.bucket as string,
+        dir: record.dir as string,
+        folder: record.folder as string,
+        ...(typeof cwd === "string" && cwd.length > 0 ? { cwd } : {}),
+      };
     });
   }
 

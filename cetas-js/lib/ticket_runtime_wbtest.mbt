@@ -53,3 +53,10 @@ test "unknown ticket question answers are rejected" {
     is Err(_),
   )
 }
+
+///|
+test "required roles defaults to all and preserves an RD-only plan" {
+  assert_eq(required_roles({}), ["rd", "set", "te"])
+  assert_eq(required_roles({ "required_roles": ["rd"] }), ["rd"])
+  assert_eq(required_roles({ "required_roles": ["set"] }), ["rd", "set", "te"])
+}

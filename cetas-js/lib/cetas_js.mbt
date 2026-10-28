@@ -1609,6 +1609,10 @@ pub fn cetas_js_runtime_create_agent(
               runtime.config.sessions_dir,
               bus=Some(event_bus),
               selection_control=Some(model.manager_control()),
+              // Record the project directory in every persisted session:
+              // `/sessions` → All needs it to label and re-open sessions from
+              // other buckets, whose names only carry a one-way hash.
+              cwd=Some(@fs_session.normalize_cwd(runtime.config.cwd)),
             )
             let ui = JsUiPort(render_callback, request_callback)
             // Load AGENTS.md / CLAUDE.md context files from home + cwd ancestor

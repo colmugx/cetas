@@ -10,7 +10,7 @@
 import chalk from "chalk";
 import type { Channel, PackageManager } from "../src/app/version.ts";
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { enableCetasWorkflows, workflowsEnabled } from "../src/app/workflow-delivery.ts";
 import { openWorkflowBoard, closeWorkflowBoards, hasOpenWorkflowBoards } from "./workflow-board-server.ts";
 import { homedir } from "node:os";
@@ -121,7 +121,12 @@ import { AuthPromptOverlay, parseAuthPromptRequest } from "./auth-prompt-overlay
 import {
   SessionsOverlay,
   applySessionTitles,
+  isResumableHere,
   listSessionEntries,
+  mergeSessionCatalog,
+  recordCwd,
+  type SessionCatalogEntry,
+  type SessionEntry,
 } from "./sessions-overlay.ts";
 import { RewindOverlay } from "./rewind-overlay.ts";
 import { ModalVeilHost } from "./modal-mask.ts";
@@ -197,6 +202,23 @@ export interface TerminalShellOptions {
    * arrives first) the shell forces the exit hook. Default 10s.
    */
   forceExitDelayMs?: number;
+  /**
+   * Host-owned project switch for a cross-folder `/sessions` resume: compose
+   * a fresh application bound to `cwd` (its tools, workspace anchor, and
+   * session bucket all follow that directory) and return it with its resolved
+   * sessions directory. Hosts that omit it keep cross-folder resume
+   * unavailable: the picker says so instead of resuming a session in the
+   * wrong directory.
+   */
+  switchProject?: (cwd: string) => Promise<ProjectSwitch>;
+}
+
+/** Result of a host-owned project switch (see `TerminalShellOptions`). */
+export interface ProjectSwitch {
+  /** Application composed against the requested directory. */
+  app: CetasApplication;
+  /** That application's resolved per-project sessions directory. */
+  sessionsDir: string;
 }
 
 /** `posoco_ext_nowledge_mem` → `nowledge-mem`; foreign ids pass through. */
@@ -239,12 +261,19 @@ export class TerminalShell {
 
   private app?: CetasApplication;
   private sessionId: string;
-  private readonly cwd: string;
-  private readonly sessionsDir: string;
+  /**
+   * Working directory of the composed application. Mutable because a
+   * cross-folder `/sessions` resume swaps in an application built for the
+   * other project (see `switchProject`).
+   */
+  private cwd: string;
+  /** Sessions bucket of the active project; follows `cwd` on a switch. */
+  private sessionsDir: string;
   private readonly home: string;
   private readonly piCommands: PiCommands;
   private readonly onExit: (code: number) => void;
   private readonly openBoardUrl?: (url: string) => void;
+  private readonly switchProject?: (cwd: string) => Promise<ProjectSwitch>;
   private readonly updateOverlay: UpdateOverlay;
   private readonly updateWorkflow: UpdateWorkflow;
   /** Set by "Update now"; exit() runs it after teardown instead of onExit. */
@@ -390,6 +419,7 @@ export class TerminalShell {
       lastSummary: () => this.app?.snapshot().piPackages,
     });
     this.sessionId = options.initialSessionId;
+    this.switchProject = options.switchProject;
     this.onExit = options.onExit ?? (() => {});
     this.openBoardUrl = options.openBoardUrl;
     this.forceExitDelayMs = options.forceExitDelayMs ?? 10_000;
@@ -586,6 +616,15 @@ export class TerminalShell {
 
   attachApplication(app: CetasApplication): void {
     if (this.app !== undefined) throw new Error("cetas application is already attached");
+    this.activateApplication(app);
+  }
+
+  /**
+   * Adopt `app` as the live application. Shared by the initial attach and the
+   * cross-folder `/sessions` resume, which swaps in an application composed
+   * for another project directory.
+   */
+  private activateApplication(app: CetasApplication): void {
     this.app = app;
     // The host attaches before app.start() composes the agent, so this first
     // pass only sees the hardcoded entries; handleSnapshot refreshes once the
@@ -2592,13 +2631,17 @@ export class TerminalShell {
   }
 
   /**
-   * `/sessions` — list this project's session transcripts and resume one.
-   * Entries are stat metadata from the sessions directory, decorated with
-   * the bridge's `display_title` titles when available (a failed fetch or
-   * unsupported bridge keeps the id-based labels). Picking one repoints the
-   * application at that session (the /new switch in reverse). Prior history
-   * is not replayed into the transcript — the session store feeds it to the
-   * model on the next turn.
+   * `/sessions` — list session transcripts and resume one. The picker opens
+   * on `Current Folder` (this project's bucket, unchanged behavior); `tab`
+   * switches to `All`, which mixes every project's sessions newest-first with
+   * the owning folder on each row. Titles and folders come from the bridge;
+   * a bridge without the catalog degrades to the current folder only.
+   *
+   * Picking a session in the current folder repoints the application at it
+   * (the /new switch in reverse). Picking one from another folder first swaps
+   * in an application composed for that directory, then resumes. Prior
+   * history is not replayed into the model — the session store feeds it on
+   * the next turn; the view is replayed from the target transcript.
    */
   private async openSessionsPicker(): Promise<void> {
     if (this.operationBusy || this.commandBusy) {
@@ -2607,21 +2650,140 @@ export class TerminalShell {
     }
     this.commandLock.acquire("");
     try {
-      const entries = listSessionEntries(this.sessionsDir, this.sessionId);
-      // Titles are best-effort decoration; never let them block the picker.
-      let titles: readonly SessionTitle[] = [];
+      const app = this.requireApp();
+      // The cross-project catalog is best-effort: without it the picker still
+      // lists this project exactly as before.
+      let catalog: readonly SessionCatalogEntry[] | undefined;
       try {
-        titles = await this.requireApp().sessionTitles(this.sessionsDir);
+        const sessionCatalog = app.sessionCatalog;
+        if (sessionCatalog !== undefined) {
+          catalog = await sessionCatalog.call(app, this.home);
+        }
       } catch {
-        // keep id-based labels
+        catalog = undefined;
       }
+      const entries = await this.sessionPickerEntries(catalog);
       this.sessionsOverlay.open(
-        applySessionTitles(entries, titles),
-        (id) => this.resumeSession(id),
+        entries,
+        (entry) => this.pickSessionEntry(entry),
         () => this.commandLock.release(),
       );
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice(`/sessions failed: ${errorMessage(error)}`));
+      this.commandLock.release();
+    }
+  }
+
+  /**
+   * Picker rows: the catalog mixes folders, while a missing/unsupported
+   * catalog falls back to this project's stat listing decorated with the
+   * bridge titles (the pre-`All` behavior, verbatim).
+   */
+  private async sessionPickerEntries(
+    catalog: readonly SessionCatalogEntry[] | undefined,
+  ): Promise<SessionEntry[]> {
+    const currentFolder = listSessionEntries(this.sessionsDir, this.sessionId);
+    if (catalog !== undefined) {
+      return mergeSessionCatalog(currentFolder, catalog, {
+        sessionsDir: this.sessionsDir,
+        currentId: this.sessionId,
+      });
+    }
+    // Titles are best-effort decoration; never let them block the picker.
+    let titles: readonly SessionTitle[] = [];
+    try {
+      titles = await this.requireApp().sessionTitles(this.sessionsDir);
+    } catch {
+      // keep id-based labels
+    }
+    return applySessionTitles(currentFolder, titles).map((entry) => ({
+      ...entry,
+      folder: this.cwd,
+      inCurrentFolder: true,
+    }));
+  }
+
+  /** Enter on a row: same-folder rows resume in place, foreign ones switch. */
+  private pickSessionEntry(entry: SessionEntry): void {
+    if (entry.inCurrentFolder !== false) {
+      this.resumeSession(entry.id);
+      return;
+    }
+    void this.resumeSessionFromOtherFolder(entry);
+  }
+
+  /**
+   * Resume a session that lives in another project's bucket. The directory
+   * must be known (legacy transcripts record none) and must still exist;
+   * otherwise the picker explains why nothing happened and the current
+   * session stays exactly as it was. On success the application is rebuilt
+   * against that directory — tools, workspace anchor and session store follow
+   * — and `setSession` keeps its usual busy/lock guards.
+   */
+  private async resumeSessionFromOtherFolder(entry: SessionEntry): Promise<void> {
+    this.commandLock.acquire("switching project");
+    try {
+      const folder = recordCwd(entry.cwd);
+      if (!isResumableHere(entry) || folder === undefined) {
+        this.addTranscriptChild(
+          errorNotice(
+            `/sessions: "${entry.title ?? entry.id}" has no recorded folder — resume it from its own project directory (run cetas there and use /sessions)`,
+          ),
+        );
+        return;
+      }
+      let stat;
+      try {
+        stat = statSync(folder);
+      } catch {
+        stat = undefined;
+      }
+      if (stat === undefined || !stat.isDirectory()) {
+        this.addTranscriptChild(
+          errorNotice(
+            `/sessions: folder ${folder} no longer exists — kept the current session (was "${this.sessionId}")`,
+          ),
+        );
+        return;
+      }
+      const switchProject = this.switchProject;
+      if (switchProject === undefined) {
+        this.addTranscriptChild(
+          errorNotice(
+            `/sessions: this host cannot switch project directories, so ${folder} sessions cannot be resumed from here`,
+          ),
+        );
+        return;
+      }
+      const previous = this.requireApp();
+      let next: ProjectSwitch;
+      try {
+        next = await switchProject(folder);
+      } catch (error: unknown) {
+        this.addTranscriptChild(
+          errorNotice(`/sessions: could not switch to ${folder}: ${errorMessage(error)}`),
+        );
+        return;
+      }
+      // The old project's agent (and its MCP connections) must not outlive the
+      // switch; shutdown failures are reported, never silently dropped.
+      try {
+        await previous.shutdown();
+      } catch (error: unknown) {
+        this.addTranscriptChild(
+          errorNotice(`/sessions: previous project did not shut down cleanly: ${errorMessage(error)}`),
+        );
+      }
+      this.activateApplication(next.app);
+      this.cwd = folder;
+      this.sessionsDir = next.sessionsDir;
+      this.cachedGitBranch = undefined;
+      this.handleSnapshot(next.app.snapshot());
+      // resumeSession clears the transcript, so the switch notice lands after
+      // it to survive the replay of the resumed history.
+      this.resumeSession(entry.id, { fromOtherFolder: true });
+      this.addTranscriptChild(systemNotice(`switched to ${folder}`));
+    } finally {
       this.commandLock.release();
     }
   }
@@ -2747,11 +2909,20 @@ export class TerminalShell {
     }
   }
 
-  private resumeSession(sessionId: string): void {
+  /**
+   * Repoint the application at `sessionId` and replay its persisted history.
+   * `fromOtherFolder` marks a session that arrived with a project switch, so
+   * an id collision with the previous project's active session can never be
+   * mistaken for "already here".
+   */
+  private resumeSession(
+    sessionId: string,
+    options?: { fromOtherFolder?: boolean },
+  ): void {
     // The overlay already closed before this callback runs; a throw here
     // would reach pi-tui's unguarded input dispatch and kill the process.
     try {
-      if (sessionId === this.sessionId) {
+      if (sessionId === this.sessionId && options?.fromOtherFolder !== true) {
         this.addTranscriptChild(systemNotice("already in this session"));
         return;
       }

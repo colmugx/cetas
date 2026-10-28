@@ -506,6 +506,10 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
   sessionTitles(sessionsDir: string): Promise<string> {
     return moonbit.cetas_js_session_titles(sessionsDir);
   }
+
+  sessionCatalog(home: string): Promise<string> {
+    return moonbit.cetas_js_session_catalog(home);
+  }
 }
 
 /**

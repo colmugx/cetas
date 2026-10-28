@@ -113,6 +113,7 @@ options(
         "cetas_js_list_workspace_files",
         "cetas_js_sessions_dir",
         "cetas_js_session_titles",
+        "cetas_js_session_catalog",
         "CetasJsConfig",
         "CetasJsRuntime",
       ],
