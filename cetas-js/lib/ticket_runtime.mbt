@@ -286,7 +286,8 @@ impl @posoco.Observer for TicketActivityObserver with fn on_event(
     TurnFailed(message) => run.activity("error", "Step failed · \{message}")
     StreamChunkReceived(chunk~) =>
       match chunk {
-        TextDelta(token~) => run.preview = @work.append_tail(run.preview, token, 600)
+        TextDelta(token~) =>
+          run.preview = @work.append_tail(run.preview, token, 600)
         ReasoningDelta(token~) =>
           run.reasoning = @work.append_tail(run.reasoning, token, 600)
         _ => ()
@@ -825,8 +826,9 @@ async fn TicketRuntime::reconcile_interrupted(self : TicketRuntime) -> Unit {
 /// the host keeping an unbounded transcript.
 fn TicketRuntime::state_json(self : TicketRuntime) -> Json {
   let runs : Array[Json] = self.all_runs().map(run => run.to_json())
-  let progress_items : Array[Json] = self.progress.all().map(update =>
-    update.to_json())
+  let progress_items : Array[Json] = self.progress
+    .all()
+    .map(update => update.to_json())
   let catalog = self.manager.manager_ticket_model_catalog_json()
   let (_, catalog_models) = ticket_catalog_entries(catalog)
   let manager_kind = match catalog {
@@ -1230,7 +1232,6 @@ async fn TicketRuntime::task_has_dependents(
   Ok(state.has_dependents(task_id))
 }
 
-
 ///|
 /// Replace one ticket's review report at the current Board revision. The Board
 /// owns the report; this runtime only supplies it, so nothing here re-reads a
@@ -1466,7 +1467,6 @@ fn ticket_system_prompt(cwd : String, role : String) -> String {
   ticket_language_contract()
 }
 
-
 ///|
 async fn TicketRuntime::rollback_split(
   self : TicketRuntime,
@@ -1641,7 +1641,8 @@ async fn TicketRuntime::finish_shape(
     value => value
   }
   if parsed.get("tasks") is Some(tasks) {
-    let children = match @work.parse_shape_children(Some(tasks), fallback_priority) {
+    let children = match
+      @work.parse_shape_children(Some(tasks), fallback_priority) {
       Ok(children) => children
       Err(error) => {
         match run {
