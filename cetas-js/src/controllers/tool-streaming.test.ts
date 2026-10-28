@@ -162,6 +162,27 @@ describe("ToolStreamingController", () => {
     expect(rendered(transcript)).toContain("(13 bytes)");
   });
 
+  test("unmatched started id does not steal the sole identified pending call", () => {
+    const { transcript, controller } = makeHarness();
+    controller.onArgsDelta(0, "call_A", "write", '{"path":"a.md"');
+    const original = transcript.children[0];
+
+    // Call B's arg fragments were dropped. A still belongs to call_A.
+    expect(controller.onCallStarted("call_B", "read", { path: "b.md" })).toBeNull();
+    expect(controller.onCallStarted("call_A", "write", { path: "a.md" })).toBe(original);
+    expect(transcript.children).toHaveLength(1);
+  });
+
+  test("sole index-only pending call can still adopt a newly learned id", () => {
+    const { transcript, controller } = makeHarness();
+    controller.onArgsDelta(3, undefined, "write", '{"path":"draft.md"');
+    const original = transcript.children[0];
+
+    expect(controller.onCallStarted("committed", "write", { path: "draft.md" })).toBe(original);
+    expect(controller.onCallStarted("unrelated", "read", {})).toBeNull();
+    expect(transcript.children).toHaveLength(1);
+  });
+
   test("unknown tool_call_started with no pending state falls through", () => {
     const { controller } = makeHarness();
     expect(controller.onCallStarted("ghost", "read", {})).toBeNull();
@@ -257,6 +278,28 @@ describe("EventRouter — tool_args_delta wiring (end to end)", () => {
     router.handleEvent(ev({ type: "turn_completed" }));
     // Still exactly one write row after the whole cycle.
     expect(rendered().match(/story\.md/g)?.length ?? 0).toBeGreaterThanOrEqual(1);
+  });
+
+  test("interleaved start without deltas cannot take another call's streamed row", () => {
+    const { transcript, router, rendered } = makeRouterHarness();
+    router.handleEvent(ev({ type: "turn_started" }));
+    router.handleEvent(ev({
+      type: "tool_args_delta", index: 0, id: "call_A", name: "write",
+      delta: '{"path":"a.md"',
+    }));
+    // B had no observed deltas; its authoritative start must create a row.
+    router.handleEvent(ev({
+      type: "tool_call_started", tool_call_id: "call_B",
+      tool_name: "read", args: { path: "b.md" },
+    }));
+    router.handleEvent(ev({
+      type: "tool_call_started", tool_call_id: "call_A",
+      tool_name: "write", args: { path: "a.md", content: "A" },
+    }));
+    expect(transcript.children.filter(c => c instanceof ToolRow)).toHaveLength(2);
+    expect(rendered()).toContain("read b.md");
+    expect(rendered()).toContain("a.md");
+    router.handleEvent(ev({ type: "turn_completed" }));
   });
 
   test("turn cleanup: deltas across turns never leak rows into the next turn", async () => {
