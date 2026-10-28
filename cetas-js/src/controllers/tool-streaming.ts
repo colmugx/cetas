@@ -119,7 +119,8 @@ export class ToolStreamingController {
     if (entry === undefined && this.pendingByIndex.size === 1) {
       const sole = this.pendingByIndex.values().next().value;
       if (
-        sole?.id === undefined &&
+        sole !== undefined &&
+        sole.id === undefined &&
         (sole.name === undefined || sole.name === toolName)
       ) entry = sole;
     }
