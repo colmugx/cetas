@@ -207,93 +207,10 @@ impl @askquestion.QuestionEndpoint for BoardQuestionEndpoint with fn request_wit
 }
 
 ///|
-priv struct TicketActivity {
-  at_ms : Int64
-  kind : String
-  text : String
-}
-
-///|
-/// One background ticket run in this process.
-priv struct TicketRun {
-  task_id : String
-  session_id : String
-  phase : String
-  role : String
-  mut status : String
-  mut error : String?
-  mut result : String?
-  mut report : Json?
-  mut steps : Int32
-  mut current_tool : String?
-  mut preview : String
-  mut reasoning : String
-  activities : Array[TicketActivity]
-}
-
-///|
-/// One progress update of one ticket, as the host keeps and projects it.
-priv struct TicketProgress {
-  task_id : String
-  kind : String
-  message : String
-  at_ms : Int64
-}
-
-///|
-/// Per-ticket bound on the progress log: a long run reports many lines and only
-/// the recent ones are useful beside it.
-let ticket_progress_max_per_ticket : Int32 = 50
-
-///|
 /// Child observer that turns one run's TurnEvents into a bounded activity log.
 /// The child cannot mutate the Board; this observer only reads its own events.
 priv struct TicketActivityObserver {
-  run : TicketRun
-}
-
-///|
-fn append_tail(current : String, addition : String, max : Int32) -> String {
-  let combined = current + addition
-  let chars : Array[Char] = []
-  for char in combined {
-    chars.push(char)
-  }
-  let start = if chars.length() > max { chars.length() - max } else { 0 }
-  let mut out = ""
-  for index in start..<chars.length() {
-    out = out + chars[index].to_string()
-  }
-  out
-}
-
-///|
-fn one_line_preview(text : String, max : Int32) -> String {
-  let mut out = ""
-  let mut pending_space = false
-  for char in text {
-    if char == ' ' || char == '\n' || char == '\t' || char == '\r' {
-      pending_space = out.length() > 0
-    } else {
-      if pending_space {
-        out = out + " "
-        pending_space = false
-      }
-      out = out + char.to_string()
-      if out.length() >= max {
-        break
-      }
-    }
-  }
-  out
-}
-
-///|
-fn TicketRun::activity(self : TicketRun, kind : String, text : String) -> Unit {
-  self.activities.push({ at_ms: @async.now(), kind, text, })
-  while self.activities.length() > 20 {
-    ignore(self.activities.remove(0))
-  }
+  run : @work.WorkRun
 }
 
 ///|
@@ -326,7 +243,7 @@ impl @posoco.Observer for TicketActivityObserver with fn on_event(
       run.activity("tool", "Tool · \{call.name.to_string()} · approved")
     ToolCallStarted(call~) => {
       run.current_tool = Some(call.name.to_string())
-      let preview = one_line_preview(call.arguments.stringify(), 120)
+      let preview = @work.one_line_preview(call.arguments.stringify(), 120)
       let detail = if preview == "" {
         "Tool · \{call.name.to_string()} · running"
       } else {
@@ -336,7 +253,7 @@ impl @posoco.Observer for TicketActivityObserver with fn on_event(
     }
     ToolCallSucceeded(call~, content~, ..) => {
       run.current_tool = None
-      let preview = one_line_preview(content, 120)
+      let preview = @work.one_line_preview(content, 120)
       let detail = if preview == "" {
         "Tool · \{call.name.to_string()} · done"
       } else {
@@ -369,15 +286,15 @@ impl @posoco.Observer for TicketActivityObserver with fn on_event(
     TurnFailed(message) => run.activity("error", "Step failed · \{message}")
     StreamChunkReceived(chunk~) =>
       match chunk {
-        TextDelta(token~) => run.preview = append_tail(run.preview, token, 600)
+        TextDelta(token~) => run.preview = @work.append_tail(run.preview, token, 600)
         ReasoningDelta(token~) =>
-          run.reasoning = append_tail(run.reasoning, token, 600)
+          run.reasoning = @work.append_tail(run.reasoning, token, 600)
         _ => ()
       }
     UserRequestStarted(prompt~, ..) =>
       run.activity(
         "question",
-        "Waiting for your answer · \{one_line_preview(prompt, 100)}",
+        "Waiting for your answer · \{@work.one_line_preview(prompt, 100)}",
       )
     UserRequestFinished(outcome~, ..) =>
       run.activity("question", "Answer received · \{outcome}")
@@ -394,8 +311,8 @@ priv struct TicketRuntime {
   ctx : @cetas_core.HostContext
   group : @async.TaskGroup[Unit]
   questions : TicketQuestions
-  runs : Map[String, Array[TicketRun]]
-  mut progress : Map[String, Array[TicketProgress]]
+  runs : @work.WorkRunStore
+  progress : @work.WorkProgressLog
   child_store : CetasChildSessionStore
   mut counter : Int32
   mut reconciled : Bool
@@ -433,8 +350,8 @@ fn TicketRuntime::TicketRuntime(
     ctx,
     group,
     questions: TicketQuestions::TicketQuestions(),
-    runs: Map([]),
-    progress: Map([]),
+    runs: @work.WorkRunStore::WorkRunStore(),
+    progress: @work.WorkProgressLog::WorkProgressLog(),
     child_store: match session_root {
       Some(root) => CetasChildSessionStore::with_root(root)
       None => CetasChildSessionStore::CetasChildSessionStore()
@@ -455,31 +372,18 @@ fn TicketRuntime::TicketRuntime(
 fn TicketRuntime::runs_for(
   self : TicketRuntime,
   task_id : String,
-) -> Array[TicketRun] {
-  match self.runs.get(task_id) {
-    Some(runs) => runs
-    None => {
-      let runs : Array[TicketRun] = []
-      self.runs[task_id] = runs
-      runs
-    }
-  }
+) -> Array[@work.WorkRun] {
+  self.runs.runs_for(task_id)
 }
 
 ///|
 /// The run the task-level UI reads first: a live role wins, otherwise the most
 /// recently added role.
-fn TicketRuntime::run_for(self : TicketRuntime, task_id : String) -> TicketRun? {
-  let runs = match self.runs.get(task_id) {
-    Some(runs) => runs
-    None => return None
-  }
-  for run in runs {
-    if run.status == "running" {
-      return Some(run)
-    }
-  }
-  runs.get(runs.length() - 1)
+fn TicketRuntime::run_for(
+  self : TicketRuntime,
+  task_id : String,
+) -> @work.WorkRun? {
+  self.runs.run_for(task_id)
 }
 
 ///|
@@ -487,30 +391,13 @@ fn TicketRuntime::run_role(
   self : TicketRuntime,
   task_id : String,
   role : String,
-) -> TicketRun? {
-  match self.runs.get(task_id) {
-    Some(runs) => {
-      let mut found : TicketRun? = None
-      for run in runs {
-        if run.role == role {
-          found = Some(run)
-        }
-      }
-      found
-    }
-    None => None
-  }
+) -> @work.WorkRun? {
+  self.runs.run_role(task_id, role)
 }
 
 ///|
-fn TicketRuntime::all_runs(self : TicketRuntime) -> Array[TicketRun] {
-  let out : Array[TicketRun] = []
-  for runs in self.runs.values() {
-    for run in runs {
-      out.push(run)
-    }
-  }
-  out
+fn TicketRuntime::all_runs(self : TicketRuntime) -> Array[@work.WorkRun] {
+  self.runs.all()
 }
 
 ///|
@@ -520,24 +407,8 @@ fn TicketRuntime::add_run(
   session_id : String,
   phase : String,
   role : String,
-) -> TicketRun {
-  let run : TicketRun = {
-    task_id,
-    session_id,
-    phase,
-    role,
-    status: "running",
-    error: None,
-    result: None,
-    report: None,
-    steps: 0,
-    current_tool: None,
-    preview: "",
-    reasoning: "",
-    activities: [],
-  }
-  self.runs_for(task_id).push(run)
-  run
+) -> @work.WorkRun {
+  self.runs.add(task_id, session_id, phase, role)
 }
 
 ///|
@@ -550,22 +421,7 @@ fn TicketRuntime::record_progress(
   kind : String,
   message : String,
 ) -> Unit {
-  let text = message.trim().to_owned()
-  if text.is_empty() {
-    return
-  }
-  let updates = match self.progress.get(task_id) {
-    Some(updates) => updates
-    None => {
-      let updates : Array[TicketProgress] = []
-      self.progress[task_id] = updates
-      updates
-    }
-  }
-  updates.push({ task_id, kind, message: text, at_ms: @async.now(), })
-  while updates.length() > ticket_progress_max_per_ticket {
-    ignore(updates.remove(0))
-  }
+  self.progress.record(task_id, kind, message)
 }
 
 ///|
@@ -694,8 +550,8 @@ async fn TicketRuntime::refiner_answer(
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  let title = task_field(task, "title")
-  let description = task_field(task, "description")
+  let title = @work.task_field(task, "title")
+  let description = @work.task_field(task, "description")
   let session_id = "ticket-question-" + question_id
   let (mcp_exts, mcp_reads) = self.mcp_face("refiner")
   let composer = CetasChildComposer::CetasChildComposer(
@@ -851,10 +707,7 @@ fn TicketRuntime::dismiss_progress(
   self : TicketRuntime,
   task_id : String?,
 ) -> Json {
-  match task_id {
-    Some(task_id) => ignore(self.progress.remove(task_id))
-    None => self.progress = Map([])
-  }
+  self.progress.dismiss(task_id)
   self.state_json()
 }
 
@@ -872,19 +725,10 @@ fn TicketRuntime::record_work_report(
     Some(run) => run
     None => return Err("ticket run is no longer active")
   }
-  let fields = match report {
-    Object(fields) => fields
-    _ => return Err("work report must be a JSON object")
+  match @work.validate_work_report(report) {
+    Ok(_) => ()
+    Err(reason) => return Err(reason)
   }
-  let outcome = match fields.get("outcome") {
-    Some(String(value)) if !value.trim().is_empty() => value
-    _ => return Err("work report outcome must not be empty")
-  }
-  let summary = match fields.get("summary") {
-    Some(String(value)) if !value.trim().is_empty() => value
-    _ => return Err("work report summary must not be empty")
-  }
-  let _ = (outcome, summary)
   run.report = Some(report)
   Ok(())
 }
@@ -940,31 +784,23 @@ async fn TicketRuntime::reconcile_interrupted(self : TicketRuntime) -> Unit {
     Ok(snapshot) => snapshot
     Err(_) => return
   }
-  let tasks = match snapshot.payload {
-    Object(payload) =>
-      match payload.get("board") {
-        Some(Object(board)) =>
-          match board.get("tasks") {
-            Some(Array(tasks)) => tasks
-            _ => return
-          }
-        _ => return
-      }
-    _ => return
+  let state = match @work.BoardState::tasks_from_snapshot(snapshot) {
+    Ok(state) => state
+    Err(_) => return
   }
-  for task in tasks {
-    if self.run_for(task_field(task, "id")) is Some(_) {
+  for task in state.tasks {
+    if self.run_for(@work.task_field(task, "id")) is Some(_) {
       continue
     }
-    let stage = task_field(task, "stage")
+    let stage = @work.task_field(task, "stage")
     if stage != "running" && stage != "suspended" {
       continue
     }
-    let task_id = task_field(task, "id")
+    let task_id = @work.task_field(task, "id")
     if task_id == "" {
       continue
     }
-    let session_id = work_session_id(task_id, "rd")
+    let session_id = @work.work_session_id(task_id, "rd")
     let session = self.child_store.load(session_id) catch { _ => continue }
     if session.messages.is_empty() {
       continue
@@ -988,55 +824,9 @@ async fn TicketRuntime::reconcile_interrupted(self : TicketRuntime) -> Unit {
 /// `at_ms`), so a drawer can show what a worker said while it worked without
 /// the host keeping an unbounded transcript.
 fn TicketRuntime::state_json(self : TicketRuntime) -> Json {
-  let runs : Array[Json] = []
-  for run in self.all_runs() {
-    runs.push(
-      Json::object({
-        "task_id": Json::string(run.task_id),
-        "session_id": Json::string(run.session_id),
-        "phase": Json::string(run.phase),
-        "role": Json::string(run.role),
-        "status": Json::string(run.status),
-        "error": match run.error {
-          Some(text) => Json::string(text)
-          None => Json::null()
-        },
-        "result": match run.result {
-          Some(text) => Json::string(text)
-          None => Json::null()
-        },
-        "steps": Json::number(run.steps.to_double()),
-        "current_tool": match run.current_tool {
-          Some(text) => Json::string(text)
-          None => Json::null()
-        },
-        "preview": Json::string(run.preview),
-        "reasoning": Json::string(run.reasoning),
-        "activities": Json::array(
-          run.activities.map(activity => {
-            Json::object({
-              "at_ms": Json::number(activity.at_ms.to_double()),
-              "kind": Json::string(activity.kind),
-              "text": Json::string(activity.text),
-            })
-          }),
-        ),
-      }),
-    )
-  }
-  let progress_items : Array[Json] = []
-  for updates in self.progress.values() {
-    for update in updates {
-      progress_items.push(
-        Json::object({
-          "task_id": Json::string(update.task_id),
-          "kind": Json::string(update.kind),
-          "message": Json::string(update.message),
-          "at_ms": Json::number(update.at_ms.to_double()),
-        }),
-      )
-    }
-  }
+  let runs : Array[Json] = self.all_runs().map(run => run.to_json())
+  let progress_items : Array[Json] = self.progress.all().map(update =>
+    update.to_json())
   let catalog = self.manager.manager_ticket_model_catalog_json()
   let (_, catalog_models) = ticket_catalog_entries(catalog)
   let manager_kind = match catalog {
@@ -1047,26 +837,14 @@ fn TicketRuntime::state_json(self : TicketRuntime) -> Json {
       }
     _ => "unknown"
   }
-  let mut running = 0
-  for run in self.all_runs() {
-    if run.status == "running" {
-      running = running + 1
-    }
-  }
+  let running = self.runs.count_running()
   let mut waiting_input = 0
   for question in self.questions.questions.values() {
     if question.status == "open" {
       waiting_input = waiting_input + 1
     }
   }
-  let mut attention = 0
-  for updates in self.progress.values() {
-    if updates.any(update => {
-        update.kind == "attention" || update.kind == "blocked"
-      }) {
-      attention = attention + 1
-    }
-  }
+  let attention = self.progress.attention_tasks()
   let presence = @board_presence.BoardPresence::project(
     running~,
     waiting_input~,
@@ -1107,114 +885,6 @@ async fn TicketRuntime::snapshot(
   self : TicketRuntime,
 ) -> Result[@board_protocol.BoardSnapshot, String] {
   self.snapshot_sync()
-}
-
-///|
-fn task_field(task : Json, key : String) -> String {
-  match task {
-    Object(fields) =>
-      match fields.get(key) {
-        Some(String(value)) => value
-        _ => ""
-      }
-    _ => ""
-  }
-}
-
-///|
-/// The reviewer feedback a Board task carries, or `None`. Blank text reads as
-/// absent: the Board rejects empty feedback, so a whitespace body is never a
-/// requirement a worker has to address.
-fn task_review_feedback(task : Json) -> String? {
-  match task {
-    Object(fields) =>
-      match fields.get("review_feedback") {
-        Some(String(value)) if !value.trim().is_empty() => Some(value)
-        _ => None
-      }
-    _ => None
-  }
-}
-
-///|
-/// The latest Running Review attempt of one task, from the authoritative Board
-/// attempts array. A review decision belongs to an attempt, so requesting
-/// changes needs the attempt that is under review right now: `None` is a
-/// readable "nothing is being reviewed", never a reason to guess an earlier,
-/// already-decided attempt. Ties on `created_at_ms` keep the later entry,
-/// which is the snapshot's creation-then-id order.
-fn latest_running_review_attempt(
-  attempts : Array[Json],
-  task_id : String,
-) -> String? {
-  let mut chosen = ""
-  let mut chosen_at = -1.0
-  for attempt in attempts {
-    guard attempt is Object(fields) else { continue }
-    if task_field(attempt, "task_id") != task_id {
-      continue
-    }
-    if task_field(attempt, "kind") != "review" ||
-      task_field(attempt, "status") != "running" {
-      continue
-    }
-    let id = task_field(attempt, "id")
-    if id == "" {
-      continue
-    }
-    let created_at = match fields.get("created_at_ms") {
-      Some(Number(value, ..)) => value
-      _ => 0.0
-    }
-    if chosen == "" || created_at >= chosen_at {
-      chosen = id
-      chosen_at = created_at
-    }
-  }
-  if chosen == "" {
-    None
-  } else {
-    Some(chosen)
-  }
-}
-
-///|
-fn work_session_id(task_id : String, role : String) -> String {
-  "ticket-" + task_id + "-" + role
-}
-
-///|
-fn shape_session_id(task_id : String) -> String {
-  "shape-" + task_id
-}
-
-///|
-/// Read the optional pinned model from a Board task. A missing/null model
-/// means "inherit the current Cetas selection".
-priv struct TicketModelChoice {
-  slot : String
-  effort : String?
-}
-
-///|
-fn task_model(task : Json) -> TicketModelChoice? {
-  let fields = match task {
-    Object(fields) => fields
-    _ => return None
-  }
-  let model = match fields.get("model") {
-    Some(Object(model)) => model
-    _ => return None
-  }
-  let slot = match model.get("slot") {
-    Some(String(value)) if !value.trim().is_empty() => value
-    _ => return None
-  }
-  let effort = match model.get("effort") {
-    Some(String(value)) if !value.trim().is_empty() => Some(value)
-    _ => None
-  }
-  Some({ slot, effort, })
 }
 
 ///|
@@ -1316,23 +986,6 @@ async fn TicketRuntime::move_task(
 }
 
 ///|
-/// Encode one pinned ticket model for `board.task.set_model`. `None` stays
-/// JSON null: "inherit the current Cetas selection", never a copied slot.
-fn ticket_model_json(model : TicketModelChoice?) -> Json {
-  match model {
-    Some(model) =>
-      Json::object({
-        "slot": Json::string(model.slot),
-        "effort": match model.effort {
-          Some(effort) => Json::string(effort)
-          None => Json::null()
-        },
-      })
-    None => Json::null()
-  }
-}
-
-///|
 async fn TicketRuntime::apply_task_model(
   self : TicketRuntime,
   task_id : String,
@@ -1353,9 +1006,9 @@ async fn TicketRuntime::apply_task_model(
 async fn TicketRuntime::set_task_model(
   self : TicketRuntime,
   task_id : String,
-  model : TicketModelChoice,
+  model : @work.ModelPin,
 ) -> Result[Unit, String] {
-  self.apply_task_model(task_id, ticket_model_json(Some(model)))
+  self.apply_task_model(task_id, @work.model_pin_json(Some(model)))
 }
 
 ///|
@@ -1413,7 +1066,7 @@ fn ticket_catalog_efforts(
 /// cannot run.
 fn TicketRuntime::ticket_model_arg(
   self : TicketRuntime,
-  model : TicketModelChoice?,
+  model : @work.ModelPin?,
 ) -> Result[Json, String] {
   let catalog = self.manager.manager_ticket_model_catalog_json()
   let (selectable, models) = ticket_catalog_entries(catalog)
@@ -1452,7 +1105,7 @@ fn TicketRuntime::ticket_model_arg(
       }
     None => ()
   }
-  Ok(ticket_model_json(Some(model)))
+  Ok(@work.model_pin_json(Some(model)))
 }
 
 ///|
@@ -1466,7 +1119,7 @@ fn TicketRuntime::ticket_model_arg(
 async fn TicketRuntime::set_model(
   self : TicketRuntime,
   task_id : String,
-  model : TicketModelChoice?,
+  model : @work.ModelPin?,
 ) -> Result[Json, String] {
   let encoded = match self.ticket_model_arg(model) {
     Ok(encoded) => encoded
@@ -1570,66 +1223,13 @@ async fn TicketRuntime::task_has_dependents(
     Ok(snapshot) => snapshot
     Err(error) => return Err(error)
   }
-  let tasks = match snapshot.payload {
-    Object(payload) =>
-      match payload.get("board") {
-        Some(Object(board)) =>
-          match board.get("tasks") {
-            Some(Array(tasks)) => tasks
-            _ => return Err("board snapshot has no task array")
-          }
-        _ => return Err("board snapshot has no board object")
-      }
-    _ => return Err("board snapshot payload is invalid")
+  let state = match @work.BoardState::tasks_from_snapshot(snapshot) {
+    Ok(state) => state
+    Err(error) => return Err(error)
   }
-  for task in tasks {
-    match task {
-      Object(fields) =>
-        match fields.get("dependencies") {
-          Some(Array(dependencies)) =>
-            for dependency in dependencies {
-              if dependency is String(value) && value == task_id {
-                return Ok(true)
-              }
-            }
-          _ => ()
-        }
-      _ => ()
-    }
-  }
-  Ok(false)
+  Ok(state.has_dependents(task_id))
 }
 
-///|
-priv struct ShapeChild {
-  title : String
-  user_story : String
-  description : String
-  implementation_suggestions : String
-  definition_of_done : Array[String]
-  priority : String
-}
-
-///|
-/// The minimal durable review report of one completed work attempt: the worker
-/// result as both `outcome` and `summary`, with explicitly empty change,
-/// evidence, risk, note, question and artifact lists. A blank result still gets
-/// a readable fallback: the Board rejects an empty outcome or summary, and a
-/// silent empty report would tell a reviewer nothing.
-fn minimal_review_report(result : String) -> Json {
-  let text = result.trim().to_owned()
-  let readable = if text.is_empty() { "Work completed." } else { text }
-  Json::object({
-    "outcome": Json::string(readable),
-    "summary": Json::string(readable),
-    "changes": Json::array([]),
-    "verification": Json::array([]),
-    "risks": Json::array([]),
-    "notes": Json::array([]),
-    "open_questions": Json::array([]),
-    "artifacts": Json::array([]),
-  })
-}
 
 ///|
 /// Replace one ticket's review report at the current Board revision. The Board
@@ -1653,25 +1253,6 @@ async fn TicketRuntime::set_review_report(
 }
 
 ///|
-/// Record one run's status and error. A dismissed run has no host projection
-/// left; the Board fact still moved, so there is nothing to update.
-fn TicketRuntime::set_run_status(
-  self : TicketRuntime,
-  task_id : String,
-  role : String,
-  status : String,
-  error : String?,
-) -> Unit {
-  match self.run_role(task_id, role) {
-    Some(run) => {
-      run.status = status
-      run.error = error
-    }
-    None => ()
-  }
-}
-
-///|
 /// Record a finished run without moving the Board. A worker failure — including
 /// a paused network stream — must stay in its current lane with a visible
 /// error so the durable session can be resumed; moving it to Paused would
@@ -1684,20 +1265,12 @@ fn TicketRuntime::park_run(
   status : String,
   error : String,
 ) -> Unit {
-  self.set_run_status(task_id, role, status, Some(error))
+  self.runs.park(task_id, role, status, error)
 }
 
 ///|
 fn TicketRuntime::team_complete(self : TicketRuntime, task_id : String) -> Bool {
-  let rd = match self.run_role(task_id, "rd") {
-    Some(run) => run.status == "completed"
-    None => false
-  }
-  let set = match self.run_role(task_id, "set") {
-    Some(run) => run.status == "completed"
-    None => false
-  }
-  rd && set
+  self.runs.roles_completed(task_id, ["rd", "set"])
 }
 
 ///|
@@ -1717,7 +1290,7 @@ async fn TicketRuntime::finish_work(
       if role == "te" {
         let report = match run.report {
           Some(report) => report
-          None => minimal_review_report(result)
+          None => @work.minimal_review_report(result)
         }
         match self.set_review_report(task_id, report) {
           Ok(_) => ()
@@ -1793,24 +1366,14 @@ async fn TicketRuntime::task_snapshot(
     Ok(snapshot) => snapshot
     Err(error) => return Err(error)
   }
-  let tasks = match snapshot.payload {
-    Object(payload) =>
-      match payload.get("board") {
-        Some(Object(board)) =>
-          match board.get("tasks") {
-            Some(Array(tasks)) => tasks
-            _ => return Err("board snapshot has no task array")
-          }
-        _ => return Err("board snapshot has no board object")
-      }
-    _ => return Err("board snapshot payload is invalid")
+  let state = match @work.BoardState::tasks_from_snapshot(snapshot) {
+    Ok(state) => state
+    Err(error) => return Err(error)
   }
-  for task in tasks {
-    if task_field(task, "id") == task_id {
-      return Ok((task, snapshot.board_revision))
-    }
+  match state.task(task_id) {
+    Some(task) => Ok((task, state.revision))
+    None => Err("ticket was not found")
   }
-  Err("ticket was not found")
 }
 
 ///|
@@ -1903,146 +1466,6 @@ fn ticket_system_prompt(cwd : String, role : String) -> String {
   ticket_language_contract()
 }
 
-///|
-fn extract_json_object(text : String) -> Json? {
-  let trimmed = text.trim()
-  let mut start = -1
-  let mut end = -1
-  for index in 0..<trimmed.length() {
-    if trimmed[index] == '{' && start < 0 {
-      start = index
-    }
-    if trimmed[index] == '}' {
-      end = index
-    }
-  }
-  if start < 0 || end <= start {
-    return None
-  }
-  let parsed = @json.parse(trimmed[start:end + 1]) catch { _ => return None }
-  Some(parsed)
-}
-
-///|
-fn shape_priority(value : String) -> String? {
-  match value.trim().to_owned() {
-    "p0" | "critical" => Some("critical")
-    "p1" | "high" => Some("high")
-    "p2" | "normal" => Some("normal")
-    "p3" | "low" => Some("low")
-    _ => None
-  }
-}
-
-///|
-fn parse_shape_story(
-  fields : Map[String, Json],
-  fallback_priority : String,
-  title_fallback? : String,
-) -> Result[ShapeChild, String] {
-  let title = match fields.get("title") {
-    Some(String(value)) => value.trim().to_owned()
-    _ => ""
-  }
-  let title = if title == "" {
-    match title_fallback {
-      Some(value) => value.trim().to_owned()
-      None => ""
-    }
-  } else {
-    title
-  }
-  if title == "" {
-    return Err("every shaped story needs a title")
-  }
-  let user_story = match fields.get("user_story") {
-    Some(String(value)) => value.trim().to_owned()
-    _ => ""
-  }
-  if user_story == "" {
-    return Err("every shaped story needs a user_story")
-  }
-  let description = match fields.get("description") {
-    Some(String(value)) => value.trim().to_owned()
-    _ => ""
-  }
-  if description == "" {
-    return Err("every shaped story needs a description")
-  }
-  let implementation_suggestions = match
-    fields.get("implementation_suggestions") {
-    Some(String(value)) => value.trim().to_owned()
-    _ => ""
-  }
-  if implementation_suggestions == "" {
-    return Err("every shaped story needs implementation_suggestions")
-  }
-  let definition_of_done = match fields.get("definition_of_done") {
-    Some(Array(values)) =>
-      values.filter_map(value => {
-        match value {
-          String(text) =>
-            if text.trim() == "" {
-              None
-            } else {
-              Some(text.trim().to_owned())
-            }
-          _ => None
-        }
-      })
-    _ => []
-  }
-  if definition_of_done.is_empty() {
-    return Err("every shaped story needs at least one definition_of_done item")
-  }
-  let priority = match fields.get("priority") {
-    Some(String(value)) =>
-      match shape_priority(value) {
-        Some(priority) => priority
-        None => return Err("priority must be p0, p1, p2, or p3")
-      }
-    None => fallback_priority
-    _ => return Err("priority must be a string")
-  }
-  Ok({
-    title,
-    user_story,
-    description,
-    implementation_suggestions,
-    definition_of_done,
-    priority,
-  })
-}
-
-///|
-fn parse_shape_children(
-  value : Json?,
-  fallback_priority : String,
-) -> Result[Array[ShapeChild], String] {
-  let items = match value {
-    Some(Array(items)) => items
-    _ => return Err("shaping split has no tasks array")
-  }
-  if items.length() < 2 {
-    return Err("a split needs at least two independent tickets")
-  }
-  if items.length() > 8 {
-    return Err("a split is limited to eight independent tickets")
-  }
-  let children : Array[ShapeChild] = []
-  for item in items {
-    let fields = match item {
-      Object(fields) => fields
-      _ => return Err("every split ticket must be an object")
-    }
-    let child = match parse_shape_story(fields, fallback_priority) {
-      Ok(child) => child
-      Err(reason) => return Err("split story: " + reason)
-    }
-    children.push(child)
-  }
-  Ok(children)
-}
 
 ///|
 async fn TicketRuntime::rollback_split(
@@ -2069,7 +1492,7 @@ async fn TicketRuntime::rollback_split(
 async fn TicketRuntime::split_ticket(
   self : TicketRuntime,
   source_id : String,
-  children : Array[ShapeChild],
+  children : Array[@work.ShapeChild],
 ) -> Result[String, String] {
   match self.task_has_dependents(source_id) {
     Ok(true) =>
@@ -2083,7 +1506,7 @@ async fn TicketRuntime::split_ticket(
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  let source_model = task_model(source)
+  let source_model = @work.task_model(source)
   let created : Array[String] = []
   let stamp = @async.now()
   for index, child in children {
@@ -2183,7 +1606,7 @@ async fn TicketRuntime::finish_shape(
       return
     }
   }
-  let parsed = match extract_json_object(result) {
+  let parsed = match @work.extract_json_object(result) {
     Some(Json::Object(fields)) => fields
     _ => {
       match run {
@@ -2213,12 +1636,12 @@ async fn TicketRuntime::finish_shape(
       return
     }
   }
-  let fallback_priority = match task_field(source, "priority") {
+  let fallback_priority = match @work.task_field(source, "priority") {
     "" => "normal"
     value => value
   }
   if parsed.get("tasks") is Some(tasks) {
-    let children = match parse_shape_children(Some(tasks), fallback_priority) {
+    let children = match @work.parse_shape_children(Some(tasks), fallback_priority) {
       Ok(children) => children
       Err(error) => {
         match run {
@@ -2252,10 +1675,10 @@ async fn TicketRuntime::finish_shape(
     return
   }
   let child = match
-    parse_shape_story(
+    @work.parse_shape_story(
       parsed,
       fallback_priority,
-      title_fallback=task_field(source, "title"),
+      title_fallback=@work.task_field(source, "title"),
     ) {
     Ok(child) => child
     Err(error) => {
@@ -2336,7 +1759,7 @@ async fn TicketRuntime::shape(
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  let stage = task_field(task, "stage")
+  let stage = @work.task_field(task, "stage")
   if stage != "created" && stage != "refining" && stage != "ready" {
     return Err(
       "ticket must be Backlog, Shaping, or Ready before it can be shaped",
@@ -2348,9 +1771,9 @@ async fn TicketRuntime::shape(
       Err(error) => return Err(error)
     }
   }
-  let title = task_field(task, "title")
-  let description = task_field(task, "description")
-  let (slot, effort) = match task_model(task) {
+  let title = @work.task_field(task, "title")
+  let description = @work.task_field(task, "description")
+  let (slot, effort) = match @work.task_model(task) {
     Some(model) => (model.slot, model.effort)
     None =>
       (
@@ -2359,7 +1782,7 @@ async fn TicketRuntime::shape(
       )
   }
   self.counter = self.counter + 1
-  let session_id = shape_session_id(task_id)
+  let session_id = @work.shape_session_id(task_id)
   self.child_store.clear_session(session_id) catch {
     error =>
       return Err(
@@ -2468,24 +1891,6 @@ async fn TicketRuntime::shape(
 }
 
 ///|
-fn task_definition_of_done(task : Json) -> Array[String] {
-  match task {
-    Object(fields) =>
-      match fields.get("definition_of_done") {
-        Some(Array(items)) =>
-          items.filter_map(item => {
-            match item {
-              String(text) if text != "" => Some(text)
-              _ => None
-            }
-          })
-        _ => []
-      }
-    _ => []
-  }
-}
-
-///|
 fn worker_tools(role : String) -> Array[String] {
   if role == "te" {
     ["read", "glob", "grep", "astgrep", "ask_question"]
@@ -2512,12 +1917,12 @@ fn worker_prompt(
   task : Json,
   role : String,
   resuming : Bool,
-  prior : Array[TicketRun],
+  prior : Array[@work.WorkRun],
 ) -> String {
-  let title = task_field(task, "title")
-  let description = task_field(task, "description")
-  let done = task_definition_of_done(task)
-  let feedback = match task_review_feedback(task) {
+  let title = @work.task_field(task, "title")
+  let description = @work.task_field(task, "description")
+  let done = @work.task_definition_of_done(task)
+  let feedback = match @work.task_review_feedback(task) {
     Some(text) =>
       "\n\nReviewer feedback — this attempt must address it:\n" + text
     None => ""
@@ -2585,7 +1990,7 @@ async fn TicketRuntime::start_role(
   role : String,
   resuming : Bool,
 ) -> Result[Unit, String] {
-  let session_id = work_session_id(task_id, role)
+  let session_id = @work.work_session_id(task_id, role)
   if !resuming {
     self.child_store.clear_session(session_id) catch {
       error =>
@@ -2594,7 +1999,7 @@ async fn TicketRuntime::start_role(
         )
     }
   }
-  let (slot, effort) = match task_model(task) {
+  let (slot, effort) = match @work.task_model(task) {
     Some(model) => (model.slot, model.effort)
     None =>
       (
@@ -2708,23 +2113,23 @@ async fn TicketRuntime::run(
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  let stage = task_field(task, "stage")
+  let stage = @work.task_field(task, "stage")
   if stage != "ready" && !(resuming && stage == "running") {
     return Err("ticket must be Ready before it can run")
   }
   if !resuming {
-    if task_field(task, "user_story").trim() == "" {
+    if @work.task_field(task, "user_story").trim() == "" {
       return Err("Ready ticket needs a user story; shape it first")
     }
-    if task_field(task, "description").trim() == "" {
+    if @work.task_field(task, "description").trim() == "" {
       return Err("Ready ticket needs a detailed description; shape it first")
     }
-    if task_field(task, "implementation_suggestions").trim() == "" {
+    if @work.task_field(task, "implementation_suggestions").trim() == "" {
       return Err(
         "Ready ticket needs implementation suggestions; shape it first",
       )
     }
-    if task_definition_of_done(task).is_empty() {
+    if @work.task_definition_of_done(task).is_empty() {
       return Err("Ready ticket needs a definition of done; shape it first")
     }
   }
@@ -2761,13 +2166,13 @@ async fn TicketRuntime::resume_ticket(
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  let stage = task_field(task, "stage")
+  let stage = @work.task_field(task, "stage")
   if stage != "ready" && stage != "running" && stage != "suspended" {
     return Err(
       "ticket must be Ready, Running, or Suspended before it can be resumed",
     )
   }
-  let session_id = work_session_id(task_id, "rd")
+  let session_id = @work.work_session_id(task_id, "rd")
   let session = self.child_store.load(session_id) catch {
     error =>
       return Err(
@@ -2797,32 +2202,6 @@ async fn TicketRuntime::resume_ticket(
 }
 
 ///|
-/// The authoritative tasks, attempts and revision of one Board snapshot. All
-/// three come from the same read, so a review attempt and the ticket it
-/// reviews are never compared across a commit.
-fn snapshot_board_state(
-  snapshot : @board_protocol.BoardSnapshot,
-) -> Result[(Array[Json], Array[Json], Int64), String] {
-  let payload = match snapshot.payload {
-    Object(payload) => payload
-    _ => return Err("board snapshot payload is invalid")
-  }
-  let board = match payload.get("board") {
-    Some(Object(board)) => board
-    _ => return Err("board snapshot has no board object")
-  }
-  let tasks = match board.get("tasks") {
-    Some(Array(tasks)) => tasks
-    _ => return Err("board snapshot has no task array")
-  }
-  let attempts = match board.get("attempts") {
-    Some(Array(attempts)) => attempts
-    _ => return Err("board snapshot has no attempt array")
-  }
-  Ok((tasks, attempts, snapshot.board_revision))
-}
-
-///|
 /// Send one Review ticket back to work with reviewer feedback.
 ///
 /// The review decision belongs to the attempt that is running right now, so
@@ -2848,26 +2227,17 @@ async fn TicketRuntime::request_changes(
     Ok(snapshot) => snapshot
     Err(error) => return Err(error)
   }
-  let (tasks, attempts, revision) = match snapshot_board_state(snapshot) {
+  let state = match @work.BoardState::from_snapshot(snapshot) {
     Ok(state) => state
     Err(error) => return Err(error)
   }
-  let mut stage = ""
-  let mut found = false
-  for task in tasks {
-    if task_field(task, "id") == task_id {
-      stage = task_field(task, "stage")
-      found = true
-      break
-    }
-  }
-  if !found {
+  if state.task(task_id) is None {
     return Err("ticket was not found")
   }
-  if stage != "review" {
+  if state.stage(task_id) != "review" {
     return Err("ticket must be under Review before changes can be requested")
   }
-  let attempt_id = match latest_running_review_attempt(attempts, task_id) {
+  let attempt_id = match state.latest_running_review_attempt(task_id) {
     Some(id) => id
     None =>
       return Err("ticket has no running review attempt to request changes on")
@@ -2876,7 +2246,7 @@ async fn TicketRuntime::request_changes(
     self.board_command(
       "board.task.request_changes",
       { "id": Json::string(attempt_id), "feedback": Json::string(text) },
-      revision,
+      state.revision,
     ) {
     Ok(_) => ()
     Err(error) => return Err(error)
@@ -2907,7 +2277,7 @@ async fn TicketRuntime::retry(
     Ok(value) => value
     Err(error) => return Err(error)
   }
-  let stage = task_field(task, "stage")
+  let stage = @work.task_field(task, "stage")
   if stage != "ready" &&
     stage != "verification" &&
     stage != "review" &&
@@ -2938,7 +2308,7 @@ async fn TicketRuntime::retry(
 
 ///|
 fn TicketRuntime::dismiss(self : TicketRuntime, task_id : String) -> Unit {
-  self.runs.remove(task_id)
+  self.runs.dismiss(task_id)
 }
 
 ///|
@@ -2947,23 +2317,15 @@ async fn TicketRuntime::run_ready(self : TicketRuntime) -> Result[Unit, String] 
     Ok(snapshot) => snapshot
     Err(error) => return Err(error)
   }
-  let tasks = match snapshot.payload {
-    Object(payload) =>
-      match payload.get("board") {
-        Some(Object(board)) =>
-          match board.get("tasks") {
-            Some(Array(tasks)) => tasks
-            _ => return Err("board snapshot has no task array")
-          }
-        _ => return Err("board snapshot has no board object")
-      }
-    _ => return Err("board snapshot payload is invalid")
+  let state = match @work.BoardState::tasks_from_snapshot(snapshot) {
+    Ok(state) => state
+    Err(error) => return Err(error)
   }
   let mut started = 0
   let failures : Array[String] = []
-  for task in tasks {
-    if task_field(task, "stage") == "ready" {
-      let id = task_field(task, "id")
+  for task in state.tasks {
+    if @work.task_field(task, "stage") == "ready" {
+      let id = @work.task_field(task, "id")
       if id != "" {
         match self.run(id) {
           Ok(_) => started = started + 1

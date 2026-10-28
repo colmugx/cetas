@@ -55,6 +55,7 @@ import {
   "colmugx/posoco-ext-board/protocol" @board_protocol,
   "colmugx/posoco-ext-board/presence" @board_presence,
   "colmugx/posoco-ext-board/workflow" @board_workflow,
+  "colmugx/posoco-ext-board/work_runtime" @work,
 }
 
 import {

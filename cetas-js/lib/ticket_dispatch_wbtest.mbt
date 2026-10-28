@@ -178,8 +178,8 @@ async test "ticket run dispatches a background child and moves the ticket to rev
         _ => fail("snapshot has no tasks")
       }
       for task in tasks {
-        if task_field(task, "id") == "task-1" {
-          stage = task_field(task, "stage")
+        if @work.task_field(task, "id") == "task-1" {
+          stage = @work.task_field(task, "stage")
           match task_review(task) {
             Some(review) => {
               has_review = true
@@ -368,17 +368,17 @@ async test "ticket shaping can split an oversized ticket into ready children and
       all_shaped = true
       all_pinned = true
       for task in tasks {
-        let id = task_field(task, "id")
+        let id = @work.task_field(task, "id")
         if id == "task-1" {
           source_present = true
-          source_stage = task_field(task, "stage")
+          source_stage = @work.task_field(task, "stage")
         } else if id.length() >= 6 && id[0:6] == "split-" {
           split_count = split_count + 1
-          if task_field(task, "stage") != "ready" {
+          if @work.task_field(task, "stage") != "ready" {
             all_ready = false
           }
-          if task_field(task, "user_story") == "" ||
-            task_field(task, "implementation_suggestions") == "" {
+          if @work.task_field(task, "user_story") == "" ||
+            @work.task_field(task, "implementation_suggestions") == "" {
             all_shaped = false
           }
           if task_model_slot(task) != "test/shape-split" {
@@ -497,12 +497,12 @@ async test "ticket shaping clarifies the ticket and moves it to ready" {
         _ => fail("snapshot has no tasks")
       }
       for task in tasks {
-        if task_field(task, "id") == "task-1" {
-          stage = task_field(task, "stage")
-          description = task_field(task, "description")
-          story = task_field(task, "user_story")
-          suggestions = task_field(task, "implementation_suggestions")
-          priority = task_field(task, "priority")
+        if @work.task_field(task, "id") == "task-1" {
+          stage = @work.task_field(task, "stage")
+          description = @work.task_field(task, "description")
+          story = @work.task_field(task, "user_story")
+          suggestions = @work.task_field(task, "implementation_suggestions")
+          priority = @work.task_field(task, "priority")
           done = match task {
             Object(fields) =>
               match fields.get("definition_of_done") {
@@ -659,8 +659,8 @@ async test "ticket run uses the pinned model instead of the current active model
         _ => fail("snapshot has no tasks")
       }
       for task in tasks {
-        if task_field(task, "id") == "task-1" {
-          stage = task_field(task, "stage")
+        if @work.task_field(task, "id") == "task-1" {
+          stage = @work.task_field(task, "stage")
         }
       }
       if stage == "review" {
@@ -736,8 +736,8 @@ async fn wait_ticket_stage(
       _ => fail("snapshot payload is not an object")
     }
     for task in tasks {
-      if task_field(task, "id") == task_id {
-        current = task_field(task, "stage")
+      if @work.task_field(task, "id") == task_id {
+        current = @work.task_field(task, "stage")
       }
     }
     if current == stage {
@@ -1144,7 +1144,7 @@ async test "ticket retry is rejected from a stage that is not retryable" {
       Err(error) => assert_true(error.contains("Ready, Verification, Review"))
     }
     // Nothing started and the Board stage did not move.
-    assert_true(tickets.runs.get("task-1") is None)
+    assert_true(tickets.run_for("task-1") is None)
     assert_eq(wait_ticket_stage(board, "task-1", "created"), "created")
   })
 }
@@ -1302,8 +1302,8 @@ async fn snapshot_task_text(
     _ => fail("snapshot has no tasks")
   }
   for task in tasks {
-    if task_field(task, "id") == task_id {
-      return task_field(task, key)
+    if @work.task_field(task, "id") == task_id {
+      return @work.task_field(task, key)
     }
   }
   ""
@@ -1322,8 +1322,8 @@ async fn snapshot_attempt_text(
     _ => fail("snapshot has no attempts")
   }
   for attempt in attempts {
-    if task_field(attempt, "id") == attempt_id {
-      return task_field(attempt, key)
+    if @work.task_field(attempt, "id") == attempt_id {
+      return @work.task_field(attempt, key)
     }
   }
   ""
@@ -1627,7 +1627,7 @@ async test "ticket request changes rejects empty feedback and a ticket without a
         fail("a ticket without a running review attempt must be rejected")
       Err(error) => assert_true(error.contains("no running review attempt"))
     }
-    assert_true(tickets.runs.get("task-2") is None)
+    assert_true(tickets.run_for("task-2") is None)
     assert_eq(snapshot_task_text(board, "task-2", "stage"), "review")
     assert_eq(model.call_count(), 3)
   })
@@ -1835,7 +1835,7 @@ async fn snapshot_task_review(
     _ => fail("snapshot has no tasks")
   }
   for task in tasks {
-    if task_field(task, "id") == task_id {
+    if @work.task_field(task, "id") == task_id {
       return task_review(task)
     }
   }
@@ -2401,34 +2401,24 @@ async test "ticket finish fails visibly when the Board rejects the report" {
     })
     // A report the Board's own validation rejects: an empty outcome. The
     // runtime must fail the run instead of falling back to the minimal report.
-    tickets.runs["task-1"] = [
-      {
-        task_id: "task-1",
-        session_id: work_session_id("task-1", "te"),
-        phase: "work",
-        role: "te",
-        status: "running",
-        error: None,
-        result: None,
-        report: Some(
-          Json::object({
-            "outcome": Json::string(""),
-            "summary": Json::string("empty outcome"),
-            "changes": Json::array([]),
-            "verification": Json::array([]),
-            "risks": Json::array([]),
-            "notes": Json::array([]),
-            "open_questions": Json::array([]),
-            "artifacts": Json::array([]),
-          }),
-        ),
-        steps: 0,
-        current_tool: None,
-        preview: "",
-        reasoning: "",
-        activities: [],
-      },
-    ]
+    let te = tickets.add_run(
+      "task-1",
+      @work.work_session_id("task-1", "te"),
+      "work",
+      "te",
+    )
+    te.report = Some(
+      Json::object({
+        "outcome": Json::string(""),
+        "summary": Json::string("empty outcome"),
+        "changes": Json::array([]),
+        "verification": Json::array([]),
+        "risks": Json::array([]),
+        "notes": Json::array([]),
+        "open_questions": Json::array([]),
+        "artifacts": Json::array([]),
+      }),
+    )
     tickets.finish_work("task-1", "te", Ok("worker final answer"))
     assert_eq(ticket_run_status(tickets, "task-1"), "failed")
     let error = match tickets.run_for("task-1") {

@@ -73,6 +73,26 @@ impl @board.WorkflowAgentFactory for CetasWorkflowAgents with fn prepare(
 }
 
 ///|
+/// Host skill catalog used by the Board Team tabs. Discovery happens once per
+/// composition; the child skill builder discovers its own catalog later.
+async fn cetas_skill_catalog(
+  ctx~ : @cetas_core.HostContext,
+  manuals~ : Array[@skills.SkillDescriptor],
+) -> @skills.SkillCatalog noraise {
+  let discovered : @skills.SkillCatalog = match
+    @skills.Skills::discover(
+      ctx.fs,
+      cwd=ctx.cwd,
+      home=ctx.home,
+      config=cetas_skills_config(),
+    ) {
+    Some(skills) => skills.catalog()
+    None => @skills.SkillCatalog::empty()
+  }
+  @skills.merge_builtin_skills(discovered, manuals)
+}
+
+///|
 async fn read_team_config(
   ctx : @cetas_core.HostContext,
 ) -> TeamConfig? raise @posoco.CompositionError {

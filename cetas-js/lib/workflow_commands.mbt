@@ -593,7 +593,7 @@ fn workflow_view_outcome(
 /// rejected rather than dropped, so a host typo can never be written as a
 /// silent inheritance. Catalog membership is validated later, against the
 /// manager's current state — not here, where no catalog is available.
-fn parse_ticket_model_arg(value : Json) -> Result[TicketModelChoice?, String] {
+fn parse_ticket_model_arg(value : Json) -> Result[@work.ModelPin?, String] {
   match value {
     Json::Null => Ok(None)
     Json::Object(model) => {

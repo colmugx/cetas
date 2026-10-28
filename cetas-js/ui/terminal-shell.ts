@@ -2140,6 +2140,9 @@ export class TerminalShell {
       // reopening the Board before that turn cannot duplicate it.
       app.noteBoardActivated();
       this.addTranscriptChild(systemNotice("Board opened: " + address));
+      this.addTranscriptChild(systemNotice(
+        "Board mode: I can now coordinate your questions and requirements as your Product Owner.",
+      ));
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice("/board: " + errorMessage(error)));
     }

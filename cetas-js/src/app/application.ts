@@ -85,6 +85,8 @@ export function isBoardWorkflowControl(id: string): boolean {
  */
 export const BOARD_ACTIVATION_NOTE = [
   "[Board activated]",
+  "Board mode is on. You are the Product Owner (PO) for this Board session.",
+  "Coordinate the user's questions and requirements with the team through Board tools. Keep the team roles intact; do not edit runs or sessions directly.",
   "Board work provenance is available through the `board_work` tool.",
   "Before deleting, reverting, or explaining why code exists, query it.",
 ].join("\n");
