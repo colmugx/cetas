@@ -65,14 +65,20 @@ jobs:
 
       # Node 24 is Active LTS; pin it before all JS/Node distribution tests.
       - name: Setup Node LTS for cetas-js
+        # Collect JS diagnostics even if the independent Moon native suite fails.
+        if: ${{ !cancelled() }}
         uses: actions/setup-node@v4
         with:
           node-version: "24"
 
       - name: Setup bun
+        # Collect JS diagnostics even if the independent Moon native suite fails.
+        if: ${{ !cancelled() }}
         uses: oven-sh/setup-bun@v2
 
       - name: cetas-js typecheck
+        # Collect JS diagnostics even if the independent Moon native suite fails.
+        if: ${{ !cancelled() }}
         working-directory: cetas-js
         run: |
           bun install
@@ -83,6 +89,8 @@ jobs:
       # adaptor scenarios. Running everything (not a subset) is the point —
       # subset-only CI is how tests rotted unnoticed before.
       - name: cetas-js test suite
+        # Collect JS diagnostics even if the independent Moon native suite fails.
+        if: ${{ !cancelled() }}
         working-directory: cetas-js
         run: bun test --preload ./moonbit-preload.ts
 
