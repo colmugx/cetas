@@ -74,7 +74,7 @@ async test "ticket run dispatches a background child and moves the ticket to rev
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
     defer ignore(board.shutdown())
-    let tickets = TicketRuntime::TicketRuntime(
+    let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
       parent_mode=() => @permission.ReadOnly,
@@ -241,7 +241,7 @@ async test "ticket shaping can split an oversized ticket into ready children and
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
     defer ignore(board.shutdown())
-    let tickets = TicketRuntime::TicketRuntime(
+    let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
       parent_mode=() => @permission.ReadOnly,
@@ -433,7 +433,7 @@ async test "ticket shaping clarifies the ticket and moves it to ready" {
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
     defer ignore(board.shutdown())
-    let tickets = TicketRuntime::TicketRuntime(
+    let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
       parent_mode=() => @permission.ReadOnly,
@@ -565,7 +565,7 @@ async test "ticket run uses the pinned model instead of the current active model
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
     defer ignore(board.shutdown())
-    let tickets = TicketRuntime::TicketRuntime(
+    let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
       parent_mode=() => @permission.ReadOnly,
@@ -750,7 +750,7 @@ async fn wait_ticket_stage(
 
 ///|
 /// The session id of the ticket runtime's current run for one task, or "".
-fn ticket_run_session(tickets : TicketRuntime, task_id : String) -> String {
+fn ticket_run_session(tickets : BoardWorkHost, task_id : String) -> String {
   match tickets.run_for(task_id) {
     Some(run) => run.session_id
     None => ""
@@ -759,7 +759,7 @@ fn ticket_run_session(tickets : TicketRuntime, task_id : String) -> String {
 
 ///|
 /// The status of the ticket runtime's current run for one task, or "".
-fn ticket_run_status(tickets : TicketRuntime, task_id : String) -> String {
+fn ticket_run_status(tickets : BoardWorkHost, task_id : String) -> String {
   match tickets.run_for(task_id) {
     Some(run) => run.status
     None => ""
@@ -768,7 +768,7 @@ fn ticket_run_status(tickets : TicketRuntime, task_id : String) -> String {
 
 ///|
 /// The result text of the ticket runtime's current run for one task, or "".
-fn ticket_run_result(tickets : TicketRuntime, task_id : String) -> String {
+fn ticket_run_result(tickets : BoardWorkHost, task_id : String) -> String {
   match tickets.run_for(task_id) {
     Some(run) =>
       match run.result {
@@ -781,7 +781,7 @@ fn ticket_run_result(tickets : TicketRuntime, task_id : String) -> String {
 
 ///|
 /// Poll until the ticket runtime parked one question and return its id.
-async fn wait_ticket_question(tickets : TicketRuntime) -> String {
+async fn wait_ticket_question(tickets : BoardWorkHost) -> String {
   for _ in 0..<200 {
     let ids : Array[String] = []
     for id in tickets.questions.questions.keys() {
@@ -835,7 +835,7 @@ async test "ticket retry from review starts a fresh child session" {
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
     defer ignore(board.shutdown())
-    let tickets = TicketRuntime::TicketRuntime(
+    let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
       parent_mode=() => @permission.ReadOnly,
@@ -928,7 +928,7 @@ async test "ticket retry from suspended starts a fresh child session" {
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
     defer ignore(board.shutdown())
-    let tickets = TicketRuntime::TicketRuntime(
+    let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
       parent_mode=() => @permission.ReadOnly,
@@ -1027,7 +1027,7 @@ async test "ticket retry is rejected while the ticket is running" {
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
     defer ignore(board.shutdown())
-    let tickets = TicketRuntime::TicketRuntime(
+    let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
       // The worker parks on ask_question_child, which is an unknown tool name
@@ -1089,7 +1089,7 @@ async test "ticket retry is rejected while the ticket is running" {
       tickets.questions.answer(
         question_id,
         @posoco.UiResponse::Text("Use the public API"),
-        "product_owner",
+        "po",
       ) {
       Ok(_) => ()
       Err(error) => fail("answering the ticket question failed: " + error)
@@ -1121,7 +1121,7 @@ async test "ticket retry is rejected from a stage that is not retryable" {
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
     defer ignore(board.shutdown())
-    let tickets = TicketRuntime::TicketRuntime(
+    let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
       parent_mode=() => @permission.ReadOnly,
@@ -1193,7 +1193,7 @@ async test "ticket resume continues the durable child session" {
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
     defer ignore(board.shutdown())
-    let tickets = TicketRuntime::TicketRuntime(
+    let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
       parent_mode=() => @permission.ReadOnly,
@@ -1421,7 +1421,7 @@ async test "ticket request changes records the feedback, returns the ticket to R
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
     defer ignore(board.shutdown())
-    let tickets = TicketRuntime::TicketRuntime(
+    let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
       parent_mode=() => @permission.ReadOnly,
@@ -1529,7 +1529,7 @@ async test "ticket request changes rejects empty feedback and a ticket without a
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
     defer ignore(board.shutdown())
-    let tickets = TicketRuntime::TicketRuntime(
+    let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
       parent_mode=() => @permission.ReadOnly,
@@ -1677,7 +1677,7 @@ async test "ticket worker prompt carries the reviewer feedback on the new attemp
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
     defer ignore(board.shutdown())
-    let tickets = TicketRuntime::TicketRuntime(
+    let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
       parent_mode=() => @permission.ReadOnly,
@@ -2153,7 +2153,7 @@ async test "ticket progress state json keeps a bounded per-ticket log" {
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
     defer ignore(board.shutdown())
-    let tickets = TicketRuntime::TicketRuntime(
+    let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
       parent_mode=() => @permission.ReadOnly,
@@ -2270,7 +2270,7 @@ async test "ticket run persists the submitted work report instead of the minimal
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
     defer ignore(board.shutdown())
-    let tickets = TicketRuntime::TicketRuntime(
+    let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
       // The reporting tools are not read-class tools; Yolo keeps this test
@@ -2369,7 +2369,7 @@ async test "ticket finish fails visibly when the Board rejects the report" {
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
     defer ignore(board.shutdown())
-    let tickets = TicketRuntime::TicketRuntime(
+    let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
       parent_mode=() => @permission.ReadOnly,
@@ -2465,7 +2465,7 @@ async test "RD-only role plan reaches review without starting SET or TE" {
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
     defer ignore(board.shutdown())
-    let tickets = TicketRuntime::TicketRuntime(
+    let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
       parent_mode=() => @permission.ReadOnly,
@@ -2612,7 +2612,7 @@ async test "worker question to PO is answered in the background" {
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
     defer ignore(board.shutdown())
-    let tickets = TicketRuntime::TicketRuntime(
+    let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
       parent_mode=() => @permission.Yolo,

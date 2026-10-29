@@ -35,9 +35,7 @@ import mdxRenderer from "@astrojs/mdx/server.js";
 import { experimental_AstroContainer as AstroContainer } from "astro/container";
 import { getVersionStatus } from "@cloudflare/nimbus-docs/runtime";
 import type { HeadElement } from "@cloudflare/nimbus-docs/types";
-
-/** The compiled MDX `<Content />` component, as the container accepts it. */
-type AstroContentComponent = Parameters<typeof AstroContainer.renderToString>[0];
+import type { AstroComponentFactory } from "astro/runtime/server/index.js";
 
 /** `${collection}:${entryId}` of every page that may carry FAQPage JSON-LD. */
 const FAQ_JSONLD_PAGES: ReadonlySet<string> = new Set([

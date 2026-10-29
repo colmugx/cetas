@@ -4,6 +4,7 @@ import "@fontsource-variable/jetbrains-mono";
 import "../styles/globals.css";
 import "../styles/prose.css";
 import { ClientRouter } from "astro:transitions";
+import { build, trailingSlash } from "astro:config/client";
 import { config } from "virtual:nimbus/config";
 import {
   getCollectionLlmsUrl,
@@ -16,7 +17,7 @@ import SoftwareApplicationJsonLd from "@/components/SoftwareApplicationJsonLd.as
 import { SearchDialog } from "@/components/ui/search";
 import NimbusHead from "@cloudflare/nimbus-docs/components/NimbusHead.astro";
 import WebMCP from "@/components/WebMCP.astro";
-import type { BasePageProps } from "@cloudflare/nimbus-docs/types";
+import type { BasePageProps, HeadElement } from "@cloudflare/nimbus-docs/types";
 
 type Props = BasePageProps & {
   /**
@@ -72,6 +73,49 @@ const barePath = stripBase(Astro.url.pathname, baseUrl)
   .replace(/(?:\/index)?\.html$/, "")
   .replace(/\/+$/, "");
 const isHomePage = barePath === "" || barePath === "/en";
+// zh/en hreflang alternates — the head-level language signals for the
+// zh ↔ /en/ mirror. NimbusHead already emits the canonical plus the
+// markdown/llms `rel="alternate"` links but no hreflang, so this supplies
+// exactly the missing family: every page in the mirror declares the full
+// cluster — hreflang="zh-CN" and hreflang="en" pointing at each other via
+// the same prefix swap LanguageSwitch uses, plus hreflang="x-default"
+// pointing at the zh URL. Rendered through NimbusHead's `head` channel, so
+// the tags stay centralized here and nothing is emitted twice.
+//
+// Scope: only pages of the two mirrored collections (docs entries, home,
+// changelog — they all arrive with `collection` set). The 404 page passes
+// no collection and its prefix-swapped counterpart (/en/404/) doesn't
+// exist, so the gate keeps it out. Pages that aren't crawlable get no
+// cluster either: hreflang is an indexing signal, and emitting it from a
+// page whose robots meta says noindex (or from a hidden version) would be
+// a self-contradictory pair of signals.
+const MIRRORED_COLLECTIONS = new Set(["docs", "en"]);
+const site = Astro.site;
+const hreflangHead: HeadElement[] = [];
+if (
+  collection &&
+  MIRRORED_COLLECTIONS.has(collection) &&
+  site &&
+  !(noindex || isHiddenVersion)
+) {
+  // Same trailing-slash rule NimbusHead applies to the canonical, so the
+  // alternate URLs and the canonical always share one site-wide policy.
+  const appendsSlash =
+    trailingSlash === "always" ||
+    (trailingSlash === "ignore" && build.format === "directory");
+  const slash = (path: string) =>
+    path === "" ? "/" : appendsSlash ? `${path}/` : path;
+  const isEnPath = barePath === "/en" || barePath.startsWith("/en/");
+  const rest = isEnPath ? barePath.slice("/en".length) : barePath;
+  const absolute = (path: string) => new URL(withBase(path, baseUrl), site).href;
+  const zhUrl = absolute(slash(rest));
+  const enUrl = absolute(slash(`/en${rest}`));
+  hreflangHead.push(
+    { tag: "link", attrs: { rel: "alternate", hreflang: "zh-CN", href: zhUrl } },
+    { tag: "link", attrs: { rel: "alternate", hreflang: "en", href: enUrl } },
+    { tag: "link", attrs: { rel: "alternate", hreflang: "x-default", href: zhUrl } },
+  );
+}
 const basedMarkdownUrl = markdownUrl ? withBase(markdownUrl, baseUrl) : undefined;
 const resolvedMarkdownUrl =
   basedMarkdownUrl && Astro.site
@@ -134,7 +178,7 @@ const resolvedMarkdownUrl =
       markdownUrl={markdownUrl}
       socialImage={socialImage}
       lastUpdated={lastUpdated}
-      head={pageHead}
+      head={[...hreflangHead, ...pageHead]}
       collection={collection}
       entryId={entryId}
       apiVersion={apiVersion}

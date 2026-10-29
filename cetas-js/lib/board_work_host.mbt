@@ -1,5 +1,5 @@
 ///|
-priv struct TicketRuntime {
+priv struct BoardWorkHost {
   board : @board.BoardWorkflows
   manager : ModelManagerFace
   parent_mode : () -> @permission.PermissionMode
@@ -24,7 +24,7 @@ priv struct TicketRuntime {
 }
 
 ///|
-fn TicketRuntime::TicketRuntime(
+fn BoardWorkHost::BoardWorkHost(
   board~ : @board.BoardWorkflows,
   manager~ : ModelManagerFace,
   parent_mode~ : () -> @permission.PermissionMode,
@@ -37,7 +37,7 @@ fn TicketRuntime::TicketRuntime(
   config~ : TeamConfig? = None,
   runs~ : @work.WorkRunStore = @work.WorkRunStore::WorkRunStore(),
   journal_error~ : String? = None,
-) -> TicketRuntime {
+) -> BoardWorkHost {
   let config = match config {
     Some(value) => value
     None => TeamConfig::defaults()
@@ -82,10 +82,11 @@ async fn load_work_runs(
   let path = run_journal_path(ctx)
   let text = match @workspace.read_file_result(ctx.fs, path) {
     Missing => return (@work.WorkRunStore::WorkRunStore(), None)
-    Failed(message) => return (
-      @work.WorkRunStore::WorkRunStore(),
-      Some("run journal read failed: " + message),
-    )
+    Failed(message) =>
+      return (
+        @work.WorkRunStore::WorkRunStore(),
+        Some("run journal read failed: " + message),
+      )
     Content(text) => text
   }
   let value = @json.parse(text) catch {
@@ -103,7 +104,7 @@ async fn load_work_runs(
 }
 
 ///|
-fn TicketRuntime::persist_runs(self : TicketRuntime) -> Unit {
+fn BoardWorkHost::persist_runs(self : BoardWorkHost) -> Unit {
   let fs = self.ctx.fs
   let path = run_journal_path(self.ctx)
   let text = self.runs.to_json().stringify()
@@ -115,8 +116,8 @@ fn TicketRuntime::persist_runs(self : TicketRuntime) -> Unit {
 }
 
 ///|
-fn TicketRuntime::child_store_for(
-  self : TicketRuntime,
+fn BoardWorkHost::child_store_for(
+  self : BoardWorkHost,
   task_id : String,
 ) -> CetasChildSessionStore {
   match self.session_root {
@@ -126,8 +127,8 @@ fn TicketRuntime::child_store_for(
 }
 
 ///|
-fn TicketRuntime::runs_for(
-  self : TicketRuntime,
+fn BoardWorkHost::runs_for(
+  self : BoardWorkHost,
   task_id : String,
 ) -> Array[@work.WorkRun] {
   self.runs.runs_for(task_id)
@@ -136,16 +137,16 @@ fn TicketRuntime::runs_for(
 ///|
 /// The run the task-level UI reads first: a live role wins, otherwise the most
 /// recently added role.
-fn TicketRuntime::run_for(
-  self : TicketRuntime,
+fn BoardWorkHost::run_for(
+  self : BoardWorkHost,
   task_id : String,
 ) -> @work.WorkRun? {
   self.runs.run_for(task_id)
 }
 
 ///|
-fn TicketRuntime::run_role(
-  self : TicketRuntime,
+fn BoardWorkHost::run_role(
+  self : BoardWorkHost,
   task_id : String,
   role : String,
 ) -> @work.WorkRun? {
@@ -153,13 +154,13 @@ fn TicketRuntime::run_role(
 }
 
 ///|
-fn TicketRuntime::all_runs(self : TicketRuntime) -> Array[@work.WorkRun] {
+fn BoardWorkHost::all_runs(self : BoardWorkHost) -> Array[@work.WorkRun] {
   self.runs.all()
 }
 
 ///|
-fn TicketRuntime::add_run(
-  self : TicketRuntime,
+fn BoardWorkHost::add_run(
+  self : BoardWorkHost,
   task_id : String,
   session_id : String,
   phase : String,
@@ -174,8 +175,8 @@ fn TicketRuntime::add_run(
 /// Append one worker progress update for a ticket, dropping the oldest once the
 /// per-ticket bound is reached. Progress is host state only: it never touches
 /// the Board and never parks the worker.
-fn TicketRuntime::record_progress(
-  self : TicketRuntime,
+fn BoardWorkHost::record_progress(
+  self : BoardWorkHost,
   task_id : String,
   kind : String,
   message : String,
@@ -184,8 +185,8 @@ fn TicketRuntime::record_progress(
 }
 
 ///|
-fn TicketRuntime::mcp_face(
-  self : TicketRuntime,
+fn BoardWorkHost::mcp_face(
+  self : BoardWorkHost,
   role : String,
 ) -> Array[&@posoco.Extension] {
   let config = match self.team_mcp.get(role) {
@@ -208,8 +209,8 @@ fn TicketRuntime::mcp_face(
 }
 
 ///|
-fn TicketRuntime::skill_face(
-  self : TicketRuntime,
+fn BoardWorkHost::skill_face(
+  self : BoardWorkHost,
   role : String,
 ) -> Array[String]? {
   let config = match self.team_skills.get(role) {
@@ -234,9 +235,9 @@ fn TicketRuntime::skill_face(
 }
 
 ///|
-fn TicketRuntime::team_label(self : TicketRuntime, role : String) -> String {
+fn BoardWorkHost::team_label(self : BoardWorkHost, role : String) -> String {
   match role {
-    "product_owner" | "customer" => "Customer"
+    "customer" => "Customer"
     "po" => self.team.po
     "sm" => self.team.sm
     "rd" => self.team.rd
@@ -248,8 +249,8 @@ fn TicketRuntime::team_label(self : TicketRuntime, role : String) -> String {
 }
 
 ///|
-fn TicketRuntime::answer_question(
-  self : TicketRuntime,
+fn BoardWorkHost::answer_question(
+  self : BoardWorkHost,
   question_id : String,
   response : @posoco.UiResponse,
   answered_by : String,
@@ -274,8 +275,8 @@ fn TicketRuntime::answer_question(
 ///|
 /// Forward a Customer question to the Product Owner child. The worker stays
 /// parked; failure leaves the question open for a human PO.
-fn TicketRuntime::forward_to_po(
-  self : TicketRuntime,
+fn BoardWorkHost::forward_to_po(
+  self : BoardWorkHost,
   question_id : String,
 ) -> Result[Unit, String] {
   match self.questions.questions.get(question_id) {
@@ -293,7 +294,7 @@ fn TicketRuntime::forward_to_po(
         self.team_label("po"),
       )
       self.group.spawn_bg(async fn() {
-        match self.refiner_answer(question_id) {
+        match self.po_answer(question_id) {
           Ok(_) => ()
           Err(reason) => {
             self.record_progress(
@@ -312,8 +313,8 @@ fn TicketRuntime::forward_to_po(
 }
 
 ///|
-async fn TicketRuntime::refiner_answer(
-  self : TicketRuntime,
+async fn BoardWorkHost::po_answer(
+  self : BoardWorkHost,
   question_id : String,
 ) -> Result[Unit, String] {
   let question = match self.questions.questions.get(question_id) {
@@ -459,8 +460,8 @@ fn team_config_path(ctx : @cetas_core.HostContext) -> String {
 }
 
 ///|
-async fn TicketRuntime::set_team(
-  self : TicketRuntime,
+async fn BoardWorkHost::set_team(
+  self : BoardWorkHost,
   names : TeamNames,
   mcp : Map[String, TeamMcp],
   skills : Map[String, TeamSkills],
@@ -483,8 +484,8 @@ async fn TicketRuntime::set_team(
 ///|
 /// Clear Inbox updates, all of them or one ticket's. Progress is Information
 /// only, so dismissing it never changes the Board or the run.
-fn TicketRuntime::dismiss_progress(
-  self : TicketRuntime,
+fn BoardWorkHost::dismiss_progress(
+  self : BoardWorkHost,
   task_id : String?,
 ) -> Json {
   self.progress.dismiss(task_id)
@@ -495,8 +496,8 @@ fn TicketRuntime::dismiss_progress(
 /// Store one submitted work report for the current run. The report replaces any
 /// earlier one of the same attempt; it is not written to the Board here, so the
 /// Board stays the single validating writer when `finish` submits it.
-fn TicketRuntime::record_work_report(
-  self : TicketRuntime,
+fn BoardWorkHost::record_work_report(
+  self : BoardWorkHost,
   task_id : String,
   role : String,
   report : Json,
@@ -515,7 +516,7 @@ fn TicketRuntime::record_work_report(
 
 ///|
 priv struct TicketReportAdapter {
-  runtime : TicketRuntime
+  runtime : BoardWorkHost
   task_id : String
   role : String
 }
@@ -538,8 +539,8 @@ impl TicketReportEndpoint for TicketReportAdapter with fn submit_work_report(
 }
 
 ///|
-async fn TicketRuntime::snapshot_sync(
-  self : TicketRuntime,
+async fn BoardWorkHost::snapshot_sync(
+  self : BoardWorkHost,
 ) -> Result[@board_protocol.BoardSnapshot, String] {
   let encoded = match self.board.wire_snapshot() {
     Ok(encoded) => encoded
@@ -555,7 +556,7 @@ async fn TicketRuntime::snapshot_sync(
 /// Rehydrate interrupted work once from the durable child sessions. The Board
 /// stage is the authority; a suspended/running task with a recorded work
 /// session is shown as interrupted, never silently resumed or relabelled.
-async fn TicketRuntime::reconcile_interrupted(self : TicketRuntime) -> Unit {
+async fn BoardWorkHost::reconcile_interrupted(self : BoardWorkHost) -> Unit {
   if self.reconciled {
     return
   }
@@ -604,7 +605,7 @@ async fn TicketRuntime::reconcile_interrupted(self : TicketRuntime) -> Unit {
 /// `progress` is the bounded per-ticket log (`task_id`, `kind`, `message`,
 /// `at_ms`), so a drawer can show what a worker said while it worked without
 /// the host keeping an unbounded transcript.
-fn TicketRuntime::state_json(self : TicketRuntime) -> Json {
+fn BoardWorkHost::state_json(self : BoardWorkHost) -> Json {
   let runs : Array[Json] = self.all_runs().map(run => run.to_json())
   let progress_items : Array[Json] = self.progress
     .all()
@@ -619,18 +620,10 @@ fn TicketRuntime::state_json(self : TicketRuntime) -> Json {
       }
     _ => "unknown"
   }
-  let running = self.runs.count_running()
-  let mut waiting_input = 0
-  for question in self.questions.questions.values() {
-    if question.status == "open" {
-      waiting_input = waiting_input + 1
-    }
-  }
-  let attention = self.progress.attention_tasks()
-  let presence = @board_presence.BoardPresence::project(
-    running~,
-    waiting_input~,
-    attention~,
+  let presence = @work.work_presence(
+    runs=self.runs,
+    questions=self.questions,
+    progress=self.progress,
   )
   Json::object({
     "project": Json::string(project_name(self.ctx.cwd)),
@@ -667,15 +660,15 @@ fn TicketRuntime::state_json(self : TicketRuntime) -> Json {
 }
 
 ///|
-async fn TicketRuntime::snapshot(
-  self : TicketRuntime,
+async fn BoardWorkHost::snapshot(
+  self : BoardWorkHost,
 ) -> Result[@board_protocol.BoardSnapshot, String] {
   self.snapshot_sync()
 }
 
 ///|
-async fn TicketRuntime::assign_role(
-  self : TicketRuntime,
+async fn BoardWorkHost::assign_role(
+  self : BoardWorkHost,
   task_id : String,
   role : String,
   member_id : String,
@@ -721,8 +714,8 @@ async fn TicketRuntime::assign_role(
 ///|
 
 ///|
-async fn TicketRuntime::set_required_roles(
-  self : TicketRuntime,
+async fn BoardWorkHost::set_required_roles(
+  self : BoardWorkHost,
   task_id : String,
   roles : Array[String],
 ) -> Result[Unit, String] {
@@ -764,8 +757,8 @@ async fn TicketRuntime::set_required_roles(
 }
 
 ///|
-async fn TicketRuntime::assign_development_team(
-  self : TicketRuntime,
+async fn BoardWorkHost::assign_development_team(
+  self : BoardWorkHost,
   task_id : String,
 ) -> Result[Unit, String] {
   for role in ["rd", "set", "te"] {
@@ -778,8 +771,8 @@ async fn TicketRuntime::assign_development_team(
 }
 
 ///|
-async fn TicketRuntime::move_task(
-  self : TicketRuntime,
+async fn BoardWorkHost::move_task(
+  self : BoardWorkHost,
   task_id : String,
   to : String,
 ) -> Result[Unit, String] {
@@ -817,8 +810,8 @@ async fn TicketRuntime::move_task(
 }
 
 ///|
-async fn TicketRuntime::apply_task_model(
-  self : TicketRuntime,
+async fn BoardWorkHost::apply_task_model(
+  self : BoardWorkHost,
   task_id : String,
   model : Json,
 ) -> Result[Unit, String] {
@@ -834,8 +827,8 @@ async fn TicketRuntime::apply_task_model(
 }
 
 ///|
-async fn TicketRuntime::set_task_model(
-  self : TicketRuntime,
+async fn BoardWorkHost::set_task_model(
+  self : BoardWorkHost,
   task_id : String,
   model : @work.ModelPin,
 ) -> Result[Unit, String] {
@@ -895,8 +888,8 @@ fn ticket_catalog_efforts(
 /// falls back silently: an absent slot or an unadvertised effort is a
 /// readable error, so a stale Board draft cannot pin a model the router
 /// cannot run.
-fn TicketRuntime::ticket_model_arg(
-  self : TicketRuntime,
+fn BoardWorkHost::ticket_model_arg(
+  self : BoardWorkHost,
   model : @work.ModelPin?,
 ) -> Result[Json, String] {
   let catalog = self.manager.manager_ticket_model_catalog_json()
@@ -947,8 +940,8 @@ fn TicketRuntime::ticket_model_arg(
 /// `board.task.set_model` at the current Board revision, and the updated
 /// ticket state JSON is returned so the caller never re-reads a stale
 /// projection.
-async fn TicketRuntime::set_model(
-  self : TicketRuntime,
+async fn BoardWorkHost::set_model(
+  self : BoardWorkHost,
   task_id : String,
   model : @work.ModelPin?,
 ) -> Result[Json, String] {
@@ -963,8 +956,8 @@ async fn TicketRuntime::set_model(
 }
 
 ///|
-async fn TicketRuntime::board_command(
-  self : TicketRuntime,
+async fn BoardWorkHost::board_command(
+  self : BoardWorkHost,
   name : String,
   args : Json,
   expected_revision : Int64,
@@ -999,8 +992,8 @@ async fn TicketRuntime::board_command(
 }
 
 ///|
-async fn TicketRuntime::create_task(
-  self : TicketRuntime,
+async fn BoardWorkHost::create_task(
+  self : BoardWorkHost,
   task_id : String,
   title : String,
   user_story : String,
@@ -1030,8 +1023,8 @@ async fn TicketRuntime::create_task(
 }
 
 ///|
-async fn TicketRuntime::delete_task(
-  self : TicketRuntime,
+async fn BoardWorkHost::delete_task(
+  self : BoardWorkHost,
   task_id : String,
 ) -> Result[Unit, String] {
   let snapshot = match self.snapshot() {
@@ -1046,8 +1039,8 @@ async fn TicketRuntime::delete_task(
 }
 
 ///|
-async fn TicketRuntime::task_has_dependents(
-  self : TicketRuntime,
+async fn BoardWorkHost::task_has_dependents(
+  self : BoardWorkHost,
   task_id : String,
 ) -> Result[Bool, String] {
   let snapshot = match self.snapshot() {
@@ -1066,8 +1059,8 @@ async fn TicketRuntime::task_has_dependents(
 /// owns the report; this runtime only supplies it, so nothing here re-reads a
 /// stale projection. `Json::null()` is the Board's explicit clear, not a
 /// fallback for a rejected report.
-async fn TicketRuntime::set_review_report(
-  self : TicketRuntime,
+async fn BoardWorkHost::set_review_report(
+  self : BoardWorkHost,
   task_id : String,
   review : Json,
 ) -> Result[Unit, String] {
@@ -1088,8 +1081,8 @@ async fn TicketRuntime::set_review_report(
 /// error so the durable session can be resumed; moving it to Paused would
 /// discard that recovery path. The Board stage moves only when a command
 /// explicitly asks for it.
-fn TicketRuntime::park_run(
-  self : TicketRuntime,
+fn BoardWorkHost::park_run(
+  self : BoardWorkHost,
   task_id : String,
   role : String,
   status : String,
@@ -1100,8 +1093,8 @@ fn TicketRuntime::park_run(
 }
 
 ///|
-fn TicketRuntime::team_complete(
-  self : TicketRuntime,
+fn BoardWorkHost::team_complete(
+  self : BoardWorkHost,
   task_id : String,
   roles : Array[String],
 ) -> Bool {
@@ -1110,8 +1103,8 @@ fn TicketRuntime::team_complete(
 }
 
 ///|
-async fn TicketRuntime::finish_work(
-  self : TicketRuntime,
+async fn BoardWorkHost::finish_work(
+  self : BoardWorkHost,
   task_id : String,
   role : String,
   outcome : Result[String, String],
@@ -1220,8 +1213,8 @@ async fn TicketRuntime::finish_work(
 }
 
 ///|
-async fn TicketRuntime::task_snapshot(
-  self : TicketRuntime,
+async fn BoardWorkHost::task_snapshot(
+  self : BoardWorkHost,
   task_id : String,
 ) -> Result[(Json, Int64), String] {
   let snapshot = match self.snapshot() {
@@ -1239,8 +1232,8 @@ async fn TicketRuntime::task_snapshot(
 }
 
 ///|
-async fn TicketRuntime::update_task(
-  self : TicketRuntime,
+async fn BoardWorkHost::update_task(
+  self : BoardWorkHost,
   task_id : String,
   title : String?,
   user_story : String?,
@@ -1320,8 +1313,8 @@ fn ticket_system_prompt(cwd : String, role : String) -> String {
 }
 
 ///|
-async fn TicketRuntime::rollback_split(
-  self : TicketRuntime,
+async fn BoardWorkHost::rollback_split(
+  self : BoardWorkHost,
   created : Array[String],
 ) -> String {
   let failures : Array[String] = []
@@ -1341,8 +1334,8 @@ async fn TicketRuntime::rollback_split(
 }
 
 ///|
-async fn TicketRuntime::split_ticket(
-  self : TicketRuntime,
+async fn BoardWorkHost::split_ticket(
+  self : BoardWorkHost,
   source_id : String,
   children : Array[@work.ShapeChild],
 ) -> Result[String, String] {
@@ -1446,8 +1439,8 @@ async fn TicketRuntime::split_ticket(
 }
 
 ///|
-async fn TicketRuntime::finish_shape(
-  self : TicketRuntime,
+async fn BoardWorkHost::finish_shape(
+  self : BoardWorkHost,
   task_id : String,
   outcome : Result[String, String],
 ) -> Unit {
@@ -1621,8 +1614,8 @@ async fn TicketRuntime::finish_shape(
 }
 
 ///|
-async fn TicketRuntime::shape(
-  self : TicketRuntime,
+async fn BoardWorkHost::shape(
+  self : BoardWorkHost,
   task_id : String,
   resuming~ : Bool = false,
 ) -> Result[Unit, String] {
@@ -1805,8 +1798,8 @@ fn worker_tools(role : String) -> Array[String] {
 }
 
 ///|
-async fn TicketRuntime::start_role(
-  self : TicketRuntime,
+async fn BoardWorkHost::start_role(
+  self : BoardWorkHost,
   task_id : String,
   task : Json,
   role : String,
@@ -1851,7 +1844,7 @@ async fn TicketRuntime::start_role(
     }),
     auto_po: Some(fn(id) {
       self.group.spawn_bg(async fn() {
-        match self.refiner_answer(id) {
+        match self.po_answer(id) {
           Ok(_) => ()
           Err(reason) => {
             match self.questions.questions.get(id) {
@@ -1955,8 +1948,8 @@ async fn TicketRuntime::start_role(
 /// Facts the Scrum Master must not have to rediscover: dependency state,
 /// other running work, and open questions. The Board snapshot stays the
 /// authority; this is only a compact projection for one consultation.
-async fn TicketRuntime::coordination_brief(
-  self : TicketRuntime,
+async fn BoardWorkHost::coordination_brief(
+  self : BoardWorkHost,
   task_id : String,
   task : Json,
 ) -> String {
@@ -2024,8 +2017,8 @@ async fn TicketRuntime::coordination_brief(
 }
 
 ///|
-async fn TicketRuntime::consult_sm(
-  self : TicketRuntime,
+async fn BoardWorkHost::consult_sm(
+  self : BoardWorkHost,
   task_id : String,
   question : String,
 ) -> Result[Unit, String] {
@@ -2151,8 +2144,8 @@ async fn TicketRuntime::consult_sm(
 }
 
 ///|
-async fn TicketRuntime::run(
-  self : TicketRuntime,
+async fn BoardWorkHost::run(
+  self : BoardWorkHost,
   task_id : String,
 ) -> Result[Unit, String] {
   let resuming = match self.resuming_task {
@@ -2213,8 +2206,8 @@ async fn TicketRuntime::run(
 }
 
 ///|
-async fn TicketRuntime::resume_ticket(
-  self : TicketRuntime,
+async fn BoardWorkHost::resume_ticket(
+  self : BoardWorkHost,
   task_id : String,
 ) -> Result[Json, String] {
   if self.run_for(task_id) is Some(run) && run.status == "running" {
@@ -2297,8 +2290,8 @@ async fn TicketRuntime::resume_ticket(
 /// one revision; only after that is accepted does a fresh work run start.
 /// Request changes is a new attempt, never a resume: `run` clears the previous
 /// work session, so the worker starts from the ticket and the feedback alone.
-async fn TicketRuntime::request_changes(
-  self : TicketRuntime,
+async fn BoardWorkHost::request_changes(
+  self : BoardWorkHost,
   task_id : String,
   feedback : String,
 ) -> Result[Json, String] {
@@ -2349,8 +2342,8 @@ async fn TicketRuntime::request_changes(
 /// records the restart before the new run claims Running; a failed move starts
 /// nothing. The fresh run composes a new child session — retry never pretends
 /// to resume the session a previous attempt lost.
-async fn TicketRuntime::retry(
-  self : TicketRuntime,
+async fn BoardWorkHost::retry(
+  self : BoardWorkHost,
   task_id : String,
 ) -> Result[Json, String] {
   if self.run_for(task_id) is Some(run) && run.status == "running" {
@@ -2389,12 +2382,12 @@ async fn TicketRuntime::retry(
 }
 
 ///|
-fn TicketRuntime::dismiss(self : TicketRuntime, task_id : String) -> Unit {
+fn BoardWorkHost::dismiss(self : BoardWorkHost, task_id : String) -> Unit {
   self.runs.dismiss(task_id)
 }
 
 ///|
-async fn TicketRuntime::run_ready(self : TicketRuntime) -> Result[Unit, String] {
+async fn BoardWorkHost::run_ready(self : BoardWorkHost) -> Result[Unit, String] {
   let snapshot = match self.snapshot() {
     Ok(snapshot) => snapshot
     Err(error) => return Err(error)

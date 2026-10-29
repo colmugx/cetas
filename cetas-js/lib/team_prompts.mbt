@@ -165,14 +165,13 @@ pub fn TeamMcp::to_json_map(mcp : Map[String, TeamMcp]) -> Json {
 pub fn TeamMcp::from_json_map(value : Json) -> Map[String, TeamMcp] {
   let out = default_team_mcp()
   match value {
-    Object(fields) => {
+    Object(fields) =>
       for role in ["po", "sm", "rd", "set", "te"] {
         match fields.get(role) {
           Some(item) => out[role] = TeamMcp::from_json(item)
           None => ()
         }
       }
-    }
     _ => ()
   }
   out
@@ -261,14 +260,13 @@ pub fn TeamSkills::to_json_map(skills : Map[String, TeamSkills]) -> Json {
 pub fn TeamSkills::from_json_map(value : Json) -> Map[String, TeamSkills] {
   let out = default_team_skills()
   match value {
-    Object(fields) => {
+    Object(fields) =>
       for role in ["po", "sm", "rd", "set", "te"] {
         match fields.get(role) {
           Some(item) => out[role] = TeamSkills::from_json(item)
           None => ()
         }
       }
-    }
     _ => ()
   }
   out
