@@ -13,10 +13,18 @@ export class BoardFrameQueue {
   private running = false;
   private closed = false;
 
+  private readonly handle: (text: string) => Promise<void>;
+  private readonly onError: (error: unknown, text: string) => void;
+
+  // The npm channel runs this .ts file directly under Node's strip-only
+  // loader, which cannot transform TypeScript parameter properties.
   constructor(
-    private readonly handle: (text: string) => Promise<void>,
-    private readonly onError: (error: unknown, text: string) => void,
-  ) {}
+    handle: (text: string) => Promise<void>,
+    onError: (error: unknown, text: string) => void,
+  ) {
+    this.handle = handle;
+    this.onError = onError;
+  }
 
   enqueue(text: string): boolean {
     if (
