@@ -17,7 +17,7 @@ import { Container } from "@earendil-works/pi-tui";
 // Import for registration side effects so pickToolRenderer("write") hits the hook.
 import "../tool-renderers/index.ts";
 import { ToolRow } from "../transcript/components.ts";
-import { ToolStreamingController, TOOL_STREAMING_FLUSH_MS } from "./tool-streaming.ts";
+import { ToolStreamingController, TOOL_STREAMING_FLUSH_MS, MAX_TOOL_ARGS_PREVIEW_CHARS } from "./tool-streaming.ts";
 import type { StreamingToolRowFactory } from "./tool-streaming.ts";
 import { EventRouter } from "./event-router.ts";
 import type { EventRouterCallbacks } from "./event-router.ts";
@@ -201,6 +201,24 @@ describe("ToolStreamingController", () => {
     expect(rows).toHaveLength(2);
     expect(controller.onCallStarted("#0", "read", { path: "b.md" })).toBe(rows[1]);
     expect(controller.onCallStarted("real-A", "write", { path: "a.md" })).toBe(rows[0]);
+  });
+
+  test("caps streamed previews while preserving authoritative final args", async () => {
+    const { transcript, controller, renders } = makeHarness();
+    controller.onArgsDelta(0, "huge", "write", '{"path":"large.md","content":"');
+    const huge = "x".repeat(MAX_TOOL_ARGS_PREVIEW_CHARS * 3);
+    controller.onArgsDelta(0, undefined, undefined, huge);
+    await settle();
+    const firstRenders = renders();
+    expect(firstRenders).toBeGreaterThan(0);
+    controller.onArgsDelta(0, undefined, undefined, huge);
+    await settle();
+    expect(renders()).toBe(firstRenders);
+    const row = transcript.children.filter((c): c is ToolRow => c instanceof ToolRow)[0]!;
+    expect(controller.onCallStarted("huge", "write", {
+      path: "large.md", content: huge,
+    })).toBe(row);
+    expect(row.getSearchText()).toContain(huge);
   });
 
   test("unknown tool_call_started with no pending state falls through", () => {
