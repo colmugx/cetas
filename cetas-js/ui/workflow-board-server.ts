@@ -12,6 +12,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { scheduleSingleFlightPoll } from "./board-polling.ts";
+import { BoardFrameQueue, BOARD_MAX_FRAME_CHARS } from "./board-frame-queue.ts";
 import { spawn } from "node:child_process";
 import { createServer, STATUS_CODES, type IncomingMessage, type ServerResponse } from "node:http";
 import { createRequire } from "node:module";
@@ -25,16 +26,18 @@ import {
 
 /** Per-connection serialization: one frame at a time, in arrival order. */
 interface BoardConnection {
-  queue: Promise<void>;
+  queue?: BoardFrameQueue;
 }
 
 /** A connected dashboard tab. Bun's ServerWebSocket satisfies this shape. */
 interface BoardClient {
   send(data: string): void;
+  close(code: number, reason: string): void;
 }
 
 interface BoardState {
   clients: Set<BoardClient>;
+  connections: Set<BoardConnection>;
   lastRevision: number | null;
   lastTickets: string | null;
   seenQuestions: Set<string>;
@@ -302,6 +305,7 @@ export async function openWorkflowBoard(
   const token = randomBytes(32).toString("hex");
   const state: BoardState = {
     clients: new Set(),
+    connections: new Set(),
     lastRevision: null,
     lastTickets: null,
     seenQuestions: new Set(),
@@ -420,25 +424,45 @@ export async function openWorkflowBoard(
     for (const client of state.clients) client.send(frame);
   }
 
-  function attach(client: BoardClient): void {
+  function attach(client: BoardClient, connection: BoardConnection): void {
     state.clients.add(client);
+    state.connections.add(connection);
+    connection.queue = new BoardFrameQueue(
+      (text) => executeFrame(client, text),
+      (error, text) => {
+        if (!state.clients.has(client)) return;
+        try {
+          client.send(failureFrame(text, error));
+        } catch (reportError: unknown) {
+          console.error("cetas-js: Board websocket error reply failed", reportError);
+        }
+      },
+    );
   }
 
-  function detach(client: BoardClient): void {
+  function detach(client: BoardClient, connection: BoardConnection): void {
+    connection.queue?.close();
+    connection.queue = undefined;
+    state.connections.delete(connection);
     state.clients.delete(client);
   }
 
-  /**
-   * One frame in, one serialized reply. The Board protocol lives here so both
-   * transports behave identically; only the socket plumbing differs.
-   */
+  /** Close overloaded clients rather than retaining an unbounded backlog. */
   function serveFrame(
     client: BoardClient,
     connection: BoardConnection,
     text: string,
   ): void {
-    connection.queue = connection.queue
-      .then(async () => {
+    const queue = connection.queue;
+    if (queue === undefined) return;
+    if (!queue.enqueue(text)) {
+      detach(client, connection);
+      client.close(1013, "Board queue capacity exceeded");
+    }
+  }
+
+  /** One frame in, one serialized reply; shared by Bun and Node transports. */
+  async function executeFrame(client: BoardClient, text: string): Promise<void> {
         let frame: unknown;
         try {
           frame = JSON.parse(text);
@@ -539,16 +563,6 @@ export async function openWorkflowBoard(
         // Commands commit through the shared backend; refresh every
         // connected dashboard so all tabs converge on the same revision.
         await broadcastSnapshot(true);
-      })
-      .catch((error: unknown) => {
-        try {
-          client.send(failureFrame(text, error));
-        } catch (reportError: unknown) {
-          // The client may have disconnected while the command awaited.
-          // A throwing error reporter must not become an unhandled rejection.
-          console.error("cetas-js: Board websocket error reply failed", reportError);
-        }
-      });
   }
 
   /** Bun transport: Bun.serve owns the HTTP server and the upgrade. */
@@ -564,12 +578,13 @@ export async function openWorkflowBoard(
           token,
         );
         if (route !== "upgrade") return route;
-        if (server.upgrade(req, { data: { queue: Promise.resolve() } })) return;
+        if (server.upgrade(req, { data: {} })) return;
         return fail(400);
       },
       websocket: {
+        maxPayloadLength: BOARD_MAX_FRAME_CHARS,
         open(client) {
-          attach(client);
+          attach(client, client.data);
         },
         message(client, message) {
           const text =
@@ -577,7 +592,7 @@ export async function openWorkflowBoard(
           serveFrame(client, client.data, text);
         },
         close(client) {
-          detach(client);
+          detach(client, client.data);
         },
       },
     });
@@ -600,7 +615,10 @@ export async function openWorkflowBoard(
    */
   async function startNodeListener(): Promise<BoardListener> {
     const { WebSocketServer } = loadWebSocketServer();
-    const sockets = new WebSocketServer({ noServer: true });
+    const sockets = new WebSocketServer({
+      noServer: true,
+      maxPayload: BOARD_MAX_FRAME_CHARS,
+    });
     const server = createServer((req, res) => {
       respondToRequest(req, res).catch((error: unknown) => {
         console.error("cetas-js: Board request failed", error);
@@ -642,16 +660,19 @@ export async function openWorkflowBoard(
       });
     });
     sockets.on("connection", (socket) => {
-      const connection: BoardConnection = { queue: Promise.resolve() };
-      const client: BoardClient = { send: (data) => socket.send(data) };
-      attach(client);
+      const connection: BoardConnection = {};
+      const client: BoardClient = {
+        send: (data) => socket.send(data),
+        close: (code, reason) => socket.close(code, reason),
+      };
+      attach(client, connection);
       socket.on("message", (data) => {
         serveFrame(client, connection, frameText(data));
       });
-      socket.on("close", () => detach(client));
+      socket.on("close", () => detach(client, connection));
       socket.on("error", (error: Error) => {
         console.error("cetas-js: Board websocket error", error);
-        detach(client);
+        detach(client, connection);
       });
     });
     sockets.on("error", (error: Error) => {
@@ -708,6 +729,8 @@ async function closeOwner(owner: BoardServer): Promise<void> {
   if (owner.state.ticketTimer !== undefined) {
     clearInterval(owner.state.ticketTimer);
   }
+  for (const connection of owner.state.connections) connection.queue?.close();
+  owner.state.connections.clear();
   owner.state.clients.clear();
   try {
     await owner.listener.stop();
