@@ -20,7 +20,11 @@ const collection = locale === "en" ? "en" : "docs";
 
 const copy = {
   zh: {
+    // `title` is the visible <h1>; `pageTitle` is the <head> title (passed
+    // as `absoluteTitle`, so no site suffix is appended) and feeds og:title
+    // / JSON-LD. The positioning phrase lives only in pageTitle + meta.
     title: "Cetas",
+    pageTitle: "Cetas — 运行在你终端、编辑器与脚本里的编码 agent",
     description: "运行在你终端、编辑器与脚本里的编码 agent——不写代码也能上手，一切记录与配置都留在你自己的机器上。",
     lead:
       "一个 agent，三个入口。终端、编辑器、脚本化的一次性调用，组合的是同一个内核和同一份持久状态 —— 配置一次，从哪个入口进来都在。",
@@ -93,6 +97,7 @@ const copy = {
   },
   en: {
     title: "Cetas",
+    pageTitle: "Cetas — A coding agent for your terminal, editor & scripts",
     description: "A coding agent for your terminal, your editor, and your scripts — usable without coding experience; all records and settings stay on your own machine.",
     lead:
       "One agent, every surface. The terminal, your editor, and a scripted one-shot all compose the same core and the same durable state — so configuration you set once is there wherever you enter.",
@@ -177,7 +182,12 @@ const install = "npm install -g @posoco/cetas";
 const otherLocaleHref = withBase(locale === "en" ? "/" : "/en/", import.meta.env.BASE_URL);
 ---
 
-<BaseLayout title={copy.title} description={copy.description} collection={collection}>
+<BaseLayout
+  title={copy.pageTitle}
+  absoluteTitle
+  description={copy.description}
+  collection={collection}
+>
   <div class="flex flex-col min-h-screen">
     <Header />
     <main id="main-content" tabindex="-1" class="flex-1 mx-auto max-w-4xl w-full px-6 py-20">

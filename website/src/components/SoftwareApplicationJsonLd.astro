@@ -5,8 +5,11 @@
  *
  * Scope: `/` (zh) and `/en/` (en), both rendered by Home.astro. The block
  * only states what the page (or a page it links) already shows: name is
- * the page H1 (`copy.title`), description is the visible lead sentence for
- * the current language, codeRepository is the nimbus config's `github`.
+ * the page's `<title>`/og:title — Home.astro's `copy.pageTitle`, the
+ * positioning statement ("Cetas — …") whose halves are also visible on the
+ * page as the H1 and the description line — and description is the visible
+ * lead sentence for the current language, codeRepository is the nimbus
+ * config's `github`.
  * Nothing is invented for rich results: no `offers` price for free
  * open-source software (`isAccessibleForFree` carries that), no
  * `aggregateRating` (no rating data exists). `operatingSystem` carries the
@@ -30,7 +33,10 @@
 import { config } from "virtual:nimbus/config";
 
 interface Props {
-  /** Page H1 — the homepage's `copy.title` ("Cetas" in every language). */
+  /**
+   * Page `<title>`/og:title — the homepage's `copy.pageTitle`
+   * ("Cetas — …" positioning statement); becomes JSON-LD `name`.
+   */
   title: string;
   /** Visible lead sentence — the homepage's `copy.description`. */
   description?: string;

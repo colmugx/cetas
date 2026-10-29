@@ -18,10 +18,18 @@ import NimbusHead from "@cloudflare/nimbus-docs/components/NimbusHead.astro";
 import WebMCP from "@/components/WebMCP.astro";
 import type { BasePageProps } from "@cloudflare/nimbus-docs/types";
 
-type Props = BasePageProps;
+type Props = BasePageProps & {
+  /**
+   * Render `title` verbatim, skipping the site-title template inside
+   * NimbusHead (patched: `${title} · ${config.title}`). Only pages whose
+   * title is a complete positioning statement set this — the homepage.
+   */
+  absoluteTitle?: boolean;
+};
 
 const {
   title,
+  absoluteTitle,
   description,
   noindex,
   markdownUrl,
@@ -120,6 +128,7 @@ const resolvedMarkdownUrl =
 
     <NimbusHead
       title={title}
+      absoluteTitle={absoluteTitle}
       description={description}
       noindex={noindex}
       markdownUrl={markdownUrl}

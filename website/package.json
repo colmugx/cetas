@@ -9,8 +9,6 @@
     "preview": "astro preview",
     "typecheck": "astro check",
     "verify": "astro check && astro build",
-    "check:sitemap": "bun scripts/check-sitemap.mjs",
-    "check:faq": "bun scripts/check-faq.mjs",
     "lint:docs": "nimbus-docs lint",
     "lint:docs:fix": "nimbus-docs lint --fix"
   },
@@ -32,5 +30,8 @@
     "pagefind": "^1.5.2",
     "tailwindcss": "^4.1.4",
     "typescript": "^5.8.3"
+  },
+  "patchedDependencies": {
+    "@cloudflare/nimbus-docs@0.17.0": "patches/@cloudflare%2Fnimbus-docs@0.17.0.patch"
   }
 }
