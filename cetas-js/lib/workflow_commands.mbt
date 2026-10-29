@@ -653,9 +653,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     let tickets = match self.tickets {
       Some(tickets) => tickets
       None =>
-        return @posoco.CommandOutcome::Failure(
-          reason="board_work_unavailable",
-        )
+        return @posoco.CommandOutcome::Failure(reason="board_work_unavailable")
     }
     tickets.reconcile_interrupted() catch {
       _ => return @posoco.CommandOutcome::Failure(reason="ticket_state_failed")
@@ -670,9 +668,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     let tickets = match self.tickets {
       Some(tickets) => tickets
       None =>
-        return @posoco.CommandOutcome::Failure(
-          reason="board_work_unavailable",
-        )
+        return @posoco.CommandOutcome::Failure(reason="board_work_unavailable")
     }
     let fields = match args {
       Object(fields) => fields
@@ -720,9 +716,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     let tickets = match self.tickets {
       Some(tickets) => tickets
       None =>
-        return @posoco.CommandOutcome::Failure(
-          reason="board_work_unavailable",
-        )
+        return @posoco.CommandOutcome::Failure(reason="board_work_unavailable")
     }
     let task_id = match args {
       Object(fields) =>
@@ -752,9 +746,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     let tickets = match self.tickets {
       Some(tickets) => tickets
       None =>
-        return @posoco.CommandOutcome::Failure(
-          reason="board_work_unavailable",
-        )
+        return @posoco.CommandOutcome::Failure(reason="board_work_unavailable")
     }
     let (task_id, question) = match args {
       Object(fields) => {
@@ -799,9 +791,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     let tickets = match self.tickets {
       Some(tickets) => tickets
       None =>
-        return @posoco.CommandOutcome::Failure(
-          reason="board_work_unavailable",
-        )
+        return @posoco.CommandOutcome::Failure(reason="board_work_unavailable")
     }
     let task_id = match args {
       Object(fields) =>
@@ -829,9 +819,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     let tickets = match self.tickets {
       Some(tickets) => tickets
       None =>
-        return @posoco.CommandOutcome::Failure(
-          reason="board_work_unavailable",
-        )
+        return @posoco.CommandOutcome::Failure(reason="board_work_unavailable")
     }
     let task_id = match args {
       Object(fields) =>
@@ -861,9 +849,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     let tickets = match self.tickets {
       Some(tickets) => tickets
       None =>
-        return @posoco.CommandOutcome::Failure(
-          reason="board_work_unavailable",
-        )
+        return @posoco.CommandOutcome::Failure(reason="board_work_unavailable")
     }
     let fields = match args {
       Object(fields) => fields
@@ -908,9 +894,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     let tickets = match self.tickets {
       Some(tickets) => tickets
       None =>
-        return @posoco.CommandOutcome::Failure(
-          reason="board_work_unavailable",
-        )
+        return @posoco.CommandOutcome::Failure(reason="board_work_unavailable")
     }
     let task_id = match args {
       Object(fields) =>
@@ -941,9 +925,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     let tickets = match self.tickets {
       Some(tickets) => tickets
       None =>
-        return @posoco.CommandOutcome::Failure(
-          reason="board_work_unavailable",
-        )
+        return @posoco.CommandOutcome::Failure(reason="board_work_unavailable")
     }
     let task_id = match args {
       Object(fields) =>
@@ -963,9 +945,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     let tickets = match self.tickets {
       Some(tickets) => tickets
       None =>
-        return @posoco.CommandOutcome::Failure(
-          reason="board_work_unavailable",
-        )
+        return @posoco.CommandOutcome::Failure(reason="board_work_unavailable")
     }
     let task_id = match args {
       Object(fields) =>
@@ -990,9 +970,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     let tickets = match self.tickets {
       Some(tickets) => tickets
       None =>
-        return @posoco.CommandOutcome::Failure(
-          reason="board_work_unavailable",
-        )
+        return @posoco.CommandOutcome::Failure(reason="board_work_unavailable")
     }
     let ran = tickets.run_ready() catch {
       _ => return @posoco.CommandOutcome::Failure(reason="ticket_start_failed")
@@ -1011,9 +989,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     let tickets = match self.tickets {
       Some(tickets) => tickets
       None =>
-        return @posoco.CommandOutcome::Failure(
-          reason="board_work_unavailable",
-        )
+        return @posoco.CommandOutcome::Failure(reason="board_work_unavailable")
     }
     let fields = match args {
       Object(fields) => fields
@@ -1062,9 +1038,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     let tickets = match self.tickets {
       Some(tickets) => tickets
       None =>
-        return @posoco.CommandOutcome::Failure(
-          reason="board_work_unavailable",
-        )
+        return @posoco.CommandOutcome::Failure(reason="board_work_unavailable")
     }
     let question_id = match args {
       Object(fields) =>
@@ -1092,9 +1066,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     let tickets = match self.tickets {
       Some(tickets) => tickets
       None =>
-        return @posoco.CommandOutcome::Failure(
-          reason="board_work_unavailable",
-        )
+        return @posoco.CommandOutcome::Failure(reason="board_work_unavailable")
     }
     let (task_id, roles) = match args {
       Object(fields) => {
@@ -1146,9 +1118,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     let tickets = match self.tickets {
       Some(tickets) => tickets
       None =>
-        return @posoco.CommandOutcome::Failure(
-          reason="board_work_unavailable",
-        )
+        return @posoco.CommandOutcome::Failure(reason="board_work_unavailable")
     }
     let names = TeamNames::from_json(args)
     let mcp = match args {
