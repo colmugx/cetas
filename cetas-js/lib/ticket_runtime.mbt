@@ -1574,6 +1574,7 @@ async fn TicketRuntime::finish_shape(
 async fn TicketRuntime::shape(
   self : TicketRuntime,
   task_id : String,
+  resuming~ : Bool = false,
 ) -> Result[Unit, String] {
   if self.run_for(task_id) is Some(run) && run.status == "running" {
     return Err("ticket is already running")
@@ -1607,11 +1608,23 @@ async fn TicketRuntime::shape(
   self.counter = self.counter + 1
   let session_id = @work.work_session_id(task_id, "po")
   let store = self.child_store_for(task_id)
-  store.clear_session(session_id) catch {
-    error =>
-      return Err(
-        "could not clear the previous shaping session: " + error.to_string(),
-      )
+  if resuming {
+    let session = store.load(session_id) catch {
+      error =>
+        return Err(
+          "could not read the previous shaping session: " + error.to_string(),
+        )
+    }
+    if session.messages.is_empty() {
+      return Err("no durable shaping session to resume")
+    }
+  } else {
+    store.clear_session(session_id) catch {
+      error =>
+        return Err(
+          "could not clear the previous shaping session: " + error.to_string(),
+        )
+    }
   }
   let _run = self.add_run(task_id, session_id, "shape", "po")
   let endpoint : @work.BoardQuestionEndpoint = {
@@ -1642,7 +1655,10 @@ async fn TicketRuntime::shape(
     home=self.ctx.home,
     host_group=Some(self.group),
   )
-  let prompt = "Refine this Board backlog item into an implementation-ready user story. You are the Product Owner for this ticket. The person in Cetas is the Customer.\n\n" +
+  let prompt = if resuming {
+    "The previous shaping attempt was interrupted. Continue this same shaping conversation from the durable session, inspect the ticket state if needed, and return the final JSON object now. Do not ask the Customer to repeat information already in the conversation."
+  } else {
+    "Refine this Board backlog item into an implementation-ready user story. You are the Product Owner for this ticket. The person in Cetas is the Customer.\n\n" +
     "Title: " +
     title +
     "\n\nCurrent description:\n" +
@@ -1654,11 +1670,12 @@ async fn TicketRuntime::shape(
     "Split:\n" +
     "{\"summary\":\"why these are independent stories\",\"tasks\":[{\"title\":\"short title\",\"user_story\":\"As a ...\\nI want ...\\nSo that ...\",\"description\":\"scope\",\"implementation_suggestions\":\"starting points\",\"definition_of_done\":[\"observable criterion\"],\"priority\":\"p1\",\"required_roles\":[\"rd\",\"set\",\"te\"]}]}\n" +
     "Every field is required. Use the language of the ticket title/description for every value; JSON keys stay English. Do not wrap it in Markdown."
+  }
   let spec : @subagent.ChildSpec = {
     task: prompt,
     kind_name: "shape",
     session_id,
-    resuming: false,
+    resuming,
     tools: Some(["read", "glob", "grep", "astgrep", "ask_question"]),
     skills: self.skill_face("po"),
     mode: (self.parent_mode)(),
@@ -2228,9 +2245,33 @@ async fn TicketRuntime::resume_ticket(
     Err(error) => return Err(error)
   }
   let stage = @work.task_field(task, "stage")
+  if stage == "refining" {
+    match self.shape(task_id, resuming=true) {
+      Ok(_) => return Ok(self.state_json())
+      Err(error) => return Err(error)
+    }
+  }
+  if stage == "verification" {
+    let session_id = @work.work_session_id(task_id, "te")
+    let store = self.child_store_for(task_id)
+    let session = store.load(session_id) catch {
+      error =>
+        return Err(
+          "could not read the durable verification session: " +
+          error.to_string(),
+        )
+    }
+    if session.messages.is_empty() {
+      return Err("no durable verification session to resume")
+    }
+    return match self.start_role(task_id, task, "te", true) {
+      Ok(_) => Ok(self.state_json())
+      Err(error) => Err(error)
+    }
+  }
   if stage != "ready" && stage != "running" && stage != "suspended" {
     return Err(
-      "ticket must be Ready, Running, or Suspended before it can be resumed",
+      "ticket must be Shaping, Ready, Running, or Suspended before it can be resumed",
     )
   }
   let session_id = @work.work_session_id(task_id, "rd")
@@ -2340,21 +2381,20 @@ async fn TicketRuntime::retry(
     Err(error) => return Err(error)
   }
   let stage = @work.task_field(task, "stage")
+  if stage == "refining" {
+    match self.shape(task_id) {
+      Ok(_) => return Ok(self.state_json())
+      Err(error) => return Err(error)
+    }
+  }
   if stage != "ready" &&
     stage != "verification" &&
     stage != "review" &&
     stage != "suspended" &&
     stage != "running" {
     return Err(
-      "ticket must be Ready, Verification, Review, Suspended, or a failed Running ticket before it can be retried",
+      "ticket must be Shaping, Ready, Verification, Review, Suspended, or a failed Running ticket before it can be retried",
     )
-  }
-  if stage == "running" {
-    match self.move_task(task_id, "suspended") {
-      Ok(_) => ()
-      Err(error) =>
-        return Err("could not park the failed ticket before retrying: " + error)
-    }
   }
   if stage != "ready" {
     match self.move_task(task_id, "ready") {
