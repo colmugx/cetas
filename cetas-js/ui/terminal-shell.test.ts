@@ -21,7 +21,7 @@ import {
   statusRouteTarget,
   TerminalShell,
 } from "./terminal-shell.ts";
-import { closeWorkflowBoards } from "./workflow-board-server.ts";
+import { closeWorkflowBoard } from "./workflow-board-server.ts";
 import {
   BOARD_ACTIVATION_NOTE,
   CetasApplication,
@@ -1594,7 +1594,7 @@ describe("/board activation note", () => {
       const activations = prompts[0]!.match(/\[Board activated\]/g) ?? [];
       expect(activations).toHaveLength(1);
     } finally {
-      await closeWorkflowBoards();
+      await closeWorkflowBoard(app);
       await app.shutdown();
     }
   });

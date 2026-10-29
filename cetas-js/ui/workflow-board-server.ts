@@ -703,22 +703,32 @@ export function hasOpenWorkflowBoards(): boolean {
   return owners.size > 0;
 }
 
+async function closeOwner(owner: BoardServer): Promise<void> {
+  owner.closed = true;
+  if (owner.state.timer !== undefined) clearInterval(owner.state.timer);
+  if (owner.state.ticketTimer !== undefined) {
+    clearInterval(owner.state.ticketTimer);
+  }
+  owner.state.clients.clear();
+  try {
+    await owner.listener.stop();
+  } catch {
+    // A already-closed server is still a stopped server.
+  }
+}
+
+/// Close only the dashboard owned by one application. Tests and host teardown
+/// must not stop an unrelated Board that another application opened.
+export async function closeWorkflowBoard(app: CetasApplication): Promise<void> {
+  const owner = boards.get(app);
+  if (owner === undefined) return;
+  boards.delete(app);
+  owners.delete(owner);
+  await closeOwner(owner);
+}
+
 export async function closeWorkflowBoards(): Promise<void> {
   const all = [...owners];
   owners.clear();
-  await Promise.all(
-    all.map(async (owner) => {
-      owner.closed = true;
-      if (owner.state.timer !== undefined) clearInterval(owner.state.timer);
-      if (owner.state.ticketTimer !== undefined) {
-        clearInterval(owner.state.ticketTimer);
-      }
-      owner.state.clients.clear();
-      try {
-        await owner.listener.stop();
-      } catch {
-        // A already-closed server is still a stopped server.
-      }
-    }),
-  );
+  await Promise.all(all.map(closeOwner));
 }
