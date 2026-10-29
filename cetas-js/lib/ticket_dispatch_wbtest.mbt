@@ -996,7 +996,10 @@ async test "ticket retry is rejected while the ticket is running" {
       @posoco.tk_tool_call_response(
         "ask_question_child",
         "call-retry-running",
-        { "question": "Which API should the worker use?", "audience": "customer" },
+        {
+          "question": "Which API should the worker use?",
+          "audience": "customer",
+        },
       ),
     ),
     @posoco.ScriptedModelStep::Respond(
@@ -2583,11 +2586,9 @@ async test "worker question to PO is answered in the background" {
   defer @board_fixtures.cleanup(directory)
   let model = @posoco.ScriptedModel([
     @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_tool_call_response(
-        "ask_question_child",
-        "call-po-auto",
-        { "question": "Which API should I use?" },
-      ),
+      @posoco.tk_tool_call_response("ask_question_child", "call-po-auto", {
+        "question": "Which API should I use?",
+      }),
     ),
     @posoco.ScriptedModelStep::Respond(
       @posoco.tk_stop_response("Use the public API."),
@@ -2629,7 +2630,9 @@ async test "worker question to PO is answered in the background" {
       "user_story": "As a user, I want this, so that value.",
       "implementation_suggestions": "Ask PO when needed.",
     }
-    accept_board_command(board, "po-auto-create", "board.task.create", 0L, create)
+    accept_board_command(
+      board, "po-auto-create", "board.task.create", 0L, create,
+    )
     accept_board_command(
       board,
       "po-auto-roles",
@@ -2637,20 +2640,14 @@ async test "worker question to PO is answered in the background" {
       1L,
       { "id": "task-1", "roles": ["rd"] },
     )
-    accept_board_command(
-      board,
-      "po-auto-refining",
-      "board.task.move",
-      2L,
-      { "id": "task-1", "to": "refining" },
-    )
-    accept_board_command(
-      board,
-      "po-auto-ready",
-      "board.task.move",
-      3L,
-      { "id": "task-1", "to": "ready" },
-    )
+    accept_board_command(board, "po-auto-refining", "board.task.move", 2L, {
+      "id": "task-1",
+      "to": "refining",
+    })
+    accept_board_command(board, "po-auto-ready", "board.task.move", 3L, {
+      "id": "task-1",
+      "to": "ready",
+    })
     match tickets.run("task-1") {
       Ok(_) => ()
       Err(error) => fail("PO auto run failed: " + error)

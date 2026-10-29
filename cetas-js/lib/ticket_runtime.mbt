@@ -1,5 +1,3 @@
-
-
 ///|
 priv struct TicketRuntime {
   board : @board.BoardWorkflows

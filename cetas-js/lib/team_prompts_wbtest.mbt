@@ -37,7 +37,12 @@ test "role prompt carries the customized name" {
 ///|
 test "team mcp settings round-trip per role" {
   let mcp = default_team_mcp()
-  mcp["rd"] = { enabled: true, all: false, servers: ["github", "browser"], tools: [] }
+  mcp["rd"] = {
+    enabled: true,
+    all: false,
+    servers: ["github", "browser"],
+    tools: [],
+  }
   let parsed = TeamMcp::from_json_map(TeamMcp::to_json_map(mcp))
   match parsed.get("rd") {
     Some(value) => {
@@ -53,7 +58,7 @@ test "team mcp settings round-trip per role" {
 ///|
 test "team skill settings round-trip per role" {
   let skills = default_team_skills()
-  skills["te"] = { enabled: true, all: false, skills: ["tdd"] }
+  skills["te"] = { enabled: true, all: false, skills: ["tdd"], }
   let parsed = TeamSkills::from_json_map(TeamSkills::to_json_map(skills))
   match parsed.get("te") {
     Some(value) => {
@@ -69,7 +74,7 @@ test "team skill settings round-trip per role" {
 ///|
 test "team config round-trips names, mcp, skills and profile" {
   let mcp = default_team_mcp()
-  mcp["te"] = { enabled: true, all: false, servers: ["browser"], tools: [] }
+  mcp["te"] = { enabled: true, all: false, servers: ["browser"], tools: [], }
   let skills = default_team_skills()
   skills["rd"] = { enabled: true, all: false, skills: ["tdd"], }
   let config : TeamConfig = {

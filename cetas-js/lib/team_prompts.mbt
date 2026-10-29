@@ -85,7 +85,7 @@ pub struct TeamMcp {
 
 ///|
 pub fn TeamMcp::defaults() -> TeamMcp {
-  { enabled: false, all: true, servers: [], tools: [] }
+  { enabled: false, all: true, servers: [], tools: [], }
 }
 
 ///|
@@ -137,7 +137,7 @@ pub fn TeamMcp::from_json(value : Json) -> TeamMcp {
           }
         _ => ()
       }
-      { enabled, all, servers, tools }
+      { enabled, all, servers, tools, }
     }
     _ => defaults
   }
