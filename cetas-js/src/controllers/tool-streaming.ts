@@ -27,6 +27,8 @@ import { ToolRow } from "../transcript/components.ts";
 import { parsePartialJsonObject } from "./partial-json.ts";
 
 export const TOOL_STREAMING_FLUSH_MS = 50;
+/** A preview, never the authoritative tool arguments. Bound its retained memory. */
+export const MAX_TOOL_ARGS_PREVIEW_CHARS = 64 * 1024;
 
 /** Factory the host supplies to mount streaming rows into the transcript. */
 export interface StreamingToolRowFactory {
@@ -43,6 +45,8 @@ interface PendingCall {
   index: number;
   name?: string;
   rawArgs: string;
+  previewComplete: boolean;
+  dirty: boolean;
   row: ToolRow;
 }
 
@@ -81,6 +85,8 @@ export class ToolStreamingController {
         index,
         name,
         rawArgs: "",
+        previewComplete: false,
+        dirty: true,
         row: this.factory.createStreamingRow(index, id, name),
       };
       this.pendingByIndex.set(index, entry);
@@ -90,13 +96,17 @@ export class ToolStreamingController {
       entry.id = id;
       this.pendingById.set(id, entry);
     }
-    if (delta !== undefined && delta.length > 0) {
-      entry.rawArgs += delta;
+    if (delta !== undefined && delta.length > 0 && !entry.previewComplete) {
+      const remaining = MAX_TOOL_ARGS_PREVIEW_CHARS - entry.rawArgs.length;
+      if (delta.length >= remaining) entry.previewComplete = true;
+      entry.rawArgs += delta.slice(0, Math.max(0, remaining));
+      entry.dirty = true;
     }
     if (name !== undefined && entry.name === undefined) {
       entry.name = name;
+      entry.dirty = true;
     }
-    this.scheduleFlush();
+    if (entry.dirty) this.scheduleFlush();
   }
 
   /**
@@ -158,12 +168,14 @@ export class ToolStreamingController {
   }
 
   private flushNow(): void {
-    if (this.pendingByIndex.size === 0) return;
+    let changed = false;
     for (const entry of this.pendingByIndex.values()) {
-      // Lossiness may leave even the final buffer unparsable at its tail —
-      // parsePartialJsonObject degrades gracefully either way.
+      if (!entry.dirty) continue;
+      entry.dirty = false;
+      // Preview is bounded; the committed call always supplies full args.
       entry.row.setStreamingArgs(parsePartialJsonObject(entry.rawArgs), entry.name);
+      changed = true;
     }
-    this.requestRender();
+    if (changed) this.requestRender();
   }
 }
