@@ -4,7 +4,7 @@
 /// of making the model parse the whole brief out of its prompt.
 pub struct BoardCoordinationTools {
   task_id : String
-  brief : Ref[String]
+  brief : String
 }
 
 ///|
@@ -62,7 +62,7 @@ fn BoardCoordinationTools::coordination_tool_content(
   self : BoardCoordinationTools,
   name : String,
 ) -> String? {
-  let brief = self.brief.val
+  let brief = self.brief
   match name {
     "board_coordination_brief" => Some(brief)
     "board_dependencies" => {
