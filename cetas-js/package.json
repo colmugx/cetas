@@ -16,7 +16,7 @@
     "embed:board": "bun scripts/embed-board-assets.ts",
     "build:board": "cd ../extension/posoco-ext-board-web && warren build && cd ../../cetas-js && bun run embed:board",
     "typecheck": "tsc --noEmit",
-    "test": "bun test --preload ./moonbit-preload.ts",
+    "test": "bun test",
     "test:unit": "bun test-channels.ts unit",
     "test:e2e": "bun test-channels.ts e2e"
   },

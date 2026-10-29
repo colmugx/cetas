@@ -1098,6 +1098,7 @@ export class TerminalShell {
       turnActive: this.turnStatusMessage !== undefined,
       pendingQuestions: this.pendingUiRequests,
       pendingAuth: this.pendingAuthRequests,
+      boardPresence: this.boardActivities.presence(),
       stopping: this.programStatusStopping || this.hostFaultStopped,
     });
     const key = JSON.stringify(status);

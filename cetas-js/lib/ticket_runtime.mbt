@@ -20,6 +20,7 @@ priv struct TicketRuntime {
   mut profile : WorkProfile
   mcp : BoardMcp?
   skills : Array[BoardSkill]
+  run_journal_error : String?
 }
 
 ///|
@@ -34,6 +35,8 @@ fn TicketRuntime::TicketRuntime(
   mcp~ : BoardMcp? = None,
   skills~ : Array[BoardSkill] = [],
   config~ : TeamConfig? = None,
+  runs~ : @work.WorkRunStore = @work.WorkRunStore::WorkRunStore(),
+  journal_error~ : String? = None,
 ) -> TicketRuntime {
   let config = match config {
     Some(value) => value
@@ -47,7 +50,7 @@ fn TicketRuntime::TicketRuntime(
     ctx,
     group,
     questions: @work.TicketQuestions::TicketQuestions(),
-    runs: @work.WorkRunStore::WorkRunStore(),
+    runs,
     progress: @work.WorkProgressLog::WorkProgressLog(),
     child_store: CetasChildSessionStore::CetasChildSessionStore(),
     session_root,
@@ -60,7 +63,55 @@ fn TicketRuntime::TicketRuntime(
     profile: config.profile,
     mcp,
     skills,
+    run_journal_error: journal_error,
   }
+}
+
+///|
+fn run_journal_path(ctx : @cetas_core.HostContext) -> String {
+  ctx.home +
+  "/.cetas/board-runs-" +
+  @fs_session.project_dir_name(ctx.cwd) +
+  ".json"
+}
+
+///|
+async fn load_work_runs(
+  ctx : @cetas_core.HostContext,
+) -> (@work.WorkRunStore, String?) {
+  let path = run_journal_path(ctx)
+  let text = match @workspace.read_file_result(ctx.fs, path) {
+    Missing => return (@work.WorkRunStore::WorkRunStore(), None)
+    Failed(message) => return (
+      @work.WorkRunStore::WorkRunStore(),
+      Some("run journal read failed: " + message),
+    )
+    Content(text) => text
+  }
+  let value = @json.parse(text) catch {
+    _ =>
+      return (
+        @work.WorkRunStore::WorkRunStore(),
+        Some("run journal is not valid JSON"),
+      )
+  }
+  let runs = @work.WorkRunStore::from_json(value)
+  runs.interrupt_running(
+    "Host restarted before this run finished. Resume continues the durable session.",
+  )
+  (runs, None)
+}
+
+///|
+fn TicketRuntime::persist_runs(self : TicketRuntime) -> Unit {
+  let fs = self.ctx.fs
+  let path = run_journal_path(self.ctx)
+  let text = self.runs.to_json().stringify()
+  self.group.spawn_bg(async fn() {
+    fs.write_file_atomic(path, text) catch {
+      _ => ()
+    }
+  })
 }
 
 ///|
@@ -114,7 +165,9 @@ fn TicketRuntime::add_run(
   phase : String,
   role : String,
 ) -> @work.WorkRun {
-  self.runs.add(task_id, session_id, phase, role)
+  let run = self.runs.add(task_id, session_id, phase, role)
+  self.persist_runs()
+  run
 }
 
 ///|
@@ -184,7 +237,7 @@ fn TicketRuntime::skill_face(
 fn TicketRuntime::team_label(self : TicketRuntime, role : String) -> String {
   match role {
     "product_owner" | "customer" => "Customer"
-    "refiner" | "po" => self.team.po
+    "po" => self.team.po
     "sm" => self.team.sm
     "rd" => self.team.rd
     "set" => self.team.set
@@ -219,9 +272,9 @@ fn TicketRuntime::answer_question(
 }
 
 ///|
-/// Ask a Refiner child to answer one open Product Owner question. The original
-/// worker stays parked; a failure leaves the question open for a human Refiner.
-fn TicketRuntime::answer_as_refiner(
+/// Forward a Customer question to the Product Owner child. The worker stays
+/// parked; failure leaves the question open for a human PO.
+fn TicketRuntime::forward_to_po(
   self : TicketRuntime,
   question_id : String,
 ) -> Result[Unit, String] {
@@ -591,6 +644,10 @@ fn TicketRuntime::state_json(self : TicketRuntime) -> Json {
     },
     "work_profile": self.profile.to_json(),
     "presence": presence.to_json(),
+    "run_journal_error": match self.run_journal_error {
+      Some(value) => Json::string(value)
+      None => Json::null()
+    },
     "questions": self.questions.json(),
     "runs": Json::array(runs),
     "progress": Json::array(progress_items),
@@ -1039,6 +1096,7 @@ fn TicketRuntime::park_run(
   error : String,
 ) -> Unit {
   self.runs.park(task_id, role, status, error)
+  self.persist_runs()
 }
 
 ///|
@@ -1158,6 +1216,7 @@ async fn TicketRuntime::finish_work(
     }
     Err(error) => self.park_run(task_id, role, "failed", error)
   }
+  self.persist_runs()
 }
 
 ///|

@@ -172,6 +172,12 @@ async fn build_cetas_workflows(
   )
   let board_skills = skill_catalog.skills.map(BoardSkill::from_descriptor)
   let team_config = read_team_config(ctx)
+  let (run_journal, journal_error) = load_work_runs(ctx) catch {
+    _ => (
+      @work.WorkRunStore::WorkRunStore(),
+      Some("run journal could not be loaded"),
+    )
+  }
   let tickets = TicketRuntime::TicketRuntime(
     board~,
     manager~,
@@ -187,6 +193,8 @@ async fn build_cetas_workflows(
     mcp=Some(BoardMcp::BoardMcp(bridge=mcp_bridge)),
     skills=board_skills,
     config=team_config,
+    runs=run_journal,
+    journal_error=journal_error,
   )
   Some(
     CetasWorkflowCommands::{

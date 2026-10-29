@@ -45,3 +45,20 @@ describe("OSC 7501 Cetas one-root program status", () => {
     expect(wire).not.toContain("sk-");
   });
 });
+
+describe("Board presence in terminal status", () => {
+  test("blocked Board outranks idle but not user authentication", () => {
+    expect(projectProgramStatus({ ...idle, boardPresence: {
+      state: "blocked", running: 1, waiting_input: 1, message: "Board: waiting for your response",
+    } })).toEqual({ state: "blocked", app: "cetas", kind: "question", message: "Board: waiting for your response" });
+    expect(projectProgramStatus({ ...idle, pendingAuth: 1, boardPresence: {
+      state: "blocked", running: 1, waiting_input: 1,
+    } }).kind).toBe("auth");
+  });
+
+  test("running Board work keeps an otherwise idle terminal working", () => {
+    expect(projectProgramStatus({ ...idle, boardPresence: {
+      state: "working", running: 2, waiting_input: 0,
+    } })).toEqual({ state: "working", app: "cetas", message: "Board: 2 running" });
+  });
+});

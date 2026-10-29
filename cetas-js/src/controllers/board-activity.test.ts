@@ -60,3 +60,23 @@ describe("BoardActivityStore", () => {
     expect(store.running().map((item) => item.task_id)).toEqual(["b", "a"]);
   });
 });
+
+describe("BoardActivityStore presence", () => {
+  test("projects the authoritative Board presence", () => {
+    const store = new BoardActivityStore();
+    store.update({
+      presence: { state: "blocked", running: 1, waiting_input: 2, attention: 0, message: "Waiting" },
+      questions: [],
+      runs: [],
+    });
+    expect(store.presence()).toEqual({
+      state: "blocked",
+      running: 1,
+      waiting_input: 2,
+      attention: 0,
+      message: "Waiting",
+    });
+    store.clear();
+    expect(store.presence().state).toBe("idle");
+  });
+});

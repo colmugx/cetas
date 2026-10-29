@@ -8,7 +8,7 @@ test "project name uses only the last path segment" {
 ///|
 test "team names trim controls and keep defaults for blanks" {
   let names = TeamNames::from_json({
-    "refiner": "  Ada\n",
+    "po": "  Ada\n",
     "rd": "",
     "set": "Grace",
     "te": "  Linus  ",

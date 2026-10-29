@@ -1,1 +1,4 @@
 preload = ["./moonbit-preload.ts"]
+
+[test]
+preload = ["./moonbit-preload.ts"]

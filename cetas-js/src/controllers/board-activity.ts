@@ -47,11 +47,41 @@ function activityText(value: unknown): string | undefined {
   return body.length > 0 ? body : undefined;
 }
 
+export interface BoardPresence {
+  readonly state: "idle" | "working" | "blocked";
+  readonly running: number;
+  readonly waiting_input: number;
+  readonly attention: number;
+  readonly message?: string;
+}
+
+function presenceFrom(state: unknown): BoardPresence {
+  const root = record(state);
+  const raw = root === undefined ? undefined : record(root.presence);
+  if (raw === undefined) return { state: "idle", running: 0, waiting_input: 0, attention: 0 };
+  const rawState = text(raw.state);
+  const value = rawState === "blocked" || rawState === "working" ? rawState : "idle";
+  const message = text(raw.message);
+  return {
+    state: value,
+    running: number(raw.running),
+    waiting_input: number(raw.waiting_input),
+    attention: number(raw.attention),
+    ...(message.length > 0 ? { message } : {}),
+  };
+}
+
 export class BoardActivityStore {
   private readonly records = new Map<string, BoardActivity>();
   private readonly order = new Map<string, number>();
   private nextSeq = 0;
   private signatureText = "";
+  private currentPresence: BoardPresence = {
+    state: "idle",
+    running: 0,
+    waiting_input: 0,
+    attention: 0,
+  };
 
   /**
    * Replace the projection from one `board.ticket.state` payload.
@@ -59,6 +89,7 @@ export class BoardActivityStore {
    */
   update(state: unknown): boolean {
     const root = record(state);
+    this.currentPresence = presenceFrom(state);
     const runs = root === undefined ? undefined : root.runs;
     const next = new Map<string, BoardActivity>();
     if (Array.isArray(runs)) {
@@ -118,6 +149,10 @@ export class BoardActivityStore {
     return true;
   }
 
+  presence(): BoardPresence {
+    return this.currentPresence;
+  }
+
   running(): readonly BoardActivity[] {
     return [...this.records.values()].sort((a, b) => a.seq - b.seq);
   }
@@ -127,6 +162,7 @@ export class BoardActivityStore {
     this.records.clear();
     this.order.clear();
     this.signatureText = "";
+    this.currentPresence = { state: "idle", running: 0, waiting_input: 0, attention: 0 };
     return had;
   }
 }

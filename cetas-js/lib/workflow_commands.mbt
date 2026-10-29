@@ -136,9 +136,9 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn commands(self) {
     metadata: None,
   })
   definitions.push(@posoco.CommandDef::{
-    id: "board.ticket.answer_as_refiner",
-    label: "Ask Product Owner to answer",
-    description: "Internal: let a Product Owner child answer one open Board ticket question",
+    id: "board.ticket.forward_to_po",
+    label: "Forward to Product Owner",
+    description: "Internal: forward a Customer question to the Product Owner",
     category: "board",
     ctype: @posoco.CommandType::Action,
     params: [],
@@ -1058,7 +1058,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
       Err(reason) => return @posoco.CommandOutcome::Failure(reason~)
     }
   }
-  if id == "board.ticket.answer_as_refiner" {
+  if id == "board.ticket.forward_to_po" {
     let tickets = match self.tickets {
       Some(tickets) => tickets
       None =>
@@ -1075,13 +1075,12 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
               reason="invalid_ticket_answer",
             )
         }
-      _ =>
-        return @posoco.CommandOutcome::Failure(reason="invalid_ticket_answer")
+      _ => return @posoco.CommandOutcome::Failure(reason="invalid_ticket_answer")
     }
-    match tickets.answer_as_refiner(question_id) {
+    match tickets.forward_to_po(question_id) {
       Ok(_) =>
         return @posoco.CommandOutcome::Success(
-          feedback="Refiner is answering.",
+          feedback="Product Owner is answering.",
           structured=Some(tickets.state_json()),
           ui_hint=Some(@posoco.UiHint::None),
         )

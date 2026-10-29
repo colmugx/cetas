@@ -55,13 +55,7 @@ pub fn TeamNames::from_json(value : Json) -> TeamNames {
         }
       }
       {
-        po: read(
-          "po",
-          match fields.get("refiner") {
-            Some(String(value)) => clean(value, defaults.po)
-            _ => defaults.po
-          },
-        ),
+        po: read("po", defaults.po),
         sm: read("sm", defaults.sm),
         rd: read("rd", defaults.rd),
         set: read("set", defaults.set),
@@ -178,11 +172,6 @@ pub fn TeamMcp::from_json_map(value : Json) -> Map[String, TeamMcp] {
           None => ()
         }
       }
-      match fields.get("refiner") {
-        Some(item) if !fields.contains("po") =>
-          out["po"] = TeamMcp::from_json(item)
-        _ => ()
-      }
     }
     _ => ()
   }
@@ -278,11 +267,6 @@ pub fn TeamSkills::from_json_map(value : Json) -> Map[String, TeamSkills] {
           Some(item) => out[role] = TeamSkills::from_json(item)
           None => ()
         }
-      }
-      match fields.get("refiner") {
-        Some(item) if !fields.contains("po") =>
-          out["po"] = TeamSkills::from_json(item)
-        _ => ()
       }
     }
     _ => ()
