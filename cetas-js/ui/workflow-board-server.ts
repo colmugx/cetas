@@ -11,6 +11,7 @@
  * plain Node.
  */
 import { randomBytes } from "node:crypto";
+import { scheduleSingleFlightPoll } from "./board-polling.ts";
 import { spawn } from "node:child_process";
 import { createServer, STATUS_CODES, type IncomingMessage, type ServerResponse } from "node:http";
 import { createRequire } from "node:module";
@@ -685,12 +686,10 @@ export async function openWorkflowBoard(
 
   const url = "http://127.0.0.1:" + listener.port + "/?token=" + token;
   const owner: BoardServer = { listener, url, token, state, closed: false };
-  state.timer = setInterval(() => {
-    broadcastSnapshot(false).catch(() => undefined);
-  }, 1500);
-  state.ticketTimer = setInterval(() => {
-    broadcastTickets(false).catch(() => undefined);
-  }, 1000);
+  // Never overlap a slow poll with the next tick. Both timer handles are
+  // unref'ed so an idle Board cannot keep the host process running.
+  state.timer = scheduleSingleFlightPoll(1500, () => broadcastSnapshot(false));
+  state.ticketTimer = scheduleSingleFlightPoll(1000, () => broadcastTickets(false));
   // A presentation surface must never keep Cetas alive by itself.
   listener.unref();
   boards.set(app, owner);
