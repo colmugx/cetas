@@ -2,6 +2,14 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.10.14 (2026-10-29)
+
+## Bun Ver.（cetas-bun）
+
+### Fixes
+
+- The Board ticket sheet no longer fabricates user story lines.
+
 ## 0.10.13 (2026-10-29)
 
 ## Bun Ver.（cetas-bun）
