@@ -2057,7 +2057,7 @@ async fn TicketRuntime::consult_sm(
     question
   let sm_exts = self.mcp_face("sm")
   sm_exts.push(
-    BoardCoordinationTools::{ task_id, brief } as &@posoco.Extension,
+    BoardCoordinationTools::{ task_id, brief, } as &@posoco.Extension,
   )
   let composer = CetasChildComposer::CetasChildComposer(
     parent_manager=self.manager,
