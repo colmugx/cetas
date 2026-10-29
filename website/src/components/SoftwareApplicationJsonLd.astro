@@ -4,12 +4,18 @@
  * channel for the rich-result markup.
  *
  * Scope: `/` (zh) and `/en/` (en), both rendered by Home.astro. The block
- * only states what the page already shows: name is the page H1
- * (`copy.title`), description is the visible lead sentence for the current
- * language, codeRepository is the nimbus config's `github`. Nothing is
- * invented for rich results: no `offers` price for free open-source
- * software (`isAccessibleForFree` carries that), no operating-system or
- * version fields the page does not display.
+ * only states what the page (or a page it links) already shows: name is
+ * the page H1 (`copy.title`), description is the visible lead sentence for
+ * the current language, codeRepository is the nimbus config's `github`.
+ * Nothing is invented for rich results: no `offers` price for free
+ * open-source software (`isAccessibleForFree` carries that), no
+ * `aggregateRating` (no rating data exists). `operatingSystem` carries the
+ * platform matrix the installation page documents
+ * ("macOS · Apple Silicon / Linux · x64 / Windows · x64") — it is also
+ * load-bearing: Google's software-app rule errors unless at least two of
+ * {offers, aggregateRating, applicationCategory, operatingSystem} are
+ * present, and those other two are excluded by the no-fabrication
+ * constraints above.
  *
  * Shared gates, so every caller inherits them:
  *   - `noindex` (or a hidden-version page, merged by BaseLayout) emits
@@ -48,6 +54,9 @@ if (!noindex) {
     name: title,
     ...(description ? { description } : {}),
     applicationCategory: "DeveloperApplication",
+    // The platform matrix the installation page (linked from the homepage)
+    // documents: macOS · Apple Silicon / Linux · x64 / Windows · x64.
+    operatingSystem: "macOS, Linux, Windows",
     // Free and open source: the repo's LICENSE and the free
     // `npm install -g` line on the page are the visible source. Expressed
     // without a fabricated `offers` price.

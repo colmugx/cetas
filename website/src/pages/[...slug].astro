@@ -13,6 +13,7 @@ import {
   stripBase,
 } from "@cloudflare/nimbus-docs/runtime";
 import { components } from "../components";
+import { faqJsonLdHead } from "../lib/faq-jsonld";
 
 export const prerender = true;
 export const getStaticPaths = getDocsStaticPaths;
@@ -45,6 +46,18 @@ const lastUpdated = entry.data.lastUpdated ??
 const tocConfig = entry.data.tableOfContents;
 const toc = tocOn && tocConfig !== false ? getTOC(headings, tocConfig) : false;
 const socialImage = entry.data.socialImage ?? ogImageUrl;
+
+// FAQPage JSON-LD (src/lib/faq-jsonld.ts): question/answer pairs are
+// extracted from this page's own MDX body at build time, so the MDX stays
+// the single source of truth — no second copy of the text anywhere. The
+// helper applies the same crawlability gate as DocsLayout's BreadcrumbList
+// block (noindex / draft / hidden version never carry rich-result markup)
+// and returns [] for every page outside the FAQ scope, so nothing leaks
+// onto other docs pages.
+const headExtras = [
+  ...entry.data.head,
+  ...(await faqJsonLdHead({ entry, headings, Content, components })),
+];
 ---
 
 <DocsLayout
@@ -56,7 +69,7 @@ const socialImage = entry.data.socialImage ?? ogImageUrl;
   prevNext={prevNext}
   mode={entry.data.mode}
   banner={entry.data.banner}
-  head={entry.data.head}
+  head={headExtras}
   searchable={entry.data.searchable}
   noindex={entry.data.noindex}
   markdownUrl={markdownUrl}

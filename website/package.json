@@ -10,6 +10,7 @@
     "typecheck": "astro check",
     "verify": "astro check && astro build",
     "check:sitemap": "bun scripts/check-sitemap.mjs",
+    "check:faq": "bun scripts/check-faq.mjs",
     "lint:docs": "nimbus-docs lint",
     "lint:docs:fix": "nimbus-docs lint --fix"
   },

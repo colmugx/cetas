@@ -14,7 +14,7 @@ import { TOC, MobileTOC } from "@/components/ui/toc";
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { Pagination } from "@/components/ui/pagination";
 import { Badge } from "@/components/ui/badge";
-import type { DocsPageProps } from "@cloudflare/nimbus-docs/types";
+import type { DocsPageProps, HeadElement } from "@cloudflare/nimbus-docs/types";
 import { getVersionStatus, getVersionAlternates, withBase } from "@cloudflare/nimbus-docs/runtime";
 
 type Props = DocsPageProps & { audience?: "human" };
@@ -78,6 +78,46 @@ const resolvedMarkdownUrl = markdownUrl
   ? withBase(markdownUrl, import.meta.env.BASE_URL)
   : undefined;
 
+// BreadcrumbList JSON-LD — built from the same `breadcrumbs` array the
+// visible <Breadcrumbs> below consumes (both routes feed it from their
+// `getBreadcrumbs(...)` call), so the markup and the trail can never drift.
+// It rides the `head` prop into NimbusHead's head-merge channel, landing in
+// <head> next to NimbusHead's own WebPage node; a page-side FAQPage block
+// (frontmatter `head`) coexists as its own script tag.
+//
+// Gates mirror exactly what makes the trail visible and the page crawlable:
+//   - custom-mode pages render no trail (the `isCustom` branch below);
+//   - a trail of ≤1 renders no <nav> (Breadcrumbs' own render rule);
+//   - noindex/draft and hidden versions are non-crawlable — rich-result
+//     markup never ships there (same gate as SoftwareApplicationJsonLd);
+//   - without `Astro.site` no absolute URL can be built — degrade like
+//     NimbusHead's `hasSite` canonical gate instead of emitting relative junk.
+const isCrawlable = !noindex && !draft && !versionStatus?.isHidden;
+const breadcrumbJsonLd =
+  !isCustom && breadcrumbs.length > 1 && isCrawlable && Astro.site
+    ? JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        itemListElement: breadcrumbs.map((crumb, index) => ({
+          "@type": "ListItem",
+          position: index + 1,
+          name: crumb.label,
+          // Same URL shape as the visible trail: withBase first, then absolute.
+          // A crumb without `href` renders non-interactive in the trail, so it
+          // carries no `item` here either (current data always has one).
+          ...(crumb.href
+            ? { item: new URL(withBase(crumb.href, import.meta.env.BASE_URL), Astro.site).href }
+            : {}),
+        })),
+      })
+    : null;
+// Escape `<` so no label can close the script tag early (`</script>` break-out);
+// `\u003c` is a legal JSON escape that decodes back to `<` on parse.
+const breadcrumbJsonLdSafe = breadcrumbJsonLd?.replace(/</g, "\\u003c");
+const pageHead: HeadElement[] = breadcrumbJsonLdSafe
+  ? [...head, { tag: "script", attrs: { type: "application/ld+json" }, content: breadcrumbJsonLdSafe }]
+  : head;
+
 const hasHeader = Astro.slots.has("header");
 const hasSidebar = Astro.slots.has("sidebar");
 const hasToc = Astro.slots.has("toc");
@@ -86,7 +126,7 @@ const hasContentFooter = Astro.slots.has("content-footer");
 const hasPagination = Astro.slots.has("pagination");
 ---
 
-<BaseLayout title={title} description={description} noindex={noindex || draft} markdownUrl={markdownUrl} socialImage={socialImage} lastUpdated={lastUpdated} head={head} collection={collection} entryId={entryId}>
+<BaseLayout title={title} description={description} noindex={noindex || draft} markdownUrl={markdownUrl} socialImage={socialImage} lastUpdated={lastUpdated} head={pageHead} collection={collection} entryId={entryId}>
   <div class="flex flex-col min-h-screen">
     {hasHeader ? <slot name="header" /> : <Header collection={collection} entryId={entryId} showSidebar={showSidebar} />}
 
