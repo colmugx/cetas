@@ -41,7 +41,7 @@ test "team mcp settings round-trip per role" {
     enabled: true,
     all: false,
     servers: ["github", "browser"],
-    tools: [],
+    tools: ["github__create_issue"],
   }
   let parsed = TeamMcp::from_json_map(TeamMcp::to_json_map(mcp))
   match parsed.get("rd") {
@@ -49,6 +49,7 @@ test "team mcp settings round-trip per role" {
       assert_true(value.enabled)
       assert_false(value.all)
       assert_eq(value.servers, ["github", "browser"])
+      assert_eq(value.tools, ["github__create_issue"])
     }
     None => fail("rd MCP settings missing")
   }

@@ -124,6 +124,8 @@ pub fn project_name(String) -> String
 
 pub fn question_event_to_json(@posoco-ext-askquestion.QuestionEvent) -> Json
 
+pub fn scrum_master_system_prompt(String) -> String
+
 pub fn work_profiles() -> Array[WorkProfile]
 
 // Errors

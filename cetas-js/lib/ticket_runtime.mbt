@@ -1955,6 +1955,122 @@ async fn TicketRuntime::start_role(
 }
 
 ///|
+async fn TicketRuntime::consult_sm(
+  self : TicketRuntime,
+  task_id : String,
+  question : String,
+) -> Result[Unit, String] {
+  if self.run_for(task_id) is Some(run) && run.status == "running" {
+    return Err("ticket is already running")
+  }
+  let question = question.trim().to_owned()
+  if question == "" {
+    return Err("Scrum Master needs a concrete question")
+  }
+  let (task, _) = match self.task_snapshot(task_id) {
+    Ok(value) => value
+    Err(error) => return Err(error)
+  }
+  let session_id = @work.work_session_id(task_id, "sm")
+  let store = self.child_store_for(task_id)
+  let run = self.add_run(task_id, session_id, "advice", "sm")
+  let observer = @work.TicketActivityObserver::{ run, }
+  observer.run.activity("start", "Asked " + self.team.sm)
+  let prompt = "Ticket state:\n" +
+    @work.one_line_preview(task.stringify(), 4000) +
+    "\n\nQuestion for the Scrum Master:\n" +
+    question
+  let composer = CetasChildComposer::CetasChildComposer(
+    parent_manager=self.manager,
+    parent_mode=self.parent_mode,
+    child_store=Some(store),
+    approval=self.approval,
+    ui=None,
+    question=None,
+    question_endpoint=None,
+    extra_exts=self.mcp_face("sm"),
+    context_fs=self.ctx.fs,
+    feature_fs=self.ctx.fs,
+    cwd=self.ctx.cwd,
+    home=self.ctx.home,
+    host_group=Some(self.group),
+  )
+  let (slot, effort) = match @work.task_model(task) {
+    Some(model) => (model.slot, model.effort)
+    None =>
+      (
+        self.manager.manager_active_model_id(),
+        self.manager.manager_active_effort(),
+      )
+  }
+  let spec : @subagent.ChildSpec = {
+    task: prompt,
+    kind_name: "ticket-sm",
+    session_id,
+    resuming: true,
+    tools: Some(["read", "glob", "grep", "astgrep"]),
+    skills: self.skill_face("sm"),
+    mode: (self.parent_mode)(),
+    system_prompt: ticket_system_prompt(
+      self.ctx.cwd,
+      scrum_master_system_prompt(self.team.sm),
+    ),
+    slot,
+    effort,
+    context_files: false,
+    observers: [observer as &@posoco.Observer],
+  }
+  let agent = @subagent.ChildComposer::compose(composer, spec) catch {
+    error => {
+      let detail = match error {
+        @subagent.Failed(detail) => detail
+      }
+      run.status = "failed"
+      run.error = Some(detail)
+      return Err("Scrum Master composition failed: " + detail)
+    }
+  }
+  self.group.spawn_bg(async fn() {
+    let outcome : Result[String, String] = Ok(
+      agent.run_scoped(async fn(agent) {
+        agent.set_active_session(Some(session_id))
+        let result = agent.run_turn(
+          @posoco.Message::UserMessage(content=[@posoco.Content::Text(prompt)]),
+          session_id,
+        )
+        match result.message {
+          @posoco.Message::AssistantMessage(content=blocks, ..) =>
+            blocks
+            .filter_map(block => {
+              match block {
+                @posoco.Content::Text(value) => Some(value)
+                _ => None
+              }
+            })
+            .join("\n")
+          _ => "Scrum Master answered"
+        }
+      }),
+    ) catch {
+      error => Err(error.to_string())
+    }
+    match outcome {
+      Ok(answer) => {
+        run.status = "done"
+        run.result = Some(answer)
+        self.record_progress(task_id, "advice", answer)
+      }
+      Err(error) => {
+        run.status = "failed"
+        run.error = Some(error)
+        self.record_progress(task_id, "attention", "Scrum Master failed: " + error)
+      }
+    }
+  })
+  Ok(())
+}
+
+///|
 async fn TicketRuntime::run(
   self : TicketRuntime,
   task_id : String,
