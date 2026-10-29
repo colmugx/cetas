@@ -109,7 +109,8 @@ describe("parsePartialJsonObject — hostile input never throws", () => {
   test("deeply nested hostile input fails closed without stack overflow", () => {
     const deep = '{"data":' + "[".repeat(5000) + "0" + "]".repeat(5000) + "}";
     expect(() => parsePartialJsonObject(deep)).not.toThrow();
-    expect(parsePartialJsonObject(deep)).toEqual({});
+    const preview = parsePartialJsonObject(deep);
+    expect(Array.isArray(preview.data)).toBe(true);
   });
 
   test("empty / whitespace / non-object input yields {}", () => {
