@@ -133,7 +133,7 @@ test("serves the same Rabbita app and bridges the Board wire protocol", async ()
   expect(js.length).toBeGreaterThan(1000);
   const css = await (await serverFetch(base + "board.css")).text();
   expect(css).toBe(BOARD_CSS);
-  expect(css).toContain("--canvas: #ececea");
+  expect(css).toMatch(/--canvas:\s*#ececea/);
 
   const wsUrl = opened
     .replace("http://", "ws://")
