@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Container, type Component } from "@earendil-works/pi-tui";
 import { VirtualTranscriptDocument, TranscriptScrollView, highlightLiteralRows } from "./virtual-document.ts";
-import type { SearchableComponent } from "./search-index.ts";
+import { TranscriptSearchIndex, type SearchableComponent } from "./search-index.ts";
 
 describe("Gate 2 logical-height virtual layout", () => {
   test("ten thousand messages only render a bounded visible window", () => {
@@ -88,7 +88,6 @@ describe("visible source match highlighting",()=>{
     (doc as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
     expect(doc.render(80).join("\n")).not.toContain("\x1b[4m");
     // The 10k hit cap excludes the later target, even though it is visible.
-    index.search(source.children.slice(5000), "banana");
     // Re-search the actual document with a query that singles out the target.
     expect(index.search(source.children, "target")).toEqual([
       { index: 5900, offset: 7, length: 6 },
