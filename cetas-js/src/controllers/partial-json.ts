@@ -118,13 +118,16 @@ function scanLiteral(
   return { kind: "incomplete" };
 }
 
-function scanArray(s: string, start: number): Scan<unknown[]> {
+/** Max nesting is limited because this parser consumes untrusted stream fragments. */
+const MAX_PREVIEW_JSON_DEPTH = 32;
+
+function scanArray(s: string, start: number, depth: number): Scan<unknown[]> {
   const items: unknown[] = [];
   let i = skipWs(s, start + 1);
   if (s[i] === "]") return { kind: "complete", value: items, next: i + 1 };
   for (;;) {
     if (i >= s.length) return { kind: "incomplete", partial: items };
-    const elem = scanValue(s, i);
+    const elem = scanValue(s, i, depth);
     if (elem.kind !== "complete") {
       if (elem.kind === "incomplete" && typeof elem.partial === "string") {
         items.push(elem.partial);
@@ -143,7 +146,14 @@ function scanArray(s: string, start: number): Scan<unknown[]> {
   }
 }
 
-function scanObject(s: string, start: number): Scan<Record<string, unknown>> {
+/** Store even reserved names as ordinary data properties, never prototype setters. */
+function assignValue(obj: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(obj, key, {
+    value, writable: true, configurable: true, enumerable: true,
+  });
+}
+
+function scanObject(s: string, start: number, depth: number): Scan<Record<string, unknown>> {
   const obj: Record<string, unknown> = {};
   let i = skipWs(s, start + 1);
   if (s[i] === "}") return { kind: "complete", value: obj, next: i + 1 };
@@ -154,14 +164,14 @@ function scanObject(s: string, start: number): Scan<Record<string, unknown>> {
     i = skipWs(s, key.next);
     if (i >= s.length || s[i] !== ":") return { kind: "incomplete", partial: obj };
     i = skipWs(s, i + 1);
-    const val = scanValue(s, i);
+    const val = scanValue(s, i, depth);
     if (val.kind !== "complete") {
       if (val.kind === "incomplete" && val.partial !== undefined) {
-        obj[key.value] = val.partial;
+        assignValue(obj, key.value, val.partial);
       }
       return { kind: "incomplete", partial: obj };
     }
-    obj[key.value] = val.value;
+    assignValue(obj, key.value, val.value);
     i = skipWs(s, val.next);
     if (i >= s.length) return { kind: "incomplete", partial: obj };
     if (s[i] === ",") {
@@ -173,16 +183,17 @@ function scanObject(s: string, start: number): Scan<Record<string, unknown>> {
   }
 }
 
-function scanValue(s: string, i: number): Scan<unknown> {
+function scanValue(s: string, i: number, depth: number): Scan<unknown> {
+  if (depth > MAX_PREVIEW_JSON_DEPTH) return { kind: "incomplete" };
   i = skipWs(s, i);
   if (i >= s.length) return { kind: "incomplete" };
   switch (s[i]) {
     case '"':
       return scanString(s, i);
     case "{":
-      return scanObject(s, i);
+      return scanObject(s, i, depth + 1);
     case "[":
-      return scanArray(s, i);
+      return scanArray(s, i, depth + 1);
     case "t":
       return scanLiteral(s, i, "true", true);
     case "f":
@@ -202,7 +213,7 @@ export function parsePartialJsonObject(raw: string): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   let i = skipWs(raw, 0);
   if (raw[i] !== "{") return out;
-  const scanned = scanObject(raw, i);
+  const scanned = scanObject(raw, i, 0);
   if (scanned.kind === "complete") return scanned.value as Record<string, unknown>;
   return scanned.partial ?? out;
 }
