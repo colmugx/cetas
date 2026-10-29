@@ -30,6 +30,26 @@ export class TranscriptSearchIndex {
   get stats(): TranscriptSearchStats { return this.statsValue; }
   get query(): string { return this.lastQuery; }
 
+  /**
+   * Return hits for a single message without scanning all matches on every
+   * viewport repaint. Search appends hits in increasing message-index order,
+   * so a lower-bound lookup is O(log matches + hits in this message).
+   * No second per-message index is retained in memory.
+   */
+  hitsAt(index: number): readonly TranscriptSearchHit[] {
+    let low = 0;
+    let high = this.hits.length;
+    while (low < high) {
+      const mid = low + Math.floor((high - low) / 2);
+      if (this.hits[mid]!.index < index) low = mid + 1;
+      else high = mid;
+    }
+    if (low >= this.hits.length || this.hits[low]!.index !== index) return [];
+    let end = low + 1;
+    while (end < this.hits.length && this.hits[end]!.index === index) end++;
+    return this.hits.slice(low, end);
+  }
+
   /** Search is explicit/on-demand, not part of a TUI layout or redraw. */
   search(components: readonly Component[], query: string, limit = 10000): readonly TranscriptSearchHit[] {
     const needle = query.trim().toLocaleLowerCase();

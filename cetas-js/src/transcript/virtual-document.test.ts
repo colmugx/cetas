@@ -69,6 +69,36 @@ describe("visible source match highlighting",()=>{
     expect(result[0]).toContain("banana");
     expect(result[0]).not.toBe(original[0]);
   });
+  test("virtual viewport highlights its own source hit with thousands of offscreen hits", () => {
+    const source = new Container();
+    for (let i = 0; i < 6000; i++) {
+      const label = i === 5900 ? "banana target" : i < 5000 ? "banana banana" : "plain";
+      const item: SearchableComponent = {
+        render: () => [label],
+        getSearchText: () => label,
+        invalidate() {},
+      };
+      source.addChild(item);
+    }
+    const index = new TranscriptSearchIndex();
+    expect(index.search(source.children, "banana")).toHaveLength(10_000);
+    const doc = new VirtualTranscriptDocument(source, () => 80, () => 12,
+      () => ({ top: 5900 * 3, followEnd: false }));
+    doc.setSearchHighlight(index, -1);
+    (doc as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    expect(doc.render(80).join("\n")).not.toContain("\x1b[4m");
+    // The 10k hit cap excludes the later target, even though it is visible.
+    index.search(source.children.slice(5000), "banana");
+    // Re-search the actual document with a query that singles out the target.
+    expect(index.search(source.children, "target")).toEqual([
+      { index: 5900, offset: 7, length: 6 },
+    ]);
+    (doc as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
+    expect(doc.render(80).join("\n")).toContain("\x1b[4mtarget\x1b[24m");
+    doc.reset();
+    expect(doc.render(80).join("\n")).not.toContain("\x1b[4m");
+  });
+
   test("avoids uncertain Markdown and image payloads",()=>{
     expect(highlightLiteralRows(["shown"],"**banana**",[{offset:2,length:6}],80)).toEqual(["shown"]);
     const image="\x1b_Ga=T;payload\x1b\\";
