@@ -1,0 +1,60 @@
+---
+/**
+ * SoftwareApplication JSON-LD for the homepages — the single injection
+ * channel for the rich-result markup.
+ *
+ * Scope: `/` (zh) and `/en/` (en), both rendered by Home.astro. The block
+ * only states what the page already shows: name is the page H1
+ * (`copy.title`), description is the visible lead sentence for the current
+ * language, codeRepository is the nimbus config's `github`. Nothing is
+ * invented for rich results: no `offers` price for free open-source
+ * software (`isAccessibleForFree` carries that), no operating-system or
+ * version fields the page does not display.
+ *
+ * Shared gates, so every caller inherits them:
+ *   - `noindex` (or a hidden-version page, merged by BaseLayout) emits
+ *     nothing — rich-result markup never ships on non-crawlable pages;
+ *   - a missing `config.github` fails the build loudly instead of emitting
+ *     a half-sourced node.
+ *
+ * NimbusHead keeps emitting its own `WebSite` JSON-LD; this block coexists
+ * as a second script tag and NimbusHead itself is never touched (an
+ * upgrade would wipe hand edits there).
+ */
+import { config } from "virtual:nimbus/config";
+
+interface Props {
+  /** Page H1 — the homepage's `copy.title` ("Cetas" in every language). */
+  title: string;
+  /** Visible lead sentence — the homepage's `copy.description`. */
+  description?: string;
+  /** Shared noindex gate: true suppresses the markup entirely. */
+  noindex?: boolean;
+}
+
+const { title, description, noindex } = Astro.props;
+
+let structuredData: string | null = null;
+if (!noindex) {
+  const repository = config.github;
+  if (!repository) {
+    throw new Error(
+      "SoftwareApplicationJsonLd: `github` is not set in the nimbus config — refusing to emit a SoftwareApplication JSON-LD without a sourced codeRepository.",
+    );
+  }
+  structuredData = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: title,
+    ...(description ? { description } : {}),
+    applicationCategory: "DeveloperApplication",
+    // Free and open source: the repo's LICENSE and the free
+    // `npm install -g` line on the page are the visible source. Expressed
+    // without a fabricated `offers` price.
+    isAccessibleForFree: true,
+    codeRepository: repository,
+  });
+}
+---
+
+{structuredData && <script type="application/ld+json" set:html={structuredData} />}

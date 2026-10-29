@@ -8,9 +8,11 @@ import { config } from "virtual:nimbus/config";
 import {
   getCollectionLlmsUrl,
   getVersionStatus,
+  stripBase,
   withBase,
 } from "@cloudflare/nimbus-docs/runtime";
 import AgentDirective from "@/components/AgentDirective.astro";
+import SoftwareApplicationJsonLd from "@/components/SoftwareApplicationJsonLd.astro";
 import { SearchDialog } from "@/components/ui/search";
 import NimbusHead from "@cloudflare/nimbus-docs/components/NimbusHead.astro";
 import WebMCP from "@/components/WebMCP.astro";
@@ -54,6 +56,14 @@ const basedLlmsUrl = withBase(llmsIndexPath, baseUrl);
 const llmsUrl = Astro.site
   ? new URL(basedLlmsUrl, Astro.site).href
   : basedLlmsUrl;
+// Homepage-only scope for the SoftwareApplication JSON-LD: the zh home
+// renders at the base root and the en home at `<base>en/` — the two pages
+// Home.astro renders. Same shape-matching NimbusHead uses for `isHomePage`;
+// the trailing-slash strip turns the root into `""` and leaves `/en`.
+const barePath = stripBase(Astro.url.pathname, baseUrl)
+  .replace(/(?:\/index)?\.html$/, "")
+  .replace(/\/+$/, "");
+const isHomePage = barePath === "" || barePath === "/en";
 const basedMarkdownUrl = markdownUrl ? withBase(markdownUrl, baseUrl) : undefined;
 const resolvedMarkdownUrl =
   basedMarkdownUrl && Astro.site
@@ -121,6 +131,13 @@ const resolvedMarkdownUrl =
       apiVersion={apiVersion}
       coordinate={coordinate}
     />
+    {isHomePage && (
+      <SoftwareApplicationJsonLd
+        title={title}
+        description={description}
+        noindex={noindex || isHiddenVersion}
+      />
+    )}
     <ClientRouter />
   </head>
   <body class="min-h-screen bg-background text-foreground antialiased">
