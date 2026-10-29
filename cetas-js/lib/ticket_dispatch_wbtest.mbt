@@ -996,7 +996,7 @@ async test "ticket retry is rejected while the ticket is running" {
       @posoco.tk_tool_call_response(
         "ask_question_child",
         "call-retry-running",
-        { "question": "Which API should the worker use?" },
+        { "question": "Which API should the worker use?", "audience": "customer" },
       ),
     ),
     @posoco.ScriptedModelStep::Respond(
@@ -2308,7 +2308,7 @@ async test "ticket run persists the submitted work report instead of the minimal
     assert_true(prompt.contains("Reporting contract"))
     assert_true(prompt.contains("report_progress"))
     assert_true(prompt.contains("submit_work_report"))
-    assert_true(prompt.contains("audience=\"refiner\""))
+    assert_true(prompt.contains("audience=\"po\""))
     let review = match snapshot_task_review(board, "task-1") {
       Some(review) => review
       None => fail("the ticket reached Review without a durable report")
@@ -2574,5 +2574,91 @@ async test "RD-only role plan reaches review without starting SET or TE" {
     }
     assert_true(reached)
     assert_eq(tickets.runs_for("task-1").map(run => run.role), ["rd"])
+  })
+}
+
+///|
+async test "worker question to PO is answered in the background" {
+  let directory = @board_fixtures.temporary_directory()
+  defer @board_fixtures.cleanup(directory)
+  let model = @posoco.ScriptedModel([
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_tool_call_response(
+        "ask_question_child",
+        "call-po-auto",
+        { "question": "Which API should I use?" },
+      ),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("Use the public API."),
+    ),
+    @posoco.ScriptedModelStep::Respond(
+      @posoco.tk_stop_response("Worker finished after PO answer."),
+    ),
+  ])
+  let router = @llm.RouterModelPort(
+    slots=[subagent_test_slot("test/po-auto", model)],
+    default_slot_id="test/po-auto",
+  )
+  @async.with_task_group(group => {
+    let fs = @workspace.JsWorkspaceFs()
+    let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
+    let board = @board.BoardWorkflows(
+      directory~,
+      group~,
+      agents=customer_factory(router, directory, () => @permission.ReadOnly),
+      authorize=() => true,
+      policy=@board.BoardWorkflowPolicy(enabled=true),
+    )
+    defer ignore(board.shutdown())
+    let tickets = TicketRuntime::TicketRuntime(
+      board~,
+      manager=Providers(router),
+      parent_mode=() => @permission.Yolo,
+      approval=None,
+      ctx~,
+      group~,
+    )
+    let create : Json = {
+      "id": "task-1",
+      "title": "PO auto answer",
+      "description": "One worker one question",
+      "priority": "normal",
+      "definition_of_done": ["Evidence"],
+      "dependencies": [],
+      "user_story": "As a user, I want this, so that value.",
+      "implementation_suggestions": "Ask PO when needed.",
+    }
+    accept_board_command(board, "po-auto-create", "board.task.create", 0L, create)
+    accept_board_command(
+      board,
+      "po-auto-roles",
+      "board.task.set_required_roles",
+      1L,
+      { "id": "task-1", "roles": ["rd"] },
+    )
+    accept_board_command(
+      board,
+      "po-auto-refining",
+      "board.task.move",
+      2L,
+      { "id": "task-1", "to": "refining" },
+    )
+    accept_board_command(
+      board,
+      "po-auto-ready",
+      "board.task.move",
+      3L,
+      { "id": "task-1", "to": "ready" },
+    )
+    match tickets.run("task-1") {
+      Ok(_) => ()
+      Err(error) => fail("PO auto run failed: " + error)
+    }
+    assert_eq(wait_ticket_stage(board, "task-1", "review"), "review")
+    assert_eq(tickets.questions.questions.length(), 0)
+    let state = tickets.state_json().stringify()
+    assert_true(state.contains("RD asked Product Owner"))
+    assert_true(state.contains("Product Owner answered RD"))
   })
 }

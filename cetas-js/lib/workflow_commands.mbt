@@ -137,8 +137,8 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn commands(self) {
   })
   definitions.push(@posoco.CommandDef::{
     id: "board.ticket.answer_as_refiner",
-    label: "Ask the team Refiner to answer",
-    description: "Internal: let a Refiner child answer one open Board ticket question",
+    label: "Ask Product Owner to answer",
+    description: "Internal: let a Product Owner child answer one open Board ticket question",
     category: "board",
     ctype: @posoco.CommandType::Action,
     params: [],

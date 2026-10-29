@@ -1,307 +1,4 @@
-///|
-/// One Board work item owns role-scoped child runs. The runtime reads the
-/// authoritative snapshot, parks questions, and commits results only after the
-/// Board accepts the corresponding stage/report command.
-priv struct TicketQuestion {
-  id : String
-  task_id : String
-  origin_call : String
-  req : @posoco.UiRequest
-  asked_by : String
-  audience : String
-  asked_at_ms : Int64
-  cond : @async.CondVar
-  mut outcome : @posoco.UiResponse?
-  mut status : String
-  mut answer : String?
-  mut answered_by : String?
-  mut answered_at_ms : Int64?
-}
 
-///|
-priv struct TicketQuestions {
-  mut counter : Int32
-  questions : Map[String, TicketQuestion]
-}
-
-///|
-fn TicketQuestions::TicketQuestions() -> TicketQuestions {
-  { counter: 0, questions: Map([]), }
-}
-
-///|
-async fn TicketQuestions::ask(
-  self : TicketQuestions,
-  task_id : String,
-  origin_call : String,
-  asked_by : String,
-  audience : String,
-  req : @posoco.UiRequest,
-) -> @posoco.UiResponse raise @askquestion.QuestionError {
-  self.counter = self.counter + 1
-  let id = "ticket-question-" + self.counter.to_string()
-  let question : TicketQuestion = {
-    id,
-    task_id,
-    origin_call,
-    req,
-    asked_by,
-    audience,
-    asked_at_ms: @async.now(),
-    cond: @async.CondVar::Cond(),
-    outcome: None,
-    status: "open",
-    answer: None,
-    answered_by: None,
-    answered_at_ms: None,
-  }
-  self.questions[id] = question
-  let waited : Unit? = @async.with_timeout_opt(1_800_000, async fn() {
-    while question.outcome is None {
-      question.cond.wait()
-    }
-  }) catch {
-    _ => None
-  }
-  if waited is None && question.outcome is None {
-    question.status = "timed_out"
-    self.questions.remove(id)
-    raise @askquestion.QuestionError::TimedOut
-  }
-  match question.outcome {
-    Some(response) => response
-    None => {
-      question.status = "cancelled"
-      raise @askquestion.QuestionError::Cancelled
-    }
-  }
-}
-
-///|
-fn answer_text(
-  response : @posoco.UiResponse,
-  req : @posoco.UiRequest,
-) -> String {
-  match response {
-    @posoco.UiResponse::Text(value) => value
-    @posoco.UiResponse::Yes => "Yes"
-    @posoco.UiResponse::No => "No"
-    @posoco.UiResponse::Selected(index) =>
-      match req {
-        @posoco.UiRequest::Select(options~, ..) =>
-          match options.get(index) {
-            Some(option) => option
-            None => "Selected option \{index}"
-          }
-        _ => "Selected option \{index}"
-      }
-    @posoco.UiResponse::Cancelled => "Cancelled"
-  }
-}
-
-///|
-fn TicketQuestions::answer(
-  self : TicketQuestions,
-  question_id : String,
-  response : @posoco.UiResponse,
-  answered_by : String,
-) -> Result[(String, String, String), String] {
-  match self.questions.get(question_id) {
-    Some(question) => {
-      question.outcome = Some(response)
-      question.status = "answered"
-      question.answer = Some(answer_text(response, question.req))
-      question.answered_by = Some(answered_by)
-      question.answered_at_ms = Some(@async.now())
-      question.cond.broadcast()
-      let result = (
-        question.task_id,
-        question.asked_by,
-        answer_text(response, question.req),
-      )
-      self.questions.remove(question_id)
-      Ok(result)
-    }
-    None => Err("question is no longer open")
-  }
-}
-
-///|
-fn TicketQuestions::json(self : TicketQuestions) -> Json {
-  let items : Array[Json] = []
-  for question in self.questions.values() {
-    if question.status != "open" {
-      continue
-    }
-    let (kind, prompt, options) = match question.req {
-      @posoco.UiRequest::Input(prompt~, ..) =>
-        ("input", prompt, Json::array([]))
-      @posoco.UiRequest::Confirm(prompt~) =>
-        ("confirm", prompt, Json::array([]))
-      @posoco.UiRequest::Select(prompt~, options~, ..) =>
-        ("select", prompt, Json::array(options.map(Json::string)))
-    }
-    items.push(
-      Json::object({
-        "id": Json::string(question.id),
-        "task_id": Json::string(question.task_id),
-        "question": Json::string(prompt),
-        "kind": Json::string(kind),
-        "options": options,
-        "asked_at": Json::number(question.asked_at_ms.to_double()),
-        "origin_call": Json::string(question.origin_call),
-        "asked_by": Json::string(question.asked_by),
-        "audience": Json::string(question.audience),
-        "status": Json::string(question.status),
-        "answer": match question.answer {
-          Some(value) => Json::string(value)
-          None => Json::null()
-        },
-        "answered_by": match question.answered_by {
-          Some(value) => Json::string(value)
-          None => Json::null()
-        },
-        "answered_at": match question.answered_at_ms {
-          Some(value) => Json::number(value.to_double())
-          None => Json::null()
-        },
-      }),
-    )
-  }
-  Json::array(items)
-}
-
-///|
-/// Human-facing endpoint for a ticket child. The task binding lives here, so
-/// the child never gets to choose which ticket its question belongs to.
-priv struct BoardQuestionEndpoint {
-  questions : TicketQuestions
-  task_id : String
-  asked_by : String
-  audience : String
-}
-
-///|
-impl @askquestion.QuestionEndpoint for BoardQuestionEndpoint with fn request(
-  self,
-  origin_call~ : String,
-  req~ : @posoco.UiRequest,
-) -> @posoco.UiResponse raise @askquestion.QuestionError {
-  self.questions.ask(
-    self.task_id,
-    origin_call,
-    self.asked_by,
-    self.audience,
-    req,
-  )
-}
-
-///|
-impl @askquestion.QuestionEndpoint for BoardQuestionEndpoint with fn request_with_audience(
-  self,
-  origin_call~,
-  audience~,
-  req~,
-) -> @posoco.UiResponse raise @askquestion.QuestionError {
-  self.questions.ask(self.task_id, origin_call, self.asked_by, audience, req)
-}
-
-///|
-/// Child observer that turns one run's TurnEvents into a bounded activity log.
-/// The child cannot mutate the Board; this observer only reads its own events.
-priv struct TicketActivityObserver {
-  run : @work.WorkRun
-}
-
-///|
-impl @posoco.Observer for TicketActivityObserver with fn on_event(
-  self : TicketActivityObserver,
-  _scope : @posoco.EventScope?,
-  event : @posoco.TurnEvent,
-) -> Unit {
-  let run = self.run
-  match event {
-    TurnStarted => {
-      run.steps = run.steps + 1
-      run.activity("step", "Step \{run.steps} started")
-    }
-    ModelRequestStarted => run.activity("model", "Waiting for the model")
-    ModelResponseReceived(usage~, ..) => {
-      let detail = match usage {
-        Some(usage) =>
-          "Model responded (in \{usage.input_tokens.unwrap_or(0)}, out \{usage.output_tokens.unwrap_or(0)})"
-        None => "Model responded"
-      }
-      run.activity("model", detail)
-    }
-    ToolCallPending(call) =>
-      run.activity(
-        "tool",
-        "Tool · \{call.name.to_string()} · approval needed",
-      )
-    ToolCallApproved(call~, ..) =>
-      run.activity("tool", "Tool · \{call.name.to_string()} · approved")
-    ToolCallStarted(call~) => {
-      run.current_tool = Some(call.name.to_string())
-      let preview = @work.one_line_preview(call.arguments.stringify(), 120)
-      let detail = if preview == "" {
-        "Tool · \{call.name.to_string()} · running"
-      } else {
-        "Tool · \{call.name.to_string()} · \{preview}"
-      }
-      run.activity("tool", detail)
-    }
-    ToolCallSucceeded(call~, content~, ..) => {
-      run.current_tool = None
-      let preview = @work.one_line_preview(content, 120)
-      let detail = if preview == "" {
-        "Tool · \{call.name.to_string()} · done"
-      } else {
-        "Tool · \{call.name.to_string()} · done · \{preview}"
-      }
-      run.activity("tool", detail)
-    }
-    ToolCallFailed(call~, failure~) => {
-      run.current_tool = None
-      run.activity(
-        "error",
-        "Tool · \{call.name.to_string()} · failed · \{failure.summary()}",
-      )
-    }
-    ToolCallRejected(call~, reason~) => {
-      run.current_tool = None
-      run.activity(
-        "error",
-        "Tool · \{call.name.to_string()} · rejected · \{reason}",
-      )
-    }
-    ToolCallAbandoned(call~, reason~) => {
-      run.current_tool = None
-      run.activity(
-        "error",
-        "Tool · \{call.name.to_string()} · abandoned · \{reason}",
-      )
-    }
-    TurnCompleted => run.activity("step", "Step completed")
-    TurnFailed(message) => run.activity("error", "Step failed · \{message}")
-    StreamChunkReceived(chunk~) =>
-      match chunk {
-        TextDelta(token~) =>
-          run.preview = @work.append_tail(run.preview, token, 600)
-        ReasoningDelta(token~) =>
-          run.reasoning = @work.append_tail(run.reasoning, token, 600)
-        _ => ()
-      }
-    UserRequestStarted(prompt~, ..) =>
-      run.activity(
-        "question",
-        "Waiting for your answer · \{@work.one_line_preview(prompt, 100)}",
-      )
-    UserRequestFinished(outcome~, ..) =>
-      run.activity("question", "Answer received · \{outcome}")
-    _ => ()
-  }
-}
 
 ///|
 priv struct TicketRuntime {
@@ -311,10 +8,11 @@ priv struct TicketRuntime {
   approval : &@permission.ApprovalSource?
   ctx : @cetas_core.HostContext
   group : @async.TaskGroup[Unit]
-  questions : TicketQuestions
+  questions : @work.TicketQuestions
   runs : @work.WorkRunStore
   progress : @work.WorkProgressLog
   child_store : CetasChildSessionStore
+  session_root : String?
   mut counter : Int32
   mut reconciled : Bool
   mut resuming_task : String?
@@ -350,13 +48,11 @@ fn TicketRuntime::TicketRuntime(
     approval,
     ctx,
     group,
-    questions: TicketQuestions::TicketQuestions(),
+    questions: @work.TicketQuestions::TicketQuestions(),
     runs: @work.WorkRunStore::WorkRunStore(),
     progress: @work.WorkProgressLog::WorkProgressLog(),
-    child_store: match session_root {
-      Some(root) => CetasChildSessionStore::with_root(root)
-      None => CetasChildSessionStore::CetasChildSessionStore()
-    },
+    child_store: CetasChildSessionStore::CetasChildSessionStore(),
+    session_root,
     counter: 0,
     reconciled: false,
     resuming_task: None,
@@ -366,6 +62,17 @@ fn TicketRuntime::TicketRuntime(
     profile: config.profile,
     mcp,
     skills,
+  }
+}
+
+///|
+fn TicketRuntime::child_store_for(
+  self : TicketRuntime,
+  task_id : String,
+) -> CetasChildSessionStore {
+  match self.session_root {
+    Some(root) => CetasChildSessionStore::with_root(root + "/" + task_id)
+    None => self.child_store
   }
 }
 
@@ -429,7 +136,7 @@ fn TicketRuntime::record_progress(
 fn TicketRuntime::mcp_face(
   self : TicketRuntime,
   role : String,
-) -> (Array[&@posoco.Extension], Array[String]) {
+) -> Array[&@posoco.Extension] {
   let config = match self.team_mcp.get(role) {
     Some(value) => value
     None => TeamMcp::defaults()
@@ -441,12 +148,11 @@ fn TicketRuntime::mcp_face(
         Some(ext) => exts.push(ext)
         None => ()
       }
-      // MCP tools are not pre-approved as reads: a browser or GitHub server
-      // can expose mutations, so the normal permission gate decides. The
-      // Board still filters which servers a role may see.
-      (exts, [])
+      // MCP tools stay on the ordinary permission path; the Board only
+      // filters which servers this role may see.
+      exts
     }
-    None => ([], [])
+    None => []
   }
 }
 
@@ -479,8 +185,9 @@ fn TicketRuntime::skill_face(
 ///|
 fn TicketRuntime::team_label(self : TicketRuntime, role : String) -> String {
   match role {
-    "product_owner" | "po" => "USER"
-    "refiner" => self.team.refiner
+    "product_owner" | "customer" => "Customer"
+    "refiner" | "po" => self.team.po
+    "sm" => self.team.sm
     "rd" => self.team.rd
     "set" => self.team.set
     "te" => self.team.te
@@ -522,9 +229,30 @@ fn TicketRuntime::answer_as_refiner(
 ) -> Result[Unit, String] {
   match self.questions.questions.get(question_id) {
     Some(question) if question.status == "open" => {
-      let _ = question
+      match self.questions.forward(question_id, "customer") {
+        Ok(_) => ()
+        Err(reason) => return Err(reason)
+      }
+      self.record_progress(
+        question.task_id,
+        "question_forwarded",
+        "Customer forwarded " +
+        self.team_label(question.asked_by) +
+        "'s question to " +
+        self.team_label("po"),
+      )
       self.group.spawn_bg(async fn() {
-        ignore(self.refiner_answer(question_id))
+        match self.refiner_answer(question_id) {
+          Ok(_) => ()
+          Err(reason) => {
+            self.record_progress(
+              question.task_id,
+              "attention",
+              "Product Owner could not answer: " + reason,
+            )
+            self.questions.cancel(question_id)
+          }
+        }
       })
       Ok(())
     }
@@ -553,18 +281,18 @@ async fn TicketRuntime::refiner_answer(
   }
   let title = @work.task_field(task, "title")
   let description = @work.task_field(task, "description")
-  let session_id = "ticket-question-" + question_id
-  let (mcp_exts, mcp_reads) = self.mcp_face("refiner")
+  let session_id = @work.work_session_id(question.task_id, "po")
+  let store = self.child_store_for(question.task_id)
+  let mcp_exts = self.mcp_face("po")
   let composer = CetasChildComposer::CetasChildComposer(
     parent_manager=self.manager,
     parent_mode=self.parent_mode,
-    child_store=Some(self.child_store),
+    child_store=Some(store),
     approval=self.approval,
     ui=None,
     question=None,
     question_endpoint=None,
     extra_exts=mcp_exts,
-    extra_read_tools=mcp_reads,
     context_fs=self.ctx.fs,
     feature_fs=self.ctx.fs,
     cwd=self.ctx.cwd,
@@ -572,22 +300,22 @@ async fn TicketRuntime::refiner_answer(
     host_group=Some(self.group),
   )
   let spec : @subagent.ChildSpec = {
-    task: "Answer this question for the development group as the Refiner.\n\nTicket: " +
+    task: "Answer this question for the development group as the Product Owner.\n\nTicket: " +
     title +
     "\n\nTicket description:\n" +
     description +
     "\n\nQuestion:\n" +
     prompt +
     "\n\nGive the shortest correct answer. Do not modify files.",
-    kind_name: "refiner-answer",
+    kind_name: "po-answer",
     session_id,
-    resuming: false,
+    resuming: true,
     tools: Some(["read", "glob", "grep"]),
-    skills: self.skill_face("refiner"),
+    skills: self.skill_face("po"),
     mode: (self.parent_mode)(),
     system_prompt: ticket_system_prompt(
       self.ctx.cwd,
-      refiner_system_prompt(self.team.refiner),
+      po_system_prompt(self.team.po),
     ),
     slot: self.manager.manager_active_model_id(),
     effort: self.manager.manager_active_effort(),
@@ -602,7 +330,7 @@ async fn TicketRuntime::refiner_answer(
       self.record_progress(
         question.task_id,
         "attention",
-        "Refiner could not answer: " + detail,
+        "Product Owner could not answer: " + detail,
       )
       return Err(detail)
     }
@@ -637,13 +365,13 @@ async fn TicketRuntime::refiner_answer(
           self.questions.answer(
             question_id,
             @posoco.UiResponse::Text(text),
-            "refiner",
+            "po",
           ) {
           Ok((task_id, asked_by, answer)) =>
             self.record_progress(
               task_id,
               "question_answered",
-              self.team_label("refiner") +
+              self.team_label("po") +
               " answered " +
               self.team_label(asked_by) +
               ": " +
@@ -653,18 +381,18 @@ async fn TicketRuntime::refiner_answer(
             self.record_progress(
               task_id,
               "attention",
-              "Refiner answer failed: " + reason,
+              "Product Owner answer failed: " + reason,
             )
         }
       Ok(_) =>
         self.record_progress(
-          task_id, "attention", "Refiner returned an empty answer; question is still open.",
+          task_id, "attention", "Product Owner returned an empty answer; question is still open.",
         )
       Err(error) =>
         self.record_progress(
           task_id,
           "attention",
-          "Refiner could not answer: " + error,
+          "Product Owner could not answer: " + error,
         )
     }
   })
@@ -802,7 +530,8 @@ async fn TicketRuntime::reconcile_interrupted(self : TicketRuntime) -> Unit {
       continue
     }
     let session_id = @work.work_session_id(task_id, "rd")
-    let session = self.child_store.load(session_id) catch { _ => continue }
+    let store = self.child_store_for(task_id)
+    let session = store.load(session_id) catch { _ => continue }
     if session.messages.is_empty() {
       continue
     }
@@ -935,29 +664,6 @@ async fn TicketRuntime::assign_role(
 }
 
 ///|
-fn required_roles(task : Json) -> Array[String] {
-  let fields = match task {
-    Object(fields) => fields
-    _ => return ["rd", "set", "te"]
-  }
-  match fields.get("required_roles") {
-    Some(Array(values)) => {
-      let roles : Array[String] = []
-      for value in values {
-        match value {
-          String(role) if !roles.contains(role) => roles.push(role)
-          _ => ()
-        }
-      }
-      if roles.contains("rd") {
-        roles
-      } else {
-        ["rd", "set", "te"]
-      }
-    }
-    _ => ["rd", "set", "te"]
-  }
-}
 
 ///|
 async fn TicketRuntime::set_required_roles(
@@ -1401,7 +1107,7 @@ async fn TicketRuntime::finish_work(
             return
           }
         }
-        let roles = required_roles(task)
+        let roles = @work.task_required_roles(task)
         if self.team_complete(task_id, roles) {
           if roles.contains("te") {
             match self.move_task(task_id, "verification") {
@@ -1901,42 +1607,44 @@ async fn TicketRuntime::shape(
       )
   }
   self.counter = self.counter + 1
-  let session_id = @work.shape_session_id(task_id)
-  self.child_store.clear_session(session_id) catch {
+  let session_id = @work.work_session_id(task_id, "po")
+  let store = self.child_store_for(task_id)
+  store.clear_session(session_id) catch {
     error =>
       return Err(
         "could not clear the previous shaping session: " + error.to_string(),
       )
   }
-  let _run = self.add_run(task_id, session_id, "shape", "refiner")
-  let endpoint : BoardQuestionEndpoint = {
+  let _run = self.add_run(task_id, session_id, "shape", "po")
+  let endpoint : @work.BoardQuestionEndpoint = {
     questions: self.questions,
     task_id,
-    asked_by: "refiner",
-    audience: "product_owner",
+    asked_by: "po",
+    audience: "customer",
+    on_open: None,
+    auto_po: None,
   }
-  let observer = TicketActivityObserver::{
+  let observer = @work.TicketActivityObserver::{
     run: self.run_for(task_id).unwrap(),
   }
   observer.run.activity("start", "Started")
-  let (mcp_exts, mcp_reads) = self.mcp_face("refiner")
+  let mcp_exts = self.mcp_face("po")
   let composer = CetasChildComposer::CetasChildComposer(
     parent_manager=self.manager,
     parent_mode=self.parent_mode,
-    child_store=Some(self.child_store),
+    child_store=Some(store),
     approval=self.approval,
     ui=None,
     question=None,
     question_endpoint=Some(endpoint as &@askquestion.QuestionEndpoint),
     extra_exts=mcp_exts,
-    extra_read_tools=mcp_reads,
     context_fs=self.ctx.fs,
     feature_fs=self.ctx.fs,
     cwd=self.ctx.cwd,
     home=self.ctx.home,
     host_group=Some(self.group),
   )
-  let prompt = "Refine this Board backlog item into an implementation-ready user story. You are the Refiner: the domain expert / agile coach for this ticket. The user is the Product Owner.\n\n" +
+  let prompt = "Refine this Board backlog item into an implementation-ready user story. You are the Product Owner for this ticket. The person in Cetas is the Customer.\n\n" +
     "Title: " +
     title +
     "\n\nCurrent description:\n" +
@@ -1954,11 +1662,11 @@ async fn TicketRuntime::shape(
     session_id,
     resuming: false,
     tools: Some(["read", "glob", "grep", "astgrep", "ask_question"]),
-    skills: self.skill_face("refiner"),
+    skills: self.skill_face("po"),
     mode: (self.parent_mode)(),
     system_prompt: ticket_system_prompt(
       self.ctx.cwd,
-      refiner_system_prompt(self.team.refiner),
+      po_system_prompt(self.team.po),
     ),
     slot,
     effort,
@@ -2097,7 +1805,7 @@ fn worker_prompt(
   "\n\nReporting contract:\n" +
   "- Call report_progress when you start, after each significant milestone, when you investigate a problem, and before your final answer.\n" +
   "- Call submit_work_report with outcome, summary, changes, verification, risks, notes, open questions and artifacts before your final answer.\n" +
-  "- Use ask_question_child with audience=\"refiner\" for requirement/design questions and audience=\"product_owner\" for business trade-offs; never use report_progress for questions.\n\n" +
+  "- Use ask_question_child with audience=\"po\" for requirement/design questions and audience=\"customer\" for business trade-offs; never use report_progress for questions.\n\n" +
   "Do not mutate the Board. End with a concise result and the evidence you verified."
 }
 
@@ -2110,8 +1818,9 @@ async fn TicketRuntime::start_role(
   resuming : Bool,
 ) -> Result[Unit, String] {
   let session_id = @work.work_session_id(task_id, role)
+  let store = self.child_store_for(task_id)
   if !resuming {
-    self.child_store.clear_session(session_id) catch {
+    store.clear_session(session_id) catch {
       error =>
         return Err(
           "could not clear the " + role + " session: " + error.to_string(),
@@ -2127,27 +1836,58 @@ async fn TicketRuntime::start_role(
       )
   }
   let run = self.add_run(task_id, session_id, "work", role)
-  let endpoint : BoardQuestionEndpoint = {
+  let endpoint : @work.BoardQuestionEndpoint = {
     questions: self.questions,
     task_id,
     asked_by: role,
-    audience: "refiner",
+    audience: "po",
+    on_open: Some(fn(id, task_id, asked_by, audience, prompt) {
+      let _ = id
+      ignore(audience)
+      self.record_progress(
+        task_id,
+        "question_asked",
+        self.team_label(asked_by) +
+        " asked " +
+        self.team_label("po") +
+        ": " +
+        prompt,
+      )
+    }),
+    auto_po: Some(fn(id) {
+      self.group.spawn_bg(async fn() {
+        match self.refiner_answer(id) {
+          Ok(_) => ()
+          Err(reason) => {
+            match self.questions.questions.get(id) {
+              Some(question) =>
+                self.record_progress(
+                  question.task_id,
+                  "attention",
+                  "Product Owner could not answer: " + reason,
+                )
+              None => ()
+            }
+            self.questions.cancel(id)
+          }
+        }
+      })
+    }),
   }
   let reporting : TicketReportAdapter = { runtime: self, task_id, role, }
-  let observer = TicketActivityObserver::{ run, }
+  let observer = @work.TicketActivityObserver::{ run, }
   observer.run.activity("start", "Started as " + role)
-  let (mcp_exts, mcp_reads) = self.mcp_face(role)
+  let mcp_exts = self.mcp_face(role)
   let composer = CetasChildComposer::CetasChildComposer(
     parent_manager=self.manager,
     parent_mode=self.parent_mode,
-    child_store=Some(self.child_store),
+    child_store=Some(store),
     approval=self.approval,
     ui=None,
     question=None,
     question_endpoint=Some(endpoint as &@askquestion.QuestionEndpoint),
     reporting=Some(reporting as &TicketReportEndpoint),
     extra_exts=mcp_exts,
-    extra_read_tools=mcp_reads,
     context_fs=self.ctx.fs,
     feature_fs=self.ctx.fs,
     cwd=self.ctx.cwd,
@@ -2258,7 +1998,7 @@ async fn TicketRuntime::run(
       Err(error) => return Err(error)
     }
   }
-  let roles = required_roles(task)
+  let roles = @work.task_required_roles(task)
   if !roles.contains("rd") {
     return Err("Ready ticket needs RD in its role plan")
   }
@@ -2297,7 +2037,8 @@ async fn TicketRuntime::resume_ticket(
     )
   }
   let session_id = @work.work_session_id(task_id, "rd")
-  let session = self.child_store.load(session_id) catch {
+  let store = self.child_store_for(task_id)
+  let session = store.load(session_id) catch {
     error =>
       return Err(
         "could not read the durable ticket session: " + error.to_string(),

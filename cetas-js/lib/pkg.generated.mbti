@@ -118,11 +118,11 @@ pub fn default_team_skills() -> Map[String, TeamSkills]
 
 pub fn development_system_prompt(String, String, WorkProfile) -> String
 
+pub fn po_system_prompt(String) -> String
+
 pub fn project_name(String) -> String
 
 pub fn question_event_to_json(@posoco-ext-askquestion.QuestionEvent) -> Json
-
-pub fn refiner_system_prompt(String) -> String
 
 pub fn work_profiles() -> Array[WorkProfile]
 
@@ -306,6 +306,7 @@ pub struct TeamMcp {
   enabled : Bool
   all : Bool
   servers : Array[String]
+  tools : Array[String]
 }
 pub fn TeamMcp::defaults() -> Self
 pub fn TeamMcp::from_json(Json) -> Self
@@ -314,7 +315,8 @@ pub fn TeamMcp::to_json(Self) -> Json
 pub fn TeamMcp::to_json_map(Map[String, Self]) -> Json
 
 pub struct TeamNames {
-  refiner : String
+  po : String
+  sm : String
   rd : String
   set : String
   te : String

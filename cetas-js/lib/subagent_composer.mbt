@@ -249,8 +249,6 @@ priv struct CetasChildComposer {
   /// Extra host-built extensions appended after the canonical tool face.
   /// Board uses this for its filtered read-only MCP view.
   extra_exts : Array[&@posoco.Extension]
-  /// Namespaced tools from `extra_exts` that must be pre-approved as reads.
-  extra_read_tools : Array[String]
   context_fs : &@workspace.WorkspaceFs
   feature_fs : &@workspace.WorkspaceFs
   cwd : String
@@ -271,7 +269,6 @@ fn CetasChildComposer::CetasChildComposer(
   question_endpoint~ : &@askquestion.QuestionEndpoint? = None,
   reporting~ : &TicketReportEndpoint? = None,
   extra_exts~ : Array[&@posoco.Extension] = [],
-  extra_read_tools~ : Array[String] = [],
   context_fs~ : &@workspace.WorkspaceFs,
   feature_fs~ : &@workspace.WorkspaceFs,
   cwd~ : String,
@@ -291,7 +288,6 @@ fn CetasChildComposer::CetasChildComposer(
     question_endpoint,
     reporting,
     extra_exts,
-    extra_read_tools,
     context_fs,
     feature_fs,
     cwd,
@@ -512,7 +508,6 @@ impl @subagent.ChildComposer for CetasChildComposer with fn compose(
     approval=self.approval,
     workspace=Some(@devkit.WorkspaceAnchor::WorkspaceAnchor(self.cwd)),
   )
-  permission.allow_read(self.extra_read_tools)
   let exts : Array[&@posoco.Extension] = [
     child_model,
     permission as &@posoco.Extension,

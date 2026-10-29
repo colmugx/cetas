@@ -13,7 +13,7 @@ test "team names trim controls and keep defaults for blanks" {
     "set": "Grace",
     "te": "  Linus  ",
   })
-  assert_eq(names.refiner, "Ada")
+  assert_eq(names.po, "Ada")
   assert_eq(names.rd, "RD")
   assert_eq(names.set, "Grace")
   assert_eq(names.te, "Linus")
@@ -21,7 +21,7 @@ test "team names trim controls and keep defaults for blanks" {
 
 ///|
 test "role prompt carries the customized name" {
-  assert_true(refiner_system_prompt("Ada").contains("Ada"))
+  assert_true(po_system_prompt("Ada").contains("Ada"))
   assert_true(
     development_system_prompt("Grace", "SET", WorkProfile::software()).contains(
       "Grace",
@@ -37,7 +37,7 @@ test "role prompt carries the customized name" {
 ///|
 test "team mcp settings round-trip per role" {
   let mcp = default_team_mcp()
-  mcp["rd"] = { enabled: true, all: false, servers: ["github", "browser"], }
+  mcp["rd"] = { enabled: true, all: false, servers: ["github", "browser"], tools: [] }
   let parsed = TeamMcp::from_json_map(TeamMcp::to_json_map(mcp))
   match parsed.get("rd") {
     Some(value) => {
@@ -53,7 +53,7 @@ test "team mcp settings round-trip per role" {
 ///|
 test "team skill settings round-trip per role" {
   let skills = default_team_skills()
-  skills["te"] = { enabled: true, all: false, skills: ["tdd"], }
+  skills["te"] = { enabled: true, all: false, skills: ["tdd"] }
   let parsed = TeamSkills::from_json_map(TeamSkills::to_json_map(skills))
   match parsed.get("te") {
     Some(value) => {
@@ -69,7 +69,7 @@ test "team skill settings round-trip per role" {
 ///|
 test "team config round-trips names, mcp, skills and profile" {
   let mcp = default_team_mcp()
-  mcp["te"] = { enabled: true, all: false, servers: ["browser"], }
+  mcp["te"] = { enabled: true, all: false, servers: ["browser"], tools: [] }
   let skills = default_team_skills()
   skills["rd"] = { enabled: true, all: false, skills: ["tdd"], }
   let config : TeamConfig = {

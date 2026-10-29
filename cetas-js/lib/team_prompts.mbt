@@ -2,7 +2,8 @@
 /// Editable team vocabulary. The prompts below are deliberately separate
 /// constants so a team can tune a role without touching ticket orchestration.
 pub struct TeamNames {
-  refiner : String
+  po : String
+  sm : String
   rd : String
   set : String
   te : String
@@ -10,18 +11,19 @@ pub struct TeamNames {
 
 ///|
 pub fn TeamNames::defaults() -> TeamNames {
-  { refiner: "Agile Coach", rd: "RD", set: "SET", te: "TE", }
+  { po: "Product Owner", sm: "Scrum Master", rd: "RD", set: "SET", te: "TE", }
 }
 
 ///|
 pub fn TeamNames::copy(self : TeamNames) -> TeamNames {
-  { refiner: self.refiner, rd: self.rd, set: self.set, te: self.te, }
+  { po: self.po, sm: self.sm, rd: self.rd, set: self.set, te: self.te, }
 }
 
 ///|
 pub fn TeamNames::to_json(self : TeamNames) -> Json {
   Json::object({
-    "refiner": Json::string(self.refiner),
+    "po": Json::string(self.po),
+    "sm": Json::string(self.sm),
     "rd": Json::string(self.rd),
     "set": Json::string(self.set),
     "te": Json::string(self.te),
@@ -53,7 +55,14 @@ pub fn TeamNames::from_json(value : Json) -> TeamNames {
         }
       }
       {
-        refiner: read("refiner", defaults.refiner),
+        po: read(
+          "po",
+          match fields.get("refiner") {
+            Some(String(value)) => clean(value, defaults.po)
+            _ => defaults.po
+          },
+        ),
+        sm: read("sm", defaults.sm),
         rd: read("rd", defaults.rd),
         set: read("set", defaults.set),
         te: read("te", defaults.te),
@@ -64,18 +73,19 @@ pub fn TeamNames::from_json(value : Json) -> TeamNames {
 }
 
 ///|
-/// MCP access is a per-role capability, not an Agile Coach privilege: a
+/// MCP access is a per-role capability, not a Product Owner privilege: a
 /// frontend TE may need a browser MCP while an RD needs GitHub. `all` means
 /// every host-configured server; `servers` is used only when `all` is false.
 pub struct TeamMcp {
   enabled : Bool
   all : Bool
   servers : Array[String]
+  tools : Array[String]
 }
 
 ///|
 pub fn TeamMcp::defaults() -> TeamMcp {
-  { enabled: false, all: true, servers: [], }
+  { enabled: false, all: true, servers: [], tools: [] }
 }
 
 ///|
@@ -84,6 +94,7 @@ pub fn TeamMcp::to_json(self : TeamMcp) -> Json {
     "enabled": Json::boolean(self.enabled),
     "all": Json::boolean(self.all),
     "servers": Json::array(self.servers.map(Json::string)),
+    "tools": Json::array(self.tools.map(Json::string)),
   })
 }
 
@@ -114,7 +125,19 @@ pub fn TeamMcp::from_json(value : Json) -> TeamMcp {
           }
         _ => ()
       }
-      { enabled, all, servers, }
+      let tools : Array[String] = []
+      match fields.get("tools") {
+        Some(Array(items)) =>
+          for item in items {
+            match item {
+              String(name) if name != "" && !tools.contains(name) =>
+                tools.push(name)
+              _ => ()
+            }
+          }
+        _ => ()
+      }
+      { enabled, all, servers, tools }
     }
     _ => defaults
   }
@@ -124,7 +147,8 @@ pub fn TeamMcp::from_json(value : Json) -> TeamMcp {
 /// One fixed set of roles; absent roles read as disabled with all servers.
 pub fn default_team_mcp() -> Map[String, TeamMcp] {
   Map::from_array([
-    ("refiner", TeamMcp::defaults()),
+    ("po", TeamMcp::defaults()),
+    ("sm", TeamMcp::defaults()),
     ("rd", TeamMcp::defaults()),
     ("set", TeamMcp::defaults()),
     ("te", TeamMcp::defaults()),
@@ -134,7 +158,7 @@ pub fn default_team_mcp() -> Map[String, TeamMcp] {
 ///|
 pub fn TeamMcp::to_json_map(mcp : Map[String, TeamMcp]) -> Json {
   let fields : Map[String, Json] = Map([])
-  for role in ["refiner", "rd", "set", "te"] {
+  for role in ["po", "sm", "rd", "set", "te"] {
     fields[role] = match mcp.get(role) {
       Some(value) => value.to_json()
       None => TeamMcp::defaults().to_json()
@@ -147,13 +171,19 @@ pub fn TeamMcp::to_json_map(mcp : Map[String, TeamMcp]) -> Json {
 pub fn TeamMcp::from_json_map(value : Json) -> Map[String, TeamMcp] {
   let out = default_team_mcp()
   match value {
-    Object(fields) =>
-      for role in ["refiner", "rd", "set", "te"] {
+    Object(fields) => {
+      for role in ["po", "sm", "rd", "set", "te"] {
         match fields.get(role) {
           Some(item) => out[role] = TeamMcp::from_json(item)
           None => ()
         }
       }
+      match fields.get("refiner") {
+        Some(item) if !fields.contains("po") =>
+          out["po"] = TeamMcp::from_json(item)
+        _ => ()
+      }
+    }
     _ => ()
   }
   out
@@ -218,7 +248,8 @@ pub fn TeamSkills::from_json(value : Json) -> TeamSkills {
 ///|
 pub fn default_team_skills() -> Map[String, TeamSkills] {
   Map::from_array([
-    ("refiner", TeamSkills::defaults()),
+    ("po", TeamSkills::defaults()),
+    ("sm", TeamSkills::defaults()),
     ("rd", TeamSkills::defaults()),
     ("set", TeamSkills::defaults()),
     ("te", TeamSkills::defaults()),
@@ -228,7 +259,7 @@ pub fn default_team_skills() -> Map[String, TeamSkills] {
 ///|
 pub fn TeamSkills::to_json_map(skills : Map[String, TeamSkills]) -> Json {
   let fields : Map[String, Json] = Map([])
-  for role in ["refiner", "rd", "set", "te"] {
+  for role in ["po", "sm", "rd", "set", "te"] {
     fields[role] = match skills.get(role) {
       Some(value) => value.to_json()
       None => TeamSkills::defaults().to_json()
@@ -241,13 +272,19 @@ pub fn TeamSkills::to_json_map(skills : Map[String, TeamSkills]) -> Json {
 pub fn TeamSkills::from_json_map(value : Json) -> Map[String, TeamSkills] {
   let out = default_team_skills()
   match value {
-    Object(fields) =>
-      for role in ["refiner", "rd", "set", "te"] {
+    Object(fields) => {
+      for role in ["po", "sm", "rd", "set", "te"] {
         match fields.get(role) {
           Some(item) => out[role] = TeamSkills::from_json(item)
           None => ()
         }
       }
+      match fields.get("refiner") {
+        Some(item) if !fields.contains("po") =>
+          out["po"] = TeamSkills::from_json(item)
+        _ => ()
+      }
+    }
     _ => ()
   }
   out
@@ -414,8 +451,8 @@ pub fn project_name(cwd : String) -> String {
 }
 
 ///|
-pub fn refiner_system_prompt(name : String) -> String {
-  "You are \{name}, the Refiner on this Board ticket. You are the domain expert, agile coach and scrum facilitator for the team. Turn a rough backlog request into a standard user story written as exactly three lines: the role, what the user wants, and why. Then add a detailed description, implementation suggestions, observable acceptance criteria and a P0-P3 priority. Ask the Product Owner when business intent is genuinely ambiguous. Never modify files and never claim work is done."
+pub fn po_system_prompt(name : String) -> String {
+  "You are \{name}, the Product Owner on this Board ticket. Turn a rough backlog request into a standard user story written as exactly three lines: the role, what the user wants, and why. Then add a detailed description, implementation suggestions, observable acceptance criteria and a P0-P3 priority. Ask the Customer when business intent is genuinely ambiguous. Never modify files and never claim work is done."
 }
 
 ///|
@@ -431,5 +468,5 @@ pub fn development_system_prompt(
     _ =>
       "Verify the \{profile.work_product} using SET's independent evidence, not RD's self-report."
   }
-  "You are \{name}, the \{role} member of the development group for this Board ticket. \{duty} Work only against the assigned user story and its definition of done. Ask the Refiner when the requirement is unclear; ask the Product Owner only for business trade-offs. Report progress and a structured work report before your final answer."
+  "You are \{name}, the \{role} member of the development group for this Board ticket. \{duty} Work only against the assigned user story and its definition of done. Ask the Product Owner when the requirement or DoD is unclear; ask the Customer only for original business intent or trade-offs. Report progress and a structured work report before your final answer."
 }

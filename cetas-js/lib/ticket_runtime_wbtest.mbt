@@ -9,7 +9,7 @@ test "ticket system prompt carries the Cetas language policy" {
 ///|
 async test "ticket question waits for a Board answer" {
   @async.with_task_group(group => {
-    let questions = TicketQuestions::TicketQuestions()
+    let questions = @work.TicketQuestions::TicketQuestions()
     let waiter = group.spawn(async fn() {
       let answer : Result[@posoco.UiResponse, @askquestion.QuestionError] = Ok(
         questions.ask(
@@ -47,7 +47,7 @@ async test "ticket question waits for a Board answer" {
 
 ///|
 test "unknown ticket question answers are rejected" {
-  let questions = TicketQuestions::TicketQuestions()
+  let questions = @work.TicketQuestions::TicketQuestions()
   assert_true(
     questions.answer("missing", @posoco.UiResponse::Yes, "product_owner")
     is Err(_),
@@ -56,7 +56,9 @@ test "unknown ticket question answers are rejected" {
 
 ///|
 test "required roles defaults to all and preserves an RD-only plan" {
-  assert_eq(required_roles({}), ["rd", "set", "te"])
-  assert_eq(required_roles({ "required_roles": ["rd"] }), ["rd"])
-  assert_eq(required_roles({ "required_roles": ["set"] }), ["rd", "set", "te"])
+  assert_eq(@work.task_required_roles({}), ["rd", "set", "te"])
+  assert_eq(@work.task_required_roles({ "required_roles": ["rd"] }), ["rd"])
+  assert_eq(@work.task_required_roles({ "required_roles": ["set"] }), [
+    "rd", "set", "te",
+  ])
 }

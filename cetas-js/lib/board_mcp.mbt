@@ -13,12 +13,15 @@ fn BoardMcp::BoardMcp(bridge~ : @mcp.MCPToolBridge) -> BoardMcp {
 
 ///|
 fn BoardMcp::catalog_json(self : BoardMcp) -> Json {
-  self.bridge.catalog_json()
+  self.bridge.server_catalog_json()
 }
 
 ///|
 fn mcp_tool_allowed(name : String, config : TeamMcp) -> Bool {
   if !config.enabled {
+    return false
+  }
+  if !config.tools.is_empty() && !config.tools.contains(name) {
     return false
   }
   if config.all {
