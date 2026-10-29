@@ -33,9 +33,9 @@ pub fn auth_prompt_json(@ext-oauth.AuthPromptRequest) -> String
 
 pub async fn build_cetas_platform(home~ : String, cwd~ : String, &@posoco-ext-workspace.WorkspaceFs, permission_mode~ : @posoco-ext-permission.PermissionMode, mcp_group? : @async.TaskGroup[Unit]?, label? : String, warn? : async (String) -> Unit noraise) -> CetasPlatform raise @error.CompositionError
 
-pub fn build_cetas_router(platform~ : CetasPlatform, event_bus? : @devkit.EventBus?) -> @ext-llm.RouterModelPort raise @error.CompositionError
+pub fn build_cetas_router(platform~ : CetasPlatform, event_bus? : @devkit.EventBus?, transient_retry? : @ext-llm.TransientRetryPolicy?) -> @ext-llm.RouterModelPort raise @error.CompositionError
 
-pub async fn build_cetas_session(platform~ : CetasPlatform, cwd~ : String, router? : @ext-llm.RouterModelPort?, approval? : &@posoco-ext-permission.ApprovalSource?, ui? : &@port.UiPort?, event_bus? : @devkit.EventBus?, client_exts? : Array[&@port.Extension], policy_exts? : Array[&@port.Extension], bus_exts? : ((@devkit.EventBus) -> Array[&@port.Extension])?, feature_exts? : Array[&@port.Extension], prompt_suffix? : String?, session_fs? : &@posoco-ext-workspace.WorkspaceFs?, label? : String, warn? : async (String) -> Unit noraise) -> CetasSession raise @error.CompositionError
+pub async fn build_cetas_session(platform~ : CetasPlatform, cwd~ : String, router? : @ext-llm.RouterModelPort?, transient_retry? : @ext-llm.TransientRetryPolicy?, approval? : &@posoco-ext-permission.ApprovalSource?, ui? : &@port.UiPort?, event_bus? : @devkit.EventBus?, client_exts? : Array[&@port.Extension], policy_exts? : Array[&@port.Extension], bus_exts? : ((@devkit.EventBus) -> Array[&@port.Extension])?, feature_exts? : Array[&@port.Extension], prompt_suffix? : String?, session_fs? : &@posoco-ext-workspace.WorkspaceFs?, label? : String, warn? : async (String) -> Unit noraise) -> CetasSession raise @error.CompositionError
 
 pub fn build_provider_catalog(&@posoco-kit-provider.ProviderFactory, ProviderCredentialSnapshot, cached_models? : Json?) -> @posoco-kit-provider.ProviderModelCatalog? raise @error.CompositionError
 

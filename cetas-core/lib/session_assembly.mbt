@@ -30,6 +30,9 @@ pub(all) struct CetasSession {
 pub fn build_cetas_router(
   platform~ : CetasPlatform,
   event_bus~ : @devkit.EventBus? = None,
+  transient_retry~ : @llm.TransientRetryPolicy? = Some(
+    @llm.TransientRetryPolicy::default(),
+  ),
 ) -> @llm.RouterModelPort raise @posoco.CompositionError {
   @llm.RouterModelPort::from_catalogs(
     platform.catalogs,
@@ -41,6 +44,7 @@ pub fn build_cetas_router(
     default_decision_slot_id=platform.default_decision_slot_id,
     allow_missing_decision_default=platform.default_decision_slot_pending,
     bus=event_bus,
+    transient_retry~,
     model_metadata=Some(platform.model_metadata),
     provider_credential_store=Some(
       platform.credential_store as &@oauth.ProviderCredentialStore,
@@ -64,11 +68,18 @@ pub fn build_cetas_router(
 /// subscribed, so such publications always reach a live gate.
 /// `feature_exts~` is the host-owned composition root projection: concrete
 /// extension selection is compiled outside cetas-core, while core retains the
-/// authoritative product ordering and lifecycle.
+/// authoritative product ordering and lifecycle. `transient_retry~` reaches
+/// the internally built router only (an injected `router~` wins unchanged);
+/// `None` disables model-call retrying, which scripted-failure tests use so
+/// they surface the failure immediately instead of sleeping the default
+/// backoff budget.
 pub async fn build_cetas_session(
   platform~ : CetasPlatform,
   cwd~ : String,
   router~ : @llm.RouterModelPort? = None,
+  transient_retry~ : @llm.TransientRetryPolicy? = Some(
+    @llm.TransientRetryPolicy::default(),
+  ),
   approval~ : &@permission.ApprovalSource? = None,
   ui~ : &@posoco.UiPort? = None,
   event_bus~ : @devkit.EventBus? = None,
@@ -94,7 +105,8 @@ pub async fn build_cetas_session(
   @devkit.status_bus_register(event_bus)
   let router = match router {
     Some(router) => router
-    None => build_cetas_router(platform~, event_bus=Some(event_bus))
+    None =>
+      build_cetas_router(platform~, event_bus=Some(event_bus), transient_retry~)
   }
   match platform.persisted_effort {
     Some(effort) =>

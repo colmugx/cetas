@@ -198,10 +198,15 @@ async fn tk_scripted_agent(
     ]),
   )
   let feature_exts = build_compiled_recipe_features(ctx={ fs, cwd: "/w", home, })
+  // No transient retry: failure-path tests script an exhausted model, and the
+  // default policy would sleep its full Fibonacci backoff (231s) before the
+  // failure reaches the assertions. Retry semantics themselves are covered
+  // by ext-llm's transient_retry tests, which use zero-delay policies.
   let session = @cetas_core.build_cetas_session(
     platform~,
     cwd="/w",
     feature_exts~,
+    transient_retry=None,
     label="cetas-run-tests",
   )
   (@cetas_core.compose_cetas_agent(session~, tail_exts~), model)
