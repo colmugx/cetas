@@ -97,6 +97,21 @@ describe("parsePartialJsonObject — non-string incomplete values", () => {
 });
 
 describe("parsePartialJsonObject — hostile input never throws", () => {
+  test("reserved JSON object keys remain own data properties", () => {
+    const raw = '{"__proto__":{"polluted":true},"constructor":"safe","toString":2}';
+    const parsed = parsePartialJsonObject(raw);
+    expect(Object.getPrototypeOf(parsed)).toBe(Object.prototype);
+    expect(Object.hasOwn(parsed, "__proto__")).toBe(true);
+    expect(parsed).toEqual(JSON.parse(raw));
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  test("deeply nested hostile input fails closed without stack overflow", () => {
+    const deep = '{"data":' + "[".repeat(5000) + "0" + "]".repeat(5000) + "}";
+    expect(() => parsePartialJsonObject(deep)).not.toThrow();
+    expect(parsePartialJsonObject(deep)).toEqual({});
+  });
+
   test("empty / whitespace / non-object input yields {}", () => {
     expect(parsePartialJsonObject("")).toEqual({});
     expect(parsePartialJsonObject("   ")).toEqual({});
