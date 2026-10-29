@@ -25,6 +25,27 @@ describe("Gate 5 source-indexed transcript search and copy",()=>{
     expect(index.next(-1)).toBe(0);
     expect(index.next(-1,true)).toBe(1);
   });
+  test("looks up only matching message hits from a large sorted hit list", () => {
+    const entries: SearchableComponent[] = Array.from({ length: 10_000 }, (_, i) => ({
+      render: () => { throw new Error("lookup must not render"); },
+      invalidate() {},
+      getSearchText: () => i % 2 === 0 ? "banana banana" : "other",
+    }));
+    const index = new TranscriptSearchIndex();
+    const all = index.search(entries, "banana");
+    expect(all).toHaveLength(10_000);
+    expect(index.hitsAt(0)).toEqual(all.slice(0, 2));
+    expect(index.hitsAt(4000)).toEqual([
+      { index: 4000, offset: 0, length: 6 },
+      { index: 4000, offset: 7, length: 6 },
+    ]);
+    expect(index.hitsAt(4001)).toEqual([]);
+    expect(index.hitsAt(9998)).toEqual(all.slice(-2));
+    expect(index.hitsAt(10000)).toEqual([]);
+    index.clear();
+    expect(index.hitsAt(0)).toEqual([]);
+  });
+
   test("empty query and no matches clear the result state",()=>{
     const idx=new TranscriptSearchIndex();
     expect(idx.search(docs(4,()=>{}),"")).toEqual([]);

@@ -188,6 +188,7 @@ export class VirtualTranscriptDocument implements Component {
     this.lastLines = [];
     this.slots = [];
     this.pointerAnchor = this.pointerFocus = undefined;
+    this.clearSearchHighlight();
   }
 
   /** Prefer direct append notifications in production; check is O(1) per frame. */
@@ -235,8 +236,8 @@ export class VirtualTranscriptDocument implements Component {
       const rendered = component.render(safeWidth);
       // Highlight only literal source matches that can be located exactly on
       // rendered rows. Markdown transformations are intentionally not guessed.
-      const hits = this.searchIndex?.matches.filter(hit => hit.index === i) ?? [];
-      const highlighted = hits.length && isSearchableComponent(component)
+      const hits = this.searchIndex?.hitsAt(i);
+      const highlighted = hits !== undefined && hits.length > 0 && isSearchableComponent(component)
         ? highlightLiteralRows(rendered, component.getSearchText(), hits.map(hit => ({ offset: hit.offset, length: hit.length })), safeWidth)
         : rendered;
       // Blank blocks still occupy a logical row; never let index heights be 0.
