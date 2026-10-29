@@ -1,5 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
 import type { CetasApplication } from "../src/app/application.ts";
+import { BOARD_HTML, BOARD_JS, BOARD_CSS } from "./board-assets.generated.ts";
+
+// Other integration tests temporarily replace global fetch. Keep a stable
+// transport reference for this real loopback server test.
+const serverFetch = globalThis.fetch.bind(globalThis);
 import {
   closeWorkflowBoards,
   openWorkflowBoard,
@@ -116,15 +121,18 @@ test("serves the same Rabbita app and bridges the Board wire protocol", async ()
   });
 
   expect(opened).toContain("?token=");
-  const page = await fetch(opened);
+  const page = await serverFetch(opened);
   expect(page.status).toBe(200);
   const html = await page.text();
+  expect(html).toBe(BOARD_HTML);
   expect(html).toContain("<title>Board</title>");
   expect(html).toContain("/index.js");
 
-  const js = await (await fetch(base + "index.js")).text();
+  const js = await (await serverFetch(base + "index.js")).text();
+  expect(js).toBe(BOARD_JS);
   expect(js.length).toBeGreaterThan(1000);
-  const css = await (await fetch(base + "board.css")).text();
+  const css = await (await serverFetch(base + "board.css")).text();
+  expect(css).toBe(BOARD_CSS);
   expect(css).toContain("--canvas: #ececea");
 
   const wsUrl = opened
