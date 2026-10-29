@@ -1955,6 +1955,78 @@ async fn TicketRuntime::start_role(
 }
 
 ///|
+/// Facts the Scrum Master must not have to rediscover: dependency state,
+/// other running work, and open questions. The Board snapshot stays the
+/// authority; this is only a compact projection for one consultation.
+async fn TicketRuntime::coordination_brief(
+  self : TicketRuntime,
+  task_id : String,
+  task : Json,
+) -> String {
+  let snapshot = match self.snapshot_sync() {
+    Ok(snapshot) => snapshot
+    Err(_) => return "Coordination brief unavailable: Board snapshot failed."
+  }
+  let tasks = match @work.BoardState::tasks_from_snapshot(snapshot) {
+    Ok(state) => state.tasks
+    Err(_) => return "Coordination brief unavailable: Board state failed."
+  }
+  let by_id : Map[String, Json] = Map([])
+  for item in tasks {
+    by_id[@work.task_field(item, "id")] = item
+  }
+  let deps : Array[String] = []
+  match task {
+    Object(fields) =>
+      match fields.get("dependencies") {
+        Some(Array(items)) =>
+          for item in items {
+            match item {
+              String(id) if id != "" => deps.push(id)
+              _ => ()
+            }
+          }
+        _ => ()
+      }
+    _ => ()
+  }
+  let lines : Array[String] = []
+  lines.push("Ticket stage: " + @work.task_field(task, "stage"))
+  if deps.is_empty() {
+    lines.push("Dependencies: none")
+  } else {
+    for id in deps {
+      let state = match by_id.get(id) {
+        Some(item) => @work.task_field(item, "stage")
+        None => "missing"
+      }
+      lines.push("Dependency " + id + ": " + state)
+    }
+  }
+  let running : Array[String] = []
+  for id in by_id.keys() {
+    if id != task_id {
+      for run in self.runs_for(id) {
+        if run.status == "running" {
+          running.push(id + " (" + run.role + ")")
+        }
+      }
+    }
+  }
+  if running.is_empty() {
+    lines.push("Other running work: none")
+  } else {
+    lines.push("Other running work: " + running.join(", "))
+  }
+  let open_questions = match self.questions.json() {
+    Array(items) => items.length()
+    _ => 0
+  }
+  lines.push("Open questions: " + open_questions.to_string())
+  lines.join("\n")
+}
+
+///|
 async fn TicketRuntime::consult_sm(
   self : TicketRuntime,
   task_id : String,
@@ -1976,8 +2048,11 @@ async fn TicketRuntime::consult_sm(
   let run = self.add_run(task_id, session_id, "advice", "sm")
   let observer = @work.TicketActivityObserver::{ run, }
   observer.run.activity("start", "Asked " + self.team.sm)
+  let brief = self.coordination_brief(task_id, task)
   let prompt = "Ticket state:\n" +
     @work.one_line_preview(task.stringify(), 4000) +
+    "\n\nCoordination brief:\n" +
+    brief +
     "\n\nQuestion for the Scrum Master:\n" +
     question
   let composer = CetasChildComposer::CetasChildComposer(
