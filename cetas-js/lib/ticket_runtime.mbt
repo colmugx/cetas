@@ -1669,7 +1669,7 @@ async fn TicketRuntime::shape(
     "{\"summary\":\"one sentence\",\"title\":\"short title\",\"user_story\":\"As a ...\\nI want ...\\nSo that ...\",\"description\":\"detailed scope and constraints\",\"implementation_suggestions\":\"starting points, not a mandate\",\"definition_of_done\":[\"observable criterion\"],\"priority\":\"p1\",\"required_roles\":[\"rd\",\"set\",\"te\"]}\n" +
     "Split:\n" +
     "{\"summary\":\"why these are independent stories\",\"tasks\":[{\"title\":\"short title\",\"user_story\":\"As a ...\\nI want ...\\nSo that ...\",\"description\":\"scope\",\"implementation_suggestions\":\"starting points\",\"definition_of_done\":[\"observable criterion\"],\"priority\":\"p1\",\"required_roles\":[\"rd\",\"set\",\"te\"]}]}\n" +
-    "Every field is required. Use the language of the ticket title/description for every value; JSON keys stay English. Do not wrap it in Markdown."
+    "Every field is required. Use the language of the ticket title/description for every value, including the `As a`, `I want` and `So that` scaffolding; do not copy the English examples. JSON keys stay English. Do not wrap it in Markdown."
   }
   let spec : @subagent.ChildSpec = {
     task: prompt,

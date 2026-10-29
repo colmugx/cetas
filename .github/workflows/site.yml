@@ -61,6 +61,13 @@ jobs:
       - name: build
         run: bun run build
 
+      # Post-build assertion: the sitemap that robots.txt advertises must
+      # exist in dist/, match its declaration, and list exactly the published
+      # pages (no endpoints, no dupes, no base-prefix drift). See
+      # scripts/check-sitemap.mjs for the invariants.
+      - name: check sitemap
+        run: bun run check:sitemap
+
       - name: lint docs
         run: bun run lint:docs
 
