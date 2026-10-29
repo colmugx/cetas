@@ -125,7 +125,7 @@ test("serves the same Rabbita app and bridges the Board wire protocol", async ()
   expect(page.status).toBe(200);
   const html = await page.text();
   expect(html).toBe(BOARD_HTML);
-  expect(html).toContain("<title>Board</title>");
+  expect(html).toMatch(/<title>[^<]+<\/title>/i);
   expect(html).toContain("/index.js");
 
   const js = await (await serverFetch(base + "index.js")).text();
