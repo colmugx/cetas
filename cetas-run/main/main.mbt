@@ -31,7 +31,7 @@
 ///|
 /// Release train version — kept in lockstep with the cetas VERSION file by
 /// `scripts/release.py` (the moon.mod of this package carries the same value).
-const CETAS_RUN_VERSION = "0.10.12"
+const CETAS_RUN_VERSION = "0.10.13"
 
 ///|
 #cfg(target="native")

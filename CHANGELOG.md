@@ -2,6 +2,22 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.10.13 (2026-10-29)
+
+## Bun Ver.（cetas-bun）
+
+### Feats
+
+- `/sessions` now has two scopes, `Current Folder` and `All` (press `tab` to switch): `All` mixes sessions from every project newest-first, labels each row with the folder it belongs to, and resuming a row from another project switches cetas into that directory — tools, workspace anchor and session bucket follow — before replaying that transcript.
+- Board tickets can now be brought to the Scrum Master: ask a question about blockers, dependencies or the next step from the ticket sheet, and the answer arrives as a background advice run that never changes the ticket.
+- The Scrum Master answers with the ticket's real coordination facts already in hand (stage, dependency states, other running work, open questions) plus read-only tools to re-read them by topic, instead of rediscovering the board on every question.
+- Board teams now have a Scrum Master next to the Product Owner, and role names, skills and MCP tool selections are configured per role, so the Board addresses members by name ("Answer as Product Owner") instead of by raw role id.
+
+### Fixes
+
+- The Board dashboard now works in the npm channel, which runs on plain Node.
+- Streamed tool calls are matched to the right row: a call arriving in fragments no longer adopts an unrelated pending call, and a missing provisional row can no longer break the turn's tool display.
+
 ## 0.10.12 (2026-10-28)
 
 ## Bun Ver.（cetas-bun）
