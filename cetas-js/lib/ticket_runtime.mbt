@@ -2055,6 +2055,19 @@ async fn TicketRuntime::consult_sm(
     brief +
     "\n\nQuestion for the Scrum Master:\n" +
     question
+  let sm_exts = self.mcp_face("sm")
+  let coordination_brief = Ref(brief)
+  let coordination = BoardCoordinationTools::{
+    task_id,
+    brief: coordination_brief,
+  }
+  sm_exts.push(coordination as &@posoco.Extension)
+  self.group.spawn_bg(async fn() {
+    for _ in 0..<300 {
+      @async.sleep(2000)
+      coordination_brief.val = self.coordination_brief(task_id, task)
+    }
+  })
   let composer = CetasChildComposer::CetasChildComposer(
     parent_manager=self.manager,
     parent_mode=self.parent_mode,
@@ -2063,7 +2076,7 @@ async fn TicketRuntime::consult_sm(
     ui=None,
     question=None,
     question_endpoint=None,
-    extra_exts=self.mcp_face("sm"),
+    extra_exts=sm_exts,
     context_fs=self.ctx.fs,
     feature_fs=self.ctx.fs,
     cwd=self.ctx.cwd,

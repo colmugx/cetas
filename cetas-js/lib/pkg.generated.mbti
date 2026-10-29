@@ -22,6 +22,7 @@ import {
   "moonbitlang/async/aqueue",
   "moonbitlang/async/js_async",
   "moonbitlang/core/debug",
+  "moonbitlang/core/ref",
   "posoco/devkit",
   "posoco/ext-llm",
   "posoco/ext-oauth",
@@ -137,6 +138,13 @@ pub(all) struct BlockingApprovalSource {
 pub fn BlockingApprovalSource::BlockingApprovalSource() -> Self
 pub async fn BlockingApprovalSource::ask(Self, @posoco-ext-permission.ApprovalRequest) -> @posoco-ext-permission.ApprovalDecision
 pub impl @posoco-ext-permission.ApprovalSource for BlockingApprovalSource
+
+pub struct BoardCoordinationTools {
+  task_id : String
+  brief : @ref.Ref[String]
+}
+pub fn BoardCoordinationTools::extension_id(Self) -> String
+pub fn BoardCoordinationTools::manifest(Self) -> @port.ExtensionManifest
 
 pub struct BoardSkill {
   name : String
