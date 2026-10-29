@@ -2063,7 +2063,11 @@ async fn TicketRuntime::consult_sm(
       Err(error) => {
         run.status = "failed"
         run.error = Some(error)
-        self.record_progress(task_id, "attention", "Scrum Master failed: " + error)
+        self.record_progress(
+          task_id,
+          "attention",
+          "Scrum Master failed: " + error,
+        )
       }
     }
   })
