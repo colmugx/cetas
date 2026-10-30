@@ -314,7 +314,7 @@ jobs:
 
       - name: build cetas-bun
         working-directory: cetas-js
-        run: bun build.ts ${{ matrix.target }} --aot
+        run: bun build.ts ${{ matrix.target }}
 
       - name: smoke cetas-bun AOT --version (unix)
         if: matrix.os != 'windows-latest'
