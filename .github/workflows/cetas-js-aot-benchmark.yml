@@ -1,0 +1,45 @@
+name: cetas-js AOT size comparison
+
+on:
+  pull_request:
+    paths:
+      - "cetas-js/**"
+      - ".github/workflows/cetas-js-aot-benchmark.yml"
+
+jobs:
+  benchmark:
+    name: cetas-js Linux AOT size
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: checkout cetas
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: install moon
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: setup bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: moon update
+        run: moon update
+
+      - name: bun install
+        working-directory: cetas-js
+        run: bun install
+
+      - name: benchmark real Bun executables
+        working-directory: cetas-js
+        run: bun scripts/bench-bun-aot.ts
+
+      - name: upload measurement report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cetas-js-aot-size-linux-x64
+          path: cetas-js/dist/aot-benchmark/results.json
+          if-no-files-found: warn
