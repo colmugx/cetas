@@ -178,13 +178,13 @@ async function verifyAotAvailable(): Promise<void> {
       "try { mutated = Reflect.set(Array.prototype, 'push', () => 0); } catch {}",
       "if (mutated) Reflect.set(Array.prototype, 'push', original);",
       "console.log(mutated ? 'jit' : 'aot');",
-    ].join("\\n") + "\\n");
+    ].join("\n") + "\n");
     const built = await Bun.build({
       entrypoints: [entry],
       compile: { outfile, aot: true, autoloadBunfig: false },
     });
     if (!built.success) {
-      throw new Error(built.logs.map(String).join("\\n"));
+      throw new Error(built.logs.map(String).join("\n"));
     }
     const executable = process.platform === "win32" ? `${outfile}.exe` : outfile;
     const run = Bun.spawnSync([executable], { stdout: "pipe", stderr: "pipe" });
