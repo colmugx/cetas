@@ -314,7 +314,25 @@ jobs:
 
       - name: build cetas-bun
         working-directory: cetas-js
-        run: bun build.ts ${{ matrix.target }}
+        run: bun build.ts ${{ matrix.target }} --aot
+
+      - name: smoke cetas-bun AOT --version (unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: cetas-js
+        run: |
+          out="$(./dist/cetas-bun-${{ matrix.target }} --version)"
+          echo "$out"
+          [[ "$out" == *"$(cat ../VERSION)"* ]] || { echo "::error::AOT binary version mismatch"; exit 1; }
+
+      - name: smoke cetas-bun AOT --version (Windows)
+        if: matrix.os == 'windows-latest'
+        working-directory: cetas-js
+        shell: pwsh
+        run: |
+          $out = (& ".\dist\cetas-bun-${{ matrix.target }}.exe" --version) -join ' '
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version = (Get-Content ..\VERSION -Raw).Trim()
+          if (-not $out.Contains($version)) { throw "AOT binary version mismatch: $out" }
 
       - name: collect cetas-bun + pi-tui native prebuilds (unix)
         if: matrix.os != 'windows-latest'
