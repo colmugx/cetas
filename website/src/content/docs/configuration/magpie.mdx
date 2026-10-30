@@ -1,0 +1,174 @@
+---
+title: 接入 Magpie 网关
+description: 从启动网关到跑通一次推理。
+sidebar:
+  order: 84
+---
+
+Magpie 是跑在你自己机器或内网里的模型网关：模型、账号、密钥都在网关那边管，Cetas 只负责连上去、选一个模型、开始干活。
+
+Cetas 原生支持 Magpie：`/manager` 在供应商集合与 Magpie 之间切换，`/model` 选对话模型与推理档位，`/quota` 看配额，`/status` 报网关与目录状态，`/login` 把凭据写进共享凭据库。下面按一条主线走完：启动网关 → 让 Cetas 连上 → 切管理器 → 选模型 → 验证可用，每一步都写清「看到什么才算过」。
+
+<Aside type="note" title="这一层归 Magpie">
+供应商选择、上游回退、配额与计价都属于 Magpie，Cetas 不重复实现这一层；`/quota` 和用量里的数字是网关报的，Cetas 不估算、不补齐——缺价格或缺缓存信息时宁可留空。同一会话内，Cetas 给网关的每个推理请求都带上 `X-Magpie-Session`，让这次会话的路由保持一贯。你能决定的只有三件事：连哪个网关、用哪个模型（含推理档位）、什么时候刷新目录。
+</Aside>
+
+## 1. 启动网关，先确认它活着
+
+Magpie 网关是独立进程，默认地址 `http://127.0.0.1:3425`。它的安装、部署与运维按 Magpie 自己的文档来；本页只负责确认一件事：Cetas 能看见它。
+
+两种形态，要准备的东西不一样：
+
+- **本地网关**：跑在回环地址上，Cetas 用内置的本地应用令牌访问（`Authorization: Bearer magpie-posoco`），你不用准备密钥。
+- **远程网关**：需要网关密钥；地址必须是 HTTPS origin 或回环 HTTP origin，其他形状在 Cetas 这一侧就被拒：`gateway must be an HTTPS origin or loopback HTTP origin`。
+
+**成功标志**：`curl http://127.0.0.1:3425/api/hello` 返回一个 JSON 对象，其中 `"name"` 的值是 `"magpie"`；`curl http://127.0.0.1:3425/v1/models` 返回带 `data` 数组的 JSON。这两个端点正是 Cetas 刷新目录时先探的，`name` 不是 `magpie` 的应答，Cetas 一律不认。
+
+网关自己要求鉴权时，`curl` 也得带上同样的 Bearer 令牌；这种情况下以第 5 步的 `/status` 为准。
+
+## 2. 让 Cetas 连上：设置项与凭据
+
+地址和凭据分开存：地址写进 settings.json，凭据进共享凭据库。这一步先让地址可用，再让凭据可用，下面两小节各有各的成功标志。
+
+| 要写的 | 落在哪 | 谁写 |
+| --- | --- | --- |
+| `magpie.base_url`、`magpie.enabled` | `<CETAS_HOME>/.cetas/settings.json` | `/login magpie` 会写，也可以手写 |
+| 网关凭据 | 共享凭据库（`<CETAS_HOME>/.cetas/credentials/`） | 只有 `/login magpie` |
+
+### 用 `/login magpie`（推荐）
+
+```text
+/login magpie
+```
+
+先选网关形态：`Local Gateway`（`http://127.0.0.1:3425`）或 `Remote Gateway`（HTTPS with Gateway Key）。选远程会再问两项：`Gateway HTTPS origin` 与 `Gateway Key (input hidden)`。
+
+它不只写配置：跑完会真的连一次网关，先读 `/api/hello`，再读 `/v1/models`。
+
+**成功标志**：出现 `Magpie Gateway verified and configured`。
+
+失败只有一句，而且故意不说细节：`/login magpie cancelled, unavailable or invalid`——取消、网关不可达、密钥不对、地址不安全，都归到这一句，排查见最后一节。正在跑回合时它会先拒绝：`/login magpie requires an idle application`。
+
+`/login magpie` 写的是 `magpie.base_url` 与 `magpie.enabled: true`，**不写** `model_manager`。它只解决「连得上」，切不切过去是下一步的事。
+
+### 或者手写 settings.json
+
+```json
+{
+  "model_manager": "magpie",
+  "magpie": {
+    "base_url": "http://127.0.0.1:3425",
+    "enabled": true
+  }
+}
+```
+
+- `magpie.base_url` 是 **origin**：不带 path、query 或用户信息。写成 `http://127.0.0.1:3425/v1` 会被拒，错误是 `base_url must be a gateway origin without path, query or userinfo`；漏掉 `http(s)://` 也会被拒，错误是 `base_url must be an absolute http(s) URL`。
+- `magpie.enabled` 必须是布尔。写成字符串 `"true"` 不会被宽松接受，而是组装直接失败：`settings.magpie.enabled must be a boolean`。
+- `model` 与 `reasoning_effort` 可以一起写，当作启动时的选择；只写 `reasoning_effort` 会被拒，错误是 `selected_effort is set without selected_model`。
+
+**成功标志**：文件里 `model_manager`、`magpie` 两段都在，`base_url` 是纯 origin，`enabled` 是裸的 `true` / `false`。
+
+### 凭据只走共享凭据库
+
+网关密钥不进 settings.json。凭据只有一个来源：`/login magpie` 写进共享凭据库的那一份。写在 settings.json 里的都不会被采用。
+
+`magpie` 段里的 `magpie.gateway_key` 会被**忽略**，并给出警告，原文是：
+
+```text
+settings.json magpie.gateway_key is ignored; store the gateway credential with the shared credential store (provider id 'magpie') instead of editable configuration.
+```
+
+`providers` 里 id 为 `magpie` 的条目写 `gateway_key` 也没有用：那不是凭据的入口，读不到，凭据同样只走凭据库。
+
+**成功标志**：settings.json 里搜不到密钥；密钥来自 `/login magpie`，落在凭据库里。
+
+## 3. 切到 Magpie 管理器
+
+```text
+/manager
+```
+
+弹出 `Select model manager`：`Providers` 或 `Magpie`。切换等于用新管理器重新组装一次 agent，所以要空闲——正在跑回合时会回 `/manager requires an idle application`。
+
+**成功标志**：出现 `model manager: magpie`；状态栏里模型名旁边那段管理器标签也从 `Posoco` 变成 `Magpie`。
+
+还有两个副作用：
+
+- Board 服务会停（如果正开着）：`Board service stopped because the model manager switched to magpie. Reopen it with /board.`
+- 选择被记下来：`model_manager` 记住当前管理器，`manager_selections` 记住每个管理器上次用的模型与档位，切回来时自动恢复，不用重选。
+
+## 4. 选模型与推理档位
+
+```text
+/model
+```
+
+列表就是网关 `/v1/models` 的内容，归在 `magpie` 这一组下（网关的路由组单独成组）；选中后左右键切推理档位。
+
+**成功标志**：出现 `selected <model-id> at effort <effort> (pending=false)`。
+
+`pending=true` 是另一种信号：设置里记着的那个模型当前目录里没有，后面还会跟一句 `(selection '<model-id>' is pending: not in the catalog yet; requests will fail until a refresh provides it)`。这时用 `/model` 另选一个，或按第 6 步刷新目录。
+
+决策槽位那本账属于供应商集合：`/decision` 选出来的模型留在 `decision_model` 里，切到 Magpie 后原样不动，切回去继续生效，不用重选。
+
+## 5. 验证三条
+
+三条都过了才算这条路走通：网关状态、配额、一次真实推理。每条都有自己的成功标志。
+
+### `/status`：网关、选择、目录一次看全
+
+```text
+/status
+```
+
+Magpie 管理器下，`/status` 由网关扩展回答，第一行是人话：
+
+```text
+/status: connected to magpie <version>; selected <model-id> at effort <effort> (pending=false); <N> models; services: Route=Unknown Quotas=Unknown Limit=Unknown Usage=Unknown UsageRequests=Unknown Concurrency=Unknown
+```
+
+**成功标志**：这行以 `connected to magpie` 开头，且 `<N> models` 不是 0。
+
+同一行还可能出现这几种情况，每一种都是排障入口：
+
+- `gateway offline:` 后面跟原因 —— 网关不可达；
+- `authentication failed:` 后面跟原因（例如 `/api/hello answered HTTP 401` 或 `403`）—— 凭据不对；
+- `invalid gateway response:` 后面跟原因 —— 应答的不是 Magpie，或地址指偏了；
+- `disabled: the manager is configured with enabled = false` —— 管理器被关掉了；
+- `not connected: no refresh has run yet` —— 还没成功刷新过目录。
+
+`services:` 后面是各观测接口的可用性（`Unknown`、`Accessible`、`Forbidden`、`NotSupported`、`TemporarilyUnavailable`），没调用过就是 `Unknown`。
+
+### `/quota`：配额读得到
+
+```text
+/quota
+```
+
+**成功标志**：弹出 `Quotas`，列出网关报的配额卡片——供应商、账户或套餐、各个窗口的剩余与重置时间。想强制重读网关，用 `/quota refresh`。
+
+配额读不到不影响推理。
+
+### 真跑一句
+
+随便问一句。
+
+**成功标志**：有流式回复，且 `/status` 里的 `selected` 正是刚选的那个模型。
+
+## 6. 排障
+
+先看 `/status` 那一行，结论就写在里面。
+
+| 现象 | 大概率原因 | 怎么办 |
+| --- | --- | --- |
+| `/status` 说 `gateway offline:` 后面跟原因；`/login magpie` 一直失败 | 网关没启动、端口不对、被防火墙挡住 | 回第 1 步确认进程与端口，`curl` 探 `/api/hello`；端口不是 `3425` 就把 `magpie.base_url` 改对 |
+| `/status` 说 `invalid gateway response:` 后面跟原因 | `base_url` 指到了别的服务、写成了带 path 的地址，或网关身份不符（`/api/hello` 的 `name` 不是 `magpie`） | `base_url` 只写 origin（`http://127.0.0.1:3425`），再 `/login magpie` 重新校验一次 |
+| `/status` 说 `authentication failed:` 后面跟原因；远程网关连不上 | 凭据缺失或不对 | `/login magpie` → `Remote Gateway`，重填 `Gateway Key`；顺手确认 settings.json 里的 `gateway_key` 位置写对了——写错位置只留一条警告，不会生效 |
+| 启动或切换直接失败，错误里带 `settings.model_manager must be providers or magpie`、`settings.magpie.enabled must be a boolean`、`settings.magpie.base_url must be a string` | 设置项类型不合法 | 按 [Settings 参考](/reference/settings/)改回严格取值：`model_manager` 只能是 `providers` 或 `magpie`，`magpie.enabled` 只能是布尔。看似合理的字符串不会被接受 |
+| `/model` 里没有网关刚加的模型 | 目录只在 agent 启动时与手动刷新时读；Magpie 管理器下没有后台轮询 | 跑 `/magpie_refresh`，成功标志是 `catalog refreshed: <N> models` |
+| `/status` 说 `disabled: …` | `magpie.enabled` 是 `false` | 改回 `true`，或重新 `/login magpie` |
+
+网关不可达不会让 Cetas 起不来：会话照常启动，只是 `/status` 照实说 offline，`/model` 回一条 `Model catalog unavailable`。
+
+命令与设置项的完整清单在[命令](/reference/commands/)与 [Settings 参考](/reference/settings/)两页。

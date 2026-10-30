@@ -21,7 +21,7 @@ sidebar:
 | `workflow` | 对象 | Board 多任务执行的预算 |
 | `model_manager` | 字符串 | 终端入口的模型管理器选择 |
 | `manager_selections` | 对象 | 各管理器记住的上次选择 |
-| `magpie` | 对象 | Magpie 网关设置 |
+| `magpie` | 对象 | Magpie 网关设置，见[接入 Magpie 网关](/configuration/magpie/) |
 
 下面按层级展开。
 
@@ -42,7 +42,7 @@ sidebar:
 - 内置 id 与登录方式：[供应商](/configuration/providers/)；
 - 非内置 id 会成为 OpenAI 兼容供应商，条目形状（`base_url`、`models`、模型元数据）见[自定义模型](/configuration/custom-models/)。
 
-`providers` 里 id 为 `magpie` 的条目如果带了 `gateway_key`，会被**忽略**：网关凭据属于共享凭据库（`/login` 写入），Cetas 发现它在这里会给一条警告。
+凭据不放 `providers`：那里写的 `gateway_key` 不会被读取，网关凭据只走共享凭据库（`/login` 写入）。会被忽略并给出警告的是 `magpie` 段里的 `magpie.gateway_key`——凭据写进可编辑的配置文件，本身就是错的位置。怎么录，见[接入 Magpie 网关](/configuration/magpie/)。
 
 ## subagent
 
@@ -98,7 +98,7 @@ sidebar:
 
 ## model_manager / manager_selections / magpie
 
-只属于终端入口：记住你选了哪个模型管理器、以及各自上次选了什么，切回来时能恢复原来的槽位。
+只属于终端入口：记住你选了哪个模型管理器、以及各自上次选了什么，切回来时能恢复原来的槽位。从启动网关到验证可用的一条主线，见[接入 Magpie 网关](/configuration/magpie/)。
 
 | Key | 类型 | 说明 |
 | --- | --- | --- |
@@ -108,5 +108,5 @@ sidebar:
 | `magpie.enabled` | 布尔 | 是否启用 Magpie |
 
 <Aside type="caution" title="类型校验不是建议">
-类型不对就是直接失败。`model_manager` 必须正好是 `providers` 或 `magpie`；`magpie.enabled` 必须是布尔。看似合理的取值也不会被接受。
+类型不对就是直接失败。`model_manager` 必须正好是 `providers` 或 `magpie`；`magpie.enabled` 必须是布尔。看似合理的取值也不会被接受。各字段的默认值与操作步骤见[接入 Magpie 网关](/configuration/magpie/)。
 </Aside>

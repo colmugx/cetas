@@ -1,0 +1,174 @@
+---
+title: Connecting the Magpie gateway
+description: From starting the gateway to one real inference — which two settings to change, where the credential goes, how to switch managers, what each step should show, and where to look when it fails.
+sidebar:
+  order: 84
+---
+
+Magpie is a model gateway that runs on your machine or inside your network: models, accounts, and keys are managed on the gateway side, and Cetas only has to connect, pick a model, and get to work.
+
+The support is native: `/manager` switches between the provider set and Magpie, `/model` picks the conversation model and its reasoning effort, `/quota` reads quota, `/status` reports gateway and catalog state, and `/login` writes the credential into the shared credential store. This page walks one line from end to end: start the gateway → let Cetas connect → switch manager → pick a model → verify it works. Every step says what you must see before it counts as done.
+
+<Aside type="note" title="The division of labour is clear">
+Provider selection, upstream fallback, quota, and pricing belong to Magpie; Cetas does not reimplement that layer. The numbers in `/quota` and usage are reported by the gateway — Cetas never estimates or fills them in; a missing price or cache detail stays empty. Within one session, every inference request Cetas sends to the gateway carries `X-Magpie-Session`, so that session keeps a stable route. On the Cetas side you decide only three things: which gateway to connect to, which model to use (with its reasoning effort), and when to refresh the catalog.
+</Aside>
+
+## 1. Start the gateway and confirm it is alive
+
+The Magpie gateway is a separate process, at `http://127.0.0.1:3425` by default. Its installation, deployment, and operations follow Magpie's own documentation; this page only establishes one thing: Cetas can see it.
+
+Two shapes, with different prerequisites:
+
+- **Local gateway**: bound to a loopback address. Cetas authenticates with its built-in local application token (`Authorization: Bearer magpie-posoco`), so you do not prepare a key.
+- **Remote gateway**: needs a gateway key, and the address must be an HTTPS origin or a loopback HTTP origin; anything else is refused on the Cetas side: `gateway must be an HTTPS origin or loopback HTTP origin`.
+
+**Success marker**: `curl http://127.0.0.1:3425/api/hello` returns a JSON object whose `"name"` is `"magpie"`, and `curl http://127.0.0.1:3425/v1/models` returns JSON with a `data` array. Those are exactly the two endpoints Cetas probes when it refreshes the catalog; an answer whose `name` is not `magpie` is never accepted.
+
+If the gateway itself demands authentication, `curl` needs the same Bearer token; in that case treat the `/status` in step 5 as the authority.
+
+## 2. Let Cetas connect: settings and credential
+
+The address and the credential are two different things, stored in two different places. This step has two halves: first make the address usable, then make the credential usable — each half has its own success marker, in the two subsections below.
+
+| What | Where it lives | Who writes it |
+| --- | --- | --- |
+| `magpie.base_url`, `magpie.enabled` | `<CETAS_HOME>/.cetas/settings.json` | `/login magpie` writes it; you may also write it by hand |
+| The gateway credential | The shared credential store (`<CETAS_HOME>/.cetas/credentials/`) | Only `/login magpie` |
+
+### With `/login magpie` (recommended)
+
+```text
+/login magpie
+```
+
+First pick the gateway shape: `Local Gateway` (`http://127.0.0.1:3425`) or `Remote Gateway` (HTTPS with Gateway Key). The remote path asks two more things: `Gateway HTTPS origin` and `Gateway Key (input hidden)`.
+
+This step does more than write configuration: it really connects to the gateway once — reading `/api/hello`, then `/v1/models`.
+
+**Success marker**: `Magpie Gateway verified and configured`.
+
+The failure is a single line and deliberately says nothing specific: `/login magpie cancelled, unavailable or invalid` — cancelling, an unreachable gateway, a wrong key, and an unsafe address all land there. See the last section for triage. While a turn is running it refuses up front: `/login magpie requires an idle application`.
+
+`/login magpie` writes `magpie.base_url` and `magpie.enabled: true`, and **does not write** `model_manager`. It only settles "can Cetas connect"; whether to switch is the next step.
+
+### Or write settings.json by hand
+
+```json
+{
+  "model_manager": "magpie",
+  "magpie": {
+    "base_url": "http://127.0.0.1:3425",
+    "enabled": true
+  }
+}
+```
+
+- `magpie.base_url` is an **origin**: no path, query, or userinfo. `http://127.0.0.1:3425/v1` is rejected with `base_url must be a gateway origin without path, query or userinfo`; a missing `http(s)://` is rejected with `base_url must be an absolute http(s) URL`.
+- `magpie.enabled` must be a boolean. The string `"true"` is not accepted leniently — composition fails outright: `settings.magpie.enabled must be a boolean`.
+- `model` and `reasoning_effort` can be written together as the startup selection; `reasoning_effort` on its own is rejected with `selected_effort is set without selected_model`.
+
+**Success marker**: `model_manager` and `magpie` are both present, `base_url` is a bare origin, and `enabled` is a bare `true` / `false`.
+
+### The credential goes only into the shared credential store
+
+The gateway key does not belong in settings.json. There is exactly one source for the credential: the copy `/login magpie` writes into the shared credential store. Whatever is written into settings.json is not used.
+
+A `magpie.gateway_key` inside the `magpie` section is **ignored**, and Cetas warns about it, with this exact text:
+
+```text
+settings.json magpie.gateway_key is ignored; store the gateway credential with the shared credential store (provider id 'magpie') instead of editable configuration.
+```
+
+A `gateway_key` written on the `providers` entry whose id is `magpie` is no help either: that is not the credential's entry point, nothing reads it, and the credential still comes only from the store.
+
+**Success marker**: searching settings.json finds no key; the key came from `/login magpie` and lives in the credential store.
+
+## 3. Switch to the Magpie manager
+
+```text
+/manager
+```
+
+`Select model manager` offers `Providers` or `Magpie`. Switching recomposes the agent on the new manager, so it needs an idle application — mid-turn it answers `/manager requires an idle application`.
+
+**Success marker**: `model manager: magpie`, and the manager label next to the model name on the status bar changes from `Posoco` to `Magpie`.
+
+Two side effects worth knowing up front:
+
+- The Board service stops (if it was open): `Board service stopped because the model manager switched to magpie. Reopen it with /board.`
+- The choice is recorded: `model_manager` remembers the active manager, `manager_selections` remembers the model and effort each manager last used, and switching back restores them without re-picking.
+
+## 4. Pick a model and a reasoning effort
+
+```text
+/model
+```
+
+The list is the gateway's `/v1/models`, grouped under `magpie` (the gateway's routing groups get their own group); after picking, use the left/right keys to choose a reasoning effort.
+
+**Success marker**: `selected <model-id> at effort <effort> (pending=false)`.
+
+`pending=true` is a different signal: the model recorded in settings is not in the current catalog, and the line continues with `(selection '<model-id>' is pending: not in the catalog yet; requests will fail until a refresh provides it)`. Pick another one with `/model`, or refresh the catalog as in step 6.
+
+The decision slot is a provider-set account: the model `/decision` chose stays in `decision_model`, is left untouched while Magpie is active, and applies again when you switch back — no re-picking.
+
+## 5. Verify three things
+
+All three must pass before this line counts as walked: gateway state, quota, and one real inference. Each has its own success marker.
+
+### `/status`: gateway, selection, and catalog in one line
+
+```text
+/status
+```
+
+Under the Magpie manager, `/status` is answered by the gateway extension, and its first line is plain language:
+
+```text
+/status: connected to magpie <version>; selected <model-id> at effort <effort> (pending=false); <N> models; services: Route=Unknown Quotas=Unknown Limit=Unknown Usage=Unknown UsageRequests=Unknown Concurrency=Unknown
+```
+
+**Success marker**: the line starts with `connected to magpie`, and `<N> models` is not 0.
+
+The other possibilities on that line are exactly your triage entries:
+
+- `gateway offline:` followed by the reason — the gateway is unreachable;
+- `authentication failed:` followed by the reason (for example `/api/hello answered HTTP 401` or `403`) — the credential is wrong;
+- `invalid gateway response:` followed by the reason — the endpoint is not Magpie, or the address points elsewhere;
+- `disabled: the manager is configured with enabled = false` — the manager is switched off;
+- `not connected: no refresh has run yet` — no catalog refresh has succeeded yet.
+
+`services:` reports the availability of each observability endpoint (`Unknown`, `Accessible`, `Forbidden`, `NotSupported`, `TemporarilyUnavailable`); one you never called reads `Unknown`. A structured summary of the same facts follows the line.
+
+### `/quota`: quota is readable
+
+```text
+/quota
+```
+
+**Success marker**: a `Quotas` panel listing the quota cards the gateway reports — provider, account or plan, and each window's remaining amount and reset time. To force a re-read from the gateway, use `/quota refresh`.
+
+An unreadable quota says so explicitly: with no accessible card at all it is `No accessible quota cards.`; when the gateway refuses the call, `/quota` answers `Magpie quota unavailable or forbidden`. A failed quota read does not affect inference.
+
+### Run one real turn
+
+Ask anything.
+
+**Success marker**: a streamed reply arrives, and the `selected` in `/status` is the model you just picked.
+
+## 6. Troubleshooting
+
+Read the `/status` line first; it already states the conclusion.
+
+| Symptom | Most likely cause | What to do |
+| --- | --- | --- |
+| `/status` says `gateway offline:` followed by the reason; `/login magpie` keeps failing | The gateway is not running or unreachable, the port is wrong, or a firewall blocks it | Go back to step 1, check the process and the port, probe `/api/hello` with `curl`; if the port is not `3425`, correct `magpie.base_url` |
+| `/status` says `invalid gateway response:` followed by the reason | `base_url` is wrong: it points at another service, was written with a path, or the gateway identity does not match (`/api/hello` returns a `name` that is not `magpie`) | Write `base_url` as an origin only (`http://127.0.0.1:3425`), then re-verify with `/login magpie` |
+| `/status` says `authentication failed:` followed by the reason; a remote gateway never connects | The credential is missing or wrong | `/login magpie` → `Remote Gateway`, re-enter the `Gateway Key`; also confirm the `gateway_key` in settings.json sits in the right place — in the wrong place it only warns and never takes effect |
+| Startup or the switch fails outright, with `settings.model_manager must be providers or magpie`, `settings.magpie.enabled must be a boolean`, or `settings.magpie.base_url must be a string` in the error | A setting has the wrong type | Fix it to the strict values in the [Settings reference](/en/reference/settings/): `model_manager` is only `providers` or `magpie`, `magpie.enabled` is only a boolean. A plausible-looking string is not accepted |
+| `/model` does not show a model the gateway just added | The catalog is read at agent startup and on manual refresh; there is no background polling under the Magpie manager | Run `/magpie_refresh`; success is `catalog refreshed: <N> models` |
+| `/status` says `disabled: …` | `magpie.enabled` is `false` | Set it back to `true`, or run `/login magpie` again |
+
+An unreachable gateway does not prevent Cetas from starting: the session comes up normally, `/status` honestly reports offline, and `/model` answers `Model catalog unavailable`.
+
+The complete lists of commands and settings are in [Commands](/en/reference/commands/) and the [Settings reference](/en/reference/settings/).

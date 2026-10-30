@@ -26,7 +26,7 @@ loud failure, not something Cetas quietly repairs.
 | `workflow` | object | Budgets for the Board multi-ticket execution loop |
 | `model_manager` | string | The terminal host's model-manager choice |
 | `manager_selections` | object | What each manager last had selected |
-| `magpie` | object | Magpie gateway settings |
+| `magpie` | object | Magpie gateway settings; see [Connecting the Magpie gateway](/en/configuration/magpie/) |
 
 Expanded level by level below.
 
@@ -52,9 +52,12 @@ provider's extension; this page does not answer for them:
   shape (`base_url`, `models`, model metadata) is in
   [Custom models](/en/configuration/custom-models/).
 
-A `gateway_key` on the entry with id `magpie` is **ignored**: gateway
-credentials belong in the shared credential store (written by `/login`), and
-Cetas warns when it finds one here.
+Credentials do not belong in `providers`: a `gateway_key` written there is not
+read at all, and gateway credentials live only in the shared credential store
+(written by `/login`). The field Cetas reports as ignored, and warns about, is
+`magpie.gateway_key` in the `magpie` section — a credential in an editable
+configuration file is in the wrong place to begin with. Recording it is covered
+in [Connecting the Magpie gateway](/en/configuration/magpie/).
 
 ## subagent
 
@@ -116,7 +119,9 @@ silently become a different budget.
 ## model_manager / manager_selections / magpie
 
 Terminal host only: these remember which model manager you chose and what each
-manager last had selected, so switching back restores the previous slots.
+manager last had selected, so switching back restores the previous slots. The
+end-to-end walkthrough is in
+[Connecting the Magpie gateway](/en/configuration/magpie/).
 
 | Key | Type | Notes |
 | --- | --- | --- |
@@ -128,5 +133,6 @@ manager last had selected, so switching back restores the previous slots.
 <Aside type="caution" title="Type checks are not advice">
 Wrong types fail loudly. `model_manager` must be exactly `providers` or
 `magpie`; `magpie.enabled` must be a boolean. A value that merely looks right is
-not accepted.
+not accepted. Defaults and step-by-step instructions are in
+[Connecting the Magpie gateway](/en/configuration/magpie/).
 </Aside>
