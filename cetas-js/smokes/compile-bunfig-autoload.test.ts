@@ -1,4 +1,4 @@
-// e2e: the shipped compiled binary must not autoload bunfig preloads from
+// e2e: the shipped AOT compiled binary must not autoload bunfig preloads from
 // the caller's cwd — build.ts compiles with autoloadBunfig: false, because
 // a hostile bunfig.toml next to the invocation would otherwise execute
 // before the CLI's own entry point. The preload here writes a marker file
@@ -37,7 +37,7 @@ test(
     // Shipped build path; CETAS_PROTECT forced on like the node-bundle smoke
     // so the env matches the publishable build (protect() only rewrites the
     // node bundle — the binary's protection is autoloadBunfig: false).
-    const build = spawnSync("bun", ["build.ts", target as string], {
+    const build = spawnSync("bun", ["build.ts", target as string, "--aot"], {
       cwd: pkg,
       env: { ...process.env, CETAS_PROTECT: "1" },
     });
