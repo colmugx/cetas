@@ -16,7 +16,8 @@
 //
 // Public composition is checked in as MoonBit source; building does not
 // mutate the package graph or generate recipe sources.
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { moonbit } from "bun-plugin-moonbit";
 import { protect } from "./build-protect.ts";
@@ -163,6 +164,40 @@ if (nodeBundle) {
   process.exit(0);
 }
 
+// Stable Bun 1.4.4 silently ignores compile.aot and allowCodeFromDisk.
+// Never produce a JIT executable with an AOT label: verify behavior, not
+// version strings, before building the much larger actual host.
+async function verifyAotAvailable(): Promise<void> {
+  const dir = mkdtempSync(join(tmpdir(), "cetas-aot-capability-"));
+  try {
+    const entry = join(dir, "probe.ts");
+    const outfile = join(dir, "probe");
+    writeFileSync(entry, [
+      "const original = Array.prototype.push;",
+      "let mutated = false;",
+      "try { mutated = Reflect.set(Array.prototype, 'push', () => 0); } catch {}",
+      "if (mutated) Reflect.set(Array.prototype, 'push', original);",
+      "console.log(mutated ? 'jit' : 'aot');",
+    ].join("\\n") + "\\n");
+    const built = await Bun.build({
+      entrypoints: [entry],
+      compile: { outfile, aot: true, autoloadBunfig: false },
+    });
+    if (!built.success) {
+      throw new Error(built.logs.map(String).join("\\n"));
+    }
+    const executable = process.platform === "win32" ? `${outfile}.exe` : outfile;
+    const run = Bun.spawnSync([executable], { stdout: "pipe", stderr: "pipe" });
+    if (run.exitCode !== 0 || run.stdout.toString().trim() !== "aot") {
+      throw new Error(
+        `Bun ${Bun.version} did not enable AOT (probe: ${run.stdout.toString().trim()}; ${run.stderr.toString().trim()}).`
+      );
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 // Keep release builds unchanged; opt in to a symbolizable local crash build.
 const debugBuild = process.env.CETAS_DEBUG_BUILD === "1";
 const group = process.env.CETAS_BUILD_GROUP ?? "";
@@ -180,6 +215,8 @@ if (group === "") {
   }
   process.exit(0);
 }
+
+if (aotBuild) await verifyAotAvailable();
 
 const os = group as ReturnType<typeof osFor>;
 for (const name of selected.filter((n) => osFor(n) === os)) {
