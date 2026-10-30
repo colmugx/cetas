@@ -10,6 +10,8 @@
 //   from https://github.com/oven-sh/bun/releases). --executable needs
 //   exactly one target.
 //
+//   bun build.ts linux-x64 --aot   # native-platform AOT binary (experimental);
+//                                  # cross-platform builds keep the JIT path
 //   bun build.ts --dts-only   # regenerate gen/mbt.d.ts only (no binaries)
 //
 // Public composition is checked in as MoonBit source; building does not
@@ -50,6 +52,7 @@ const positional =
   executableIdx >= 0 ? [...args.slice(0, executableIdx), ...args.slice(executableIdx + 2)] : args;
 const dtsOnly = positional.includes("--dts-only");
 const nodeBundle = positional.includes("--node-bundle");
+const aotBuild = positional.includes("--aot");
 const requested = new Set(positional.filter((a) => !a.startsWith("--")));
 
 const osFor = (name: string) => (name.startsWith("windows") ? "windows" : "unix");
@@ -64,6 +67,10 @@ if (unknown.length > 0) {
 }
 if (executable && selected.length !== 1) {
   console.error("--executable needs exactly one target: bun build.ts windows-x64 --executable <path>");
+  process.exit(2);
+}
+if (aotBuild && (dtsOnly || nodeBundle || selected.length !== 1)) {
+  console.error("--aot requires exactly one native Bun binary target (no --node-bundle/--dts-only); AOT cannot cross-compile");
   process.exit(2);
 }
 
@@ -199,7 +206,16 @@ for (const name of selected.filter((n) => osFor(n) === os)) {
     ],
     // A shipped CLI must not load the customer's bunfig preloads (or this
     // repository's development MoonBit plugin) before its own entry point.
-    compile: { target: TARGETS[name], outfile, autoloadBunfig: false, ...(executable ? { executablePath: executable } : {}) },
+    compile: {
+      target: TARGETS[name],
+      outfile,
+      autoloadBunfig: false,
+      // AOT normally rejects external modules. pi-adaptor loads allowlisted
+      // user-installed extensions after startup, so leave on-disk imports
+      // available to the interpreter. The bundled host itself stays AOT.
+      ...(aotBuild ? { aot: true, allowCodeFromDisk: true } : {}),
+      ...(executable ? { executablePath: executable } : {}),
+    },
     define: VERSION_DEFINE,
     minify: !debugBuild,
     ...(debugBuild ? { sourcemap: "linked" as const } : {}),
