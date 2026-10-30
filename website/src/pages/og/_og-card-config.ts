@@ -18,20 +18,25 @@ export const ogCardConfig = {
   ],
   border: { color: [39, 39, 42], width: 2, side: "inline-start" },
   padding: 96,
-  fonts: ["./public/fonts/Inter-Bold.ttf"],
+  // Keep Inter for Latin text and fall back to Noto Sans SC for Chinese glyphs.
+  // Pin the remote font so generated OG cards remain visually consistent.
+  fonts: [
+    "./public/fonts/Inter-Bold.ttf",
+    "https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/Sans/SubsetOTF/SC/NotoSansSC-Bold.otf",
+  ],
   font: {
     title: {
       color: [250, 250, 250],
       size: 64,
       weight: "Bold",
-      families: ["Inter"],
+      families: ["Inter", "Noto Sans SC"],
       lineHeight: 1.1,
     },
     description: {
       color: [161, 161, 170],
       size: 32,
       weight: "Bold",
-      families: ["Inter"],
+      families: ["Inter", "Noto Sans SC"],
       lineHeight: 1.3,
     },
   },
