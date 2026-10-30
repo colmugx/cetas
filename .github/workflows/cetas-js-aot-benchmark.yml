@@ -1,4 +1,7 @@
-name: cetas-js AOT size comparison
+# Build the real cetas-js binary both ways on the SAME macOS ARM64
+# runner with the SAME Bun revision. No synthetic microbenchmarks.
+# Download the single Actions artifact to inspect both binaries directly.
+name: cetas-js macOS AOT binaries
 
 on:
   pull_request:
@@ -6,49 +9,85 @@ on:
       - "cetas-js/**"
       - ".github/workflows/cetas-js-aot-benchmark.yml"
 
+permissions:
+  contents: read
+
 jobs:
-  benchmark:
-    name: cetas-js Linux AOT size
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  compare:
+    name: two macOS arm64 binaries (JIT / AOT)
+    runs-on: macos-15
+    timeout-minutes: 40
     steps:
       - name: checkout cetas
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: install moon
+      - name: install MoonBit
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
 
-      # AOT was merged after v1.4.4; stable silently ignores aot flags.
-      - name: setup Bun canary (actual AOT implementation)
+      - name: setup Bun canary for both builds
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: canary
 
-      - name: moon update
+      - name: print platform and toolchain
+        run: |
+          uname -a
+          test "$(uname -m)" = "arm64"
+          bun --version
+          moon version --all
+
+      - name: resolve MoonBit deps
         run: moon update
 
-      - name: bun install
+      - name: install JS deps
         working-directory: cetas-js
         run: bun install
 
-      - name: benchmark real Bun executables
+      - name: build NORMAL binary (no AOT)
         working-directory: cetas-js
-        run: bun scripts/bench-bun-aot.ts
+        run: |
+          bun build.ts darwin-arm64
+          mkdir -p ../stage/aot-compare
+          cp dist/cetas-bun-darwin-arm64 ../stage/aot-compare/cetas-bun-darwin-arm64-no-aot
+          chmod +x ../stage/aot-compare/cetas-bun-darwin-arm64-no-aot
 
-      - name: AOT disk plugin smoke (canary only)
+      - name: build AOT binary (Pi disk plugins allowed)
         working-directory: cetas-js
-        env:
-          CETAS_TEST_AOT: "1"
-        run: bun test --preload ./moonbit-preload.ts smokes/aot-pi-packages.test.ts
+        run: |
+          bun build.ts darwin-arm64 --aot
+          cp dist/cetas-bun-darwin-arm64 ../stage/aot-compare/cetas-bun-darwin-arm64-aot
+          chmod +x ../stage/aot-compare/cetas-bun-darwin-arm64-aot
 
-      - name: upload measurement report
+      - name: record file sizes and verify both executables
+        run: |
+          set -euo pipefail
+          {
+            echo "macOS ARM64; same Bun revision for both builds"
+            echo "Bun: $(bun --version)"
+            echo "OS: $(sw_vers -productVersion)"
+            echo "VERSION: $(cat VERSION)"
+            echo
+            for name in cetas-bun-darwin-arm64-no-aot cetas-bun-darwin-arm64-aot; do
+              exe="stage/aot-compare/$name"
+              echo "=== $name ==="
+              file "$exe"
+              echo "bytes: $(stat -f '%z' "$exe")"
+              shasum -a 256 "$exe"
+              "$exe" --version
+              echo
+            done
+          } | tee stage/aot-compare/SIZES.txt
+
+      - name: upload BOTH binaries in one artifact (even if AOT fails)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cetas-js-aot-size-linux-x64
-          path: cetas-js/dist/aot-benchmark/results.json
+          name: cetas-js-macos-arm64-aot-vs-normal
+          path: stage/aot-compare/*
+          compression-level: 0
+          retention-days: 30
           if-no-files-found: warn
