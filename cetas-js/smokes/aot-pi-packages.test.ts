@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-test(
+test.skipIf(process.env.CETAS_TEST_AOT !== "1")(
   "AOT binary loads an allowlisted external TypeScript pi extension with imports",
   async () => {
     const root = mkdtempSync(join(tmpdir(), "cetas-aot-pi-"));
