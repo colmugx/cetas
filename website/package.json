@@ -30,8 +30,5 @@
     "pagefind": "^1.5.2",
     "tailwindcss": "^4.1.4",
     "typescript": "^5.8.3"
-  },
-  "patchedDependencies": {
-    "@cloudflare/nimbus-docs@0.17.0": "patches/@cloudflare%2Fnimbus-docs@0.17.0.patch"
   }
 }
