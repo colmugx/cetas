@@ -22,8 +22,11 @@ jobs:
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
 
-      - name: setup bun
+      # AOT was merged after v1.4.4; stable silently ignores aot flags.
+      - name: setup Bun canary (actual AOT implementation)
         uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: canary
 
       - name: moon update
         run: moon update
@@ -35,6 +38,12 @@ jobs:
       - name: benchmark real Bun executables
         working-directory: cetas-js
         run: bun scripts/bench-bun-aot.ts
+
+      - name: AOT disk plugin smoke (canary only)
+        working-directory: cetas-js
+        env:
+          CETAS_TEST_AOT: "1"
+        run: bun test --preload ./moonbit-preload.ts smokes/aot-pi-packages.test.ts
 
       - name: upload measurement report
         if: always()
