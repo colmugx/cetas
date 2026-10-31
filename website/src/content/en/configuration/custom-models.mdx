@@ -13,10 +13,11 @@ provider, not a workaround.
 ## How it works
 
 Every `providers` key that is not already claimed by a built-in provider becomes
-an **OpenAI-compatible provider**. There is nothing to register and no plugin to
-build: the key is the provider id, and the provider participates exactly like a
-built-in one — `/login`, `/model`, catalog refresh, the model cache, and the
-editor host all see it.
+a **custom provider**. There is nothing to register and no plugin to build: the
+key is the provider id, and the provider participates exactly like a built-in
+one — `/login`, `/model`, catalog refresh, the model cache, and the editor host
+all see it. The endpoint may speak any of three wires, declared by the entry's
+`protocol`.
 
 ## Minimal configuration
 
@@ -45,6 +46,74 @@ editor host all see it.
 `endpoint_prefix` exists for the case where `base_url` is a bare host
 (`http://10.0.0.4:8080`) and the API lives under `/v1`. Prefer putting the prefix
 in `base_url` and leaving this unset.
+
+## Choose the protocol
+
+A custom endpoint speaks one of three wires:
+
+| `protocol` | Request | Wire |
+| --- | --- | --- |
+| `chat_completions` (default) | `POST {base_url}{endpoint_prefix}/chat/completions` | OpenAI Chat Completions |
+| `responses` | `POST {base_url}{endpoint_prefix}/responses` | OpenAI Responses API |
+| `messages` | `POST {base_url}{endpoint_prefix}/messages` | Anthropic Messages API |
+
+```json
+{
+  "providers": {
+    "claude-proxy": {
+      "base_url": "https://api.anthropic.com",
+      "endpoint_prefix": "/v1",
+      "protocol": "messages",
+      "api_key": "sk-ant-...",
+      "models": [{ "id": "claude-sonnet-5", "context_window": 200000 }]
+    }
+  }
+}
+```
+
+- Omitting `protocol` means `chat_completions`, so an entry written before
+  protocols existed keeps its exact behavior.
+- The path suffix is appended after `base_url` + `endpoint_prefix`. Put the
+  version segment in `base_url` (`https://llm.internal.example/v1`) or in
+  `endpoint_prefix` (`/v1` with a bare host) — never in both.
+- `protocol` is provider-level, and any `models[]` entry may override it, so one
+  endpoint serving several model families on different wires stays one provider
+  id.
+- An unknown value fails composition and names the accepted ones. It never falls
+  back to the chat wire: a silent fallback would answer `400` on the wrong
+  endpoint shape.
+
+### Credentials on the wire
+
+`auth` declares where the key rides:
+
+| `auth` | Effect |
+| --- | --- |
+| `auto` (default) | `Authorization: Bearer` on `chat_completions`/`responses`; `x-api-key` plus `anthropic-version: 2023-06-01` on `messages` |
+| `bearer` | `Authorization: Bearer` on every wire — for gateways fronting Messages with Bearer auth |
+| `x_api_key` | `x-api-key` on every wire |
+
+### Reasoning levels per wire
+
+Effort levels mean the same thing everywhere — "how hard should this model
+think" — but each wire spells it differently, and nothing is invented for an
+endpoint whose scale is unknown:
+
+- `chat_completions` — the top-level `reasoning_effort` string, sent verbatim.
+- `responses` — `reasoning.effort`; temperature is dropped once a level is
+  selected, because reasoning endpoints reject it.
+- `messages` — `thinking: {"type": "enabled"}`. Level names are **not**
+  converted into a `budget_tokens` number.
+- `off` — nothing is sent on any wire, so the endpoint applies its own default.
+
+The Responses wire also runs stateless (`store: false`) and does not replay
+reasoning items: a generic endpoint declares no encrypted-reasoning contract.
+
+### Output ceiling
+
+`max_output_tokens` (positive integer, default `8192`) is the `max_tokens` value
+on the `messages` wire, which requires the field. A turn that carries its own
+ceiling wins; this setting only fills the gap.
 
 ## Declare what the model can do
 

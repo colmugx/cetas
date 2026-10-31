@@ -40,7 +40,7 @@ sidebar:
 条目是"供应商 id → 供应商配置"。每个条目由对应扩展解释，本页不代答：
 
 - 内置 id 与登录方式：[供应商](/configuration/providers/)；
-- 非内置 id 会成为 OpenAI 兼容供应商，条目形状（`base_url`、`models`、模型元数据）见[自定义模型](/configuration/custom-models/)。
+- 非内置 id 会成为自定义供应商，协议由条目里的 `protocol`（`chat_completions` / `responses` / `messages`，缺省 `chat_completions`）声明；条目形状（`base_url`、`protocol`、`auth`、`models`、模型元数据）见[自定义模型](/configuration/custom-models/)。
 
 凭据不放 `providers`：那里写的 `gateway_key` 不会被读取，网关凭据只走共享凭据库（`/login` 写入）。会被忽略并给出警告的是 `magpie` 段里的 `magpie.gateway_key`——凭据写进可编辑的配置文件，本身就是错的位置。怎么录，见[接入 Magpie 网关](/configuration/magpie/)。
 

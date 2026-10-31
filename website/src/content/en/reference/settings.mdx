@@ -48,8 +48,10 @@ Entries map a provider id to its settings. Each entry is interpreted by that
 provider's extension; this page does not answer for them:
 
 - Built-in ids and login methods: [Providers](/en/configuration/providers/).
-- An id that is not built-in becomes an OpenAI-compatible provider; the entry
-  shape (`base_url`, `models`, model metadata) is in
+- An id that is not built-in becomes a custom provider whose wire is declared by
+  the entry's `protocol` (`chat_completions` / `responses` / `messages`, default
+  `chat_completions`); the entry shape (`base_url`, `protocol`, `auth`,
+  `models`, model metadata) is in
   [Custom models](/en/configuration/custom-models/).
 
 Credentials do not belong in `providers`: a `gateway_key` written there is not
