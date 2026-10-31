@@ -137,7 +137,7 @@ async fn load_provider_settings(
 /// unconfigured providers simply map to no entry.
 ///
 /// The caller supplies the settings-aware factory list (static providers plus
-/// one openai-compatible instance per custom settings id) so custom providers'
+/// one custom-provider instance per custom settings id) so custom providers'
 /// credentials are read identically to static ones.
 async fn read_credential_snapshot(
   store : @credentials.FileProviderCredentialStore,
@@ -672,7 +672,7 @@ async fn prepare_live_refresh(
 /// Resolve the live-refresh selector against the refreshable factory
 /// registry. An empty selector means every refreshable provider (`None`); an
 /// explicit selector keeps only ids that HAVE a refresh seam. Providers
-/// without one — e.g. custom openai-compatible endpoints from user settings,
+/// without one — e.g. custom endpoints from user settings,
 /// which are static config refresh does not apply to — are skipped silently:
 /// not refreshed, not warned, and absent from the summary. Only shape
 /// problems (malformed JSON, non-array selector, malformed ids) raise, so
@@ -730,7 +730,7 @@ fn live_refresh_selector(
 /// `replace_provider_slots` (the router preserves the active selection); a
 /// failure appends a `catalog_issues` warning and KEEPS the current cache
 /// entry — no eviction, deliberately diverging from the forced login-flow
-/// path. Providers without a refresh seam (e.g. custom openai-compatible
+/// path. Providers without a refresh seam (e.g. custom
 /// endpoints from user settings) are skipped silently — refresh does not
 /// apply to them. This entry never raises: every failure rides the summary
 /// JSON.
@@ -776,7 +776,7 @@ async fn refresh_model_lists_live(
 /// Serial per-provider live refresh over an explicit factory list (the
 /// seam tests inject fixture factories into). An empty selector refreshes
 /// every refreshable provider; providers without a refresh seam (e.g.
-/// custom openai-compatible endpoints from user settings) are skipped
+/// custom endpoints from user settings) are skipped
 /// silently — refresh does not apply to them, so they are neither warned
 /// nor included in the summary.
 async fn refresh_model_lists_live_with(
@@ -807,7 +807,7 @@ async fn refresh_model_lists_live_with(
       }
     }
     match target {
-      // No refresh seam: skipped silently. Custom openai-compatible
+      // No refresh seam: skipped silently. Custom
       // providers are static config — refresh does not apply, so the id is
       // not warned and stays out of the summary.
       None => continue

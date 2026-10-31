@@ -33,7 +33,7 @@ import {
   "colmugx/posoco-ext-deepseek@0.2.0",
   "colmugx/posoco-ext-kimi@0.2.0",
   "colmugx/posoco-ext-openai@0.1.0",
-  "colmugx/posoco-ext-openai-compatible@0.2.0",
+  "colmugx/posoco-ext-custom@0.1.0",
   "colmugx/posoco-ext-opencode-zen@0.2.0",
   "colmugx/posoco-ext-openrouter@0.1.0",
   "colmugx/posoco-ext-zai@0.1.0",

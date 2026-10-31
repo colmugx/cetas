@@ -147,7 +147,7 @@ test "settings-derived custom provider resolves api_key login and joins the setu
     ("qwen", Json::object(Map::from_array([]))),
   ])
   // A custom id claimed by no static provider is served by an
-  // openai-compatible instance, which exposes exactly api_key login.
+  // custom-provider instance, which exposes exactly api_key login.
   assert_eq(resolve_login_method("qwen", "", settings~), "api_key")
   // Without settings the same id remains unknown and fails fast.
   let unknown = Ok(resolve_login_method("qwen", "")) catch { err => Err(err) }

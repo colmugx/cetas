@@ -70,11 +70,8 @@ fn provider_factories(
       continue
     }
     if !claimed.contains(provider_id) {
-      let compatible = @openai_compatible.OpenAICompatibleProvider(
-        provider_id,
-        ctx~,
-      )
-      result.push(compatible as &@llm.ProviderFactory)
+      let custom = @custom.CustomProvider(provider_id, ctx~)
+      result.push(custom as &@llm.ProviderFactory)
     }
   }
   result

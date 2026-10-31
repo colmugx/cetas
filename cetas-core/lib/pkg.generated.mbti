@@ -4,8 +4,8 @@ package "colmugx/cetas-core/lib"
 import {
   "colmugx/posoco",
   "colmugx/posoco-ext-credentials",
+  "colmugx/posoco-ext-custom",
   "colmugx/posoco-ext-fs-session",
-  "colmugx/posoco-ext-openai-compatible",
   "colmugx/posoco-ext-permission",
   "colmugx/posoco-ext-ratelimit",
   "colmugx/posoco-ext-workspace",
@@ -51,7 +51,7 @@ pub fn cetas_skills_max_instruction_chars() -> Int32
 
 pub fn cetas_system_prompt(cwd~ : String) -> String
 
-pub fn compatible_provider_factories(Map[String, Json], @devkit.ExtContext) -> Array[@posoco-ext-openai-compatible.OpenAICompatibleProvider]
+pub fn compatible_provider_factories(Map[String, Json], @devkit.ExtContext) -> Array[@posoco-ext-custom.CustomProvider]
 
 pub fn compose_cetas_agent(session~ : CetasSession, tail_exts? : Array[&@port.Extension], runtime? : &@runtime.Runtime?, runtime_group? : @async.TaskGroup[Unit]?) -> @posoco.Agent raise @error.CompositionError
 

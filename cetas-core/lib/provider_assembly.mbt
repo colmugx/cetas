@@ -45,7 +45,7 @@ pub fn provider_factories(
 
 ///|
 /// The set of provider ids claimed by statically-registered providers. Used to
-/// decide which settings keys fall through to the openai-compatible adapter.
+/// decide which settings keys fall through to the custom provider extension.
 /// Returns a `Map[String, Unit]` used purely as a membership set. Includes the
 /// OpenCode Zen gateway (`opencode`), so a `providers.opencode` settings entry
 /// is claimed by the Zen factory rather than falling through.
@@ -59,23 +59,27 @@ pub fn static_provider_ids() -> Map[String, Unit] {
 }
 
 ///|
-/// Construct one `OpenAICompatibleProvider` per settings key not already
-/// claimed by a static provider. Returns owned instances so the caller can
-/// borrow them as `&@llm.ProviderFactory` for the lifetime of composition.
+/// Construct one `CustomProvider` per settings key not already claimed by a
+/// static provider. Returns owned instances so the caller can borrow them as
+/// `&@llm.ProviderFactory` for the lifetime of composition.
+///
+/// This function is the single policy landing point for "which settings id is
+/// a custom provider". Everything else about such a provider — its protocol
+/// (`chat_completions` / `responses` / `messages`), credential placement,
+/// endpoint shape, and model capabilities — is owned by the extension and
+/// declared in the settings entry itself.
 pub fn compatible_provider_factories(
   settings : Map[String, Json],
   ctx : @devkit.ExtContext,
-) -> Array[@openai_compatible.OpenAICompatibleProvider] {
+) -> Array[@custom.CustomProvider] {
   let claimed = static_provider_ids()
-  let factories : Array[@openai_compatible.OpenAICompatibleProvider] = []
+  let factories : Array[@custom.CustomProvider] = []
   for provider_id, _value in settings {
     // Belt-and-braces: composition has already failed fast on invalid ids
     // (validate_provider_settings); an unvalidated caller still cannot mint
     // a traversal id here.
     if !claimed.contains(provider_id) && valid_provider_id(provider_id) {
-      factories.push(
-        @openai_compatible.OpenAICompatibleProvider(provider_id, ctx~),
-      )
+      factories.push(@custom.CustomProvider(provider_id, ctx~))
     }
   }
   factories
@@ -83,7 +87,7 @@ pub fn compatible_provider_factories(
 
 ///|
 /// The complete, settings-aware factory list: static providers plus one
-/// openai-compatible instance per custom settings id. Host composition
+/// custom-provider instance per custom settings id. Host composition
 /// (catalog build, credential read, `/model`, `/login`) must use this list so
 /// custom providers participate identically to static ones.
 pub fn all_provider_factories(
@@ -102,8 +106,8 @@ pub fn all_provider_factories(
 
 ///|
 /// Settings-aware `ApiKeyFactory` list: static api-key providers plus one
-/// openai-compatible instance per custom settings id, so `/login <custom_id>
-/// method:api_key` reaches the compatible provider.
+/// custom-provider instance per custom settings id, so `/login <custom_id>
+/// method:api_key` reaches the custom provider.
 pub fn all_api_key_factories(
   ctx : @devkit.ExtContext,
   settings : Map[String, Json],

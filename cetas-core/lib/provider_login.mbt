@@ -145,7 +145,7 @@ pub async fn refresh_provider_catalog(
 /// caller's second-level method picker.
 ///
 /// `settings` makes the lookup settings-aware: any settings.providers key not
-/// claimed by a static provider is served by an openai-compatible instance,
+/// claimed by a static provider is served by a custom-provider instance,
 /// which offers exactly the api_key method.
 pub fn resolve_login_method(
   provider_id : String,
@@ -202,7 +202,7 @@ pub(all) struct LoginOutcome {
 ///
 /// The host supplies the resolved `device_id` (for OAuth factories that need
 /// persistent device identity), the provider's auth interaction impls, and the
-/// settings map so custom OpenAI-compatible ids resolve through the same
+/// settings map so custom-provider ids resolve through the same
 /// settings-aware factory list as catalog composition. Persistence and cache
 /// invalidation are the host's responsibility; this function returns the
 /// credential to persist.
@@ -278,8 +278,8 @@ pub async fn login_provider(
 /// discovery is intentionally independent of ready model slots: an
 /// unconfigured provider must still be reachable through `/login`.
 ///
-/// `settings` widens the api-key matrix to settings-derived OpenAI-compatible
-/// providers so a configured-but-not-yet-logged-in custom id appears in
+/// `settings` widens the api-key matrix to settings-derived custom-provider
+/// ids so a configured-but-not-yet-logged-in custom id appears in
 /// `authProviders` with `["api_key"]`.
 ///
 /// `active_model_id` is the caller's real selection: the matching slot is

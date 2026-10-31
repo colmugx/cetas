@@ -1080,7 +1080,7 @@ async test "live refresh summary carries a bad selector failure" {
 
 ///|
 /// A selector mixing a refreshable id with a provider that has no refresh
-/// seam (the "mtplx" case: custom openai-compatible config with no
+/// seam (the "mtplx" case: custom endpoint config with no
 /// registered refreshable factory) refreshes only the refreshable provider;
 /// the plain one is skipped silently — no failed entry, no `provider:""`
 /// collapse, no catalog_issues warning.
@@ -1179,7 +1179,7 @@ async test "live refresh selector of only non-refreshable ids stays empty and si
 
 ///|
 /// The TS host passes every configured provider id, including custom
-/// openai-compatible ids ("mtplx") that have no registered refreshable
+/// custom-provider ids ("mtplx") that have no registered refreshable
 /// factory. The live entry must skip them silently instead of collapsing the
 /// `provider:""` ManifestSchemaError summary. Via the real registry: openai
 /// stays selected (unconfigured on this temp home, so it reports one
