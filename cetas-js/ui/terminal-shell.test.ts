@@ -116,7 +116,6 @@ describe("local slash autocomplete", () => {
     const labels = items.map((item) => item.label);
     expect(labels).toContain("/quota");
     expect(labels).toContain("/status");
-    expect(labels).toContain("/goal");
     expect(labels).toContain("/ptc");
     expect(new Set(labels).size).toBe(labels.length);
     for (const item of items) {

@@ -2424,42 +2424,6 @@ describe("core operation projection", () => {
 });
 
 
-describe("Goal host controls", () => {
-  test("goal.status and goal.pause remain available while goal.start occupies the command lane", async () => {
-    const counters = { created: 0, runs: 0, shutdowns: 0 };
-    let resolveGoal: ((result: string) => void) | undefined;
-    let pauses = 0;
-    const bridge = {
-      ...bridgeFor(agentComposingSetup(), counters),
-      goalStart: (_agent: { id: string }, objective: string) => {
-        expect(objective).toBe("ship safely");
-        return new Promise<string>((resolve) => { resolveGoal = resolve; });
-      },
-      goalPause: () => { pauses += 1; },
-      goalStatus: () => JSON.stringify({ status: "Running" }),
-    };
-    const app = new CetasApplication({
-      bridge,
-      config,
-      callbacks,
-      initialSessionId: "session-goal",
-    });
-    await app.start();
-    const run = app.invokeCommand("goal.start", JSON.stringify({ objective: "ship safely" }));
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(JSON.parse(await app.invokeCommand("goal.status")).structured.status).toBe("Running");
-    expect(JSON.parse(await app.invokeCommand("goal.pause")).type).toBe("success");
-    expect(pauses).toBe(1);
-    await expect(app.invokeCommand("goal.start", JSON.stringify({ objective: "another" })))
-      .rejects.toMatchObject({ code: "already_running" });
-    if (resolveGoal === undefined) throw new Error("goal was not dispatched");
-    resolveGoal(JSON.stringify({ type: "success", feedback: "Goal: Paused" }));
-    expect(JSON.parse(await run).feedback).toBe("Goal: Paused");
-    await app.shutdown();
-  });
-});
-
 /**
  * The one-time Board activation note is a host-side pending note, not a
  * per-turn Board summary: it rides exactly one admitted prompt and then the

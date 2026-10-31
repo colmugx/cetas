@@ -1,7 +1,5 @@
 import * as moonbit from "mbt:colmugx/cetas-js/lib";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { scanAndLoadPiPackages, type PiPackagesSummary } from "./pi-packages.ts";
 import { decodeAgentRunTurnResult, AgentBusyError } from "./agent-busy.ts";
 import { answerResponseJson, type QuestionAnswerResponse } from "../controllers/question-answer.ts";
@@ -61,13 +59,11 @@ export interface CompactSessionOutcome {
 export class MoonbitCetasAgentBridge implements CetasAgentBridge {
   private readonly configValue: moonbit.CetasJsConfig;
   private readonly runtimeValue: moonbit.CetasJsRuntime;
-  private readonly goalSessionRoot: string;
   private readonly loadedPiEntries = new Set<string>();
   private toolCatalogValue: Readonly<Record<string, string>> = {};
   private piPackagesValue: PiPackagesSummary | undefined;
 
   constructor(config: CetasHostConfig) {
-    this.goalSessionRoot = resolvedSessionsDir(config);
     this.configValue = new moonbit.CetasJsConfig(
       config.cwd,
       config.maxToolRounds,
@@ -254,97 +250,6 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
         signal ?? new AbortController().signal,
       )
       .then(decodeAgentRunTurnResult);
-  }
-
-  private goalCheckpointPath(sessionId: string): string {
-    const filename = createHash("sha256").update(sessionId, "utf8").digest("hex") + ".json";
-    const directory = join(this.goalSessionRoot, "goals");
-    return join(directory, filename);
-  }
-
-  private goalTranscriptDigest(sessionId: string): string {
-    // Checkpoint restoration is safe only against the exact committed
-    // transcript revision it was captured with. A changed/missing session
-    // journal must not silently replay a stale goal.
-    if (sessionId.length === 0 || sessionId.includes("/") ||
-        sessionId.includes("\\") || sessionId === "." || sessionId === "..") {
-      throw new Error("invalid goal session id");
-    }
-    const journal = join(this.goalSessionRoot, `${sessionId}.jsonl`);
-    return createHash("sha256").update(readFileSync(journal)).digest("hex");
-  }
-
-  private persistGoalCheckpoint(agent: moonbit.CetasJsAgent, sessionId: string): void {
-    const raw = moonbit.cetas_js_goal_checkpoint(agent);
-    const checkpoint: unknown = JSON.parse(raw);
-    const path = this.goalCheckpointPath(sessionId);
-    if (isRecord(checkpoint) && checkpoint.ok === true &&
-        isRecord(checkpoint.snapshot) && checkpoint.snapshot.session === sessionId) {
-      const dir = join(path, "..");
-      mkdirSync(dir, { recursive: true, mode: 0o700 });
-      const temp = path + ".tmp";
-      writeFileSync(temp, JSON.stringify({
-        session: sessionId,
-        transcriptDigest: this.goalTranscriptDigest(sessionId),
-        checkpoint: checkpoint.snapshot,
-      }), { mode: 0o600 });
-      renameSync(temp, path);
-    } else {
-      rmSync(path, { force: true });
-    }
-  }
-
-  async goalStart(agent: unknown, objective: string, sessionId: string, signal?: AbortSignal): Promise<string> {
-    const raw = await moonbit.cetas_js_goal_start(agent as moonbit.CetasJsAgent, objective, sessionId, signal ?? new AbortController().signal);
-    this.persistGoalCheckpoint(agent as moonbit.CetasJsAgent, sessionId);
-    return raw;
-  }
-
-  async goalResume(agent: unknown, sessionId: string, signal?: AbortSignal): Promise<string> {
-    const current: unknown = JSON.parse(moonbit.cetas_js_goal_status(agent as moonbit.CetasJsAgent));
-    if (isRecord(current) && current.status === "Idle") {
-      let snapshot: unknown;
-      try {
-        snapshot = JSON.parse(readFileSync(this.goalCheckpointPath(sessionId), "utf8"));
-      } catch {
-        return JSON.stringify({ type: "failure", reason: "no persisted goal for this session" });
-      }
-      if (!isRecord(snapshot) || snapshot.session !== sessionId ||
-          typeof snapshot.transcriptDigest !== "string" ||
-          !isRecord(snapshot.checkpoint)) {
-        return JSON.stringify({ type: "failure", reason: "invalid goal checkpoint envelope" });
-      }
-      let digest: string;
-      try {
-        digest = this.goalTranscriptDigest(sessionId);
-      } catch {
-        return JSON.stringify({ type: "failure", reason: "goal transcript unavailable; restore refused" });
-      }
-      if (digest !== snapshot.transcriptDigest) {
-        return JSON.stringify({ type: "failure", reason: "goal transcript changed since checkpoint; restore refused" });
-      }
-      const restored: unknown = JSON.parse(moonbit.cetas_js_goal_restore(
-        agent as moonbit.CetasJsAgent, JSON.stringify(snapshot.checkpoint),
-      ));
-      if (!isRecord(restored) || restored.ok !== true) {
-        return JSON.stringify({
-          type: "failure",
-          reason: isRecord(restored) && typeof restored.reason === "string"
-            ? restored.reason : "goal checkpoint restore failed",
-        });
-      }
-    }
-    const raw = await moonbit.cetas_js_goal_resume(agent as moonbit.CetasJsAgent, sessionId, signal ?? new AbortController().signal);
-    this.persistGoalCheckpoint(agent as moonbit.CetasJsAgent, sessionId);
-    return raw;
-  }
-
-  goalPause(agent: unknown): void {
-    moonbit.cetas_js_goal_pause(agent as moonbit.CetasJsAgent);
-  }
-
-  goalStatus(agent: unknown): string {
-    return moonbit.cetas_js_goal_status(agent as moonbit.CetasJsAgent);
   }
 
   cancelPendingRateLimit(agent: unknown): void {

@@ -338,7 +338,6 @@ export class TerminalShell {
   private fileIndexLoadedAt = 0;
 
   private commandBusy = false;
-  private goalCommandActive = false;
   private workflowCommandActive = false;
   /**
    * Latest turn status message (set by setTurnStatus). When a mid-turn
@@ -717,7 +716,7 @@ export class TerminalShell {
     if (this.hostFaultStopped) throw new Error("host stopped after a fatal fault");
     const trimmed = prompt.trim();
     const commandId = trimmed.startsWith("/") ? trimmed.slice(1).split(/\s/, 1)[0]! : "";
-    if (this.commandBusy && !isBoardWorkflowControl(commandId) && trimmed !== "/goal pause" && trimmed !== "/goal status") {
+    if (this.commandBusy && !isBoardWorkflowControl(commandId)) {
       throw new Error("editor submitted while a command is running");
     }
     this.editor.setText("");
@@ -1871,7 +1870,7 @@ export class TerminalShell {
     // Enter can queue follow-ups and /permission can switch modes. Only
     // Other commands retain modal occupancy. A Board operation leaves the
     // editor available for its narrow, non-prompting control lane only.
-    if (this.commandBusy && !this.workflowCommandActive && !this.goalCommandActive) return { consume: true };
+    if (this.commandBusy && !this.workflowCommandActive) return { consume: true };
     // Extension-declared command shortcuts (e.g. shift+tab → /plan).
     if (!this.operationBusy) {
       for (const binding of this.commandShortcuts) {
@@ -2125,7 +2124,6 @@ export class TerminalShell {
     quota: (args) => this.openQuotaOverlay(args),
     status: (rawArgs) => this.runStatusCommand(rawArgs),
     pi: (rawArgs) => this.runPiCommand(rawArgs),
-    goal: (rawArgs) => this.runGoalCommand(rawArgs),
     board: (rawArgs) => this.runBoardEntrance(rawArgs),
     "board.stop": () => this.runBoardStop(),
   };
@@ -2207,48 +2205,6 @@ export class TerminalShell {
       this.addTranscriptChild(systemNotice("All local Board servers stopped."));
     } catch (error: unknown) {
       this.addTranscriptChild(errorNotice("/board.stop: " + errorMessage(error)));
-    }
-  }
-
-  /** /goal <objective> | status | pause | resume — one controlled goal run. */
-  private async runGoalCommand(rawArgs: string): Promise<void> {
-    const value = rawArgs.trim();
-    const id = value === "status" ? "goal.status"
-      : value === "pause" ? "goal.pause"
-      : value === "resume" ? "goal.resume"
-      : "goal.start";
-    if (id === "goal.start" && value.length === 0) {
-      this.addTranscriptChild(systemNotice(
-        "usage: /goal <objective> | /goal status | /goal pause | /goal resume",
-      ));
-      return;
-    }
-    // Status and pause are prompt-free and bypass the exclusive command lane.
-    const control = id === "goal.pause" || id === "goal.status";
-    if (this.commandBusy && !control) {
-      this.addTranscriptChild(errorNotice("another command is active"));
-      return;
-    }
-    if (!control) {
-      this.goalCommandActive = true;
-      this.commandLock.acquire("running goal");
-      this.editor.disableSubmit = false;
-    }
-    try {
-      const outcome = parseCommandOutcome(
-        await this.requireApp().invokeCommand(
-          id,
-          id === "goal.start" ? JSON.stringify({ objective: value }) : "{}",
-        ),
-      );
-      this.renderOutcome(outcome, "/goal");
-    } catch (error: unknown) {
-      this.addTranscriptChild(errorNotice(`/goal failed: ${errorMessage(error)}`));
-    } finally {
-      if (!control) {
-        this.goalCommandActive = false;
-        this.commandLock.release();
-      }
     }
   }
 
@@ -3544,7 +3500,6 @@ const LOCAL_SLASH_ROUTES: readonly SlashRoute[] = [
   { id: "skills", description: "Browse discovered agent skills by scope" },
   { id: "update", description: "Check for updates and install" },
   { id: "pi", description: "Manage pi packages (install/remove/list)" },
-  { id: "goal", description: "Start, inspect, pause or resume a verified goal" },
   { id: "board", description: "Open the live localhost Kanban dashboard" },
   { id: "board.stop", description: "Stop all local Board servers" },
   { id: "login", description: "Authenticate with a provider or configure Magpie Gateway" },

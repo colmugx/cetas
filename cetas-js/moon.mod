@@ -60,7 +60,6 @@ import {
   "colmugx/posoco-ext-magpie@0.1.0",
   "colmugx/posoco-ext-mcp@0.5.1",
   "colmugx/posoco-ext-plan@0.5.0",
-  "colmugx/posoco-ext-goal@0.2.0",
   "colmugx/posoco-ext-pi-adaptor@0.1.0",
   "colmugx/posoco-ext-stats@0.1.0",
   "colmugx/posoco-ext-statusbar@0.3.0",

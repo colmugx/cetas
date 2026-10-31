@@ -20,7 +20,6 @@ members = [
   "./extension/posoco-ext-edit",
   "./extension/posoco-ext-fs-session",
   "./extension/posoco-ext-glob",
-  "./extension/posoco-ext-goal",
   "./extension/posoco-ext-grep",
   "./extension/posoco-ext-handoff",
   "./extension/posoco-ext-herdr",

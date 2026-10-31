@@ -1148,7 +1148,6 @@ pub struct CetasJsAgent {
   /// Plan-mode extension reference, so the bridge can stamp the session
   /// label onto plan file names when a session starts.
   plan : @plan.PlanMode
-  goal : @goal.GoalRunner
   /// Cetas home (`~/.cetas`) for persisting the active-model selection.
   home : String
   /// The live observer channel, so persistence warnings reach the TS host.
@@ -1677,11 +1676,6 @@ pub fn cetas_js_runtime_create_agent(
             // plan.approve. Its enter/exit tools are reported on the bus
             // and skip the permission gate above.
             let plan_review = PlanApprovalSource()
-            let goal_runner = @goal.goal_extension(
-              goal_condition="Goal not yet configured",
-            )
-            let goal_verifier = CetasGoalApprovalVerifier(ui)
-            goal_runner.set_verifier(goal_verifier)
             let plan_mode = @plan.PlanMode(
               config=@plan.PlanModeConfig::{
                 ..@plan.PlanModeConfig::default(),
@@ -1718,7 +1712,6 @@ pub fn cetas_js_runtime_create_agent(
               observer as &@posoco.Extension,
               ui as &@posoco.Extension,
               plan_mode,
-              goal_runner,
               statusbar,
               stats,
               policy,
@@ -2106,7 +2099,6 @@ pub fn cetas_js_runtime_create_agent(
               manager: model,
               manager_bus: event_bus,
               plan: plan_mode,
-              goal: goal_runner,
               home: runtime.config.home,
               observer,
               ratelimit,

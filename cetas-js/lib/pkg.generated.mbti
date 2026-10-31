@@ -5,7 +5,6 @@ import {
   "colmugx/posoco",
   "colmugx/posoco-ext-askquestion",
   "colmugx/posoco-ext-fs-session",
-  "colmugx/posoco-ext-goal",
   "colmugx/posoco-ext-magpie",
   "colmugx/posoco-ext-mcp",
   "colmugx/posoco-ext-permission",
@@ -43,18 +42,6 @@ pub fn cetas_js_create_agent(CetasJsConfig, JsCallback, JsUiRenderCallback, JsUi
 pub fn cetas_js_describe_setup(CetasJsConfig) -> @js_async.Promise[String]
 
 pub fn cetas_js_enqueue_follow_up(CetasJsAgent, String, String) -> String
-
-pub fn cetas_js_goal_checkpoint(CetasJsAgent) -> String
-
-pub fn cetas_js_goal_pause(CetasJsAgent) -> Unit
-
-pub fn cetas_js_goal_restore(CetasJsAgent, String) -> String
-
-pub fn cetas_js_goal_resume(CetasJsAgent, String, @js_async.AbortSignal) -> @js_async.Promise[String]
-
-pub fn cetas_js_goal_start(CetasJsAgent, String, String, @js_async.AbortSignal) -> @js_async.Promise[String]
-
-pub fn cetas_js_goal_status(CetasJsAgent) -> String
 
 pub fn cetas_js_herdr_release() -> Unit
 
@@ -152,19 +139,11 @@ pub struct BoardSkill {
 pub fn BoardSkill::from_descriptor(@posoco-ext-skills.SkillDescriptor) -> Self
 pub fn BoardSkill::to_json(Self) -> Json
 
-pub struct CetasGoalApprovalVerifier {
-  ui : JsUiPort
-}
-pub fn CetasGoalApprovalVerifier::CetasGoalApprovalVerifier(JsUiPort) -> Self
-pub async fn CetasGoalApprovalVerifier::verify(Self, @posoco-ext-goal.GoalVerificationRequest) -> @posoco-ext-goal.GoalAssessment
-pub impl @posoco-ext-goal.GoalVerifier for CetasGoalApprovalVerifier
-
 pub struct CetasJsAgent {
   agent : @posoco.Agent
   manager : ModelManagerFace
   manager_bus : @devkit.EventBus
   plan : @posoco-ext-plan.PlanMode
-  goal : @posoco-ext-goal.GoalRunner
   home : String
   observer : JsCallbackObserver
   ratelimit : @posoco-ext-ratelimit.RateLimitGuard
