@@ -17,6 +17,10 @@ REMOTE = "https://github.com/colmugx/posoco-extension.git"
 # Minimal source-module closure required by cetas-memoh. Do not import the
 # extension repository's full moon.work: unrelated modules must not participate
 # in Memoh CI/release.
+#
+# Every unpublished module in that closure belongs here, transitive `posoco-kit-*`
+# dependencies included. A missing one fails resolution exactly like an
+# unpinned revision: "module was not found in the registry".
 MEMBERS = (
     "posoco-devkit",
     "posoco-ext-acp",
@@ -33,7 +37,7 @@ MEMBERS = (
     "posoco-ext-deepseek",
     "posoco-ext-kimi",
     "posoco-ext-openai",
-    "posoco-ext-openai-compatible",
+    "posoco-ext-custom",
     "posoco-ext-opencode-zen",
     "posoco-ext-openrouter",
     "posoco-ext-zai",
@@ -41,6 +45,7 @@ MEMBERS = (
     "posoco-kit-chat-completions",
     "posoco-kit-compact-evict",
     "posoco-kit-compact-summary",
+    "posoco-kit-deepseek",
     "posoco-kit-messages",
     "posoco-kit-model-management",
     "posoco-kit-provider",

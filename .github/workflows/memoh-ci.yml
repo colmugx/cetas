@@ -38,10 +38,6 @@ jobs:
         working-directory: cetas-memoh
         run: python3 scripts/check_version.py
 
-      - name: memoh-harness-unit
-        working-directory: cetas-memoh
-        run: python3 -m unittest scripts/test_memoh_live_e2e.py
-
       - name: memoh-install-script-syntax
         working-directory: cetas-memoh
         run: bash -n install.sh
@@ -53,6 +49,10 @@ jobs:
       - name: memoh-update
         working-directory: cetas-memoh
         run: moon update
+
+      - name: memoh-harness-self-check
+        working-directory: cetas-memoh
+        run: moon run --target native scripts/memoh_live_e2e.mbtx -- --self-check
 
       - name: memoh-check
         working-directory: cetas-memoh

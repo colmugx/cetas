@@ -23,7 +23,7 @@ on:
         default: true
         type: boolean
       exercise_concurrency:
-        description: "Verify two live runtimes retain distinct model state"
+        description: "Verify two model selections do not bleed into each other"
         required: true
         default: true
         type: boolean
@@ -49,7 +49,21 @@ jobs:
             exit 1
           fi
 
+      - name: memoh-live-install-moon
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: memoh-live-bootstrap-workspace
+        working-directory: cetas-memoh
+        run: python3 scripts/bootstrap_workspace.py
+
+      - name: memoh-live-update
+        working-directory: cetas-memoh
+        run: moon update
+
       - name: memoh-live-preflight
+        working-directory: cetas-memoh
         env:
           MEMOH_API_URL: ${{ inputs.api_url }}
           MEMOH_BOT_ID: ${{ inputs.bot_id }}
@@ -64,4 +78,4 @@ jobs:
           if [[ "${{ inputs.exercise_concurrency }}" == "true" ]]; then
             args+=(--exercise-concurrency)
           fi
-          python3 cetas-memoh/scripts/memoh_live_e2e.py "${args[@]}"
+          moon run --target native scripts/memoh_live_e2e.mbtx -- "${args[@]}"

@@ -34,20 +34,29 @@ pub fn memoh_builtin_skills() -> Array[@skills.SkillDescriptor] {
       name="cetas-memoh-config",
       description="Use when configuring Cetas inside Memoh, providers, models, credentials, or explaining what Memoh owns.",
       body="Cetas-Memoh is independently configured from generic Cetas. " +
-        "Its provider home is CETAS_MEMOH_HOME, otherwise $HOME/.cetas-memoh; " +
-        "Memoh generic ACP currently supplies HOME=/data, so the usual path is " +
-        "/data/.cetas-memoh. Non-secret provider settings live in providers.json " +
-        "as a direct object keyed by provider id. Credentials live under the " +
-        "credentials directory in the canonical posoco-ext-credentials format. " +
+        "Its provider home is CETAS_MEMOH_HOME when set; otherwise " +
+        "/data/.cetas-memoh when /data exists (Memoh's workspace mount); " +
+        "otherwise $HOME/.cetas-memoh. The mount wins over HOME on purpose: " +
+        "the ACP runtime runs with HOME=/data while a shell in the same " +
+        "container usually has HOME=/root, so a setup run from the terminal " +
+        "must not be allowed to write /root/.cetas-memoh. Non-secret provider " +
+        "settings live in providers.json as a direct object keyed by provider " +
+        "id. Credentials live under the credentials directory in the canonical " +
+        "posoco-ext-credentials format. " +
         "Never ask the user to paste an API key or OAuth token into chat, never " +
         "read or display credential files through tools, and never copy secrets " +
         "into providers.json. Secret bootstrap belongs to the trusted host command " +
-        "`cetas-memoh setup`. After the first model is available, use Memoh Tools " +
+        "`cetas-memoh setup`, run from the Memoh terminal so /dev/tty exists. " +
+        "After the first model is available, use Memoh Tools " +
         "for allowed workspace/platform operations and for non-secret configuration " +
         "changes. Provider catalogs are assembled at process startup, so restart " +
-        "the Cetas-Memoh runtime after changing provider settings. Memoh remains " +
+        "the Cetas-Memoh runtime after changing provider settings; Memoh keeps one " +
+        "runtime process per agent, so that restart affects this Bot's live chats. " +
+        "Memoh remains " +
         "the authority for conversation continuity, workspace/platform operations, " +
-        "memory, and host authorization.",
+        "memory, and host authorization. A session opened without the Memoh Tools " +
+        "gateway (for example a model-picker probe) has no platform tools; never " +
+        "claim a host action succeeded in such a session.",
     ),
   ]
 }

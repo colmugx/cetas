@@ -40,6 +40,16 @@ The bot must also have provider configuration/credentials that let
 
 ## 2. Run the live ACP preflight
 
+The harness is a MoonBit script (`scripts/memoh_live_e2e.mbtx`). It resolves its
+own dependencies from the registry, but it runs inside the `cetas-memoh` module,
+so the workspace bridge has to be prepared first:
+
+```sh
+cd cetas-memoh
+python3 scripts/bootstrap_workspace.py
+moon update
+```
+
 Use a Memoh bearer token with access to the configured bot. The API URL must
 include Memoh's `/api` prefix.
 
@@ -48,42 +58,47 @@ export MEMOH_API_URL="https://memoh.example/api"
 export MEMOH_TOKEN="..."
 export MEMOH_BOT_ID="..."
 
-python3 cetas-memoh/scripts/memoh_live_e2e.py
+moon run --target native scripts/memoh_live_e2e.mbtx --
 ```
 
-The script creates a temporary **real** ACP runtime through Memoh, which starts
-the configured workspace command. For `cetas-memoh`, successful runtime
-creation covers the live ACP initialize/session-new path and the Memoh Tools
-HTTP MCP connection required while constructing the session. It then verifies:
+The harness speaks exactly one Memoh surface: `GET /bots/{id}/acp-options`,
+introduced with session-scoped runtimes in
+[felinics/Memoh#1717](https://github.com/felinics/Memoh/pull/1717). Requesting it
+makes Memoh start the bot's configured workspace command and open a probe ACP
+session on it, so a `200` with a populated option set covers the live ACP
+`initialize` and `session/new` round trips. The probe verifies the agent is
+`acp`, that model selection is exposed with at least one model, and that
+reasoning-effort selection is exposed with at least one value. Probe sessions
+are Memoh's to close, so the harness creates nothing durable.
 
-- the runtime is the generic `acp` agent,
-- model selection is exposed with at least one model,
-- reasoning-effort selection is exposed with at least one value,
-- the runtime can be read back by ID,
-- the temporary runtime is closed on exit.
+A deployment older than that release answers `404`/`405`: it still exposes the
+bot-scoped `/acp-runtimes` API. The harness does not fall back to it — it fails
+with the upgrade instruction, because carrying two surfaces would quietly rot
+and a preflight against the wrong surface is worse than none.
 
-To also exercise Memoh's live model and reasoning control endpoints on that
-temporary runtime:
+To exercise live model and reasoning controls:
 
 ```sh
-python3 cetas-memoh/scripts/memoh_live_e2e.py --exercise-controls
+moon run --target native scripts/memoh_live_e2e.mbtx -- --exercise-controls
 ```
 
-To verify cross-session model isolation, start two real runtimes for the same
-bot and force them onto two different shared model IDs:
+This selects a model on a throwaway probe session and checks that the agent
+reports it back together with that model's own reasoning efforts.
+
+To verify that two model selections do not bleed into each other:
 
 ```sh
-python3 cetas-memoh/scripts/memoh_live_e2e.py --exercise-concurrency
+moon run --target native scripts/memoh_live_e2e.mbtx -- --exercise-concurrency
 ```
 
-This mode fails unless both runtimes expose at least two common models. It PATCHes
-different model IDs into the two runtimes, reads both statuses back, and fails
-if either runtime changed to the other's model. Both temporary runtimes are
-deleted on exit unless `--keep-runtime` is supplied.
+This fails unless the agent offers at least two models, then reads two different
+selections back through the shared runtime and refuses equal answers.
 
-The harness never prints the bearer token and redacts common authorization,
-session-token, access-token, and refresh-token shapes from HTTP error bodies.
-It does not modify durable bot configuration.
+The harness never prints the bearer token: JSON bodies are redacted key by key
+(`authorization`, session/runtime tokens, `access_token`, `refresh_token`,
+`api_key`, `password`, `secret`), and a non-JSON body is reported as omitted
+rather than echoed. `--self-check` runs the redaction, selection and
+surface-gate fixtures offline; it is the check CI runs on every change.
 
 ## 3. Run from GitHub Actions
 
@@ -94,6 +109,11 @@ repository secret `MEMOH_TOKEN`, then dispatch the workflow with:
 - `bot_id` — an existing bot whose generic ACP command launches `cetas-memoh`,
 - optional `project_path`,
 - optional model/reasoning and concurrency checks (enabled by default).
+
+The workflow installs the MoonBit toolchain, prepares the workspace bridge and
+runs the `.mbtx` harness; ``memoh-ci`` separately runs its ``--self-check``
+fixture set on every pull request, so harness regressions fail without needing a
+live deployment.
 
 The workflow uses only the dedicated `memoh-*` path and never runs as part of
 the general Cetas CI. GitHub masks the configured secret and the harness also
@@ -115,9 +135,21 @@ scenarios in a real Memoh conversation:
 - model switch followed by effective context-window verification,
 - cancellation settling as ACP `cancelled`,
 - session close,
-- process restart continuity,
+- process restart continuity: restart the runtime (or wait out the 30-minute
+  idle reap), then continue the same conversation. Memoh must resume the
+  existing ACP session rather than prompt "start a new session", and the
+  resumed turn must keep the model/effort the picker showed,
 - two concurrent conversation sessions using different models after the API-level
-  `--exercise-concurrency` preflight has passed.
+  `--exercise-concurrency` preflight has passed,
+- **a picker-only session** (Memoh opens one to read model/effort options, with
+  no Memoh Tools declaration): opening it must succeed, so the picker is never
+  empty. This is the degraded path exercised on purpose,
+- **a conversation whose Memoh Tools gateway is unreachable**: the turn must
+  still answer, stderr must record `degraded session`, and the model must state
+  that platform tools are unavailable instead of claiming an action,
+- **setup from the Memoh terminal**: run `cetas-memoh setup` in the container
+  shell and confirm it reports `/data/.cetas-memoh` (not `/root/.cetas-memoh`),
+  then restart the agent runtime and confirm the model appears.
 
 During the same run:
 

@@ -1,0 +1,844 @@
+///|
+/// Live Memoh preflight for cetas-memoh.
+///
+/// This intentionally talks to a real Memoh deployment. It never uses a fake
+/// ACP server and never mutates durable bot configuration.
+///
+/// It speaks exactly one Memoh surface: `GET /bots/{id}/acp-options`, the
+/// read-only "what could this conversation choose" endpoint introduced with
+/// session-scoped runtimes in felinics/Memoh#1717. A deployment older than that
+/// release has no such surface and is reported as needing an upgrade rather
+/// than served by a second code path here.
+///
+/// Usage:
+///   moon run --target native cetas-memoh/scripts/memoh_live_e2e.mbtx -- --self-check
+///   MEMOH_API_URL=... MEMOH_TOKEN=... MEMOH_BOT_ID=... \
+///     moon run --target native cetas-memoh/scripts/memoh_live_e2e.mbtx -- \
+///       --exercise-controls --exercise-concurrency
+import {
+  "moonbitlang/async@0.22.5",
+  "moonbitlang/async@0.22.5/http",
+  "moonbitlang/core/encoding/percent",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/core/string",
+}
+
+///|
+const AGENT_ID : String = "acp"
+
+///|
+const DEFAULT_TIMEOUT_SECONDS : Int = 120
+
+///|
+const REDACTED : String = "<redacted>"
+
+///|
+/// Every key whose value must never reach a CI log.
+let sensitive_keys : Array[String] = [
+  "authorization",
+  "x-memoh-session-token",
+  "x-memoh-runtime-token",
+  "access_token",
+  "refresh_token",
+  "api_key",
+  "password",
+  "secret",
+]
+
+///|
+fn usage() -> String {
+  "usage: memoh_live_e2e.mbtx [--self-check] [options]\n" +
+  "\n" +
+  "  --self-check                 run the offline fixture checks and exit\n" +
+  "  --api-url <url>              Memoh API base URL including /api (env: MEMOH_API_URL)\n" +
+  "  --token <token>              Memoh bearer token (env: MEMOH_TOKEN)\n" +
+  "  --bot-id <id>                bot already configured with the generic ACP agent\n" +
+  "                               (env: MEMOH_BOT_ID)\n" +
+  "  --project-path <path>        optional ACP project path (env: MEMOH_PROJECT_PATH)\n" +
+  "  --exercise-controls          switch one live model/effort selection\n" +
+  "  --exercise-concurrency       hold two different models without state bleed\n" +
+  "  --timeout <seconds>          HTTP timeout (default: \{DEFAULT_TIMEOUT_SECONDS})\n" +
+  "  --help                       this text\n"
+}
+
+///|
+fn help_requested(args : Array[String]) -> Bool {
+  for arg in args {
+    if arg == "--help" || arg == "-h" {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn env_or_empty(name : String) -> String {
+  match @env.get_env_var(name) {
+    Some(value) => value.trim().to_owned()
+    None => ""
+  }
+}
+
+///|
+struct Config {
+  mut api_url : String
+  mut token : String
+  mut bot_id : String
+  mut project_path : String
+  mut exercise_controls : Bool
+  mut exercise_concurrency : Bool
+  mut timeout_ms : Int
+  mut self_check : Bool
+}
+
+///|
+/// Parse one `--flag value` pair. Returns the value and the next index.
+fn take_value(
+  args : Array[String],
+  index : Int,
+  flag : String,
+) -> (String, Int) raise Preflight {
+  if index + 1 >= args.length() {
+    raise Preflight(message="missing value for " + flag)
+  }
+  (args[index + 1].trim().to_owned(), index + 2)
+}
+
+///|
+fn parse_args(args : Array[String]) -> Config raise Preflight {
+  let config : Config = {
+    api_url: env_or_empty("MEMOH_API_URL"),
+    token: env_or_empty("MEMOH_TOKEN"),
+    bot_id: env_or_empty("MEMOH_BOT_ID"),
+    project_path: env_or_empty("MEMOH_PROJECT_PATH"),
+    exercise_controls: false,
+    exercise_concurrency: false,
+    timeout_ms: DEFAULT_TIMEOUT_SECONDS * 1000,
+    self_check: false,
+  }
+  let mut index = 0
+  while index < args.length() {
+    let arg = args[index]
+    if arg == "--self-check" {
+      config.self_check = true
+      index += 1
+    } else if arg == "--exercise-controls" {
+      config.exercise_controls = true
+      index += 1
+    } else if arg == "--exercise-concurrency" {
+      config.exercise_concurrency = true
+      index += 1
+    } else if arg == "--api-url" {
+      let (value, next) = take_value(args, index, arg)
+      config.api_url = value
+      index = next
+    } else if arg == "--token" {
+      let (value, next) = take_value(args, index, arg)
+      config.token = value
+      index = next
+    } else if arg == "--bot-id" {
+      let (value, next) = take_value(args, index, arg)
+      config.bot_id = value
+      index = next
+    } else if arg == "--project-path" {
+      let (value, next) = take_value(args, index, arg)
+      config.project_path = value
+      index = next
+    } else if arg == "--timeout" {
+      let (value, next) = take_value(args, index, arg)
+      let seconds = @string.parse_int(value) catch {
+        _ => raise Preflight(message="--timeout must be a positive number")
+      }
+      if seconds <= 0 {
+        raise Preflight(message="--timeout must be positive")
+      }
+      config.timeout_ms = seconds * 1000
+      index = next
+    } else {
+      raise Preflight(message="unknown argument '" + arg + "'")
+    }
+  }
+  config
+}
+
+///|
+/// A preflight failure: a message safe to print once redacted.
+suberror Preflight {
+  Preflight(message~ : String)
+}
+
+///|
+fn is_sensitive_key(key : String) -> Bool {
+  let lowered = key.to_lower()
+  for candidate in sensitive_keys {
+    if lowered == candidate {
+      return true
+    }
+  }
+  false
+}
+
+///|
+/// Recursively mask sensitive values. `Replacer` returning `None` drops a member,
+/// so every other member must be handed back unchanged.
+fn redact_json(value : Json) -> Json {
+  let replacer = @json.Replacer::Replacer(fn(key, child) {
+    if is_sensitive_key(key) && child is Json::String(_) {
+      Some(Json::string(REDACTED))
+    } else {
+      Some(child)
+    }
+  })
+  value.transform(replacer)
+}
+
+///|
+fn count_occurrences(text : String, needle : String) -> Int {
+  if needle.is_empty() {
+    return 0
+  }
+  let mut count = 0
+  let mut rest = text
+  while true {
+    match rest.find(needle) {
+      Some(index) => {
+        count += 1
+        rest = rest[index + needle.length():].to_owned()
+      }
+      None => break
+    }
+  }
+  count
+}
+
+///|
+/// Bound and clean a third-party body before it is printed.
+///
+/// JSON is masked key by key. A non-JSON body (proxy HTML, gateway text) is not
+/// printed at all: the harness has no way to prove it is secret-free, and a
+/// preflight that leaks a token into CI logs is worse than one that shows less.
+fn describe_body(body : String, token : String) -> String {
+  let parsed : Result[Json, Error] = Ok(@json.parse(body)) catch {
+    error => Err(error)
+  }
+  let redacted = match parsed {
+    Ok(value) => redact_json(value).stringify()
+    Err(_) =>
+      if body.trim().is_empty() {
+        "<empty body>"
+      } else {
+        "<non-JSON body omitted (" + body.length().to_string() + " bytes)>"
+      }
+  }
+  let bounded = if redacted.length() > 2000 {
+    redacted[:2000].to_owned() + "...(truncated)"
+  } else {
+    redacted
+  }
+  if token.is_empty() {
+    bounded
+  } else {
+    bounded.replace(old=token, new=REDACTED)
+  }
+}
+
+///|
+///|
+/// Percent-encode one URL path segment or query value. `@percent` keeps only
+/// RFC 3986 unreserved characters, so a model id like `openai/gpt-5` travels as
+/// `openai%2Fgpt-5` and cannot be mistaken for a path separator.
+fn url_encode(value : String) -> String {
+  @percent.encode(value)
+}
+
+///|
+fn trim_trailing_slashes(value : String) -> String {
+  let mut end = value.length()
+  while end > 0 && value[end - 1] == '/' {
+    end -= 1
+  }
+  value[:end].to_owned()
+}
+
+///|
+fn bot_base(config : Config) -> String {
+  trim_trailing_slashes(config.api_url) +
+  "/bots/" +
+  url_encode(config.bot_id) +
+  "/"
+}
+
+///|
+async fn http_call(
+  config : Config,
+  verb : @http.RequestMethod,
+  url : String,
+  payload : Json?,
+) -> (Int, String) raise Preflight {
+  let headers : Map[@http.CaseInsensitiveString, String] = Map::from_array([])
+  headers[@http.CaseInsensitiveString("accept")] = "application/json"
+  if !config.token.is_empty() {
+    headers[@http.CaseInsensitiveString("authorization")] = "Bearer " + config.token
+  }
+  let body = match payload {
+    Some(value) => {
+      headers[@http.CaseInsensitiveString("content-type")] = "application/json"
+      value.stringify()
+    }
+    None => ""
+  }
+  // A hung deployment must fail the harness, not stall the workflow: the
+  // timeout wraps the whole call, transport errors included.
+  let outcome : Result[Result[(Int, String), String], Error] = Ok(
+    @async.with_timeout(config.timeout_ms, async fn() {
+      let called = @http.request(url, verb, headers, body) catch {
+        error => return Err(error.to_string())
+      }
+      let (response, response_body) = called
+      let text = response_body.text() catch { _ => "" }
+      Ok((response.code, text))
+    }),
+  ) catch {
+    error => Err(error)
+  }
+  match outcome {
+    Ok(Ok(pair)) => pair
+    Ok(Err(message)) =>
+      raise Preflight(message=url + ": request failed: " + message)
+    Err(error) =>
+      raise Preflight(
+        message=url +
+        ": request failed (timeout " +
+        (config.timeout_ms / 1000).to_string() +
+        "s): " +
+        error.to_string(),
+      )
+  }
+}
+
+///|
+fn parse_object(code : Int, text : String, token : String, what : String) -> Json raise Preflight {
+  if code < 200 || code >= 300 {
+    raise Preflight(
+      message=what +
+      ": HTTP " +
+      code.to_string() +
+      ": " +
+      describe_body(text, token),
+    )
+  }
+  let parsed = @json.parse(text) catch {
+    _ => raise Preflight(message=what + ": response is not JSON")
+  }
+  if parsed is Json::Object(_) {
+    parsed
+  } else {
+    raise Preflight(message=what + ": expected a JSON object")
+  }
+}
+
+///|
+fn require_object(value : Json?, what : String) -> Map[String, Json] raise Preflight {
+  match value {
+    Some(Json::Object(map)) => map
+    _ => raise Preflight(message=what + " must be a JSON object")
+  }
+}
+
+///|
+fn require_string(map : Map[String, Json], key : String, what : String) -> String raise Preflight {
+  match map.get(key) {
+    Some(Json::String(value)) =>
+      if value.trim().is_empty() {
+        raise Preflight(message=what + " is empty")
+      } else {
+        value
+      }
+    _ => raise Preflight(message=what + " is missing")
+  }
+}
+
+///|
+fn optional_string(map : Map[String, Json], key : String) -> String {
+  match map.get(key) {
+    Some(Json::String(value)) => value
+    _ => ""
+  }
+}
+
+///|
+fn require_array(map : Map[String, Json], key : String, what : String) -> Array[Json] raise Preflight {
+  match map.get(key) {
+    Some(Json::Array(items)) => items
+    _ => raise Preflight(message=what + " is missing")
+  }
+}
+
+///|
+fn is_true(map : Map[String, Json], key : String) -> Bool {
+  map.get(key) is Some(Json::True)
+}
+
+///|
+fn option_ids(items : Array[Json]) -> Array[String] {
+  let ids : Array[String] = []
+  for item in items {
+    if item is Json::Object(map) {
+      let id = optional_string(map, "id").trim().to_owned()
+      if !id.is_empty() {
+        ids.push(id)
+      }
+    }
+  }
+  ids
+}
+
+///|
+fn choose_value(current : String, available : Array[Json]) -> String raise Preflight {
+  let ids = option_ids(available)
+  if ids.is_empty() {
+    raise Preflight(message="runtime control has no selectable values")
+  }
+  for id in ids {
+    if id != current {
+      return id
+    }
+  }
+  ids[0]
+}
+
+///|
+/// Pick two model ids both statuses offer, preserving the first status' order.
+fn distinct_shared_models(
+  first : Json,
+  second : Json,
+) -> (String, String) raise Preflight {
+  let first_ids = option_ids(
+    require_array(require_object(Some(first), "models"), "available_models", "models.available_models"),
+  )
+  let second_ids = option_ids(
+    require_array(require_object(Some(second), "models"), "available_models", "models.available_models"),
+  )
+  let shared : Array[String] = []
+  for id in first_ids {
+    if second_ids.contains(id) {
+      shared.push(id)
+    }
+  }
+  if shared.length() < 2 {
+    raise Preflight(
+      message="concurrency check needs two model ids offered by both runtimes",
+    )
+  }
+  (shared[0], shared[1])
+}
+
+///|
+fn assert_capabilities(status : Json, label : String) -> Unit raise Preflight {
+  let map = require_object(Some(status), label)
+  let runtime_id = require_string(map, "runtime_id", label + ".runtime_id")
+  let agent_id = require_string(map, "agent_id", label + ".agent_id")
+  if agent_id != AGENT_ID {
+    raise Preflight(
+      message=runtime_id + ": agent_id=" + agent_id + ", expected " + AGENT_ID,
+    )
+  }
+  let models = require_object(map.get("models"), label + ".models")
+  if !is_true(models, "supported") {
+    raise Preflight(message="cetas-memoh did not expose model selection")
+  }
+  if option_ids(require_array(models, "available_models", "models.available_models")).is_empty() {
+    raise Preflight(message="cetas-memoh exposed model selection but no models")
+  }
+  let reasoning = require_object(map.get("reasoning"), label + ".reasoning")
+  if !is_true(reasoning, "supported") {
+    raise Preflight(message="cetas-memoh did not expose reasoning-effort selection")
+  }
+  if option_ids(require_array(reasoning, "available_efforts", "reasoning.available_efforts")).is_empty() {
+    raise Preflight(message="cetas-memoh exposed reasoning selection but no efforts")
+  }
+}
+
+///|
+fn model_field(status : Json, key : String) -> String {
+  match status {
+    Json::Object(map) =>
+      match map.get("models") {
+        Some(Json::Object(models)) => optional_string(models, key)
+        _ => ""
+      }
+    _ => ""
+  }
+}
+
+///|
+fn reasoning_field(status : Json, key : String) -> String {
+  match status {
+    Json::Object(map) =>
+      match map.get("reasoning") {
+        Some(Json::Object(reasoning)) => optional_string(reasoning, key)
+        _ => ""
+      }
+    _ => ""
+  }
+}
+
+///|
+fn models_array(status : Json) -> Array[Json] {
+  match status {
+    Json::Object(map) =>
+      match map.get("models") {
+        Some(Json::Object(models)) =>
+          match models.get("available_models") {
+            Some(Json::Array(items)) => items
+            _ => []
+          }
+        _ => []
+      }
+    _ => []
+  }
+}
+
+///|
+fn json_string_array(values : Array[String]) -> String {
+  let out = StringBuilder()
+  out.write_string("[")
+  for i = 0; i < values.length(); i = i + 1 {
+    if i > 0 {
+      out.write_string(", ")
+    }
+    out.write_string("\"" + values[i] + "\"")
+  }
+  out.write_string("]")
+  out.to_string()
+}
+
+///|
+fn summarize(status : Json, label : String) -> String {
+  let map = match status {
+    Json::Object(value) => value
+    _ => Map::from_array([])
+  }
+  let runtime_id = optional_string(map, "runtime_id")
+  let state = optional_string(map, "state")
+  let acp_session_id = optional_string(map, "acp_session_id")
+  let current_model = model_field(status, "current_model_id")
+  let models = json_string_array(option_ids(models_array(status)))
+  let current_effort = reasoning_field(status, "current_effort")
+  "{\n  \"surface\": \"" +
+  label +
+  "\",\n  \"runtime_id\": \"" +
+  runtime_id +
+  "\",\n  \"state\": \"" +
+  state +
+  "\",\n  \"acp_session_id\": \"" +
+  acp_session_id +
+  "\",\n  \"current_model\": \"" +
+  current_model +
+  "\",\n  \"models\": " +
+  models +
+  ",\n  \"current_effort\": \"" +
+  current_effort +
+  "\"\n}"
+}
+
+///|
+/// The harness speaks exactly one Memoh surface: `GET /bots/{id}/acp-options`,
+/// introduced by felinics/Memoh#1717 together with session-scoped runtimes.
+///
+/// A deployment that still answers the older bot-scoped `acp-runtimes` API is
+/// not a lesser case to tolerate — it cannot run any check here, and the fix is
+/// one Memoh release. Failing with the reason is more useful than carrying a
+/// second code path that would quietly rot.
+fn require_options_surface(code : Int) -> Unit raise Preflight {
+  if code == 200 {
+    return
+  }
+  if code == 404 || code == 405 {
+    raise Preflight(
+      message="this Memoh has no /acp-options: it still exposes the pre-#1717 " +
+      "bot-scoped acp-runtimes API. Upgrade Memoh to a build that includes " +
+      "felinics/Memoh#1717, then re-run this preflight.",
+    )
+  }
+  raise Preflight(message="acp-options probe failed with HTTP " + code.to_string())
+}
+
+///|
+fn options_url(config : Config, model_id : String) -> String {
+  let mut url = bot_base(config) +
+    "acp-options?acp_agent_id=" +
+    url_encode(AGENT_ID) +
+    "&project_path=" +
+    url_encode(if config.project_path.is_empty() {
+      "/data"
+    } else {
+      config.project_path
+    })
+  if !model_id.is_empty() {
+    url = url + "&model_id=" + url_encode(model_id)
+  }
+  url
+}
+
+///|
+async fn fetch_options(config : Config, model_id : String) -> Json raise Preflight {
+  let url = options_url(config, model_id)
+  let (code, text) = http_call(config, @http.RequestMethod::Get, url, None)
+  parse_object(code, text, config.token, "GET " + url)
+}
+
+///|
+async fn run_options_checks(
+  config : Config,
+  first : Json,
+  label : String,
+) -> Unit raise Preflight {
+  assert_capabilities(first, label)
+  println("[ok] cetas-memoh ACP handshake and capabilities (" + label + ")")
+  println(summarize(first, label))
+  if config.exercise_controls {
+    let current_model = model_field(first, "current_model_id")
+    let picked = choose_value(current_model, models_array(first))
+    println("[run] selecting model on a throwaway probe session: " + picked)
+    let selected = fetch_options(config, picked)
+    assert_capabilities(selected, label + "?model_id")
+    let echoed = model_field(selected, "current_model_id")
+    if echoed != picked {
+      raise Preflight(
+        message="model selection not confirmed: got '" +
+        echoed +
+        "', expected '" +
+        picked +
+        "'",
+      )
+    }
+    let effort = reasoning_field(selected, "current_effort")
+    if effort.trim().is_empty() {
+      raise Preflight(message="selected model reported no current effort")
+    }
+    println("[ok] model control confirmed: " + picked + " (effort " + effort + ")")
+  }
+  if config.exercise_concurrency {
+    let (first_model, second_model) = distinct_shared_models(first, first)
+    println(
+      "[run] comparing two model selections on one shared runtime: " +
+      first_model +
+      " / " +
+      second_model,
+    )
+    let left = fetch_options(config, first_model)
+    let right = fetch_options(config, second_model)
+    let left_model = model_field(left, "current_model_id")
+    let right_model = model_field(right, "current_model_id")
+    if left_model != first_model || right_model != second_model {
+      raise Preflight(
+        message="model selection did not follow the request: first='" +
+        left_model +
+        "', second='" +
+        right_model +
+        "'",
+      )
+    }
+    if left_model == right_model {
+      raise Preflight(message="both selections reported the same model")
+    }
+    println("[ok] independent model selections: " + left_model + " / " + right_model)
+  }
+}
+
+///|
+async fn run_live(config : Config) -> Unit raise Preflight {
+  let url = options_url(config, "")
+  let (code, text) = http_call(config, @http.RequestMethod::Get, url, None)
+  require_options_surface(code)
+  let status = parse_object(code, text, config.token, "GET " + url)
+  run_options_checks(config, status, "acp-options")
+  println("[pass] real Memoh ACP preflight")
+}
+
+///|
+fn check(condition : Bool, label : String, failures : Array[String]) -> Unit {
+  if condition {
+    println("[ok] " + label)
+  } else {
+    failures.push(label)
+    println("[fail] " + label)
+  }
+}
+
+///|
+/// Offline fixtures for the harness itself. These protect the redaction and
+/// selection logic; they are not a substitute for the live workspace E2E.
+fn run_self_check() -> Unit raise Preflight {
+  let failures : Array[String] = []
+
+  // Redaction: direct token.
+  let token = "top-secret-token"
+  let masked = describe_body("{\"note\":\"token=" + token + "\"}", token)
+  check(!masked.contains(token), "direct token never survives redaction", failures)
+
+  // Redaction: the four JSON secret shapes the Python harness pinned.
+  let fixture =
+    "{\"access_token\":\"access-secret\",\"refresh_token\":\"refresh-secret\"," +
+    "\"X-Memoh-Session-Token\":\"session-secret\"," +
+    "\"Authorization\":\"Bearer nested-secret\",\"keep\":\"visible\"}"
+  let masked_json = describe_body(fixture, "")
+  for secret in ["access-secret", "refresh-secret", "session-secret", "nested-secret"] {
+    check(!masked_json.contains(secret), "json secret " + secret + " is masked", failures)
+  }
+  check(
+    count_occurrences(masked_json, REDACTED) == 4,
+    "all four sensitive keys are masked exactly once",
+    failures,
+  )
+  check(masked_json.contains("visible"), "non-sensitive siblings survive", failures)
+
+  // Redaction: a non-JSON body is never printed.
+  let html = describe_body("<html>proxy said no</html>", "")
+  check(html.contains("non-JSON body omitted"), "non-JSON body is omitted", failures)
+  check(!html.contains("proxy said no"), "non-JSON body content is dropped", failures)
+
+  // Capability assertions.
+  let good =
+    "{\"runtime_id\":\"rt-1\",\"agent_id\":\"acp\"," +
+    "\"models\":{\"supported\":true,\"current_model_id\":\"model-a\"," +
+    "\"available_models\":[{\"id\":\"model-a\"},{\"id\":\"model-b\"}]}," +
+    "\"reasoning\":{\"supported\":true,\"current_effort\":\"low\"," +
+    "\"available_efforts\":[{\"id\":\"low\"},{\"id\":\"high\"}]}}"
+  let status = @json.parse(good) catch { _ => Json::null() }
+  let accepted = try {
+    assert_capabilities(status, "self-check")
+    true
+  } catch {
+    _ => false
+  }
+  check(accepted, "a complete capability set is accepted", failures)
+  for (label, broken) in [
+    (
+      "a non-ACP agent is rejected",
+      good.replace(old="\"agent_id\":\"acp\"", new="\"agent_id\":\"other\""),
+    ),
+    (
+      "an empty model catalog is rejected",
+      good.replace(old="[{\"id\":\"model-a\"},{\"id\":\"model-b\"}]", new="[]"),
+    ),
+    (
+      "a missing reasoning capability is rejected",
+      good.replace(old="\"supported\":true,\"current_effort\"", new="\"supported\":false,\"current_effort\""),
+    ),
+  ] {
+    let value = @json.parse(broken) catch { _ => Json::null() }
+    let rejected = try {
+      assert_capabilities(value, "self-check")
+      false
+    } catch {
+      _ => true
+    }
+    check(rejected, label, failures)
+  }
+
+  // Selection helpers.
+  let options : Array[Json] = [
+    @json.parse("{\"id\":\"model-a\"}") catch { _ => Json::null() },
+    @json.parse("{\"id\":\"model-b\"}") catch { _ => Json::null() },
+  ]
+  let chosen = choose_value("model-a", options) catch { _ => "" }
+  check(chosen == "model-b", "choose_value prefers a different option", failures)
+  let only : Array[Json] = [@json.parse("{\"id\":\"only\"}") catch { _ => Json::null() }]
+  let reused = choose_value("only", only) catch { _ => "" }
+  check(reused == "only", "choose_value reuses the only option", failures)
+  let empty_rejected = try {
+    let _ = choose_value("", [])
+    false
+  } catch {
+    _ => true
+  }
+  check(empty_rejected, "choose_value rejects an empty catalog", failures)
+
+  // Surface gate: exactly one accepted answer.
+  let accepted = try {
+    require_options_surface(200)
+    true
+  } catch {
+    _ => false
+  }
+  check(accepted, "HTTP 200 passes the acp-options gate", failures)
+  for stale_code in [404, 405] {
+    let message = try {
+      require_options_surface(stale_code)
+      ""
+    } catch {
+      Preflight(message~) => message
+    }
+    check(
+      message.contains("acp-options") && message.contains("#1717"),
+      "HTTP " + stale_code.to_string() + " names the pre-#1717 surface and the upgrade",
+      failures,
+    )
+  }
+  let unexpected = try {
+    require_options_surface(500)
+    false
+  } catch {
+    _ => true
+  }
+  check(unexpected, "an unexpected probe status fails loudly", failures)
+
+  // URL construction.
+  check(url_encode("a b") == "a%20b", "url_encode escapes spaces", failures)
+  check(
+    url_encode("openai/gpt-5") == "openai%2Fgpt-5",
+    "url_encode escapes a model id's slash",
+    failures,
+  )
+  check(
+    url_encode("93c0f5b0-1234") == "93c0f5b0-1234",
+    "url_encode leaves a bot id untouched",
+    failures,
+  )
+  check(
+    trim_trailing_slashes("https://x/api//") == "https://x/api",
+    "trailing slashes are trimmed",
+    failures,
+  )
+
+  if !failures.is_empty() {
+    raise Preflight(
+      message="self-check: " + failures.length().to_string() + " check(s) failed",
+    )
+  }
+  println("[pass] harness self-check")
+}
+
+///|
+async fn main {
+  let args = @env.args()
+  let argv : Array[String] = []
+  for i = 1; i < args.length(); i = i + 1 {
+    argv.push(args[i])
+  }
+  if help_requested(argv) {
+    println(usage())
+    return
+  }
+  let config = parse_args(argv) catch {
+    Preflight(message~) => abort("[fail] " + message + "\n" + usage())
+  }
+  if config.self_check {
+    run_self_check() catch {
+      Preflight(message~) => abort("[fail] " + message)
+    }
+    return
+  }
+  if config.api_url.is_empty() || config.token.is_empty() || config.bot_id.is_empty() {
+    abort(
+      "[fail] missing required configuration: MEMOH_API_URL, MEMOH_TOKEN, MEMOH_BOT_ID\n" +
+      usage(),
+    )
+  }
+  run_live(config) catch {
+    Preflight(message~) => abort("[fail] " + describe_body(message, config.token))
+  }
+}

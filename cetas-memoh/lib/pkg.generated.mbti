@@ -15,7 +15,7 @@ import {
 // Values
 pub async fn build_provider_platform(&@posoco-ext-workspace.WorkspaceFs, String) -> ProviderPlatform raise @colmugx/posoco/error.CompositionError
 
-pub fn cetas_memoh_home() -> String
+pub async fn cetas_memoh_home() -> String
 
 pub fn credentials_path(String) -> String
 
@@ -47,6 +47,7 @@ pub async fn MemohHost::handle_cancel(Self, @agent.AgentContext, @session.Cancel
 pub async fn MemohHost::handle_close(Self, @agent.AgentContext, @session.CloseSessionParams) -> @session.CloseSessionResult
 pub async fn MemohHost::handle_new_session(Self, @agent.AgentContext, @session.NewSessionParams) -> @session.NewSessionResult raise @colmugx/acp/error.HandlerError
 pub async fn MemohHost::handle_prompt(Self, @agent.AgentContext, @session.PromptParams) -> @session.PromptResult raise @colmugx/acp/error.HandlerError
+pub async fn MemohHost::handle_resume_session(Self, @agent.AgentContext, @session.ResumeSessionParams) -> @session.ResumeSessionResult raise @colmugx/acp/error.HandlerError
 pub async fn MemohHost::handle_set_config_option(Self, @agent.AgentContext, @session.SetSessionConfigOptionParams) -> @session.SetSessionConfigOptionResult raise @colmugx/acp/error.HandlerError
 pub async fn MemohHost::shutdown(Self) -> Unit noraise
 
