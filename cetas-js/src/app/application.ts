@@ -1233,16 +1233,12 @@ export class CetasApplication<AgentHandle = unknown> {
       );
     }
 
-    // A plain reply supersedes every parked non-blocking question: the
-    // model reads the reply in context, and closing here suppresses the
-    // expiry line the extension would otherwise inject later. Queued or
-    // fresh turn, both are replies. Display-state only — never blocks or
-    // reshapes this admission.
-    const closeUserQuestions = this.options.bridge.closeUserQuestions;
-    if (closeUserQuestions !== undefined) {
-      closeUserQuestions.call(this.options.bridge, this.agent);
-    }
-
+    // Input admission never settles parked questions. A user message may
+    // answer one of them, but the host cannot know which one when several
+    // are open; only an id-bound `answerQuestion` (or the extension's
+    // deadline) settles a question. This keeps an answer echo — ordinary
+    // input submitted solely to carry the model-facing reply — from
+    // withdrawing the other questions the user still owes.
     return this.serializeSubmission(async () => {
       while (true) {
         if (this.managerSwitching) {
@@ -1353,7 +1349,8 @@ export class CetasApplication<AgentHandle = unknown> {
    * echo reuses `submitUserInput`, so the app still decides whether it is a
    * queued follow-up on the running turn or a new turn — the answer itself
    * travels to the model in the extension's next envelope, never in this
-   * text.
+   * text. The echo is a carrier, not a plain reply: it settles only
+   * `questionId`, and every other parked question stays owed.
    */
   async answerQuestion(
     questionId: string,

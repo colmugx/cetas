@@ -2515,6 +2515,38 @@ describe("Board activation note", () => {
     await app.shutdown();
   });
 
+  test("answering one question never settles the others through a legacy close hook", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const prompts: string[] = [];
+    let legacyCloses = 0;
+    const bridge = {
+      ...bridgeFor(agentComposingSetup(), counters),
+      runTurn: async (_agent, prompt) => {
+        prompts.push(prompt);
+        return "reply";
+      },
+      answerQuestion: async () => true,
+    } as CetasAgentBridge<{ id: string }> & { closeUserQuestions?: () => number };
+    // A third-party bridge may still expose the removed hook. The
+    // application must not call it: answering q1 owns only q1.
+    bridge.closeUserQuestions = () => {
+      legacyCloses += 1;
+      return 1;
+    };
+    const app = new CetasApplication({
+      bridge,
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+    await app.start();
+
+    expect(await app.answerQuestion("question-1", { index: 0 }, "@q1: staging")).toBe(true);
+    expect(prompts).toEqual(["@q1: staging"]);
+    expect(legacyCloses).toBe(0);
+    await app.shutdown();
+  });
+
   test("reopening the Board does not duplicate a note that is still pending", async () => {
     const { app, prompts } = recordingApp();
     await app.start();

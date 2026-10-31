@@ -50,13 +50,6 @@ pub fn question_event_to_json(event : @askquestion.QuestionEvent) -> Json {
           Map::from_array([("question_id", Json::string(question_id))]),
         ),
       )
-    @askquestion.QuestionEvent::Closed(question_id~) =>
-      (
-        "question_closed",
-        Json::object(
-          Map::from_array([("question_id", Json::string(question_id))]),
-        ),
-      )
   }
   Json::object(
     Map::from_array([
@@ -122,7 +115,8 @@ fn parse_answer_response(
 /// question is unknown, already answered, expired, or answered with the
 /// wrong kind. Acceptance means the next model call carries the
 /// `[question-reply …]` envelope; the host submits the human's answer as a
-/// normal user message so a turn exists to carry it.
+/// normal user message so a turn exists to carry it. That carrier settles
+/// only `question_id`: the extension never withdraws another open question.
 pub fn cetas_js_answer_question(
   handle : CetasJsAgent,
   question_id : String,
@@ -150,20 +144,4 @@ pub fn cetas_js_answer_question(
         ]),
       ).stringify()
   }
-}
-
-///|
-/// The user sent a plain reply — typed normally, no question addressing.
-/// Close every open question so no expiry line is injected later; the
-/// model pairs the reply with its own question from context. Returns
-/// `{"ok":true,"closed":N}`. Infallible: a display-state sync must never
-/// break input admission.
-pub fn cetas_js_user_replied(handle : CetasJsAgent) -> String {
-  let closed = handle.askquestion.close_open_for_reply()
-  Json::object(
-    Map::from_array([
-      ("ok", Json::boolean(true)),
-      ("closed", Json::number(closed.length().to_double())),
-    ]),
-  ).stringify()
 }

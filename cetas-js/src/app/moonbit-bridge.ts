@@ -26,7 +26,6 @@ const questionExports = moonbit as unknown as {
     questionId: string,
     responseJson: string,
   ): string;
-  cetas_js_user_replied(agent: moonbit.CetasJsAgent): string;
 };
 
 /** Eager session-model restore export (see lib/session_model_restore.mbt). */
@@ -349,17 +348,6 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
     images?: readonly ImageAttachment[],
   ): string {
     return moonbit.cetas_js_enqueue_follow_up(agent as moonbit.CetasJsAgent, prompt, imagesJsonFor(images));
-  }
-
-  /**
-   * The user sent a plain reply: close every parked non-blocking question.
-   * The MoonBit export is infallible (display-state sync), so the count is
-   * returned for diagnostics and never blocks admission.
-   */
-  closeUserQuestions(agent: unknown): number {
-    const raw = questionExports.cetas_js_user_replied(agent as moonbit.CetasJsAgent);
-    const verdict = JSON.parse(raw) as { closed?: unknown };
-    return typeof verdict.closed === "number" ? verdict.closed : 0;
   }
 
   async answerQuestion(

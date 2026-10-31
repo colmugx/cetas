@@ -45,13 +45,14 @@ describe("QuestionActivityStore", () => {
     expect(store.size).toBe(0);
   });
 
-  test("a plain reply closes the question without an answer event", () => {
+  test("answering one question leaves every other question pending", () => {
     const store = new QuestionActivityStore();
     store.apply("question_asked", asked(), "s1");
     store.apply("question_asked", asked({ question_id: "question-2", short_id: "@q2" }), "s1");
-    expect(store.apply("question_closed", asked({ question_id: "question-1" }), "s1")).toBe(true);
+    expect(store.apply("question_answered", asked({ question_id: "question-1" }), "s1")).toBe(true);
     expect(store.get("question-1")).toBeUndefined();
     expect(store.get("question-2")).toBeDefined();
+    expect(store.pendingFor("s1").map((question) => question.id)).toEqual(["question-2"]);
     expect(store.apply("question_asked", asked(), "s1")).toBe(false);
   });
 

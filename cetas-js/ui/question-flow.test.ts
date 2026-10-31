@@ -51,10 +51,10 @@ function askedEvent(questionId: string, shortId: string): string {
   });
 }
 
-function closedEvent(questionId: string): string {
+function answeredEvent(questionId: string): string {
   return JSON.stringify({
     type: "question_event",
-    label: "question_closed",
+    label: "question_answered",
     data: { question_id: questionId },
   });
 }
@@ -64,14 +64,14 @@ function transcript(shell: TerminalShell): string {
 }
 
 describe("non-blocking ask shell flow", () => {
-  test("a parked question shows in the live header until closed", () => {
+  test("a parked question shows in the live header until answered", () => {
     const shell = makeShell();
     (shell as any).handleObserverEvent(askedEvent("question-1", "@q1"));
     const swarm = () => ((shell as any).swarmLines as string[]).join("\n");
     expect(swarm()).toContain("@q1 asks you");
     expect(swarm()).toContain("Upgrade node to 22?");
 
-    (shell as any).handleObserverEvent(closedEvent("question-1"));
+    (shell as any).handleObserverEvent(answeredEvent("question-1"));
     expect(swarm()).not.toContain("@q1");
   });
 

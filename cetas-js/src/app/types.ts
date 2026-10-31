@@ -301,15 +301,6 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
     questionId: string,
     response: QuestionAnswerResponse,
   ): Promise<boolean>;
-  /**
-   * The user sent a plain reply with no question addressing: close every
-   * parked non-blocking question so no expiry line is injected later (the
-   * model pairs the reply with its own question from context). Returns how
-   * many were closed. Optional: bridges without the non-blocking ask
-   * extension omit it. Must not throw — input admission must never be
-   * blocked by a display-state sync.
-   */
-  closeUserQuestions?(agent: AgentHandle): number;
   listCommands(agent: AgentHandle): readonly CommandDescriptor[];
   invokeCommand(agent: AgentHandle, id: string, argsJson: string): Promise<string>;
   /**

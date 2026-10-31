@@ -3,10 +3,13 @@
  * `question_event` stream (`Asked` / `Answered`).
  *
  * A question is a live obligation, not a transcript entry: `asked` parks it,
- * the human's answer (or expiry, classified by the extension) removes it.
- * Records are tagged with the owning session so a shell never shows another
- * session's pending question, and ids survive removal so a replayed event
- * cannot reopen a question that was already answered.
+ * and only an answer to that exact id (or expiry, classified by the
+ * extension) removes it. Submitting ordinary text never settles a question:
+ * with several open questions the host cannot know which one the text
+ * answers, and silently clearing the rest loses obligations the model is
+ * still waiting on. Records are tagged with the owning session so a shell
+ * never shows another session's pending question, and ids survive removal so
+ * a replayed event cannot reopen a question that was already answered.
  *
  * Answers travel as ordinary user input; the extension owns the model-facing
  * `[question-reply …]` envelope and delivers it exactly once. This store only
@@ -79,9 +82,8 @@ export class QuestionActivityStore {
   /**
    * Fold one `question_event`; returns whether visible state changed.
    * Unknown labels are no-ops so an older host tolerates a newer extension.
-   * `question_closed` is the plain-reply path: the human answered in
-   * conversation without addressing the question, so no envelope will
-   * arrive — the card just goes away.
+   * Only `question_answered` is terminal: it names the one question that
+   * was settled, and never implies anything about the rest.
    */
   apply(label: string, data: QuestionEventData | undefined, session: string): boolean {
     if (data === undefined) return false;
@@ -113,8 +115,7 @@ export class QuestionActivityStore {
         });
         return true;
       }
-      case "question_answered":
-      case "question_closed": {
+      case "question_answered": {
         if (typeof data.question_id !== "string") return false;
         const id = data.question_id;
         this.seen.add(id);

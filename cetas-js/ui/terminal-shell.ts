@@ -1394,8 +1394,8 @@ export class TerminalShell {
   /**
    * Non-blocking ask facts (`notify_user`). Like subagent events these are
    * host display state only: the question text never enters the model
-   * context, and the answer reaches it as an ordinary user message (or, for
-   * `/answer`/`@qN`, through the extension's envelope).
+   * context, and an answer reaches it through the extension's envelope.
+   * Only the answered id is removed; other pending questions stay owed.
    */
   private handleQuestionEvent(ev: CetasEvent & { type: "question_event" }): void {
     if (!this.questions.apply(ev.label, ev.data, this.sessionId)) return;
@@ -1406,8 +1406,8 @@ export class TerminalShell {
   /**
    * Re-render while a parked question can still expire on screen. The ask
    * itself never blocks the turn, so nothing else would repaint the header.
-   * A plain reply closes questions through the extension's `question_closed`
-   * events, which land here and stop the ticker.
+   * Only an answer to that exact id removes the card; ordinary input leaves
+   * every pending question in place.
    */
   private refreshQuestionTicker(): void {
     if (this.shutdownPromise !== undefined) return;

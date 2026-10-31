@@ -97,8 +97,6 @@ pub fn cetas_js_shutdown(CetasJsAgent) -> @js_async.Promise[Unit]
 
 pub fn cetas_js_tool_catalog(CetasJsAgent) -> String
 
-pub fn cetas_js_user_replied(CetasJsAgent) -> String
-
 pub fn default_team_mcp() -> Map[String, TeamMcp]
 
 pub fn default_team_skills() -> Map[String, TeamSkills]
