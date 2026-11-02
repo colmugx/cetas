@@ -503,6 +503,34 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
 }
 
 ///|
+/// Inner wire items for one `subagent_event` envelope: the child turn event
+/// mapped through the shared `turn_event_to_json` and already unfolded (a
+/// fan-out array becomes one item per element, the audit-node null sentinel
+/// collapses to nothing).
+///
+/// Child-local projection facts are dropped before wrapping: the parent UI
+/// keys context occupancy by the displayed (parent) session, a child
+/// compaction is the child's internal progress, and a child operation's
+/// terminal fact already reaches the parent through the subagent lifecycle
+/// labels plus the child's own turn events. Wrapping them would only degrade
+/// on the parent side as unknown-inner-type noise (the inner `context_state`
+/// tag is not in the TS protocol union).
+fn subagent_inner_items(event : @posoco.TurnEvent) -> Array[Json] {
+  match event {
+    @posoco.TurnEvent::ContextStateUpdated(..)
+    | @posoco.TurnEvent::CompactStarted(..)
+    | @posoco.TurnEvent::CompactFinished(..)
+    | @posoco.TurnEvent::OperationFinalized(..) => return []
+    _ => ()
+  }
+  match turn_event_to_json(event) {
+    Json::Null => []
+    Json::Array(arr) => arr
+    single => [single]
+  }
+}
+
+///|
 /// Dispatch one TurnEvent to the JS callback. When `turn_event_to_json`
 /// returns an array (ModelResponseReceived fans out into message_end +
 /// model_invoked), invoke the callback once per element so the TS event
@@ -1716,6 +1744,45 @@ pub fn cetas_js_runtime_create_agent(
               stats,
               policy,
             ]
+            // Provider-owned tool plane: the GLM Coding Plan's official remote
+            // MCP servers are announced by the provider extension itself while
+            // one of its models is active, and withdrawn when the selection
+            // leaves. Only the composition root decides to include that
+            // extension — it never selects servers, tools, or models.
+            let zai_tools_source = @cetas_core.provider_config_source(
+              context_fs,
+              home=runtime.config.home,
+              provider_id=@zai_coding_plan.zai_coding_plan_provider_id(),
+            ) catch {
+              _ => None
+            }
+            match zai_tools_source {
+              Some(source) => {
+                // The companion reads the very same settings source the model
+                // catalog used: one interpretation, one credential snapshot.
+                let zai_tools_config = @zai_coding_plan.zai_coding_plan_build_config(
+                  source,
+                ) catch {
+                  _ => None
+                }
+                match zai_tools_config {
+                  Some(config) =>
+                    exts.push(
+                      @zai_coding_plan.ZaiCodingPlanTools(
+                        config~,
+                        bus=event_bus,
+                        group~,
+                        initial_slot_id=model
+                          .manager_control()
+                          .active_selection().model_id,
+                      )
+                      as &@posoco.Extension,
+                    )
+                  None => ()
+                }
+              }
+              None => ()
+            }
             // The quota publisher belongs to the provider-router composition.
             // Its independent status segments must not survive a manager switch.
             match model {
@@ -1843,6 +1910,10 @@ pub fn cetas_js_runtime_create_agent(
             // maps audit-only variants (ToolCallApproved/ToolCallStarted) to
             // Json::null() — those carry nothing to project, so the wrapper
             // drops them instead of emitting an unparseable envelope.
+            // `subagent_inner_items` additionally drops child-local
+            // projection facts (context_state/compact_*/operation_finalized):
+            // the parent UI has no surface for them, and wrapping would
+            // degrade as unknown-inner-type noise on every child model step.
             // ModelResponseReceived fans out into message_end + model_invoked
             // (a Json array); each element rides in its own envelope, mirroring
             // the parent observer's array dispatch — wrapping the bare array
@@ -1888,13 +1959,7 @@ pub fn cetas_js_runtime_create_agent(
               (@subagent_kit.SubagentEvent) -> Unit,
             ] = [
               fn(event) {
-                let inner = turn_event_to_json(event.event)
-                let items : Array[Json] = match inner {
-                  Json::Null => []
-                  Json::Array(arr) => arr
-                  single => [single]
-                }
-                for item in items {
+                for item in subagent_inner_items(event.event) {
                   let payload = Json::object(
                     Map::from_array([
                       ("type", Json::string("subagent_event")),

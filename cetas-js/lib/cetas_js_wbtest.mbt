@@ -517,6 +517,69 @@ test "turn_event_to_json fans ModelResponseReceived out into message_end + model
 }
 
 ///|
+test "subagent_inner_items skips child-local projection facts" {
+  // No parent-visible surface: occupancy keys off the displayed (parent)
+  // session, child compaction is internal progress, and a child operation's
+  // terminal fact rides the lifecycle labels. Each must yield an empty item
+  // list so no subagent_event envelope is emitted — wrapping them used to
+  // degrade on the parent as "unknown type subagent_event" per child step.
+  let state : @posoco_types.ContextState = {
+    session_id: "child-session",
+    model_id: "glm-5",
+    context_version: 1,
+    last_measured_tokens: Some(120),
+    estimated_added_tokens: 0,
+    window_tokens: Some(128000),
+    compact_threshold: 0.8,
+    source: @posoco_types.Measured,
+    reading_message_count: 3,
+  }
+  let events : Array[@posoco.TurnEvent] = [
+    ContextStateUpdated(state~),
+    CompactStarted(trigger="auto"),
+    CompactFinished(
+      trigger="auto",
+      mode="roll",
+      final_session_id="child-session-2",
+      messages_after=12,
+    ),
+    OperationFinalized(
+      operation="background_subagent",
+      outcome="ok",
+      detail="done",
+    ),
+  ]
+  for event in events {
+    assert_eq(subagent_inner_items(event).length(), 0)
+  }
+}
+
+///|
+test "subagent_inner_items still projects known child events" {
+  let message : @posoco.Message = AssistantMessage(
+    content=[Text("child says hi")],
+    tool_calls=[],
+    reasoning=None,
+    finish_reason=Stop,
+  )
+  // ModelResponseReceived fans out exactly like the parent mapper.
+  assert_eq(
+    subagent_inner_items(ModelResponseReceived(message~, usage=None)).length(),
+    2,
+  )
+  // Audit-only nodes keep collapsing to nothing.
+  assert_eq(
+    subagent_inner_items(
+      ToolCallApproved(
+        call=tk_js_call(name="read", call_id="c-9"),
+        consent_scope=None,
+      ),
+    ).length(),
+    0,
+  )
+}
+
+///|
 fn tk_js_call(name~ : String, call_id~ : String) -> @posoco.ToolCall {
   {
     call_id: @posoco.CallId::unchecked(call_id),

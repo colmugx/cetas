@@ -56,6 +56,16 @@ describe("Gate 0.5 adaptive statusbar", () => {
     expect(output).toContain("30.4K/1.0M · 3%");
     expect(output).not.toContain("ctx");
   });
+  test("a provider capability segment rides next to the model, never twice", () => {
+    const withMcp=[...entries,{key:"mcp",value:"3/3 Official MCP",color:"success"}];
+    const lines=renderStatusbarDashboard(withMcp,150,context).map(stripTerminalSequences);
+    expect(lines[0]).toContain("3/3 Official MCP");
+    expect(lines[0].indexOf("3/3 Official MCP")).toBeGreaterThan(lines[0].indexOf("glm-5.3-flash:max"));
+    expect(lines.join("\n").match(/3\/3 Official MCP/g)?.length).toBe(1);
+    // No capability segment, no empty slot in the header.
+    const without=stripTerminalSequences(renderStatusbarDashboard(entries,150,context)[0]);
+    expect(without).not.toContain("Official MCP");
+  });
   test("git branch from nested workspace and worktree .git file", () => {
     const root=mkdtempSync(join(tmpdir(),"cetas-statusbar-"));
     try {

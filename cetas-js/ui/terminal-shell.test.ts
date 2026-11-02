@@ -439,6 +439,35 @@ describe("parseCetasEventLenient", () => {
       skipped: "malformed (no type): cetas event must be an object",
     });
   });
+
+  test("an unknown inner type degrades with the subagent envelope named", () => {
+    // A skewed bridge wrapping a child tag the union does not know yet: the
+    // skip reason names the inner tag instead of the misleading outer one.
+    const outcome = parseCetasEventLenient(
+      JSON.stringify({
+        type: "subagent_event",
+        child_session: "subagent-1",
+        kind: "coder",
+        parent_call: "call_9",
+        ev: { type: "context_state" },
+      }),
+    );
+    expect(outcome).toEqual({
+      skipped:
+        "malformed subagent_event: subagent_event.ev has unknown type context_state",
+    });
+    expect(() =>
+      parseCetasEventLenient(
+        JSON.stringify({
+          type: "subagent_event",
+          child_session: "subagent-1",
+          kind: "coder",
+          parent_call: "call_9",
+          ev: { type: "context_state" },
+        }),
+      ),
+    ).not.toThrow();
+  });
 });
 
 /** Drive one raw sequence through the real TUI → shell dispatch path. */

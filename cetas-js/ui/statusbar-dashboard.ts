@@ -118,6 +118,7 @@ export function renderStatusbarDashboard(
   const get = (name: string) => entries.find(e => e.key.toLowerCase() === name);
   const model = get("model");
   const modelSlot = get("model_slot");
+  const mcp = get("mcp");
   const ctx = get("ctx");
   // The "model" segment is opaque (model name + effort), not a key/value
   // label: "model:high" is itself a valid model/effort pair. For the built-in
@@ -144,15 +145,18 @@ export function renderStatusbarDashboard(
     ? theme.muted("⑂ ") + chalk.hex("#9BE1A1")(branch)
     : "";
   const sep = theme.muted(" · ");
-  const header = " " + modelValue + (manager ? sep + manager : "") +
-    (branchLabel ? " " + branchLabel : "");
+  // Provider-owned capability segment (`3/3 Official MCP`). It sits next to
+  // the model because it describes what that model brings, not activity.
+  const capability = mcp ? segment(mcp, false) : "";
+  const header = " " + modelValue + (capability ? sep + capability : "") +
+    (manager ? sep + manager : "") + (branchLabel ? " " + branchLabel : "");
   const contextValue = ctx ? segment(ctx, false) : context.contextValue ?? "";
   const withContext = contextValue ? header + sep + contextValue : header;
   const postponeCtx = Boolean(contextValue) && visibleWidth(withContext) > width;
   const first = truncateToWidth(postponeCtx ? header : withContext, width, "…");
 
-  const remaining = entries.filter(e => e !== model && e !== modelSlot && e !== ctx &&
-    !["manager","router","status"].includes(e.key.toLowerCase()));
+  const remaining = entries.filter(e => e !== model && e !== modelSlot && e !== mcp &&
+    e !== ctx && !["manager","router","status"].includes(e.key.toLowerCase()));
   const permission = remaining.find(e => e.key.toLowerCase() === "permission");
   const rest = remaining.filter(e => e !== permission);
   const isQuota = (e: StatusbarEntry) =>

@@ -99,6 +99,8 @@ pub fn parse_refresh_provider_ids(String) -> Array[String]? raise @error.Composi
 
 pub fn parse_settings_json(String, manifest_id~ : String) -> Json raise @error.CompositionError
 
+pub async fn provider_config_source(&@posoco-ext-workspace.WorkspaceFs, home~ : String, provider_id~ : String, label? : String) -> @posoco-kit-provider.ProviderConfigSource? raise @error.CompositionError
+
 pub fn provider_factories(@devkit.ExtContext) -> Array[&@posoco-kit-provider.ProviderFactory]
 
 pub fn provider_setup_json(Array[@posoco-kit-provider.ProviderModelCatalog], settings? : Map[String, Json], issues? : Array[CatalogBuildIssue], active_model_id? : String?) -> String

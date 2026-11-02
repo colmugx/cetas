@@ -56,6 +56,7 @@ import {
   "colmugx/posoco-ext-obsidian@0.1.0",
   "colmugx/posoco-ext-nowledge-mem@0.1.0",
   "colmugx/posoco-ext-zcode@0.1.0",
+  "colmugx/posoco-ext-zai-coding-plan@0.1.0",
   "posoco/ext-herdr@0.1.0",
   "colmugx/posoco-ext-magpie@0.1.0",
   "colmugx/posoco-ext-mcp@0.5.1",

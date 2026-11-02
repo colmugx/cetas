@@ -178,6 +178,21 @@ describe("parseCetasEvent", () => {
     ).toThrow("subagent_event.parent_call must be a string");
   });
 
+  test("subagent_event names an unknown inner type instead of hiding it", () => {
+    // Version skew: the bridge wrapped a child tag the TS union does not
+    // know yet. The envelope must degrade with the INNER tag named, not as
+    // the misleading "unknown type subagent_event".
+    expect(() =>
+      parseCetasEvent({
+        type: "subagent_event",
+        child_session: "subagent-1",
+        kind: "coder",
+        parent_call: "call_9",
+        ev: { type: "context_state" },
+      }),
+    ).toThrow("subagent_event.ev has unknown type context_state");
+  });
+
   test("parses config_changed emitted by Agent::update_model", () => {
     expect(
       parseCetasEvent({

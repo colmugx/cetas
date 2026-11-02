@@ -63,6 +63,46 @@ pub fn source_for_factory(
 }
 
 ///|
+/// Resolve one provider's configuration source by id.
+///
+/// Generic by construction: the caller names the provider (a composition root
+/// does), and core performs no provider-id switch. A provider that was never
+/// configured — or a factory this build does not register — yields `None`
+/// instead of an empty source, so a companion extension can simply not join.
+pub async fn provider_config_source(
+  fs : &@workspace.WorkspaceFs,
+  home~ : String,
+  provider_id~ : String,
+  label~ : String = "cetas-acp",
+) -> @llm.ProviderConfigSource? raise @posoco.CompositionError {
+  if provider_id == "" {
+    return None
+  }
+  let settings = load_provider_settings(fs, home~, label~)
+  let factories = all_provider_factories(
+    @devkit.ExtContext::default(),
+    settings,
+  )
+  let mut selected : &@llm.ProviderFactory? = None
+  for factory in factories {
+    if factory.provider_id() == provider_id {
+      selected = Some(factory)
+      break
+    }
+  }
+  let factory = match selected {
+    Some(factory) => factory
+    None => return None
+  }
+  let store = @credentials.FileProviderCredentialStore(
+    fs,
+    credentials_path(home),
+  )
+  let snapshot = read_credential_snapshot(store, [factory], settings~, label~)
+  Some(source_for_factory(factory, snapshot))
+}
+
+///|
 /// Build one provider's catalog snapshot without any network request. This is
 /// the pure `ProviderFactory::build` path used by setup discovery and Agent
 /// recomposition; live refresh is a separate explicit host action.

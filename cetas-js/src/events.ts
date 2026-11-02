@@ -240,6 +240,15 @@ function optionalString(value: unknown, path: string): string | undefined {
   return value;
 }
 
+/** Wire `type` tag of an unknown inner payload, for skip diagnostics. */
+function innerTypeTag(value: unknown): string {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    const type = (value as Record<string, unknown>).type;
+    if (typeof type === "string") return type;
+  }
+  return "(no type)";
+}
+
 function parseUsage(value: unknown): BridgeUsage | undefined {
   if (value === undefined || value === null) return undefined;
   const usage = requireRecord(value, "model_invoked.usage");
@@ -506,7 +515,15 @@ export function parseCetasEvent(raw: unknown): CetasEvent | null {
       return { type: "ui_render", render: parseUiRender(ev.render) };
     case "subagent_event": {
       const inner = parseCetasEvent(ev.ev);
-      if (inner === null) return null;
+      if (inner === null) {
+        // Unknown inner tag (version skew): name it. Collapsing to a bare
+        // null degraded as the misleading "unknown type subagent_event" —
+        // the outer type IS known — and dropped the envelope's
+        // child_session/kind/parent_call tags with it.
+        throw new Error(
+          `subagent_event.ev has unknown type ${innerTypeTag(ev.ev)}`,
+        );
+      }
       return {
         type: "subagent_event",
         child_session: requireString(
