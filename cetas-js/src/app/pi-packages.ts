@@ -8,11 +8,15 @@
 // Entry URLs are routed through the module mirror first: compiled Bun
 // binaries cannot resolve a package's own imports (see pi-module-mirror.ts).
 // `CETAS_PI_MIRROR=0` bypasses the mirror and imports the original file URL.
+// Entries may be files or directories (pi-web-access >= 0.46.0 ships
+// `"pi": {"extensions": ["./dist"]}`); both normalize to their backing file
+// via `resolvePiEntryFile`, and an unresolvable entry is a per-package
+// failure, not a crash.
 import { readdir, readFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { mirrorPiEntry } from "./pi-module-mirror.ts";
+import { mirrorPiEntry, resolvePiEntryFile } from "./pi-module-mirror.ts";
 
 /** One load run: discovered packages, newly loaded entries, per-package failures. */
 export interface PiPackagesSummary {
@@ -262,7 +266,17 @@ export async function scanAndLoadPiPackages(
     let pkgLoaded = false;
     let pkgFailed = false;
     for (const entry of manifest.extensions) {
-      const sourceUrl = pathToFileURL(resolve(dir, entry)).href;
+      // Entries may be files (<= 0.27.0) or directories (>= 0.46.0 ships
+      // `"./dist"`, which Node ESM refuses to import); normalize to the
+      // backing file first so the URL, the `loaded` dedup key, and the
+      // mirror all point at a real file.
+      const entryFile = resolvePiEntryFile(resolve(dir, entry));
+      if (entryFile === undefined) {
+        pkgFailed = true;
+        failures.push(`${dir}: entry ${entry} resolved to no file`);
+        continue;
+      }
+      const sourceUrl = pathToFileURL(entryFile).href;
       if (loaded?.has(sourceUrl) === true) {
         pkgLoaded = true;
         continue;

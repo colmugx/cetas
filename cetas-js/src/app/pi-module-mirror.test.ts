@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, describe, expect, test } from "bun:test";
 
-import { PiModuleMirror } from "./pi-module-mirror.ts";
+import { PiModuleMirror, resolvePiEntryFile } from "./pi-module-mirror.ts";
 import { scanAndLoadPiPackages } from "./pi-packages.ts";
 
 // Synthetic node_modules fixtures (never the real ~/.cetas): each dependency
@@ -317,5 +317,153 @@ describe("scanAndLoadPiPackages mirror wiring", () => {
     await scanAndLoadPiPackages(writeDemoPackage(), load, loaded);
     await scanAndLoadPiPackages(writeDemoPackage(), load, loaded);
     expect(loads).toBe(1);
+  });
+
+  test("directory entries (pi-web-access >= 0.46.0) mirror dist/index.js without EISDIR", async () => {
+    const write = (relPath: string, content: string): void => {
+      const target = join(root, relPath);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, content);
+    };
+    write("pi-packages.json", JSON.stringify({ packages: ["dirdemo"] }));
+    write("pi-packages/package.json", JSON.stringify({ dependencies: { dirdemo: "1.0.0" } }));
+    write(
+      "pi-packages/node_modules/dirdemo/package.json",
+      JSON.stringify({ name: "dirdemo", pi: { extensions: ["./dist"] } }),
+    );
+    write("pi-packages/node_modules/dirdemo/dist/index.js", `export default () => "dist-index";\n`);
+    const loadedUrls: string[] = [];
+    const summary = await scanAndLoadPiPackages(join(root, "pi-packages"), async (url) => {
+      loadedUrls.push(url);
+    });
+    expect(summary.packages).toBe(1);
+    expect(summary.entries).toBe(1);
+    expect(summary.failures).toEqual([]);
+    // No EISDIR fallback: the mirror closure actually built, so no warnings.
+    expect(summary.warnings).toBeUndefined();
+    expect(loadedUrls).toHaveLength(1);
+    expect(loadedUrls[0]).toContain("cetas-pi-mirror-");
+    const mirrored = readFileSync(new URL(loadedUrls[0]).pathname, "utf8");
+    expect(mirrored).toContain("dist-index");
+  });
+});
+
+describe("resolvePiEntryFile", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-entry-resolve-"));
+
+  const write = (relPath: string, content: string): void => {
+    const target = join(root, relPath);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, content);
+  };
+
+  write("plain/index.js", `export const kind = "plain-index";\n`);
+  write("idxmjs/dist/index.mjs", `export const kind = "index-mjs";\n`);
+  write(
+    "exportsbeat/package.json",
+    JSON.stringify({ exports: { ".": "./esm.js" }, module: "./module.js", main: "./main.js" }),
+  );
+  write("exportsbeat/esm.js", `export const kind = "exports";\n`);
+  write("exportsbeat/module.js", `export const kind = "module";\n`);
+  write("exportsbeat/main.js", `export const kind = "main";\n`);
+  write("exportsbeat/index.js", `export const kind = "index";\n`);
+  write(
+    "exportscond/package.json",
+    JSON.stringify({
+      exports: {
+        ".": { types: "./types.d.ts", import: "./esm.mjs", default: "./default.js", node: "./node.js" },
+      },
+    }),
+  );
+  write("exportscond/types.d.ts", `export declare const kind: string;\n`);
+  write("exportscond/esm.mjs", `export const kind = "import";\n`);
+  write("exportscond/default.js", `export const kind = "default";\n`);
+  write("exportscond/node.js", `export const kind = "node";\n`);
+  write("modbeat/package.json", JSON.stringify({ module: "./module.js", main: "./main.js" }));
+  write("modbeat/module.js", `export const kind = "module";\n`);
+  write("modbeat/main.js", `export const kind = "main";\n`);
+  write("mainbeat/package.json", JSON.stringify({ main: "./main.js" }));
+  write("mainbeat/main.js", `export const kind = "main";\n`);
+  write("mainextless/package.json", JSON.stringify({ main: "./lib/entry" }));
+  write("mainextless/lib/entry.js", `export const kind = "main";\n`);
+  mkdirSync(join(root, "emptydir"), { recursive: true });
+  write("broken/package.json", JSON.stringify({ exports: "./missing.js" }));
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("file entries pass through unchanged", () => {
+    const file = join(root, "plain/index.js");
+    expect(resolvePiEntryFile(file)).toBe(file);
+  });
+
+  test("missing paths resolve to undefined", () => {
+    expect(resolvePiEntryFile(join(root, "absent.js"))).toBeUndefined();
+  });
+
+  test("directory without a manifest falls back to index.js", () => {
+    expect(resolvePiEntryFile(join(root, "plain"))).toBe(join(root, "plain/index.js"));
+  });
+
+  test("directory holding only index.mjs resolves", () => {
+    expect(resolvePiEntryFile(join(root, "idxmjs/dist"))).toBe(join(root, "idxmjs/dist/index.mjs"));
+  });
+
+  test(`exports["."] (string) beats module, main, and index.js`, () => {
+    expect(resolvePiEntryFile(join(root, "exportsbeat"))).toBe(join(root, "exportsbeat/esm.js"));
+  });
+
+  test(`exports["."] condition object picks import over default/node (types skipped)`, () => {
+    expect(resolvePiEntryFile(join(root, "exportscond"))).toBe(join(root, "exportscond/esm.mjs"));
+  });
+
+  test("module beats main; main beats index.js", () => {
+    expect(resolvePiEntryFile(join(root, "modbeat"))).toBe(join(root, "modbeat/module.js"));
+    expect(resolvePiEntryFile(join(root, "mainbeat"))).toBe(join(root, "mainbeat/main.js"));
+  });
+
+  test("extensionless main resolves through candidate probing", () => {
+    expect(resolvePiEntryFile(join(root, "mainextless"))).toBe(join(root, "mainextless/lib/entry.js"));
+  });
+
+  test("directory with no resolvable entry yields undefined", () => {
+    expect(resolvePiEntryFile(join(root, "emptydir"))).toBeUndefined();
+    expect(resolvePiEntryFile(join(root, "broken"))).toBeUndefined();
+  });
+});
+
+describe("PiModuleMirror directory entries", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-mirror-dir-entry-"));
+
+  const write = (relPath: string, content: string): void => {
+    const target = join(root, relPath);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, content);
+  };
+
+  write("pkg/dist/index.js", `export default () => "dist-index";\n`);
+  mkdirSync(join(root, "nothing"), { recursive: true });
+
+  const mirror = new PiModuleMirror(join(root, "mirror-out"));
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("directory entry mirrors the resolved file with no EISDIR warning", () => {
+    const outcome = mirror.mirrorEntry(join(root, "pkg/dist"));
+    expect(outcome.warnings).toEqual([]);
+    expect(outcome.url).toContain("mirror-out");
+    const mirrored = readFileSync(new URL(outcome.url).pathname, "utf8");
+    expect(mirrored).toContain("dist-index");
+  });
+
+  test("directory entry with no resolvable file warns and keeps the original URL", () => {
+    const outcome = mirror.mirrorEntry(join(root, "nothing"));
+    expect(outcome.url).toBe(pathToFileURL(join(root, "nothing")).href);
+    expect(outcome.warnings).toHaveLength(1);
+    expect(outcome.warnings[0]).toContain("resolved to no file");
+    expect(outcome.warnings[0]).not.toContain("EISDIR");
   });
 });

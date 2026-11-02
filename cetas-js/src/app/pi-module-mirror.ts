@@ -74,6 +74,16 @@ export class PiModuleMirror {
       warnings.push(`entry unreadable: ${entryAbsPath}: ${describeError(error)}`);
       return { url: pathToFileURL(entryAbsPath).href, warnings };
     }
+    // pi-web-access >= 0.46.0 ships directory entries (`"./dist"`); mirror
+    // the file they resolve to instead of failing readFileSync with EISDIR.
+    if (isDir(sourcePath)) {
+      const resolved = resolvePiEntryFile(sourcePath);
+      if (resolved === undefined) {
+        warnings.push(`directory entry ${sourcePath} resolved to no file`);
+        return { url: pathToFileURL(entryAbsPath).href, warnings };
+      }
+      sourcePath = resolved;
+    }
     const mirroredPath = this.mirrorFile(sourcePath, warnings);
     return { url: pathToFileURL(mirroredPath ?? sourcePath).href, warnings };
   }
@@ -225,15 +235,19 @@ export class PiModuleMirror {
   private manifestOf(path: string): Record<string, unknown> | undefined {
     const cached = this.manifests.get(path);
     if (cached !== undefined || this.manifests.has(path)) return cached;
-    let manifest: Record<string, unknown> | undefined;
-    try {
-      const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-      if (isRecord(parsed)) manifest = parsed;
-    } catch {
-      manifest = undefined;
-    }
+    const manifest = parseManifestFile(path);
     this.manifests.set(path, manifest);
     return manifest;
+  }
+}
+
+/** Parse one package.json into a record; unreadable/malformed → undefined. */
+function parseManifestFile(path: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -264,6 +278,35 @@ export function sharedPiModuleMirror(): PiModuleMirror {
 /** Mirror one entry through the shared per-process session. */
 export function mirrorPiEntry(entryAbsPath: string): MirrorOutcome {
   return sharedPiModuleMirror().mirrorEntry(entryAbsPath);
+}
+
+/** Entry files probed inside a directory entry, in fallback order. */
+const DIRECTORY_ENTRY_INDEXES = ["index.js", "index.mjs", "index.cjs", "index.ts", "index.mts"] as const;
+
+/**
+ * Normalize one `pi.extensions` entry path to the file that backs it. A file
+ * input returns unchanged (pi-web-access <= 0.27.0 ships `"./index.ts"`). A
+ * directory input (pi-web-access >= 0.46.0 ships `"./dist"`, which Node ESM
+ * refuses to import and `readFileSync` rejects with EISDIR) resolves through
+ * its own package.json, first hit wins: `exports["."]` (string, or the first
+ * usable condition of the object), then `module`, then `main`, then an
+ * `index.{js,mjs,cjs,ts,mts}` probe. Undefined when nothing resolves.
+ */
+export function resolvePiEntryFile(entryAbsPath: string): string | undefined {
+  if (isFile(entryAbsPath)) return entryAbsPath;
+  if (!isDir(entryAbsPath)) return undefined;
+  const manifest = parseManifestFile(join(entryAbsPath, "package.json"));
+  const targets: string[] = [];
+  const exportsHit = resolveExportsMap(manifest?.exports, "");
+  if (exportsHit !== undefined) targets.push(exportsHit);
+  if (typeof manifest?.module === "string") targets.push(manifest.module);
+  if (typeof manifest?.main === "string") targets.push(manifest.main);
+  targets.push(...DIRECTORY_ENTRY_INDEXES);
+  for (const target of targets) {
+    const hit = firstFile(fileCandidates(resolve(entryAbsPath, target)));
+    if (hit !== undefined) return hit;
+  }
+  return undefined;
 }
 
 /**

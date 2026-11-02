@@ -229,3 +229,10 @@ test "both cancellation shapes are classified as cancellations" {
   let outside : Error = @posoco.AgentError::Model("boom")
   assert_false(prompt_failure_is_cancelled(outside))
 }
+
+///|
+pub extend GateModelPort with @posoco.ModelPort::{
+  provider_config,
+  chat,
+  compact,
+}

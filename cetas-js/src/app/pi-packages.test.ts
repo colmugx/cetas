@@ -1,6 +1,7 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterAll, describe, expect, test } from "bun:test";
 
 import {
@@ -144,5 +145,106 @@ describe("scanAndLoadPiPackages allowlist gating", () => {
     expect(summary.failedPackages).toEqual(["delta"]);
     expect(summary.failures).toHaveLength(1);
     expect(summary.failures[0]).toContain("entry exploded");
+  });
+});
+
+describe("scanAndLoadPiPackages directory entries (pi-web-access >= 0.46.0)", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-packages-dir-"));
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  const write = (relPath: string, content: string): void => {
+    const target = join(root, relPath);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, content);
+  };
+
+  /** One allowlisted package whose `pi.extensions` entry is the `./dist` dir. */
+  function writeDirPackage(
+    name: string,
+    distManifest: Record<string, unknown> | undefined,
+    files: Record<string, string>,
+  ): void {
+    write("pi-packages.json", JSON.stringify({ packages: [name] }));
+    write("pi-packages/package.json", JSON.stringify({ dependencies: { [name]: "1.0.0" } }));
+    write(
+      `pi-packages/node_modules/${name}/package.json`,
+      JSON.stringify({ name, pi: { extensions: ["./dist"] } }),
+    );
+    if (distManifest !== undefined) {
+      write(`pi-packages/node_modules/${name}/dist/package.json`, JSON.stringify(distManifest));
+    }
+    for (const [relPath, content] of Object.entries(files)) {
+      write(`pi-packages/node_modules/${name}/dist/${relPath}`, content);
+    }
+  }
+
+  test("directory entry ./dist loads dist/index.js: entries=1, failures=[], no EISDIR", async () => {
+    writeDirPackage("dirdemo", undefined, { "index.js": `export default () => "dist-index";\n` });
+    const loadedUrls: string[] = [];
+    const summary = await scanAndLoadPiPackages(join(root, "pi-packages"), async (url) => {
+      loadedUrls.push(url);
+    });
+    expect(summary.packages).toBe(1);
+    expect(summary.entries).toBe(1);
+    expect(summary.failures).toEqual([]);
+    expect(summary.warnings).toBeUndefined();
+    expect(summary.loadedPackages).toEqual(["dirdemo"]);
+    // The mirror closure built from dist/index.js (not the raw dir URL).
+    expect(loadedUrls).toHaveLength(1);
+    expect(loadedUrls[0]).toContain("cetas-pi-mirror-");
+    const mirrored = readFileSync(new URL(loadedUrls[0]).pathname, "utf8");
+    expect(mirrored).toContain("dist-index");
+  });
+
+  test("entry directory's exports[.] beats main and index.js", async () => {
+    writeDirPackage(
+      "priodemo",
+      { exports: { ".": "./esm.js" }, main: "./main.js" },
+      {
+        "esm.js": `export default () => "exports-entry";\n`,
+        "main.js": `export default () => "main-entry";\n`,
+        "index.js": `export default () => "index-entry";\n`,
+      },
+    );
+    const loadedUrls: string[] = [];
+    const summary = await scanAndLoadPiPackages(join(root, "pi-packages"), async (url) => {
+      loadedUrls.push(url);
+    });
+    expect(summary.entries).toBe(1);
+    expect(summary.failures).toEqual([]);
+    const mirrored = readFileSync(new URL(loadedUrls[0]).pathname, "utf8");
+    expect(mirrored).toContain("exports-entry");
+  });
+
+  test("directory with no resolvable entry lands in failures/failedPackages (no crash)", async () => {
+    writeDirPackage("emptydemo", { main: "./missing.js" }, {});
+    const loadedUrls: string[] = [];
+    const summary = await scanAndLoadPiPackages(join(root, "pi-packages"), async (url) => {
+      loadedUrls.push(url);
+    });
+    expect(summary.entries).toBe(0);
+    expect(summary.failedPackages).toEqual(["emptydemo"]);
+    expect(summary.failures).toHaveLength(1);
+    expect(summary.failures[0]).toContain("entry ./dist resolved to no file");
+    expect(summary.warnings).toBeUndefined();
+    expect(loadedUrls).toEqual([]);
+  });
+
+  test("loaded set deduplicates by the normalized file URL across runs", async () => {
+    writeDirPackage("dedupdemo", undefined, { "index.js": `export default () => "dedup";\n` });
+    const loaded = new Set<string>();
+    let loads = 0;
+    const load = async (): Promise<void> => {
+      loads += 1;
+    };
+    await scanAndLoadPiPackages(join(root, "pi-packages"), load, loaded);
+    await scanAndLoadPiPackages(join(root, "pi-packages"), load, loaded);
+    expect(loads).toBe(1);
+    expect([...loaded]).toEqual([
+      pathToFileURL(join(root, "pi-packages/node_modules/dedupdemo/dist/index.js")).href,
+    ]);
   });
 });
