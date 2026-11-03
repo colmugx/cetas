@@ -151,7 +151,10 @@ async function openHost(options: HostOptions): Promise<Host> {
     const prompt = body.messages.map(m => Array.isArray(m.content) ? m.content.map(c => c.text ?? "").join("") : m.content ?? "").join("\n");
     requests.push({ model: body.model, tools: body.tools, prompt });
     const reply = prompt.includes("Envelope/schema:") ? options.planning() : options.execution?.() ?? { kind: "content", content: "Controlled execution completed; operator evidence still required." };
-    if (reply.kind === "fail") throw new Error("deterministic provider transport failure");
+    if (reply.kind === "fail") return Response.json(
+      { error: { message: "deterministic provider transport failure", type: "invalid_request_error" } },
+      { status: 400 },
+    );
     if (reply.kind === "hang") return new Promise(() => undefined) as unknown as Response;
     const content = reply.kind === "junk" || !("tasks" in reply)
       ? "not a proposal at all"
