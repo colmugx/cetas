@@ -10,7 +10,7 @@ async test "native turn driver runs Agent without blocking editor state" {
     @posoco.ExtensionManifest(
       id="native_turn_driver_io",
       models=[model as &@posoco.ModelPort],
-      sessions=[store as &@posoco.SessionStore],
+      sessions=[store as &@posoco.SessionPort],
     ),
   )
   let agent = @posoco.Agent(
@@ -20,7 +20,7 @@ async test "native turn driver runs Agent without blocking editor state" {
   let host = NativeHost::from_parts(
     agent,
     shell,
-    store as &@posoco.SessionStore,
+    store as &@posoco.SessionPort,
     "native-turn-driver",
   )
   let editor = @ui.EditorModel::new()

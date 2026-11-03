@@ -87,6 +87,10 @@ pub async fn build_cetas_session(
   policy_exts~ : Array[&@posoco.Extension] = [],
   bus_exts~ : ((@devkit.EventBus) -> Array[&@posoco.Extension])? = None,
   feature_exts~ : Array[&@posoco.Extension] = [],
+  /// Host task group for provider-owned tool planes (remote MCP connections).
+  /// `None` composes no provider tools: a host without a long-lived group must
+  /// not get connections whose lifetime nobody owns.
+  tool_plane_group~ : @async.TaskGroup[Unit]? = None,
   prompt_suffix~ : String? = None,
   session_fs~ : &@workspace.WorkspaceFs? = None,
   label~ : String = "cetas-acp",
@@ -189,6 +193,23 @@ pub async fn build_cetas_session(
   }
   for ext in feature_exts {
     exts.push(ext)
+  }
+  // Provider-owned tool planes join after the host's feature selection: they
+  // are part of the provider's own surface, not of the compiled recipe.
+  match tool_plane_group {
+    Some(group) =>
+      for
+        ext in provider_tool_extensions(
+          platform.fs,
+          home=platform.home,
+          label~,
+          bus=event_bus,
+          group~,
+          initial_slot_id=router.active_id,
+        ) {
+        exts.push(ext)
+      }
+    None => ()
   }
 
   // The routing table and catalog base are captured BEFORE any host tail

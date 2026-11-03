@@ -5,6 +5,7 @@ import {
   "colmugx/posoco-ext-workspace",
   "colmugx/posoco/types",
   "moonbitlang/async",
+  "moonbitlang/core/json",
 }
 
 // Values
@@ -12,7 +13,7 @@ pub async fn compose_console_runtime(ConsoleConfig, String, @async.TaskGroup[Uni
 
 pub fn console_config(&@posoco-ext-workspace.WorkspaceFs, String, String, String) -> ConsoleConfig
 
-pub fn transcript_empty_json() -> Json
+pub fn transcript_empty_json() -> @json.Json
 
 // Errors
 
@@ -44,34 +45,34 @@ pub fn ConsoleRuntime::attach_sink(Self, (String) -> Unit) -> Unit
 pub async fn ConsoleRuntime::compact_active_session(Self) -> Unit
 pub fn ConsoleRuntime::detach_sink(Self) -> Unit
 pub fn ConsoleRuntime::emit_active_snapshot(Self) -> Unit
-pub fn ConsoleRuntime::emit_event(Self, String, String, String, extra? : Array[(String, Json)]) -> Unit
-pub async fn ConsoleRuntime::file_suggestions_json(Self, String, Int32) -> Json
+pub fn ConsoleRuntime::emit_event(Self, String, String, String, extra? : Array[(String, @json.Json)]) -> Unit
+pub async fn ConsoleRuntime::file_suggestions_json(Self, String, Int32) -> @json.Json
 pub async fn ConsoleRuntime::login(Self, String, String) -> String
 pub async fn ConsoleRuntime::logout(Self, String) -> String
-pub async fn ConsoleRuntime::model_slots_json(Self, String?) -> Json noraise
+pub async fn ConsoleRuntime::model_slots_json(Self, String?) -> @json.Json noraise
 pub async fn ConsoleRuntime::new_session(Self) -> Result[String, String] noraise
-pub async fn ConsoleRuntime::providers_json(Self) -> Json
-pub async fn ConsoleRuntime::quota_all_json(Self) -> Json
-pub async fn ConsoleRuntime::quota_json(Self) -> Json
+pub async fn ConsoleRuntime::providers_json(Self) -> @json.Json
+pub async fn ConsoleRuntime::quota_all_json(Self) -> @json.Json
+pub async fn ConsoleRuntime::quota_json(Self) -> @json.Json
 pub async fn ConsoleRuntime::rename_session(Self, String, String) -> Result[Unit, String]
 pub fn ConsoleRuntime::republish_status(Self) -> Unit
 pub fn ConsoleRuntime::resolve_ui(Self, String, String) -> Unit
-pub fn ConsoleRuntime::runtime_json(Self) -> Json
+pub fn ConsoleRuntime::runtime_json(Self) -> @json.Json
 pub async fn ConsoleRuntime::select_effort(Self, String, String?) -> Result[Unit, String] noraise
-pub async fn ConsoleRuntime::sessions_json(Self) -> Json
+pub async fn ConsoleRuntime::sessions_json(Self) -> @json.Json
 pub fn ConsoleRuntime::set_permission(Self, String) -> Result[Unit, String]
 pub async fn ConsoleRuntime::shutdown_all(Self) -> Unit
-pub async fn ConsoleRuntime::skills_json(Self) -> Json
+pub async fn ConsoleRuntime::skills_json(Self) -> @json.Json
 pub fn ConsoleRuntime::spawn_background(Self, async () -> Unit) -> Unit
 pub async fn ConsoleRuntime::start_turn(Self, String, String?) -> Result[String, String] noraise
 pub async fn ConsoleRuntime::switch_model(Self, String, String?) -> Result[Unit, String] noraise
 pub async fn ConsoleRuntime::switch_session(Self, String) -> Result[String, String] noraise
 pub async fn ConsoleRuntime::switch_workspace(Self, String) -> Result[String, String] noraise
-pub fn ConsoleRuntime::trace_json(Self, String?, String?) -> Json
-pub async fn ConsoleRuntime::transcript_json(Self, String) -> Json
+pub fn ConsoleRuntime::trace_json(Self, String?, String?) -> @json.Json
+pub async fn ConsoleRuntime::transcript_json(Self, String) -> @json.Json
 pub async fn ConsoleRuntime::workspace_file_index(Self) -> Array[String]
-pub fn ConsoleRuntime::workspaces_json(Self) -> Json
-pub fn ConsoleRuntime::zoo_json(Self) -> Json
+pub fn ConsoleRuntime::workspaces_json(Self) -> @json.Json
+pub fn ConsoleRuntime::zoo_json(Self) -> @json.Json
 
 type EventHub
 

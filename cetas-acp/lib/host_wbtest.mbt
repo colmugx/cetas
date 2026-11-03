@@ -315,7 +315,7 @@ fn tk_spawn_session(
         exts=[
           @posoco.tk_ext(id="model", model=Some(model)),
           @posoco.tk_ext(id="tools", tools=[tools]),
-          @posoco.tk_ext(id="io", sessions=[store as &@posoco.SessionStore]),
+          @posoco.tk_ext(id="io", sessions=[store as &@posoco.SessionPort]),
           bridge,
           policy,
         ],
@@ -462,7 +462,7 @@ fn tk_spawn_session_plan(
           @posoco.tk_ext(id="model", model=Some(model)),
           @posoco.tk_ext(id="io", sessions=[
             @posoco.RecordingSessionStore::RecordingSessionStore()
-            as &@posoco.SessionStore,
+            as &@posoco.SessionPort,
           ]),
           bridge,
           policy,
@@ -3679,7 +3679,7 @@ async fn tk_load_history(
 ) -> @posoco.Session {
   let store = host.sessions[session_id].store
   let loaded : Result[@posoco.Session, Error] = Ok(
-    @posoco.SessionStore::load(store, session_id),
+    @posoco.SessionPort::load(store, session_id),
   ) catch {
     error => Err(error)
   }
@@ -3924,7 +3924,7 @@ fn tk_spawn_session_plan_noreview(
           @posoco.tk_ext(id="model", model=Some(model)),
           @posoco.tk_ext(id="io", sessions=[
             @posoco.RecordingSessionStore::RecordingSessionStore()
-            as &@posoco.SessionStore,
+            as &@posoco.SessionPort,
           ]),
           bridge,
           policy,

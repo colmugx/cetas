@@ -9,6 +9,7 @@ import {
   "colmugx/posoco-ext-workspace",
   "colmugx/posoco-kit-provider",
   "moonbitlang/async",
+  "moonbitlang/core/json",
   "posoco/ext-llm",
 }
 
@@ -19,7 +20,7 @@ pub async fn cetas_memoh_home() -> String
 
 pub fn credentials_path(String) -> String
 
-pub async fn load_provider_settings(&@posoco-ext-workspace.WorkspaceFs, String) -> Map[String, Json] raise @colmugx/posoco/error.CompositionError
+pub async fn load_provider_settings(&@posoco-ext-workspace.WorkspaceFs, String) -> Map[String, @json.Json] raise @colmugx/posoco/error.CompositionError
 
 pub fn memoh_builtin_skills() -> Array[@posoco-ext-skills.SkillDescriptor]
 

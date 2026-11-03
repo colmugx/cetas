@@ -6,6 +6,7 @@
 /// scrollback, and paints the latest live snapshot.
 
 ///|
+#derive(Eq)
 pub(all) enum NativeLoopSignal {
   LoopContinue
   LoopExit
@@ -17,7 +18,7 @@ pub(all) enum NativeLoopSignal {
   LoopToggleToolOutput
   LoopLogin(String)
   LoopTerminalFailed(Int32)
-} derive(Eq)
+}
 
 ///|
 pub extend NativeLoopSignal with Eq::{equal, not_equal}

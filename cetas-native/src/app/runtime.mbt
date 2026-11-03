@@ -16,6 +16,7 @@ pub(all) struct RuntimeInputState {
 }
 
 ///|
+#derive(Eq)
 pub(all) enum RuntimeEvent {
   RuntimeIdle
   RuntimeUiUpdated
@@ -27,7 +28,7 @@ pub(all) enum RuntimeEvent {
   RuntimeResize(UInt32, UInt32)
   RuntimeFocus(Bool)
   RuntimeTerminalError(Int32)
-} derive(Eq)
+}
 
 ///|
 pub extend RuntimeEvent with Eq::{equal, not_equal}

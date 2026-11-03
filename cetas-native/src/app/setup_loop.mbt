@@ -6,13 +6,14 @@
 /// and OAuth flow is executed by the host after suspending the terminal.
 
 ///|
+#derive(Eq)
 pub(all) enum NativeSetupSignal {
   SetupContinue
   SetupLogin(String)
   SetupRetry
   SetupExit
   SetupTerminalFailed(Int32)
-} derive(Eq)
+}
 
 ///|
 pub extend NativeSetupSignal with Eq::{equal, not_equal}

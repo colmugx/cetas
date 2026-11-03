@@ -15,15 +15,16 @@ import {
   "colmugx/posoco/port",
   "colmugx/posoco/runtime",
   "moonbitlang/async",
+  "moonbitlang/core/json",
   "posoco/devkit",
   "posoco/ext-llm",
   "posoco/ext-oauth",
 }
 
 // Values
-pub fn all_api_key_factories(@devkit.ExtContext, Map[String, Json]) -> Array[&@posoco-kit-provider.ApiKeyFactory]
+pub fn all_api_key_factories(@devkit.ExtContext, Map[String, @json.Json]) -> Array[&@posoco-kit-provider.ApiKeyFactory]
 
-pub fn all_provider_factories(@devkit.ExtContext, Map[String, Json]) -> Array[&@posoco-kit-provider.ProviderFactory]
+pub fn all_provider_factories(@devkit.ExtContext, Map[String, @json.Json]) -> Array[&@posoco-kit-provider.ProviderFactory]
 
 pub fn api_key_factories(@devkit.ExtContext) -> Array[&@posoco-kit-provider.ApiKeyFactory]
 
@@ -35,11 +36,11 @@ pub async fn build_cetas_platform(home~ : String, cwd~ : String, &@posoco-ext-wo
 
 pub fn build_cetas_router(platform~ : CetasPlatform, event_bus? : @devkit.EventBus?, transient_retry? : @ext-llm.TransientRetryPolicy?) -> @ext-llm.RouterModelPort raise @error.CompositionError
 
-pub async fn build_cetas_session(platform~ : CetasPlatform, cwd~ : String, router? : @ext-llm.RouterModelPort?, transient_retry? : @ext-llm.TransientRetryPolicy?, approval? : &@posoco-ext-permission.ApprovalSource?, ui? : &@port.UiPort?, event_bus? : @devkit.EventBus?, client_exts? : Array[&@port.Extension], policy_exts? : Array[&@port.Extension], bus_exts? : ((@devkit.EventBus) -> Array[&@port.Extension])?, feature_exts? : Array[&@port.Extension], prompt_suffix? : String?, session_fs? : &@posoco-ext-workspace.WorkspaceFs?, label? : String, warn? : async (String) -> Unit noraise) -> CetasSession raise @error.CompositionError
+pub async fn build_cetas_session(platform~ : CetasPlatform, cwd~ : String, router? : @ext-llm.RouterModelPort?, transient_retry? : @ext-llm.TransientRetryPolicy?, approval? : &@posoco-ext-permission.ApprovalSource?, ui? : &@port.UiPort?, event_bus? : @devkit.EventBus?, client_exts? : Array[&@port.Extension], policy_exts? : Array[&@port.Extension], bus_exts? : ((@devkit.EventBus) -> Array[&@port.Extension])?, feature_exts? : Array[&@port.Extension], tool_plane_group? : @async.TaskGroup[Unit]?, prompt_suffix? : String?, session_fs? : &@posoco-ext-workspace.WorkspaceFs?, label? : String, warn? : async (String) -> Unit noraise) -> CetasSession raise @error.CompositionError
 
-pub fn build_provider_catalog(&@posoco-kit-provider.ProviderFactory, ProviderCredentialSnapshot, cached_models? : Json?) -> @posoco-kit-provider.ProviderModelCatalog? raise @error.CompositionError
+pub fn build_provider_catalog(&@posoco-kit-provider.ProviderFactory, ProviderCredentialSnapshot, cached_models? : @json.Json?) -> @posoco-kit-provider.ProviderModelCatalog? raise @error.CompositionError
 
-pub fn catalog_model_records(@posoco-kit-provider.ProviderModelCatalog) -> Json
+pub fn catalog_model_records(@posoco-kit-provider.ProviderModelCatalog) -> @json.Json
 
 pub fn cetas_dir(String) -> String
 
@@ -51,7 +52,7 @@ pub fn cetas_skills_max_instruction_chars() -> Int32
 
 pub fn cetas_system_prompt(cwd~ : String) -> String
 
-pub fn compatible_provider_factories(Map[String, Json], @devkit.ExtContext) -> Array[@posoco-ext-custom.CustomProvider]
+pub fn compatible_provider_factories(Map[String, @json.Json], @devkit.ExtContext) -> Array[@posoco-ext-custom.CustomProvider]
 
 pub fn compose_cetas_agent(session~ : CetasSession, tail_exts? : Array[&@port.Extension], runtime? : &@runtime.Runtime?, runtime_group? : @async.TaskGroup[Unit]?) -> @posoco.Agent raise @error.CompositionError
 
@@ -67,19 +68,19 @@ pub fn default_agent_config(max_tool_rounds? : Int32?, max_tool_depth? : Int32?,
 
 pub fn list_persisted_rewind_points(String) -> Array[PersistedRewindPoint]
 
-pub async fn load_provider_settings(&@posoco-ext-workspace.WorkspaceFs, home~ : String, label? : String) -> Map[String, Json] raise @error.CompositionError
+pub async fn load_provider_settings(&@posoco-ext-workspace.WorkspaceFs, home~ : String, label? : String) -> Map[String, @json.Json] raise @error.CompositionError
 
 pub fn login_outcome_json(LoginOutcome) -> String
 
-pub async fn login_provider(String, String, settings? : Map[String, Json], device_id? : String, &@ext-oauth.AuthInteraction, &@ext-oauth.AuthPromptInteraction) -> LoginOutcome raise @error.CommandError
+pub async fn login_provider(String, String, settings? : Map[String, @json.Json], device_id? : String, &@ext-oauth.AuthInteraction, &@ext-oauth.AuthPromptInteraction) -> LoginOutcome raise @error.CommandError
 
 pub fn mcp_config_path(String) -> String
 
-pub fn merge_active_decision_model_selection(Json, ActiveDecisionSelection?) -> Json raise @error.CompositionError
+pub fn merge_active_decision_model_selection(@json.Json, ActiveDecisionSelection?) -> @json.Json raise @error.CompositionError
 
-pub fn merge_active_model_selection(Json, ActiveModelSelection) -> Json raise @error.CompositionError
+pub fn merge_active_model_selection(@json.Json, ActiveModelSelection) -> @json.Json raise @error.CompositionError
 
-pub fn merge_model_list_cache(Json, String, Json) -> Json
+pub fn merge_model_list_cache(@json.Json, String, @json.Json) -> @json.Json
 
 pub fn mint_session_id() -> String
 
@@ -89,29 +90,31 @@ pub fn oauth_error_text(@ext-oauth.OAuthError) -> String
 
 pub fn oauth_factories(@devkit.ExtContext, device_id? : String) -> Array[&@posoco-kit-provider.OAuthFactory]
 
-pub fn parse_active_decision_model_selection(Json) -> ActiveDecisionSelection? raise @error.CompositionError
+pub fn parse_active_decision_model_selection(@json.Json) -> ActiveDecisionSelection? raise @error.CompositionError
 
-pub fn parse_active_model_selection(Json) -> ActiveModelSelection? raise @error.CompositionError
+pub fn parse_active_model_selection(@json.Json) -> ActiveModelSelection? raise @error.CompositionError
 
-pub fn parse_model_list_cache(Json) -> Map[String, Json]
+pub fn parse_model_list_cache(@json.Json) -> Map[String, @json.Json]
 
 pub fn parse_refresh_provider_ids(String) -> Array[String]? raise @error.CompositionError
 
-pub fn parse_settings_json(String, manifest_id~ : String) -> Json raise @error.CompositionError
+pub fn parse_settings_json(String, manifest_id~ : String) -> @json.Json raise @error.CompositionError
 
 pub async fn provider_config_source(&@posoco-ext-workspace.WorkspaceFs, home~ : String, provider_id~ : String, label? : String) -> @posoco-kit-provider.ProviderConfigSource? raise @error.CompositionError
 
 pub fn provider_factories(@devkit.ExtContext) -> Array[&@posoco-kit-provider.ProviderFactory]
 
-pub fn provider_setup_json(Array[@posoco-kit-provider.ProviderModelCatalog], settings? : Map[String, Json], issues? : Array[CatalogBuildIssue], active_model_id? : String?) -> String
+pub fn provider_setup_json(Array[@posoco-kit-provider.ProviderModelCatalog], settings? : Map[String, @json.Json], issues? : Array[CatalogBuildIssue], active_model_id? : String?) -> String
+
+pub async fn provider_tool_extensions(&@posoco-ext-workspace.WorkspaceFs, home~ : String, label? : String, bus~ : @devkit.EventBus, group~ : @async.TaskGroup[Unit], initial_slot_id~ : String) -> Array[&@port.Extension] noraise
 
 pub async fn read_active_decision_model_selection(&@posoco-ext-workspace.WorkspaceFs, home~ : String) -> ActiveDecisionSelection? raise @error.CompositionError
 
 pub async fn read_active_model_selection(&@posoco-ext-workspace.WorkspaceFs, home~ : String) -> ActiveModelSelection? raise @error.CompositionError
 
-pub async fn read_credential_snapshot(@posoco-ext-credentials.FileProviderCredentialStore, Array[&@posoco-kit-provider.ProviderFactory], settings~ : Map[String, Json], label? : String) -> ProviderCredentialSnapshot raise @error.CompositionError
+pub async fn read_credential_snapshot(@posoco-ext-credentials.FileProviderCredentialStore, Array[&@posoco-kit-provider.ProviderFactory], settings~ : Map[String, @json.Json], label? : String) -> ProviderCredentialSnapshot raise @error.CompositionError
 
-pub async fn read_model_list_cache(&@posoco-ext-workspace.WorkspaceFs, home~ : String) -> Result[Map[String, Json], String] noraise
+pub async fn read_model_list_cache(&@posoco-ext-workspace.WorkspaceFs, home~ : String) -> Result[Map[String, @json.Json], String] noraise
 
 pub fn read_persisted_rewind_user_message(String, Int32) -> String?
 
@@ -125,9 +128,9 @@ pub fn resolve_active_decision_model_restore(Array[@posoco-kit-provider.Provider
 
 pub fn resolve_active_model_restore(Array[@posoco-kit-provider.ProviderModelCatalog], ActiveModelSelection?) -> ActiveModelRestore
 
-pub fn resolve_login_method(String, String, settings? : Map[String, Json]) -> String raise @error.CommandError
+pub fn resolve_login_method(String, String, settings? : Map[String, @json.Json]) -> String raise @error.CommandError
 
-pub async fn rewind_session(&@port.SessionStore, String, Int32) -> Unit raise @error.SessionError
+pub async fn rewind_session(&@port.SessionPort, String, Int32) -> Unit raise @error.SessionError
 
 pub async fn run_compact(@posoco.Agent, String) -> CompactRunOutcome raise @error.AgentError
 
@@ -143,19 +146,19 @@ pub fn settings_path(String) -> String
 
 pub fn sidecar_path(String, String) -> String?
 
-pub fn source_for_factory(&@posoco-kit-provider.ProviderFactory, ProviderCredentialSnapshot, cached_models? : Json?) -> @posoco-kit-provider.ProviderConfigSource
+pub fn source_for_factory(&@posoco-kit-provider.ProviderFactory, ProviderCredentialSnapshot, cached_models? : @json.Json?) -> @posoco-kit-provider.ProviderConfigSource
 
 pub fn static_provider_ids() -> Map[String, Unit]
 
 pub fn swap_platform_catalog(Array[@posoco-kit-provider.ProviderModelCatalog], String, @posoco-kit-provider.ProviderModelCatalog) -> Unit
 
-pub fn try_build_provider_catalog(&@posoco-kit-provider.ProviderFactory, ProviderCredentialSnapshot, cached_models? : Json?) -> Result[@posoco-kit-provider.ProviderModelCatalog?, @error.CompositionError]
+pub fn try_build_provider_catalog(&@posoco-kit-provider.ProviderFactory, ProviderCredentialSnapshot, cached_models? : @json.Json?) -> Result[@posoco-kit-provider.ProviderModelCatalog?, @error.CompositionError]
 
 pub async fn update_session_sidecar(&@posoco-ext-workspace.WorkspaceFs, home~ : String, session_id~ : String, live_cwd~ : String, model~ : String, effort~ : String?, fresh_mcp_names~ : Array[String], persist_lock? : @async.Mutex?, label? : String, warn? : async (String) -> Unit noraise) -> Unit noraise
 
 pub fn valid_provider_id(String) -> Bool
 
-pub fn validate_provider_settings(Map[String, Json], Array[&@posoco-kit-provider.ProviderFactory]) -> Unit raise @error.CompositionError
+pub fn validate_provider_settings(Map[String, @json.Json], Array[&@posoco-kit-provider.ProviderFactory]) -> Unit raise @error.CompositionError
 
 pub fn workflow_settings_from_json(String) -> CetasWorkflowSettings raise @error.CompositionError
 
@@ -163,7 +166,7 @@ pub async fn write_active_decision_model_selection(&@posoco-ext-workspace.Worksp
 
 pub async fn write_active_model_selection(&@posoco-ext-workspace.WorkspaceFs, home~ : String, ActiveModelSelection) -> Unit raise @error.CompositionError
 
-pub async fn write_model_list_cache(&@posoco-ext-workspace.WorkspaceFs, home~ : String, String, Json) -> Unit raise @error.CompositionError
+pub async fn write_model_list_cache(&@posoco-ext-workspace.WorkspaceFs, home~ : String, String, @json.Json) -> Unit raise @error.CompositionError
 
 // Errors
 
@@ -244,11 +247,12 @@ pub struct CetasWorkflowSettings {
   continue_on_confirmed_failure : Bool
 }
 
+#derive(Eq)
 pub(all) struct CompactRunOutcome {
   final_session_id : String
   mode : String
   messages_after : Int32
-} derive(Eq)
+}
 pub fn CompactRunOutcome::equal(Self, Self) -> Bool
 pub fn CompactRunOutcome::not_equal(Self, Self) -> Bool
 
@@ -256,8 +260,8 @@ pub struct FileModelMetadataStore {
   // private fields
 }
 pub fn FileModelMetadataStore::FileModelMetadataStore(&@posoco-ext-workspace.WorkspaceFs, home~ : String) -> Self
-pub async fn FileModelMetadataStore::read(Self) -> Json?
-pub async fn FileModelMetadataStore::write(Self, Json) -> Unit
+pub async fn FileModelMetadataStore::read(Self) -> @json.Json?
+pub async fn FileModelMetadataStore::write(Self, @json.Json) -> Unit
 pub impl @ext-llm.ModelMetadataStore for FileModelMetadataStore
 
 pub(all) struct HostContext {
@@ -279,11 +283,11 @@ pub(all) struct PersistedRewindPoint {
 }
 
 pub(all) struct ProviderCredentialSnapshot {
-  settings : Map[String, Json]
+  settings : Map[String, @json.Json]
   credentials : Map[String, @ext-oauth.ProviderCredential]
   credential_store : &@ext-oauth.ProviderCredentialStore?
 }
-pub fn ProviderCredentialSnapshot::ProviderCredentialSnapshot(settings? : Map[String, Json], credentials? : Map[String, @ext-oauth.ProviderCredential], credential_store? : &@ext-oauth.ProviderCredentialStore?) -> Self
+pub fn ProviderCredentialSnapshot::ProviderCredentialSnapshot(settings? : Map[String, @json.Json], credentials? : Map[String, @ext-oauth.ProviderCredential], credential_store? : &@ext-oauth.ProviderCredentialStore?) -> Self
 
 pub(all) struct SessionSidecar {
   cwd : String

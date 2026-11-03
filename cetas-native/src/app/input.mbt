@@ -9,6 +9,7 @@
 /// the returned action at the application boundary.
 
 ///|
+#derive(Eq)
 pub(all) enum ShellInputAction {
   InputPass
   InputConsume
@@ -19,7 +20,7 @@ pub(all) enum ShellInputAction {
   InputOpenRewind
   InputToggleThinking
   InputToggleToolOutput
-} derive(Eq)
+}
 
 ///|
 pub extend ShellInputAction with Eq::{equal, not_equal}

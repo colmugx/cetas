@@ -21,6 +21,7 @@ import {
   "moonbitlang/async/aqueue",
   "moonbitlang/async/js_async",
   "moonbitlang/core/debug",
+  "moonbitlang/core/json",
   "posoco/devkit",
   "posoco/ext-llm",
   "posoco/ext-oauth",
@@ -42,8 +43,6 @@ pub fn cetas_js_create_agent(CetasJsConfig, JsCallback, JsUiRenderCallback, JsUi
 pub fn cetas_js_describe_setup(CetasJsConfig) -> @js_async.Promise[String]
 
 pub fn cetas_js_enqueue_follow_up(CetasJsAgent, String, String) -> String
-
-pub fn cetas_js_herdr_release() -> Unit
 
 pub fn cetas_js_invoke_command(CetasJsAgent, String, String) -> @js_async.Promise[String]
 
@@ -107,7 +106,7 @@ pub fn po_system_prompt(String) -> String
 
 pub fn project_name(String) -> String
 
-pub fn question_event_to_json(@posoco-ext-askquestion.QuestionEvent) -> Json
+pub fn question_event_to_json(@posoco-ext-askquestion.QuestionEvent) -> @json.Json
 
 pub fn scrum_master_system_prompt(String) -> String
 
@@ -135,7 +134,7 @@ pub struct BoardSkill {
   description : String
 }
 pub fn BoardSkill::from_descriptor(@posoco-ext-skills.SkillDescriptor) -> Self
-pub fn BoardSkill::to_json(Self) -> Json
+pub fn BoardSkill::to_json(Self) -> @json.Json
 
 pub struct CetasJsAgent {
   agent : @posoco.Agent
@@ -190,7 +189,7 @@ pub async fn CetasPtcMode::before_model(Self, Array[@kernel.Message]) -> Array[@
 pub async fn CetasPtcMode::before_tool(Self, @kernel.ToolCall) -> @port.ToolDecision
 pub fn CetasPtcMode::commands(Self) -> Array[@port.CommandDef]
 pub fn CetasPtcMode::extension_id(Self) -> String
-pub async fn CetasPtcMode::invoke(Self, String, Json) -> @port.CommandOutcome raise @error.CommandError
+pub async fn CetasPtcMode::invoke(Self, String, @json.Json) -> @port.CommandOutcome raise @error.CommandError
 pub fn CetasPtcMode::manifest(Self) -> @port.ExtensionManifest
 pub fn CetasPtcMode::mode(Self) -> CetasPtcStatus
 pub async fn CetasPtcMode::on_post_event(Self, @types.EventScope?, @port.HookStage) -> Unit noraise
@@ -203,11 +202,12 @@ pub impl @port.CommandPort for CetasPtcMode
 pub impl @port.Extension for CetasPtcMode
 pub impl @port.PipelineHook for CetasPtcMode
 
+#derive(Eq, @debug.Debug)
 pub(all) enum CetasPtcStatus {
   PtcDirect
   PtcHybrid
   PtcOnly
-} derive(Eq, @debug.Debug)
+}
 pub fn CetasPtcStatus::equal(Self, Self) -> Bool
 pub fn CetasPtcStatus::not_equal(Self, Self) -> Bool
 pub fn CetasPtcStatus::to_repr(Self) -> @debug.Repr
@@ -285,8 +285,8 @@ pub struct TeamConfig {
   profile : WorkProfile
 }
 pub fn TeamConfig::defaults() -> Self
-pub fn TeamConfig::from_json(Json) -> Self
-pub fn TeamConfig::to_json(Self) -> Json
+pub fn TeamConfig::from_json(@json.Json) -> Self
+pub fn TeamConfig::to_json(Self) -> @json.Json
 
 pub struct TeamMcp {
   enabled : Bool
@@ -295,10 +295,10 @@ pub struct TeamMcp {
   tools : Array[String]
 }
 pub fn TeamMcp::defaults() -> Self
-pub fn TeamMcp::from_json(Json) -> Self
-pub fn TeamMcp::from_json_map(Json) -> Map[String, Self]
-pub fn TeamMcp::to_json(Self) -> Json
-pub fn TeamMcp::to_json_map(Map[String, Self]) -> Json
+pub fn TeamMcp::from_json(@json.Json) -> Self
+pub fn TeamMcp::from_json_map(@json.Json) -> Map[String, Self]
+pub fn TeamMcp::to_json(Self) -> @json.Json
+pub fn TeamMcp::to_json_map(Map[String, Self]) -> @json.Json
 
 pub struct TeamNames {
   po : String
@@ -309,8 +309,8 @@ pub struct TeamNames {
 }
 pub fn TeamNames::copy(Self) -> Self
 pub fn TeamNames::defaults() -> Self
-pub fn TeamNames::from_json(Json) -> Self
-pub fn TeamNames::to_json(Self) -> Json
+pub fn TeamNames::from_json(@json.Json) -> Self
+pub fn TeamNames::to_json(Self) -> @json.Json
 
 pub struct TeamSkills {
   enabled : Bool
@@ -318,10 +318,10 @@ pub struct TeamSkills {
   skills : Array[String]
 }
 pub fn TeamSkills::defaults() -> Self
-pub fn TeamSkills::from_json(Json) -> Self
-pub fn TeamSkills::from_json_map(Json) -> Map[String, Self]
-pub fn TeamSkills::to_json(Self) -> Json
-pub fn TeamSkills::to_json_map(Map[String, Self]) -> Json
+pub fn TeamSkills::from_json(@json.Json) -> Self
+pub fn TeamSkills::from_json_map(@json.Json) -> Map[String, Self]
+pub fn TeamSkills::to_json(Self) -> @json.Json
+pub fn TeamSkills::to_json_map(Map[String, Self]) -> @json.Json
 
 pub(all) struct UiBridge {
   blocking : BlockingApprovalSource?
@@ -344,12 +344,12 @@ pub fn WorkProfile::analysis() -> Self
 pub fn WorkProfile::document() -> Self
 pub fn WorkProfile::from_id(String) -> Self
 pub fn WorkProfile::software() -> Self
-pub fn WorkProfile::to_json(Self) -> Json
+pub fn WorkProfile::to_json(Self) -> @json.Json
 
 // Type aliases
 
 // Traits
 pub(open) trait TicketReportEndpoint {
   fn report_progress(Self, String, String) -> Unit
-  fn submit_work_report(Self, Json) -> Result[Unit, String]
+  fn submit_work_report(Self, @json.Json) -> Result[Unit, String]
 }

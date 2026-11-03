@@ -135,7 +135,7 @@ async test "gate B file mentions rank and insert workspace paths" {
     @posoco.ExtensionManifest(
       id="gate_b_file_io",
       models=[host_model as &@posoco.ModelPort],
-      sessions=[store as &@posoco.SessionStore],
+      sessions=[store as &@posoco.SessionPort],
     ),
   )
   let agent = @posoco.Agent(
@@ -145,7 +145,7 @@ async test "gate B file mentions rank and insert workspace paths" {
   let host = NativeHost::from_parts(
     agent,
     NativeShell::new(),
-    store as &@posoco.SessionStore,
+    store as &@posoco.SessionPort,
     "gate-b-file",
     workspace_files=["src/", "src/main.mbt", "README.md"],
   )
@@ -175,7 +175,7 @@ async test "gate B normal-session slash routes stay local and executable" {
     @posoco.ExtensionManifest(
       id="gate_b_session_io",
       models=[model as &@posoco.ModelPort],
-      sessions=[store as &@posoco.SessionStore],
+      sessions=[store as &@posoco.SessionPort],
     ),
   )
   let agent = @posoco.Agent(
@@ -198,7 +198,7 @@ async test "gate B normal-session slash routes stay local and executable" {
   let host = NativeHost::from_parts(
     agent,
     NativeShell::new(),
-    store as &@posoco.SessionStore,
+    store as &@posoco.SessionPort,
     current,
     session_root=Some(root),
   )

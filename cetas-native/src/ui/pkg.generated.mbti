@@ -109,15 +109,17 @@ pub fn EditorModel::set_text(Self, String) -> Unit
 pub fn EditorModel::text(Self) -> String
 pub fn EditorModel::text_before_cursor(Self) -> String
 
+#derive(Eq)
 pub(all) enum KeyAction {
   KeyPress
   KeyRepeat
   KeyRelease
   KeyActionUnknown(UInt32)
-} derive(Eq)
+}
 pub fn KeyAction::equal(Self, Self) -> Bool
 pub fn KeyAction::not_equal(Self, Self) -> Bool
 
+#derive(Eq)
 pub(all) enum KeyCode {
   KeyChar(UInt32)
   KeyEnter
@@ -137,7 +139,7 @@ pub(all) enum KeyCode {
   KeyInsert
   KeyFunction(UInt32)
   KeyUnknown(UInt32)
-} derive(Eq)
+}
 pub fn KeyCode::equal(Self, Self) -> Bool
 pub fn KeyCode::not_equal(Self, Self) -> Bool
 
@@ -185,12 +187,13 @@ pub fn Rect::inset(Self, UInt32) -> Self
 pub fn Rect::new(UInt32, UInt32, UInt32, UInt32) -> Self
 pub fn Rect::right(Self) -> UInt32
 
+#derive(Eq)
 pub(all) enum RewindPickerAction {
   RewindUnhandled
   RewindChanged
   RewindCancelled
   RewindPicked(Int32)
-} derive(Eq)
+}
 pub fn RewindPickerAction::equal(Self, Self) -> Bool
 pub fn RewindPickerAction::not_equal(Self, Self) -> Bool
 
@@ -275,6 +278,7 @@ pub fn Terminal::resume_terminal(Self) -> Int32
 pub fn Terminal::suspend(Self) -> Int32
 pub fn Terminal::viewport_size(Self) -> (Int32, FixedArray[UInt32])
 
+#derive(Eq)
 pub(all) struct TerminalEvent {
   abi_version : UInt32
   struct_size : UInt32
@@ -290,7 +294,7 @@ pub(all) struct TerminalEvent {
   mouse_kind : UInt32
   mouse_button : UInt32
   text_len : UInt32
-} derive(Eq)
+}
 pub fn TerminalEvent::equal(Self, Self) -> Bool
 pub fn TerminalEvent::has_modifier(Self, UInt32) -> Bool
 pub fn TerminalEvent::is_actionable_key(Self) -> Bool
@@ -302,6 +306,7 @@ pub fn TerminalEvent::matches_char(Self, UInt32, UInt32) -> Bool
 pub fn TerminalEvent::matches_key(Self, KeyCode, UInt32) -> Bool
 pub fn TerminalEvent::not_equal(Self, Self) -> Bool
 
+#derive(Eq)
 pub(all) enum TerminalEventKind {
   EventNone
   EventKey
@@ -311,7 +316,7 @@ pub(all) enum TerminalEventKind {
   EventFocusIn
   EventFocusOut
   EventUnknown(UInt32)
-} derive(Eq)
+}
 pub fn TerminalEventKind::equal(Self, Self) -> Bool
 pub fn TerminalEventKind::not_equal(Self, Self) -> Bool
 
@@ -372,6 +377,7 @@ pub(all) struct TranscriptRow {
   mut scrollback_committed : Bool
 }
 
+#derive(Eq)
 pub(all) enum TranscriptRowKind {
   TranscriptUser
   TranscriptQueuedUser
@@ -380,7 +386,7 @@ pub(all) enum TranscriptRowKind {
   TranscriptTool
   TranscriptSystem
   TranscriptError
-} derive(Eq)
+}
 pub fn TranscriptRowKind::equal(Self, Self) -> Bool
 pub fn TranscriptRowKind::not_equal(Self, Self) -> Bool
 

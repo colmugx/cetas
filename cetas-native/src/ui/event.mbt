@@ -4,6 +4,7 @@
 /// are purely MoonBit-side; their memory layout is never exposed over C FFI.
 
 ///|
+#derive(Eq)
 pub(all) enum TerminalEventKind {
   EventNone
   EventKey
@@ -13,23 +14,25 @@ pub(all) enum TerminalEventKind {
   EventFocusIn
   EventFocusOut
   EventUnknown(UInt32)
-} derive(Eq)
+}
 
 ///|
 pub extend TerminalEventKind with Eq::{equal, not_equal}
 
 ///|
+#derive(Eq)
 pub(all) enum KeyAction {
   KeyPress
   KeyRepeat
   KeyRelease
   KeyActionUnknown(UInt32)
-} derive(Eq)
+}
 
 ///|
 pub extend KeyAction with Eq::{equal, not_equal}
 
 ///|
+#derive(Eq)
 pub(all) enum KeyCode {
   KeyChar(UInt32)
   KeyEnter
@@ -49,12 +52,13 @@ pub(all) enum KeyCode {
   KeyInsert
   KeyFunction(UInt32)
   KeyUnknown(UInt32)
-} derive(Eq)
+}
 
 ///|
 pub extend KeyCode with Eq::{equal, not_equal}
 
 ///|
+#derive(Eq)
 pub(all) struct TerminalEvent {
   abi_version : UInt32
   struct_size : UInt32
@@ -70,7 +74,7 @@ pub(all) struct TerminalEvent {
   mouse_kind : UInt32
   mouse_button : UInt32
   text_len : UInt32
-} derive(Eq)
+}
 
 ///|
 pub extend TerminalEvent with Eq::{equal, not_equal}

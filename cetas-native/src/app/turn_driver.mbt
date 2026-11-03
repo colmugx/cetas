@@ -5,6 +5,7 @@
 /// and terminal IO remain in NativeRuntime.
 
 ///|
+#derive(Eq)
 pub(all) enum PromptSubmitOutcome {
   PromptIgnored
   PromptStarted
@@ -12,7 +13,7 @@ pub(all) enum PromptSubmitOutcome {
   PromptDeferred
   PromptQueueFull(Int32)
   PromptQueueFailed(String)
-} derive(Eq)
+}
 
 ///|
 pub extend PromptSubmitOutcome with Eq::{equal, not_equal}

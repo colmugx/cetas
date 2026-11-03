@@ -110,11 +110,12 @@ fn assistant_text(result : @posoco.TurnResult) -> String {
 ///|
 /// Server-side compaction result projected for hosts (the raw kernel outcome
 /// type is not part of the posoco root re-exports).
+#derive(Eq)
 pub(all) struct CompactRunOutcome {
   final_session_id : String
   mode : String
   messages_after : Int32
-} derive(Eq)
+}
 
 ///|
 pub extend CompactRunOutcome with Eq::{not_equal, equal}
@@ -130,7 +131,6 @@ pub async fn run_compact(
   let mode = match outcome.mode {
     NewThread => "NewThread"
     Replace => "Replace"
-    Append => "Append"
   }
   {
     final_session_id: outcome.final_session_id,

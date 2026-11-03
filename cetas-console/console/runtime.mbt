@@ -315,6 +315,7 @@ async fn compose_session_agent(
     feature_exts~,
     ui=Some(ui_port),
     approval=Some(approval),
+    tool_plane_group=Some(group),
     label~,
     warn~,
   )
@@ -711,6 +712,7 @@ async fn build_workspace(
     feature_exts~,
     ui=Some(ui_port),
     approval=Some(approval),
+    tool_plane_group=Some(group),
     label~,
     warn~,
   )

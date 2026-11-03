@@ -2,11 +2,12 @@
 /// Host-side PTC mode bridge. The runtime stays in posoco-ext-bunraku; this adapter
 /// belongs to Cetas because its model-facing catalog combines base, Pi and MCP
 /// tools and its terminal owns the interactive picker.
+#derive(Eq, Debug)
 pub(all) enum CetasPtcStatus {
   PtcDirect
   PtcHybrid
   PtcOnly
-} derive(Eq, Debug)
+}
 
 ///|
 pub extend CetasPtcStatus with Eq::{not_equal, equal}

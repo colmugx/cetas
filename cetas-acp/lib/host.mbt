@@ -1527,6 +1527,23 @@ async fn build_session_agent(
     None => ()
   }
 
+  // Provider-owned tool planes join after the host's feature selection: they
+  // are part of the provider's own surface, not of the compiled recipe.
+  match platform.mcp_group {
+    Some(group) =>
+      for
+        ext in @cetas_core.provider_tool_extensions(
+          session_fs,
+          home=platform.home,
+          label="cetas-acp",
+          bus=event_bus,
+          group~,
+          initial_slot_id=router.active_id,
+        ) {
+        exts.push(ext)
+      }
+    None => ()
+  }
   // The catalog base (static manifest tools) is captured BEFORE the MCP
   // bridge joins: the bridge publishes its own live tool group, so including
   // it here would duplicate every name.

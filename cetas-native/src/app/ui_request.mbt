@@ -5,12 +5,13 @@
 /// maps normalized input/paste into deterministic UiResponse values.
 
 ///|
+#derive(Eq)
 pub(all) enum UiRequestPanelKind {
   UiPanelInput
   UiPanelSecretInput
   UiPanelConfirm
   UiPanelSelect
-} derive(Eq)
+}
 
 ///|
 pub extend UiRequestPanelKind with Eq::{equal, not_equal}

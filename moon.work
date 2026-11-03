@@ -22,7 +22,6 @@ members = [
   "./extension/posoco-ext-glob",
   "./extension/posoco-ext-grep",
   "./extension/posoco-ext-handoff",
-  "./extension/posoco-ext-herdr",
   "./extension/posoco-ext-typesafe",
   "./extension/posoco-ext-kind",
   "./extension/posoco-ext-kimi",

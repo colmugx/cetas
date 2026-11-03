@@ -51,7 +51,7 @@ fn NativeSessionState::switch_to(
 pub struct NativeHost {
   agent : @posoco.Agent
   shell : NativeShell
-  store : &@posoco.SessionStore
+  store : &@posoco.SessionPort
   session : NativeSessionState
   session_root : String?
   workspace_files : Array[String]
@@ -64,7 +64,7 @@ pub struct NativeHost {
 fn NativeHost::from_parts(
   agent : @posoco.Agent,
   shell : NativeShell,
-  store : &@posoco.SessionStore,
+  store : &@posoco.SessionPort,
   session_id : String,
   session_root~ : String? = None,
   session_state~ : NativeSessionState? = None,
@@ -149,6 +149,7 @@ pub async fn NativeHost::compose(
     approval~,
     ui~,
     event_bus=Some(event_bus),
+    tool_plane_group=mcp_group,
     bus_exts=Some(fn(bus) {
       [
         @statusbar.StatusBar(bus=Some(bus)) as &@posoco.Extension,
@@ -190,7 +191,7 @@ pub async fn NativeHost::compose(
   let host = NativeHost::from_parts(
     agent,
     shell,
-    session.session_store as &@posoco.SessionStore,
+    session.session_store as &@posoco.SessionPort,
     sid,
     session_root=Some(session.session_store.root_dir),
     session_state=Some(session_state),

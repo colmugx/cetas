@@ -29,7 +29,7 @@ async test "native approval uses composed UiPort lifecycle wrapper" {
     @posoco.ExtensionManifest(
       id="native_ui_composition_test",
       models=[model as &@posoco.ModelPort],
-      sessions=[store as &@posoco.SessionStore],
+      sessions=[store as &@posoco.SessionPort],
       observers=[observer as &@posoco.Observer],
     ),
   )

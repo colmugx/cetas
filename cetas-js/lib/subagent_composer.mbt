@@ -89,10 +89,10 @@ fn child_session_snapshot(session : @posoco.Session) -> @posoco.Session {
 }
 
 ///|
-extend CetasChildSessionStore with @posoco.SessionStore::{load}
+extend CetasChildSessionStore with @posoco.SessionPort::{load}
 
 ///|
-impl @posoco.SessionStore for CetasChildSessionStore with fn load(
+impl @posoco.SessionPort for CetasChildSessionStore with fn load(
   self,
   id : String,
 ) -> @posoco.Session raise @posoco.SessionError {
@@ -107,7 +107,7 @@ impl @posoco.SessionStore for CetasChildSessionStore with fn load(
 }
 
 ///|
-impl @posoco.SessionStore for CetasChildSessionStore with fn save(
+impl @posoco.SessionPort for CetasChildSessionStore with fn save(
   self,
   id : String,
   session : @posoco.Session,
@@ -119,7 +119,7 @@ impl @posoco.SessionStore for CetasChildSessionStore with fn save(
 }
 
 ///|
-impl @posoco.SessionStore for CetasChildSessionStore with fn append_messages(
+impl @posoco.SessionPort for CetasChildSessionStore with fn append_messages(
   self,
   id : String,
   from_index : Int32,
@@ -142,7 +142,7 @@ impl @posoco.SessionStore for CetasChildSessionStore with fn append_messages(
 }
 
 ///|
-impl @posoco.SessionStore for CetasChildSessionStore with fn truncate(
+impl @posoco.SessionPort for CetasChildSessionStore with fn truncate(
   self,
   id : String,
   from_index : Int32,
@@ -204,7 +204,7 @@ impl @posoco.Extension for CetasChildIo with fn extension_id(
 impl @posoco.Extension for CetasChildIo with fn manifest(self : CetasChildIo) -> @posoco.ExtensionManifest {
   @posoco.ExtensionManifest(
     id="cetas_child_io",
-    sessions=[self.store as &@posoco.SessionStore],
+    sessions=[self.store as &@posoco.SessionPort],
     observers=self.observers,
   )
 }

@@ -5,11 +5,12 @@
 /// no terminal IO and no Ratatui values cross this package.
 
 ///|
+#derive(Eq)
 pub(all) enum ShellStatus {
   ShellIdle
   ShellWorking(String)
   ShellFailed(String)
-} derive(Eq)
+}
 
 ///|
 pub extend ShellStatus with Eq::{equal, not_equal}

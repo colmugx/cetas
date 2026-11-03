@@ -13,7 +13,7 @@ fn run_prompt_test_agent(
         @posoco.ExtensionManifest(
           id="model",
           models=[model as &@posoco.ModelPort],
-          sessions=[store as &@posoco.SessionStore],
+          sessions=[store as &@posoco.SessionPort],
         ),
       ),
     ],

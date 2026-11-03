@@ -1441,7 +1441,7 @@ async fn seed_pi_custom_entries(
   session_id : String,
 ) -> Unit {
   let loaded : Result[@posoco.Session, Error] = Ok(
-    (handle.store as &@posoco.SessionStore).load(session_id),
+    (handle.store as &@posoco.SessionPort).load(session_id),
   ) catch {
     err => Err(err)
   }
@@ -1504,7 +1504,7 @@ async fn persist_pi_custom_entries(
     )
   }
   let loaded : Result[@posoco.Session, Error] = Ok(
-    (handle.store as &@posoco.SessionStore).load(session_id),
+    (handle.store as &@posoco.SessionPort).load(session_id),
   ) catch {
     err => Err(err)
   }
@@ -1525,7 +1525,7 @@ async fn persist_pi_custom_entries(
   let metadata = session.metadata.copy()
   metadata[PI_CUSTOM_ENTRIES_KEY] = Json::array(merged)
   let saved : Result[Unit, Error] = Ok(
-    (handle.store as &@posoco.SessionStore).save(session_id, {
+    (handle.store as &@posoco.SessionPort).save(session_id, {
       messages: session.messages,
       metadata,
     }),
@@ -1744,44 +1744,20 @@ pub fn cetas_js_runtime_create_agent(
               stats,
               policy,
             ]
-            // Provider-owned tool plane: the GLM Coding Plan's official remote
-            // MCP servers are announced by the provider extension itself while
-            // one of its models is active, and withdrawn when the selection
-            // leaves. Only the composition root decides to include that
-            // extension — it never selects servers, tools, or models.
-            let zai_tools_source = @cetas_core.provider_config_source(
-              context_fs,
-              home=runtime.config.home,
-              provider_id=@zai_coding_plan.zai_coding_plan_provider_id(),
-            ) catch {
-              _ => None
-            }
-            match zai_tools_source {
-              Some(source) => {
-                // The companion reads the very same settings source the model
-                // catalog used: one interpretation, one credential snapshot.
-                let zai_tools_config = @zai_coding_plan.zai_coding_plan_build_config(
-                  source,
-                ) catch {
-                  _ => None
-                }
-                match zai_tools_config {
-                  Some(config) =>
-                    exts.push(
-                      @zai_coding_plan.ZaiCodingPlanTools(
-                        config~,
-                        bus=event_bus,
-                        group~,
-                        initial_slot_id=model
-                          .manager_control()
-                          .active_selection().model_id,
-                      )
-                      as &@posoco.Extension,
-                    )
-                  None => ()
-                }
-              }
-              None => ()
+            // Provider-owned tool planes (the plan's official remote MCP
+            // servers and, later, vendor search): each provider extension
+            // announces its own group while one of its models is active.
+            // Cetas-core owns the provider knowledge; the host supplies only
+            // the session bus, the task group, and the current selection.
+            for
+              ext in @cetas_core.provider_tool_extensions(
+                context_fs,
+                home=runtime.config.home,
+                bus=event_bus,
+                group~,
+                initial_slot_id=model.manager_control().active_selection().model_id,
+              ) {
+              exts.push(ext)
             }
             // The quota publisher belongs to the provider-router composition.
             // Its independent status segments must not survive a manager switch.
@@ -2000,21 +1976,6 @@ pub fn cetas_js_runtime_create_agent(
               )
             })
             exts.push(askquestion as &@posoco.Extension)
-
-            // cetas-bun is the only outlet that reports presence to herdr; both
-            // presence reporting and herdr-pane delegation are env-gated — absent env → absent exts.
-            match @herdr.HerdrReporter::detect() {
-              Some(reporter) => exts.push(reporter as &@posoco.Extension)
-              None => ()
-            }
-            match
-              @herdr.HerdrDelegate::detect(
-                cwd=runtime.config.cwd,
-                parent_yolo=Some(fn() { policy.mode() is @permission.Yolo }),
-              ) {
-              Some(delegate) => exts.push(delegate as &@posoco.Extension)
-              None => ()
-            }
             match
               build_compiled_zcode_ext(
                 env=fn(key : String) { @env.get_env_var(key) },
@@ -2216,7 +2177,6 @@ pub fn cetas_js_runtime_create_agent(
                       ),
                     )
                     handle.observer.on_event(None, event)
-                    cetas_js_herdr_release()
                     Ok(())
                   }
                 }
@@ -2783,17 +2743,6 @@ pub fn cetas_js_shutdown(handle : CetasJsAgent) -> @js_async.Promise[Unit] {
 }
 
 ///|
-/// Best-effort herdr authority release for exits that never reach Agent
-/// shutdown (composition failure after the reporter's initial idle report).
-/// Env-gated like detect(); the spawn seam never raises.
-pub fn cetas_js_herdr_release() -> Unit {
-  match @herdr.HerdrReporter::from_env() {
-    Some(reporter) => reporter.release()
-    None => ()
-  }
-}
-
-///|
 /// Request an abort of the active run (the JS host's ESC interrupt).
 /// Synchronous and idempotent: the abort is enqueued into the control
 /// mailbox and the loop observes it at its next safe point, so the pending
@@ -2904,7 +2853,7 @@ pub fn cetas_js_rewind(
   @js_async.Promise::from_async() <| () => {
     let outcome : Result[Unit, Error] = Ok(
       @cetas_core.rewind_session(
-        handle.store as &@posoco.SessionStore,
+        handle.store as &@posoco.SessionPort,
         session_id,
         from_index,
       ),

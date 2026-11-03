@@ -36,7 +36,7 @@ async test "e2e: Cetas keeps project context envelope self-describing" {
       ),
       @posoco.ManifestOnly::ManifestOnly(
         @posoco.ExtensionManifest(id="store", sessions=[
-          store as &@posoco.SessionStore,
+          store as &@posoco.SessionPort,
         ]),
       ),
       @posoco.ManifestOnly::ManifestOnly(
@@ -145,7 +145,7 @@ async test "e2e: base + cetas contributor + ext contributor share one SystemMess
       ),
       @posoco.ManifestOnly::ManifestOnly(
         @posoco.ExtensionManifest(id="store", sessions=[
-          store as &@posoco.SessionStore,
+          store as &@posoco.SessionPort,
         ]),
       ),
       @posoco.ManifestOnly::ManifestOnly(

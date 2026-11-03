@@ -30,7 +30,6 @@ import {
   "colmugx/posoco-ext-askquestion" @askquestion,
   "colmugx/posoco-ext-handoff" @handoff,
   "colmugx/posoco-ext-lazytools" @lazytools,
-  "posoco/ext-herdr" @herdr,
   // recipe-imports:end
 }
 

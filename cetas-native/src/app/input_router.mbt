@@ -6,11 +6,12 @@
 /// terminal side effects.
 
 ///|
+#derive(Eq)
 pub(all) enum NativeInputRoute {
   RouteUiActive
   RouteUiSettled
   RouteShell(ShellInputAction)
-} derive(Eq)
+}
 
 ///|
 pub extend NativeInputRoute with Eq::{equal, not_equal}

@@ -7,12 +7,13 @@
 /// boundary; Tab requests completion.
 
 ///|
+#derive(Eq)
 pub(all) enum EditorInputAction {
   EditorUnchanged
   EditorChanged
   EditorSubmit(String)
   EditorComplete
-} derive(Eq)
+}
 
 ///|
 pub extend EditorInputAction with Eq::{equal, not_equal}

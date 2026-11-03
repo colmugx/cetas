@@ -5,6 +5,7 @@
 /// committed to terminal scrollback; live rows remain in the inline scene.
 
 ///|
+#derive(Eq)
 pub(all) enum TranscriptRowKind {
   TranscriptUser
   TranscriptQueuedUser
@@ -13,7 +14,7 @@ pub(all) enum TranscriptRowKind {
   TranscriptTool
   TranscriptSystem
   TranscriptError
-} derive(Eq)
+}
 
 ///|
 pub extend TranscriptRowKind with Eq::{equal, not_equal}

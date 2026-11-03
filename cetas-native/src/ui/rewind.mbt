@@ -12,12 +12,13 @@ pub(all) struct RewindPoint {
 }
 
 ///|
+#derive(Eq)
 pub(all) enum RewindPickerAction {
   RewindUnhandled
   RewindChanged
   RewindCancelled
   RewindPicked(Int32)
-} derive(Eq)
+}
 
 ///|
 pub extend RewindPickerAction with Eq::{equal, not_equal}

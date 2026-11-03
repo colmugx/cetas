@@ -5,6 +5,7 @@ import {
   "colmugx/posoco-ext-skills",
   "colmugx/posoco/error",
   "colmugx/posoco/port",
+  "moonbitlang/core/json",
 }
 
 // Values
@@ -20,7 +21,7 @@ pub fn Forme::Forme(host_note? : String?, version_note? : String?) -> Self
 pub fn Forme::builtin_manual_skills(Self) -> Array[@posoco-ext-skills.SkillDescriptor]
 pub fn Forme::commands(Self) -> Array[@port.CommandDef]
 pub fn Forme::extension_id(Self) -> String
-pub async fn Forme::invoke(Self, String, Json) -> @port.CommandOutcome raise @error.CommandError
+pub async fn Forme::invoke(Self, String, @json.Json) -> @port.CommandOutcome raise @error.CommandError
 pub fn Forme::manifest(Self) -> @port.ExtensionManifest
 pub fn Forme::system_prompt(Self) -> String
 pub impl @port.CommandPort for Forme

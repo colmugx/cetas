@@ -8,7 +8,7 @@ async test "native command autocomplete and dispatch use the composed Agent cata
     @posoco.ExtensionManifest(
       id="native_autocomplete_io",
       models=[model as &@posoco.ModelPort],
-      sessions=[store as &@posoco.SessionStore],
+      sessions=[store as &@posoco.SessionPort],
     ),
   )
   let agent = @posoco.Agent(
@@ -18,7 +18,7 @@ async test "native command autocomplete and dispatch use the composed Agent cata
   let host = NativeHost::from_parts(
     agent,
     shell,
-    store as &@posoco.SessionStore,
+    store as &@posoco.SessionPort,
     "native-autocomplete",
     workspace_files=["src/", "src/main.mbt", "README.md"],
     skill_completion_items=[

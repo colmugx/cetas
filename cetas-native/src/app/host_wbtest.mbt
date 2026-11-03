@@ -10,7 +10,7 @@ async test "native host routes a real Posoco turn into NativeShell" {
     @posoco.ExtensionManifest(
       id="native_host_test_io",
       models=[model as &@posoco.ModelPort],
-      sessions=[store as &@posoco.SessionStore],
+      sessions=[store as &@posoco.SessionPort],
     ),
   )
   let agent = @posoco.Agent(
@@ -20,7 +20,7 @@ async test "native host routes a real Posoco turn into NativeShell" {
   let host = NativeHost::from_parts(
     agent,
     shell,
-    store as &@posoco.SessionStore,
+    store as &@posoco.SessionPort,
     "native-host-test",
   )
 
@@ -55,7 +55,7 @@ async test "native host enumerates rewind points from physical JSONL lines" {
     @posoco.ExtensionManifest(
       id="native_host_rewind_io",
       models=[model as &@posoco.ModelPort],
-      sessions=[store as &@posoco.SessionStore],
+      sessions=[store as &@posoco.SessionPort],
     ),
   )
   let agent = @posoco.Agent(
@@ -116,7 +116,7 @@ async test "native host enumerates rewind points from physical JSONL lines" {
   let host = NativeHost::from_parts(
     agent,
     shell,
-    store as &@posoco.SessionStore,
+    store as &@posoco.SessionPort,
     session_id,
     session_root=Some(root),
   )
@@ -154,7 +154,7 @@ async test "native host adopts typed session redirects immediately" {
     @posoco.ExtensionManifest(
       id="native_host_redirect_io",
       models=[model as &@posoco.ModelPort],
-      sessions=[store as &@posoco.SessionStore],
+      sessions=[store as &@posoco.SessionPort],
     ),
   )
   let agent = @posoco.Agent(
@@ -164,7 +164,7 @@ async test "native host adopts typed session redirects immediately" {
   let host = NativeHost::from_parts(
     agent,
     shell,
-    store as &@posoco.SessionStore,
+    store as &@posoco.SessionPort,
     "session-old",
     session_state=Some(state),
   )

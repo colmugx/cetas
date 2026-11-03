@@ -8,7 +8,7 @@
 /// failures retain their typed SessionError variant. Hosts should keep policy
 /// guards (for example "not while a turn is running") outside this helper.
 pub async fn rewind_session(
-  store : &@posoco.SessionStore,
+  store : &@posoco.SessionPort,
   session_id : String,
   from_index : Int32,
 ) -> Unit raise @posoco.SessionError {

@@ -37,7 +37,6 @@ async fn tk_host(
     effort_override~,
     session_id~,
     fs=Some(fs as &@workspace.WorkspaceFs),
-    detect_herdr=false,
     warn=fn(text : String) { warnings.push(text) },
   )
   (host, warnings)

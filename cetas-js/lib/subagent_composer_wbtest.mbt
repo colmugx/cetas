@@ -1,5 +1,5 @@
 ///|
-extend CetasChildSessionStore with @posoco.SessionStore::{save}
+extend CetasChildSessionStore with @posoco.SessionPort::{save}
 
 ///|
 fn subagent_test_slot(

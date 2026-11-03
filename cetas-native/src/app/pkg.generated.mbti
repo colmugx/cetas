@@ -13,6 +13,7 @@ import {
   "colmugx/posoco/types",
   "moonbitlang/async",
   "moonbitlang/async/aqueue",
+  "moonbitlang/core/json",
   "posoco/ext-oauth",
 }
 
@@ -58,12 +59,13 @@ pub fn CommandLockModel::label(Self) -> String?
 pub fn CommandLockModel::new() -> Self
 pub fn CommandLockModel::release(Self) -> Bool
 
+#derive(Eq)
 pub(all) enum EditorInputAction {
   EditorUnchanged
   EditorChanged
   EditorSubmit(String)
   EditorComplete
-} derive(Eq)
+}
 pub fn EditorInputAction::equal(Self, Self) -> Bool
 pub fn EditorInputAction::not_equal(Self, Self) -> Bool
 
@@ -138,7 +140,7 @@ pub(all) enum NativeEvent {
 pub struct NativeHost {
   agent : @posoco.Agent
   shell : NativeShell
-  store : &@port.SessionStore
+  store : &@port.SessionPort
   session : NativeSessionState
   session_root : String?
   workspace_files : Array[String]
@@ -162,11 +164,12 @@ pub fn NativeHost::session_id(Self) -> String
 pub fn NativeHost::shell(Self) -> NativeShell
 pub async fn NativeHost::shutdown(Self) -> Unit
 
+#derive(Eq)
 pub(all) enum NativeInputRoute {
   RouteUiActive
   RouteUiSettled
   RouteShell(ShellInputAction)
-} derive(Eq)
+}
 pub fn NativeInputRoute::equal(Self, Self) -> Bool
 pub fn NativeInputRoute::not_equal(Self, Self) -> Bool
 
@@ -190,6 +193,7 @@ pub fn NativeInputRouter::ui_option_label(Self, Int32) -> String?
 pub fn NativeInputRouter::ui_prompt(Self) -> String?
 pub fn NativeInputRouter::ui_selected_index(Self) -> Int32?
 
+#derive(Eq)
 pub(all) enum NativeLoopSignal {
   LoopContinue
   LoopExit
@@ -201,7 +205,7 @@ pub(all) enum NativeLoopSignal {
   LoopToggleToolOutput
   LoopLogin(String)
   LoopTerminalFailed(Int32)
-} derive(Eq)
+}
 pub fn NativeLoopSignal::equal(Self, Self) -> Bool
 pub fn NativeLoopSignal::not_equal(Self, Self) -> Bool
 
@@ -245,13 +249,14 @@ pub async fn NativeSetupLoop::run_until_signal(Self) -> NativeSetupSignal
 pub fn NativeSetupLoop::set_command_busy(Self, Bool) -> Unit
 pub fn NativeSetupLoop::tick(Self) -> NativeSetupSignal
 
+#derive(Eq)
 pub(all) enum NativeSetupSignal {
   SetupContinue
   SetupLogin(String)
   SetupRetry
   SetupExit
   SetupTerminalFailed(Int32)
-} derive(Eq)
+}
 pub fn NativeSetupSignal::equal(Self, Self) -> Bool
 pub fn NativeSetupSignal::not_equal(Self, Self) -> Bool
 
@@ -295,7 +300,7 @@ pub fn NativeShell::queued_prompt_count(Self) -> Int32
 pub fn NativeShell::request_interrupt(Self) -> Unit
 pub fn NativeShell::scrollback_text(Self, @ui.TranscriptRowSnapshot) -> String
 pub fn NativeShell::session_redirect(Self, String, String) -> Unit
-pub fn NativeShell::snapshot_json(Self) -> Json
+pub fn NativeShell::snapshot_json(Self) -> @json.Json
 pub fn NativeShell::status(Self) -> ShellStatus
 pub fn NativeShell::take_scrollback_ready(Self) -> Array[@ui.TranscriptRowSnapshot]
 pub fn NativeShell::termination_notice_count(Self) -> Int32
@@ -402,6 +407,7 @@ pub fn PendingUiRequest::id(Self) -> Int32
 pub fn PendingUiRequest::request(Self) -> @port.UiRequest
 pub fn PendingUiRequest::respond(Self, @port.UiResponse) -> Bool
 
+#derive(Eq)
 pub(all) enum PromptSubmitOutcome {
   PromptIgnored
   PromptStarted
@@ -409,10 +415,11 @@ pub(all) enum PromptSubmitOutcome {
   PromptDeferred
   PromptQueueFull(Int32)
   PromptQueueFailed(String)
-} derive(Eq)
+}
 pub fn PromptSubmitOutcome::equal(Self, Self) -> Bool
 pub fn PromptSubmitOutcome::not_equal(Self, Self) -> Bool
 
+#derive(Eq)
 pub(all) enum RuntimeEvent {
   RuntimeIdle
   RuntimeUiUpdated
@@ -424,7 +431,7 @@ pub(all) enum RuntimeEvent {
   RuntimeResize(UInt32, UInt32)
   RuntimeFocus(Bool)
   RuntimeTerminalError(Int32)
-} derive(Eq)
+}
 pub fn RuntimeEvent::equal(Self, Self) -> Bool
 pub fn RuntimeEvent::not_equal(Self, Self) -> Bool
 
@@ -437,6 +444,7 @@ pub(all) struct RuntimeInputState {
   dismissible_overlay_visible : Bool
 }
 
+#derive(Eq)
 pub(all) enum ShellInputAction {
   InputPass
   InputConsume
@@ -447,7 +455,7 @@ pub(all) enum ShellInputAction {
   InputOpenRewind
   InputToggleThinking
   InputToggleToolOutput
-} derive(Eq)
+}
 pub fn ShellInputAction::equal(Self, Self) -> Bool
 pub fn ShellInputAction::not_equal(Self, Self) -> Bool
 
@@ -458,20 +466,22 @@ pub fn ShellInputModel::handle_global_key(Self, @ui.TerminalEvent, UInt64, Bool,
 pub fn ShellInputModel::last_escape_at_ms(Self) -> UInt64?
 pub fn ShellInputModel::new() -> Self
 
+#derive(Eq)
 pub(all) enum ShellStatus {
   ShellIdle
   ShellWorking(String)
   ShellFailed(String)
-} derive(Eq)
+}
 pub fn ShellStatus::equal(Self, Self) -> Bool
 pub fn ShellStatus::not_equal(Self, Self) -> Bool
 
+#derive(Eq)
 pub(all) enum UiRequestPanelKind {
   UiPanelInput
   UiPanelSecretInput
   UiPanelConfirm
   UiPanelSelect
-} derive(Eq)
+}
 pub fn UiRequestPanelKind::equal(Self, Self) -> Bool
 pub fn UiRequestPanelKind::not_equal(Self, Self) -> Bool
 
