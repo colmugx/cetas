@@ -3,7 +3,7 @@ async test "native host routes a real Posoco turn into NativeShell" {
   let model = @posoco.ScriptedModel([
     @posoco.ScriptedModelStep::Respond(@posoco.tk_stop_response("native ok")),
   ])
-  let store = @posoco.RecordingSessionStore::RecordingSessionStore()
+  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
   let shell = NativeShell::new()
   let observer = NativeShellObserver::new(shell)
   let io = @posoco.ManifestOnly::ManifestOnly(
@@ -49,7 +49,7 @@ async test "native host routes a real Posoco turn into NativeShell" {
 ///|
 async test "native host enumerates rewind points from physical JSONL lines" {
   let model = @posoco.ScriptedModel([])
-  let store = @posoco.RecordingSessionStore::RecordingSessionStore()
+  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
   let shell = NativeShell::new()
   let io = @posoco.ManifestOnly::ManifestOnly(
     @posoco.ExtensionManifest(
@@ -146,7 +146,7 @@ async test "native host enumerates rewind points from physical JSONL lines" {
 ///|
 async test "native host adopts typed session redirects immediately" {
   let model = @posoco.ScriptedModel([])
-  let store = @posoco.RecordingSessionStore::RecordingSessionStore()
+  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
   let shell = NativeShell::new()
   let state = NativeSessionState::new("session-old")
   let observer = NativeShellObserver::new(shell, session_state=Some(state))

@@ -67,6 +67,7 @@ const onUnhandledFault = makeUnhandledFaultHandler({
   },
   releaseResources: () => {
     disposeSharedPiModuleMirror();
+    moonbit.cetas_js_herdr_release();
   },
   writeDiagnostic: (notice) => {
     writeSync(2, `${notice}\ncetas: exiting; restart to recover the persisted session.\n`);

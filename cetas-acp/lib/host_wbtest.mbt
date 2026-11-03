@@ -461,7 +461,7 @@ fn tk_spawn_session_plan(
         exts=[
           @posoco.tk_ext(id="model", model=Some(model)),
           @posoco.tk_ext(id="io", sessions=[
-            @posoco.RecordingSessionStore::RecordingSessionStore()
+            @posoco.RecordingSessionPort::RecordingSessionPort()
             as &@posoco.SessionPort,
           ]),
           bridge,
@@ -3923,7 +3923,7 @@ fn tk_spawn_session_plan_noreview(
         exts=[
           @posoco.tk_ext(id="model", model=Some(model)),
           @posoco.tk_ext(id="io", sessions=[
-            @posoco.RecordingSessionStore::RecordingSessionStore()
+            @posoco.RecordingSessionPort::RecordingSessionPort()
             as &@posoco.SessionPort,
           ]),
           bridge,

@@ -11,7 +11,7 @@ async test "e2e: Cetas keeps project context envelope self-describing" {
   let model = @posoco.ScriptedModel([
     @posoco.ScriptedModelStep::Respond(@posoco.tk_stop_response("ok")),
   ])
-  let store = @posoco.RecordingSessionStore::RecordingSessionStore()
+  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
   let observer = @posoco.RecordingObserver::RecordingObserver()
   let ui = @posoco.NoopUiPort::NoopUiPort()
   let context_contributor = CetasContextStub(
@@ -116,7 +116,7 @@ async test "e2e: base + cetas contributor + ext contributor share one SystemMess
   let model = @posoco.ScriptedModel([
     @posoco.ScriptedModelStep::Respond(@posoco.tk_stop_response("ok")),
   ])
-  let store = @posoco.RecordingSessionStore::RecordingSessionStore()
+  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
   let observer = @posoco.RecordingObserver::RecordingObserver()
   let ui = @posoco.NoopUiPort::NoopUiPort()
   let context_contributor = CetasContextStub(

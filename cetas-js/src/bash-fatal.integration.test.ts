@@ -16,7 +16,7 @@ const handle = makeUnhandledFaultHandler({
     return "recorded";
   },
   stopSurface() {},
-  releaseResources() {},
+  releaseResources() { moonbit.cetas_js_herdr_release(); },
   writeDiagnostic() {},
   exitFatal() { process.exit(1); },
 });

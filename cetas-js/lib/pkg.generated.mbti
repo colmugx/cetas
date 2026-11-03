@@ -44,6 +44,8 @@ pub fn cetas_js_describe_setup(CetasJsConfig) -> @js_async.Promise[String]
 
 pub fn cetas_js_enqueue_follow_up(CetasJsAgent, String, String) -> String
 
+pub fn cetas_js_herdr_release() -> Unit
+
 pub fn cetas_js_invoke_command(CetasJsAgent, String, String) -> @js_async.Promise[String]
 
 pub fn cetas_js_list_commands(CetasJsAgent) -> String

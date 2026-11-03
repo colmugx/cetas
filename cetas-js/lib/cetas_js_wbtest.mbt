@@ -326,7 +326,7 @@ async test "held run_scoped admits sibling background task submits" {
       @posoco.tk_stop_response("second turn done"),
     ),
   ])
-  let store = @posoco.RecordingSessionStore::RecordingSessionStore()
+  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
   let agent = @posoco.Agent(
     exts=[
       @posoco.tk_ext(id="model", model=Some(model)),

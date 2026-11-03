@@ -53,6 +53,9 @@ pub async fn CetasRunHost::CetasRunHost(
   fs~ : &@workspace.WorkspaceFs? = None,
   mcp_group~ : @async.TaskGroup[Unit]? = None,
   label~ : String = "cetas-run",
+  /// Test-safety knob only (tests pass false so composition never shells
+  /// out to the real herdr CLI); production keeps the default.
+  detect_herdr~ : Bool = true,
   warn~ : async (String) -> Unit noraise = async fn(text : String) noraise {
     @stdio.stderr.write(text) catch {
       _ => ()
@@ -72,9 +75,14 @@ pub async fn CetasRunHost::CetasRunHost(
     warn~,
     mcp_group~,
   )
-  // Client-side extensions contributed by the embedding binary, not the
-  // shared recipe. Empty today; kept as the seam for host-owned observers.
   let client_exts : Array[&@posoco.Extension] = []
+  // Headless reports presence to herdr when running inside a pane.
+  if detect_herdr {
+    match @herdr.HerdrReporter::detect() {
+      Some(reporter) => client_exts.push(reporter as &@posoco.Extension)
+      None => ()
+    }
+  }
   let feature_exts = build_compiled_recipe_features(
     ctx={ fs, cwd, home, },
     host_group=mcp_group,

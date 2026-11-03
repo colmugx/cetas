@@ -9,7 +9,7 @@ async test "run_resume replays a trailing user message and returns assistant tex
       @posoco.tk_stop_response("resumed answer"),
     ),
   ])
-  let store = @posoco.RecordingSessionStore::RecordingSessionStore()
+  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
   store.seed("s1", {
     messages: [@posoco.tk_user_msg("task one")],
     metadata: Map::from_array([]),
@@ -48,7 +48,7 @@ async test "run_resume appends the continuation for a non-user transcript tail" 
   let model = @posoco.ScriptedModel([
     @posoco.ScriptedModelStep::Respond(@posoco.tk_stop_response("continued")),
   ])
-  let store = @posoco.RecordingSessionStore::RecordingSessionStore()
+  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
   store.seed("s2", {
     messages: [
       @posoco.tk_user_msg("task two"),

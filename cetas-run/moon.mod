@@ -39,5 +39,6 @@ import {
   "colmugx/posoco-ext-askquestion@0.1.0",
   "colmugx/posoco-ext-handoff@0.1.0",
   "colmugx/posoco-ext-lazytools@0.1.0",
+  "posoco/ext-herdr@0.1.0",
   // recipe-deps:end
 }

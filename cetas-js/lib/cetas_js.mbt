@@ -1976,6 +1976,13 @@ pub fn cetas_js_runtime_create_agent(
               )
             })
             exts.push(askquestion as &@posoco.Extension)
+
+            // cetas-bun reports presence to herdr when running inside a pane.
+            // Env-gated — absent env → absent ext.
+            match @herdr.HerdrReporter::detect() {
+              Some(reporter) => exts.push(reporter as &@posoco.Extension)
+              None => ()
+            }
             match
               build_compiled_zcode_ext(
                 env=fn(key : String) { @env.get_env_var(key) },
@@ -2177,6 +2184,7 @@ pub fn cetas_js_runtime_create_agent(
                       ),
                     )
                     handle.observer.on_event(None, event)
+                    cetas_js_herdr_release()
                     Ok(())
                   }
                 }
@@ -2739,6 +2747,17 @@ pub fn cetas_js_shutdown(handle : CetasJsAgent) -> @js_async.Promise[Unit] {
     // idempotent Agent shutdown and ends the lifetime group with its tasks.
     handle.agent.shutdown()
     handle.serve_close.put(())
+  }
+}
+
+///|
+/// Best-effort herdr authority release for exits that never reach Agent
+/// shutdown (composition failure after the reporter's initial idle report).
+/// Env-gated like detect(); the spawn seam never raises.
+pub fn cetas_js_herdr_release() -> Unit {
+  match @herdr.HerdrReporter::from_env() {
+    Some(reporter) => reporter.release()
+    None => ()
   }
 }
 
