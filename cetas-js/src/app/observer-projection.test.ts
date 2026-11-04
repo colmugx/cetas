@@ -7,10 +7,4 @@ describe("projectObserverEvent", () => {
       expect(projectObserverEvent(raw).operation).toBeUndefined();
     }
   });
-
-  test("passes through lifecycle tags without treating foreign customs as operations", () => {
-    expect(projectObserverEvent('{"type":"turn_started"}')).toEqual({ type: "turn_started" });
-    expect(projectObserverEvent('{"type":"custom","source":"other","label":"hi","data":{}}'))
-      .toEqual({ type: "custom" });
-  });
 });

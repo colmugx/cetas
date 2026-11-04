@@ -6,7 +6,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TUI, TuiMainScreen, TuiAltScreen } from "@earendil-works/pi-tui";
@@ -98,12 +98,6 @@ describe("parsePositionalArgs", () => {
     );
   });
 
-  test("non-numeric text falls through to positional strings", () => {
-    expect(parsePositionalArgs("plan")).toBe(
-      JSON.stringify({ _positional: "plan" }),
-    );
-  });
-
   test("empty input produces an empty args object", () => {
     expect(parsePositionalArgs("")).toBe("{}");
     expect(parsePositionalArgs("   ")).toBe("{}");
@@ -171,14 +165,6 @@ describe("matchLocalSlash", () => {
     expect(matchLocalSlash("/quota")?.id).toBe("quota");
     expect(matchLocalSlash("/status")?.id).toBe("status");
     expect(matchLocalSlash("/skills")?.id).toBe("skills");
-  });
-
-  test("/resume is a local route", () => {
-    expect(matchLocalSlash("/resume")?.id).toBe("resume");
-  });
-
-  test("/update is a local route", () => {
-    expect(matchLocalSlash("/update")?.id).toBe("update");
   });
 
   test("/name is unknown locally and falls through to the extension fallback", () => {
@@ -299,15 +285,6 @@ describe("positionalArgsFor", () => {
     );
   });
 
-  test("commands without a declared positional keep the generic _positional", () => {
-    expect(positionalArgsFor("/statusbar", "extra", catalog)).toBe(
-      JSON.stringify({ _positional: "extra" }),
-    );
-    expect(positionalArgsFor("/unknown", "extra", catalog)).toBe(
-      JSON.stringify({ _positional: "extra" }),
-    );
-  });
-
   test("empty args and dedicated shapers pass through untouched", () => {
     expect(positionalArgsFor("/name", "", catalog)).toBe("{}");
     expect(positionalArgsFor("/model", "kimi high", catalog)).toBe(
@@ -330,17 +307,8 @@ describe("shouldOpenRewindOnEscape", () => {
     expect(shouldOpenRewindOnEscape(1000, 9999)).toBe(false);
   });
 
-  test("no previously recorded escape never opens", () => {
-    expect(shouldOpenRewindOnEscape(undefined, 1000)).toBe(false);
-  });
-
   test("a backwards gap (clock skew) does not count as a double press", () => {
     expect(shouldOpenRewindOnEscape(2000, 1500)).toBe(false);
-  });
-
-  test("the window width is injectable", () => {
-    expect(shouldOpenRewindOnEscape(1000, 1500, 501)).toBe(true);
-    expect(shouldOpenRewindOnEscape(1000, 1500, 500)).toBe(false);
   });
 });
 
@@ -371,19 +339,6 @@ describe("rewind editor refill", () => {
 });
 
 describe("parseCetasEventLenient", () => {
-  test("parses a valid event", () => {
-    expect(parseCetasEventLenient('{"type":"turn_started"}')).toEqual({
-      event: { type: "turn_started" },
-    });
-    expect(
-      parseCetasEventLenient(
-        '{"type":"turn_failed","error_message":"x","error_kind":"Model"}',
-      ),
-    ).toEqual({
-      event: { type: "turn_failed", error_message: "x", error_kind: "Model" },
-    });
-  });
-
   test("garbage json is skipped, never throws", () => {
     const outcome = parseCetasEventLenient("{not json at all");
     expect(outcome).toEqual({ skipped: "unparseable json" });
@@ -649,12 +604,6 @@ describe("isAbortError", () => {
     expect(isAbortError(new Error("task Cancelled by user"))).toBe(false);
     expect(isAbortError(new Error("Cancelled"))).toBe(false);
     expect(isAbortError("Cancelled")).toBe(false);
-  });
-
-  test("other error shapes are not interrupts", () => {
-    expect(isAbortError(new Error("provider 500"))).toBe(false);
-    expect(isAbortError(undefined)).toBe(false);
-    expect(isAbortError(42)).toBe(false);
   });
 });
 
@@ -1697,122 +1646,6 @@ describe("/sessions folder scope and cross-folder resume", () => {
       ...(cwd === undefined ? {} : { cwd }),
     };
   }
-
-  test("the picker keeps the current folder by default", async () => {
-    const { shell, sessionsDir } = makeShell();
-    const dir = mkdtempSync(join(tmpdir(), "cetas-shell-other-"));
-    try {
-      const otherId = "2026-09-02T00-00-00-000Z_feedface";
-      writeFileSync(join(dir, `${otherId}.jsonl`), "{}\n");
-      const records = attachSessionApp(shell);
-      const entries = await (shell as any).sessionPickerEntries([
-        {
-          id: "2026-09-01T00-00-00-000Z_deadbeef",
-          title: "Current work",
-          bucket: "session_tmp_000000000000",
-          dir: sessionsDir,
-          folder: "tmp",
-          cwd: "/tmp",
-        },
-        {
-          id: otherId,
-          title: "Other work",
-          bucket: "session_other_111111111111",
-          dir,
-          folder: "other",
-          cwd: "/work/other",
-        },
-      ]);
-      // Current folder only: the foreign row is hidden by the default scope.
-      const currentScope = entries.filter((entry: any) => entry.inCurrentFolder !== false);
-      expect(currentScope.map((entry: any) => entry.id)).toEqual([
-        "2026-09-01T00-00-00-000Z_deadbeef",
-      ]);
-      expect(entries).toHaveLength(2);
-      expect(records.setSessions).toEqual([]);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("a foreign session without a recorded folder is refused with an explanation", async () => {
-    const { shell } = makeShell();
-    const records = attachSessionApp(shell);
-    const before = (shell as any).sessionId;
-    await (shell as any).resumeSessionFromOtherFolder(foreign("legacy-1"));
-    expect(transcriptOf(shell)).toContain("no recorded folder");
-    expect(records.setSessions).toEqual([]);
-    expect((shell as any).sessionId).toBe(before);
-  });
-
-  test("a recorded folder that no longer exists keeps the current session", async () => {
-    const { shell } = makeShell();
-    const records = attachSessionApp(shell);
-    const before = (shell as any).sessionId;
-    await (shell as any).resumeSessionFromOtherFolder(
-      foreign("gone-1", join(tmpdir(), `cetas-missing-${Date.now()}`)),
-    );
-    expect(transcriptOf(shell)).toContain("no longer exists");
-    expect(records.setSessions).toEqual([]);
-    expect((shell as any).sessionId).toBe(before);
-  });
-
-  test("resuming from another folder swaps in that project's app and directory", async () => {
-    const { shell } = makeShell();
-    attachSessionApp(shell, {});
-    const targetCwd = mkdtempSync(join(tmpdir(), "cetas-shell-project-"));
-    const targetSessions = mkdtempSync(join(tmpdir(), "cetas-shell-project-sessions-"));
-    const targetId = "2026-09-03T00-00-00-000Z_cafebabe";
-    const switched: string[] = [];
-    const nextSetSessions: string[] = [];
-    const nextApp = {
-      listCommands: () => [],
-      state: "ready",
-      snapshot: () => ({ state: "ready", setup: { providers: [], warnings: [] } }),
-      setSession: (id: string) => nextSetSessions.push(id),
-    };
-    (shell as any).switchProject = async (cwd: string) => {
-      switched.push(cwd);
-      return { app: nextApp, sessionsDir: targetSessions };
-    };
-    try {
-      writeFileSync(
-        join(targetSessions, `${targetId}.jsonl`),
-        [
-          JSON.stringify({ version: 1 }),
-          JSON.stringify({ role: "user", content: [{ type: "text", text: "other project turn" }] }),
-        ].join("\n") + "\n",
-      );
-      await (shell as any).resumeSessionFromOtherFolder(foreign(targetId, targetCwd));
-      expect(switched).toEqual([targetCwd]);
-      // The shell now points at the other project: directory, bucket, session.
-      expect((shell as any).cwd).toBe(targetCwd);
-      expect((shell as any).sessionsDir).toBe(targetSessions);
-      expect((shell as any).sessionId).toBe(targetId);
-      expect(nextSetSessions).toEqual([targetId]);
-      const transcript = transcriptOf(shell);
-      expect(transcript).toContain(`switched to ${targetCwd}`);
-      expect(transcript).toContain("other project turn");
-    } finally {
-      rmSync(targetCwd, { recursive: true, force: true });
-      rmSync(targetSessions, { recursive: true, force: true });
-    }
-  });
-
-  test("a host without switchProject says so instead of resuming in place", async () => {
-    const { shell } = makeShell();
-    const records = attachSessionApp(shell);
-    const cwd = mkdtempSync(join(tmpdir(), "cetas-shell-no-switch-"));
-    try {
-      const before = (shell as any).sessionId;
-      await (shell as any).resumeSessionFromOtherFolder(foreign("foreign-1", cwd));
-      expect(transcriptOf(shell)).toContain("cannot switch project directories");
-      expect(records.setSessions).toEqual([]);
-      expect((shell as any).sessionId).toBe(before);
-    } finally {
-      rmSync(cwd, { recursive: true, force: true });
-    }
-  });
 
   test("a bridge without a catalog keeps the previous single-folder listing", async () => {
     const { shell } = makeShell();

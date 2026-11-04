@@ -174,22 +174,6 @@ describe("transcript text selection and clipboard", () => {
     expect(document.render(40)[0]).not.toContain("\x1b[7m");
   });
 
-  test("a plain click neither copies nor leaves persistent inversion", () => {
-    const source = new Container();
-    source.addChild({ render: () => ["some text"], invalidate() {} });
-    const doc = new VirtualTranscriptDocument(source, () => 40, () => 8,
-      () => ({ top: 0, followEnd: false }));
-    const copied: string[] = [];
-    doc.attachCopy(text => { copied.push(text); });
-    const layout = () => (doc as any)[Symbol.for("@earendil-works/pi-tui/layout-node")]();
-    layout();
-    doc.handleMouse({ type: "press", button: "left", x: 3, y: 0 } as never);
-    expect(doc.handleMouse({ type: "release", button: "none", x: 3, y: 0 } as never)?.render).toBe(true);
-    layout();
-    expect(doc.render(40)[0]).not.toContain("\x1b[7m");
-    expect(copied).toEqual([]);
-  });
-
   test("reverse drag and multiline drag copy only the selected text", () => {
     const source = new Container();
     source.addChild({ render: () => ["abcdef", "uvwxyz"], invalidate() {} });

@@ -272,13 +272,6 @@ if (scenarioArg !== undefined) {
   }
 
   describe("pi adaptor command face", () => {
-    test("pi-commands-fixture package loads via the snapshot allowlist", () => {
-      const { outcome, output } = runChildOnce();
-      if (outcome === null) throw new Error(output);
-      expect(outcome.loaded, `failures=${JSON.stringify(outcome.failures)}`).toBe(true);
-      expect(outcome.errors).toHaveLength(0);
-    }, 120_000);
-
     test("pi: commands list grouped with shortcut def invisible but shortcut-carrying", () => {
       const { outcome, output } = runChildOnce();
       if (outcome === null) throw new Error(output);

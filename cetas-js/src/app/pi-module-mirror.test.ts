@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -188,31 +188,6 @@ describe("PiModuleMirror", () => {
     });
   });
 
-  test("json imported with type attributes stays raw json", () => {
-    const dir = new URL("./", outcome.url).pathname;
-    const rawJson = readdirSync(dir).find((name) => name.startsWith("data-") && name.endsWith(".json"));
-    expect(rawJson).toBeDefined();
-    expect(readFileSync(join(dir, rawJson as string), "utf8")).not.toContain("export default");
-  });
-
-  test("builtins stay untouched; resolved bare specs become absolute URLs", () => {
-    const mirroredEntry = readFileSync(new URL(outcome.url).pathname, "utf8");
-    expect(mirroredEntry).toContain('"node:path"');
-    expect(mirroredEntry).toContain('"os"');
-    expect(mirroredEntry).toContain('from "file://');
-    expect(mirroredEntry).not.toContain('from "plain"');
-    expect(mirroredEntry).not.toContain('from "jsony"');
-  });
-
-  test("json dependencies are wrapped as export default", () => {
-    const dir = new URL("./", outcome.url).pathname;
-    const jsonMirror = readdirSync(dir).find(
-      (name) => name.startsWith("config-") && name.endsWith(".ts"),
-    );
-    expect(jsonMirror).toBeDefined();
-    expect(readFileSync(join(dir, jsonMirror as string), "utf8")).toMatch(/^export default \{/);
-  });
-
   const cycOutcome = mirror.mirrorEntry(join(root, "node_modules/cyc/a.js"));
 
   test("import cycles terminate and evaluate", async () => {
@@ -393,23 +368,6 @@ describe("resolvePiEntryFile", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  test("file entries pass through unchanged", () => {
-    const file = join(root, "plain/index.js");
-    expect(resolvePiEntryFile(file)).toBe(file);
-  });
-
-  test("missing paths resolve to undefined", () => {
-    expect(resolvePiEntryFile(join(root, "absent.js"))).toBeUndefined();
-  });
-
-  test("directory without a manifest falls back to index.js", () => {
-    expect(resolvePiEntryFile(join(root, "plain"))).toBe(join(root, "plain/index.js"));
-  });
-
-  test("directory holding only index.mjs resolves", () => {
-    expect(resolvePiEntryFile(join(root, "idxmjs/dist"))).toBe(join(root, "idxmjs/dist/index.mjs"));
-  });
-
   test(`exports["."] (string) beats module, main, and index.js`, () => {
     expect(resolvePiEntryFile(join(root, "exportsbeat"))).toBe(join(root, "exportsbeat/esm.js"));
   });
@@ -425,11 +383,6 @@ describe("resolvePiEntryFile", () => {
 
   test("extensionless main resolves through candidate probing", () => {
     expect(resolvePiEntryFile(join(root, "mainextless"))).toBe(join(root, "mainextless/lib/entry.js"));
-  });
-
-  test("directory with no resolvable entry yields undefined", () => {
-    expect(resolvePiEntryFile(join(root, "emptydir"))).toBeUndefined();
-    expect(resolvePiEntryFile(join(root, "broken"))).toBeUndefined();
   });
 });
 

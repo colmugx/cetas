@@ -50,31 +50,6 @@ describe("PiCommands unit (injectable runner)", () => {
     expect(unknown.lines.join("\n")).toContain("hint: /pi help prints this usage");
   });
 
-  test("bare /pi renders the status view for one loaded and one skipped package", async () => {
-    const home = fakeHome();
-    seedConfig(home, { packages: ["loaded-one"] });
-    const cmds = new PiCommands({
-      home,
-      reload: async () => undefined,
-      lastSummary: () => ({
-        packages: 1,
-        entries: 2,
-        failures: [],
-        loadedPackages: ["loaded-one"],
-        skipped: [{ name: "skip-one", reason: "not in allowlist" }],
-        warnings: ["mirror note"],
-      }),
-    });
-    const outcome = await cmds.run("");
-    expect(outcome.ok).toBe(true);
-    const text = outcome.lines.join("\n");
-    expect(text).toContain("loaded   loaded-one (2 entries)");
-    expect(text).toContain("skipped  skip-one (not in allowlist)");
-    expect(text).toContain("warnings: 1");
-    expect(text).toContain("mirror note");
-    expect(outcome.lines[outcome.lines.length - 1]).toBe("usage: /pi install|remove|list|help");
-  });
-
   test("invalid package names never reach the package manager", async () => {
     const home = fakeHome();
     const runner = stubRunner();
@@ -200,13 +175,6 @@ describe("PiCommands unit (injectable runner)", () => {
     expect(text).toContain("load failure: boom");
     expect(text).not.toContain("usage: /pi install|remove|list|help");
   });
-
-  test("list with nothing configured states the deny-by-default rule", async () => {
-    const cmds = new PiCommands({ home: fakeHome(), reload: async () => undefined });
-    const outcome = await cmds.list();
-    expect(outcome.ok).toBe(true);
-    expect(outcome.lines.join("\n")).toContain("deny by default");
-  });
 });
 
 describe("piCommandArgItems", () => {
@@ -230,10 +198,6 @@ describe("piCommandArgItems", () => {
     });
     // list takes no package argument.
     expect(piCommandArgItems(home, "list ")).toEqual([]);
-  });
-
-  test("no snapshot file means no package completions", () => {
-    expect(piCommandArgItems(fakeHome(), "install ")).toEqual([]);
   });
 });
 

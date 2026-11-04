@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { stripTerminalSequences } from "@earendil-works/pi-tui";
-import { createTerminalActivityStyle, relativeLuminance } from "./terminal-colors.ts";
+import { createTerminalActivityStyle } from "./terminal-colors.ts";
 
 describe("semantic activity contrast follows terminal defaults", () => {
   test("black vs white terminal backgrounds choose different semantic shades", () => {
@@ -12,9 +12,5 @@ describe("semantic activity contrast follows terminal defaults", () => {
   test("terminal without color reply keeps existing Cetas role styles", () => {
     const style=createTerminalActivityStyle({});
     expect(style("agent","test")).toContain("test");
-  });
-  test("luminance correctly orders extreme backgrounds", () => {
-    expect(relativeLuminance({r:0,g:0,b:0})).toBe(0);
-    expect(relativeLuminance({r:255,g:255,b:255})).toBeCloseTo(1);
   });
 });

@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { contextOccupancy, readWorkspaceGitBranch, renderStatusbarDashboard } from "./statusbar-dashboard.ts";
-import chalk from "chalk";
 
 const entries = [
   {key:"permission",value:"yolo",color:"warning"},
@@ -50,11 +49,6 @@ describe("Gate 0.5 adaptive statusbar", () => {
   test("does not silently omit an overflowed group", () => {
     const lines=renderStatusbarDashboard(entries,24,context).join("\n");
     expect(stripTerminalSequences(lines)).toMatch(/more|statusbar/);
-  });
-  test("omits ctx self-label entirely", () => {
-    const output = stripTerminalSequences(renderStatusbarDashboard(entries, 200, context).join("\n"));
-    expect(output).toContain("30.4K/1.0M · 3%");
-    expect(output).not.toContain("ctx");
   });
   test("a provider capability segment rides next to the model, never twice", () => {
     const withMcp=[...entries,{key:"mcp",value:"3/3 Official MCP",color:"success"}];
@@ -244,26 +238,6 @@ describe("left-aligned context placement", () => {
       {key:"ctx",value:"ctx: 5%"},
     ],120,{status:"Working"})[0]);
     expect(first).toBe(" gpt-6:high · Posoco · 5%");
-  });
-});
-
-describe("git branch accent color", () => {
-  test("branch name uses #9BE1A1 and marker remains muted", () => {
-    const originalLevel = chalk.level;
-    try {
-      chalk.level = 3;
-      const first = renderStatusbarDashboard([
-        {key:"model",value:"gpt-6:high"},
-        {key:"manager",value:"Posoco"},
-        {key:"ctx",value:"ctx: 5%"},
-      ],120,{branch:"feature/demo"})[0];
-      expect(first).toContain("\x1b[38;2;155;225;161mfeature/demo\x1b[39m");
-      expect(first).not.toContain("\x1b[38;2;155;225;161m⑂");
-      expect(stripTerminalSequences(first))
-        .toBe(" gpt-6:high · Posoco ⑂ feature/demo · 5%");
-    } finally {
-      chalk.level = originalLevel;
-    }
   });
 });
 

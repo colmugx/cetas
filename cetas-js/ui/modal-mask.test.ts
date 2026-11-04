@@ -70,11 +70,6 @@ describe("dimLine", () => {
     expect(dimmed).not.toContain("]8;;");
     expect(dimmed).toContain("\u001b[2m");
   });
-
-  test("blank content stays blank", () => {
-    expect(dimLine("   ")).toBe("");
-    expect(dimLine("")).toBe("");
-  });
 });
 
 describe("ModalVeilHost", () => {

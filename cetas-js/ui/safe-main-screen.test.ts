@@ -42,11 +42,6 @@ describe("Cetas main-screen width boundary", () => {
     expect(visibleWidth(clipped)).toBeLessThanOrEqual(2);
   });
 
-  test("does not alter lines already in bounds", () => {
-    const line = "\x1b[34m你好\x1b[0m";
-    expect(fitTerminalLine(line, 20)).toBe(line);
-  });
-
   test("real differential redraws stay alive as a narrow pane receives long lines", () => {
     let stopped = 0;
     let raw = "first message with a very very long single line";

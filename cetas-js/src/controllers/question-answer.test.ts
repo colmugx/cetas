@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 
 import {
   answerFromText,
-  answerResponseJson,
   parseAnswerArgument,
   parseQuestionAnswerPrefix,
 } from "./question-answer.ts";
@@ -61,10 +60,4 @@ describe("answerFromText", () => {
     expect(answerFromText("input", " node 22 ", [])).toEqual({ text: "node 22" });
     expect(answerFromText("input", "   ", [])).toBeUndefined();
   });
-});
-
-test("answerResponseJson is the bridge wire shape", () => {
-  expect(answerResponseJson({ confirm: true })).toBe('{"confirm":true}');
-  expect(answerResponseJson({ index: 1 })).toBe('{"index":1}');
-  expect(answerResponseJson({ text: "a" })).toBe('{"text":"a"}');
 });

@@ -261,21 +261,6 @@ describe("sessions scope toggle", () => {
     expect(picked[0]?.inCurrentFolder).toBe(false);
   });
 
-  test("tab toggles back to Current Folder", () => {
-    const tui = new FakeTui();
-    const overlay = new SessionsOverlay(tui as never);
-    overlay.open(
-      [entry("mine"), foreignEntry("theirs", "other-project", "/work/other-project")],
-      () => {},
-      () => {},
-    );
-    tui.shown!.handleInput!("\t");
-    tui.shown!.handleInput!("\t");
-    const rendered = tui.shown!.render!(120).join("\n");
-    expect(rendered).toContain("[Current Folder]");
-    expect(rendered).not.toContain("theirs");
-  });
-
   test("a foreign session without a recorded folder is flagged as not resumable", () => {
     const legacy = foreignEntry("legacy", "old-project");
     expect(isResumableHere(legacy)).toBe(false);

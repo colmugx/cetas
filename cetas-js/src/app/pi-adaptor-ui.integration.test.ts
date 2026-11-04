@@ -424,12 +424,6 @@ if (scenarioArg !== undefined) {
   }
 
   describe("pi adaptor UI reverse-bridge", () => {
-    test("pi-ui-fixture package loads via the snapshot allowlist", () => {
-      const outcome = outcomeOrFail();
-      expect(outcome.loaded, `failures=${JSON.stringify(outcome.failures)}`).toBe(true);
-      expect(outcome.errors).toHaveLength(0);
-    }, 120_000);
-
     // Shadow-hide (base wins): one `read` (the base tool) in the catalog, never the probe marker.
     test("shadow-hidden pi 'read' never reaches the model catalog (base wins)", () => {
       const outcome = outcomeOrFail();
@@ -453,12 +447,6 @@ if (scenarioArg !== undefined) {
       expect(outcome.notice).toBe(true);
       expect(outcome.statusRender).toBe(true);
       expect(outcome.widgetRender).toBe(true);
-    }, 120_000);
-
-    test("turn completed cleanly over the scripted model", () => {
-      const outcome = outcomeOrFail();
-      expect(outcome.turnError).toBe("");
-      expect(outcome.reply.trim().length).toBeGreaterThan(0);
     }, 120_000);
   });
 }

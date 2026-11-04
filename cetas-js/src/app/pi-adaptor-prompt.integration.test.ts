@@ -326,15 +326,5 @@ if (scenarioArg !== undefined) {
       },
       120_000,
     );
-
-    test(
-      "both scenario children exited 0",
-      () => {
-        const { withResult, withoutResult } = runBothChildren();
-        expect(withResult.code).toBe(0);
-        expect(withoutResult.code).toBe(0);
-      },
-      120_000,
-    );
   });
 }

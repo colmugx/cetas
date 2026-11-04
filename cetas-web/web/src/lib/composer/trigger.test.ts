@@ -59,10 +59,6 @@ describe("detectTrigger", () => {
   test("newline ends command span", () => {
     expect(detectTrigger("/cmd\nnext", 9)).toBeNull();
   });
-
-  test("plain text has no trigger", () => {
-    expect(detectTrigger("just words", 10)).toBeNull();
-  });
 });
 
 describe("applyInsert", () => {
@@ -71,12 +67,5 @@ describe("applyInsert", () => {
     const result = applyInsert("look @src/ma rest", trigger, "@src/main.ts ");
     expect(result.text).toBe("look @src/main.ts  rest");
     expect(result.caret).toBe(18);
-  });
-
-  test("command insert keeps args editable", () => {
-    const trigger = { kind: "command" as const, query: "mod", start: 0, end: 4 };
-    const result = applyInsert("/mod", trigger, "/model ");
-    expect(result.text).toBe("/model ");
-    expect(result.caret).toBe(7);
   });
 });

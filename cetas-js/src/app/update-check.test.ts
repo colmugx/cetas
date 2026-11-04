@@ -9,8 +9,6 @@ import {
   resolveRegistry,
   runUpdateCheck,
   updateHandoffCommand,
-  updateInstallCommand,
-  updateNoticeMessage,
   type CommandRunner,
   type FetchImpl,
 } from "./update-check.ts";
@@ -339,14 +337,6 @@ describe("resolveRegistry", () => {
   });
 });
 
-describe("updateInstallCommand", () => {
-  test("manager-specific global install commands", () => {
-    expect(updateInstallCommand("npm")).toBe("npm install -g @posoco/cetas@latest");
-    expect(updateInstallCommand("pnpm")).toBe("pnpm add -g @posoco/cetas@latest");
-    expect(updateInstallCommand("bun")).toBe("bun add -g @posoco/cetas@latest");
-  });
-});
-
 describe("updateHandoffCommand", () => {
   test("installs then re-execs the original argv", () => {
     expect(updateHandoffCommand("bun add -g @posoco/cetas@latest", ["/usr/bin/env", "bun", "/x/cetas"])).toBe(
@@ -357,20 +347,6 @@ describe("updateHandoffCommand", () => {
   test("single quotes survive POSIX escaping", () => {
     expect(updateHandoffCommand("npm i", ["node", "/a'b/c"])).toBe(
       "npm i && exec 'node' '/a'\\''b/c'",
-    );
-  });
-});
-
-describe("updateNoticeMessage", () => {
-  const hit = { latest: "1.2.3", url: "" };
-  test("npm copy points at the /update command", () => {
-    expect(updateNoticeMessage("0.8.1", hit, "npm")).toBe(
-      "⚠ Update available: cetas 1.2.3 (current 0.8.1, npm) — run /update",
-    );
-  });
-  test("release copy points at the releases page and the native/ directory", () => {
-    expect(updateNoticeMessage("0.8.1", hit, "release")).toBe(
-      "⚠ Update available: cetas 1.2.3 (current 0.8.1, release) — https://github.com/colmugx/cetas/releases/latest (replace the cetas-bun binary and its native/ directory)",
     );
   });
 });

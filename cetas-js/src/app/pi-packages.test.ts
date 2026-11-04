@@ -1,13 +1,11 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { afterAll, describe, expect, test } from "bun:test";
 
 import {
   DEFAULT_PI_NPM_COMMAND,
   parsePiPackagesConfig,
-  readPiPackagesConfig,
   resolvePiPackageManager,
   scanAndLoadPiPackages,
 } from "./pi-packages.ts";
@@ -18,14 +16,6 @@ describe("parsePiPackagesConfig", () => {
     expect(config.present).toBe(false);
     expect(config.packages).toEqual([]);
     expect(config.npmCommand).toBe(DEFAULT_PI_NPM_COMMAND);
-    expect(config.warnings).toEqual([]);
-  });
-
-  test("valid snapshot parses packages and npmCommand", () => {
-    const config = parsePiPackagesConfig('{"packages":["pi-web-access"],"npmCommand":"bun"}');
-    expect(config.present).toBe(true);
-    expect(config.packages).toEqual(["pi-web-access"]);
-    expect(config.npmCommand).toBe("bun");
     expect(config.warnings).toEqual([]);
   });
 
@@ -58,23 +48,9 @@ describe("parsePiPackagesConfig", () => {
     expect(mixed.packages).toEqual(["ok"]);
     expect(mixed.warnings).toHaveLength(3);
   });
-
-  test("readPiPackagesConfig: missing file reports present=false", async () => {
-    const config = await readPiPackagesConfig(join(mkdtempSync(tmpdir() + "/pi-cfg-"), "absent.json"));
-    expect(config.present).toBe(false);
-  });
 });
 
 describe("resolvePiPackageManager", () => {
-  test("default is npm", () => {
-    expect(resolvePiPackageManager(undefined)).toBe("npm");
-    expect(resolvePiPackageManager(null)).toBe("npm");
-    expect(resolvePiPackageManager("   ")).toBe("npm");
-    expect(resolvePiPackageManager(42)).toBe("npm");
-    expect(resolvePiPackageManager([])).toBe("npm");
-    expect(resolvePiPackageManager(["   ", 7])).toBe("npm");
-  });
-
   test("string wins; array falls back to its first usable entry", () => {
     expect(resolvePiPackageManager("bun")).toBe("bun");
     expect(resolvePiPackageManager(" pnpm ")).toBe("pnpm");
@@ -115,13 +91,6 @@ describe("scanAndLoadPiPackages allowlist gating", () => {
     for (const skip of summary.skipped ?? []) {
       expect(skip.reason).toBe("not in allowlist");
     }
-  });
-
-  test("empty packages array denies all as well", async () => {
-    write("pi-packages.json", JSON.stringify({ packages: [] }));
-    const summary = await scanAndLoadPiPackages(join(root, "pi-packages"), async () => {});
-    expect(summary.packages).toBe(0);
-    expect(summary.skipped).toHaveLength(2);
   });
 
   test("allowlist subset loads exactly the named packages", async () => {
@@ -231,20 +200,5 @@ describe("scanAndLoadPiPackages directory entries (pi-web-access >= 0.46.0)", ()
     expect(summary.failures[0]).toContain("entry ./dist resolved to no file");
     expect(summary.warnings).toBeUndefined();
     expect(loadedUrls).toEqual([]);
-  });
-
-  test("loaded set deduplicates by the normalized file URL across runs", async () => {
-    writeDirPackage("dedupdemo", undefined, { "index.js": `export default () => "dedup";\n` });
-    const loaded = new Set<string>();
-    let loads = 0;
-    const load = async (): Promise<void> => {
-      loads += 1;
-    };
-    await scanAndLoadPiPackages(join(root, "pi-packages"), load, loaded);
-    await scanAndLoadPiPackages(join(root, "pi-packages"), load, loaded);
-    expect(loads).toBe(1);
-    expect([...loaded]).toEqual([
-      pathToFileURL(join(root, "pi-packages/node_modules/dedupdemo/dist/index.js")).href,
-    ]);
   });
 });

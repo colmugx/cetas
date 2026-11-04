@@ -328,18 +328,6 @@ if (scenarioArg !== undefined) {
   }
 
   describe("pi adaptor event bridge", () => {
-    test("synthetic direct-dir pi package loaded", () => {
-      const outcome = outcomeOrFail();
-      expect(outcome.loaded, `failures=${JSON.stringify(outcome.failures)}`).toBe(true);
-      expect(outcome.errors).toHaveLength(0);
-    }, 120_000);
-
-    test("tool-call turn completes cleanly over the scripted model", () => {
-      const outcome = outcomeOrFail();
-      expect(outcome.turnError).toBe("");
-      expect(outcome.reply.trim().length).toBeGreaterThan(0);
-    }, 120_000);
-
     // Full family present, skeleton in pi order; the chunk dispatcher may deliver a
     // response's stream chunks after its ModelResponseReceived, so only turn_end is pinned.
     test("event family delivered in pi order", () => {

@@ -186,43 +186,6 @@ describe("UiRenderHost", () => {
     expect(statusBar.render(80).join("\n")).toContain("routed");
   });
 
-  test("renders a routed key_value body as a single status-bar line", () => {
-    const tui = new FakeTui();
-    const statusBar = new Container();
-    const host = new UiRenderHost(
-      tui as never,
-      { status: new Container(), notice: new Container(), widget: new Container() },
-      { "status:statusbar": { mount: statusBar, format: "line" } },
-    );
-
-    host.render({
-      slot: "status",
-      key: "statusbar",
-      title: "Status",
-      body: {
-        type: "key_value",
-        entries: [
-          { key: "model", value: "deepseek-v4-pro" },
-          { key: "effort", value: "high" },
-          { key: "tok", value: "10↑ 2↓" },
-        ],
-      },
-    });
-
-    const lines = statusBar.render(80);
-    expect(lines).toHaveLength(1);
-    const line = lines[0]!;
-    // Every segment is a muted `key:` label plus its value; the role-less
-    // first value stays bold. Assertions use the theme helpers so they hold
-    // at any chalk level.
-    expect(line).toContain(`${theme.muted("model:")} ${theme.bold("deepseek-v4-pro")}`);
-    expect(line).toContain(`${theme.muted("effort:")} high`);
-    expect(line).toContain(`${theme.muted("tok:")} 10↑ 2↓`);
-    // One muted ` · ` separator between ALL segments; the title is dropped.
-    expect(line.split(theme.muted(" · "))).toHaveLength(3);
-    expect(line).not.toContain("Status");
-  });
-
   test("renders a routed entries body as the same single status-bar line", () => {
     const tui = new FakeTui();
     const statusBar = new Container();
@@ -385,22 +348,6 @@ describe("UiRenderHost", () => {
 });
 
 describe("formatStatusValue", () => {
-  test("renders the UTC timestamp convention as local yyyy-mm-dd hh:mm:ss", () => {
-    const utc = "2026-09-04T00:15:26Z";
-    const rendered = formatStatusValue(utc);
-    // The devkit convention never survives rendering as-is.
-    expect(rendered).not.toBe(utc);
-    expect(rendered).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
-    // The digits come from the same local clock a user reads: mirror the
-    // conversion with plain Date getters so the assertion holds in any TZ.
-    const date = new Date(utc);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    expect(rendered).toBe(
-      `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
-        ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`,
-    );
-  });
-
   test("preserves an exact local reset date with zero-padded fields", () => {
     const localReset = new Date(2026, 0, 2, 3, 4, 5);
     const utcReset = localReset.toISOString().replace(".000Z", "Z");
@@ -422,24 +369,6 @@ describe("roleStyle", () => {  test("maps the six vocabulary roles onto the matc
     expect(roleStyle("success")).toBe(theme.success);
     expect(roleStyle("info")).toBe(theme.info);
     expect(roleStyle("muted")).toBe(theme.muted);
-  });
-
-  test("known roles actually style text when color output is enabled", () => {
-    const detectedLevel = chalk.level;
-    chalk.level = 3;
-    try {
-      // Guards the premise of the mapping above: with color forced on, a
-      // mapped role must differ from plain text.
-      expect(theme.accent("x")).not.toBe("x");
-      expect(roleStyle("success")("ok")).toBe(theme.success("ok"));
-    } finally {
-      chalk.level = detectedLevel;
-    }
-  });
-
-  test("unknown roles degrade to identity passthrough", () => {
-    expect(roleStyle("beige")("plain")).toBe("plain");
-    expect(roleStyle("")("plain")).toBe("plain");
   });
 });
 

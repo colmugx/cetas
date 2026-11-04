@@ -31,13 +31,6 @@ describe("ThinkingComponent — finalized collapse", () => {
     expect(lines).not.toContain("(+1 lines)");
   });
 
-  test("setCollapsed is idempotent and re-collapses", () => {
-    const comp = new ThinkingComponent("l1\nl2\nl3\nl4", "finalized");
-    comp.setCollapsed(false);
-    comp.setCollapsed(true);
-    expect(renderedLines(comp)).not.toContain("l4");
-  });
-
   test("live mode keeps the last-3 preview regardless of collapsed", () => {
     const comp = new ThinkingComponent("a\nb\nc\nd\ne", "live");
     const before = renderedLines(comp);

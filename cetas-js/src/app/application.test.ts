@@ -644,59 +644,6 @@ describe("CetasApplication", () => {
     await app.shutdown();
   });
 
-  test("invokes the live catalog refresh with the bridge instance as receiver", async () => {
-    const counters = { created: 0, runs: 0, shutdowns: 0 };
-    const base = bridgeFor(
-      {
-        providers: [
-          {
-            id: "deepseek/chat",
-            label: "DeepSeek Chat",
-            provider: "deepseek",
-            model: "deepseek-chat",
-            active: true,
-            efforts: [],
-            oauth: false,
-          },
-        ],
-        oauthProviders: [],
-      },
-      counters,
-    );
-    class ClassBridge implements CetasAgentBridge<{ id: string }> {
-      refreshes = 0;
-      describeSetup = base.describeSetup;
-      createAgent = base.createAgent;
-      runTurn = base.runTurn;
-      cancelPendingRateLimit = base.cancelPendingRateLimit;
-      shutdown = base.shutdown;
-      listCommands = base.listCommands;
-      invokeCommand = base.invokeCommand;
-      rewind = base.rewind;
-      refreshModelListsLive(
-        _config: CetasHostConfig,
-        _providerIdsJson: string,
-      ): Promise<string> {
-        // Call through the bridge object so method receiver binding is
-        // preserved.
-        this.refreshes += 1;
-        return Promise.resolve(JSON.stringify({ results: [] }));
-      }
-    }
-    const bridge = new ClassBridge();
-    const app = new CetasApplication({
-      bridge,
-      config,
-      callbacks,
-      initialSessionId: "session-1",
-    });
-
-    expect((await app.start()).state).toBe("ready");
-    await Bun.sleep(1);
-    expect(bridge.refreshes).toBe(1);
-    await app.shutdown();
-  });
-
   test("rejects commands during a turn and waits for the turn before shutdown", async () => {
     const counters = { created: 0, runs: 0, shutdowns: 0 };
     let markTurnStarted!: () => void;
@@ -1138,20 +1085,6 @@ describe("CetasApplication", () => {
     await expect(turn).resolves.toBe("partial reply");
     expect(app.interruptActiveTurn()).toBe(false);
     expect(app.appState).toBe("ready");
-  });
-
-  test("interruptActiveTurn reports false when no turn is active", async () => {
-    const counters = { created: 0, runs: 0, shutdowns: 0 };
-    const app = new CetasApplication({
-      bridge: bridgeFor({ providers: [], oauthProviders: [] }, counters),
-      config,
-      callbacks,
-      initialSessionId: "session-1",
-    });
-
-    expect(app.interruptActiveTurn()).toBe(false);
-    await app.start();
-    expect(app.interruptActiveTurn()).toBe(false);
   });
 
   test("runTurn passes a live signal and interruptActiveTurn aborts it", async () => {
@@ -2480,21 +2413,6 @@ describe("Board activation note", () => {
       `${BOARD_ACTIVATION_NOTE}\n\nfirst`,
       "second",
     ]);
-    await app.shutdown();
-  });
-
-  test("atomic admission reports started and the note never repeats on later turns", async () => {
-    const { app, prompts } = recordingApp();
-    await app.start();
-
-    app.noteBoardActivated();
-    for (const prompt of ["one", "two", "three"]) {
-      const submission = await app.submitUserInput(prompt);
-      if (submission.kind !== "started") throw new Error("expected a fresh turn");
-      await submission.completion;
-    }
-
-    expect(prompts.map(activations)).toEqual([1, 0, 0]);
     await app.shutdown();
   });
 

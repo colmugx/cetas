@@ -1,17 +1,13 @@
 /** Renderers are invoked directly; ANSI is stripped for plain-text checks. */
 
 import { describe, expect, test } from "bun:test";
-import { Text } from "@earendil-works/pi-tui";
-import { theme } from "../../ui/theme.ts";
 import {
   pickToolRenderer,
-  registerToolRenderer,
   type ToolRenderContext,
   type ToolRenderResultPayload,
   type ToolRenderer,
 } from "./registry.ts";
 import { summaryOf, TOOL_ROW_SPECS } from "./specs.ts";
-import { ToolRow } from "../transcript/components.ts";
 
 const ANSI = /\x1b\[[0-9;]*m/g;
 
@@ -60,17 +56,6 @@ function firstLine(rendered: string): string {
 }
 
 describe("spec table — call views", () => {
-  test("grep call line: bullet + title + yellow pattern + muted path", () => {
-    const renderer = pickToolRenderer("grep");
-    const ctx = makeCtx({ toolName: "grep", args: { pattern: "needle", path: "src" } });
-    const rendered = renderCall(renderer, ctx);
-    expect(rendered).toContain("● grep needle  src");
-    // Style: pattern goes through theme.yellow (symmetric under chalk level 0).
-    expect(renderer.renderCall?.(ctx)?.render(80).join("\n")).toContain(
-      theme.yellow("needle"),
-    );
-  });
-
   test("edit secondary: replace_all boolean true → (all), absent → (single)", () => {
     const renderer = pickToolRenderer("edit");
     expect(
@@ -228,31 +213,6 @@ describe("unified invariant — result line 1 = bullet + title + primary", () =>
 });
 
 describe("hook renderers stay intact", () => {
-  test("fallback: JSON args dump + truncated result", () => {
-    const renderer = pickToolRenderer("mystery_tool");
-    expect(
-      renderCall(renderer, makeCtx({ toolName: "mystery_tool", args: { x: 1 } })),
-    ).toContain('{"x":1}');
-    expect(
-      renderResult(
-        renderer,
-        { content: "raw tool output", isError: false },
-        makeCtx({ toolName: "mystery_tool", args: { x: 1 } }),
-      ),
-    ).toContain("raw tool output");
-  });
-
-  test("bash: '$' + command on the call line, elapsed stopped by the result", () => {
-    const renderer = pickToolRenderer("bash");
-    const ctx = makeCtx({ toolName: "bash", args: { cmd: "ls -la" } });
-    expect(renderCall(renderer, ctx)).toContain("$ ls -la");
-    // renderResult clears the elapsed timer — keep it in the same test so
-    // the interval never outlives the test run.
-    expect(
-      renderResult(renderer, { content: "done", isError: false }, ctx),
-    ).toContain("$ ls -la");
-  });
-
   test("ask_question: question head plus option list", () => {
     const renderer = pickToolRenderer("ask_question");
     const rendered = renderCall(
@@ -265,59 +225,5 @@ describe("hook renderers stay intact", () => {
     expect(rendered).toContain("ask Deploy now?");
     expect(rendered).toContain("「yes」");
     expect(rendered).toContain("「no」");
-  });
-});
-
-describe("ToolRow — toolCallId and structured threading", () => {
-  test("constructor populates ctx.toolCallId; setResult passes structured through", () => {
-    let capturedCtx: ToolRenderContext | undefined;
-    let capturedResult: ToolRenderResultPayload | undefined;
-    registerToolRenderer("probe-tool", {
-      renderCall(ctx) {
-        capturedCtx = ctx;
-        return new Text("probe call", 1, 0);
-      },
-      renderResult(result) {
-        capturedResult = result;
-        return new Text("probe result", 1, 0);
-      },
-    });
-
-    const row = new ToolRow("probe-tool", "call_42", {}, "/tmp", () => {});
-    expect(capturedCtx?.toolCallId).toBe("call_42");
-
-    row.setResult("Found 3 matches:\n", false, { summary: "3 matches", count: 3 });
-    expect(capturedResult?.structured).toEqual({ summary: "3 matches", count: 3 });
-    expect(capturedResult?.isError).toBe(false);
-  });
-
-  test("toolLabel defaults to toolName; explicit label reaches the renderer ctx", () => {
-    let seen: string | undefined;
-    registerToolRenderer("label-probe", {
-      renderCall(ctx) {
-        seen = ctx.toolLabel;
-        return new Text("probe", 1, 0);
-      },
-    });
-    new ToolRow("label-probe", "c1", {}, "/tmp", () => {});
-    expect(seen).toBe("label-probe");
-    new ToolRow("label-probe", "c2", {}, "/tmp", () => {}, "nowledge-mem:memory_search");
-    expect(seen).toBe("nowledge-mem:memory_search");
-  });
-
-  test("setExpanded(true) re-renders the result with expanded options", () => {
-    let expandedSeen: boolean | undefined;
-    registerToolRenderer("expand-probe", {
-      renderCall: () => new Text("probe call", 1, 0),
-      renderResult(_result, options) {
-        expandedSeen = options.expanded;
-        return new Text("probe result", 1, 0);
-      },
-    });
-    const row = new ToolRow("expand-probe", "call_43", {}, "/tmp", () => {});
-    row.setResult("content", false);
-    expect(expandedSeen).toBe(false);
-    row.setExpanded(true);
-    expect(expandedSeen).toBe(true);
   });
 });

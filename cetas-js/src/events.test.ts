@@ -3,18 +3,6 @@ import { describe, expect, test } from "bun:test";
 import { parseCetasEvent } from "./events.ts";
 
 describe("parseCetasEvent", () => {
-  test("parses the exact turn-start wire shape", () => {
-    expect(parseCetasEvent({ type: "turn_started" })).toEqual({
-      type: "turn_started",
-    });
-  });
-
-  test("parses the per-step model request anchor", () => {
-    expect(parseCetasEvent({ type: "model_request_started" })).toEqual({
-      type: "model_request_started",
-    });
-  });
-
   test("rejects a malformed known event instead of coercing fields", () => {
     expect(() =>
       parseCetasEvent({

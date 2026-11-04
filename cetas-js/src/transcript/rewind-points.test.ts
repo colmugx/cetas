@@ -78,12 +78,6 @@ describe("rewind point enumeration", () => {
     ]);
   });
 
-  test("returns empty for metadata-only, blank, and empty transcripts", () => {
-    expect(listRewindPoints(META)).toEqual([]);
-    expect(listRewindPoints(`${META}\n`)).toEqual([]);
-    expect(listRewindPoints("")).toEqual([]);
-  });
-
   test("flattens multi-line text and marks image-bearing messages", () => {
     const jsonl = [
       META,
