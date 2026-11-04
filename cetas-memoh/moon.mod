@@ -17,7 +17,7 @@ preferred_target = "native"
 supported_targets = "native"
 
 import {
-  "colmugx/posoco@0.23.2",
+  "colmugx/posoco@0.23.3",
   "colmugx/acp@0.3.0",
   "posoco/devkit@0.4.1",
   "colmugx/posoco-ext-acp@0.3.0",
@@ -39,5 +39,5 @@ import {
   "colmugx/posoco-ext-zai@0.1.0",
   "colmugx/posoco-ext-zai-coding-plan@0.1.0",
   "colmugx/mcp@0.18.2",
-  "moonbitlang/async@0.22.5",
+  "moonbitlang/async@0.22.7",
 }

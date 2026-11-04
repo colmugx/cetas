@@ -37,3 +37,7 @@ options(
     "setup.native.mbt": [ "native" ],
   },
 )
+
+import {
+  "posoco/devkit/testkit" @tk,
+} for "wbtest"

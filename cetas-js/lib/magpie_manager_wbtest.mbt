@@ -223,7 +223,7 @@ fn magpie_test_cred_store() -> @credentials.FileProviderCredentialStore {
 ///|
 /// Compose a real Agent over the given runtime, the way create_agent does.
 fn magpie_test_agent(runtime : @magpie.MagpieRuntime) -> @posoco.Agent raise {
-  @posoco.Agent::Agent(exts=[runtime], config=@posoco.tk_config())
+  @posoco.Agent::Agent(exts=[runtime], config=@tk.tk_config())
 }
 
 ///|
@@ -610,7 +610,7 @@ async test "duplicate runtime registration is rejected by composition" {
   try
     @posoco.Agent::Agent(
       exts=[runtime.runtime, runtime.runtime],
-      config=@posoco.tk_config(),
+      config=@tk.tk_config(),
     )
   catch {
     _ => ()

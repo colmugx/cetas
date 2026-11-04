@@ -93,7 +93,7 @@ test "stream printer records the latest committed reasoning block for the non-st
   printer.on_event(
     None,
     @posoco.TurnEvent::ModelResponseReceived(
-      message=@posoco.tk_user_msg("not an assistant message"),
+      message=@tk.tk_user_msg("not an assistant message"),
       usage=None,
     ),
   )

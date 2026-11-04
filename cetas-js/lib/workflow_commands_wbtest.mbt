@@ -37,7 +37,7 @@ impl @posoco.UiPort for WorkflowMenuUi with fn request(self, request) {
 async test "workflow menu cancellation is read-only and exposes no second Board runtime" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
-  let model = @posoco.ScriptedModel([])
+  let model = @tk.ScriptedModel([])
   let router = @llm.RouterModelPort(
     slots=[subagent_test_slot("test/workflow-menu", model)],
     default_slot_id="test/workflow-menu",
@@ -147,7 +147,7 @@ async test "workflow menu cancellation is read-only and exposes no second Board 
 async test "readonly guided start refuses before any input or approval prompt" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
-  let model = @posoco.ScriptedModel([])
+  let model = @tk.ScriptedModel([])
   let router = @llm.RouterModelPort(
     slots=[subagent_test_slot("test/workflow-readonly", model)],
     default_slot_id="test/workflow-readonly",
@@ -470,7 +470,7 @@ async fn board_work_seed_ticket(
 async test "board_work reads durable ticket provenance and filters by review path" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
-  let model = @posoco.ScriptedModel([])
+  let model = @tk.ScriptedModel([])
   let router = @llm.RouterModelPort(
     slots=[subagent_test_slot("test/board-work", model)],
     default_slot_id="test/board-work",

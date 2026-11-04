@@ -18,7 +18,7 @@ fn cache_slot(
     label=model_id,
     provider_id="test",
     model_id~,
-    port=@posoco.ScriptedModel([]),
+    port=@tk.ScriptedModel([]),
     thinking_efforts~,
     default_effort~,
     context_window~,

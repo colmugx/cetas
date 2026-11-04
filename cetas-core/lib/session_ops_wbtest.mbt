@@ -5,7 +5,7 @@ fn rewind_test_user(text : String) -> @posoco.Message {
 
 ///|
 async test "rewind_session delegates to SessionStore truncate semantics" {
-  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
+  let store = @tk.RecordingSessionPort::RecordingSessionPort()
   store.seed("s1", {
     messages: [
       rewind_test_user("one"),

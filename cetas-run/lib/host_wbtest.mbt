@@ -176,7 +176,7 @@ async test "apply_model_override raises when the resolved slot is missing from t
         label="Claude",
         provider_id="opencode",
         model_id="claude-sonnet-5",
-        port=@posoco.ScriptedModel([]),
+        port=@tk.ScriptedModel([]),
       ),
     ],
   )
@@ -189,7 +189,7 @@ async test "apply_model_override raises when the resolved slot is missing from t
         label="Other",
         provider_id="other",
         model_id="model",
-        port=@posoco.ScriptedModel([]),
+        port=@tk.ScriptedModel([]),
       ),
     ],
   )
@@ -226,12 +226,8 @@ async test "--model override routes the turn to the selected slot's model" {
     fs,
     permission_mode=@permission.Yolo,
   )
-  let model_a = @posoco.ScriptedModel([
-    @posoco.Respond(@posoco.tk_stop_response("from-a")),
-  ])
-  let model_b = @posoco.ScriptedModel([
-    @posoco.Respond(@posoco.tk_stop_response("from-b")),
-  ])
+  let model_a = @tk.ScriptedModel([@tk.Respond(@tk.tk_stop_response("from-a"))])
+  let model_b = @tk.ScriptedModel([@tk.Respond(@tk.tk_stop_response("from-b"))])
   @cetas_core.swap_platform_catalog(
     platform.catalogs,
     "opencode",

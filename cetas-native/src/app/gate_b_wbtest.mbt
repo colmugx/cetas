@@ -129,9 +129,9 @@ async test "gate B file mentions rank and insert workspace paths" {
   assert_eq(ranked[0], "src/main.mbt")
   assert_eq(ranked[1], "docs/main.md")
 
-  let host_model = @posoco.ScriptedModel([])
-  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
-  let io = @posoco.ManifestOnly::ManifestOnly(
+  let host_model = @tk.ScriptedModel([])
+  let store = @tk.RecordingSessionPort::RecordingSessionPort()
+  let io = @tk.ManifestOnly::ManifestOnly(
     @posoco.ExtensionManifest(
       id="gate_b_file_io",
       models=[host_model as &@posoco.ModelPort],
@@ -169,9 +169,9 @@ async test "gate B normal-session slash routes stay local and executable" {
   assert_true(values.contains("/compact"))
   assert_true(values.contains("/exit"))
 
-  let model = @posoco.ScriptedModel([])
-  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
-  let io = @posoco.ManifestOnly::ManifestOnly(
+  let model = @tk.ScriptedModel([])
+  let store = @tk.RecordingSessionPort::RecordingSessionPort()
+  let io = @tk.ManifestOnly::ManifestOnly(
     @posoco.ExtensionManifest(
       id="gate_b_session_io",
       models=[model as &@posoco.ModelPort],

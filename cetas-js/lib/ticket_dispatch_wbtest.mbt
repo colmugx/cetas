@@ -46,17 +46,15 @@ async test "ticket run dispatches a background child and moves the ticket to rev
   defer @board_fixtures.cleanup(directory)
   // RD and SET start together, so the first two stops are interchangeable;
   // TE runs last and its result is the review report.
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response(
-        "Product change ready for independent verification.",
-      ),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("Product change ready for independent verification."),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("Independent verification passed."),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("Independent verification passed."),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("Ticket work completed with evidence."),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("Ticket work completed with evidence."),
     ),
   ])
   let router = @llm.RouterModelPort(
@@ -219,9 +217,9 @@ async test "ticket run dispatches a background child and moves the ticket to rev
 async test "ticket shaping can split an oversized ticket into ready children and cancel the source" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response(
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response(
         "{\"summary\":\"Three independent tickets\",\"tasks\":[{\"title\":\"Alpha\",\"user_story\":\"As a user, I want Alpha, so that A.\",\"description\":\"A\",\"implementation_suggestions\":\"Start with A\",\"definition_of_done\":[\"A done\"],\"priority\":\"p1\"},{\"title\":\"Beta\",\"user_story\":\"As a user, I want Beta, so that B.\",\"description\":\"B\",\"implementation_suggestions\":\"Start with B\",\"definition_of_done\":[\"B done\"],\"priority\":\"p2\"},{\"title\":\"Gamma\",\"user_story\":\"As a user, I want Gamma, so that C.\",\"description\":\"C\",\"implementation_suggestions\":\"Start with C\",\"definition_of_done\":[\"C done\"],\"priority\":\"p3\"}]}",
       ),
     ),
@@ -411,9 +409,9 @@ async test "ticket shaping can split an oversized ticket into ready children and
 async test "ticket shaping clarifies the ticket and moves it to ready" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response(
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response(
         "{\"summary\":\"Scope clarified\",\"title\":\"Clarified ticket\",\"user_story\":\"As a user, I want the clarified ticket, so that the scope is clear.\",\"description\":\"Clarified scope\",\"implementation_suggestions\":\"Start with the clarified scope\",\"definition_of_done\":[\"A\",\"B\"],\"priority\":\"p1\"}",
       ),
     ),
@@ -531,21 +529,13 @@ async test "ticket shaping clarifies the ticket and moves it to ready" {
 async test "ticket run uses the pinned model instead of the current active model" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
-  let default_model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("default model result"),
-    ),
+  let default_model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("default model result")),
   ])
-  let pinned_model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("pinned model result"),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("pinned model result"),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("pinned model result"),
-    ),
+  let pinned_model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("pinned model result")),
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("pinned model result")),
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("pinned model result")),
   ])
   let router = @llm.RouterModelPort(
     slots=[
@@ -800,24 +790,16 @@ async test "ticket retry from review starts a fresh child session" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
   // One attempt is RD + SET (racing) and then TE; the retry repeats all three.
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("first attempt result"),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("first attempt result")),
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("first attempt result")),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("first attempt verification result"),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("first attempt result"),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("first attempt verification result"),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("retry attempt result"),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("retry attempt result"),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("retry attempt verification result"),
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("retry attempt result")),
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("retry attempt result")),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("retry attempt verification result"),
     ),
   ])
   let router = @llm.RouterModelPort(
@@ -902,15 +884,15 @@ async test "ticket retry from suspended starts a fresh child session" {
   defer @board_fixtures.cleanup(directory)
   // A retry starts RD and SET together and TE after both, so one attempt
   // needs three stops; the first two are interchangeable.
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("retried after suspension"),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("retried after suspension"),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("retried after suspension"),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("retried after suspension"),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("retried after suspension, verification passed"),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("retried after suspension, verification passed"),
     ),
   ])
   let router = @llm.RouterModelPort(
@@ -991,25 +973,21 @@ async test "ticket retry is rejected while the ticket is running" {
   // flight while retry is attempted.
   // RD and SET run together, so one of them parks on the question while the
   // other stops; the parked one continues after the answer and TE verifies.
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_tool_call_response(
-        "ask_question_child",
-        "call-retry-running",
-        {
-          "question": "Which API should the worker use?",
-          "audience": "customer",
-        },
-      ),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_tool_call_response("ask_question_child", "call-retry-running", {
+        "question": "Which API should the worker use?",
+        "audience": "customer",
+      }),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("result from the worker that did not ask"),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("result from the worker that did not ask"),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("answered worker result"),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("answered worker result"),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("verification after the answer"),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("verification after the answer"),
     ),
   ])
   let router = @llm.RouterModelPort(
@@ -1105,7 +1083,7 @@ async test "ticket retry is rejected while the ticket is running" {
 async test "ticket retry is rejected from a stage that is not retryable" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
-  let model = @posoco.ScriptedModel([])
+  let model = @tk.ScriptedModel([])
   let router = @llm.RouterModelPort(
     slots=[subagent_test_slot("test/retry-invalid", model)],
     default_slot_id="test/retry-invalid",
@@ -1158,24 +1136,16 @@ async test "ticket resume continues the durable child session" {
   defer @board_fixtures.cleanup(directory)
   // One attempt is RD + SET (racing) and then TE; resuming continues the same
   // three durable sessions, so it needs three more stops.
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("first durable result"),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("first durable result")),
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("first durable result")),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("first durable verification result"),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("first durable result"),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("first durable verification result"),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("resumed result"),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("resumed result"),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("resumed result, verification passed"),
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("resumed result")),
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("resumed result")),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("resumed result, verification passed"),
     ),
   ])
   let router = @llm.RouterModelPort(
@@ -1335,7 +1305,7 @@ async fn snapshot_attempt_text(
 ///|
 /// Every user-authored text block of one scripted model call, joined with
 /// newlines. The one user message a ticket run sends is its worker prompt.
-fn model_user_text(model : @posoco.ScriptedModel, call : Int32) -> String {
+fn model_user_text(model : @tk.ScriptedModel, call : Int32) -> String {
   let mut out = ""
   if call >= model.received_messages.length() {
     return out
@@ -1386,24 +1356,20 @@ async test "ticket request changes records the feedback, returns the ticket to R
   defer @board_fixtures.cleanup(directory)
   // One attempt is RD + SET (racing) and then TE; requesting changes repeats
   // all three, so the second attempt needs its own three stops.
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("first attempt result"),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("first attempt result")),
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("first attempt result")),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("first attempt verification result"),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("first attempt result"),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("revised attempt result"),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("first attempt verification result"),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("revised attempt result"),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("revised attempt result"),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("revised attempt result"),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("revised attempt verification result"),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("revised attempt verification result"),
     ),
   ])
   let router = @llm.RouterModelPort(
@@ -1503,15 +1469,11 @@ async test "ticket request changes rejects empty feedback and a ticket without a
   defer @board_fixtures.cleanup(directory)
   // The first attempt runs RD and SET together and TE after both; the rejected
   // request changes must not start a fourth call.
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("first attempt result"),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("first attempt result"),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("first attempt verification result"),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("first attempt result")),
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("first attempt result")),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("first attempt verification result"),
     ),
   ])
   let router = @llm.RouterModelPort(
@@ -1642,24 +1604,20 @@ async test "ticket worker prompt carries the reviewer feedback on the new attemp
   defer @board_fixtures.cleanup(directory)
   // One attempt is RD + SET (racing) and then TE; the follow-up attempt after
   // the feedback needs its own three stops.
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("first attempt result"),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("first attempt result")),
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("first attempt result")),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("first attempt verification result"),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("first attempt result"),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("revised attempt result"),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("first attempt verification result"),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("revised attempt result"),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("revised attempt result"),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("revised attempt result"),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("revised attempt verification result"),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("revised attempt verification result"),
     ),
   ])
   let router = @llm.RouterModelPort(
@@ -1879,11 +1837,9 @@ async test "ticket report tools expose exactly the two reporting tools" {
 
 ///|
 async test "ticket report tools appear only for children with a report endpoint" {
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(@posoco.tk_stop_response("plain child")),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("reporting child"),
-    ),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("plain child")),
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("reporting child")),
   ])
   let router = @llm.RouterModelPort(
     slots=[subagent_test_slot("test/report-face", model)],
@@ -1904,7 +1860,7 @@ async test "ticket report tools appear only for children with a report endpoint"
   )
   ignore(
     plain_child.run_scoped(async fn(agent) {
-      agent.run_turn(@posoco.tk_user_msg("go"), "subagent-test")
+      agent.run_turn(@tk.tk_user_msg("go"), "subagent-test")
     }),
   )
   let plain_names = model.received_tools[0].map(fn(def) { def.name.to_string() })
@@ -1926,7 +1882,7 @@ async test "ticket report tools appear only for children with a report endpoint"
   })
   ignore(
     reporting_child.run_scoped(async fn(agent) {
-      agent.run_turn(@posoco.tk_user_msg("go"), "subagent-reporting")
+      agent.run_turn(@tk.tk_user_msg("go"), "subagent-reporting")
     }),
   )
   let names = model.received_tools[1].map(fn(def) { def.name.to_string() })
@@ -2137,7 +2093,7 @@ async test "ticket work report is normalized to the Board review shape" {
 async test "ticket progress state json keeps a bounded per-ticket log" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
-  let model = @posoco.ScriptedModel([])
+  let model = @tk.ScriptedModel([])
   let router = @llm.RouterModelPort(
     slots=[subagent_test_slot("test/progress-bound", model)],
     default_slot_id="test/progress-bound",
@@ -2219,21 +2175,21 @@ async test "ticket run persists the submitted work report instead of the minimal
   defer @board_fixtures.cleanup(directory)
   // RD and SET only stop; the durable report the Board keeps is TE's, so TE
   // reports progress, submits the structured report and then answers.
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("product change ready for verification"),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("product change ready for verification"),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("independent verification ready"),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("independent verification ready"),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_tool_call_response("report_progress", "call-progress-1", {
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_tool_call_response("report_progress", "call-progress-1", {
         "kind": "milestone",
         "message": "Read the ticket and planned the change",
       }),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_tool_call_response("submit_work_report", "call-report-1", {
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_tool_call_response("submit_work_report", "call-report-1", {
         "outcome": "Ticket done: reporting tools wired",
         "summary": "The worker reported progress and a structured handoff",
         "changes": ["lib/ticket_report_tools.mbt"],
@@ -2251,9 +2207,7 @@ async test "ticket run persists the submitted work report instead of the minimal
         "artifacts": [],
       }),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("worker final answer"),
-    ),
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("worker final answer")),
   ])
   let router = @llm.RouterModelPort(
     slots=[subagent_test_slot("test/work-report", model)],
@@ -2353,7 +2307,7 @@ async test "ticket run persists the submitted work report instead of the minimal
 async test "ticket finish fails visibly when the Board rejects the report" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
-  let model = @posoco.ScriptedModel([])
+  let model = @tk.ScriptedModel([])
   let router = @llm.RouterModelPort(
     slots=[subagent_test_slot("test/rejected-report", model)],
     default_slot_id="test/rejected-report",
@@ -2445,10 +2399,8 @@ async test "ticket finish fails visibly when the Board rejects the report" {
 async test "RD-only role plan reaches review without starting SET or TE" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("SEO audit completed."),
-    ),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("SEO audit completed.")),
   ])
   let router = @llm.RouterModelPort(
     slots=[subagent_test_slot("test/ticket", model)],
@@ -2584,17 +2536,15 @@ async test "RD-only role plan reaches review without starting SET or TE" {
 async test "worker question to PO is answered in the background" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_tool_call_response("ask_question_child", "call-po-auto", {
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_tool_call_response("ask_question_child", "call-po-auto", {
         "question": "Which API should I use?",
       }),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("Use the public API."),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("Worker finished after PO answer."),
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("Use the public API.")),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("Worker finished after PO answer."),
     ),
   ])
   let router = @llm.RouterModelPort(

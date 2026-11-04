@@ -8,11 +8,11 @@ async test "e2e: Cetas keeps project context envelope self-describing" {
   // SystemPromptContributor trait, which ContextPromptContributor implements).
   // To avoid a cross-package dependency, we use a minimal local contributor
   // that emits the same <cetas-context> shape.
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(@posoco.tk_stop_response("ok")),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("ok")),
   ])
-  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
-  let observer = @posoco.RecordingObserver::RecordingObserver()
+  let store = @tk.RecordingSessionPort::RecordingSessionPort()
+  let observer = @tk.RecordingObserver::RecordingObserver()
   let ui = @posoco.NoopUiPort::NoopUiPort()
   let context_contributor = CetasContextStub(
     "/repo/AGENTS.md", "Build with: moon test",
@@ -29,22 +29,22 @@ async test "e2e: Cetas keeps project context envelope self-describing" {
   let agent = @posoco.Agent(
     exts=[
       cetas,
-      @posoco.ManifestOnly::ManifestOnly(
+      @tk.ManifestOnly::ManifestOnly(
         @posoco.ExtensionManifest(id="model", models=[
           model as &@posoco.ModelPort,
         ]),
       ),
-      @posoco.ManifestOnly::ManifestOnly(
+      @tk.ManifestOnly::ManifestOnly(
         @posoco.ExtensionManifest(id="store", sessions=[
           store as &@posoco.SessionPort,
         ]),
       ),
-      @posoco.ManifestOnly::ManifestOnly(
+      @tk.ManifestOnly::ManifestOnly(
         @posoco.ExtensionManifest(id="observer", observers=[
           observer as &@posoco.Observer,
         ]),
       ),
-      @posoco.ManifestOnly::ManifestOnly(
+      @tk.ManifestOnly::ManifestOnly(
         @posoco.ExtensionManifest(id="ui", ui=[ui as &@posoco.UiPort]),
       ),
     ],
@@ -53,7 +53,7 @@ async test "e2e: Cetas keeps project context envelope self-describing" {
       system_prompt=Some(cetas_system_prompt(cwd="/repo")),
     ),
   )
-  ignore(agent.run_turn(@posoco.tk_user_msg("hello"), "s1"))
+  ignore(agent.run_turn(@tk.tk_user_msg("hello"), "s1"))
   // Inspect what the model received.
   assert_true(model.received_messages.length() > 0)
   let msgs = model.received_messages[0]
@@ -113,11 +113,11 @@ impl @posoco.SystemPromptContributor for CetasContextStub with fn system_prompt(
 /// The cetas base prompt and every prompt contributor must land in the same
 /// SystemMessage; no later hook may replace it and discard contributions.
 async test "e2e: base + cetas contributor + ext contributor share one SystemMessage" {
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(@posoco.tk_stop_response("ok")),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("ok")),
   ])
-  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
-  let observer = @posoco.RecordingObserver::RecordingObserver()
+  let store = @tk.RecordingSessionPort::RecordingSessionPort()
+  let observer = @tk.RecordingObserver::RecordingObserver()
   let ui = @posoco.NoopUiPort::NoopUiPort()
   let context_contributor = CetasContextStub(
     "/repo/AGENTS.md", "Build with: moon test",
@@ -133,27 +133,27 @@ async test "e2e: base + cetas contributor + ext contributor share one SystemMess
   let agent = @posoco.Agent(
     exts=[
       cetas,
-      @posoco.ManifestOnly::ManifestOnly(
+      @tk.ManifestOnly::ManifestOnly(
         @posoco.ExtensionManifest(id="ext", prompt_contributors=[
           ext_contributor,
         ]),
       ),
-      @posoco.ManifestOnly::ManifestOnly(
+      @tk.ManifestOnly::ManifestOnly(
         @posoco.ExtensionManifest(id="model", models=[
           model as &@posoco.ModelPort,
         ]),
       ),
-      @posoco.ManifestOnly::ManifestOnly(
+      @tk.ManifestOnly::ManifestOnly(
         @posoco.ExtensionManifest(id="store", sessions=[
           store as &@posoco.SessionPort,
         ]),
       ),
-      @posoco.ManifestOnly::ManifestOnly(
+      @tk.ManifestOnly::ManifestOnly(
         @posoco.ExtensionManifest(id="observer", observers=[
           observer as &@posoco.Observer,
         ]),
       ),
-      @posoco.ManifestOnly::ManifestOnly(
+      @tk.ManifestOnly::ManifestOnly(
         @posoco.ExtensionManifest(id="ui", ui=[ui as &@posoco.UiPort]),
       ),
     ],
@@ -162,7 +162,7 @@ async test "e2e: base + cetas contributor + ext contributor share one SystemMess
       system_prompt=Some(cetas_system_prompt(cwd="/repo")),
     ),
   )
-  ignore(agent.run_turn(@posoco.tk_user_msg("hello"), "s1"))
+  ignore(agent.run_turn(@tk.tk_user_msg("hello"), "s1"))
   assert_true(model.received_messages.length() > 0)
   let msgs = model.received_messages[0]
   match msgs[0] {

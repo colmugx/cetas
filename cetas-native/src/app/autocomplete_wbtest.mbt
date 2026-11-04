@@ -1,10 +1,10 @@
 ///|
 async test "native command autocomplete and dispatch use the composed Agent catalog" {
-  let model = @posoco.ScriptedModel([])
-  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
+  let model = @tk.ScriptedModel([])
+  let store = @tk.RecordingSessionPort::RecordingSessionPort()
   let shell = NativeShell::new()
   let forme = @forme.Forme(host_note=Some("native-test"))
-  let io = @posoco.ManifestOnly::ManifestOnly(
+  let io = @tk.ManifestOnly::ManifestOnly(
     @posoco.ExtensionManifest(
       id="native_autocomplete_io",
       models=[model as &@posoco.ModelPort],

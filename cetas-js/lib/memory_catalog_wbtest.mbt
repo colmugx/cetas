@@ -28,7 +28,7 @@ impl @posoco.ModelPort for MemoryCatalogRecordingModel with fn chat(
   _stream : @posoco.StreamMode,
 ) -> @posoco.ModelCallResult raise @posoco.ModelError {
   self.seen_tools.push(tool_definitions.copy())
-  @posoco.tk_stop_response("done")
+  @tk.tk_stop_response("done")
 }
 
 ///|
@@ -94,15 +94,15 @@ async test "manifest path leads the catalog with memory tools" {
   let runtime = @runtime.PortRuntime(model=model as &@posoco.ModelPort)
   let agent = @posoco.Agent::with_runtime(
     exts=[
-      @posoco.tk_ext(id="model", model=Some(model as &@posoco.ModelPort)),
-      @posoco.tk_ext(id="mem", memory=[memory as &@posoco.MemoryPort]),
+      @tk.tk_ext(id="model", model=Some(model as &@posoco.ModelPort)),
+      @tk.tk_ext(id="mem", memory=[memory as &@posoco.MemoryPort]),
     ],
-    config=@posoco.tk_config(),
+    config=@tk.tk_config(),
     runtime=runtime as &@runtime.Runtime,
   ) catch {
     error => fail("composition failed: \{error}")
   }
-  let result = agent.run_turn(@posoco.tk_user_msg("hello"), "session_1")
+  let result = agent.run_turn(@tk.tk_user_msg("hello"), "session_1")
   assert_eq(result.final_session_id, "session_1")
   assert_eq(model.seen_tools.length(), 1)
   let names = model.seen_tools[0].map(fn(def) { def.name.to_string() })

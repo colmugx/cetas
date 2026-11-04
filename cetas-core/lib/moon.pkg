@@ -29,6 +29,7 @@ import {
   "moonbitlang/async",
   "colmugx/posoco-ext-fs-session" @fs_session,
   "colmugx/posoco-ext-workspace" @workspace,
+  "posoco/devkit/testkit" @tk,
 } for "wbtest"
 
 warnings = "-unused_package"

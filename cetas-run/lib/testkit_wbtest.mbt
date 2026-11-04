@@ -168,9 +168,9 @@ async fn tk_test_home(fs : FakeFs) -> String noraise {
 /// agent plus the scripted model so tests can assert on the prompts the
 /// model actually received (`received_messages`).
 async fn tk_scripted_agent(
-  steps : Array[@posoco.ScriptedModelStep],
+  steps : Array[@tk.ScriptedModelStep],
   tail_exts~ : Array[&@posoco.Extension] = [],
-) -> (@posoco.Agent, @posoco.ScriptedModel) raise @posoco.CompositionError {
+) -> (@posoco.Agent, @tk.ScriptedModel) raise @posoco.CompositionError {
   let fs = FakeFs()
   let home = tk_test_home(fs)
   let platform = @cetas_core.build_cetas_platform(
@@ -179,7 +179,7 @@ async fn tk_scripted_agent(
     fs,
     permission_mode=@permission.Yolo,
   )
-  let model = @posoco.ScriptedModel(steps)
+  let model = @tk.ScriptedModel(steps)
   let slot = @llm.ModelSlot::ModelSlot(
     id="opencode/claude-sonnet-5",
     label="Claude",

@@ -4,12 +4,12 @@
 
 ///|
 fn run_prompt_test_agent(
-  model : @posoco.ScriptedModel,
-  store : @posoco.RecordingSessionPort,
+  model : @tk.ScriptedModel,
+  store : @tk.RecordingSessionPort,
 ) -> @posoco.Agent raise {
   @posoco.Agent(
     exts=[
-      @posoco.ManifestOnly::ManifestOnly(
+      @tk.ManifestOnly::ManifestOnly(
         @posoco.ExtensionManifest(
           id="model",
           models=[model as &@posoco.ModelPort],
@@ -23,10 +23,10 @@ fn run_prompt_test_agent(
 
 ///|
 async test "run_prompt appends image blocks after the prompt text" {
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(@posoco.tk_stop_response("ok")),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("ok")),
   ])
-  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
+  let store = @tk.RecordingSessionPort::RecordingSessionPort()
   let agent = run_prompt_test_agent(model, store)
   let image : @posoco.Content = @posoco.Content::Image(
     media_type="image/png",

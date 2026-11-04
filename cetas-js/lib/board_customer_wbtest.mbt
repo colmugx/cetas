@@ -78,12 +78,10 @@ async test "Cetas JS factory drives real Agent plan graph scope preparation and 
       },
     ],
   }
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response(payload.stringify()),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("Actual controlled execution evidence"),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response(payload.stringify())),
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_stop_response("Actual controlled execution evidence"),
     ),
   ])
   let router = @llm.RouterModelPort(
@@ -167,7 +165,7 @@ async test "Cetas JS factory drives real Agent plan graph scope preparation and 
 async test "Cetas Board is absent by default and readonly cannot acquire workflow authority" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
-  let model = @posoco.ScriptedModel([])
+  let model = @tk.ScriptedModel([])
   let router = @llm.RouterModelPort(
     slots=[subagent_test_slot("test/board", model)],
     default_slot_id="test/board",
@@ -214,8 +212,8 @@ async test "Cetas Board is absent by default and readonly cannot acquire workflo
 
 ///|
 async test "workflow model selection is isolated and pinned across child compositions" {
-  let a = @posoco.ScriptedModel([])
-  let b = @posoco.ScriptedModel([])
+  let a = @tk.ScriptedModel([])
+  let b = @tk.ScriptedModel([])
   let router = @llm.RouterModelPort(
     slots=[subagent_test_slot("test/a", a), subagent_test_slot("test/b", b)],
     default_slot_id="test/a",

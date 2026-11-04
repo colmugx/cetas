@@ -125,7 +125,7 @@ fn tk_slot(id : String) -> @llm.ModelSlot {
     label=id,
     provider_id="test",
     model_id=id,
-    port=@posoco.ScriptedModel([]),
+    port=@tk.ScriptedModel([]),
     thinking_efforts=["low", "high"],
     default_effort=Some("low"),
   )
@@ -345,9 +345,9 @@ fn tk_decision_slot(id : String) -> @llm.ModelSlot {
     label=id,
     provider_id="test",
     model_id=id,
-    port=@posoco.ScriptedModel([]),
+    port=@tk.ScriptedModel([]),
     kind=@llm.ModelKind::Decision,
-    decision_port=Some(@posoco.ScriptedDecisionPort([])),
+    decision_port=Some(@tk.ScriptedDecisionPort([])),
   )
 }
 

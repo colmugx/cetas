@@ -32,7 +32,7 @@ pub impl @posoco.ModelPort for GateModelPort with fn chat(
     @async.sleep(1)
   }
   self.entered -= 1
-  @posoco.tk_stop_response("done")
+  @tk.tk_stop_response("done")
 }
 
 ///|

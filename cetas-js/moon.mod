@@ -25,8 +25,8 @@ preferred_target = "js"
 supported_targets = "js"
 
 import {
-  "colmugx/posoco@0.23.2",
-  "colmugx/posoco-ext-bunraku@0.1.0",
+  "colmugx/posoco@0.23.3",
+  "colmugx/posoco-ext-bunraku@0.2.0",
   "colmugx/cetas-core@0.2.0",
   "posoco/devkit@0.4.1",
   "colmugx/posoco-ext-context@0.2.0",
@@ -38,7 +38,7 @@ import {
   "colmugx/posoco-ext-permission@0.2.0",
   "colmugx/posoco-ext-ratelimit@0.4.0",
   "colmugx/posoco-ext-workspace@0.1.0",
-  "moonbitlang/async@0.22.5",
+  "moonbitlang/async@0.22.7",
   "colmugx/cetas-ext-forme@0.2.0",
   "colmugx/posoco-ext-read@0.2.0",
   "colmugx/posoco-ext-write@0.2.0",
@@ -54,7 +54,7 @@ import {
   "colmugx/posoco-ext-handoff@0.1.0",
   "colmugx/posoco-ext-lazytools@0.1.0",
   "colmugx/posoco-ext-obsidian@0.1.0",
-  "colmugx/posoco-ext-nowledge-mem@0.1.0",
+  "colmugx/posoco-ext-nowledge-mem@0.2.0",
   "colmugx/posoco-ext-zcode@0.1.0",
   "colmugx/posoco-ext-zai-coding-plan@0.1.0",
   "posoco/ext-herdr@0.1.0",

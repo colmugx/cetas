@@ -107,7 +107,7 @@ fn tk_last_user_text(messages : Array[@posoco.Message]) -> String {
 ///|
 async test "default face: stdout is exactly the answer block; stderr carries session and marker" {
   let (agent, _model) = tk_scripted_agent([
-    @posoco.Respond(@posoco.tk_stop_response("done one")),
+    @tk.Respond(@tk.tk_stop_response("done one")),
   ])
   let (write_out, out) = tk_sink()
   let (write_err, err) = tk_sink()
@@ -181,8 +181,8 @@ async test "resolve_task: eof, blank stdin line, and blank argv task yield None"
 ///|
 async test "peer envelope task wraps the task in a low-trust herdr-peer context; plain task passes through" {
   let (agent, model) = tk_scripted_agent([
-    @posoco.Respond(@posoco.tk_stop_response("done")),
-    @posoco.Respond(@posoco.tk_stop_response("done")),
+    @tk.Respond(@tk.tk_stop_response("done")),
+    @tk.Respond(@tk.tk_stop_response("done")),
   ])
   let (write_out, out) = tk_sink()
   let (write_err, err) = tk_sink()
@@ -234,7 +234,7 @@ async test "peer envelope task wraps the task in a low-trust herdr-peer context;
 async test "jsonl single-turn happy path: the frozen event sequence with usage folded into turn_completed, and nothing on stderr" {
   let observer = JsonlObserver::JsonlObserver()
   let (agent, _model) = tk_scripted_agent(
-    [@posoco.Respond(tk_usage_response("done one", input=11, output=7))],
+    [@tk.Respond(tk_usage_response("done one", input=11, output=7))],
     tail_exts=[observer as &@posoco.Extension],
   )
   let (write_out, out) = tk_sink()
@@ -297,7 +297,7 @@ async test "stream face: text deltas ride stdout live and one trailing newline c
     TextDelta(token="lo"),
   ]
   let (agent, _model) = tk_scripted_agent(
-    [@posoco.Stream(chunks~, response=@posoco.tk_stop_response("hello"))],
+    [@tk.Stream(chunks~, response=@tk.tk_stop_response("hello"))],
     tail_exts=[printer as &@posoco.Extension],
   )
   let (write_out, out) = tk_sink()
@@ -322,7 +322,7 @@ async test "stream face: text deltas ride stdout live and one trailing newline c
 async test "stream face falls back to the answer block when the model never streams" {
   let printer = StreamPrinter::StreamPrinter(stream=true, show_thinking=false)
   let (agent, _model) = tk_scripted_agent(
-    [@posoco.Respond(@posoco.tk_stop_response("done one"))],
+    [@tk.Respond(@tk.tk_stop_response("done one"))],
     tail_exts=[printer as &@posoco.Extension],
   )
   let (write_out, out) = tk_sink()
@@ -348,7 +348,7 @@ async test "show-thinking without stream dumps the final committed reasoning to 
   let printer = StreamPrinter::StreamPrinter(stream=false, show_thinking=true)
   let (agent, _model) = tk_scripted_agent(
     [
-      @posoco.Respond(
+      @tk.Respond(
         tk_reasoning_response(text="all done", reasoning="check the file first"),
       ),
     ],
@@ -382,7 +382,7 @@ async test "show-thinking with stream sends reasoning deltas to stderr, never st
   ]
   let (agent, _model) = tk_scripted_agent(
     [
-      @posoco.Stream(
+      @tk.Stream(
         chunks~,
         response=tk_reasoning_response(text="ans", reasoning="thinking"),
       ),
@@ -413,7 +413,7 @@ async test "show-thinking with stream sends reasoning deltas to stderr, never st
 async test "verbose face: the frozen jsonl event log rides stderr while stdout keeps the answer block" {
   let log = JsonlObserver::JsonlObserver(id="cetas_run_verbose")
   let (agent, _model) = tk_scripted_agent(
-    [@posoco.Respond(@posoco.tk_stop_response("done one"))],
+    [@tk.Respond(@tk.tk_stop_response("done one"))],
     tail_exts=[log as &@posoco.Extension],
   )
   let (write_out, out) = tk_sink()

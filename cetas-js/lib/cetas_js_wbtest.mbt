@@ -266,7 +266,7 @@ impl @posoco.Lifecycle for ScopeSubmitProbe with fn on_shutdown(
 impl @posoco.ToolProvider for ScopeSubmitProbe with fn list_tools(
   _self : ScopeSubmitProbe,
 ) -> Array[@posoco.ToolDef] {
-  [@posoco.tk_tool_def("probe_bg_spawn", "submit a background task")]
+  [@tk.tk_tool_def("probe_bg_spawn", "submit a background task")]
 }
 
 ///|
@@ -303,7 +303,7 @@ impl @posoco.ToolProvider for ScopeSubmitProbe with fn execute(
     Err(@posoco.TaskSubmitError::Unavailable) => self.submit_unavailable = true
     Err(_) => ()
   }
-  @posoco.tk_ok_result("spawned")
+  @tk.tk_ok_result("spawned")
 }
 
 ///|
@@ -315,30 +315,26 @@ impl @posoco.ToolProvider for ScopeSubmitProbe with fn execute(
 /// and closing the queue must retire the scope cleanly.
 async test "held run_scoped admits sibling background task submits" {
   let probe = ScopeSubmitProbe::new()
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_tool_call_response("probe_bg_spawn", "call_1", Json::null()),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(
+      @tk.tk_tool_call_response("probe_bg_spawn", "call_1", Json::null()),
     ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("first turn done"),
-    ),
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("second turn done"),
-    ),
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("first turn done")),
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("second turn done")),
   ])
-  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
+  let store = @tk.RecordingSessionPort::RecordingSessionPort()
   let agent = @posoco.Agent(
     exts=[
-      @posoco.tk_ext(id="model", model=Some(model)),
-      @posoco.tk_ext(id="io", sessions=[store]),
-      @posoco.tk_ext(
+      @tk.tk_ext(id="model", model=Some(model)),
+      @tk.tk_ext(id="io", sessions=[store]),
+      @tk.tk_ext(
         id="tasks",
         tools=[probe as &@posoco.ToolProvider],
         lifecycle=[probe as &@posoco.Lifecycle],
         requires=[@posoco.Capability::Tasks],
       ),
     ],
-    config=@posoco.tk_config(),
+    config=@tk.tk_config(),
   )
   let ready : @aqueue.Queue[Result[Unit, Error]] = Queue(kind=Unbounded)
   let serve_close : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
@@ -367,7 +363,7 @@ async test "held run_scoped admits sibling background task submits" {
       }
       // Sibling coroutine drives the turn; the tool's execute submits the
       // Background task onto the owner's scope group from OUTSIDE its body.
-      ignore(agent.run_turn(@posoco.tk_user_msg("hello"), "session_1"))
+      ignore(agent.run_turn(@tk.tk_user_msg("hello"), "session_1"))
       assert_true(probe.submit_ok)
       assert_false(probe.submit_unavailable)
       let handle = match probe.handle {
@@ -379,7 +375,7 @@ async test "held run_scoped admits sibling background task submits" {
         fail("background task did not complete")
       }
       // Delivery rides the NEXT ordinary run_turn for the same session.
-      ignore(agent.run_turn(@posoco.tk_user_msg("again"), "session_1"))
+      ignore(agent.run_turn(@tk.tk_user_msg("again"), "session_1"))
       let marker = "[posoco-task-outcome id=\{handle.receipt().id}]"
       guard store.store.contains("session_1") else {
         fail("session was never saved")
@@ -728,7 +724,7 @@ fn live_refresh_test_slot(
     label~,
     provider_id~,
     model_id=id,
-    port=@posoco.ScriptedModel([]),
+    port=@tk.ScriptedModel([]),
   )
 }
 

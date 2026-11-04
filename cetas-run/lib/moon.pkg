@@ -38,6 +38,7 @@ import {
   "moonbitlang/async",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
+  "posoco/devkit/testkit" @tk,
 } for "wbtest"
 
 supported_targets = "+native +wasm"

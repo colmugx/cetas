@@ -62,7 +62,7 @@ test "jsonl observer projects tool results with error polarity and folds usage" 
   observer.on_event(
     None,
     @posoco.TurnEvent::ModelResponseReceived(
-      message=@posoco.tk_user_msg("ignored"),
+      message=@tk.tk_user_msg("ignored"),
       usage=Some(tk_observer_usage(input=4, output=2)),
     ),
   )
@@ -230,14 +230,14 @@ test "jsonl observer resets the usage window at each begin_turn and reports abse
   observer.on_event(
     None,
     @posoco.TurnEvent::ModelResponseReceived(
-      message=@posoco.tk_user_msg("m"),
+      message=@tk.tk_user_msg("m"),
       usage=Some(tk_observer_usage(input=100, output=50)),
     ),
   )
   observer.on_event(
     None,
     @posoco.TurnEvent::ModelResponseReceived(
-      message=@posoco.tk_user_msg("m"),
+      message=@tk.tk_user_msg("m"),
       usage=Some(tk_observer_usage(input=10, output=5)),
     ),
   )
@@ -251,7 +251,7 @@ test "jsonl observer resets the usage window at each begin_turn and reports abse
   observer.on_event(
     None,
     @posoco.TurnEvent::ModelResponseReceived(
-      message=@posoco.tk_user_msg("m"),
+      message=@tk.tk_user_msg("m"),
       usage=None,
     ),
   )
@@ -294,7 +294,7 @@ test "jsonl observer escapes wire-breaking characters through the json encoder" 
 async test "the jsonl observer rides tail_exts into the composition and receives kernel events" {
   let observer = JsonlObserver::JsonlObserver()
   let (agent, _model) = tk_scripted_agent(
-    [@posoco.Respond(@posoco.tk_stop_response("hey"))],
+    [@tk.Respond(@tk.tk_stop_response("hey"))],
     tail_exts=[observer as &@posoco.Extension],
   )
   observer.begin_turn(turn_no=1, session_id="cetas-attach")

@@ -16,8 +16,8 @@
 ///     moon run --target native cetas-memoh/scripts/memoh_live_e2e.mbtx -- \
 ///       --exercise-controls --exercise-concurrency
 import {
-  "moonbitlang/async@0.22.5",
-  "moonbitlang/async@0.22.5/http",
+  "moonbitlang/async@0.22.7",
+  "moonbitlang/async@0.22.7/http",
   "moonbitlang/core/encoding/percent",
   "moonbitlang/core/env",
   "moonbitlang/core/json",

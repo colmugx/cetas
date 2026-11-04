@@ -51,8 +51,8 @@ fn subagent_test_spec(
 
 ///|
 async test "subagent child sees only requested core tools and never agent" {
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(@posoco.tk_stop_response("ok")),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("ok")),
   ])
   let router = @llm.RouterModelPort(
     slots=[subagent_test_slot("test/a", model as &@posoco.ModelPort)],
@@ -65,7 +65,7 @@ async test "subagent child sees only requested core tools and never agent" {
   )
   ignore(
     child.run_scoped(async fn(agent) {
-      agent.run_turn(@posoco.tk_user_msg("go"), "subagent-test")
+      agent.run_turn(@tk.tk_user_msg("go"), "subagent-test")
     }),
   )
 
@@ -78,8 +78,8 @@ async test "subagent child sees only requested core tools and never agent" {
 
 ///|
 async test "subagent child model selection does not mutate parent router" {
-  let a = @posoco.ScriptedModel([])
-  let b = @posoco.ScriptedModel([])
+  let a = @tk.ScriptedModel([])
+  let b = @tk.ScriptedModel([])
   let router = @llm.RouterModelPort(
     slots=[
       subagent_test_slot("test/a", a as &@posoco.ModelPort),
@@ -100,7 +100,7 @@ async test "subagent child model selection does not mutate parent router" {
 
 ///|
 async test "subagent composer rejects recursive subagent tool even in malformed spec" {
-  let model = @posoco.ScriptedModel([])
+  let model = @tk.ScriptedModel([])
   let router = @llm.RouterModelPort(
     slots=[subagent_test_slot("test/a", model as &@posoco.ModelPort)],
     default_slot_id="test/a",
@@ -123,7 +123,7 @@ async test "subagent composer rejects recursive subagent tool even in malformed 
 
 ///|
 async test "cetas-js owns the subagent tool at the host boundary" {
-  let model = @posoco.ScriptedModel([])
+  let model = @tk.ScriptedModel([])
   let router = @llm.RouterModelPort(
     slots=[subagent_test_slot("test/a", model as &@posoco.ModelPort)],
     default_slot_id="test/a",
@@ -180,7 +180,7 @@ test "effective_child_mode: yolo widens open postures, readonly kinds stay" {
 
 ///|
 test "resolve_child_mode applies the live parent posture" {
-  let model = @posoco.ScriptedModel([])
+  let model = @tk.ScriptedModel([])
   let router = @llm.RouterModelPort(
     slots=[subagent_test_slot("test/a", model as &@posoco.ModelPort)],
     default_slot_id="test/a",
@@ -302,7 +302,7 @@ async test "durable child session store survives a new store instance and clears
   let id = "ticket-durable"
   let store = CetasChildSessionStore::with_root(root)
   let session : @posoco.Session = {
-    messages: [@posoco.tk_user_msg("hello")],
+    messages: [@tk.tk_user_msg("hello")],
     metadata: Map::from_array([("ticket", Json::string("t1"))]),
   }
   store.save(id, session) catch {

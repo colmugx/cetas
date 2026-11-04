@@ -15,7 +15,7 @@ description = "Cetas run host — runs exactly one cetas user turn per invocatio
 supported_targets = "+native +wasm"
 
 import {
-  "colmugx/posoco@0.23.2",
+  "colmugx/posoco@0.23.3",
   "colmugx/cetas-core@0.2.0",
   "posoco/devkit@0.4.1",
   "posoco/ext-llm@0.2.0",
@@ -23,7 +23,7 @@ import {
   "colmugx/posoco-ext-workspace@0.1.0",
   "posoco/ext-oauth@0.1.0",
   "colmugx/posoco-ext-credentials@0.1.0",
-  "moonbitlang/async@0.22.5",
+  "moonbitlang/async@0.22.7",
   // recipe-deps:begin
   "colmugx/cetas-ext-forme@0.2.0",
   "colmugx/posoco-ext-read@0.2.0",

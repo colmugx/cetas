@@ -180,7 +180,7 @@ async test "the platform assembly seeds catalogs from the model cache and swaps 
         label="Fresh",
         provider_id="opencode",
         model_id="fresh",
-        port=@posoco.ScriptedModel([]),
+        port=@tk.ScriptedModel([]),
       ),
     ],
   )

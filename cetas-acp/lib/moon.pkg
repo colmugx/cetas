@@ -47,6 +47,7 @@ import {
   "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-ratelimit" @ratelimit,
   "moonbitlang/core/json",
+  "posoco/devkit/testkit" @tk,
 } for "wbtest"
 
 supported_targets = "+native"

@@ -4,22 +4,20 @@
 /// duplicate, and the final assistant text returns through the same
 /// projection as run_prompt (trailing newline per text block).
 async test "run_resume replays a trailing user message and returns assistant text" {
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(
-      @posoco.tk_stop_response("resumed answer"),
-    ),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("resumed answer")),
   ])
-  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
+  let store = @tk.RecordingSessionPort::RecordingSessionPort()
   store.seed("s1", {
-    messages: [@posoco.tk_user_msg("task one")],
+    messages: [@tk.tk_user_msg("task one")],
     metadata: Map::from_array([]),
   })
   let agent = @posoco.Agent(
     exts=[
-      @posoco.tk_ext(id="model", model=Some(model)),
-      @posoco.tk_ext(id="io", sessions=[store]),
+      @tk.tk_ext(id="model", model=Some(model)),
+      @tk.tk_ext(id="io", sessions=[store]),
     ],
-    config=@posoco.tk_config(),
+    config=@tk.tk_config(),
   )
   let text = run_resume(agent, "s1")
   inspect(text, content="resumed answer\n")
@@ -45,13 +43,13 @@ async test "run_resume replays a trailing user message and returns assistant tex
 /// interruption happened mid-tool-loop), resume appends the fixed
 /// continuation instead of replaying an assistant message as input.
 async test "run_resume appends the continuation for a non-user transcript tail" {
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(@posoco.tk_stop_response("continued")),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("continued")),
   ])
-  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
+  let store = @tk.RecordingSessionPort::RecordingSessionPort()
   store.seed("s2", {
     messages: [
-      @posoco.tk_user_msg("task two"),
+      @tk.tk_user_msg("task two"),
       @posoco.Message::AssistantMessage(
         content=[@posoco.Content::Text("partial")],
         tool_calls=[],
@@ -63,10 +61,10 @@ async test "run_resume appends the continuation for a non-user transcript tail" 
   })
   let agent = @posoco.Agent(
     exts=[
-      @posoco.tk_ext(id="model", model=Some(model)),
-      @posoco.tk_ext(id="io", sessions=[store]),
+      @tk.tk_ext(id="model", model=Some(model)),
+      @tk.tk_ext(id="io", sessions=[store]),
     ],
-    config=@posoco.tk_config(),
+    config=@tk.tk_config(),
   )
   let text = run_resume(agent, "s2")
   inspect(text, content="continued\n")

@@ -20,12 +20,12 @@ async test "native approval uses composed UiPort lifecycle wrapper" {
   let raw_ui = NativeUiPort::new()
   let approval = NativeApprovalSource::new()
   let bridge = NativeUiBridge::new(approval)
-  let observer = @posoco.RecordingObserver::RecordingObserver()
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(@posoco.tk_stop_response("unused")),
+  let observer = @tk.RecordingObserver::RecordingObserver()
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("unused")),
   ])
-  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
-  let base = @posoco.ManifestOnly::ManifestOnly(
+  let store = @tk.RecordingSessionPort::RecordingSessionPort()
+  let base = @tk.ManifestOnly::ManifestOnly(
     @posoco.ExtensionManifest(
       id="native_ui_composition_test",
       models=[model as &@posoco.ModelPort],

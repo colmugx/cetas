@@ -66,6 +66,7 @@ import {
   "colmugx/posoco-ext-board/workflow" @board_workflow,
   "moonbitlang/async",
   "moonbitlang/async/aqueue",
+  "posoco/devkit/testkit" @tk,
 } for "wbtest"
 
 warnings = "-unused_package"

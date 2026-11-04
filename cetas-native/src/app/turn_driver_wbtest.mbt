@@ -1,12 +1,12 @@
 ///|
 async test "native turn driver runs Agent without blocking editor state" {
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(@posoco.tk_stop_response("driver ok")),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("driver ok")),
   ])
-  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
+  let store = @tk.RecordingSessionPort::RecordingSessionPort()
   let shell = NativeShell::new()
   let observer = NativeShellObserver::new(shell)
-  let io = @posoco.ManifestOnly::ManifestOnly(
+  let io = @tk.ManifestOnly::ManifestOnly(
     @posoco.ExtensionManifest(
       id="native_turn_driver_io",
       models=[model as &@posoco.ModelPort],

@@ -207,7 +207,7 @@ fn tk_router_slot(
     label~,
     provider_id="test",
     model_id=id,
-    port=@posoco.ScriptedModel([]),
+    port=@tk.ScriptedModel([]),
     thinking_efforts=efforts,
     context_window~,
     default_effort=if efforts.is_empty() { None } else { Some(efforts[0]) },
@@ -276,7 +276,7 @@ fn tk_fixture_store_root(dir : String, sessions_root : String) -> String {
 /// filesystem is the between-turns memory, exactly like production.
 fn tk_spawn_session(
   model : &@posoco.ModelPort,
-  tools : @posoco.RecordingToolProvider,
+  tools : @tk.RecordingToolProvider,
   process_cwd : String,
   sessions_root~ : String = "",
   context_window~ : Int32? = None,
@@ -313,13 +313,13 @@ fn tk_spawn_session(
       )
       let agent = @posoco.Agent(
         exts=[
-          @posoco.tk_ext(id="model", model=Some(model)),
-          @posoco.tk_ext(id="tools", tools=[tools]),
-          @posoco.tk_ext(id="io", sessions=[store as &@posoco.SessionPort]),
+          @tk.tk_ext(id="model", model=Some(model)),
+          @tk.tk_ext(id="tools", tools=[tools]),
+          @tk.tk_ext(id="io", sessions=[store as &@posoco.SessionPort]),
           bridge,
           policy,
         ],
-        config=@posoco.tk_config(),
+        config=@tk.tk_config(),
       )
       Ok({
         bridge,
@@ -355,8 +355,8 @@ fn tk_no_env(_key : String) -> String? {
 /// session commits into its client bucket under one fixture-unique TMPDIR root
 /// (or the caller's shared root, for cross-host restart tests).
 fn tk_host(
-  steps : Array[@posoco.ScriptedModelStep],
-  tools~ : @posoco.RecordingToolProvider = @posoco.RecordingToolProvider(
+  steps : Array[@tk.ScriptedModelStep],
+  tools~ : @tk.RecordingToolProvider = @tk.RecordingToolProvider(
     [],
     Map::from_array([]),
   ),
@@ -367,8 +367,8 @@ fn tk_host(
   wire_log~ : Bool = false,
   context_window~ : Int32? = None,
   permission_mode~ : @permission.PermissionMode = @permission.WorkspaceWrite,
-) -> (CetasAcpHost, @posoco.ScriptedModel) {
-  let model = @posoco.ScriptedModel(steps)
+) -> (CetasAcpHost, @tk.ScriptedModel) {
+  let model = @tk.ScriptedModel(steps)
   let root = if sessions_root.length() > 0 {
     sessions_root
   } else {
@@ -399,7 +399,7 @@ fn tk_host_model(model : &@posoco.ModelPort) -> CetasAcpHost {
   CetasAcpHost::of(
     spawn_session=tk_spawn_session(
       model,
-      @posoco.RecordingToolProvider([], Map::from_array([])),
+      @tk.RecordingToolProvider([], Map::from_array([])),
       "/",
       sessions_root=tk_unique_root("model"),
     ),
@@ -413,13 +413,13 @@ fn tk_host_model(model : &@posoco.ModelPort) -> CetasAcpHost {
 /// under `<home>/.cetas/sessions/<client>`, so resume's bucket scan
 /// (`find_session_bucket`) reads the same directories it reads in production.
 fn tk_host_real_fs(
-  steps : Array[@posoco.ScriptedModelStep],
+  steps : Array[@tk.ScriptedModelStep],
   home : String,
 ) -> CetasAcpHost {
   CetasAcpHost::of(
     spawn_session=tk_spawn_session(
-      @posoco.ScriptedModel(steps),
-      @posoco.RecordingToolProvider([], Map::from_array([])),
+      @tk.ScriptedModel(steps),
+      @tk.RecordingToolProvider([], Map::from_array([])),
       "/",
       sessions_root=@cetas_core.sessions_dir(home),
     ),
@@ -459,16 +459,16 @@ fn tk_spawn_session_plan(
       )
       let agent = @posoco.Agent(
         exts=[
-          @posoco.tk_ext(id="model", model=Some(model)),
-          @posoco.tk_ext(id="io", sessions=[
-            @posoco.RecordingSessionPort::RecordingSessionPort()
+          @tk.tk_ext(id="model", model=Some(model)),
+          @tk.tk_ext(id="io", sessions=[
+            @tk.RecordingSessionPort::RecordingSessionPort()
             as &@posoco.SessionPort,
           ]),
           bridge,
           policy,
           plan_mode,
         ],
-        config=@posoco.tk_config(),
+        config=@tk.tk_config(),
       )
       Ok({
         bridge,
@@ -494,9 +494,9 @@ fn tk_spawn_session_plan(
 
 ///|
 fn tk_host_plan(
-  steps : Array[@posoco.ScriptedModelStep],
-) -> (CetasAcpHost, @posoco.ScriptedModel) {
-  let model = @posoco.ScriptedModel(steps)
+  steps : Array[@tk.ScriptedModelStep],
+) -> (CetasAcpHost, @tk.ScriptedModel) {
+  let model = @tk.ScriptedModel(steps)
   let host = CetasAcpHost::of(
     spawn_session=tk_spawn_session_plan(model, "/"),
     home="/cetas-home",
@@ -511,17 +511,17 @@ fn tk_plan_reply(option_id : String) -> @acp.RequestPermissionResponse {
 }
 
 ///|
-fn tk_plan_turn(plan_text : String) -> Array[@posoco.ScriptedModelStep] {
+fn tk_plan_turn(plan_text : String) -> Array[@tk.ScriptedModelStep] {
   [
-    @posoco.Respond(
-      @posoco.tk_tool_call_response(
+    @tk.Respond(
+      @tk.tk_tool_call_response(
         "enter_plan_mode",
         "pe1",
         Json::object(Map::from_array([])),
       ),
     ),
-    @posoco.Respond(
-      @posoco.tk_tool_call_response(
+    @tk.Respond(
+      @tk.tk_tool_call_response(
         "exit_plan_mode",
         "px1",
         Json::object(
@@ -532,7 +532,7 @@ fn tk_plan_turn(plan_text : String) -> Array[@posoco.ScriptedModelStep] {
         ),
       ),
     ),
-    @posoco.Respond(@posoco.tk_stop_response("planning resolved")),
+    @tk.Respond(@tk.tk_stop_response("planning resolved")),
   ]
 }
 
@@ -701,9 +701,7 @@ async test "session ids are clock-minted, well-shaped, and unique within and acr
 
 ///|
 async test "prompt streams the assistant message and ends the turn" {
-  let (host, _) = tk_host([
-    @posoco.Respond(@posoco.tk_stop_response("hi there")),
-  ])
+  let (host, _) = tk_host([@tk.Respond(@tk.tk_stop_response("hi there"))])
   let client = FakeAcpClient::FakeAcpClient()
   let session_id = tk_open_session(host, client)
   let result = host.handle_prompt(fake_acp_context(client), {
@@ -756,7 +754,7 @@ fn tk_stop_response_used(
 ///|
 async test "prompt usage update carries the host context window as size" {
   let (host, _) = tk_host(
-    [@posoco.Respond(tk_stop_response_used("hi there", 10))],
+    [@tk.Respond(tk_stop_response_used("hi there", 10))],
     context_window=Some(200000),
   )
   let client = FakeAcpClient::FakeAcpClient()
@@ -807,9 +805,7 @@ async test "bridge uses effective context window including labelled fallback" {
 
 ///|
 async test "prompt rejects an unknown session id" {
-  let (host, _) = tk_host([
-    @posoco.Respond(@posoco.tk_stop_response("hi there")),
-  ])
+  let (host, _) = tk_host([@tk.Respond(@tk.tk_stop_response("hi there"))])
   let outcome : Result[@acp.PromptResult, @acp.HandlerError] = Ok(
     host.handle_prompt(fake_acp_context(FakeAcpClient::FakeAcpClient()), {
       session_id: "cetas-404",
@@ -829,22 +825,20 @@ async test "prompt rejects an unknown session id" {
 
 ///|
 async test "prompt with a tool round streams the tool call lifecycle" {
-  let tools = @posoco.RecordingToolProvider(
-    [@posoco.tk_tool_def("echo", "echo the input")],
-    Map::from_array([
-      ("echo", @posoco.OutcomeOk(@posoco.tk_ok_result("echoed"))),
-    ]),
+  let tools = @tk.RecordingToolProvider(
+    [@tk.tk_tool_def("echo", "echo the input")],
+    Map::from_array([("echo", @tk.OutcomeOk(@tk.tk_ok_result("echoed")))]),
   )
   let (host, _) = tk_host(
     [
-      @posoco.Respond(
-        @posoco.tk_tool_call_response(
+      @tk.Respond(
+        @tk.tk_tool_call_response(
           "echo",
           "c1",
           Json::object({ "command": Json::string("hi") }),
         ),
       ),
-      @posoco.Respond(@posoco.tk_stop_response("done")),
+      @tk.Respond(@tk.tk_stop_response("done")),
     ],
     tools~,
   )
@@ -876,14 +870,14 @@ async test "prompt with a tool round streams the tool call lifecycle" {
 
 ///|
 async test "denied tool aborts the turn with the sanitized reason" {
-  let tools = @posoco.RecordingToolProvider(
-    [@posoco.tk_tool_def("bash", "shell")],
-    Map::from_array([("bash", @posoco.OutcomeOk(@posoco.tk_ok_result("ok")))]),
+  let tools = @tk.RecordingToolProvider(
+    [@tk.tk_tool_def("bash", "shell")],
+    Map::from_array([("bash", @tk.OutcomeOk(@tk.tk_ok_result("ok")))]),
   )
   let (host, _) = tk_host(
     [
-      @posoco.Respond(
-        @posoco.tk_tool_call_response(
+      @tk.Respond(
+        @tk.tk_tool_call_response(
           "bash",
           "c1",
           Json::object({ "command": Json::string("rm -rf /") }),
@@ -964,9 +958,7 @@ fn tk_sent_placeholder_stats(client : FakeAcpClient) -> (Int32, Int32, Int32) {
 
 ///|
 async test "prompt pushes the working-indicator thought chunk before any stream chunk" {
-  let (host, _) = tk_host([
-    @posoco.Respond(@posoco.tk_stop_response("hi there")),
-  ])
+  let (host, _) = tk_host([@tk.Respond(@tk.tk_stop_response("hi there"))])
   let client = FakeAcpClient::FakeAcpClient()
   let session_id = tk_open_session(host, client)
   let result = host.handle_prompt(fake_acp_context(client), {
@@ -1044,7 +1036,7 @@ async test "real reasoning chunks keep their own message ids beside the placehol
     ReasoningDelta(token="thinking…"),
   ]
   let (host, _) = tk_host([
-    @posoco.Stream(chunks~, response=@posoco.tk_stop_response("answer")),
+    @tk.Stream(chunks~, response=@tk.tk_stop_response("answer")),
   ])
   let client = FakeAcpClient::FakeAcpClient()
   let session_id = tk_open_session(host, client)
@@ -1332,7 +1324,7 @@ async test "cancel interrupts the session's in-flight turn" {
     let sleeper = group.spawn(() => {
       @async.sleep(10_000)
       let placeholder : @posoco.TurnResult = {
-        message: @posoco.tk_user_msg(""),
+        message: @tk.tk_user_msg(""),
         tool_results: [],
         final_session_id: session_id,
       }
@@ -1382,7 +1374,7 @@ impl @posoco.ModelPort for SlowModel with fn chat(
     error => raise @posoco.ModelError::Transport(error.to_string())
   }
   self.interrupted = parked is None
-  @posoco.tk_stop_response(self.response)
+  @tk.tk_stop_response(self.response)
 }
 
 ///|
@@ -1407,8 +1399,8 @@ impl @posoco.ModelPort for SlowModel with fn provider_config(_self) -> @posoco.P
 ///|
 async test "close retires the session and later prompts reject as unknown" {
   let (host, _) = tk_host([
-    @posoco.Respond(@posoco.tk_stop_response("hi")),
-    @posoco.Respond(@posoco.tk_stop_response("hi")),
+    @tk.Respond(@tk.tk_stop_response("hi")),
+    @tk.Respond(@tk.tk_stop_response("hi")),
   ])
   let client = FakeAcpClient::FakeAcpClient()
   let session_id = tk_open_session(host, client)
@@ -1548,7 +1540,7 @@ async test "repeated new/close cycles leave no sessions behind" {
 
 ///|
 async test "close tears the bridge down through the agent's lifecycle shutdown" {
-  let (host, _) = tk_host([@posoco.Respond(@posoco.tk_stop_response("hi"))])
+  let (host, _) = tk_host([@tk.Respond(@tk.tk_stop_response("hi"))])
   let client = FakeAcpClient::FakeAcpClient()
   let session_id = tk_open_session(host, client)
   let _ = host.handle_prompt(fake_acp_context(client), {
@@ -1901,30 +1893,28 @@ async test "startup permission posture defaults to yolo and validates overrides"
 
 ///|
 async test "set_config_option permission yolo stops asking for write-class calls" {
-  let tools = @posoco.RecordingToolProvider(
-    [@posoco.tk_tool_def("edit", "edit a file")],
-    Map::from_array([
-      ("edit", @posoco.OutcomeOk(@posoco.tk_ok_result("edited"))),
-    ]),
+  let tools = @tk.RecordingToolProvider(
+    [@tk.tk_tool_def("edit", "edit a file")],
+    Map::from_array([("edit", @tk.OutcomeOk(@tk.tk_ok_result("edited")))]),
   )
   let (host, _) = tk_host(
     [
-      @posoco.Respond(
-        @posoco.tk_tool_call_response(
+      @tk.Respond(
+        @tk.tk_tool_call_response(
           "edit",
           "c1",
           Json::object({ "path": Json::string("a.txt") }),
         ),
       ),
-      @posoco.Respond(@posoco.tk_stop_response("done one")),
-      @posoco.Respond(
-        @posoco.tk_tool_call_response(
+      @tk.Respond(@tk.tk_stop_response("done one")),
+      @tk.Respond(
+        @tk.tk_tool_call_response(
           "edit",
           "c2",
           Json::object({ "path": Json::string("b.txt") }),
         ),
       ),
-      @posoco.Respond(@posoco.tk_stop_response("done two")),
+      @tk.Respond(@tk.tk_stop_response("done two")),
     ],
     tools~,
   )
@@ -1961,22 +1951,20 @@ async test "set_config_option permission yolo stops asking for write-class calls
 
 ///|
 async test "set_config_option permission readonly rejects write-class calls without asking" {
-  let tools = @posoco.RecordingToolProvider(
-    [@posoco.tk_tool_def("edit", "edit a file")],
-    Map::from_array([
-      ("edit", @posoco.OutcomeOk(@posoco.tk_ok_result("edited"))),
-    ]),
+  let tools = @tk.RecordingToolProvider(
+    [@tk.tk_tool_def("edit", "edit a file")],
+    Map::from_array([("edit", @tk.OutcomeOk(@tk.tk_ok_result("edited")))]),
   )
   let (host, _) = tk_host(
     [
-      @posoco.Respond(
-        @posoco.tk_tool_call_response(
+      @tk.Respond(
+        @tk.tk_tool_call_response(
           "edit",
           "c1",
           Json::object({ "path": Json::string("a.txt") }),
         ),
       ),
-      @posoco.Respond(@posoco.tk_stop_response("cannot edit")),
+      @tk.Respond(@tk.tk_stop_response("cannot edit")),
     ],
     tools~,
   )
@@ -2235,9 +2223,9 @@ async test "a failing refresh keeps the current slots and pushes nothing" {
 ///|
 async test "two sessions prompt independently without cross-session wiring" {
   let (host, _) = tk_host([
-    @posoco.Respond(@posoco.tk_stop_response("from one")),
-    @posoco.Respond(@posoco.tk_stop_response("from two")),
-    @posoco.Respond(@posoco.tk_stop_response("one again")),
+    @tk.Respond(@tk.tk_stop_response("from one")),
+    @tk.Respond(@tk.tk_stop_response("from two")),
+    @tk.Respond(@tk.tk_stop_response("one again")),
   ])
   let client_a = FakeAcpClient::FakeAcpClient()
   let client_b = FakeAcpClient::FakeAcpClient()
@@ -2321,11 +2309,7 @@ async test "cancel one session leaves the other's turn running" {
   @async.with_task_group(group => {
     let placeholder = async fn(id : String) -> @posoco.TurnResult {
       @async.sleep(10_000)
-      {
-        message: @posoco.tk_user_msg(""),
-        tool_results: [],
-        final_session_id: id,
-      }
+      { message: @tk.tk_user_msg(""), tool_results: [], final_session_id: id, }
     }
     let task_a = group.spawn(() => placeholder(a))
     let task_b = group.spawn(() => placeholder(b))
@@ -2389,7 +2373,7 @@ impl @posoco.ModelPort for GatedModel with fn chat(
     @async.sleep(1)
   }
   self.log.push("exit \{i}")
-  @posoco.tk_stop_response(self.responses[i])
+  @tk.tk_stop_response(self.responses[i])
 }
 
 ///|
@@ -3133,8 +3117,8 @@ async test "session cwd comes from params and falls back to the process cwd" {
 ///|
 async test "turns commit into the client bucket on disk" {
   let (host, _) = tk_host([
-    @posoco.Respond(@posoco.tk_stop_response("w4 answer")),
-    @posoco.Respond(@posoco.tk_stop_response("w4 answer two")),
+    @tk.Respond(@tk.tk_stop_response("w4 answer")),
+    @tk.Respond(@tk.tk_stop_response("w4 answer two")),
   ])
   let client = FakeAcpClient::FakeAcpClient()
   let session_id = tk_open_session(host, client)
@@ -3174,8 +3158,8 @@ async test "resume rebuilds the session without replaying history" {
   let fs = FakeFs()
   let (host, _) = tk_host(
     [
-      @posoco.Respond(@posoco.tk_stop_response("first")),
-      @posoco.Respond(@posoco.tk_stop_response("after resume")),
+      @tk.Respond(@tk.tk_stop_response("first")),
+      @tk.Respond(@tk.tk_stop_response("after resume")),
     ],
     fs~,
   )
@@ -3208,9 +3192,7 @@ async test "resume rebuilds the session without replaying history" {
 async test "slash /name renames the persisted record without a model round" {
   // Exactly one model step: the first turn consumes it, so a leaked /name
   // would fail the turn instead of ending it.
-  let (host, _) = tk_host([
-    @posoco.Respond(@posoco.tk_stop_response("only turn")),
-  ])
+  let (host, _) = tk_host([@tk.Respond(@tk.tk_stop_response("only turn"))])
   let client = FakeAcpClient::FakeAcpClient()
   let session_id = tk_open_session(host, client)
   let first = host.handle_prompt(fake_acp_context(client), {
@@ -3291,9 +3273,7 @@ async test "slash /name without committed history reports the failure back" {
 
 ///|
 async test "an unmatched slash line still reaches the model" {
-  let (host, _) = tk_host([
-    @posoco.Respond(@posoco.tk_stop_response("model saw it")),
-  ])
+  let (host, _) = tk_host([@tk.Respond(@tk.tk_stop_response("model saw it"))])
   let client = FakeAcpClient::FakeAcpClient()
   let session_id = tk_open_session(host, client)
   let result = host.handle_prompt(fake_acp_context(client), {
@@ -3321,7 +3301,7 @@ async test "an unmatched slash line still reaches the model" {
 
 ///|
 async test "resume pushes the title from the persisted record" {
-  let (host, _) = tk_host([@posoco.Respond(@posoco.tk_stop_response("answer"))])
+  let (host, _) = tk_host([@tk.Respond(@tk.tk_stop_response("answer"))])
   let client = FakeAcpClient::FakeAcpClient()
   let session_id = tk_open_session(host, client)
   let turn = host.handle_prompt(fake_acp_context(client), {
@@ -3365,9 +3345,7 @@ async test "resume pushes the title from the persisted record" {
 
 ///|
 async test "resume accepts a client-known id and rejects an empty id" {
-  let (host, _) = tk_host([
-    @posoco.Respond(@posoco.tk_stop_response("reconnected")),
-  ])
+  let (host, _) = tk_host([@tk.Respond(@tk.tk_stop_response("reconnected"))])
   // With client-owned records the agent cannot second-guess existence: a
   // non-empty id is accepted as the client's assertion and becomes live.
   let result = host.handle_resume_session(
@@ -3471,7 +3449,7 @@ test "resolve_client_bucket falls back to acp without a usable signal" {
 async test "a lody session's history lands in the lody bucket" {
   let root = tk_unique_root("lody-bucket")
   let (host, _) = tk_host(
-    [@posoco.Respond(@posoco.tk_stop_response("lody answer"))],
+    [@tk.Respond(@tk.tk_stop_response("lody answer"))],
     sessions_root=root,
   )
   let client = FakeAcpClient::FakeAcpClient()
@@ -3501,7 +3479,7 @@ async test "a lody session's history lands in the lody bucket" {
 async test "a clientInfo-identified session lands in its own bucket" {
   let root = tk_unique_root("clientinfo-bucket")
   let (host, _) = tk_host(
-    [@posoco.Respond(@posoco.tk_stop_response("zed answer"))],
+    [@tk.Respond(@tk.tk_stop_response("zed answer"))],
     sessions_root=root,
   )
   // Zed-class clients identify through initialize clientInfo alone — no
@@ -3545,10 +3523,10 @@ async test "resume over a fresh host continues the persisted transcript" {
   let root = tk_unique_root("restart")
   let (host_a, _) = tk_host(
     [
-      @posoco.Respond(@posoco.tk_stop_response("disk one")),
-      @posoco.Respond(@posoco.tk_stop_response("spare a")),
-      @posoco.Respond(@posoco.tk_stop_response("spare b")),
-      @posoco.Respond(@posoco.tk_stop_response("spare c")),
+      @tk.Respond(@tk.tk_stop_response("disk one")),
+      @tk.Respond(@tk.tk_stop_response("spare a")),
+      @tk.Respond(@tk.tk_stop_response("spare b")),
+      @tk.Respond(@tk.tk_stop_response("spare c")),
     ],
     sessions_root=root,
   )
@@ -3564,8 +3542,8 @@ async test "resume over a fresh host continues the persisted transcript" {
   // the bucket the transcript lives in, and the next turn continues it.
   let (host_b, _) = tk_host(
     [
-      @posoco.Respond(@posoco.tk_stop_response("disk two")),
-      @posoco.Respond(@posoco.tk_stop_response("spare d")),
+      @tk.Respond(@tk.tk_stop_response("disk two")),
+      @tk.Respond(@tk.tk_stop_response("spare d")),
     ],
     sessions_root=root,
   )
@@ -3590,7 +3568,7 @@ async test "resume over a fresh host continues the persisted transcript" {
 async test "resume finds a transcript through the bucket scan across clients" {
   let home = tk_unique_root("scan")
   let host_a = tk_host_real_fs(
-    [@posoco.Respond(@posoco.tk_stop_response("lody side answer"))],
+    [@tk.Respond(@tk.tk_stop_response("lody side answer"))],
     home,
   )
   let client = FakeAcpClient::FakeAcpClient()
@@ -3614,8 +3592,8 @@ async test "resume finds a transcript through the bucket scan across clients" {
   // the transcript can only be found by scanning the sibling buckets.
   let host_b = tk_host_real_fs(
     [
-      @posoco.Respond(@posoco.tk_stop_response("after scan")),
-      @posoco.Respond(@posoco.tk_stop_response("spare")),
+      @tk.Respond(@tk.tk_stop_response("after scan")),
+      @tk.Respond(@tk.tk_stop_response("spare")),
     ],
     home,
   )
@@ -3921,16 +3899,16 @@ fn tk_spawn_session_plan_noreview(
       )
       let agent = @posoco.Agent(
         exts=[
-          @posoco.tk_ext(id="model", model=Some(model)),
-          @posoco.tk_ext(id="io", sessions=[
-            @posoco.RecordingSessionPort::RecordingSessionPort()
+          @tk.tk_ext(id="model", model=Some(model)),
+          @tk.tk_ext(id="io", sessions=[
+            @tk.RecordingSessionPort::RecordingSessionPort()
             as &@posoco.SessionPort,
           ]),
           bridge,
           policy,
           plan_mode,
         ],
-        config=@posoco.tk_config(),
+        config=@tk.tk_config(),
       )
       Ok({
         bridge,
@@ -3984,7 +3962,7 @@ fn tk_assert_modes(
 
 ///|
 async test "session results advertise the default and plan modes" {
-  let (host, _) = tk_host([@posoco.Respond(@posoco.tk_stop_response("history"))])
+  let (host, _) = tk_host([@tk.Respond(@tk.tk_stop_response("history"))])
   let client = FakeAcpClient::FakeAcpClient()
   let session_id = tk_open_session(host, client)
   let new_result = host.handle_new_session(
@@ -4061,16 +4039,16 @@ async test "set_mode plan enters planning, pushes the mode, and gates writes" {
 
 ///|
 async test "set_mode default leaves plan mode directly, review-free" {
-  let model = @posoco.ScriptedModel([
-    @posoco.Respond(
-      @posoco.tk_tool_call_response(
+  let model = @tk.ScriptedModel([
+    @tk.Respond(
+      @tk.tk_tool_call_response(
         "enter_plan_mode",
         "pe1",
         Json::object(Map::from_array([])),
       ),
     ),
-    @posoco.Respond(
-      @posoco.tk_tool_call_response(
+    @tk.Respond(
+      @tk.tk_tool_call_response(
         "exit_plan_mode",
         "px1",
         Json::object(
@@ -4081,8 +4059,8 @@ async test "set_mode default leaves plan mode directly, review-free" {
         ),
       ),
     ),
-    @posoco.Respond(@posoco.tk_stop_response("submitted")),
-    @posoco.Respond(@posoco.tk_stop_response("after exit")),
+    @tk.Respond(@tk.tk_stop_response("submitted")),
+    @tk.Respond(@tk.tk_stop_response("after exit")),
   ])
   let host = CetasAcpHost::of(
     spawn_session=tk_spawn_session_plan_noreview(model, "/"),
@@ -4170,14 +4148,14 @@ async test "set_mode rejects unknown modes and unknown sessions" {
 ///|
 async test "a model-entered plan mode reaches the client at the epilogue" {
   let (host, _) = tk_host_plan([
-    @posoco.Respond(
-      @posoco.tk_tool_call_response(
+    @tk.Respond(
+      @tk.tk_tool_call_response(
         "enter_plan_mode",
         "pe1",
         Json::object(Map::from_array([])),
       ),
     ),
-    @posoco.Respond(@posoco.tk_stop_response("researching")),
+    @tk.Respond(@tk.tk_stop_response("researching")),
   ])
   let client = FakeAcpClient::FakeAcpClient()
   let session_id = tk_open_session(host, client)
@@ -4199,16 +4177,16 @@ async test "a model-entered plan mode reaches the client at the epilogue" {
 ///|
 async test "an approved exit pushes the mode back to default at the epilogue" {
   let (host, _) = tk_host_plan([
-    @posoco.Respond(
-      @posoco.tk_tool_call_response(
+    @tk.Respond(
+      @tk.tk_tool_call_response(
         "enter_plan_mode",
         "pe1",
         Json::object(Map::from_array([])),
       ),
     ),
-    @posoco.Respond(@posoco.tk_stop_response("planning")),
-    @posoco.Respond(
-      @posoco.tk_tool_call_response(
+    @tk.Respond(@tk.tk_stop_response("planning")),
+    @tk.Respond(
+      @tk.tk_tool_call_response(
         "exit_plan_mode",
         "px1",
         Json::object(
@@ -4219,7 +4197,7 @@ async test "an approved exit pushes the mode back to default at the epilogue" {
         ),
       ),
     ),
-    @posoco.Respond(@posoco.tk_stop_response("approved")),
+    @tk.Respond(@tk.tk_stop_response("approved")),
   ])
   let client = FakeAcpClient::FakeAcpClient(
     reply=tk_plan_reply(PLAN_OPTION_APPROVE),
@@ -4757,7 +4735,7 @@ async test "the catalog dump covers the discover fallback" {
 async test "the wire log records the in direction and truncates prompts" {
   let fs = FakeFs()
   let (host, _) = tk_host(
-    [@posoco.Respond(@posoco.tk_stop_response("w21 answer"))],
+    [@tk.Respond(@tk.tk_stop_response("w21 answer"))],
     fs~,
     wire_log=true,
   )
@@ -4794,7 +4772,7 @@ async test "the wire log records the in direction and truncates prompts" {
 async test "every wire record leads with a numeric epoch-ms ts" {
   let fs = FakeFs()
   let (host, _) = tk_host(
-    [@posoco.Respond(@posoco.tk_stop_response("w22 answer"))],
+    [@tk.Respond(@tk.tk_stop_response("w22 answer"))],
     fs~,
     wire_log=true,
   )
@@ -4867,7 +4845,7 @@ test "stop reasons map to the protocol wire strings" {
 async test "the wire's session/new record carries server transport detail" {
   let fs = FakeFs()
   let (host, _) = tk_host(
-    [@posoco.Respond(@posoco.tk_stop_response("w22 servers"))],
+    [@tk.Respond(@tk.tk_stop_response("w22 servers"))],
     fs~,
     wire_log=true,
   )
@@ -4964,7 +4942,7 @@ async test "the wire's session/new record carries server transport detail" {
 async test "the wire records the prompt settlement on success and error" {
   let fs = FakeFs()
   let (host, _) = tk_host(
-    [@posoco.Respond(@posoco.tk_stop_response("w22 settle"))],
+    [@tk.Respond(@tk.tk_stop_response("w22 settle"))],
     fs~,
     wire_log=true,
   )
@@ -5109,10 +5087,7 @@ async test "a failed native append falls back to the workspace fs" {
 ///|
 async test "the debug taps stay off by default" {
   let fs = FakeFs()
-  let (host, _) = tk_host(
-    [@posoco.Respond(@posoco.tk_stop_response("w21 quiet"))],
-    fs~,
-  )
+  let (host, _) = tk_host([@tk.Respond(@tk.tk_stop_response("w21 quiet"))], fs~)
   assert_false(host.wire_log)
   let client = FakeAcpClient::FakeAcpClient()
   let session_id = tk_open_session(host, client)

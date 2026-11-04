@@ -1,12 +1,12 @@
 ///|
 async test "native host routes a real Posoco turn into NativeShell" {
-  let model = @posoco.ScriptedModel([
-    @posoco.ScriptedModelStep::Respond(@posoco.tk_stop_response("native ok")),
+  let model = @tk.ScriptedModel([
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("native ok")),
   ])
-  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
+  let store = @tk.RecordingSessionPort::RecordingSessionPort()
   let shell = NativeShell::new()
   let observer = NativeShellObserver::new(shell)
-  let io = @posoco.ManifestOnly::ManifestOnly(
+  let io = @tk.ManifestOnly::ManifestOnly(
     @posoco.ExtensionManifest(
       id="native_host_test_io",
       models=[model as &@posoco.ModelPort],
@@ -48,10 +48,10 @@ async test "native host routes a real Posoco turn into NativeShell" {
 
 ///|
 async test "native host enumerates rewind points from physical JSONL lines" {
-  let model = @posoco.ScriptedModel([])
-  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
+  let model = @tk.ScriptedModel([])
+  let store = @tk.RecordingSessionPort::RecordingSessionPort()
   let shell = NativeShell::new()
-  let io = @posoco.ManifestOnly::ManifestOnly(
+  let io = @tk.ManifestOnly::ManifestOnly(
     @posoco.ExtensionManifest(
       id="native_host_rewind_io",
       models=[model as &@posoco.ModelPort],
@@ -145,12 +145,12 @@ async test "native host enumerates rewind points from physical JSONL lines" {
 
 ///|
 async test "native host adopts typed session redirects immediately" {
-  let model = @posoco.ScriptedModel([])
-  let store = @posoco.RecordingSessionPort::RecordingSessionPort()
+  let model = @tk.ScriptedModel([])
+  let store = @tk.RecordingSessionPort::RecordingSessionPort()
   let shell = NativeShell::new()
   let state = NativeSessionState::new("session-old")
   let observer = NativeShellObserver::new(shell, session_state=Some(state))
-  let io = @posoco.ManifestOnly::ManifestOnly(
+  let io = @tk.ManifestOnly::ManifestOnly(
     @posoco.ExtensionManifest(
       id="native_host_redirect_io",
       models=[model as &@posoco.ModelPort],
