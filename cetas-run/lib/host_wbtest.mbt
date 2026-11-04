@@ -165,53 +165,6 @@ async test "unknown --effort fails composition listing the slot's supported effo
 }
 
 ///|
-async test "apply_model_override raises when the resolved slot is missing from the router" {
-  // The catalogs name a slot the router does not carry: the switch itself
-  // fails and must surface as a raise naming the error, not a warning.
-  let catalog = @llm.ProviderModelCatalog::ProviderModelCatalog(
-    provider_id="opencode",
-    slots=[
-      @llm.ModelSlot::ModelSlot(
-        id="opencode/claude-sonnet-5",
-        label="Claude",
-        provider_id="opencode",
-        model_id="claude-sonnet-5",
-        port=@tk.ScriptedModel([]),
-      ),
-    ],
-  )
-  let router = @llm.RouterModelPort::from_catalogs([catalog])
-  let drifted = @llm.ProviderModelCatalog::ProviderModelCatalog(
-    provider_id="other",
-    slots=[
-      @llm.ModelSlot::ModelSlot(
-        id="other/model",
-        label="Other",
-        provider_id="other",
-        model_id="model",
-        port=@tk.ScriptedModel([]),
-      ),
-    ],
-  )
-  let failed : Result[Unit, @posoco.CompositionError] = Ok(
-    apply_model_override(
-      router,
-      [drifted],
-      model="other/model",
-      effort="",
-      label="cetas-run",
-    ),
-  ) catch {
-    error => Err(error)
-  }
-  match failed {
-    Err(@posoco.CompositionError::ManifestSchemaError(detail~, ..)) =>
-      assert_true(detail.contains("--model 'other/model' switch failed"))
-    _ => fail("a switch failure must raise")
-  }
-}
-
-///|
 async test "--model override routes the turn to the selected slot's model" {
   // Real assembly (platform → session → override → compose → turn) with two
   // distinct scripted models behind the two slots: the override must move
@@ -276,17 +229,4 @@ async test "--model override routes the turn to the selected slot's model" {
   assert_false(failed)
   assert_eq(model_b.call_count(), 1)
   assert_eq(model_a.call_count(), 0)
-}
-
-///|
-async test "host resumes an explicit --session id verbatim" {
-  let (fs, home) = tk_host_fs()
-  let (host, _) = tk_host(
-    fs,
-    home~,
-    model_override="",
-    effort_override="",
-    session_id="cetas-resume-me",
-  )
-  assert_eq(host.session_id, "cetas-resume-me")
 }

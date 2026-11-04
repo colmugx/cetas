@@ -136,31 +136,6 @@ pub impl @workspace.WorkspaceFs for FakeIndexFs with fn mkdir(
 }
 
 ///|
-async test "workspace_file_index lists files and dirs, honoring ignore rules" {
-  let fs = FakeIndexFs::make(
-    dirs=[
-      ("/repo", [".env", "README.md", "node_modules", "src"]),
-      ("/repo/node_modules", ["junk.js"]),
-      ("/repo/src", ["agent.mbt", "internal"]),
-      ("/repo/src/internal", ["x.mbt"]),
-    ],
-    file_kinds=[
-      "/repo/.env", "/repo/README.md", "/repo/node_modules/junk.js", "/repo/src/agent.mbt",
-      "/repo/src/internal/x.mbt",
-    ],
-    dir_kinds=["/repo/src", "/repo/src/internal", "/repo/node_modules"],
-  )
-  let index = workspace_file_index(fs, "/repo")
-  inspect(index.length(), content="6")
-  inspect(index[0], content="src/")
-  inspect(index[1], content="src/internal/")
-  inspect(index[2], content="src/internal/x.mbt")
-  inspect(index[3], content="src/agent.mbt")
-  inspect(index[4], content=".env")
-  inspect(index[5], content="README.md")
-}
-
-///|
 async test "workspace_file_index skips unreadable directories" {
   let fs = FakeIndexFs::make(
     dirs=[("/repo", ["a.mbt", "secret"]), ("/repo/secret", ["s.mbt"])],
@@ -185,6 +160,31 @@ async test "workspace_file_index caps collected entries" {
   inspect(index.length(), content="2")
   inspect(index[0], content="a.mbt")
   inspect(index[1], content="b.mbt")
+}
+
+///|
+/// The default mention-ignore patterns must drop `node_modules` (and friends)
+/// from the `@`-mention index while ordinary files still surface. Membership
+/// only — the host ranks entries itself, so order is not a contract here.
+async test "workspace_file_index honors default ignore patterns" {
+  let fs = FakeIndexFs::make(
+    dirs=[
+      ("/repo", ["src", "node_modules", "README.md"]),
+      ("/repo/src", ["main.mbt"]),
+      ("/repo/node_modules", ["chalk"]),
+      ("/repo/node_modules/chalk", ["index.js"]),
+    ],
+    file_kinds=[
+      "/repo/README.md", "/repo/src/main.mbt", "/repo/node_modules/chalk/index.js",
+    ],
+    dir_kinds=["/repo/src", "/repo/node_modules", "/repo/node_modules/chalk"],
+  )
+  let index = workspace_file_index(fs, "/repo")
+  assert_false(index.contains("node_modules/"))
+  assert_false(index.contains("node_modules/chalk/"))
+  assert_true(index.contains("README.md"))
+  assert_true(index.contains("src/"))
+  assert_true(index.contains("src/main.mbt"))
 }
 
 ///|

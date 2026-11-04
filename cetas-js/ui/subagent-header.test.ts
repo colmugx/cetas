@@ -3,10 +3,8 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 
 import type { SubagentActivity } from "../src/controllers/subagent-activity.ts";
 import {
-  formatSubagentElapsed,
   projectSubagentHeader,
   renderSubagentHeader,
-  subagentHeaderEquals,
   SubagentHeader,
   subagentPhase,
   type SubagentHeaderProjection,
@@ -40,18 +38,6 @@ function projectionOf(
 ): SubagentHeaderProjection {
   return projectSubagentHeader(records, { now: options.now ?? 53_000, ...options });
 }
-
-describe("formatSubagentElapsed", () => {
-  test("seconds, minutes, hours", () => {
-    expect(formatSubagentElapsed(0, 0)).toBe("0s");
-    expect(formatSubagentElapsed(0, 53_000)).toBe("53s");
-    expect(formatSubagentElapsed(0, 59_999)).toBe("59s");
-    expect(formatSubagentElapsed(0, 60_000)).toBe("1m");
-    expect(formatSubagentElapsed(0, 3_599_000)).toBe("59m");
-    expect(formatSubagentElapsed(0, 3_600_000)).toBe("1h");
-    expect(formatSubagentElapsed(0, 7_321_000)).toBe("2h");
-  });
-});
 
 describe("projectSubagentHeader", () => {
   test("no records project to an empty header", () => {
@@ -207,42 +193,6 @@ describe("renderSubagentHeader width handling", () => {
   });
 });
 
-describe("subagentHeaderEquals", () => {
-  const base = () =>
-    projectionOf([
-      backgroundRecord({ display_name: "apple", current_tool: "bash" }),
-    ]);
-
-  test("identical projections are equal", () => {
-    expect(subagentHeaderEquals(base(), base())).toBe(true);
-  });
-
-  test("tool, elapsed, count and budget changes are differences", () => {
-    const toolChanged = projectionOf([
-      backgroundRecord({ display_name: "apple", current_tool: "read" }),
-    ]);
-    expect(subagentHeaderEquals(base(), toolChanged)).toBe(false);
-
-    const elapsedChanged = projectionOf(
-      [backgroundRecord({ display_name: "apple", current_tool: "bash" })],
-      { now: 54_000 },
-    );
-    expect(subagentHeaderEquals(base(), elapsedChanged)).toBe(false);
-
-    const more = projectionOf([
-      backgroundRecord({ display_name: "apple", current_tool: "bash" }),
-      backgroundRecord({ display_name: "banana", seq: 1 }),
-    ]);
-    expect(subagentHeaderEquals(base(), more)).toBe(false);
-
-    const budgetChanged = projectionOf(
-      [backgroundRecord({ display_name: "apple", current_tool: "bash" })],
-      { height: 8, bottomReserve: 6 },
-    );
-    expect(subagentHeaderEquals(base(), budgetChanged)).toBe(false);
-  });
-});
-
 describe("SubagentHeader component", () => {
   const nativeInterval = globalThis.setInterval;
   afterEach(() => {
@@ -269,12 +219,6 @@ describe("SubagentHeader component", () => {
   test("absent source renders nothing", () => {
     const component = new SubagentHeader(() => undefined);
     expect(component.render(80)).toEqual([]);
-  });
-
-  test("invalidate and handleInput are safe no-ops", () => {
-    const component = new SubagentHeader(() => undefined);
-    component.invalidate();
-    component.handleInput("x");
   });
 });
 

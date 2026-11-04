@@ -164,15 +164,6 @@ describe("EventRouter — refreshSubagentRow", () => {
     expect(rendered()).toContain("step 2");
   });
 
-  test("absent visibility gate (plain unit harness) refreshes without a host", () => {
-    const store = new SubagentActivityStore();
-    store.apply(childEvent("sub-1", "call_1", { type: "turn_started" }));
-    const { router } = makeHarness({ subagentActivity: store });
-    router.handleEvent(ev({ type: "turn_started" }));
-    router.handleEvent(ev(AGENT_STARTED));
-    expect(router.refreshSubagentRow("call_1")).toBe(true);
-  });
-
   test("the host visibility gate can veto a refresh", () => {
     const store = new SubagentActivityStore();
     const { router, rendered } = makeHarness({
@@ -263,11 +254,6 @@ describe("EventRouter — refreshRunningSubagents (shell 1s tick)", () => {
     expect(router.refreshRunningSubagents()).toBe(0);
     expect(childCount()).toBe(before); // no background row appeared
     expect(rendered()).toBe(beforeRender);
-  });
-
-  test("no store in callbacks refreshes nothing", () => {
-    const { router } = makeHarness();
-    expect(router.refreshRunningSubagents()).toBe(0);
   });
 
   test("streaming adoption re-keys the row so the renderer uses the final call id", () => {

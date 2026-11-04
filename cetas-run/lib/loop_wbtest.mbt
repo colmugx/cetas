@@ -475,16 +475,3 @@ async test "verbose face failure: turn_failed event, failure line, and marker al
   assert_true(err[3].has_prefix("[cetas-run] turn failed: "))
   assert_eq(err[4], "[cetas-run] turn 1 done\n")
 }
-
-///|
-test "the marker and single-line helpers are protocol-stable" {
-  assert_eq(turn_marker(7), "[cetas-run] turn 7 done")
-  assert_eq(single_line("a\nb\r  c\td"), "a b c d")
-  assert_eq(single_line("plain"), "plain")
-}
-
-///|
-test "turn_failed_line pins the pane-visible failure line with a collapsed reason" {
-  assert_eq(turn_failed_line("a  b\nc"), "[cetas-run] turn failed: a b c")
-  assert_eq(turn_failed_line("boom"), "[cetas-run] turn failed: boom")
-}

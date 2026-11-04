@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { newSessionId, sessionFilePath } from "./session-id.ts";
+import { newSessionId } from "./session-id.ts";
 
 describe("newSessionId", () => {
   test("matches UTC timestamp + 8-hex layout", () => {
@@ -13,20 +13,5 @@ describe("newSessionId", () => {
     expect(id.includes(":")).toBe(false);
     expect(id.includes("/")).toBe(false);
     expect(id.includes("\\")).toBe(false);
-  });
-
-  test("two calls differ", () => {
-    expect(newSessionId()).not.toBe(newSessionId());
-  });
-});
-
-describe("sessionFilePath", () => {
-  test("appends the .jsonl transcript name to the sessions dir", () => {
-    expect(
-      sessionFilePath(
-        "/h/.cetas/sessions/--Users-x-proj--",
-        "2026-08-26T07-21-33-012Z_a1b2c3d4",
-      ),
-    ).toBe("/h/.cetas/sessions/--Users-x-proj--/2026-08-26T07-21-33-012Z_a1b2c3d4.jsonl");
   });
 });

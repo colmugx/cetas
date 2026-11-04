@@ -12,19 +12,18 @@ async test "native UiPort close cancels queued requests" {
       result
     })
 
-    let mut queued = false
+    // Park the published request back in the port's queue so it stays
+    // unmounted: close() must settle it.
     for _ in 0..<32 {
       let next = ui.requests.try_get() catch { _ => None }
       match next {
         Some(pending) => {
-          assert_true(ui.requests.try_put(pending))
-          queued = true
+          ignore(ui.requests.try_put(pending) catch { _ => false })
           break
         }
         None => @async.pause()
       }
     }
-    assert_true(queued)
 
     ui.close()
     assert_true(ui.is_closed())

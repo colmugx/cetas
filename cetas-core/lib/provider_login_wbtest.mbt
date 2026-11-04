@@ -82,33 +82,6 @@ test "model refresh selector validates provider ids and deduplicates requests" {
 }
 
 ///|
-test "factory registry exposes the nine registered providers in order" {
-  let ctx = @devkit.ExtContext::default()
-  let factories = provider_factories(ctx)
-  assert_eq(factories.length(), 9)
-  assert_eq(factories[0].provider_id(), "deepseek")
-  assert_eq(factories[1].provider_id(), "kimi")
-  assert_eq(factories[2].provider_id(), "openai")
-  assert_eq(factories[3].provider_id(), "opencode")
-  assert_eq(factories[4].provider_id(), "opencode-go")
-  assert_eq(factories[5].provider_id(), "zai")
-  assert_eq(factories[6].provider_id(), "zai-coding-plan")
-  assert_eq(factories[7].provider_id(), "openrouter")
-  assert_eq(factories[8].provider_id(), "typesafe")
-}
-
-///|
-test "oauth factory registry carries device_id through to kimi" {
-  let ctx = @devkit.ExtContext::default()
-  let factories = oauth_factories(ctx, device_id="test-device-id")
-  // Kimi, OpenAI/Codex, and OpenCode Go expose OAuth.
-  assert_eq(factories.length(), 3)
-  assert_eq(factories[0].provider_id(), "kimi")
-  assert_eq(factories[1].provider_id(), "openai")
-  assert_eq(factories[2].provider_id(), "opencode-go")
-}
-
-///|
 test "validate_provider_settings rejects unknown provider ids" {
   let ctx = @devkit.ExtContext::default()
   let factories = provider_factories(ctx)

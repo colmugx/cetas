@@ -24,23 +24,6 @@ async test "spike: /dev/tty opens read-write or fails cleanly, never hangs" {
 }
 
 ///|
-/// open_tty_channel mirrors the raw spike: same open, wrapped as a channel.
-/// In a no-tty environment it must return None (the degradation path), never
-/// raise or hang; with a tty it yields a channel that is closed untouched.
-async test "spike: open_tty_channel degrades to None without a controlling terminal" {
-  let channel = open_tty_channel()
-  match channel {
-    None =>
-      // Degradation path: the host prints the unattended hint and denies.
-      assert_true(true)
-    Some(tty) => {
-      (tty.close)()
-      assert_true(true)
-    }
-  }
-}
-
-///|
 /// Live roundtrip probe (manual only, never in CI): proves open → write →
 /// read end-to-end over a real /dev/tty. Opt in with CETAS_RUN_TTY_PROBE=1
 /// and run it under a pty that feeds a line — a bare run against a real

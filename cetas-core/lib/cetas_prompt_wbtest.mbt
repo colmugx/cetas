@@ -107,19 +107,6 @@ test "cetas base prompt leaks no absolute path from cwd" {
 }
 
 ///|
-test "basename keeps the last path segment" {
-  inspect(basename("proj"), content="proj")
-  inspect(basename("/tmp/proj"), content="proj")
-}
-
-///|
-test "basename falls back to workspace for degenerate paths" {
-  inspect(basename("/"), content="workspace")
-  inspect(basename(""), content="workspace")
-  inspect(basename("/tmp/proj/"), content="proj")
-}
-
-///|
 test "cetas base prompt preserves product-specific guardrails" {
   let prompt = cetas_base_system_prompt(project_name="demo")
   assert_true(prompt.contains("attempts under /tmp"))

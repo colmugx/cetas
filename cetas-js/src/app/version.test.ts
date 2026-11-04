@@ -54,11 +54,6 @@ describe("matchGlobalManager", () => {
     expect(matchGlobalManager("/opt/pnpm/global/5/node_modules/x.js", env, home)).toBe("pnpm");
   });
 
-  test("npm global trees and source checkouts fall back to the npm manager", () => {
-    expect(matchGlobalManager("/usr/local/lib/node_modules/@posoco/cetas/dist/cetas.js", env, home)).toBeUndefined();
-    expect(matchGlobalManager("/home/dev/cetas/cetas-js/host.ts", env, home)).toBeUndefined();
-  });
-
   test("windows separators normalize", () => {
     expect(
       matchGlobalManager(

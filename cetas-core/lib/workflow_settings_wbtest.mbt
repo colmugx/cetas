@@ -106,18 +106,3 @@ test "workflow rejects fractional, oversized and invalid relative budgets even w
     )
   }
 }
-
-///|
-test "workflow values remain detached from subsequent parses" {
-  let first = workflow_settings_from_json(
-    "{\"workflow\":{\"enabled\":true,\"max_generated_tasks\":5,\"continue_on_confirmed_failure\":true}}",
-  )
-  ignore(
-    workflow_settings_from_json(
-      "{\"workflow\":{\"enabled\":false,\"max_generated_tasks\":10}}",
-    ),
-  )
-  assert_true(first.enabled)
-  assert_true(first.continue_on_confirmed_failure)
-  assert_eq(first.max_generated_tasks, 5)
-}

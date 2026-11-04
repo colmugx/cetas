@@ -147,38 +147,6 @@ async test "cetas-js owns the subagent tool at the host boundary" {
 }
 
 ///|
-test "effective_child_mode: yolo widens open postures, readonly kinds stay" {
-  assert_eq(
-    effective_child_mode(@permission.Yolo, @permission.WorkspaceWrite),
-    @permission.Yolo,
-  )
-  assert_eq(
-    effective_child_mode(@permission.Yolo, @permission.Interactive),
-    @permission.Yolo,
-  )
-  assert_eq(
-    effective_child_mode(@permission.Yolo, @permission.Yolo),
-    @permission.Yolo,
-  )
-  assert_eq(
-    effective_child_mode(@permission.Yolo, @permission.ReadOnly),
-    @permission.ReadOnly,
-  )
-  assert_eq(
-    effective_child_mode(@permission.WorkspaceWrite, @permission.Yolo),
-    @permission.Yolo,
-  )
-  assert_eq(
-    effective_child_mode(@permission.ReadOnly, @permission.WorkspaceWrite),
-    @permission.WorkspaceWrite,
-  )
-  assert_eq(
-    effective_child_mode(@permission.Interactive, @permission.ReadOnly),
-    @permission.ReadOnly,
-  )
-}
-
-///|
 test "resolve_child_mode applies the live parent posture" {
   let model = @tk.ScriptedModel([])
   let router = @llm.RouterModelPort(

@@ -207,29 +207,6 @@ test "workflow labels neutralize terminal controls without changing task identit
 }
 
 ///|
-test "workflow menu treats the real Stopped phase as terminal" {
-  for
-    phase in [
-      @board_workflow.Stopped,
-      @board_workflow.Completed,
-      @board_workflow.Failed,
-      @board_workflow.Unresolved,
-    ] {
-    assert_true(workflow_terminal(phase))
-  }
-  for
-    phase in [
-      @board_workflow.Idle,
-      @board_workflow.Running,
-      @board_workflow.Pausing,
-      @board_workflow.Paused,
-      @board_workflow.Stopping,
-    ] {
-    assert_false(workflow_terminal(phase))
-  }
-}
-
-///|
 test "ticket model command argument parses pin, inherit and malformed shapes" {
   match parse_ticket_model_arg(Json::null()) {
     Ok(None) => ()

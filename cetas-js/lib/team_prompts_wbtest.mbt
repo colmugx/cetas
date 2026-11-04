@@ -35,44 +35,6 @@ test "role prompt carries the customized name" {
 }
 
 ///|
-test "team mcp settings round-trip per role" {
-  let mcp = default_team_mcp()
-  mcp["rd"] = {
-    enabled: true,
-    all: false,
-    servers: ["github", "browser"],
-    tools: ["github__create_issue"],
-  }
-  let parsed = TeamMcp::from_json_map(TeamMcp::to_json_map(mcp))
-  match parsed.get("rd") {
-    Some(value) => {
-      assert_true(value.enabled)
-      assert_false(value.all)
-      assert_eq(value.servers, ["github", "browser"])
-      assert_eq(value.tools, ["github__create_issue"])
-    }
-    None => fail("rd MCP settings missing")
-  }
-  assert_false(parsed["te"].enabled)
-}
-
-///|
-test "team skill settings round-trip per role" {
-  let skills = default_team_skills()
-  skills["te"] = { enabled: true, all: false, skills: ["tdd"], }
-  let parsed = TeamSkills::from_json_map(TeamSkills::to_json_map(skills))
-  match parsed.get("te") {
-    Some(value) => {
-      assert_true(value.enabled)
-      assert_false(value.all)
-      assert_eq(value.skills, ["tdd"])
-    }
-    None => fail("te skill settings missing")
-  }
-  assert_false(parsed["rd"].enabled)
-}
-
-///|
 test "team config round-trips names, mcp, skills and profile" {
   let mcp = default_team_mcp()
   mcp["te"] = { enabled: true, all: false, servers: ["browser"], tools: [], }

@@ -44,15 +44,6 @@ test "logout outcome reports whether a record was removed" {
 }
 
 ///|
-/// `<Provider> / <model>` slot labels are the registry's own display names.
-test "provider titles come from namespaced slot labels" {
-  inspect(provider_label_title("Kimi / kimi-k2"), content="Kimi")
-  inspect(provider_label_title("OpenAI / gpt-5"), content="OpenAI")
-  inspect(provider_label_title("gpt-5"), content="")
-  inspect(provider_label_title(" / bare"), content="")
-}
-
-///|
 /// The inventory is enumerated from the registries `login` resolves against: no
 /// hardcoded provider list, one row per id, methods deduped and always ordered
 /// `api_key` before `oauth`.

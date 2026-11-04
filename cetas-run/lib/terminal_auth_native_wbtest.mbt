@@ -237,8 +237,13 @@ extern "C" fn terminal_auth_test_snapshot(fd : @types.Fd) -> Bytes = "cetas_auth
 ///|
 async test "terminal auth: controlling terminal opens or fails before calling body" {
   let called = Ref(false)
-  with_terminal_auth(note=fn(_) {  }, body=fn(_, _) { called.val = true }) catch {
+  try {
+    with_terminal_auth(note=fn(_) {  }, body=fn(_, _) { called.val = true })
+    // A controlling terminal is available: the body runs exactly once.
+    assert_true(called.val)
+  } catch {
     error => {
+      // No controlling terminal: the failure happens before the body runs.
       assert_false(called.val)
       assert_true(error.to_string().contains("controlling terminal"))
     }

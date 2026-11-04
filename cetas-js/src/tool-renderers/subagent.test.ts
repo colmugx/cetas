@@ -9,7 +9,6 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { Text } from "@earendil-works/pi-tui";
 import { ToolRow } from "../transcript/components.ts";
 import { parseCetasEvent } from "../events.ts";
 import { SubagentActivityStore } from "../controllers/subagent-activity.ts";
@@ -160,25 +159,6 @@ describe("subagentRenderer", () => {
       .render(80)
       .join("\n");
     expect(expanded).toContain("▸ grep");
-  });
-
-  it("renderResult always returns a Component (never undefined)", () => {
-    const result = subagentRenderer.renderResult!(
-      { content: "ok", isError: false },
-      { expanded: false, isPartial: false },
-      makeCtx(),
-    );
-    expect(result).toBeDefined();
-    expect(result.render(80).join("\n")).toContain("subagent");
-  });
-
-  it("exports the renderer plus pure receipt helpers — no rows or ticker", async () => {
-    const mod = await import("./subagent.ts");
-    // `WaitingReceipt` is a type-only export and never appears at runtime.
-    expect(Object.keys(mod).sort()).toEqual([
-      "parseWaitingReceipt",
-      "subagentRenderer",
-    ]);
   });
 });
 

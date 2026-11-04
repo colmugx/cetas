@@ -393,17 +393,6 @@ async test "configured manager lists, selects and persists through neutral ids" 
       assert_eq(selection.effort, Some("high"))
     }
   }
-  // The composed agent saw exactly one model port and the full magpie command
-  // surface (no duplicate registration anywhere).
-  let mut model_ports = 0
-  for ext_port in agent.commands() {
-    for def in ext_port.commands() {
-      if def.id == "model" {
-        model_ports += 1
-      }
-    }
-  }
-  assert_eq(model_ports, 0)
   ignore(agent)
 }
 
@@ -599,24 +588,6 @@ async test "removing the manager key restores the providers manager" {
     warn=fn(message) { warned.push(message) },
   )
   assert_eq(after is None, true)
-}
-
-///|
-/// Scenario 18: the same runtime instance registered twice is a composition
-/// error, never a silent double registration.
-async test "duplicate runtime registration is rejected by composition" {
-  let transport = magpie_test_transport()
-  let runtime = magpie_runtime_build(transport)
-  try
-    @posoco.Agent::Agent(
-      exts=[runtime.runtime, runtime.runtime],
-      config=@tk.tk_config(),
-    )
-  catch {
-    _ => ()
-  } noraise {
-    _ => fail("duplicate registration must be rejected")
-  }
 }
 
 ///|

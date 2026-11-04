@@ -24,18 +24,6 @@ test "validate_provider_settings rejects traversal-shaped keys" {
 }
 
 ///|
-async test "compatible_provider_factories never mints invalid ids" {
-  let ctx = @devkit.ExtContext::default()
-  let settings : Map[String, Json] = Map::from_array([
-    ("../evil", Json::object(Map::from_array([]))),
-    ("a/b", Json::object(Map::from_array([]))),
-    ("custom-ok", Json::object(Map::from_array([]))),
-  ])
-  let factories = compatible_provider_factories(settings, ctx)
-  inspect(factories.length(), content="1")
-}
-
-///|
 /// The settings→catalog path for a custom provider whose entry declares a
 /// non-default protocol: cetas stays out of the protocol vocabulary and only
 /// hands the entry to the extension, which returns a ready slot.

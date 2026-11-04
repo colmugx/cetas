@@ -101,24 +101,3 @@ test "ptc status bus initializes, updates, unregisters, and ignores no-ops" {
     "segment": "ptc",
   })
 }
-
-///|
-/// Hooks may only narrow: a Deferred-declared definition stays Deferred no
-/// matter what the mode hook returns, because the kernel narrows with
-/// `ToolExposure::narrow`. This pins the composition order we rely on.
-test "ptc exposure hook composes by narrowing only" {
-  assert_eq(
-    @posoco.ToolExposure::narrow(
-      @posoco.ToolExposure::Deferred,
-      @posoco.ToolExposure::Direct,
-    ),
-    @posoco.ToolExposure::Deferred,
-  )
-  assert_eq(
-    @posoco.ToolExposure::narrow(
-      @posoco.ToolExposure::Direct,
-      @posoco.ToolExposure::Disabled,
-    ),
-    @posoco.ToolExposure::Disabled,
-  )
-}

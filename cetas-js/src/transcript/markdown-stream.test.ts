@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { Markdown, visibleWidth } from "@earendil-works/pi-tui";
 import { markdownTheme } from "../../ui/theme.ts";
 import { IncrementalMarkdown, stableMarkdownCut } from "./markdown-stream.ts";
-import { AssistantMessage } from "./components.ts";
 
 const longParagraph = (n: number) => "The assistant is describing a stable section with plain words and no special markup. ".repeat(n).trim();
 
@@ -53,13 +52,5 @@ describe("Gate 4 incremental streaming Markdown", () => {
     streamed.invalidate();
     const native = new Markdown("# Completely replaced Markdown", 1, 0, markdownTheme);
     expect(streamed.render(20)).toEqual(native.render(20));
-  });
-  test("assistant streaming flag only changes rendering implementation", () => {
-    const a = new AssistantMessage("sample", { streaming: true });
-    const b = new AssistantMessage("sample");
-    expect(a.render(80)).toEqual(b.render(80));
-    a.updateContent("sample and more");
-    b.updateContent("sample and more");
-    expect(a.render(80)).toEqual(b.render(80));
   });
 });

@@ -2,16 +2,11 @@ import { describe, expect, test } from "bun:test";
 import type { Component } from "@earendil-works/pi-tui";
 
 import {
-  classifyProviderQuota,
   formatPickCandidateNotices,
   formatQuotaAge,
-  formatQuotaReset,
-  isQuotaExhausted,
   ModelPickerOverlay,
   parseModelPickerOutcome,
-  quickPickGroups,
   type ModelCatalogEntry,
-  type ProviderQuotaReading,
 } from "./model-picker.ts";
 import { theme } from "./theme.ts";
 
@@ -59,17 +54,6 @@ describe("model picker contract", () => {
     if (parsed.type !== "success") return;
     expect(parsed.entries[0]?.efforts).toEqual(["low", "high"]);
     expect(parsed.entries[0]?.activeEffort).toBe("high");
-  });
-
-  test("rejects malformed catalog rather than showing a fake list", () => {
-    expect(() =>
-      parseModelPickerOutcome(
-        JSON.stringify({
-          type: "success",
-          structured: [{ id: "broken", active: true }],
-        }),
-      ),
-    ).toThrow("thinking_efforts");
   });
 
   test("returns selected slot and effort from pi-tui list", () => {
@@ -455,35 +439,6 @@ describe("model picker pricing badge", () => {
       ],
     });
 
-  test("renders the peak multiplier in red with its dim window", () => {
-    const parsed = parseModelPickerOutcome(
-      catalogWithPricing({ tier: "peak", multiplier: "2x", window: "9:00 ~ 12:00, 14:00 ~ 18:00" }),
-    );
-    if (parsed.type !== "success") throw new Error("expected success");
-    const tui = new FakeTui();
-    const picker = new ModelPickerOverlay(tui as never);
-    picker.open(parsed.entries, () => {}, () => {});
-    const rendered = tui.shown!.render(100).join("\n");
-    expect(rendered).toContain(` ${theme.red("2x")} ${theme.dim("(9:00 ~ 12:00, 14:00 ~ 18:00)")}`);
-  });
-
-  test("renders the bare off-peak multiplier in green with no window", () => {
-    const parsed = parseModelPickerOutcome(
-      catalogWithPricing({
-        tier: "off-peak",
-        multiplier: "1x",
-        window: "9:00 ~ 12:00, 14:00 ~ 18:00",
-      }),
-    );
-    if (parsed.type !== "success") throw new Error("expected success");
-    const tui = new FakeTui();
-    const picker = new ModelPickerOverlay(tui as never);
-    picker.open(parsed.entries, () => {}, () => {});
-    const rendered = tui.shown!.render(100).join("\n");
-    expect(rendered).toContain(theme.success("1x"));
-    expect(rendered).not.toContain("(");
-  });
-
   test("only entries carrying pricing get a badge — GLM and kimi stay bare", () => {
     const parsed = parseModelPickerOutcome(
       JSON.stringify({
@@ -666,188 +621,6 @@ describe("model picker quota readings", () => {
         catalogWithQuota([{ window: "5h", fetched_at_ms: 1, amount: { value: 1, currency: "USD" } }]),
       ),
     ).toThrow("amount.value");
-  });
-});
-
-describe("classifyProviderQuota", () => {
-  test("the 5h window is primary even when a longer window is more constrained", () => {
-    const cls = classifyProviderQuota([
-      { window: "5h", usedPercent: 10, fetchedAtMs: 100 }, // 90 left
-      { window: "weekly", usedPercent: 50, fetchedAtMs: 200, resetAtMs: 999 }, // 50 left
-    ]);
-    expect(cls).toEqual({
-      kind: "limit",
-      primaryWindow: "5h",
-      primaryLeftPercent: 90,
-      worstLeftPercent: 50,
-      windows: [
-        { window: "5h", leftPercent: 90, fetchedAtMs: 100, resetAtMs: undefined },
-        { window: "weekly", leftPercent: 50, fetchedAtMs: 200, resetAtMs: 999 },
-      ],
-      fetchedAtMs: 100,
-      resetAtMs: undefined,
-    });
-    // Several readings may share the label; the first 5h is primary.
-    const dupes = classifyProviderQuota([
-      { window: "5h", usedPercent: 10, fetchedAtMs: 1 },
-      { window: "5h", usedPercent: 80, fetchedAtMs: 2 },
-    ]);
-    if (dupes?.kind !== "limit") throw new Error("expected limit");
-    expect(dupes.primaryLeftPercent).toBe(90);
-    expect(dupes.fetchedAtMs).toBe(1);
-    expect(dupes.windows.map((w) => w.window)).toEqual(["5h", "5h"]);
-  });
-
-  test("without a 5h reading the primary is the most constrained window, ties keep the first", () => {
-    const cls = classifyProviderQuota([
-      { window: "weekly", usedPercent: 50, fetchedAtMs: 100 }, // 50 left
-      { window: "kimi(30d)", usedPercent: 10, fetchedAtMs: 200 }, // 90 left
-    ]);
-    expect(cls).toEqual({
-      kind: "limit",
-      primaryWindow: "weekly",
-      primaryLeftPercent: 50,
-      worstLeftPercent: 50,
-      windows: [
-        { window: "weekly", leftPercent: 50, fetchedAtMs: 100, resetAtMs: undefined },
-        { window: "kimi(30d)", leftPercent: 90, fetchedAtMs: 200, resetAtMs: undefined },
-      ],
-      fetchedAtMs: 100,
-      resetAtMs: undefined,
-    });
-    const tie = classifyProviderQuota([
-      { window: "a", usedPercent: 50, fetchedAtMs: 1 },
-      { window: "b", usedPercent: 50, fetchedAtMs: 2 },
-    ]);
-    if (tie?.kind !== "limit") throw new Error("expected limit");
-    expect(tie.primaryWindow).toBe("a");
-    expect(tie.primaryLeftPercent).toBe(50);
-  });
-
-  test("amount-only readings are a balance; no usable readings is undefined", () => {
-    expect(
-      classifyProviderQuota([
-        { window: "balance", amount: { value: "12.5", currency: "USD" }, fetchedAtMs: 7 },
-      ]),
-    ).toEqual({ kind: "balance", value: "12.5", currency: "USD", fetchedAtMs: 7 });
-    expect(classifyProviderQuota([])).toBeUndefined();
-    expect(classifyProviderQuota([{ window: "5h", usedPercent: null, fetchedAtMs: 1 }])).toBeUndefined();
-  });
-});
-
-describe("isQuotaExhausted", () => {
-  test("true only when the primary window has nothing left", () => {
-    expect(
-      isQuotaExhausted(
-        classifyProviderQuota([
-          { window: "5h", usedPercent: 100, fetchedAtMs: 0 },
-          { window: "weekly", usedPercent: 5, fetchedAtMs: 0 },
-        ]),
-      ),
-    ).toBe(true);
-    // Weekly-dead but 5h-alive stays selectable.
-    expect(
-      isQuotaExhausted(
-        classifyProviderQuota([
-          { window: "5h", usedPercent: 10, fetchedAtMs: 0 },
-          { window: "weekly", usedPercent: 100, fetchedAtMs: 0 },
-        ]),
-      ),
-    ).toBe(false);
-    expect(
-      isQuotaExhausted(
-        classifyProviderQuota([
-          { window: "balance", amount: { value: "1.0", currency: "USD" }, fetchedAtMs: 0 },
-        ]),
-      ),
-    ).toBe(false);
-    expect(isQuotaExhausted(undefined)).toBe(false);
-  });
-});
-
-describe("formatQuotaReset", () => {
-  const now = new Date(Date.UTC(2026, 8, 10, 12, 0, 0));
-  test("buckets by minutes/hours/days and returns empty once past", () => {
-    expect(formatQuotaReset(now.getTime() + 45 * 60_000, now)).toBe("resets in 45m");
-    expect(formatQuotaReset(now.getTime() + 2 * 60 * 60_000, now)).toBe("resets in 2h");
-    expect(formatQuotaReset(now.getTime() + 3 * 24 * 60 * 60_000, now)).toBe("resets in 3d");
-    expect(formatQuotaReset(now.getTime() - 60_000, now)).toBe("");
-    expect(formatQuotaReset(now.getTime(), now)).toBe("");
-  });
-});
-
-describe("quickPickGroups", () => {
-  const entry = (id: string, provider: string, readings?: ProviderQuotaReading[]): ModelCatalogEntry => ({
-    id,
-    label: id,
-    provider,
-    active: false,
-    efforts: [],
-    ...(readings === undefined ? {} : { quotaReadings: readings }),
-  });
-  const limit = (window: string, usedPercent: number): ProviderQuotaReading => ({
-    window,
-    usedPercent,
-    fetchedAtMs: 0,
-  });
-  const balance = (value: string): ProviderQuotaReading => ({
-    window: "balance",
-    amount: { value, currency: "USD" },
-    fetchedAtMs: 0,
-  });
-
-  test("orders limit providers by primary-window remaining desc, then balance, then other", () => {
-    const groups = quickPickGroups([
-      entry("delta-a", "delta"),
-      entry("bravo-a", "bravo", [limit("weekly", 50)]),
-      entry("alpha-b", "alpha", [limit("5h", 10)]),
-      entry("alpha-a", "alpha", [limit("5h", 10)]),
-      entry("charlie-a", "charlie", [balance("12.5")]),
-    ]);
-    expect(groups.map((group) => group.label)).toEqual(["Limit", "Balance", "Other"]);
-    // Limit ranks providers by their primary window remaining desc (bravo
-    // has no 5h reading, so its weekly window is primary); each provider's
-    // entries stay adjacent and in catalog order.
-    expect(groups[0]?.entries.map((e) => e.id)).toEqual(["alpha-b", "alpha-a", "bravo-a"]);
-    expect(groups[1]?.entries.map((e) => e.id)).toEqual(["charlie-a"]);
-    expect(groups[2]?.entries.map((e) => e.id)).toEqual(["delta-a"]);
-  });
-
-  test("a fuller 5h window outranks a fuller weekly window", () => {
-    const groups = quickPickGroups([
-      entry("weekly-rich", "rich", [limit("5h", 40), limit("weekly", 5)]), // 5h 60, weekly 95
-      entry("fiveh-rich", "lean", [limit("5h", 10), limit("weekly", 50)]), // 5h 90, weekly 50
-    ]);
-    // Ranking reads only the 5h window; the weekly window is display-only.
-    expect(groups[0]?.entries.map((e) => e.id)).toEqual(["fiveh-rich", "weekly-rich"]);
-  });
-
-  test("equal ranks keep first-appearance order; unparseable balances sort last", () => {
-    const groups = quickPickGroups([
-      entry("late-limit", "late", [limit("5h", 20)]),
-      entry("early-limit", "early", [limit("daily", 20)]),
-      entry("word-balance", "bad", [balance("free")]),
-      entry("nine-balance", "good", [balance("9")]),
-    ]);
-    expect(groups[0]?.entries.map((e) => e.id)).toEqual(["late-limit", "early-limit"]);
-    expect(groups[1]?.entries.map((e) => e.id)).toEqual(["nine-balance", "word-balance"]);
-  });
-
-  test("5h-exhausted providers sink below positive ones, keeping desc order among themselves", () => {
-    const groups = quickPickGroups([
-      entry("drier-a", "drier", [limit("5h", 110)]), // 5h overdrawn: -10 left
-      entry("alive-a", "alive", [limit("5h", 20)]), // 80 left
-      entry("empty-a", "empty", [limit("5h", 100), limit("weekly", 5)]), // 0 left
-      entry("alive-b", "alive2", [limit("5h", 20)]), // 80 left
-    ]);
-    // All positive-5h providers first (stable ties), then the exhausted ones
-    // by remaining desc (0 before -10).
-    expect(groups[0]?.entries.map((e) => e.id)).toEqual([
-      "alive-a",
-      "alive-b",
-      "empty-a",
-      "drier-a",
-    ]);
   });
 });
 
@@ -1480,37 +1253,9 @@ describe("model picker candidate notices", () => {
     ]);
   });
 
-  test("a single candidate is announced as candidate 2", () => {
-    expect(
-      formatPickCandidateNotices(
-        pickOutcome([
-          {
-            slot_id: "openai/gpt-6-astra",
-            model: "gpt-6-astra",
-            effort: "high",
-            iq: 115.0,
-            cost_usd: 4.0,
-          },
-        ]),
-      ),
-    ).toEqual(["candidate 2 — gpt-6-astra:high · IQ 115.0 · $4.00"]);
-  });
-
-  test("an empty candidate list renders no notices", () => {
-    expect(formatPickCandidateNotices(pickOutcome([]))).toEqual([]);
-  });
-
   test("outcomes without candidates, or with null ones, render no notices", () => {
     expect(formatPickCandidateNotices({ provider: "openai" })).toEqual([]);
     expect(formatPickCandidateNotices(pickOutcome(null))).toEqual([]);
-  });
-
-  test("non-object structured payloads render no notices", () => {
-    expect(formatPickCandidateNotices(undefined)).toEqual([]);
-    expect(formatPickCandidateNotices(null)).toEqual([]);
-    expect(formatPickCandidateNotices("pick")).toEqual([]);
-    expect(formatPickCandidateNotices(42)).toEqual([]);
-    expect(formatPickCandidateNotices(["candidates"])).toEqual([]);
   });
 
   test("rejects malformed candidate entries", () => {

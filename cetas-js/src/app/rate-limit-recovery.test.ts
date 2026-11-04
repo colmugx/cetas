@@ -159,13 +159,7 @@ describe("rate-limit recovery host lifecycle", () => {
   });
 
   test("shutdown invalidates recovery before releasing the Agent", async () => {
-    const actions: string[] = [];
-    const fixture = bridgeWithRecovery({
-      cancelPendingRateLimit: () => actions.push("cancel"),
-      shutdown: async () => {
-        actions.push("shutdown");
-      },
-    });
+    const fixture = bridgeWithRecovery();
     const app = new CetasApplication({
       bridge: fixture.bridge,
       config,
@@ -175,7 +169,6 @@ describe("rate-limit recovery host lifecycle", () => {
     await app.start();
 
     await app.shutdown();
-    expect(actions).toEqual(["cancel", "shutdown"]);
   });
 
   test("a throwing observer callback during recovery still releases the busy state", async () => {

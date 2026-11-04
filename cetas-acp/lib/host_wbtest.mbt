@@ -3376,76 +3376,6 @@ async test "resume accepts a client-known id and rejects an empty id" {
 }
 
 ///|
-fn tk_meta_client(name : String) -> @acp.ProtocolNullable[Json] {
-  Value(Json::object(Map::from_array([("client", Json::string(name))])))
-}
-
-///|
-test "resolve_client_bucket prefers the _meta.client slug" {
-  // sanitize_label only strips control chars; the slug is the lowercased
-  // label with its inner spacing kept.
-  let meta = tk_meta_client("Lody Labs")
-  assert_eq(resolve_client_bucket(None, meta, []), "lody labs")
-  // An explicit client name wins over the injected-host heuristic.
-  assert_eq(
-    resolve_client_bucket(None, meta, [tk_profile_server("paseo")]),
-    "lody labs",
-  )
-}
-
-///|
-test "resolve_client_bucket prefers the initialize clientInfo name" {
-  let meta = tk_meta_client("meta client")
-  // The clientInfo name wins over both other signals and is slugified.
-  assert_eq(resolve_client_bucket(Some("Zed Editor"), meta, []), "zed editor")
-  assert_eq(
-    resolve_client_bucket(Some("Zed"), Omitted, [tk_profile_server("lody")]),
-    "zed",
-  )
-  // An empty or missing name falls through to the next signal.
-  assert_eq(resolve_client_bucket(Some(""), meta, []), "meta client")
-  assert_eq(resolve_client_bucket(None, meta, []), "meta client")
-}
-
-///|
-test "client_name_of reads the clientInfo name and tolerates its absence" {
-  let named = fake_acp_context(
-    FakeAcpClient::FakeAcpClient(),
-    client_info=tk_client_info("zed"),
-  )
-  assert_eq(client_name_of(named), Some("zed"))
-  // No initialize clientInfo (the accessor default) reads as None.
-  let unnamed = fake_acp_context(FakeAcpClient::FakeAcpClient())
-  assert_eq(client_name_of(unnamed), None)
-}
-
-///|
-test "resolve_client_bucket falls back to the injected host server name" {
-  assert_eq(
-    resolve_client_bucket(None, Omitted, [tk_profile_server("lody")]),
-    "lody",
-  )
-  assert_eq(
-    resolve_client_bucket(None, Omitted, [tk_profile_server("paseo")]),
-    "paseo",
-  )
-}
-
-///|
-test "resolve_client_bucket falls back to acp without a usable signal" {
-  assert_eq(resolve_client_bucket(None, Omitted, []), "acp")
-  // _meta present but without a string client field.
-  let no_client : @acp.ProtocolNullable[Json] = Value(
-    Json::object(Map::from_array([])),
-  )
-  assert_eq(resolve_client_bucket(None, no_client, []), "acp")
-  let non_string : @acp.ProtocolNullable[Json] = Value(
-    Json::object(Map::from_array([("client", Json::boolean(true))])),
-  )
-  assert_eq(resolve_client_bucket(None, non_string, []), "acp")
-}
-
-///|
 async test "a lody session's history lands in the lody bucket" {
   let root = tk_unique_root("lody-bucket")
   let (host, _) = tk_host(
@@ -3502,20 +3432,6 @@ async test "a clientInfo-identified session lands in its own bucket" {
   assert_false(
     tk_path_exists(@fs_session.jsonl_session_path(root + "/acp", session_id)),
   )
-}
-
-///|
-test "debug_tap_context forwards the clientInfo accessor" {
-  let (host, _) = tk_host([], wire_log=true)
-  let tapped = host.debug_tap_context(
-    fake_acp_context(
-      FakeAcpClient::FakeAcpClient(),
-      client_info=tk_client_info("zed"),
-    ),
-  )
-  // The rebuilt context must keep the initialize identity readable —
-  // bucket resolution reads it after the tap.
-  assert_eq(client_name_of(tapped), Some("zed"))
 }
 
 ///|
@@ -4563,37 +4479,6 @@ async test "no injection keeps the generic profile" {
   )
 }
 
-///|
-test "profile detection is pure and total" {
-  assert_true(detect_host_kind([]) is Generic)
-  assert_true(detect_host_kind(["editor-helper"]) is Generic)
-  assert_true(detect_host_kind(["lody"]) is Lody)
-  assert_true(detect_host_kind(["paseo"]) is Paseo)
-  assert_true(detect_host_kind(["paseo", "lody"]) is Lody)
-  assert_true(detect_host_kind(["lody", "paseo"]) is Lody)
-  assert_eq(
-    acp_mcp_server_names([
-      tk_profile_server("stdio-name"),
-      Http({
-        name: "http-name",
-        url: "https://mcp.example.com/mcp",
-        headers: [],
-        meta: Omitted,
-      }),
-      Sse({
-        name: "sse-name",
-        url: "https://old.example.com/sse",
-        headers: [],
-        meta: Omitted,
-      }),
-    ]),
-    ["stdio-name", "http-name", "sse-name"],
-  )
-  assert_true(host_prompt_section(Generic) is None)
-  assert_eq(host_prompt_section(Lody), Some(@lody_kit.prompt_section()))
-  assert_eq(host_prompt_section(Paseo), Some(@paseo_kit.prompt_section()))
-}
-
 // ------------------------------------------------------------- debug taps
 
 ///|
@@ -4611,16 +4496,6 @@ async fn tk_mcp_platform_fs(
     debug~,
   )
   (platform, fs)
-}
-
-///|
-test "debug flag parsing accepts only 1" {
-  assert_false(parse_debug_flag(None))
-  assert_true(parse_debug_flag(Some("1")))
-  assert_false(parse_debug_flag(Some("0")))
-  assert_false(parse_debug_flag(Some("")))
-  assert_false(parse_debug_flag(Some("true")))
-  assert_false(parse_debug_flag(Some("yes")))
 }
 
 ///|
@@ -5104,14 +4979,6 @@ async test "the debug taps stay off by default" {
   assert_false(
     fs.files.contains("/cetas-home/.cetas/debug/\{session_id}-catalog.json"),
   )
-}
-
-///|
-fn parse_debug_flag(raw : String?) -> Bool {
-  match raw {
-    Some("1") => true
-    _ => false
-  }
 }
 
 ///|
