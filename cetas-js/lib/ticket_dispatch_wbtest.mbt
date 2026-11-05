@@ -61,12 +61,12 @@ async test "ticket run dispatches a background child and moves the ticket to rev
     slots=[subagent_test_slot("test/ticket", model)],
     default_slot_id="test/ticket",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, group) {
     let fs = @workspace.JsWorkspaceFs()
     let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
@@ -228,12 +228,12 @@ async test "ticket shaping can split an oversized ticket into ready children and
     slots=[subagent_test_slot("test/shape-split", model)],
     default_slot_id="test/shape-split",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, group) {
     let fs = @workspace.JsWorkspaceFs()
     let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
@@ -420,12 +420,12 @@ async test "ticket shaping clarifies the ticket and moves it to ready" {
     slots=[subagent_test_slot("test/shape", model)],
     default_slot_id="test/shape",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, group) {
     let fs = @workspace.JsWorkspaceFs()
     let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
@@ -544,12 +544,12 @@ async test "ticket run uses the pinned model instead of the current active model
     ],
     default_slot_id="test/default",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, group) {
     let fs = @workspace.JsWorkspaceFs()
     let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
@@ -806,12 +806,12 @@ async test "ticket retry from review starts a fresh child session" {
     slots=[subagent_test_slot("test/retry-review", model)],
     default_slot_id="test/retry-review",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, group) {
     let fs = @workspace.JsWorkspaceFs()
     let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
@@ -899,12 +899,12 @@ async test "ticket retry from suspended starts a fresh child session" {
     slots=[subagent_test_slot("test/retry-suspended", model)],
     default_slot_id="test/retry-suspended",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, group) {
     let fs = @workspace.JsWorkspaceFs()
     let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
@@ -994,12 +994,12 @@ async test "ticket retry is rejected while the ticket is running" {
     slots=[subagent_test_slot("test/retry-running", model)],
     default_slot_id="test/retry-running",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, group) {
     let fs = @workspace.JsWorkspaceFs()
     let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
@@ -1088,12 +1088,12 @@ async test "ticket retry is rejected from a stage that is not retryable" {
     slots=[subagent_test_slot("test/retry-invalid", model)],
     default_slot_id="test/retry-invalid",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, group) {
     let fs = @workspace.JsWorkspaceFs()
     let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
@@ -1152,12 +1152,12 @@ async test "ticket resume continues the durable child session" {
     slots=[subagent_test_slot("test/resume", model)],
     default_slot_id="test/resume",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, group) {
     let fs = @workspace.JsWorkspaceFs()
     let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
@@ -1376,12 +1376,12 @@ async test "ticket request changes records the feedback, returns the ticket to R
     slots=[subagent_test_slot("test/request-changes", model)],
     default_slot_id="test/request-changes",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, group) {
     let fs = @workspace.JsWorkspaceFs()
     let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
@@ -1480,12 +1480,12 @@ async test "ticket request changes rejects empty feedback and a ticket without a
     slots=[subagent_test_slot("test/request-changes-reject", model)],
     default_slot_id="test/request-changes-reject",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, group) {
     let fs = @workspace.JsWorkspaceFs()
     let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
@@ -1624,12 +1624,12 @@ async test "ticket worker prompt carries the reviewer feedback on the new attemp
     slots=[subagent_test_slot("test/request-changes-prompt", model)],
     default_slot_id="test/request-changes-prompt",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, group) {
     let fs = @workspace.JsWorkspaceFs()
     let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
@@ -2098,12 +2098,12 @@ async test "ticket progress state json keeps a bounded per-ticket log" {
     slots=[subagent_test_slot("test/progress-bound", model)],
     default_slot_id="test/progress-bound",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, group) {
     let fs = @workspace.JsWorkspaceFs()
     let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
@@ -2213,12 +2213,12 @@ async test "ticket run persists the submitted work report instead of the minimal
     slots=[subagent_test_slot("test/work-report", model)],
     default_slot_id="test/work-report",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, group) {
     let fs = @workspace.JsWorkspaceFs()
     let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
@@ -2312,12 +2312,12 @@ async test "ticket finish fails visibly when the Board rejects the report" {
     slots=[subagent_test_slot("test/rejected-report", model)],
     default_slot_id="test/rejected-report",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, group) {
     let fs = @workspace.JsWorkspaceFs()
     let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
@@ -2406,12 +2406,12 @@ async test "RD-only role plan reaches review without starting SET or TE" {
     slots=[subagent_test_slot("test/ticket", model)],
     default_slot_id="test/ticket",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, group) {
     let fs = @workspace.JsWorkspaceFs()
     let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
@@ -2551,12 +2551,12 @@ async test "worker question to PO is answered in the background" {
     slots=[subagent_test_slot("test/po-auto", model)],
     default_slot_id="test/po-auto",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, group) {
     let fs = @workspace.JsWorkspaceFs()
     let ctx : @cetas_core.HostContext = { fs, cwd: directory, home: directory, }
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),

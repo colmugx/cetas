@@ -15,6 +15,7 @@ import {
   "colmugx/posoco-ext-workspace",
   "colmugx/posoco-kit-provider",
   "colmugx/posoco/error",
+  "colmugx/posoco/events",
   "colmugx/posoco/kernel",
   "colmugx/posoco/port",
   "colmugx/posoco/types",
@@ -22,7 +23,6 @@ import {
   "moonbitlang/async/js_async",
   "moonbitlang/core/debug",
   "moonbitlang/core/json",
-  "posoco/devkit",
   "posoco/ext-llm",
   "posoco/ext-oauth",
 }
@@ -141,7 +141,7 @@ pub fn BoardSkill::to_json(Self) -> @json.Json
 pub struct CetasJsAgent {
   agent : @posoco.Agent
   manager : ModelManagerFace
-  manager_bus : @devkit.EventBus
+  manager_events : @events.Events?
   plan : @posoco-ext-plan.PlanMode
   home : String
   observer : JsCallbackObserver
@@ -182,11 +182,11 @@ pub(all) struct CetasJsRuntime {
 pub fn CetasJsRuntime::CetasJsRuntime(CetasJsConfig) -> Self
 
 pub struct CetasPtcMode {
-  bus : @devkit.EventBus?
+  events : @events.Events?
   mut current_ : CetasPtcStatus
   mut revision_ : Int32
 }
-pub fn CetasPtcMode::CetasPtcMode(bus? : @devkit.EventBus?) -> Self
+pub fn CetasPtcMode::CetasPtcMode(events? : @events.Events?) -> Self
 pub async fn CetasPtcMode::before_model(Self, Array[@kernel.Message]) -> Array[@kernel.Message] raise @port.HookAbort
 pub async fn CetasPtcMode::before_tool(Self, @kernel.ToolCall) -> @port.ToolDecision
 pub fn CetasPtcMode::commands(Self) -> Array[@port.CommandDef]

@@ -1043,8 +1043,12 @@ const isCompactRequest = (body: string): boolean => {
       while (requests.length === 0) {
         await Bun.sleep(1);
       }
-      expect(app.queueFollowUp("queued question")).toBe("accepted");
+      // cetas owns the pending queue and delivers serially: nothing goes to
+      // the running turn, both inputs stay host-side.
+      expect(app.queueFollowUp("queued C").outcome).toBe("accepted");
+      expect(app.queueFollowUp("queued D").outcome).toBe("accepted");
       await Bun.sleep(20);
+      expect(app.pendingInputs).toEqual(["queued C", "queued D"]);
 
       // The switch interrupts the turn and waits for its finalize before
       // compacting; the compact request itself gates below.
@@ -1065,25 +1069,31 @@ const isCompactRequest = (body: string): boolean => {
       expect(commandOutcome.structured).toMatchObject({ ok: true, mode: "Replace" });
 
       await turnPromise.then(() => undefined, () => undefined);
-      expect(app.appState).toBe("ready");
-      // The queued input survived the interrupted run as pending and the
-      // Agent was never rebuilt for the compact.
-      expect(app.pendingInputs).toEqual(["queued question"]);
+      // C and D were never handed to the interrupted turn (serial delivery),
+      // so the compact cannot settle them. The host holds both until the
+      // compact reservation clears, then runs them as fresh turns.
       expect(createCount).toBe(1);
+      await waitFor(
+        () => app.pendingInputs.length === 0 && app.appState === "ready",
+        "the interrupted queued inputs were never re-delivered",
+      );
 
       const reply = await app.runTurn("after compact");
       expect(reply).toContain("post compact reply");
-      // The queued follow-up drains at the next run's boundary (core
-      // semantics), so it runs after the user's explicit turn, never during
-      // the interrupt/compact switch itself.
       expect(requests.map((entry) => entry.path)).toEqual([
         "responses",
         "compact",
         "responses",
         "responses",
+        "responses",
       ]);
-      const queuedTurn = requests[3]!.body;
-      expect((queuedTurn.match(/queued question/g) ?? []).length).toBe(1);
+      // FIFO order across the whole switch: the interrupted C runs first,
+      // then D, then the user's explicit post-compact turn. Each rides its
+      // own request exactly once.
+      expect((requests[2]!.body.match(/queued C/g) ?? []).length).toBe(1);
+      expect((requests[2]!.body.match(/queued D/g) ?? []).length).toBe(0);
+      expect((requests[3]!.body.match(/queued D/g) ?? []).length).toBe(1);
+      expect((requests[4]!.body.match(/after compact/g) ?? []).length).toBe(1);
       expect(app.pendingInputs).toEqual([]);
 
       await app.shutdown();

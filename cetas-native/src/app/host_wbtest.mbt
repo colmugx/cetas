@@ -16,6 +16,7 @@ async test "native host routes a real Posoco turn into NativeShell" {
   let agent = @posoco.Agent(
     exts=[io as &@posoco.Extension, observer as &@posoco.Extension],
     config=@posoco.agent_config(max_tool_rounds=Some(2)),
+    events=@posoco.EventSystem(),
   )
   let host = NativeHost::from_parts(
     agent,
@@ -61,6 +62,7 @@ async test "native host enumerates rewind points from physical JSONL lines" {
   let agent = @posoco.Agent(
     exts=[io as &@posoco.Extension],
     config=@posoco.agent_config(max_tool_rounds=Some(1)),
+    events=@posoco.EventSystem(),
   )
   let root = @fs.tmpdir(prefix="cetas-native-rewind-")
   let session_id = "physical-rewind"
@@ -160,6 +162,7 @@ async test "native host adopts typed session redirects immediately" {
   let agent = @posoco.Agent(
     exts=[io as &@posoco.Extension, observer as &@posoco.Extension],
     config=@posoco.agent_config(max_tool_rounds=Some(1)),
+    events=@posoco.EventSystem(),
   )
   let host = NativeHost::from_parts(
     agent,

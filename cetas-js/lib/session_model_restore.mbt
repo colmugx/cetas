@@ -111,7 +111,7 @@ async fn restore_session_model_selection(
     persist_active_model_selection(handle)
     // Same republication path as a successful /model command: the Magpie
     // manager owns no status publisher of its own.
-    handle.manager.manager_publish_status(handle.manager_bus)
+    handle.manager.manager_publish_status(handle.manager_events)
     handle.observer.on_event(
       None,
       Custom(

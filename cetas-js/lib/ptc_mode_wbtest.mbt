@@ -1,14 +1,28 @@
 ///|
+/// Typed status capture: every `@kit_events.StatusChanged` op the mode
+/// publishes, in delivery order, with the namespace it was attributed to.
 priv struct PtcStatusCapture {
-  events : Array[@devkit.BusEvent]
+  ops : Array[@kit_events.StatusOp]
+  publishers : Array[String]
 }
 
 ///|
-impl @devkit.BusSubscriber for PtcStatusCapture with fn on_bus_event(
-  self : PtcStatusCapture,
-  event : @devkit.BusEvent,
-) -> Unit {
-  self.events.push(event)
+fn ptc_status_capture(system : @posoco.EventSystem) -> PtcStatusCapture {
+  let capture = PtcStatusCapture::{ ops: [], publishers: [], }
+  ignore(
+    system.subscribe(fn(envelope) {
+      match @kit_events.status_changed_of(envelope) {
+        Some(op) => {
+          capture.ops.push(op)
+          capture.publishers.push(
+            @kit_events.publisher_id(envelope).unwrap_or(""),
+          )
+        }
+        None => ()
+      }
+    }),
+  )
+  capture
 }
 
 ///|
@@ -71,33 +85,37 @@ async test "ptc mode command, revisions and exposure projection" {
 }
 
 ///|
-test "ptc status bus initializes, updates, unregisters, and ignores no-ops" {
-  let bus = @devkit.EventBus()
-  let capture = PtcStatusCapture::{ events: [], }
-  bus.subscribe(capture)
-  let mode = CetasPtcMode(bus=Some(bus))
-  assert_eq(capture.events.length(), 1)
-  assert_eq(capture.events[0].source, "posoco_ext_bunraku")
-  json_inspect(capture.events[0].data, content={
-    "op": "register",
-    "segment": "ptc",
-    "priority": 11,
-    "value": "Hybrid",
-    "color": "muted",
-  })
+test "ptc status publishes typed ops on the session event system" {
+  let system = @posoco.EventSystem()
+  let capture = ptc_status_capture(system)
+  let mode = CetasPtcMode(
+    events=@cetas_core.mint_events_publisher(system, owner="posoco_ext_bunraku"),
+  )
+  assert_eq(capture.ops.length(), 1)
+  assert_eq(capture.publishers[0], "posoco_ext_bunraku")
+  assert_eq(
+    capture.ops[0],
+    @kit_events.Register(
+      segment="ptc",
+      label=None,
+      priority=11,
+      value=Some("Hybrid"),
+      color=Some("muted"),
+    ),
+  )
   mode.set(PtcOnly)
-  json_inspect(capture.events[1].data, content={
-    "op": "register",
-    "segment": "ptc",
-    "priority": 11,
-    "value": "PTC",
-    "color": "accent",
-  })
+  assert_eq(
+    capture.ops[1],
+    @kit_events.Register(
+      segment="ptc",
+      label=None,
+      priority=11,
+      value=Some("PTC"),
+      color=Some("accent"),
+    ),
+  )
   mode.set(PtcOnly)
-  assert_eq(capture.events.length(), 2)
+  assert_eq(capture.ops.length(), 2)
   mode.set(PtcDirect)
-  json_inspect(capture.events[2].data, content={
-    "op": "unregister",
-    "segment": "ptc",
-  })
+  assert_eq(capture.ops[2], @kit_events.Unregister(segment="ptc"))
 }

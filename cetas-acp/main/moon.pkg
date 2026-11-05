@@ -6,8 +6,16 @@ import {
   "moonbitlang/async",
   "moonbitlang/async/stdio",
   "moonbitlang/core/env",
+  "moonbitlang/core/async" @core_async,
 }
 
 supported_targets = "native"
+
+// The session-lifetime (recovery) task group is a core-async one: posoco's
+// quota guard and fuwaroid run on that stack.
+
+options(
+  "allow-experimental-packages": [ "moonbitlang/core/async" ],
+)
 
 pkgtype(kind: "executable")

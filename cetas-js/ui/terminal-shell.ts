@@ -365,8 +365,14 @@ export class TerminalShell {
   private readonly commandLock: CommandLock;
   /** ctrl+o state — persists across messages; new tool rows inherit it. */
   private toolOutputExpanded = false;
-  /** Follow-up bubbles awaiting their TurnStarted; promoted oldest-first. */
+  /** Queued bubbles awaiting their TurnStarted; promoted oldest-first. */
   private readonly queuedPrompts: QueuedUserMessage[] = [];
+  /**
+   * The same bubbles keyed by the host-local queue id, so a host terminal
+   * verdict (`message_undelivered` after the retry budget) settles the exact
+   * bubble instead of guessing by order.
+   */
+  private readonly queuedPromptById = new Map<string, QueuedUserMessage>();
   private commandShortcuts: ReadonlyArray<{ keyId: KeyId; command: string }> = [];
 
   private started = false;
@@ -839,6 +845,11 @@ export class TerminalShell {
     if (submission.kind === "queued") {
       const bubble = new QueuedUserMessage(displayPrompt);
       this.queuedPrompts.push(bubble);
+      // The host-local queue id is stable across delivery attempts: the
+      // application settles its terminal "undelivered" verdict on it. A
+      // queued input is delivered serially, as its own new turn, so the
+      // bubble is promoted by that turn's TurnStarted.
+      this.queuedPromptById.set(submission.id, bubble);
       this.addTranscriptChild(bubble);
       return;
     }
@@ -858,11 +869,10 @@ export class TerminalShell {
       }
       this.tui.requestRender();
     } finally {
-      // A failed parent operation cannot drain Agent-side follow-ups. Keep the
-      // transcript coherent by promoting any orphaned pending bubbles.
-      while (this.queuedPrompts.length > 0) {
-        this.queuedPrompts.shift()?.promote();
-      }
+      // Queued bubbles are deliberately left alone: the application owns the
+      // pending queue now and re-delivers them (as follow-ups or as the next
+      // fresh turn), so only its terminal "undelivered" verdict may settle
+      // one. Marking them here would claim a non-delivery that never happened.
       this.tui.requestRender();
     }
   }
@@ -1285,6 +1295,21 @@ export class TerminalShell {
       this.skippedEventsNoticed = false;
       this.promoteQueuedPrompt();
     }
+    if (event.type === "message_applied") {
+      // Delivery facts are host bookkeeping: cetas delivers queued input
+      // serially, as a fresh turn, so its bubble is promoted by that turn's
+      // TurnStarted instead. The receipt names an Agent-side command id the
+      // host-local bubble map never carries; unknown ids are ignored.
+      if (event.delivery === "turn") this.applyDeliveredPrompt(event.command_id);
+      return;
+    }
+    if (event.type === "message_undelivered") {
+      // The application owns the pending queue and synthesizes exactly one
+      // terminal verdict, keyed by the host-local queue id after the retry
+      // budget was exhausted.
+      this.markUndeliveredPrompt(event.command_id, event.reason);
+      return;
+    }
     if (event.type === "custom") {
       const core = parseCoreCustom(event.source, event.label, event.data);
       if (core.kind === "malformed") {
@@ -1668,8 +1693,47 @@ export class TerminalShell {
   private promoteQueuedPrompt(): void {
     const bubble = this.queuedPrompts.shift();
     if (bubble === undefined) return;
+    this.forgetQueuedPromptId(bubble);
     bubble.promote();
     this.tui.requestRender();
+  }
+
+  /**
+   * One `message_applied` receipt (posoco 0.24). A receipt means the message
+   * is in the transcript now, so a matching bubble becomes a normal user row.
+   * Serial delivery never registers an Agent command id on a bubble, so this
+   * is a no-op for this host; unknown ids are ignored by contract.
+   */
+  private applyDeliveredPrompt(commandId: string): void {
+    const bubble = this.queuedPromptById.get(commandId);
+    if (bubble === undefined) return;
+    this.forgetQueuedPromptId(bubble);
+    bubble.markApplied();
+    this.tui.requestRender();
+  }
+
+  /**
+   * A terminal `message_undelivered` verdict from the application: the retry
+   * budget is exhausted, so the bubble says the text was not delivered. The
+   * application only synthesizes this verdict when it really is final. The
+   * bubble leaves the host indexes, so no later TurnStarted can promote it
+   * into a fake "sent".
+   */
+  private markUndeliveredPrompt(commandId: string, reason: string): void {
+    const bubble = this.queuedPromptById.get(commandId);
+    if (bubble === undefined) return;
+    this.forgetQueuedPromptId(bubble);
+    const index = this.queuedPrompts.indexOf(bubble);
+    if (index >= 0) this.queuedPrompts.splice(index, 1);
+    bubble.markUndelivered(reason);
+    this.tui.requestRender();
+  }
+
+  /** Drop every index entry that points at `bubble` (id and receipt keys). */
+  private forgetQueuedPromptId(bubble: QueuedUserMessage): void {
+    for (const [key, candidate] of this.queuedPromptById) {
+      if (candidate === bubble) this.queuedPromptById.delete(key);
+    }
   }
 
   private handleUiRender(eventJson: string): void {

@@ -44,6 +44,7 @@ async test "native approval uses composed UiPort lifecycle wrapper" {
       bridge as &@posoco.Extension,
     ],
     config=@posoco.agent_config(max_tool_rounds=Some(1)),
+    events=@posoco.EventSystem(),
   )
 
   @async.with_task_group(group => {

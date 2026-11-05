@@ -13,6 +13,7 @@ export type {
   CetasHostConfig,
   CommandDescriptor,
   CommandParameter,
+  FollowUpQueueOutcome,
   ProviderAuthCapability,
   ProviderModelCapability,
   ProviderSetupSnapshot,

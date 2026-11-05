@@ -16,6 +16,7 @@ async test "native turn driver runs Agent without blocking editor state" {
   let agent = @posoco.Agent(
     exts=[io as &@posoco.Extension, observer as &@posoco.Extension],
     config=@posoco.agent_config(max_tool_rounds=Some(2)),
+    events=@posoco.EventSystem(),
   )
   let host = NativeHost::from_parts(
     agent,

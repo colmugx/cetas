@@ -545,6 +545,7 @@ impl @subagent.ChildComposer for CetasChildComposer with fn compose(
     config=@cetas_core.default_agent_config(
       system_prompt=Some(spec.system_prompt),
     ),
+    events=@posoco.EventSystem(),
   ) catch {
     error =>
       raise @subagent.ComposerError::Failed(

@@ -6,12 +6,16 @@ import {
   "moonbitlang/async",
   "moonbitlang/async/stdio",
   "moonbitlang/core/env",
+  "moonbitlang/core/async" @core_async,
 }
 
 pkgtype(kind: "executable")
 
 supported_targets = "+native +wasm"
 
+// The session-lifetime (recovery) task group is a core-async one.
+
 options(
+  "allow-experimental-packages": [ "moonbitlang/core/async" ],
   targets: { "exit.native.mbt": [ "native" ], "exit.wasm.mbt": [ "wasm" ] },
 )

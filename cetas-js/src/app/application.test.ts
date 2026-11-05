@@ -74,6 +74,15 @@ function bridgeFor(
   };
 }
 
+/** Bounded poll for a host-side state transition driven by the queue pump. */
+async function waitFor(predicate: () => boolean, label = "condition"): Promise<void> {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    if (predicate()) return;
+    await Bun.sleep(1);
+  }
+  throw new Error(`timed out waiting for ${label}`);
+}
+
 describe("CetasApplication", () => {
   test("keeps an empty provider setup usable without composing Agent", async () => {
     const counters = { created: 0, runs: 0, shutdowns: 0 };
@@ -1145,7 +1154,71 @@ describe("CetasApplication", () => {
     await expect(turn).resolves.toBe("partial reply");
   });
 
-  test("queueFollowUp maps bridge outcomes and requires an active turn", async () => {
+  test("queueFollowUp accepts host-side and the pump delivers serially", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    let markTurnStarted!: () => void;
+    let releaseTurn!: () => void;
+    const turnStarted = new Promise<void>((resolve) => {
+      markTurnStarted = resolve;
+    });
+    const turnReleased = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+    const prompts: string[] = [];
+    const enqueued: string[] = [];
+    const app = new CetasApplication({
+      bridge: {
+        ...bridgeFor(agentComposingSetup(), counters),
+        runTurn: async (_agent, prompt) => {
+          prompts.push(prompt);
+          markTurnStarted();
+          await turnReleased;
+          return "reply";
+        },
+        enqueueFollowUp: (_agent, prompt) => {
+          enqueued.push(prompt);
+          return `Accepted(follow_up_${enqueued.length})`;
+        },
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    await app.start();
+    const turn = app.runTurn("hello");
+    await turnStarted;
+
+    // Host acceptance is immediate, and the queue is purely host-side: a
+    // busy Agent is never handed a follow-up.
+    expect(app.queueFollowUp("first")).toEqual({ outcome: "accepted" });
+    expect(app.queueFollowUp("second")).toEqual({ outcome: "accepted" });
+    expect(enqueued).toEqual([]);
+    expect(app.pendingInputs).toEqual(["first", "second"]);
+    expect(prompts).toEqual(["hello"]);
+
+    releaseTurn();
+    await turn;
+    // Each queued input runs only after the previous turn settles.
+    await waitFor(() => prompts.length === 3, "the queued inputs never ran");
+    expect(prompts).toEqual(["hello", "first", "second"]);
+    expect(app.pendingInputs).toEqual([]);
+  });
+
+  test("queueFollowUp requires a composed Agent", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    const app = new CetasApplication({
+      bridge: bridgeFor({ providers: [], oauthProviders: [] }, counters),
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+    await app.start();
+    expect(app.appState).toBe("needs_setup");
+    expect(() => app.queueFollowUp("orphan")).toThrow(CetasApplicationError);
+  });
+
+  test("a queued submission hands its host-local id to the host", async () => {
     const counters = { created: 0, runs: 0, shutdowns: 0 };
     let markTurnStarted!: () => void;
     let releaseTurn!: () => void;
@@ -1156,27 +1229,9 @@ describe("CetasApplication", () => {
       releaseTurn = resolve;
     });
     const enqueued: string[] = [];
-    let outcome = "Accepted(follow_up_1)";
-    const base = bridgeFor(
-      {
-        providers: [
-          {
-            id: "deepseek/chat",
-            label: "DeepSeek Chat",
-            provider: "deepseek",
-            model: "deepseek-chat",
-            active: true,
-            efforts: [],
-            oauth: false,
-          },
-        ],
-        oauthProviders: [],
-      },
-      counters,
-    );
     const app = new CetasApplication({
       bridge: {
-        ...base,
+        ...bridgeFor(agentComposingSetup(), counters),
         runTurn: async () => {
           markTurnStarted();
           await turnReleased;
@@ -1184,7 +1239,7 @@ describe("CetasApplication", () => {
         },
         enqueueFollowUp: (_agent, prompt) => {
           enqueued.push(prompt);
-          return outcome;
+          return "Accepted(follow_up_7)";
         },
       },
       config,
@@ -1193,16 +1248,15 @@ describe("CetasApplication", () => {
     });
 
     await app.start();
-    expect(() => app.queueFollowUp("orphan")).toThrow(CetasApplicationError);
-
     const turn = app.runTurn("hello");
     await turnStarted;
-    expect(app.queueFollowUp("first")).toBe("accepted");
-    outcome = "RejectedStale(reason=...)";
-    expect(app.queueFollowUp("second")).toBe("stale");
-    outcome = "RejectedQueueFull(depth=64)";
-    expect(app.queueFollowUp("third")).toBe("full");
-    expect(enqueued).toEqual(["first", "second", "third"]);
+
+    // The host keys its optimistic bubble on `id`, which is stable across the
+    // queue's retries. Serial delivery has no Agent receipt to hand over.
+    const submission = await app.submitUserInput("follow up");
+    expect(submission).toEqual({ kind: "queued", id: "input_1" });
+    expect(app.pendingInputs).toEqual(["follow up"]);
+    expect(enqueued).toEqual([]);
 
     releaseTurn();
     await turn;
@@ -1751,7 +1805,7 @@ describe("CetasApplication", () => {
     expect(rewound).toHaveLength(2);
   });
 
-  test("submitUserInput waits through a stale lower-layer lease before starting the fresh turn", async () => {
+  test("a busy-input submission stays local and runs as the next turn after the settle", async () => {
     const counters = { created: 0, runs: 0, shutdowns: 0 };
     let releaseFirst!: () => void;
     let markFirstStarted!: () => void;
@@ -1762,23 +1816,8 @@ describe("CetasApplication", () => {
       markFirstStarted = resolve;
     });
     const prompts: string[] = [];
-    const base = bridgeFor(
-      {
-        providers: [
-          {
-            id: "deepseek/chat",
-            label: "DeepSeek Chat",
-            provider: "deepseek",
-            model: "deepseek-chat",
-            active: true,
-            efforts: [],
-            oauth: false,
-          },
-        ],
-        oauthProviders: [],
-      },
-      counters,
-    );
+    const enqueued: string[] = [];
+    const base = bridgeFor(agentComposingSetup(), counters);
     const app = new CetasApplication({
       bridge: {
         ...base,
@@ -1790,7 +1829,11 @@ describe("CetasApplication", () => {
           }
           return `reply:${prompt}`;
         },
-        enqueueFollowUp: () => "RejectedStale(reason=run_closed)",
+        // Serial delivery must never reach the Agent-side follow-up inbox.
+        enqueueFollowUp: (_agent, prompt) => {
+          enqueued.push(prompt);
+          return "RejectedStale(reason=run_closed)";
+        },
       },
       config,
       callbacks,
@@ -1801,23 +1844,22 @@ describe("CetasApplication", () => {
     const first = app.runTurn("first");
     await firstStarted;
 
-    let submissionSettled = false;
-    const submissionPromise = app.submitUserInput("second").then((value) => {
-      submissionSettled = true;
-      return value;
-    });
-    await Bun.sleep(1);
-    expect(submissionSettled).toBe(false);
+    // Host acceptance is immediate: the input joins cetas's own queue and
+    // waits for the running operation to settle.
+    const submission = await app.submitUserInput("second");
+    expect(submission.kind).toBe("queued");
+    expect(enqueued).toEqual([]);
+    expect(app.pendingInputs).toEqual(["second"]);
     expect(prompts).toEqual(["first"]);
 
     releaseFirst();
     await expect(first).resolves.toBe("reply:first");
-    const submission = await submissionPromise;
-    expect(submission.kind).toBe("started");
-    if (submission.kind !== "started") throw new Error("expected fresh turn");
-    await expect(submission.completion).resolves.toBe("reply:second");
+    // The operation settled: the retained input becomes a brand-new turn.
+    await waitFor(() => prompts.length === 2, "the queued input never ran");
     expect(prompts).toEqual(["first", "second"]);
-    expect(app.appState).toBe("ready");
+    await waitFor(() => app.pendingInputs.length === 0);
+    await waitFor(() => app.appState === "ready");
+    expect(enqueued).toEqual([]);
   });
 
   test("shutdown cancels the active Agent operation before draining and then closes the Agent", async () => {
@@ -2084,14 +2126,20 @@ describe("core operation projection", () => {
     bridge: CetasAgentBridge<{ id: string }>;
     observer: () => (eventJson: string) => void;
     followUps: string[];
+    runs: string[];
   } {
     let live: AgentCallbacks | undefined;
     const followUps: string[] = [];
+    const runs: string[] = [];
     const bridge: CetasAgentBridge<{ id: string }> = {
       ...bridgeFor(agentComposingSetup(), { created: 0, runs: 0, shutdowns: 0 }),
       createAgent: async (_config, agentCallbacks) => {
         live = agentCallbacks;
         return { id: "agent" };
+      },
+      runTurn: async (_agent, prompt) => {
+        runs.push(prompt);
+        return `reply:${prompt}`;
       },
       abortTurn: () => "Accepted(operation=turn)",
       enqueueFollowUp: (_agent, prompt) => {
@@ -2107,6 +2155,7 @@ describe("core operation projection", () => {
         return live.observerCallback;
       },
       followUps,
+      runs,
     };
   }
 
@@ -2130,15 +2179,18 @@ describe("core operation projection", () => {
     expect(app.appState).toBe("running");
     expect(app.operationSnapshot).toMatchObject({ busy: true, kind: "wakeup" });
 
-    // Same-session input during the wakeup run is a legitimate follow-up.
+    // Same-session input during the wakeup run still waits locally: serial
+    // delivery never hands a follow-up to a busy operation.
     const submission = await app.submitUserInput("check the build", "session-1");
     expect(submission.kind).toBe("queued");
-    expect(fixture.followUps).toEqual(["check the build"]);
+    expect(fixture.followUps).toEqual([]);
+    expect(app.pendingInputs).toEqual(["check the build"]);
 
     // An intermediate TurnCompleted must not unlock the operation.
     fixture.observer()(JSON.stringify({ type: "turn_completed" }));
     expect(app.appState).toBe("running");
     expect(app.operationSnapshot.busy).toBe(true);
+    expect(app.pendingInputs).toEqual(["check the build"]);
 
     fixture.observer()(
       operationEvent("operation_settled", {
@@ -2148,8 +2200,14 @@ describe("core operation projection", () => {
         outcome: "completed",
       }),
     );
-    expect(app.appState).toBe("ready");
+    // The settle is the single unlock: the retained input leaves the queue and
+    // runs as its own fresh turn (new operation, new turn).
+    await waitFor(() => fixture.runs.length === 1, "the queued input never ran");
+    expect(fixture.runs).toEqual(["check the build"]);
+    expect(app.pendingInputs).toEqual([]);
+    await waitFor(() => app.appState === "ready");
     expect(app.operationSnapshot.busy).toBe(false);
+    expect(fixture.followUps).toEqual([]);
     await app.shutdown();
   });
 
@@ -2180,14 +2238,12 @@ describe("core operation projection", () => {
     );
     expect(app.appState).toBe("running");
 
-    let settled = false;
-    const submission = app.submitUserInput("mine", "session-1").then((value) => {
-      settled = true;
-      return value;
-    });
-    await Bun.sleep(1);
-    expect(settled).toBe(false);
+    // Host acceptance is immediate and no follow-up is ever attempted: the
+    // input waits locally for the other session's operation to settle.
+    const submission = await app.submitUserInput("mine", "session-1");
+    expect(submission.kind).toBe("queued");
     expect(fixture.followUps).toEqual([]);
+    expect(app.pendingInputs).toEqual(["mine"]);
 
     fixture.observer()(
       operationEvent("operation_settled", {
@@ -2197,12 +2253,13 @@ describe("core operation projection", () => {
         outcome: "cancelled",
       }),
     );
-    const started = await submission;
-    expect(started.kind).toBe("started");
-    if (started.kind !== "started") throw new Error("expected a fresh turn");
+    // The settled boundary frees the slot: the retained input starts its own
+    // turn instead of being dropped.
+    await waitFor(() => app.pendingInputs.length === 0);
     releaseRun();
-    await expect(started.completion).resolves.toBe("reply:mine");
+    await waitFor(() => app.appState === "ready");
     expect(fixture.followUps).toEqual([]);
+    expect(app.operationSnapshot.session).toBeUndefined();
     await app.shutdown();
   });
 
@@ -2364,7 +2421,7 @@ describe("core operation projection", () => {
  */
 describe("Board activation note", () => {
   /** Ready app whose bridge records every prompt that reaches the Agent. */
-  function recordingApp(): {
+  function recordingApp(gate?: (prompt: string) => Promise<void>): {
     app: CetasApplication<{ id: string }>;
     prompts: string[];
     followUps: string[];
@@ -2377,6 +2434,7 @@ describe("Board activation note", () => {
         ...bridgeFor(agentComposingSetup(), counters),
         runTurn: async (_agent, prompt) => {
           prompts.push(prompt);
+          await gate?.(prompt);
           return `reply:${prompt}`;
         },
         enqueueFollowUp: (_agent, prompt) => {
@@ -2480,31 +2538,460 @@ describe("Board activation note", () => {
     await app.shutdown();
   });
 
-  test("a queued follow-up carries the note once and keeps the mirror in user words", async () => {
-    const { app, prompts, followUps } = recordingApp();
-    await app.start();
-
-    // Occupy the session with a host turn so the submission is a follow-up.
+  test("a queued input carries the note once and new input appends to the tail", async () => {
     let releaseRun!: () => void;
     const released = new Promise<void>((resolve) => {
       releaseRun = resolve;
     });
+    // Hold the first turn open: the next input can only wait in the queue.
+    const { app, prompts, followUps } = recordingApp(async (prompt) => {
+      if (prompt === "running turn") await released;
+    });
+    await app.start();
+
+    // Occupy the session with a host turn so the submission is queued.
     const running = app.runTurn("running turn");
 
     app.noteBoardActivated();
     const queued = await app.submitUserInput("follow-up");
     expect(queued.kind).toBe("queued");
-    expect(followUps).toEqual([`${BOARD_ACTIVATION_NOTE}\n\nfollow-up`]);
-    // The pending mirror shows what the user typed, never the host note.
+    // Serial delivery: nothing reaches the Agent while the turn runs, and no
+    // follow-up is ever enqueued.
+    expect(followUps).toEqual([]);
+    // The pending queue shows what the user typed, never the host note.
     expect(app.pendingInputs).toEqual(["follow-up"]);
+
+    // Queue non-empty: a later submission is appended (FIFO, no jumping) and
+    // the spent note never rides it.
+    const tail = await app.submitUserInput("plain");
+    expect(tail.kind).toBe("queued");
+    expect(app.pendingInputs).toEqual(["follow-up", "plain"]);
+    expect(followUps).toEqual([]);
 
     releaseRun();
     await running;
-    prompts.length = 0;
-    const next = await app.submitUserInput("plain");
-    if (next.kind !== "started") throw new Error("expected a fresh turn");
-    await next.completion;
-    expect(prompts).toEqual(["plain"]);
+    // The settled operation frees the queue: the note-carrying input runs as
+    // its own turn, then the plain tail follows. The note still rides exactly
+    // one prompt, and never the tail.
+    await waitFor(() => prompts.length === 3, "the queued inputs never ran");
+    expect(prompts).toEqual([
+      "running turn",
+      `${BOARD_ACTIVATION_NOTE}\n\nfollow-up`,
+      "plain",
+    ]);
+    expect(followUps).toEqual([]);
     await app.shutdown();
+  });
+});
+
+/**
+ * Host-owned input queue (posoco 0.24 follow-ups are operation-scoped).
+ * Delivery is serial: cetas keeps the not-yet-delivered inputs itself, hands
+ * the head to the Agent only once the Agent is idle, and re-pumps on every
+ * settle. Every delivery is a fresh turn, never a follow-up on a running one.
+ */
+describe("queued input delivery", () => {
+  type QueueBridge = CetasAgentBridge<{ id: string }> & {
+    compactSession?(
+      agent: { id: string },
+      sessionId: string,
+      signal?: AbortSignal,
+    ): Promise<{
+      ok: boolean;
+      finalSessionId?: string;
+      mode?: string;
+      messagesAfter?: number;
+      errorKind?: string;
+      detail?: string;
+    }>;
+  };
+
+  /** Test hooks that need the fixture itself (observer, queues, gates). */
+  interface QueueFixtureOptions {
+    /** Extra work while one Agent turn runs (gates, aborts, failures). */
+    onRunTurn?: (prompt: string, signal?: AbortSignal) => Promise<void>;
+    /** Side effects of the mailbox abort (posoco settles its inbox here). */
+    onAbort?: () => void;
+    bridge?: Partial<QueueBridge>;
+  }
+
+  /**
+   * Ready app whose bridge exposes the live observer callback, so a test can
+   * drive posoco events exactly as the MoonBit bridge does.
+   */
+  function queueFixture(options: QueueFixtureOptions = {}): {
+    app: CetasApplication<{ id: string }>;
+    bridge: QueueBridge;
+    observer: (event: Record<string, unknown>) => void;
+    forwarded: Array<Record<string, unknown>>;
+    prompts: string[];
+    followUps: string[];
+  } {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    let live: AgentCallbacks | undefined;
+    const forwarded: Array<Record<string, unknown>> = [];
+    const prompts: string[] = [];
+    const followUps: string[] = [];
+    const bridge: QueueBridge = {
+      ...bridgeFor(agentComposingSetup(), counters),
+      createAgent: async (_config, agentCallbacks) => {
+        live = agentCallbacks;
+        return { id: "agent" };
+      },
+      runTurn: async (_agent, prompt, _sessionId, signal) => {
+        prompts.push(prompt);
+        await options.onRunTurn?.(prompt, signal);
+        return `reply:${prompt}`;
+      },
+      // Serial delivery must never reach the Agent-side follow-up inbox; the
+      // recorder stays so every test can assert it stays empty.
+      enqueueFollowUp: (_agent, prompt) => {
+        followUps.push(prompt);
+        return `Accepted(follow_up_${followUps.length})`;
+      },
+      abortTurn: () => {
+        options.onAbort?.();
+        return "Accepted(abort_1)";
+      },
+      compactSession: async (_agent, sessionId) => ({
+        ok: true,
+        finalSessionId: sessionId,
+        mode: "Replace",
+        messagesAfter: 1,
+      }),
+      ...options.bridge,
+    };
+    const app = new CetasApplication({
+      bridge,
+      config,
+      callbacks: {
+        observerCallback: (raw) => {
+          forwarded.push(JSON.parse(raw) as Record<string, unknown>);
+        },
+        renderCallback: () => undefined,
+        requestCallback: async () => "",
+      },
+      initialSessionId: "session-1",
+    });
+    return {
+      app,
+      bridge,
+      observer: (event) => {
+        if (live === undefined) throw new Error("Agent was not created");
+        live.observerCallback(JSON.stringify(event));
+      },
+      forwarded,
+      prompts,
+      followUps,
+    };
+  }
+
+  function operationEvent(
+    label: "operation_started" | "operation_settled",
+    data: Record<string, unknown>,
+  ): Record<string, unknown> {
+    return { type: "custom", source: "posoco.operation", label, data };
+  }
+
+  test("idle with an empty queue still starts the turn directly", async () => {
+    const fixture = queueFixture();
+    await fixture.app.start();
+
+    const submission = await fixture.app.submitUserInput("hello");
+    expect(submission.kind).toBe("started");
+    if (submission.kind !== "started") throw new Error("expected a fresh turn");
+    await expect(submission.completion).resolves.toBe("reply:hello");
+
+    expect(fixture.prompts).toEqual(["hello"]);
+    expect(fixture.followUps).toEqual([]);
+    expect(fixture.app.pendingInputs).toEqual([]);
+    await fixture.app.shutdown();
+  });
+
+  test("busy inputs stay local and are delivered serially as fresh turns", async () => {
+    let releaseTurn!: () => void;
+    let markTurnStarted!: () => void;
+    const turnReleased = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+    const turnStarted = new Promise<void>((resolve) => {
+      markTurnStarted = resolve;
+    });
+    const fixture = queueFixture({
+      onRunTurn: async () => {
+        markTurnStarted();
+        await turnReleased;
+      },
+    });
+    await fixture.app.start();
+    const turn = fixture.app.runTurn("first");
+    await turnStarted;
+
+    const first = await fixture.app.submitUserInput("C");
+    const second = await fixture.app.submitUserInput("D");
+    expect(first).toEqual({ kind: "queued", id: "input_1" });
+    expect(second).toEqual({ kind: "queued", id: "input_2" });
+    // Nothing is handed to the running operation; both inputs wait locally.
+    expect(fixture.followUps).toEqual([]);
+    expect(fixture.app.pendingInputs).toEqual(["C", "D"]);
+    expect(fixture.prompts).toEqual(["first"]);
+
+    releaseTurn();
+    await turn;
+    // The settle frees the slot; each input then starts its own turn, one at
+    // a time, in FIFO order.
+    await waitFor(() => fixture.prompts.length === 3, "the queued inputs never ran");
+    expect(fixture.prompts).toEqual(["first", "C", "D"]);
+    await waitFor(() => fixture.app.pendingInputs.length === 0);
+    expect(fixture.followUps).toEqual([]);
+    await fixture.app.shutdown();
+  });
+
+  test("delivery facts are forwarded verbatim but never reconcile the queue", async () => {
+    let releaseTurn!: () => void;
+    let markTurnStarted!: () => void;
+    const turnReleased = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+    const turnStarted = new Promise<void>((resolve) => {
+      markTurnStarted = resolve;
+    });
+    const fixture = queueFixture({
+      onRunTurn: async (prompt) => {
+        if (prompt !== "first") return;
+        markTurnStarted();
+        await turnReleased;
+      },
+    });
+    await fixture.app.start();
+    const turn = fixture.app.runTurn("first");
+    await turnStarted;
+    await fixture.app.submitUserInput("C");
+    expect(fixture.app.pendingInputs).toEqual(["C"]);
+
+    // Serial delivery never puts an input into the Agent's operation-scoped
+    // inbox, so these facts concern nothing in the host queue. They are still
+    // application events and reach the observer verbatim.
+    fixture.observer({
+      type: "message_applied",
+      command_id: "follow_up_1",
+      delivery: "turn",
+    });
+    expect(fixture.app.pendingInputs).toEqual(["C"]);
+    fixture.observer({
+      type: "message_undelivered",
+      command_id: "follow_up_1",
+      delivery: "turn",
+      reason: "operation ended before delivery",
+    });
+    expect(fixture.app.pendingInputs).toEqual(["C"]);
+    expect(
+      fixture.forwarded.filter((event) => event.type === "message_applied"),
+    ).toHaveLength(1);
+    expect(
+      fixture.forwarded.filter((event) => event.type === "message_undelivered"),
+    ).toHaveLength(1);
+
+    releaseTurn();
+    await turn;
+    await waitFor(() => fixture.prompts.length === 2, "the queued input never ran");
+    expect(fixture.prompts).toEqual(["first", "C"]);
+    expect(fixture.followUps).toEqual([]);
+    await fixture.app.shutdown();
+  });
+
+  test("queued inputs run one at a time in FIFO order", async () => {
+    const gates = new Map<string, Promise<void>>();
+    const releases = new Map<string, () => void>();
+    const gateFor = (prompt: string): Promise<void> => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      gates.set(prompt, gate);
+      releases.set(prompt, release);
+      return gate;
+    };
+    const releasesFor = (prompt: string): (() => void) => {
+      const release = releases.get(prompt);
+      if (release === undefined) throw new Error(`turn ${prompt} never started`);
+      return release;
+    };
+    const fixture = queueFixture({
+      onRunTurn: async (prompt) => {
+        await gateFor(prompt);
+      },
+    });
+    await fixture.app.start();
+
+    const turnA = fixture.app.runTurn("A");
+    await waitFor(() => gates.has("A"), "turn A never started");
+    await fixture.app.submitUserInput("B");
+    await fixture.app.submitUserInput("C");
+    await fixture.app.submitUserInput("D");
+    expect(fixture.app.pendingInputs).toEqual(["B", "C", "D"]);
+    expect(fixture.prompts).toEqual(["A"]);
+    expect(fixture.followUps).toEqual([]);
+
+    releasesFor("A")();
+    await turnA;
+    // B, and only B, starts once A settles. C and D stay queued even though
+    // the Agent is busy with B.
+    await waitFor(() => gates.has("B"), "turn B never started");
+    expect(fixture.prompts).toEqual(["A", "B"]);
+    expect(gates.has("C")).toBe(false);
+    expect(gates.has("D")).toBe(false);
+    expect(fixture.app.pendingInputs).toEqual(["C", "D"]);
+
+    releasesFor("B")();
+    await waitFor(() => gates.has("C"), "turn C never started");
+    expect(fixture.prompts).toEqual(["A", "B", "C"]);
+    expect(gates.has("D")).toBe(false);
+    expect(fixture.app.pendingInputs).toEqual(["D"]);
+
+    releasesFor("C")();
+    await waitFor(() => gates.has("D"), "turn D never started");
+    expect(fixture.prompts).toEqual(["A", "B", "C", "D"]);
+    expect(fixture.app.pendingInputs).toEqual([]);
+
+    releasesFor("D")();
+    await waitFor(() => fixture.app.appState === "ready");
+    expect(fixture.followUps).toEqual([]);
+    await fixture.app.shutdown();
+  });
+
+  test("exhausted attempts report one terminal undelivered keyed by the host id", async () => {
+    let releaseFirst!: () => void;
+    let markFirstStarted!: () => void;
+    const firstReleased = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    const runs: string[] = [];
+    const fixture = queueFixture({
+      bridge: {
+        runTurn: async (_agent, prompt) => {
+          runs.push(prompt);
+          if (prompt === "first") {
+            markFirstStarted();
+            await firstReleased;
+            return "reply:first";
+          }
+          // Admission keeps being lost before anything runs: the only errors
+          // the host may retry without counting the input as delivered.
+          throw new CetasApplicationError("already_running", "lost admission");
+        },
+      },
+    });
+    await fixture.app.start();
+    const first = fixture.app.runTurn("first");
+    await firstStarted;
+    await fixture.app.submitUserInput("C");
+    expect(fixture.app.pendingInputs).toEqual(["C"]);
+    expect(runs).toEqual(["first"]);
+
+    releaseFirst();
+    await first;
+    await waitFor(
+      () => fixture.forwarded.some((event) => event.type === "message_undelivered"),
+      "the host never reported the exhausted input",
+    );
+
+    // Three fresh-turn attempts, then the terminal verdict — never a fourth.
+    expect(runs).toEqual(["first", "C", "C", "C"]);
+    await waitFor(() => fixture.app.pendingInputs.length === 0);
+    const terminal = fixture.forwarded.filter(
+      (event) => event.type === "message_undelivered",
+    );
+    expect(terminal).toHaveLength(1);
+    expect(terminal[0]).toMatchObject({
+      command_id: "input_1",
+      delivery: "turn",
+      reason: "delivery attempts exhausted",
+    });
+    expect(fixture.followUps).toEqual([]);
+    expect(fixture.app.operationSnapshot.busy).toBe(false);
+    await fixture.app.shutdown();
+  });
+
+  test("a compact completion re-runs the queued inputs as fresh turns", async () => {
+    let markTurnStarted!: () => void;
+    const turnStarted = new Promise<void>((resolve) => {
+      markTurnStarted = resolve;
+    });
+    let releaseAbort!: () => void;
+    const aborted = new Promise<void>((resolve) => {
+      releaseAbort = resolve;
+    });
+    const fixture = queueFixture({
+      onRunTurn: async (prompt) => {
+        if (prompt !== "first") return;
+        markTurnStarted();
+        await aborted;
+        throw new DOMException("aborted", "AbortError");
+      },
+      onAbort: () => {
+        releaseAbort();
+      },
+    });
+    await fixture.app.start();
+
+    const turn = fixture.app.runTurn("first");
+    turn.catch(() => undefined);
+    await turnStarted;
+    await fixture.app.submitUserInput("C");
+    await fixture.app.submitUserInput("D");
+    expect(fixture.app.pendingInputs).toEqual(["C", "D"]);
+    expect(fixture.followUps).toEqual([]);
+
+    const compact = await fixture.app.compactSession("session-1");
+    expect(compact.ok).toBe(true);
+    await turn.then(() => undefined, () => undefined);
+
+    // The compact reservation holds the queue; when it clears, C and then D
+    // run as their own fresh turns. `enqueue_follow_up` is never involved.
+    await waitFor(() => fixture.prompts.length === 3, "the queued inputs never ran");
+    expect(fixture.prompts).toEqual(["first", "C", "D"]);
+    await waitFor(() => fixture.app.pendingInputs.length === 0);
+    expect(fixture.followUps).toEqual([]);
+    await fixture.app.shutdown();
+  });
+
+  test("input submitted while the queue is non-empty appends to the tail", async () => {
+    let releaseTurn!: () => void;
+    let markTurnStarted!: () => void;
+    const turnReleased = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+    const turnStarted = new Promise<void>((resolve) => {
+      markTurnStarted = resolve;
+    });
+    const fixture = queueFixture({
+      onRunTurn: async () => {
+        markTurnStarted();
+        await turnReleased;
+      },
+    });
+    await fixture.app.start();
+    const turn = fixture.app.runTurn("first");
+    await turnStarted;
+
+    await fixture.app.submitUserInput("C");
+    expect(fixture.app.pendingInputs).toEqual(["C"]);
+    await fixture.app.submitUserInput("D");
+    // FIFO, never jump-the-queue: C is delivered first, D follows it.
+    expect(fixture.app.pendingInputs).toEqual(["C", "D"]);
+    expect(fixture.prompts).toEqual(["first"]);
+    expect(fixture.followUps).toEqual([]);
+
+    releaseTurn();
+    await turn;
+    await waitFor(() => fixture.prompts.length === 3, "the queued inputs never ran");
+    expect(fixture.prompts).toEqual(["first", "C", "D"]);
+    await waitFor(() => fixture.app.pendingInputs.length === 0);
+    expect(fixture.followUps).toEqual([]);
+    await fixture.app.shutdown();
   });
 });

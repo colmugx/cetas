@@ -63,6 +63,15 @@ const callbacks: AgentCallbacks = {
   requestCallback: async () => "",
 };
 
+/** Bounded poll for a host-side state transition driven by the queue pump. */
+async function waitFor(predicate: () => boolean, label: string): Promise<void> {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    if (predicate()) return;
+    await Bun.sleep(1);
+  }
+  throw new Error(`timed out waiting for ${label}`);
+}
+
 /**
  * OLD PROTOCOL fixtures: these tests drive the legacy bridge surface with
  * bare turn_started/turn_completed observer events and NO
@@ -88,13 +97,19 @@ describe("rate-limit recovery host lifecycle", () => {
     fixture.callbacks().observerCallback(JSON.stringify({ type: "turn_started" }));
     expect(app.appState).toBe("running");
     await expect(app.runTurn("must serialize")).rejects.toThrow("already running");
-    expect(app.queueFollowUp("after recovery")).toBe("accepted");
+    expect(app.queueFollowUp("after recovery").outcome).toBe("accepted");
+    // Serial delivery: the input waits locally while the recovery owns the
+    // Agent; nothing is enqueued into the recovery's follow-up inbox.
+    expect(app.pendingInputs).toEqual(["after recovery"]);
 
     fixture.callbacks().observerCallback(JSON.stringify({ type: "turn_completed" }));
-    expect(app.appState).toBe("running");
-    fixture.callbacks().observerCallback(JSON.stringify({ type: "turn_started" }));
-    fixture.callbacks().observerCallback(JSON.stringify({ type: "turn_completed" }));
-    expect(app.appState).toBe("ready");
+    // The recovery settles at its own turn boundary. The host-owned input then
+    // starts its own fresh turn and the application returns to ready — no
+    // second recovery turn drains it.
+    await waitFor(
+      () => app.pendingInputs.length === 0 && app.appState === "ready",
+      "the queued input was never re-delivered after the recovery",
+    );
     await app.shutdown();
   });
 

@@ -68,7 +68,7 @@ fn restore_test_slot(
 
 ///|
 /// A store carrying one session whose metadata records `slot`/`effort` in
-/// the same shape the ext-llm bus event produces.
+/// the same shape the ext-llm selection event carries.
 async fn restore_test_store(
   root : String,
   slot~ : String?,

@@ -50,6 +50,19 @@ fn FakeMagpieTransport::FakeMagpieTransport(
 }
 
 ///|
+/// Re-script the response lines every opened stream replays. The fake starts
+/// each stream at index 0, so a later turn rewrites the script in place.
+fn FakeMagpieTransport::script_turn_text(
+  self : FakeMagpieTransport,
+  text : String,
+) -> Unit {
+  self.stream_lines.clear()
+  for line in magpie_turn_stream_lines(text~) {
+    self.stream_lines.push(line)
+  }
+}
+
+///|
 priv struct FakeMagpieStream {
   transport : FakeMagpieTransport
   mut next : Int32
@@ -168,29 +181,31 @@ fn magpie_test_transport(
 }
 
 ///|
-/// A buffered Messages completion body for turn tests.
-fn magpie_turn_post_body(text~ : String) -> FakeMagpieStep {
-  {
-    code: 200,
-    body: Json::object({
-      "type": Json::string("message"),
-      "id": Json::string("msg_1"),
-      "model": Json::string("claude-served"),
-      "role": Json::string("assistant"),
-      "content": Json::array([
-        Json::object({
-          "type": Json::string("text"),
-          "text": Json::string(text),
-        }),
-      ]),
-      "stop_reason": Json::string("end_turn"),
-      "stop_sequence": Json::null(),
-      "usage": Json::object({
-        "input_tokens": Json::number(3),
-        "output_tokens": Json::number(2),
-      }),
-    }).stringify(),
-  }
+/// A streaming Messages turn carrying `text` as one text block. The kernel
+/// always requests the stream form, so turn tests script SSE lines.
+fn magpie_turn_stream_lines(text~ : String) -> Array[String] {
+  [
+    "event: message_start",
+    "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_t\",\"role\":\"assistant\",\"model\":\"claude-served\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":0}}}",
+    "",
+    "event: content_block_start",
+    "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}",
+    "",
+    "event: content_block_delta",
+    "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"" +
+    text +
+    "\"}}",
+    "",
+    "event: content_block_stop",
+    "data: {\"type\":\"content_block_stop\",\"index\":0}",
+    "",
+    "event: message_delta",
+    "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}",
+    "",
+    "event: message_stop",
+    "data: {\"type\":\"message_stop\"}",
+    "",
+  ]
 }
 
 ///|
@@ -223,7 +238,11 @@ fn magpie_test_cred_store() -> @credentials.FileProviderCredentialStore {
 ///|
 /// Compose a real Agent over the given runtime, the way create_agent does.
 fn magpie_test_agent(runtime : @magpie.MagpieRuntime) -> @posoco.Agent raise {
-  @posoco.Agent::Agent(exts=[runtime], config=@tk.tk_config())
+  @posoco.Agent::Agent(
+    exts=[runtime],
+    config=@tk.tk_config(),
+    events=@posoco.EventSystem(),
+  )
 }
 
 ///|
@@ -413,7 +432,8 @@ async test "real turn through the composed agent with offline-tolerant startup" 
   // Online path: catalog loads, selection applies, the turn flows through the
   // composed port and carries the session id.
   let transport = magpie_test_transport()
-  transport.posts.push(magpie_turn_post_body(text="hello from magpie"))
+  transport.script_turn_text("hello from magpie")
+  transport.posts.push({ code: 200, body: "", })
   let runtime = magpie_runtime_build(transport)
   runtime.runtime.on_start()
   let _ = runtime.runtime.invoke(
@@ -436,7 +456,7 @@ async test "real turn through the composed agent with offline-tolerant startup" 
   assert_eq(text, "hello from magpie")
   assert_eq(transport.post_sessions[0], "magpie-session-1")
   // Second session keeps its own affinity identity.
-  transport.posts.push(magpie_turn_post_body(text="again"))
+  transport.posts.push({ code: 200, body: "", })
   let _ = agent.run_turn(
     @posoco.Message::UserMessage(content=[@posoco.Content::Text("go")]),
     "magpie-session-2",
@@ -481,7 +501,8 @@ async test "forbidden intelligence isolates to its command" {
       },
       { code: 403, body: "{\"error\":\"quota endpoint forbidden\"}", },
     ],
-    posts=[magpie_turn_post_body(text="ok")],
+    posts=[{ code: 200, body: "", }],
+    stream_lines=magpie_turn_stream_lines(text="ok"),
   )
   let runtime = magpie_runtime_build(transport)
   runtime.runtime.on_start()
@@ -494,7 +515,8 @@ async test "forbidden intelligence isolates to its command" {
     fail("a forbidden intelligence endpoint must fail its own command")
   }
   // Inference is unaffected.
-  transport.posts.push(magpie_turn_post_body(text="still working"))
+  transport.posts.push({ code: 200, body: "", })
+  transport.script_turn_text("still working")
   let agent = magpie_test_agent(runtime.runtime)
   let result = agent.run_turn(
     @posoco.Message::UserMessage(content=[@posoco.Content::Text("go")]),

@@ -38,8 +38,8 @@ impl @posoco.Lifecycle for CetasWorkflowCommands with fn on_shutdown(_) {
 ///|
 /// Board command ids are internal. `/board` is a terminal-local route, not a
 /// command, so every Board definition — including the workflow menu — stays
-/// registered and callable by canonical id while no longer being
-/// user-discoverable.
+/// registered and callable by canonical id while staying out of user
+/// discovery.
 fn is_board_command_id(id : String) -> Bool {
   id == "board" || id.has_prefix("board.")
 }

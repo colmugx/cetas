@@ -99,6 +99,7 @@ async test "manifest path leads the catalog with memory tools" {
     ],
     config=@tk.tk_config(),
     runtime=runtime as &@runtime.Runtime,
+    events=@posoco.EventSystem(),
   ) catch {
     error => fail("composition failed: \{error}")
   }

@@ -215,60 +215,65 @@ async fn main {
   // Compose, announce the session, run the single turn, shut down, exit by
   // outcome. The task group is the composition's lifecycle scope; extensions
   // that attached to it (nowledge-mem's flusher) stop with the scope.
-  @async.with_task_group(group => {
-    let host = @lib.CetasRunHost(
-      version=CETAS_RUN_VERSION,
-      home~,
-      cwd~,
-      mode=@lib.resolve_permission_mode(cli),
-      approval~,
-      ui~,
-      model_override=cli.model,
-      effort_override=cli.effort,
-      session_id=cli.session_id,
-      tail_exts~,
-      // Every remaining composition warn reaches stderr — nothing degrades
-      // silently in a one-shot run.
-      warn=write_err,
-      mcp_group=Some(group),
-    ) catch {
-      @posoco.CompositionError::ManifestSchemaError(manifest_id~, detail~) if manifest_id.has_suffix(
-          ".model_override",
-        ) => {
-        @stdio.stderr.write(@lib.turn_failed_line("startup: " + detail) + "\n")
-        @stdio.stderr.write("cetas-run: \{detail}\n")
-        exit(2)
-        abort("cetas-run: unreachable after exit")
+  @core_async.with_task_group(async fn(lifetime_group) {
+    @async.with_task_group(group => {
+      let host = @lib.CetasRunHost(
+        version=CETAS_RUN_VERSION,
+        home~,
+        cwd~,
+        mode=@lib.resolve_permission_mode(cli),
+        approval~,
+        ui~,
+        model_override=cli.model,
+        effort_override=cli.effort,
+        session_id=cli.session_id,
+        tail_exts~,
+        // Every remaining composition warn reaches stderr — nothing degrades
+        // silently in a one-shot run.
+        warn=write_err,
+        mcp_group=Some(group),
+        lifetime_group=Some(lifetime_group),
+      ) catch {
+        @posoco.CompositionError::ManifestSchemaError(manifest_id~, detail~) if manifest_id.has_suffix(
+            ".model_override",
+          ) => {
+          @stdio.stderr.write(
+            @lib.turn_failed_line("startup: " + detail) + "\n",
+          )
+          @stdio.stderr.write("cetas-run: \{detail}\n")
+          exit(2)
+          abort("cetas-run: unreachable after exit")
+        }
+        error => {
+          @stdio.stderr.write(
+            @lib.turn_failed_line(
+              "startup: agent composition failed: " + error.to_string(),
+            ) +
+            "\n",
+          )
+          @stdio.stderr.write(
+            "cetas-run: agent composition failed: \{error.to_string()}\n",
+          )
+          exit(2)
+          abort("cetas-run: unreachable after exit")
+        }
       }
-      error => {
-        @stdio.stderr.write(
-          @lib.turn_failed_line(
-            "startup: agent composition failed: " + error.to_string(),
-          ) +
-          "\n",
-        )
-        @stdio.stderr.write(
-          "cetas-run: agent composition failed: \{error.to_string()}\n",
-        )
-        exit(2)
-        abort("cetas-run: unreachable after exit")
+      let failed = @lib.run_one_turn(
+        agent=host.agent,
+        session_id=host.session_id,
+        task~,
+        jsonl=observer,
+        streamer~,
+        verbose~,
+        write_out~,
+        write_err~,
+      )
+      host.agent.shutdown()
+      // Exit codes: 0 the turn completed, 1 the turn failed; startup/usage
+      // failures above keep exit 2.
+      if failed {
+        exit(1)
       }
-    }
-    let failed = @lib.run_one_turn(
-      agent=host.agent,
-      session_id=host.session_id,
-      task~,
-      jsonl=observer,
-      streamer~,
-      verbose~,
-      write_out~,
-      write_err~,
-    )
-    host.agent.shutdown()
-    // Exit codes: 0 the turn completed, 1 the turn failed; startup/usage
-    // failures above keep exit 2.
-    if failed {
-      exit(1)
-    }
+    })
   })
 }

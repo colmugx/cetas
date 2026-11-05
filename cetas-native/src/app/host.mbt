@@ -142,18 +142,21 @@ pub async fn NativeHost::compose(
     ctx={ fs, cwd, home, },
     host_group=mcp_group,
   )
-  let event_bus = @devkit.EventBus()
   let session = @cetas_core.build_cetas_session(
     platform~,
     cwd~,
     approval~,
     ui~,
-    event_bus=Some(event_bus),
     tool_plane_group=mcp_group,
-    bus_exts=Some(fn(bus) {
+    // Status consumers join over the session's event system once the
+    // permission gate has subscribed (its status segment is published at
+    // composition). The bar listens on that system directly.
+    events_exts=Some(fn(events) {
       [
-        @statusbar.StatusBar(bus=Some(bus)) as &@posoco.Extension,
-        @stats.Stats(bus=Some(bus)) as &@posoco.Extension,
+        @statusbar.StatusBar(events=Some(events)) as &@posoco.Extension,
+        // Publishes its typed status ops on the session event system
+        // registered above.
+        @stats.Stats() as &@posoco.Extension,
       ]
     }),
     feature_exts~,

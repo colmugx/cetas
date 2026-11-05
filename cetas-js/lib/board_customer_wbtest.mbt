@@ -88,11 +88,11 @@ async test "Cetas JS factory drives real Agent plan graph scope preparation and 
     slots=[subagent_test_slot("test/board", model)],
     default_slot_id="test/board",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, _group) {
     let ui = WorkflowCustomerUi::{ prompts: [], }
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       policy=@board.BoardWorkflowPolicy(
         enabled=true,
@@ -106,6 +106,7 @@ async test "Cetas JS factory drives real Agent plan graph scope preparation and 
     let agent = @posoco.Agent(
       exts=[router, ui, board],
       config=@cetas_core.default_agent_config(),
+      events=@posoco.EventSystem(),
     )
     let started = customer_checked(board.start(title="Validate configuration"))
     let root = started.snapshot.tasks[0].id.value
@@ -170,7 +171,7 @@ async test "Cetas Board is absent by default and readonly cannot acquire workflo
     slots=[subagent_test_slot("test/board", model)],
     default_slot_id="test/board",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, group) {
     let ctx : @cetas_core.HostContext = {
       fs: @workspace.JsWorkspaceFs(),
       cwd: directory,
@@ -183,13 +184,14 @@ async test "Cetas Board is absent by default and readonly cannot acquire workflo
         approval=None,
         ctx~,
         group~,
+        lifetime~,
         mcp_bridge=@mcp.MCPToolBridge::MCPToolBridge(),
       )
       is None,
     )
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents=customer_factory(router, directory, () => @permission.ReadOnly),
       authorize=() => false,
       policy=@board.BoardWorkflowPolicy(enabled=true),
@@ -199,6 +201,7 @@ async test "Cetas Board is absent by default and readonly cannot acquire workflo
     let agent = @posoco.Agent(
       exts=[router, ui, board],
       config=@cetas_core.default_agent_config(),
+      events=@posoco.EventSystem(),
     )
     assert_true(
       board.start(title="Denied")

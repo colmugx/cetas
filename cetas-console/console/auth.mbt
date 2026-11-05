@@ -388,8 +388,8 @@ pub async fn ConsoleRuntime::login(
 ///
 /// Deleting an absent record is a successful logout, not an error: the outcome
 /// only tells the host whether it should stop showing the provider as signed
-/// in. The owning routers are left alone; a catalog built from a credential
-/// that no longer exists stops resolving on the next composition, and an
+/// in. The owning routers are left alone; a catalog built from a deleted
+/// credential stops resolving on the next composition, and an
 /// in-flight turn keeps the credential it already resolved.
 pub async fn ConsoleRuntime::logout(
   self : ConsoleRuntime,

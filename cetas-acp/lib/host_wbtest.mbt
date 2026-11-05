@@ -320,6 +320,7 @@ fn tk_spawn_session(
           policy,
         ],
         config=@tk.tk_config(),
+        events=@posoco.EventSystem(),
       )
       Ok({
         bridge,
@@ -429,7 +430,8 @@ fn tk_host_real_fs(
 }
 
 ///|
-/// Plan wiring in miniature: plan mode and the permission policy share one bus (tools bypass asks).
+/// Plan wiring in miniature: plan mode and the permission policy share one
+/// session event system (tools bypass asks).
 fn tk_spawn_session_plan(
   model : &@posoco.ModelPort,
   process_cwd : String,
@@ -446,16 +448,24 @@ fn tk_spawn_session_plan(
     let store = @fs_session.JsonlSessionStore(tk_unique_root("plan"))
     try {
       let bridge = @ext_acp.AcpBridge()
-      let event_bus = @devkit.EventBus()
+      // One session event system: the gate subscribes at construction, plan
+      // mode reports its enter/exit exemptions on the same channel.
+      let events = @posoco.EventSystem()
       let policy = @permission.PermissionPolicy(
         @permission.WorkspaceWrite,
         approval=Some(bridge as &@permission.ApprovalSource),
-        bus=Some(event_bus),
+        events=@cetas_core.mint_events_publisher(
+          events,
+          owner="posoco_ext_permission",
+        ),
       )
       let plan_mode = @plan.PlanMode(
         config={ ..@plan.PlanModeConfig::default(), allow_model_entry: true, },
         review=Some(AcpPlanReview::{ bridge, } as &@plan.PlanReviewSource),
-        bus=Some(event_bus),
+        events=@cetas_core.mint_events_publisher(
+          events,
+          owner="posoco_ext_plan",
+        ),
       )
       let agent = @posoco.Agent(
         exts=[
@@ -469,6 +479,7 @@ fn tk_spawn_session_plan(
           plan_mode,
         ],
         config=@tk.tk_config(),
+        events~,
       )
       Ok({
         bridge,
@@ -1092,7 +1103,8 @@ async test "plan review asks with named options and approve exits plan mode" {
     meta: Omitted,
   })
   assert_true(result.stop_reason is EndTurn)
-  // Exactly one ask: the plan review — enter/exit tools are bus-exempt from the gate.
+  // Exactly one ask: the plan review — enter/exit tools are exempt from the
+  // gate.
   assert_eq(client.asked.length(), 1)
   let ask = client.asked[0]
   assert_eq(ask.session_id, session_id)
@@ -3803,15 +3815,22 @@ fn tk_spawn_session_plan_noreview(
     let store = @fs_session.JsonlSessionStore(tk_unique_root("plan-noreview"))
     try {
       let bridge = @ext_acp.AcpBridge()
-      let event_bus = @devkit.EventBus()
+      // Same one-system wiring as `tk_spawn_session_plan`.
+      let events = @posoco.EventSystem()
       let policy = @permission.PermissionPolicy(
         @permission.WorkspaceWrite,
         approval=Some(bridge as &@permission.ApprovalSource),
-        bus=Some(event_bus),
+        events=@cetas_core.mint_events_publisher(
+          events,
+          owner="posoco_ext_permission",
+        ),
       )
       let plan_mode = @plan.PlanMode(
         config={ ..@plan.PlanModeConfig::default(), allow_model_entry: true, },
-        bus=Some(event_bus),
+        events=@cetas_core.mint_events_publisher(
+          events,
+          owner="posoco_ext_plan",
+        ),
       )
       let agent = @posoco.Agent(
         exts=[
@@ -3825,6 +3844,7 @@ fn tk_spawn_session_plan_noreview(
           plan_mode,
         ],
         config=@tk.tk_config(),
+        events~,
       )
       Ok({
         bridge,

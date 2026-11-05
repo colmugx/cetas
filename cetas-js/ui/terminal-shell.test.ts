@@ -984,6 +984,169 @@ describe("submit-path pending spinner", () => {
   });
 });
 
+describe("queued input delivery (serial)", () => {
+  const transcriptText = (shell: TerminalShell): string =>
+    (shell as any).transcript.render(200).join("\n");
+  const echo = { render: () => [], invalidate: () => {} } as never;
+
+  /** Stub application whose submission is queued under a host-local id. */
+  const queueApp = (id: string) => ({
+    submitUserInput: async () => ({ kind: "queued", id }),
+  });
+
+  async function queueOne(
+    shell: TerminalShell,
+    id: string,
+    prompt = "follow up",
+  ): Promise<void> {
+    await (shell as any).submitApplicationInput(
+      queueApp(id),
+      prompt,
+      prompt,
+      echo,
+    );
+  }
+
+  test("a queued bubble is promoted by the TurnStarted of its own turn", async () => {
+    const { shell } = makeShell();
+    await queueOne(shell, "input_1");
+    expect(transcriptText(shell)).toContain("· queued");
+
+    // Serial delivery: the application starts the queued input as a fresh
+    // turn, so that turn's TurnStarted is the only promotion anchor.
+    (shell as any).handleObserverEvent('{"type":"turn_started"}');
+
+    const text = transcriptText(shell);
+    expect(text).not.toContain("· queued");
+    expect(text).not.toContain("未送达");
+    expect(text).toContain("> follow up");
+    expect((shell as any).queuedPrompts).toHaveLength(0);
+    expect((shell as any).queuedPromptById.size).toBe(0);
+  });
+
+  test("queued bubbles are promoted oldest-first, one per TurnStarted", async () => {
+    const { shell } = makeShell();
+    await queueOne(shell, "input_1", "first queued");
+    await queueOne(shell, "input_2", "second queued");
+    expect(transcriptText(shell).match(/· queued/g) ?? []).toHaveLength(2);
+
+    (shell as any).handleObserverEvent('{"type":"turn_started"}');
+    let text = transcriptText(shell);
+    expect(text.match(/· queued/g) ?? []).toHaveLength(1);
+    expect(text).toContain("> first queued");
+    expect(text).toContain("> second queued · queued");
+
+    (shell as any).handleObserverEvent('{"type":"turn_started"}');
+    text = transcriptText(shell);
+    expect(text).not.toContain("· queued");
+    expect(text).toContain("> first queued");
+    expect(text).toContain("> second queued");
+    expect((shell as any).queuedPrompts).toHaveLength(0);
+    expect((shell as any).queuedPromptById.size).toBe(0);
+  });
+
+  test("an applied receipt naming an Agent command id never settles a host-local bubble", async () => {
+    const { shell } = makeShell();
+    await queueOne(shell, "input_1");
+    // cetas never enqueues a follow-up, so no queued bubble is keyed by an
+    // Agent command id: an applied turn/step receipt must leave it pending.
+    for (const delivery of ["turn", "step"] as const) {
+      (shell as any).handleObserverEvent(
+        JSON.stringify({
+          type: "message_applied",
+          command_id: "follow_up_1",
+          delivery,
+        }),
+      );
+    }
+    expect(transcriptText(shell)).toContain("· queued");
+    expect((shell as any).queuedPrompts).toHaveLength(1);
+
+    // Its own turn is still the promotion anchor.
+    (shell as any).handleObserverEvent('{"type":"turn_started"}');
+    expect(transcriptText(shell)).not.toContain("· queued");
+    expect((shell as any).queuedPrompts).toHaveLength(0);
+  });
+
+  test("message_undelivered warns and is never promoted by a later turn_started", async () => {
+    const { shell } = makeShell();
+    await queueOne(shell, "input_4");
+    (shell as any).handleObserverEvent(
+      JSON.stringify({
+        type: "message_undelivered",
+        command_id: "input_4",
+        delivery: "turn",
+        reason: "delivery attempts exhausted",
+      }),
+    );
+
+    const warned = transcriptText(shell);
+    expect(warned).toContain("未送达：delivery attempts exhausted");
+    expect(warned).not.toContain("· queued");
+    // The bubble left both host indexes, so nothing can promote it later.
+    expect((shell as any).queuedPrompts).toHaveLength(0);
+    expect((shell as any).queuedPromptById.size).toBe(0);
+
+    (shell as any).handleObserverEvent('{"type":"turn_started"}');
+    const afterPromote = transcriptText(shell);
+    expect(afterPromote).toContain("未送达：delivery attempts exhausted");
+  });
+
+  test("a turn that ends leaves the queued bubbles pending: the host retries them", async () => {
+    const { shell } = makeShell();
+    await queueOne(shell, "input_5", "retry me");
+    expect(transcriptText(shell)).toContain("· queued");
+
+    // The parent turn settles (rejects). The application owns the pending
+    // queue now and re-delivers those inputs one at a time, so a turn ending
+    // is NOT an undelivered verdict and must not settle the bubble terminally.
+    await (shell as any).submitApplicationInput(
+      {
+        submitUserInput: async () => ({
+          kind: "started",
+          completion: Promise.reject(new Error("turn failed")),
+        }),
+      },
+      "parent",
+      "parent",
+      echo,
+    );
+
+    const text = transcriptText(shell);
+    expect(text).toContain("· queued");
+    expect(text).not.toContain("未送达");
+    expect((shell as any).queuedPrompts).toHaveLength(1);
+
+    // The re-delivered input's own turn promotes it through the normal anchor.
+    (shell as any).handleObserverEvent('{"type":"turn_started"}');
+    const promoted = transcriptText(shell);
+    expect(promoted).not.toContain("· queued");
+    expect(promoted).toContain("> retry me");
+    expect((shell as any).queuedPrompts).toHaveLength(0);
+  });
+
+  test("a terminal verdict keyed by the host-local id settles the bubble", async () => {
+    const { shell } = makeShell();
+    // Serial delivery never produces an Agent receipt, so only the
+    // host-local queue id can settle a terminal verdict.
+    await queueOne(shell, "input_9");
+    (shell as any).handleObserverEvent(
+      JSON.stringify({
+        type: "message_undelivered",
+        command_id: "input_9",
+        delivery: "turn",
+        reason: "delivery attempts exhausted",
+      }),
+    );
+
+    const text = transcriptText(shell);
+    expect(text).toContain("未送达：delivery attempts exhausted");
+    expect(text).not.toContain("· queued");
+    expect((shell as any).queuedPrompts).toHaveLength(0);
+    expect((shell as any).queuedPromptById.size).toBe(0);
+  });
+});
+
 describe("command status restore on finish", () => {
   const statusText = (shell: TerminalShell): string =>
     (shell as unknown as { statusLoader: { render(width: number): string[] } }).statusLoader

@@ -9,9 +9,11 @@
 /// composes its session through `build_cetas_session` — or calls this helper
 /// directly — picks it up without touching provider knowledge.
 ///
-/// The two inputs core cannot invent are host-scoped: the session event bus and
-/// the task group that outlives connections. Both are parameters, so a tool
-/// plane never outlives the host that owns it.
+/// The one input core cannot invent is host-scoped: the task group that
+/// outlives connections. It is a parameter, so a tool plane never outlives the
+/// host that owns it. Protocol events are not a parameter: a provider tool
+/// plane declares `Capability::Events` and receives the session channel at
+/// composition.
 ///
 /// Returns only the companions whose provider is actually configured: an
 /// unconfigured provider contributes nothing (no empty group, no failed
@@ -22,7 +24,6 @@ pub async fn provider_tool_extensions(
   fs : &@workspace.WorkspaceFs,
   home~ : String,
   label~ : String = "cetas-acp",
-  bus~ : @devkit.EventBus,
   group~ : @async.TaskGroup[Unit],
   initial_slot_id~ : String,
 ) -> Array[&@posoco.Extension] noraise {
@@ -48,7 +49,6 @@ pub async fn provider_tool_extensions(
           exts.push(
             @zai_coding_plan.ZaiCodingPlanTools(
               config~,
-              bus~,
               group~,
               initial_slot_id~,
             )

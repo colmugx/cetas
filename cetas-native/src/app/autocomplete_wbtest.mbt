@@ -14,6 +14,7 @@ async test "native command autocomplete and dispatch use the composed Agent cata
   let agent = @posoco.Agent(
     exts=[io as &@posoco.Extension, forme as &@posoco.Extension],
     config=@posoco.agent_config(max_tool_rounds=Some(1)),
+    events=@posoco.EventSystem(),
   )
   let host = NativeHost::from_parts(
     agent,

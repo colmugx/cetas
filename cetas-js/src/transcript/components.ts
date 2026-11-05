@@ -64,12 +64,19 @@ export class UserMessage extends Container {
 }
 
 /**
- * User prompt queued as a follow-up on the running turn. Rendered dim with a
- * "queued" marker; `promote()` restyles it in place once the Agent drains it
- * at a turn boundary (each drained turn starts with a TurnStarted event).
+ * User prompt waiting in the host-owned input queue. Rendered dim with a
+ * "queued" marker; `promote()` restyles it in place when its own turn starts
+ * (the serial pump delivers the entry as a fresh turn, announced by a
+ * TurnStarted event).
+ *
+ * `markUndelivered()` is the opposite verdict: the retry budget was exhausted
+ * before the message reached the transcript, so the row becomes a persistent
+ * warning that later promotes never overwrite — a queued bubble must never
+ * masquerade as a sent message.
  */
 export class QueuedUserMessage extends Container {
   private promoted = false;
+  private undeliveredReason?: string;
 
   constructor(private readonly prompt: string) {
     super();
@@ -80,13 +87,45 @@ export class QueuedUserMessage extends Container {
   }
 
   promote(): void {
-    if (this.promoted) return;
+    // An undelivered verdict is final: a stale TurnStarted promotion must not
+    // turn a "not delivered" warning back into a sent message.
+    if (this.promoted || this.undeliveredReason !== undefined) return;
     this.promoted = true;
     while (this.children.length > 1) {
       this.children.pop();
     }
     const box = new Box(1, 0, (s) => theme.userMessageBg(s));
     box.addChild(new Text(theme.user("> " + this.prompt), 0, 0));
+    this.addChild(box);
+    this.invalidate();
+  }
+
+  /**
+   * An explicit delivery receipt says the queued message is in the
+   * transcript. Idempotent and exactly equivalent to `promote()`: both the
+   * TurnStarted anchor and a receipt mean "this is a real user message now".
+   */
+  markApplied(): void {
+    this.promote();
+  }
+
+  /**
+   * The Agent never delivered the queued message. Renders a warning row so the
+   * user knows to resend it; the verdict is final — a later `promote()` or
+   * `markApplied()` (a leftover TurnStarted promotion race) is ignored.
+   */
+  markUndelivered(reason: string): void {
+    if (this.undeliveredReason !== undefined) return;
+    // An already-applied bubble is in the transcript: the delivery fact wins
+    // over a late "never delivered" verdict on the same command.
+    if (this.promoted) return;
+    this.undeliveredReason = reason;
+    while (this.children.length > 1) {
+      this.children.pop();
+    }
+    const box = new Box(1, 0, (s) => theme.userMessageBg(s));
+    box.addChild(new Text(theme.muted(`> ${this.prompt}`), 0, 0));
+    box.addChild(new Text(theme.warning(`⚠ 未送达：${reason}`), 0, 0));
     this.addChild(box);
     this.invalidate();
   }

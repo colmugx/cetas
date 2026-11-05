@@ -4,12 +4,11 @@ package "colmugx/cetas-console/console"
 import {
   "colmugx/posoco-ext-workspace",
   "colmugx/posoco/types",
-  "moonbitlang/async",
   "moonbitlang/core/json",
 }
 
 // Values
-pub async fn compose_console_runtime(ConsoleConfig, String, @async.TaskGroup[Unit]) -> ConsoleRuntime
+pub async fn compose_console_runtime(ConsoleConfig, String, @moonbitlang/async.TaskGroup[Unit], lifetime_group? : @moonbitlang/core/async.TaskGroup?) -> ConsoleRuntime
 
 pub fn console_config(&@posoco-ext-workspace.WorkspaceFs, String, String, String) -> ConsoleConfig
 
@@ -30,7 +29,8 @@ pub struct ConsoleRuntime {
   home : String
   label : String
   protocol : String
-  group : @async.TaskGroup[Unit]
+  group : @moonbitlang/async.TaskGroup[Unit]
+  lifetime_group : @moonbitlang/core/async.TaskGroup?
   hub : EventHub
   ui_registry : UiRegistry
   workspaces : Map[String, WorkspaceRuntime]

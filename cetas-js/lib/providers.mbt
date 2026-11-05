@@ -319,7 +319,7 @@ async fn cached_provider_catalogs(
 
 ///|
 /// One observer `Custom` warning on the shared bridge channel; used when a
-/// persisted selection cannot be applied (slot drifted, effort no longer
+/// persisted selection cannot be applied (slot drifted, effort not
 /// advertised) — restore problems degrade to defaults instead of blocking
 /// startup.
 fn active_model_warning(
@@ -343,9 +343,9 @@ fn active_model_warning(
 /// selected as a pending default — requests to it fail visibly until a
 /// login/refresh provides it — instead of silently switching models.
 /// Malformed settings still fail composition loudly (the same file is already
-/// validated for `providers`). The shared
-/// event bus rides along so the router can publish model/token/cache status
-/// ops alongside the other cetas extensions.
+/// validated for `providers`). The host-minted event capability rides along so
+/// the router can publish model/token/cache status ops alongside the other
+/// cetas extensions.
 /// `extra_quota_sources` holds host-injected quota sources consulted before
 /// the devkit registry; codex is push-shaped, so registering it there would
 /// double-publish segments against CodexQuotaStatus.
@@ -354,7 +354,7 @@ async fn build_provider_router(
   store : @credentials.FileProviderCredentialStore,
   auth : JsAuthInteraction,
   observer : &@posoco.Observer,
-  bus~ : @devkit.EventBus? = None,
+  events~ : @posoco.Events? = None,
   extra_quota_sources~ : Map[String, &@devkit.QuotaSource] = Map::from_array([]),
   background~ : @async.TaskGroup[Unit]? = None,
 ) -> @llm.RouterModelPort raise @posoco.CompositionError {
@@ -429,7 +429,7 @@ async fn build_provider_router(
       @cetas_core.Pending(slot~) => slot
     },
     allow_missing_decision_default=decision_restore is @cetas_core.Pending(_),
-    bus~,
+    events~,
     provider_credential_store=Some(store as &@oauth.ProviderCredentialStore),
     auth_interaction=Some(auth as &@oauth.AuthInteraction),
     auth_prompt=Some(auth as &@oauth.AuthPromptInteraction),

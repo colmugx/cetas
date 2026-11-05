@@ -93,6 +93,32 @@ export type CetasEvent =
     }
   | { type: "message_end"; message: BridgeMessage }
   | {
+      /**
+       * A queued user message was committed to the transcript (posoco 0.24
+       * `MessageApplied`). `command_id` is the control-handle acceptance
+       * receipt — the same id `enqueueFollowUp` returned inside its
+       * `Accepted(...)` outcome, which is what lets the host settle its own
+       * optimistic bubble. `delivery` names the boundary that applied it:
+       * `step` folded it in between model steps of the running turn (mid-turn
+       * steering), `turn` held it for the turn boundary. The message body
+       * never rides this event; it arrives through session content.
+       */
+      type: "message_applied";
+      command_id: string;
+      delivery: "step" | "turn";
+    }
+  | {
+      /**
+       * A queued user message never reached the transcript: the run ended
+       * first, so the host must tell the user to resend it (posoco 0.24
+       * `MessageUndelivered`).
+       */
+      type: "message_undelivered";
+      command_id: string;
+      delivery: "step" | "turn";
+      reason: string;
+    }
+  | {
       type: "tool_call_started";
       tool_call_id: string;
       tool_name: string;
@@ -349,6 +375,12 @@ function requireStreamKind(value: unknown): "text" | "reasoning" {
   throw new Error("stream_chunk.kind must be text or reasoning");
 }
 
+/** Queued-message delivery boundary; anything else is a wire violation. */
+function requireDeliveryKind(value: unknown, path: string): "step" | "turn" {
+  if (value === "step" || value === "turn") return value;
+  throw new Error(`${path} must be step or turn`);
+}
+
 /**
  * Parse one `question_event.data`. `question_id` is required (it is the
  * answer key); every other field is display metadata that an older or newer
@@ -403,6 +435,25 @@ export function parseCetasEvent(raw: unknown): CetasEvent | null {
       };
     case "message_end":
       return { type: "message_end", message: parseBridgeMessage(ev.message) };
+    case "message_applied":
+      return {
+        type: "message_applied",
+        command_id: requireString(ev.command_id, "message_applied.command_id"),
+        delivery: requireDeliveryKind(ev.delivery, "message_applied.delivery"),
+      };
+    case "message_undelivered":
+      return {
+        type: "message_undelivered",
+        command_id: requireString(
+          ev.command_id,
+          "message_undelivered.command_id",
+        ),
+        delivery: requireDeliveryKind(
+          ev.delivery,
+          "message_undelivered.delivery",
+        ),
+        reason: requireString(ev.reason, "message_undelivered.reason"),
+      };
     case "tool_call_started":
       return {
         type: "tool_call_started",

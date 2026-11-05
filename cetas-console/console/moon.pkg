@@ -3,6 +3,7 @@ import {
   "colmugx/posoco",
   "colmugx/posoco/port",
   "posoco/devkit",
+  "posoco/kit-events" @kit_events,
   // recipe-imports:begin
   "colmugx/cetas-ext-forme/lib" @forme,
   "colmugx/posoco-ext-read" @read,
@@ -32,6 +33,7 @@ import {
   "posoco/ext-oauth" @oauth,
   "moonbitlang/core/debug",
   "moonbitlang/core/json",
+  "moonbitlang/core/async" @core_async,
   "moonbitlang/async",
   "moonbitlang/async/aqueue",
   "moonbitlang/async/fs",
@@ -39,3 +41,11 @@ import {
 }
 
 supported_targets = "native"
+
+// The quota guard's recovery runtime (posoco/fuwaroid) runs on the
+// experimental core-async stack; the host hands `compose_console_runtime` a
+// `moonbitlang/core/async` task group for the session lifetime.
+
+options(
+  "allow-experimental-packages": [ "moonbitlang/core/async" ],
+)

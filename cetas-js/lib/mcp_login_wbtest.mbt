@@ -167,86 +167,98 @@ async test "js mcp login flow and startup token injection" {
     Err(message) => fail("discover failed: " + message)
   }
   // Activation eats the 401; the challenge is captured for the login flow.
-  @async.with_task_group(group => {
-    bridge.attach(group)
-    defer bridge.close()
-    inspect(bridge.activate().length(), content="1")
-    inspect(bridge.auth_challenge("oa") is Some(_), content="true")
-    // The full login chain — the same function the intercepted /mcp login runs.
-    let store = @oauth.InMemoryProviderCredentialStore::InMemoryProviderCredentialStore()
-    let transport = @oauth.DefaultOAuthHttpTransport::DefaultOAuthHttpTransport()
-    let interaction = @oauth.NoopAuthInteraction::NoopAuthInteraction()
-    let now = (@async.now() / 1000L).to_int()
-    let login = mcp_login_flow(bridge, "oa", store, transport, interaction, now)
-    match login {
-      Ok(feedback) =>
-        inspect(feedback, content="logged into 'oa'; 1 tool available")
-      Err(reason) => fail("login flow failed: " + reason)
-    }
-    // The stored record carries the two keys a later refresh needs.
-    let stored = store.read("mcp.oa") catch { _ => None }
-    let stored_cred = match stored {
-      Some(@oauth.ProviderCredential::OAuth(credential)) => credential
-      _ => fail("expected a stored OAuth credential for mcp.oa")
-    }
-    inspect(
-      stored_cred.metadata_value("token_endpoint") is Some(_),
-      content="true",
-    )
-    inspect(stored_cred.metadata_value("client_id") is Some(_), content="true")
-    // The reconnected server serves its tool through the fresh token.
-    inspect(@posoco.ToolProvider::list_tools(bridge).length(), content="1")
-    let call : @posoco.ToolCall = {
-      call_id: @posoco.CallId::unchecked("call_login"),
-      name: @posoco.ToolName::unchecked("oa__oauth_tool"),
-      arguments: Json::object(Map::from_array([])),
-    }
-    let outcome = @posoco.ToolProvider::execute(bridge, mcp_login_ctx(call)) catch {
-      error => fail("execute after login failed: " + error.to_string())
-    }
-    match outcome {
-      Success(content~, ..) => inspect(content, content="oauth:ok")
-      _ => fail("expected success outcome after login")
-    }
-    // The startup pass's refresh branch: expire the stored record, re-inject.
-    // The fixture's refresh grant revokes the access token issued with the
-    // device flow, so the call below can only succeed with the refreshed token
-    // on the wire.
-    let expired = { ..stored_cred, expires_at: now - 10, }
-    store.write("mcp.oa", @oauth.ProviderCredential::OAuth(expired)) catch {
-      _ => fail("expiring the stored credential failed")
-    }
-    mcp_inject_stored_tokens(bridge, store, transport, now)
-    let reconnected : Result[Unit, String] = bridge.reconnect_server("oa") catch {
-      _ => Err("reconnect aborted")
-    }
-    match reconnected {
-      Ok(_) => ()
-      Err(message) => fail("reconnect after injection failed: " + message)
-    }
-    let call2 : @posoco.ToolCall = {
-      call_id: @posoco.CallId::unchecked("call_refresh_inject"),
-      name: @posoco.ToolName::unchecked("oa__oauth_tool"),
-      arguments: Json::object(Map::from_array([])),
-    }
-    let outcome2 = @posoco.ToolProvider::execute(bridge, mcp_login_ctx(call2)) catch {
-      error =>
-        fail("execute after refresh injection failed: " + error.to_string())
-    }
-    match outcome2 {
-      Success(content~, ..) => inspect(content, content="oauth:ok")
-      _ => fail("expected success outcome after refresh injection")
-    }
-    // The rotated credential was persisted with the endpoints still on record.
-    let rotated_record = store.read("mcp.oa") catch { _ => None }
-    let rotated = match rotated_record {
-      Some(@oauth.ProviderCredential::OAuth(credential)) => credential
-      _ => fail("expected the rotated credential to be persisted")
-    }
-    inspect(rotated.access_token != expired.access_token, content="true")
-    inspect(rotated.expires_at > now, content="true")
-    inspect(rotated.metadata_value("token_endpoint") is Some(_), content="true")
-    inspect(rotated.metadata_value("client_id") is Some(_), content="true")
+  // Both host groups: the core-async lifetime one every connection actor
+  // (fuwaroid 0.4) spawns on, and the I/O one its transport runs on.
+  @core_async.with_task_group(async fn(lifetime) {
+    @async.with_task_group(async fn(group) {
+      bridge.attach(group, lifetime~)
+      defer bridge.close()
+      inspect(bridge.activate().length(), content="1")
+      inspect(bridge.auth_challenge("oa") is Some(_), content="true")
+      // The full login chain — the same function the intercepted /mcp login runs.
+      let store = @oauth.InMemoryProviderCredentialStore::InMemoryProviderCredentialStore()
+      let transport = @oauth.DefaultOAuthHttpTransport::DefaultOAuthHttpTransport()
+      let interaction = @oauth.NoopAuthInteraction::NoopAuthInteraction()
+      let now = (@async.now() / 1000L).to_int()
+      let login = mcp_login_flow(
+        bridge, "oa", store, transport, interaction, now,
+      )
+      match login {
+        Ok(feedback) =>
+          inspect(feedback, content="logged into 'oa'; 1 tool available")
+        Err(reason) => fail("login flow failed: " + reason)
+      }
+      // The stored record carries the two keys a later refresh needs.
+      let stored = store.read("mcp.oa") catch { _ => None }
+      let stored_cred = match stored {
+        Some(@oauth.ProviderCredential::OAuth(credential)) => credential
+        _ => fail("expected a stored OAuth credential for mcp.oa")
+      }
+      inspect(
+        stored_cred.metadata_value("token_endpoint") is Some(_),
+        content="true",
+      )
+      inspect(
+        stored_cred.metadata_value("client_id") is Some(_),
+        content="true",
+      )
+      // The reconnected server serves its tool through the fresh token.
+      inspect(@posoco.ToolProvider::list_tools(bridge).length(), content="1")
+      let call : @posoco.ToolCall = {
+        call_id: @posoco.CallId::unchecked("call_login"),
+        name: @posoco.ToolName::unchecked("oa__oauth_tool"),
+        arguments: Json::object(Map::from_array([])),
+      }
+      let outcome = @posoco.ToolProvider::execute(bridge, mcp_login_ctx(call)) catch {
+        error => fail("execute after login failed: " + error.to_string())
+      }
+      match outcome {
+        Success(content~, ..) => inspect(content, content="oauth:ok")
+        _ => fail("expected success outcome after login")
+      }
+      // The startup pass's refresh branch: expire the stored record, re-inject.
+      // The fixture's refresh grant revokes the access token issued with the
+      // device flow, so the call below can only succeed with the refreshed token
+      // on the wire.
+      let expired = { ..stored_cred, expires_at: now - 10, }
+      store.write("mcp.oa", @oauth.ProviderCredential::OAuth(expired)) catch {
+        _ => fail("expiring the stored credential failed")
+      }
+      mcp_inject_stored_tokens(bridge, store, transport, now)
+      let reconnected : Result[Unit, String] = bridge.reconnect_server("oa") catch {
+        _ => Err("reconnect aborted")
+      }
+      match reconnected {
+        Ok(_) => ()
+        Err(message) => fail("reconnect after injection failed: " + message)
+      }
+      let call2 : @posoco.ToolCall = {
+        call_id: @posoco.CallId::unchecked("call_refresh_inject"),
+        name: @posoco.ToolName::unchecked("oa__oauth_tool"),
+        arguments: Json::object(Map::from_array([])),
+      }
+      let outcome2 = @posoco.ToolProvider::execute(bridge, mcp_login_ctx(call2)) catch {
+        error =>
+          fail("execute after refresh injection failed: " + error.to_string())
+      }
+      match outcome2 {
+        Success(content~, ..) => inspect(content, content="oauth:ok")
+        _ => fail("expected success outcome after refresh injection")
+      }
+      // The rotated credential was persisted with the endpoints still on record.
+      let rotated_record = store.read("mcp.oa") catch { _ => None }
+      let rotated = match rotated_record {
+        Some(@oauth.ProviderCredential::OAuth(credential)) => credential
+        _ => fail("expected the rotated credential to be persisted")
+      }
+      inspect(rotated.access_token != expired.access_token, content="true")
+      inspect(rotated.expires_at > now, content="true")
+      inspect(
+        rotated.metadata_value("token_endpoint") is Some(_),
+        content="true",
+      )
+      inspect(rotated.metadata_value("client_id") is Some(_), content="true")
+    })
   })
   js_kill_pid(pid)
 }

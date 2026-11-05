@@ -42,13 +42,13 @@ async test "workflow menu cancellation is read-only and exposes no second Board 
     slots=[subagent_test_slot("test/workflow-menu", model)],
     default_slot_id="test/workflow-menu",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, _group) {
     let agents = customer_factory(router, directory, () => {
       @permission.Interactive
     })
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents~,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
@@ -65,6 +65,7 @@ async test "workflow menu cancellation is read-only and exposes no second Board 
     let agent = @posoco.Agent(
       exts=[router, ui, product],
       config=@cetas_core.default_agent_config(),
+      events=@posoco.EventSystem(),
     )
     let result = (product as &@posoco.CommandPort).invoke("board.workflow", {})
     assert_true(result is @posoco.CommandOutcome::Success(_))
@@ -152,11 +153,11 @@ async test "readonly guided start refuses before any input or approval prompt" {
     slots=[subagent_test_slot("test/workflow-readonly", model)],
     default_slot_id="test/workflow-readonly",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, _group) {
     let agents = customer_factory(router, directory, () => @permission.ReadOnly)
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents~,
       authorize=() => false,
       policy=@board.BoardWorkflowPolicy(enabled=true),
@@ -174,6 +175,7 @@ async test "readonly guided start refuses before any input or approval prompt" {
     let agent = @posoco.Agent(
       exts=[router, ui, product],
       config=@cetas_core.default_agent_config(),
+      events=@posoco.EventSystem(),
     )
     assert_true(
       (product as &@posoco.CommandPort).invoke("board.workflow.start", {})
@@ -452,11 +454,11 @@ async test "board_work reads durable ticket provenance and filters by review pat
     slots=[subagent_test_slot("test/board-work", model)],
     default_slot_id="test/board-work",
   )
-  @async.with_task_group(group => {
+  board_scope(async fn(lifetime, _group) {
     let agents = customer_factory(router, directory, () => @permission.ReadOnly)
     let board = @board.BoardWorkflows(
       directory~,
-      group~,
+      group=lifetime,
       agents~,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )

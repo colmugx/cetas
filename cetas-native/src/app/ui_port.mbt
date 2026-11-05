@@ -27,7 +27,7 @@ pub fn PendingUiRequest::request(self : PendingUiRequest) -> @posoco.UiRequest {
 
 ///|
 /// Resolve exactly once. False means the token was already resolved or its
-/// waiter queue is no longer writable.
+/// waiter queue is closed to new waiters.
 pub fn PendingUiRequest::respond(
   self : PendingUiRequest,
   response : @posoco.UiResponse,

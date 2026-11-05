@@ -27,7 +27,7 @@ preferred_target = "native"
 supported_targets = "+native +wasm"
 
 import {
-  "colmugx/posoco@0.24.0",
+  "colmugx/posoco@0.24.1",
   "colmugx/cetas-core@0.2.0",
   "posoco/devkit@0.4.1",
   "posoco/ext-llm@0.2.0",

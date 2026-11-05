@@ -9,6 +9,7 @@ import {
   "posoco/ext-oauth" @oauth,
   "colmugx/posoco-ext-credentials" @credentials,
   "moonbitlang/core/env",
+  "moonbitlang/core/async" @core_async,
   "moonbitlang/async",
   "moonbitlang/async/aqueue",
   "moonbitlang/async/fs",
@@ -43,7 +44,11 @@ import {
 
 supported_targets = "+native +wasm"
 
+// The session-lifetime (recovery) task group is a core-async one: posoco's
+// quota guard and fuwaroid run on that stack.
+
 options(
+  "allow-experimental-packages": [ "moonbitlang/core/async" ],
   "native-stub": [ "terminal_auth_stub.c" ],
   targets: {
     "terminal_auth.native.mbt": [ "native" ],

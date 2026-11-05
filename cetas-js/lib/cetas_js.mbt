@@ -146,6 +146,17 @@ fn usage_to_json(usage : @posoco.Usage?) -> Json {
 }
 
 ///|
+/// Wire tag for a queued-message delivery boundary: `step` means the message
+/// was folded in between model steps of the running turn (mid-turn steering),
+/// `turn` means it was held for the turn boundary and opens the next turn.
+fn message_delivery_tag(delivery : @posoco.MessageDeliveryKind) -> String {
+  match delivery {
+    Step => "step"
+    Turn => "turn"
+  }
+}
+
+///|
 /// Serialise a TurnEvent to a compact JSON string for TS consumption.
 ///
 /// Tag mapping (posoco → cetas-js wire protocol, see src/events.ts):
@@ -186,6 +197,14 @@ fn usage_to_json(usage : @posoco.Usage?) -> Json {
 ///   UserRequestStarted/Finished → skipped (Json null sentinel — presence
 ///                             signals; the TS host renders the modal via the
 ///                             UI bridge and consumes no wire tag)
+///   MessageApplied         → message_applied { command_id, delivery }
+///                            (delivery is "step" | "turn"; the host settles
+///                            its queued submission bubble on this receipt,
+///                            the message body arrives via session content)
+///   MessageUndelivered     → message_undelivered { command_id, delivery,
+///                            reason } (the run ended before the queued
+///                            message reached the transcript; the bubble
+///                            must say so instead of masquerading as sent)
 ///   Custom                 → custom { source, label, data }
 fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
   let json : Json = match event {
@@ -273,8 +292,8 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
     }
     @posoco.TurnEvent::ToolCallRejected(call~, reason~) => {
       // PTC-only mode folds the nested face into Deferred; a model emitting
-      // a remembered name gets the kernel's NotOffered. Keep the teaching
-      // moment the retired before_tool rejection used to provide.
+      // a remembered name gets the kernel's NotOffered. The rejection reason
+      // stays the teaching moment, naming the run_code route to use instead.
       let result = match reason {
         NotOffered =>
           "'\{call.name.to_string()}' is not offered in the current tool view — in PTC-only mode nested tools must be called through run_code (ctx.call(\"\{call.name.to_string()}\", ...))"
@@ -334,6 +353,28 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
       // The wave launch of an already-announced call; skipping avoids a
       // duplicate tool_call_started line.
       Json::null()
+    // 0.24.0 message-delivery facts. The queued submission bubble is host
+    // state, so the receipt is what settles it: applied flips it to a normal
+    // user row, undelivered says the run ended first and the text must be
+    // resent. The message body itself still reaches the transcript through
+    // session content, never through these events.
+    @posoco.TurnEvent::MessageApplied(command_id~, delivery~) =>
+      Json::object(
+        Map::from_array([
+          ("type", Json::string("message_applied")),
+          ("command_id", Json::string(command_id)),
+          ("delivery", Json::string(message_delivery_tag(delivery))),
+        ]),
+      )
+    @posoco.TurnEvent::MessageUndelivered(command_id~, delivery~, reason~) =>
+      Json::object(
+        Map::from_array([
+          ("type", Json::string("message_undelivered")),
+          ("command_id", Json::string(command_id)),
+          ("delivery", Json::string(message_delivery_tag(delivery))),
+          ("reason", Json::string(reason)),
+        ]),
+      )
     @posoco.TurnEvent::SessionRedirect(from~, to~, ..) =>
       Json::object(
         Map::from_array([
@@ -1172,7 +1213,10 @@ pub fn CetasJsRuntime::CetasJsRuntime(config : CetasJsConfig) -> CetasJsRuntime 
 pub struct CetasJsAgent {
   agent : @posoco.Agent
   manager : ModelManagerFace
-  manager_bus : @devkit.EventBus
+  /// The manager-label publisher capability (owner `cetas.model_manager`) on
+  /// the session event system: every successful `/model`-class command
+  /// republishes the manager segments through it.
+  manager_events : @posoco.Events?
   /// Plan-mode extension reference, so the bridge can stamp the session
   /// label onto plan file names when a session starts.
   plan : @plan.PlanMode
@@ -1285,16 +1329,29 @@ async fn warn_legacy_project_cetas(
 /// exactly as for composition failure. Failures after publication are
 /// handled inside `serve` itself — the create promise is already resolved
 /// and an unobserved JS promise must never reject.
+///
+/// Two groups, two stacks: `group` is the moonbitlang/async I/O scope (MCP
+/// connections, provider tool planes, catalog refresh), `lifetime` is the
+/// posoco `moonbitlang/core/async` scope the quota guard's recovery runtime
+/// (fuwaroid) attaches to. Both end when the scope body returns, so both are
+/// held open for the handle's serving lifetime.
 async fn[X] run_agent_group_session(
   ready~ : @aqueue.Queue[Result[X, Error]],
   close~ : @aqueue.Queue[Unit],
-  compose~ : async (@async.TaskGroup[Unit]) -> X,
+  compose~ : async (@async.TaskGroup[Unit], @core_async.TaskGroup) -> X,
   serve~ : async (X) -> Result[Unit, Error],
 ) -> Unit {
   close |> ignore
   @async.with_task_group(async fn(group) {
-    let handle = compose(group)
-    match serve(handle) {
+    // `core_async.with_task_group` bodies cannot raise, so the serve outcome
+    // is carried out of it and re-raised in the async scope below: the
+    // create promise must still see a pre-publication failure.
+    let outcome : Ref[Result[Unit, Error]] = Ref::{ val: Ok(()), }
+    @core_async.with_task_group(async fn(lifetime) {
+      let handle = compose(group, lifetime)
+      outcome.val = serve(handle)
+    })
+    match outcome.val {
       Ok(_) => ()
       Err(error) => raise error
     }
@@ -1583,20 +1640,21 @@ pub fn cetas_js_runtime_create_agent(
         run_agent_group_session(
           ready~,
           close~,
-          compose=async fn(group) {
+          compose=async fn(group, lifetime) {
             let cred_store = credential_store(runtime.config.home)
             let auth_interaction = JsAuthInteraction(
               observer_callback, request_callback, cancel_check,
             )
             let observer = JsCallbackObserver(observer_callback)
-            // Cross-extension event bus, constructed before any reporting or
+            // Session-private posoco event system: every cross-extension
+            // protocol payload (status ops, tool exemptions, model/selection
+            // facts) travels here, and the composed agent takes ownership of
+            // it at the end of the assembly. Created before any reporting or
             // subscribing extension so no report is dropped (fire-and-forget).
-            // Extensions below share this one instance: the llm router and the
-            // stats observer publish model/token/speed facts, the session store and
-            // rate-limit guard publish session/resume ops, the status-bar bridge
-            // subscribes to status ops, the permission policy subscribes to
-            // tool-exemption reports, plan mode publishes them.
-            let event_bus = @devkit.EventBus()
+            let events = @posoco.EventSystem()
+            // Provider model ports and other below-composition publishers
+            // reach this session's system by process identity.
+            @devkit.events_system_register(events)
             // Codex quota reaches the router by host injection, not registry
             // registration (push-shaped publisher; see build_provider_router).
             // One binding holds the tracker so the & borrow stays alive for the call.
@@ -1623,7 +1681,12 @@ pub fn cetas_js_runtime_create_agent(
                   cred_store,
                   auth_interaction,
                   observer,
-                  bus=Some(event_bus),
+                  // The router publishes model/selection status below the
+                  // composition layer, so it takes an owner-bound capability.
+                  events=@cetas_core.mint_events_publisher(
+                    events,
+                    owner="posoco_ext_llm",
+                  ),
                   extra_quota_sources=Map::from_array([
                     ("openai", codex_quota_borrowed),
                   ]),
@@ -1634,7 +1697,6 @@ pub fn cetas_js_runtime_create_agent(
             }
             let store = @fs_session.JsonlSessionStore(
               runtime.config.sessions_dir,
-              bus=Some(event_bus),
               selection_control=Some(model.manager_control()),
               // Record the project directory in every persisted session:
               // `/sessions` → All needs it to label and re-open sessions from
@@ -1677,23 +1739,28 @@ pub fn cetas_js_runtime_create_agent(
             // bridge through BlockingApprovalSource → composed UiPort::request
             // (.wait()). The source's UI cell is filled by the UiBridge at
             // composition, so asks ride the aggregated port (request events).
-            // Subscribed to the bus BEFORE plan mode constructs so the enter/exit
-            // tools are exempt from approval asks — their decision is the plan
-            // approval flow (plan.approve / plan.reject), not a tool-permission
-            // prompt.
+            // Subscribed to the channel BEFORE plan mode constructs so the
+            // enter/exit tools are exempt from approval asks — their decision
+            // is the plan approval flow (plan.approve / plan.reject), not a
+            // tool-permission prompt.
             let mode = parse_permission_mode(runtime.config.permission_mode)
             let approval_source : BlockingApprovalSource? = match mode {
               @permission.ReadOnly => None
               _ => Some(BlockingApprovalSource())
             }
+            let permission_events = @cetas_core.mint_events_publisher(
+              events,
+              owner="posoco_ext_permission",
+            )
             let policy = match approval_source {
               Some(source) =>
                 @permission.PermissionPolicy(
                   mode,
                   approval=Some(source as &@permission.ApprovalSource),
-                  bus=Some(event_bus),
+                  events=permission_events,
                 )
-              None => @permission.PermissionPolicy(mode, bus=Some(event_bus))
+              None =>
+                @permission.PermissionPolicy(mode, events=permission_events)
             }
             // Plan mode: a write gate — only writes outside the writable
             // areas are blocked while planning (workspace .md files and
@@ -1701,8 +1768,8 @@ pub fn cetas_js_runtime_create_agent(
             // every other tool passes to the permission gate above.
             // Toggled via /plan or shift+tab (declared on the command's
             // shortcut), model entry via enter_plan_mode, exit only via
-            // plan.approve. Its enter/exit tools are reported on the bus
-            // and skip the permission gate above.
+            // plan.approve. Its enter/exit tools are reported as typed
+            // exemptions and skip the permission gate above.
             let plan_review = PlanApprovalSource()
             let plan_mode = @plan.PlanMode(
               config=@plan.PlanModeConfig::{
@@ -1710,7 +1777,10 @@ pub fn cetas_js_runtime_create_agent(
                 allow_model_entry: true,
               },
               review=Some(plan_review as &@plan.PlanReviewSource),
-              bus=Some(event_bus),
+              events=@cetas_core.mint_events_publisher(
+                events,
+                owner="posoco_ext_plan",
+              ),
               // Plan-file persistence: planning narrative + named final plans go
               // to .cetas/plan/ through the workspace boundary.
               fs=Some(context_fs as &@workspace.WorkspaceFs),
@@ -1723,16 +1793,23 @@ pub fn cetas_js_runtime_create_agent(
             )
             // Status bar bridge: renders peer-published status segments over the
             // shared JsUiPort (slot Status); the host mounts that key in whichever
-            // region its layout provides. Publishers push facts on the shared
-            // event bus below — the bridge never polls the router.
-            let statusbar = @statusbar.StatusBar(bus=Some(event_bus))
+            // region its layout provides. It listens on the session event
+            // system the publishers below push their typed ops onto — the
+            // bridge never polls the router.
+            let statusbar = @statusbar.StatusBar(events=Some(events))
             // Speed metrics (ttft/tps/avg) derived from core turn events; publishes
-            // through the same status ops the bridge above renders.
-            let stats = @stats.Stats(bus=Some(event_bus))
+            // through the same status ops the bridge above renders, on the session
+            // event system registered above.
+            let stats = @stats.Stats()
             // Codex 5h/weekly usage segments; the process-shared tracker inside the
             // provider extension is fed by chat response headers and the usage
             // endpoint probe, this publisher renders it onto the bar.
-            let codex_quota = @openai.CodexQuotaStatus(bus=Some(event_bus))
+            let codex_quota = @openai.CodexQuotaStatus(
+              events=@cetas_core.mint_events_publisher(
+                events,
+                owner="posoco_ext_openai",
+              ),
+            )
             let exts : Array[&@posoco.Extension] = [
               cetas,
               model.manager_extension(),
@@ -1748,12 +1825,12 @@ pub fn cetas_js_runtime_create_agent(
             // servers and, later, vendor search): each provider extension
             // announces its own group while one of its models is active.
             // Cetas-core owns the provider knowledge; the host supplies only
-            // the session bus, the task group, and the current selection.
+            // the task group and the current selection (their protocol events
+            // ride the composed agent's `Capability::Events`).
             for
               ext in @cetas_core.provider_tool_extensions(
                 context_fs,
                 home=runtime.config.home,
-                bus=event_bus,
                 group~,
                 initial_slot_id=model.manager_control().active_selection().model_id,
               ) {
@@ -1790,7 +1867,6 @@ pub fn cetas_js_runtime_create_agent(
             let ratelimit = @ratelimit.RateLimitGuard(
               probe_interval_ms=transient_probe_ms,
               max_probe_interval_ms=max_probe_ms,
-              bus=Some(event_bus),
               trace=fn(message : String) {
                 observer.on_event(
                   None,
@@ -1846,7 +1922,7 @@ pub fn cetas_js_runtime_create_agent(
                   detail=message,
                 )
             }
-            mcp_bridge.attach(group)
+            mcp_bridge.attach(group, lifetime~)
             group.spawn_bg(() => {
               mcp_inject_stored_tokens(
                 mcp_bridge,
@@ -1875,6 +1951,7 @@ pub fn cetas_js_runtime_create_agent(
                   home: runtime.config.home,
                 },
                 group~,
+                lifetime~,
                 mcp_bridge~,
               )
               is Some(workflows) {
@@ -2061,10 +2138,16 @@ pub fn cetas_js_runtime_create_agent(
             let ptc_runtime = @bunraku.BunrakuRuntime(
               fallback=mcp_runtime as &@runtime.Runtime,
               call_observers=bunraku_call_observers,
-              bus=event_bus,
               home=runtime.config.home,
             )
-            let ptc_mode = CetasPtcMode(bus=Some(event_bus))
+            // The mode owns the "ptc" status segment under bunraku's
+            // namespace, the attribution the bar has always seen.
+            let ptc_mode = CetasPtcMode(
+              events=@cetas_core.mint_events_publisher(
+                events,
+                owner="posoco_ext_bunraku",
+              ),
+            )
             let pi_runtime = @pi.PiRuntime(
               adaptor=pi,
               fallback=ptc_runtime as &@runtime.Runtime,
@@ -2079,6 +2162,11 @@ pub fn cetas_js_runtime_create_agent(
                   @cetas_core.cetas_system_prompt(cwd=runtime.config.cwd),
                 ),
               ),
+              // The agent takes ownership of the session event system:
+              // listeners registered before composition keep receiving in
+              // registration order, and capabilities minted earlier stay
+              // valid.
+              events~,
               runtime=pi_runtime as &@runtime.Runtime,
             )
             pi_runtime.attach_control(agent.control())
@@ -2109,8 +2197,9 @@ pub fn cetas_js_runtime_create_agent(
               js_ui_render_fn_of(render_callback),
             )
             // Recovery state/effects live for exactly the owning task-group
-            // lifetime; the TypeScript host no longer owns a scheduler loop.
-            ratelimit.start(group~, agent~)
+            // lifetime — the core-async one the guard and fuwaroid run on; the
+            // The TypeScript host owns no scheduler loop.
+            ratelimit.start(group=lifetime, agent~)
             // Publish the live router on the runtime so the background catalog
             // refresh can hot-swap provider slots in place (see
             // refresh_model_lists_live); the handle keeps the same instance.
@@ -2126,11 +2215,17 @@ pub fn cetas_js_runtime_create_agent(
                 runtime.live_router = None
               }
             }
-            model.manager_publish_status(event_bus)
+            // Manager segments are attributed to the host, so the capability
+            // carries that owner.
+            let manager_events = @cetas_core.mint_events_publisher(
+              events,
+              owner="cetas.model_manager",
+            )
+            model.manager_publish_status(manager_events)
             {
               agent,
               manager: model,
-              manager_bus: event_bus,
+              manager_events,
               plan: plan_mode,
               home: runtime.config.home,
               observer,
@@ -3332,7 +3427,7 @@ pub fn cetas_js_invoke_command(
         match outcome {
           Success(..) => {
             persist_active_model_selection(handle)
-            handle.manager.manager_publish_status(handle.manager_bus)
+            handle.manager.manager_publish_status(handle.manager_events)
           }
           _ => ()
         }
@@ -3353,7 +3448,7 @@ pub fn cetas_js_invoke_command(
             match outcome {
               Success(..) => {
                 persist_active_model_selection(handle)
-                handle.manager.manager_publish_status(handle.manager_bus)
+                handle.manager.manager_publish_status(handle.manager_events)
               }
               _ => ()
             }

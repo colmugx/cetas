@@ -137,6 +137,79 @@ describe("parseCetasEvent", () => {
     expect(parseCetasEvent({ type: "future_event" })).toBeNull();
   });
 
+  describe("message delivery facts", () => {
+    test("parses message_applied with its command id and boundary", () => {
+      expect(
+        parseCetasEvent({
+          type: "message_applied",
+          command_id: "follow_up_3",
+          delivery: "turn",
+        }),
+      ).toEqual({
+        type: "message_applied",
+        command_id: "follow_up_3",
+        delivery: "turn",
+      });
+      expect(
+        parseCetasEvent({
+          type: "message_applied",
+          command_id: "steer_4",
+          delivery: "step",
+        }),
+      ).toEqual({
+        type: "message_applied",
+        command_id: "steer_4",
+        delivery: "step",
+      });
+    });
+
+    test("parses message_undelivered with its reason", () => {
+      expect(
+        parseCetasEvent({
+          type: "message_undelivered",
+          command_id: "follow_up_3",
+          delivery: "turn",
+          reason: "run ended before the message was applied",
+        }),
+      ).toEqual({
+        type: "message_undelivered",
+        command_id: "follow_up_3",
+        delivery: "turn",
+        reason: "run ended before the message was applied",
+      });
+    });
+
+    test("rejects an unknown delivery boundary instead of guessing", () => {
+      expect(() =>
+        parseCetasEvent({
+          type: "message_applied",
+          command_id: "follow_up_3",
+          delivery: "model_step",
+        }),
+      ).toThrow("message_applied.delivery must be step or turn");
+      expect(() =>
+        parseCetasEvent({
+          type: "message_undelivered",
+          command_id: "follow_up_3",
+          reason: "gone",
+        }),
+      ).toThrow("message_undelivered.delivery must be step or turn");
+    });
+
+    test("rejects the missing required fields", () => {
+      expect(() =>
+        parseCetasEvent({ type: "message_applied", delivery: "turn" }),
+      ).toThrow("message_applied.command_id must be a string");
+      expect(() =>
+        parseCetasEvent({
+          type: "message_undelivered",
+          command_id: "follow_up_3",
+          delivery: "turn",
+        }),
+      ).toThrow("message_undelivered.reason must be a string");
+    });
+  });
+
   test("parses a subagent_event with its nested child event", () => {
     expect(
       parseCetasEvent({

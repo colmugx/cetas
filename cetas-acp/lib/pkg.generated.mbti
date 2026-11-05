@@ -9,7 +9,6 @@ import {
   "colmugx/posoco-ext-workspace",
   "colmugx/posoco-kit-provider",
   "colmugx/posoco/kernel",
-  "moonbitlang/async",
 }
 
 // Values
@@ -26,7 +25,7 @@ pub struct CetasAcpHost {
   refresh_snapshot : @colmugx/cetas-core/lib.ProviderCredentialSnapshot
   // private fields
 }
-pub async fn CetasAcpHost::CetasAcpHost(home~ : String, cwd~ : String, agent_version? : String, mcp_group? : @async.TaskGroup[Unit], mcp_mode? : @posoco-ext-mcp.LoadMode) -> Self raise @colmugx/posoco/error.CompositionError
+pub async fn CetasAcpHost::CetasAcpHost(home~ : String, cwd~ : String, agent_version? : String, mcp_group? : @moonbitlang/async.TaskGroup[Unit], lifetime_group? : @moonbitlang/core/async.TaskGroup, mcp_mode? : @posoco-ext-mcp.LoadMode) -> Self raise @colmugx/posoco/error.CompositionError
 pub fn CetasAcpHost::agent_spec(Self) -> Result[@agent.AgentSpec, @colmugx/acp/error.AgentCompositionError]
 pub async fn CetasAcpHost::handle_cancel(Self, @agent.AgentContext, @session.CancelParams) -> Unit
 pub async fn CetasAcpHost::handle_close(Self, @agent.AgentContext, @session.CloseSessionParams) -> @session.CloseSessionResult

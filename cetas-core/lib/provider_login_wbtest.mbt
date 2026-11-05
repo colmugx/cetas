@@ -130,7 +130,7 @@ test "settings-derived custom provider resolves api_key login and joins the setu
     _ => fail("a custom id without settings must not resolve a method")
   }
   // The settings-aware factory list validates the custom id, so "qwen": {}
-  // no longer fails composition.
+  // composes without failure.
   let ctx = @devkit.ExtContext::default()
   validate_provider_settings(settings, all_provider_factories(ctx, settings))
   // The setup auth matrix advertises the custom id's api_key method so

@@ -311,7 +311,7 @@ async fn MemohHost::build_session(
     temperature=Some(0.0),
     system_prompt=Some(memoh_system_prompt(tools_note)),
   )
-  let agent = @posoco.Agent(exts~, config~) catch {
+  let agent = @posoco.Agent(exts~, config~, events=@posoco.EventSystem()) catch {
     error => {
       match mcp_tools {
         Some(value) => close_failed_mcp_bridge(value)

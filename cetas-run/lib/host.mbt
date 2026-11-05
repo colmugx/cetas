@@ -52,6 +52,9 @@ pub async fn CetasRunHost::CetasRunHost(
   tail_exts~ : Array[&@posoco.Extension] = [],
   fs~ : &@workspace.WorkspaceFs? = None,
   mcp_group~ : @async.TaskGroup[Unit]? = None,
+  /// Session-lifetime group on posoco's core-async stack: the quota guard's
+  /// recovery runtime runs here. `None` (tests) composes without recovery.
+  lifetime_group~ : @core_async.TaskGroup? = None,
   label~ : String = "cetas-run",
   /// Test-safety knob only (tests pass false so composition never shells
   /// out to the real herdr CLI); production keeps the default.
@@ -109,7 +112,7 @@ pub async fn CetasRunHost::CetasRunHost(
   let agent = @cetas_core.compose_cetas_agent(
     session~,
     tail_exts~,
-    runtime_group=mcp_group,
+    runtime_group=lifetime_group,
   )
   let sid = if session_id.length() > 0 {
     session_id

@@ -141,6 +141,7 @@ async test "gate B file mentions rank and insert workspace paths" {
   let agent = @posoco.Agent(
     exts=[io as &@posoco.Extension],
     config=@posoco.agent_config(max_tool_rounds=Some(1)),
+    events=@posoco.EventSystem(),
   )
   let host = NativeHost::from_parts(
     agent,
@@ -181,6 +182,7 @@ async test "gate B normal-session slash routes stay local and executable" {
   let agent = @posoco.Agent(
     exts=[io as &@posoco.Extension],
     config=@posoco.agent_config(max_tool_rounds=Some(1)),
+    events=@posoco.EventSystem(),
   )
   let root = @fs.tmpdir(prefix="cetas-native-gate-b-sessions-")
   let current = "cetas-current"

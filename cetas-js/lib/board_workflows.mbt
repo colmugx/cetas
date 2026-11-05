@@ -123,6 +123,7 @@ async fn build_cetas_workflows(
   approval~ : &@permission.ApprovalSource?,
   ctx~ : @cetas_core.HostContext,
   group~ : @async.TaskGroup[Unit],
+  lifetime~ : @core_async.TaskGroup,
   mcp_bridge~ : @mcp.MCPToolBridge,
 ) -> &@posoco.Extension? raise @posoco.CompositionError {
   let text = match
@@ -151,7 +152,7 @@ async fn build_cetas_workflows(
     directory=ctx.home +
       "/.cetas/board/" +
       @fs_session.project_dir_name(ctx.cwd),
-    group~,
+    group=lifetime,
     agents~,
     authorize=() => parent_mode() != @permission.ReadOnly,
     policy=@board.BoardWorkflowPolicy(

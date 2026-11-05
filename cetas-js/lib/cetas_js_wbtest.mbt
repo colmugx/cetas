@@ -193,7 +193,7 @@ async test "agent group session parks past composition and retires on close" {
         run_agent_group_session(
           ready~,
           close~,
-          compose=fn(group) {
+          compose=fn(group, _lifetime) {
             // Stand-in for the attach-time background loop that only an
             // engine stop can end.
             group.spawn_bg(async fn() {
@@ -335,6 +335,7 @@ async test "held run_scoped admits sibling background task submits" {
       ),
     ],
     config=@tk.tk_config(),
+    events=@posoco.EventSystem(),
   )
   let ready : @aqueue.Queue[Result[Unit, Error]] = Queue(kind=Unbounded)
   let serve_close : @aqueue.Queue[Unit] = Queue(kind=Unbounded)
@@ -472,6 +473,43 @@ test "turn_event_to_json skips UserRequest presence events (null sentinel)" {
 }
 
 ///|
+test "turn_event_to_json projects message delivery facts" {
+  // The host settles its optimistic queued bubble from these receipts, so the
+  // command id and the delivery boundary must both ride the wire.
+  let applied = @json.parse(
+    turn_event_to_json(MessageApplied(command_id="follow_up_3", delivery=Turn)).stringify(),
+  )
+  match applied {
+    Json::Object(fields) => {
+      assert_eq(fields["type"], Json::string("message_applied"))
+      assert_eq(fields["command_id"], Json::string("follow_up_3"))
+      assert_eq(fields["delivery"], Json::string("turn"))
+      assert_eq(fields.length(), 3)
+    }
+    _ => fail("message_applied must be an object")
+  }
+  let undelivered = @json.parse(
+    turn_event_to_json(
+      MessageUndelivered(
+        command_id="steer_4",
+        delivery=Step,
+        reason="run ended before delivery",
+      ),
+    ).stringify(),
+  )
+  match undelivered {
+    Json::Object(fields) => {
+      assert_eq(fields["type"], Json::string("message_undelivered"))
+      assert_eq(fields["command_id"], Json::string("steer_4"))
+      assert_eq(fields["delivery"], Json::string("step"))
+      assert_eq(fields["reason"], Json::string("run ended before delivery"))
+      assert_eq(fields.length(), 4)
+    }
+    _ => fail("message_undelivered must be an object")
+  }
+}
+
+///|
 test "turn_event_to_json maps ModelRequestStarted onto the wire tag" {
   let json = @json.parse(turn_event_to_json(ModelRequestStarted).stringify())
   match json {
@@ -517,7 +555,7 @@ test "subagent_inner_items skips child-local projection facts" {
   // No parent-visible surface: occupancy keys off the displayed (parent)
   // session, child compaction is internal progress, and a child operation's
   // terminal fact rides the lifecycle labels. Each must yield an empty item
-  // list so no subagent_event envelope is emitted — wrapping them used to
+  // list so no subagent_event envelope is emitted — wrapping them would
   // degrade on the parent as "unknown type subagent_event" per child step.
   let state : @posoco_types.ContextState = {
     session_id: "child-session",

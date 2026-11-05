@@ -18,6 +18,7 @@ async test "run_resume replays a trailing user message and returns assistant tex
       @tk.tk_ext(id="io", sessions=[store]),
     ],
     config=@tk.tk_config(),
+    events=@posoco.EventSystem(),
   )
   let text = run_resume(agent, "s1")
   inspect(text, content="resumed answer\n")
@@ -65,6 +66,7 @@ async test "run_resume appends the continuation for a non-user transcript tail" 
       @tk.tk_ext(id="io", sessions=[store]),
     ],
     config=@tk.tk_config(),
+    events=@posoco.EventSystem(),
   )
   let text = run_resume(agent, "s2")
   inspect(text, content="continued\n")

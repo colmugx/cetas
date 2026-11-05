@@ -18,6 +18,7 @@ fn run_prompt_test_agent(
       ),
     ],
     config=@posoco.agent_config(max_tool_rounds=Some(2)),
+    events=@posoco.EventSystem(),
   )
 }
 

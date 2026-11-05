@@ -11,10 +11,10 @@ import {
   "colmugx/posoco-ext-workspace",
   "colmugx/posoco-kit-provider",
   "colmugx/posoco/error",
+  "colmugx/posoco/events",
   "colmugx/posoco/kernel",
   "colmugx/posoco/port",
   "colmugx/posoco/runtime",
-  "moonbitlang/async",
   "moonbitlang/core/json",
   "posoco/devkit",
   "posoco/ext-llm",
@@ -32,11 +32,11 @@ pub fn auth_message_json(@ext-oauth.AuthMessage) -> String
 
 pub fn auth_prompt_json(@ext-oauth.AuthPromptRequest) -> String
 
-pub async fn build_cetas_platform(home~ : String, cwd~ : String, &@posoco-ext-workspace.WorkspaceFs, permission_mode~ : @posoco-ext-permission.PermissionMode, mcp_group? : @async.TaskGroup[Unit]?, label? : String, warn? : async (String) -> Unit noraise) -> CetasPlatform raise @error.CompositionError
+pub async fn build_cetas_platform(home~ : String, cwd~ : String, &@posoco-ext-workspace.WorkspaceFs, permission_mode~ : @posoco-ext-permission.PermissionMode, mcp_group? : @moonbitlang/async.TaskGroup[Unit]?, label? : String, warn? : async (String) -> Unit noraise) -> CetasPlatform raise @error.CompositionError
 
-pub fn build_cetas_router(platform~ : CetasPlatform, event_bus? : @devkit.EventBus?, transient_retry? : @ext-llm.TransientRetryPolicy?) -> @ext-llm.RouterModelPort raise @error.CompositionError
+pub fn build_cetas_router(platform~ : CetasPlatform, events? : @events.Events?, transient_retry? : @ext-llm.TransientRetryPolicy?) -> @ext-llm.RouterModelPort raise @error.CompositionError
 
-pub async fn build_cetas_session(platform~ : CetasPlatform, cwd~ : String, router? : @ext-llm.RouterModelPort?, transient_retry? : @ext-llm.TransientRetryPolicy?, approval? : &@posoco-ext-permission.ApprovalSource?, ui? : &@port.UiPort?, event_bus? : @devkit.EventBus?, client_exts? : Array[&@port.Extension], policy_exts? : Array[&@port.Extension], bus_exts? : ((@devkit.EventBus) -> Array[&@port.Extension])?, feature_exts? : Array[&@port.Extension], tool_plane_group? : @async.TaskGroup[Unit]?, prompt_suffix? : String?, session_fs? : &@posoco-ext-workspace.WorkspaceFs?, label? : String, warn? : async (String) -> Unit noraise) -> CetasSession raise @error.CompositionError
+pub async fn build_cetas_session(platform~ : CetasPlatform, cwd~ : String, router? : @ext-llm.RouterModelPort?, transient_retry? : @ext-llm.TransientRetryPolicy?, approval? : &@posoco-ext-permission.ApprovalSource?, ui? : &@port.UiPort?, client_exts? : Array[&@port.Extension], policy_exts? : Array[&@port.Extension], events_exts? : ((@posoco.EventSystem) -> Array[&@port.Extension])?, feature_exts? : Array[&@port.Extension], tool_plane_group? : @moonbitlang/async.TaskGroup[Unit]?, prompt_suffix? : String?, session_fs? : &@posoco-ext-workspace.WorkspaceFs?, label? : String, warn? : async (String) -> Unit noraise) -> CetasSession raise @error.CompositionError
 
 pub fn build_provider_catalog(&@posoco-kit-provider.ProviderFactory, ProviderCredentialSnapshot, cached_models? : @json.Json?) -> @posoco-kit-provider.ProviderModelCatalog? raise @error.CompositionError
 
@@ -54,7 +54,7 @@ pub fn cetas_system_prompt(cwd~ : String) -> String
 
 pub fn compatible_provider_factories(Map[String, @json.Json], @devkit.ExtContext) -> Array[@posoco-ext-custom.CustomProvider]
 
-pub fn compose_cetas_agent(session~ : CetasSession, tail_exts? : Array[&@port.Extension], runtime? : &@runtime.Runtime?, runtime_group? : @async.TaskGroup[Unit]?) -> @posoco.Agent raise @error.CompositionError
+pub fn compose_cetas_agent(session~ : CetasSession, tail_exts? : Array[&@port.Extension], runtime? : &@runtime.Runtime?, runtime_group? : @moonbitlang/core/async.TaskGroup?) -> @posoco.Agent raise @error.CompositionError
 
 pub fn credentials_path(String) -> String
 
@@ -82,6 +82,8 @@ pub fn merge_active_model_selection(@json.Json, ActiveModelSelection) -> @json.J
 
 pub fn merge_model_list_cache(@json.Json, String, @json.Json) -> @json.Json
 
+pub fn mint_events_publisher(@posoco.EventSystem, owner~ : String) -> @events.Events?
+
 pub fn mint_session_id() -> String
 
 pub fn model_list_cache_path(String) -> String
@@ -106,7 +108,7 @@ pub fn provider_factories(@devkit.ExtContext) -> Array[&@posoco-kit-provider.Pro
 
 pub fn provider_setup_json(Array[@posoco-kit-provider.ProviderModelCatalog], settings? : Map[String, @json.Json], issues? : Array[CatalogBuildIssue], active_model_id? : String?) -> String
 
-pub async fn provider_tool_extensions(&@posoco-ext-workspace.WorkspaceFs, home~ : String, label? : String, bus~ : @devkit.EventBus, group~ : @async.TaskGroup[Unit], initial_slot_id~ : String) -> Array[&@port.Extension] noraise
+pub async fn provider_tool_extensions(&@posoco-ext-workspace.WorkspaceFs, home~ : String, label? : String, group~ : @moonbitlang/async.TaskGroup[Unit], initial_slot_id~ : String) -> Array[&@port.Extension] noraise
 
 pub async fn read_active_decision_model_selection(&@posoco-ext-workspace.WorkspaceFs, home~ : String) -> ActiveDecisionSelection? raise @error.CompositionError
 
@@ -154,7 +156,7 @@ pub fn swap_platform_catalog(Array[@posoco-kit-provider.ProviderModelCatalog], S
 
 pub fn try_build_provider_catalog(&@posoco-kit-provider.ProviderFactory, ProviderCredentialSnapshot, cached_models? : @json.Json?) -> Result[@posoco-kit-provider.ProviderModelCatalog?, @error.CompositionError]
 
-pub async fn update_session_sidecar(&@posoco-ext-workspace.WorkspaceFs, home~ : String, session_id~ : String, live_cwd~ : String, model~ : String, effort~ : String?, fresh_mcp_names~ : Array[String], persist_lock? : @async.Mutex?, label? : String, warn? : async (String) -> Unit noraise) -> Unit noraise
+pub async fn update_session_sidecar(&@posoco-ext-workspace.WorkspaceFs, home~ : String, session_id~ : String, live_cwd~ : String, model~ : String, effort~ : String?, fresh_mcp_names~ : Array[String], persist_lock? : @moonbitlang/async.Mutex?, label? : String, warn? : async (String) -> Unit noraise) -> Unit noraise
 
 pub fn valid_provider_id(String) -> Bool
 
@@ -218,13 +220,13 @@ pub(all) struct CetasPlatform {
   session_store : @posoco-ext-fs-session.JsonlSessionStore
   refreshables : Array[&@posoco-kit-provider.RefreshableProviderFactory]
   refresh_snapshot : ProviderCredentialSnapshot
-  mcp_group : @async.TaskGroup[Unit]?
+  mcp_group : @moonbitlang/async.TaskGroup[Unit]?
 }
 
 pub(all) struct CetasSession {
   router : @ext-llm.RouterModelPort
   exts : Array[&@port.Extension]
-  event_bus : @devkit.EventBus
+  events : @posoco.EventSystem
   permission : @posoco-ext-permission.PermissionPolicy
   ratelimit : @posoco-ext-ratelimit.RateLimitGuard
   session_store : @posoco-ext-fs-session.JsonlSessionStore

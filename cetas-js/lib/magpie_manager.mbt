@@ -298,14 +298,15 @@ fn ModelManagerFace::manager_accepts_legacy_selection(
 }
 
 ///|
-/// Each adapter fulfills the same devkit status contract. The ext-llm
-/// manager owns the "model" segment (model name and effort), while Cetas
-/// separately publishes its full active slot ID for provider disambiguation.
-/// The Magpie adapter owns its own "model" segment. Both publish a manager
-/// label through the same bus. No UI needs to know either.
+/// Each adapter fulfills the same status contract. The ext-llm manager owns
+/// the "model" segment (model name and effort), while Cetas separately
+/// publishes its full active slot ID for provider disambiguation. The Magpie
+/// adapter owns its own "model" segment. Both publish a manager label through
+/// the same host-minted capability (owner `cetas.model_manager`). No UI needs
+/// to know either.
 fn ModelManagerFace::manager_publish_status(
   self : ModelManagerFace,
-  bus : @devkit.EventBus,
+  events : @posoco.Events?,
 ) -> Unit {
   let control = self.manager_control()
   let selection = control.active_selection()
@@ -313,21 +314,14 @@ fn ModelManagerFace::manager_publish_status(
     Providers(_) => "Posoco"
     Magpie(_) => "Magpie"
   }
-  @devkit.publish_status_register(
-    bus,
-    source="cetas.model_manager",
-    segment="manager",
-    priority=21,
-    value=label,
-  )
+  publish_manager_status(events, segment="manager", priority=21, value=label)
   match self {
     Providers(router) =>
       // A model name alone cannot distinguish an official provider from an
       // aggregator serving the same model. Keep the router's exact slot ID;
       // ext-llm remains the authority for the reasoning-effort suffix.
-      @devkit.publish_status_register(
-        bus,
-        source="cetas.model_manager",
+      publish_manager_status(
+        events,
         segment="model_slot",
         priority=19,
         value=router.active_slot_id(),
@@ -346,14 +340,41 @@ fn ModelManagerFace::manager_publish_status(
           selected
         }
       }
-      @devkit.publish_status_register(
-        bus,
-        source="cetas.model_manager",
+      publish_manager_status(
+        events,
         segment="model",
         priority=20,
         value=selection.model_id + ":" + effort,
       )
     }
+  }
+}
+
+///|
+/// Publish one manager segment as a typed `StatusChanged(Register)` op.
+/// Fire-and-forget: a closed channel only means the session is retiring.
+fn publish_manager_status(
+  events : @posoco.Events?,
+  segment~ : String,
+  priority~ : Int32,
+  value~ : String,
+) -> Unit {
+  match events {
+    Some(events) =>
+      ignore(
+        events.publish(
+          @kit_events.StatusChanged(
+            @kit_events.Register(
+              segment~,
+              label=None,
+              priority~,
+              value=Some(value),
+              color=None,
+            ),
+          ),
+        ),
+      )
+    None => ()
   }
 }
 

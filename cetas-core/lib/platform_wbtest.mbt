@@ -279,8 +279,9 @@ async test "the session assembly joins the host prompt suffix onto the cetas pro
 }
 
 ///|
-/// Minimal bus-built extension: reports one tool. The closure's bus
-/// argument is recorded separately (the seam type is non-optional).
+/// Minimal extension built from the `events_exts` closure: reports one tool.
+/// The closure's `events` argument is recorded separately (the seam type is
+/// non-optional).
 priv struct BusExtProbe {}
 
 ///|
@@ -319,7 +320,7 @@ impl @posoco.Extension for BusExtProbe with fn manifest(self : BusExtProbe) -> @
 }
 
 ///|
-async test "bus_exts builds after the policy subscribes and lands in the routing capture" {
+async test "events_exts builds after the policy subscribes and lands in the routing capture" {
   let fs = FakeFs()
   fs.files["/home/.cetas/settings.json"] = "{\"providers\":{\"opencode\":{\"api_key\":\"sk-zen-test\"}}}"
   let platform = build_cetas_platform(
@@ -328,17 +329,18 @@ async test "bus_exts builds after the policy subscribes and lands in the routing
     fs,
     permission_mode=@permission.WorkspaceWrite,
   )
-  let seen_bus : Array[@devkit.EventBus] = []
+  let seen_events : Array[@posoco.EventSystem] = []
   let session = build_cetas_session(
     platform~,
     cwd="/w",
-    bus_exts=Some(fn(bus) {
-      seen_bus.push(bus)
+    events_exts=Some(fn(events) {
+      seen_events.push(events)
       [BusExtProbe::{ } as &@posoco.Extension]
     }),
   )
-  // The closure ran exactly once, over the session's bus.
-  assert_eq(seen_bus.length(), 1)
+  // The closure ran exactly once, over the session's event system — the same
+  // one the composed agent takes ownership of.
+  assert_eq(seen_events.length(), 1)
   // The probe's tool is routable: the closure ran before the capture.
   assert_true(session.routing.contains("bus_probe_tool"))
 }

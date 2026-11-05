@@ -93,6 +93,6 @@ jobs:
       - name: cetas-web typecheck + build
         working-directory: cetas-web/web
         run: |
-          npm install --no-audit --no-fund
-          npm run check
-          npm run build
+          bun install --no-audit --no-fund
+          bun run check
+          bun run build

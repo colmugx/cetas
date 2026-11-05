@@ -31,9 +31,31 @@ export interface OperationSnapshot {
 }
 
 export type UserInputSubmission =
-  | { readonly kind: "queued" }
+  | {
+      readonly kind: "queued";
+      /**
+       * Host-local queue id. The application owns the pending-input queue
+       * (posoco 0.24 settles its follow-up inbox per operation), so this id
+       * is the stable key a host bubble settles by — it survives every retry.
+       * Delivery is serial: the entry only starts its own fresh turn once the
+       * Agent is idle, so there is no Agent acceptance receipt here.
+       */
+      readonly id: string;
+    }
   | { readonly kind: "full" }
   | { readonly kind: "started"; readonly completion: Promise<string> };
+
+/**
+ * Outcome of one queued-input enqueue. Host acceptance is immediate (the
+ * input joins cetas's own queue) and the pump delivers it as a fresh turn.
+ * `stale` / `full` stay in the vocabulary for hosts that still reason about
+ * the Agent-side inbox, but this host never settles a queued input by them:
+ * the entry keeps its FIFO slot until the Agent is idle.
+ */
+export type FollowUpQueueOutcome =
+  | { readonly outcome: "accepted" }
+  | { readonly outcome: "stale" }
+  | { readonly outcome: "full" };
 
 export interface CetasHostConfig {
   /** Working directory used by the session extension. */

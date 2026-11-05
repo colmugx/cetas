@@ -198,21 +198,36 @@ impl @posoco.UiPort for HubUiPort with fn request(
 ///|
 /// Seed the harness counters so the statusbar shows them from the start;
 /// the observer publishes updates as turns run.
-fn seed_status(bus : @devkit.EventBus, label : String) -> Unit {
-  @devkit.publish_status_register(
-    bus,
-    source=label,
-    segment="turns",
-    label="turns",
-    priority=30,
-    value="0",
-  )
-  @devkit.publish_status_register(
-    bus,
-    source=label,
-    segment="steps",
-    label="steps",
-    priority=31,
-    value="0",
-  )
+fn seed_status(events : @posoco.Events?) -> Unit {
+  match events {
+    Some(events) => {
+      ignore(
+        events.publish(
+          @kit_events.StatusChanged(
+            @kit_events.Register(
+              segment="turns",
+              label=Some("turns"),
+              priority=30,
+              value=Some("0"),
+              color=None,
+            ),
+          ),
+        ),
+      )
+      ignore(
+        events.publish(
+          @kit_events.StatusChanged(
+            @kit_events.Register(
+              segment="steps",
+              label=Some("steps"),
+              priority=31,
+              value=Some("0"),
+              color=None,
+            ),
+          ),
+        ),
+      )
+    }
+    None => ()
+  }
 }

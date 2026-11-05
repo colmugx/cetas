@@ -9,6 +9,7 @@ import {
   type CatalogRefreshSummary,
   type CancellationToken,
   type CommandDescriptor,
+  type FollowUpQueueOutcome,
   type ImageAttachment,
   type OperationKind,
   type OperationSnapshot,
@@ -144,6 +145,40 @@ interface LiveCatalogRefreshTask {
 }
 
 /**
+ * One user input waiting for its delivery slot.
+ *
+ * cetas owns this queue because posoco 0.24's follow-up inbox is
+ * operation-scoped: when the operation ends, everything still queued is
+ * settled as `MessageUndelivered`. Delivery here is serial, not pipelined: an
+ * input is only handed to the Agent when no operation is active, always as a
+ * brand-new turn. Holding the rest host-side is what lets a turn, an
+ * interrupt, a compact or a failure hand the next input over as a fresh turn
+ * instead of losing it.
+ *
+ * The entry (and its `id`) is stable across retries.
+ */
+interface QueuedInput {
+  /** Host-local queue id; hosts key their optimistic bubble on it. */
+  readonly id: string;
+  /** What the user typed (pending-input rendering); never host notes. */
+  readonly prompt: string;
+  readonly images?: readonly ImageAttachment[];
+  /** What the Agent receives (may carry the one-shot Board activation note). */
+  readonly sentPrompt: string;
+  readonly sessionId: string;
+  /** Fresh-turn starts attempted so far. */
+  attempts: number;
+}
+
+/**
+ * Fresh-turn attempts per queued input before the host reports it as
+ * undelivered. A new turn can still lose admission before anything runs
+ * (another operation owns the Agent, setup is changing, shutdown began), so
+ * retries are expected; exhausting the budget is the only terminal case.
+ */
+const MAX_QUEUED_INPUT_ATTEMPTS = 3;
+
+/**
  * Application coordinator for cetas-js.
  *
  * It owns the process-lifetime Agent handle and nothing below the Posoco
@@ -178,14 +213,21 @@ export class CetasApplication<AgentHandle = unknown> {
   private selectedManager: ModelManagerChoice = "providers";
   private agentGeneration = 0;
   /**
-   * Mirror of follow-ups accepted but not yet drained by the Agent (the
-   * core keeps them queued across operations and starts them at a later
-   * run's boundary). Hosts render these as pending user input.
+   * The host-owned FIFO of user inputs that have not started a turn yet.
+   * At most the head is ever handed to the Agent, and only when it is idle:
+   * every delivery is a fresh turn, never a follow-up on a running one. The
+   * rest wait locally; hosts render these as pending input.
    */
-  private pendingFollowUps: Array<{
-    prompt: string;
-    images?: readonly ImageAttachment[];
-  }> = [];
+  private readonly messageQueue: QueuedInput[] = [];
+  /** Monotonic host-local queue id source (never reused, survives retries). */
+  private nextQueuedInputId = 1;
+  /**
+   * Single-flight pump bookkeeping. `pumpActive` guards one drain loop;
+   * `pumpRequested` coalesces every re-entrant request (settles, turn ends,
+   * compact completion, delivery facts, queue mutations) into one more pass.
+   */
+  private pumpActive = false;
+  private pumpRequested = false;
   /**
    * Host-side one-shot Board activation note. Set at most once per activation
    * (re-noting while pending is a no-op), prepended to the next admitted
@@ -291,12 +333,12 @@ export class CetasApplication<AgentHandle = unknown> {
   }
 
   /**
-   * Prompts accepted on a run that ended before draining them. They were
-   * dropped from the Agent's queue by its finalize; the app keeps them
-   * visible and pending until the user explicitly resubmits.
+   * Prompts still waiting in the host-owned queue, in FIFO delivery order.
+   * An input leaves the list only when it starts its own turn (or when its
+   * attempt budget is exhausted and the host reports it undelivered).
    */
   get pendingInputs(): readonly string[] {
-    return this.pendingFollowUps.map((entry) => entry.prompt);
+    return this.messageQueue.map((entry) => entry.prompt);
   }
 
   get compactPending(): boolean {
@@ -339,6 +381,9 @@ export class CetasApplication<AgentHandle = unknown> {
     ) {
       this.transition("ready");
     }
+    // Every settle can free the next delivery slot: the operation that owned
+    // the Agent is gone (turn end, interrupt, failure, projected settle).
+    this.pumpMessageQueue();
   }
 
   private async serializeSubmission<T>(body: () => Promise<T>): Promise<T> {
@@ -492,7 +537,7 @@ export class CetasApplication<AgentHandle = unknown> {
     if (this.managerSwitching || this.startPromise !== undefined ||
         this.operations.busy || this.operations.compactPending ||
         this.activeCommand !== undefined || this.state === "shutting_down" ||
-        this.pendingFollowUps.length > 0) {
+        this.messageQueue.length > 0) {
       throw new CetasApplicationError("already_running", "manager switching requires an idle application");
     }
     this.managerSwitching = true;
@@ -619,6 +664,9 @@ export class CetasApplication<AgentHandle = unknown> {
       }
       if ((this.state as AppState) !== "shutting_down") {
         this.transition("ready");
+        // A composed Agent can deliver again: inputs retained across a
+        // recompose keep their FIFO slot.
+        this.pumpMessageQueue();
       }
       return this.snapshot();
     } catch (error: unknown) {
@@ -1190,12 +1238,17 @@ export class CetasApplication<AgentHandle = unknown> {
 
   /**
    * Atomic user-input admission. The application, not the renderer, decides
-   * whether input becomes an Agent follow-up or the next fresh turn. A stale
-   * lower-layer run lease waits for the owning host operation to finalize
-   * before retrying; it is never treated as proof that the host is idle.
+   * whether input becomes the next turn immediately or a local pending input
+   * that the pump delivers later.
+   *
+   * Idle with an empty queue keeps the direct path (a fresh turn starts
+   * synchronously). Anything else joins the host-owned FIFO: at most the head
+   * is ever handed to the Agent, and only once the Agent is idle again, the
+   * rest wait locally, and every settle re-pumps the queue (see
+   * `pumpMessageQueue`).
    *
    * A pending Board activation note rides exactly one admitted prompt — fresh
-   * turn or queued follow-up — and is cleared only on admission, so a rejected
+   * turn or queued input — and is cleared only on admission, so a rejected
    * submission never spends it.
    */
   async submitUserInput(
@@ -1240,53 +1293,17 @@ export class CetasApplication<AgentHandle = unknown> {
     // input submitted solely to carry the model-facing reply — from
     // withdrawing the other questions the user still owes.
     return this.serializeSubmission(async () => {
-      while (true) {
-        if (this.managerSwitching) {
-          throw new CetasApplicationError("already_running", "model manager is changing");
-        }
-        if ((this.state as AppState) === "shutting_down") {
-          throw new CetasApplicationError(
-            "shutting_down",
-            "cannot submit input after shutdown has begun",
-          );
-        }
-        const operation = this.operations.snapshot();
-        if (operation.busy) {
-          // A follow-up is legitimate only for a running ordinary run of the
-          // SAME session (host turn/recovery or a projected core wakeup).
-          // Anything else — a compact switch, a cancelling/finalizing phase,
-          // or an operation on another session — waits for that operation's
-          // settled boundary (projected leases settle at operation_settled,
-          // after the full core drain) and retries admission; the input is
-          // never dropped and never resubmitted once admitted.
-          if (
-            operation.session === sessionId &&
-            !operation.compactPending &&
-            operation.phase === "running" &&
-            (operation.kind === "turn" ||
-              operation.kind === "recovery" ||
-              operation.kind === "wakeup")
-          ) {
-            const queued = this.queueFollowUp(
-              prompt,
-              images,
-              this.promptWithBoardActivationNote(prompt),
-            );
-            if (queued === "accepted") {
-              this.clearBoardActivationNote();
-              return { kind: "queued" };
-            }
-            if (queued === "full") return { kind: "full" };
-            // RejectedStale is a lower-layer boundary race. Wait for the
-            // operation lease that still owns host state, then retry admission.
-          }
-          await this.operations.waitForActiveToSettle();
-          continue;
-        }
-        if (operation.compactPending) {
-          await this.operations.waitUntilAvailable();
-          continue;
-        }
+      if (this.managerSwitching) {
+        throw new CetasApplicationError("already_running", "model manager is changing");
+      }
+      if ((this.state as AppState) === "shutting_down") {
+        throw new CetasApplicationError(
+          "shutting_down",
+          "cannot submit input after shutdown has begun",
+        );
+      }
+      const operation = this.operations.snapshot();
+      if (!operation.busy && !operation.compactPending && this.messageQueue.length === 0) {
         const completion = this.runTurn(
           this.promptWithBoardActivationNote(prompt),
           sessionId,
@@ -1295,21 +1312,37 @@ export class CetasApplication<AgentHandle = unknown> {
         this.clearBoardActivationNote();
         return { kind: "started", completion };
       }
+      // Busy, compacting, or inputs already waiting: FIFO, never jump the
+      // queue. Host acceptance is immediate; the pump owns Agent delivery.
+      const entry = this.enqueueMessage(
+        prompt,
+        this.promptWithBoardActivationNote(prompt),
+        sessionId,
+        images,
+      );
+      this.clearBoardActivationNote();
+      this.pumpMessageQueue();
+      return { kind: "queued", id: entry.id };
     });
   }
 
   /**
-   * Queue a user message on the active Agent run.
+   * Queue a user message behind everything already waiting.
+   *
+   * The host-side acceptance is immediate (`accepted`): delivery is the
+   * pump's decision, so this method never calls the bridge directly. The
+   * pump hands the head over only once the Agent is idle, as a brand-new
+   * turn — cetas never enqueues a follow-up on a running operation.
    *
    * `sentPrompt` defaults to `prompt`; it is what the Agent receives when the
-   * host prepends a one-time note, while the mirror keeps the user's own words
+   * host prepends a one-time note, while the queue keeps the user's own words
    * for pending-input rendering.
    */
   queueFollowUp(
     prompt: string,
     images?: readonly ImageAttachment[],
     sentPrompt = prompt,
-  ): "accepted" | "stale" | "full" {
+  ): FollowUpQueueOutcome {
     if (prompt.length === 0) {
       throw new CetasApplicationError("invalid_state", "prompt must not be empty");
     }
@@ -1319,25 +1352,154 @@ export class CetasApplication<AgentHandle = unknown> {
         "cannot queue a message after shutdown has begun",
       );
     }
-    const activeKind = this.operations.activeKind;
+    if (this.agent === undefined) {
+      throw new CetasApplicationError(
+        "invalid_state",
+        "no Agent is composed; configure a provider first",
+      );
+    }
+    this.enqueueMessage(prompt, sentPrompt, this.currentSessionId, images);
+    this.pumpMessageQueue();
+    return { outcome: "accepted" };
+  }
+
+  /** Append one input to the host-owned FIFO; the caller decides when to pump. */
+  private enqueueMessage(
+    prompt: string,
+    sentPrompt: string,
+    sessionId: string,
+    images?: readonly ImageAttachment[],
+  ): QueuedInput {
+    const entry: QueuedInput = {
+      id: `input_${this.nextQueuedInputId++}`,
+      prompt,
+      sentPrompt,
+      sessionId,
+      attempts: 0,
+      ...(images === undefined || images.length === 0 ? {} : { images }),
+    };
+    this.messageQueue.push(entry);
+    return entry;
+  }
+
+  /**
+   * Hand the queue head to the Agent when — and only when — the Agent is idle.
+   *
+   * Fire-and-forget by contract: every caller is a state transition
+   * (submission, operation settle, turn end, compact completion), and none of
+   * them may block on a delivery. The single-flight guard makes re-entrant
+   * calls from inside the drain safe; `pumpRequested` coalesces them into one
+   * extra pass instead of a hot loop.
+   */
+  private pumpMessageQueue(): void {
+    this.pumpRequested = true;
+    if (this.pumpActive) return;
+    this.pumpActive = true;
+    void this.drainMessageQueue();
+  }
+
+  private async drainMessageQueue(): Promise<void> {
+    try {
+      while (this.pumpRequested) {
+        this.pumpRequested = false;
+        const step = this.pumpHead();
+        if (step === "settling") {
+          // Delivery is serial: the head waits for the owning operation's
+          // settled boundary (and for a compact reservation to clear) before
+          // it may start its own turn. Never a hot loop while compactPending
+          // or finalizing. Waiting on the *active* lease is enough: an
+          // operation that started after it settles is itself a delivery
+          // slot candidate once it, too, settles.
+          if (this.operations.compactPending) {
+            await this.operations.waitUntilAvailable();
+          } else {
+            await this.operations.waitForActiveToSettle();
+          }
+          this.pumpRequested = true;
+          continue;
+        }
+        if (step === "again") continue;
+        // "wait": a verdict or a settle will re-pump; "idle": nothing queued.
+        return;
+      }
+    } catch {
+      // A fire-and-forget pump must never surface an unhandled rejection. The
+      // queue is intact, so the next transition retries the delivery.
+    } finally {
+      this.pumpActive = false;
+      if (this.pumpRequested) this.pumpMessageQueue();
+    }
+  }
+
+  /**
+   * One delivery decision for the head. Never spins: it either starts exactly
+   * one fresh turn, removes one terminal entry, or asks the drain loop to wait.
+   */
+  private pumpHead(): "idle" | "wait" | "again" | "settling" {
+    const head = this.messageQueue[0];
+    if (head === undefined) return "idle";
+    if ((this.state as AppState) === "shutting_down") return "wait";
+    if (this.state === "needs_setup" || this.agent === undefined) return "wait";
     if (
-      (activeKind !== "turn" && activeKind !== "recovery" && activeKind !== "wakeup") ||
-      this.agent === undefined
+      this.managerSwitching ||
+      this.startPromise !== undefined ||
+      this.activeCommand !== undefined
     ) {
-      throw new CetasApplicationError("invalid_state", "no turn is active; use runTurn");
+      return "wait";
     }
-    if (this.options.bridge.enqueueFollowUp === undefined) {
-      throw new CetasApplicationError("bridge_failure", "bridge does not support follow-up queuing");
+    if (this.operations.compactPending) return "settling";
+    // Serial delivery: the head stays local while any operation owns the
+    // Agent. Only the settled boundary re-pumps it, and only then does it
+    // start its own turn — cetas never hands it to the running operation as
+    // a follow-up.
+    if (this.operations.snapshot().busy) return "settling";
+    // Idle: the head becomes the next fresh turn. `enqueue_follow_up` would
+    // be RejectedStale here because the previous operation's inbox is gone.
+    if (head.attempts >= MAX_QUEUED_INPUT_ATTEMPTS) {
+      this.messageQueue.shift();
+      this.reportQueuedInputUndelivered(head, "delivery attempts exhausted");
+      return "again";
     }
-    const raw = this.options.bridge.enqueueFollowUp(this.agent, sentPrompt, images);
-    if (raw.startsWith("Accepted")) {
-      if (activeKind === "recovery") this.operations.incrementRecoveryFollowUp();
-      this.pendingFollowUps.push({ prompt, images });
-      return "accepted";
-    }
-    if (raw.startsWith("RejectedStale")) return "stale";
-    if (raw.startsWith("RejectedQueueFull")) return "full";
-    throw new CetasApplicationError("bridge_failure", `unexpected follow-up outcome: ${raw}`);
+    head.attempts += 1;
+    this.messageQueue.shift();
+    this.runQueuedInputAsTurn(head);
+    return "wait";
+  }
+
+  /**
+   * Run one queued input as a fresh turn. The input already left the queue:
+   * a turn that was admitted counts as delivered, and its own failure /
+   * interrupt is the turn's outcome (surfaced by its observer events), not an
+   * undelivered message. Only a rejection before admission puts it back.
+   */
+  private runQueuedInputAsTurn(entry: QueuedInput): void {
+    void this.runTurn(entry.sentPrompt, entry.sessionId, entry.images).then(
+      () => this.pumpMessageQueue(),
+      (error: unknown) => {
+        // A lost admission before anything ran: put the input back at the
+        // head and retry after the operation that won admission settles.
+        if (isRetriableSubmissionError(error)) this.messageQueue.unshift(entry);
+        this.pumpMessageQueue();
+      },
+    );
+  }
+
+  /**
+   * Terminal verdict for one queued input: the host bubble may leave its
+   * queued state. Delivered as a synthetic `message_undelivered` observer
+   * fact keyed by the host-local id, which is the key the renderer opened the
+   * bubble with.
+   */
+  private reportQueuedInputUndelivered(entry: QueuedInput, reason: string): void {
+    this.publish();
+    this.options.callbacks.observerCallback(
+      JSON.stringify({
+        type: "message_undelivered",
+        command_id: entry.id,
+        delivery: "turn",
+        reason,
+      }),
+    );
   }
 
   /**
@@ -1346,10 +1508,9 @@ export class CetasApplication<AgentHandle = unknown> {
    * Resolve-then-echo, in that order: the extension accepts or refuses the
    * answer first (expired / already answered / wrong kind are refusals, not
    * errors), and only an accepted answer is echoed as ordinary input. The
-   * echo reuses `submitUserInput`, so the app still decides whether it is a
-   * queued follow-up on the running turn or a new turn — the answer itself
-   * travels to the model in the extension's next envelope, never in this
-   * text. The echo is a carrier, not a plain reply: it settles only
+   * echo reuses `submitUserInput`, so the app still decides whether it starts
+   * a new turn now or waits in the local queue — the answer itself travels to
+   * the model in the extension's next envelope, never in this text. The echo is a carrier, not a plain reply: it settles only
    * `questionId`, and every other parked question stays owed.
    */
   async answerQuestion(
@@ -1444,6 +1605,8 @@ export class CetasApplication<AgentHandle = unknown> {
       return await compactPromise;
     } finally {
       if (this.activeCommand === lock) this.activeCommand = undefined;
+      // The command lock just released: the queue it was holding waits here.
+      this.pumpMessageQueue();
     }
   }
 
@@ -1513,6 +1676,9 @@ export class CetasApplication<AgentHandle = unknown> {
       ) {
         this.transition("ready");
       }
+      // The compaction end frees the next delivery slot: pump the inputs the
+      // switch interrupted (they are re-queued as fresh turns, never lost).
+      this.pumpMessageQueue();
     }
   }
 
@@ -1768,6 +1934,8 @@ export class CetasApplication<AgentHandle = unknown> {
     } finally {
       if (this.activeCommand === commandPromise) this.activeCommand = undefined;
       this.cancellation.reset();
+      // A command (compact included) can free the delivery slot.
+      this.pumpMessageQueue();
     }
   }
 
@@ -2135,7 +2303,6 @@ export class CetasApplication<AgentHandle = unknown> {
         this.projectCoreOperationSettled(projection.operation);
       }
     }
-
     // Legacy protocol only (no operation events observed): an idle
     // turn_started used to be the only signal of a runtime-owned recovery.
     // Under the operation protocol every admission announces itself, so
@@ -2161,11 +2328,10 @@ export class CetasApplication<AgentHandle = unknown> {
     ) {
       this.operations.consumeRecoveryFollowUpStart();
     }
-    if (type === "turn_started" && this.pendingFollowUps.length > 0) {
-      this.pendingFollowUps.shift();
-      this.publish();
-    }
-
+    // Delivery facts (`message_applied` / `message_undelivered`) carry no
+    // queue bookkeeping here: serial delivery never puts an input into the
+    // Agent's operation-scoped inbox. They are forwarded verbatim, like every
+    // other observer event.
     try {
       this.options.callbacks.observerCallback(eventJson);
     } finally {
@@ -2211,6 +2377,21 @@ export class CetasApplication<AgentHandle = unknown> {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A queued input's fresh-turn start that lost admission before anything ran.
+ * Those are the only runTurn rejections that leave the input undelivered and
+ * worth re-queueing: a turn that was admitted and then failed or was aborted
+ * already delivered the input, and its outcome belongs to that turn.
+ */
+function isRetriableSubmissionError(error: unknown): boolean {
+  if (!(error instanceof CetasApplicationError)) return false;
+  return (
+    error.code === "already_running" ||
+    error.code === "not_ready" ||
+    error.code === "shutting_down"
+  );
 }
 
 /**

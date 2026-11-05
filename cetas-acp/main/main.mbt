@@ -27,46 +27,51 @@ async fn main {
     Some("eager") => @mcp.LoadMode::Eager
     _ => @mcp.LoadMode::Lazy
   }
-  // The whole lifecycle runs inside one task group: it ends (cancelling
-  // stdio MCP child processes) only at stdin EOF.
-  @async.with_task_group(group => {
-    let host = @lib.CetasAcpHost(
-      home~,
-      cwd~,
-      agent_version=CETAS_ACP_VERSION,
-      mcp_group=group,
-      mcp_mode~,
-    ) catch {
-      error => {
-        @stdio.stderr.write(
-          "cetas-acp: agent composition failed: \{error.to_string()}\n",
-        )
-        return
+  // Two lifetimes, two stacks: `lifetime` (posoco's core-async one) owns the
+  // per-session quota-guard recovery runtimes, `group` (moonbitlang/async)
+  // owns the I/O work — stdio MCP child processes, probes, the lazy model
+  // refresh. Both end at stdin EOF.
+  @core_async.with_task_group(async fn(lifetime) {
+    @async.with_task_group(group => {
+      let host = @lib.CetasAcpHost(
+        home~,
+        cwd~,
+        agent_version=CETAS_ACP_VERSION,
+        mcp_group=group,
+        lifetime_group=lifetime,
+        mcp_mode~,
+      ) catch {
+        error => {
+          @stdio.stderr.write(
+            "cetas-acp: agent composition failed: \{error.to_string()}\n",
+          )
+          return
+        }
       }
-    }
-    let spec = match host.agent_spec() {
-      Ok(spec) => spec
-      Err(_) => {
-        @stdio.stderr.write("cetas-acp: endpoint composition failed\n")
-        return
+      let spec = match host.agent_spec() {
+        Ok(spec) => spec
+        Err(_) => {
+          @stdio.stderr.write("cetas-acp: endpoint composition failed\n")
+          return
+        }
       }
-    }
-    let endpoint = @acp.agent_endpoint_from_spec(spec)
-    let config : @acp.AgentProtocolConfig = {
-      agent_capabilities: Value(endpoint.capabilities()),
-      auth_methods: endpoint.auth_methods(),
-      agent_info: Omitted,
-    }
-    // The lazy model refresh runs alongside serving and pushes a
-    // config_option_update once it lands; stdin EOF cancels it with the
-    // group.
-    let _ = group.spawn(() => host.refresh_model_lists())
-    @acp.agent_serve_stdio_with_outbound(
-      endpoint~,
-      context_factory=channel => @acp.agent_context_over_channel(channel~),
-      initial_state=@acp.agent_adapter_state_new(
-        protocol=@acp.agent_protocol_state_new(config~),
-      ),
-    )
+      let endpoint = @acp.agent_endpoint_from_spec(spec)
+      let config : @acp.AgentProtocolConfig = {
+        agent_capabilities: Value(endpoint.capabilities()),
+        auth_methods: endpoint.auth_methods(),
+        agent_info: Omitted,
+      }
+      // The lazy model refresh runs alongside serving and pushes a
+      // config_option_update once it lands; stdin EOF cancels it with the
+      // group.
+      let _ = group.spawn(() => host.refresh_model_lists())
+      @acp.agent_serve_stdio_with_outbound(
+        endpoint~,
+        context_factory=channel => @acp.agent_context_over_channel(channel~),
+        initial_state=@acp.agent_adapter_state_new(
+          protocol=@acp.agent_protocol_state_new(config~),
+        ),
+      )
+    })
   })
 }

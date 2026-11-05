@@ -34,7 +34,11 @@ struct WebRuntime {
   home : String
   group : @async.TaskGroup[Unit]
   hub : EventHub
-  bus : @devkit.EventBus
+  /// Session-private posoco event system: cross-extension protocol payloads
+  /// (status ops, tool exemptions, model/selection facts) travel here as
+  /// typed `@posoco.Event` values, and the composed agent takes ownership of
+  /// it at the end of the assembly.
+  events : @posoco.EventSystem
   ui_registry : UiRegistry
   workspaces : Map[String, WorkspaceRuntime]
   /// Registry cwds not yet composed; combined lazily on first switch.
@@ -164,7 +168,7 @@ async fn WebRuntime::compose_handle(
     workspace.platform,
     self.hub,
     self.ui_registry,
-    self.bus,
+    self.events,
     workspace.permission_mode,
     session_id,
   ) catch {
@@ -265,7 +269,7 @@ async fn compose_session_agent(
   platform : @cetas_core.CetasPlatform,
   hub : EventHub,
   ui_registry : UiRegistry,
-  bus : @devkit.EventBus,
+  events : @posoco.EventSystem,
   permission_mode : @permission.PermissionMode,
   session_id : String,
 ) -> SessionHandle {
@@ -363,7 +367,7 @@ async fn WebRuntime::switch_workspace(
     self.group,
     self.hub,
     self.ui_registry,
-    self.bus,
+    self.events,
     @permission.PermissionMode::WorkspaceWrite,
   ) catch {
     error => return Err(error.to_string())
@@ -629,7 +633,7 @@ async fn build_workspace(
   group : @async.TaskGroup[Unit],
   hub : EventHub,
   ui_registry : UiRegistry,
-  bus : @devkit.EventBus,
+  events : @posoco.EventSystem,
   permission_mode : @permission.PermissionMode,
 ) -> WorkspaceRuntime {
   let warn = async fn(text : String) noraise {
@@ -713,7 +717,12 @@ async fn compose_web_runtime(
   let fs_impl = @workspace.NativeWorkspaceFs()
   let fs : &@workspace.WorkspaceFs = fs_impl
   let hub = EventHub::new()
-  let bus = @devkit.EventBus::EventBus()
+  // One event system per serving runtime, created before any publisher or
+  // subscriber exists. Provider model ports and other below-composition
+  // publishers reach it by process identity; every publish is a typed
+  // `@posoco.Event` payload.
+  let events = @posoco.EventSystem()
+  @devkit.events_system_register(events)
   let ui_registry = UiRegistry::new()
   let first = build_workspace(
     fs,
@@ -722,7 +731,7 @@ async fn compose_web_runtime(
     group,
     hub,
     ui_registry,
-    bus,
+    events,
     @permission.PermissionMode::WorkspaceWrite,
   )
   let workspaces : Map[String, WorkspaceRuntime] = Map::from_array([
@@ -730,5 +739,15 @@ async fn compose_web_runtime(
   ])
   let registry : Array[String] = load_registry(home) catch { _ => [] }
   let registry = registry.filter(registered => registered != cwd)
-  { fs, home, group, hub, bus, ui_registry, workspaces, registry, active_cwd: cwd, }
+  {
+    fs,
+    home,
+    group,
+    hub,
+    events,
+    ui_registry,
+    workspaces,
+    registry,
+    active_cwd: cwd,
+  }
 }

@@ -52,6 +52,7 @@ async test "e2e: Cetas keeps project context envelope self-describing" {
       max_tool_rounds=Some(5),
       system_prompt=Some(cetas_system_prompt(cwd="/repo")),
     ),
+    events=@posoco.EventSystem(),
   )
   ignore(agent.run_turn(@tk.tk_user_msg("hello"), "s1"))
   // Inspect what the model received.
@@ -161,6 +162,7 @@ async test "e2e: base + cetas contributor + ext contributor share one SystemMess
       max_tool_rounds=Some(5),
       system_prompt=Some(cetas_system_prompt(cwd="/repo")),
     ),
+    events=@posoco.EventSystem(),
   )
   ignore(agent.run_turn(@tk.tk_user_msg("hello"), "s1"))
   assert_true(model.received_messages.length() > 0)

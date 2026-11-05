@@ -11,7 +11,7 @@
 ///
 /// `model` holds the router slot id (`provider/model`) of the conversation
 /// selection; `reasoning_effort` is optional and falls back to the slot's
-/// advertised default when absent or no longer supported. `decision_model`
+/// advertised default when absent or unsupported. `decision_model`
 /// holds the `kind = Decision` slot id of the `/decision` selection and is
 /// independent of `model`: the two selections never cross kinds. Hosts read
 /// the selections at composition; cetas-js writes them back after every

@@ -104,9 +104,10 @@ priv struct ConsoleObserver {
   hub : EventHub
   session_id : String
   mut turn_id : String
-  bus : @devkit.EventBus
-  /// Host tag: console log/status attribution ("cetas-web", "cetas-desktop").
-  label : String
+  /// Host-label publisher capability on the session event system: harness
+  /// counters are published as typed status ops through it. None means the
+  /// session is retiring; the counters then publish nowhere.
+  events : @posoco.Events?
   /// Protocol tag carried on session.snapshot frames ("cetas-web/0.1").
   protocol : String
   mut turn_count : Int32
@@ -116,17 +117,15 @@ priv struct ConsoleObserver {
 ///|
 fn ConsoleObserver::new(
   hub : EventHub,
-  bus : @devkit.EventBus,
+  events : @posoco.Events?,
   session_id : String,
-  label : String,
   protocol : String,
 ) -> ConsoleObserver {
   {
     hub,
-    bus,
+    events,
     session_id,
     turn_id: "",
-    label,
     protocol,
     turn_count: 0,
     step_count: 0,
@@ -154,25 +153,34 @@ fn ConsoleObserver::begin_turn(
 }
 
 ///|
-/// Cumulative harness counters surfaced on the statusbar via the devkit
-/// status ops — same publish path every peer uses.
+/// Cumulative harness counters surfaced on the statusbar via the typed status
+/// ops — same channel every peer uses.
 fn ConsoleObserver::publish_turn_count(self : ConsoleObserver) -> Unit {
-  @devkit.publish_status_update(
-    self.bus,
-    source=self.label,
-    segment="turns",
-    value=self.turn_count.to_string(),
-  )
+  self.publish_status_update("turns", self.turn_count.to_string())
 }
 
 ///|
 fn ConsoleObserver::publish_step_count(self : ConsoleObserver) -> Unit {
-  @devkit.publish_status_update(
-    self.bus,
-    source=self.label,
-    segment="steps",
-    value=self.step_count.to_string(),
-  )
+  self.publish_status_update("steps", self.step_count.to_string())
+}
+
+///|
+/// Publish one counter update as a typed `StatusChanged` op. Fire-and-forget:
+/// a closed channel only means the session is retiring.
+fn ConsoleObserver::publish_status_update(
+  self : ConsoleObserver,
+  segment : String,
+  value : String,
+) -> Unit {
+  match self.events {
+    Some(events) =>
+      ignore(
+        events.publish(
+          @kit_events.StatusChanged(@kit_events.Update(segment~, value~)),
+        ),
+      )
+    None => ()
+  }
 }
 
 ///|

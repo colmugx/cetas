@@ -55,7 +55,12 @@ pub struct ConsoleRuntime {
   home : String
   label : String
   protocol : String
+  /// Host I/O task group (MCP connections, provider tool planes).
   group : @async.TaskGroup[Unit]
+  /// Session-lifetime task group on posoco's core-async stack: the quota
+  /// guard's recovery runtime (fuwaroid) runs here. `None` composes sessions
+  /// without starting recovery.
+  lifetime_group : @core_async.TaskGroup?
   hub : EventHub
   ui_registry : UiRegistry
   workspaces : Map[String, WorkspaceRuntime]
@@ -186,6 +191,7 @@ async fn ConsoleRuntime::compose_handle(
     self.home,
     workspace.cwd,
     self.group,
+    self.lifetime_group,
     workspace.platform,
     self.hub,
     self.ui_registry,
@@ -288,6 +294,7 @@ async fn compose_session_agent(
   home : String,
   cwd : String,
   group : @async.TaskGroup[Unit],
+  lifetime_group : @core_async.TaskGroup?,
   platform : @cetas_core.CetasPlatform,
   hub : EventHub,
   ui_registry : UiRegistry,
@@ -322,13 +329,19 @@ async fn compose_session_agent(
   session.permission.mode = permission_mode
   let router = session.router
   let policy = session.permission
-  let session_bus = session.event_bus
+  // The observer publishes the harness counters as typed status ops on the
+  // session channel, under its own host-label owner.
   let observer = ConsoleObserver::new(
-    hub, session_bus, session_id, label, protocol,
+    hub,
+    @cetas_core.mint_events_publisher(session.events, owner=label),
+    session_id,
+    protocol,
   )
-  let speed_metrics = @stats.Stats(bus=Some(session_bus))
-  let statusbar = @statusbar.StatusBar(bus=Some(session_bus))
-  seed_status(session_bus, label)
+  // The speed metrics publish their typed ops on the session event system the
+  // bar below listens on.
+  let speed_metrics = @stats.Stats()
+  let statusbar = @statusbar.StatusBar(events=Some(session.events))
+  seed_status(@cetas_core.mint_events_publisher(session.events, owner=label))
   let tail_exts : Array[&@posoco.Extension] = [
     observer as &@posoco.Extension,
     speed_metrics,
@@ -337,7 +350,7 @@ async fn compose_session_agent(
   let agent = @cetas_core.compose_cetas_agent(
     session~,
     tail_exts~,
-    runtime_group=Some(group),
+    runtime_group=lifetime_group,
   )
   {
     agent,
@@ -399,6 +412,7 @@ pub async fn ConsoleRuntime::switch_workspace(
     self.home,
     normalized,
     self.group,
+    self.lifetime_group,
     self.hub,
     self.ui_registry,
     @permission.PermissionMode::WorkspaceWrite,
@@ -675,6 +689,7 @@ async fn build_workspace(
   home : String,
   cwd : String,
   group : @async.TaskGroup[Unit],
+  lifetime_group : @core_async.TaskGroup?,
   hub : EventHub,
   ui_registry : UiRegistry,
   permission_mode : @permission.PermissionMode,
@@ -717,15 +732,19 @@ async fn build_workspace(
     warn~,
   )
   session.permission.mode = permission_mode
-  let session_bus = session.event_bus
   let observer = ConsoleObserver::new(
-    hub, session_bus, first_session_id, label, protocol,
+    hub,
+    @cetas_core.mint_events_publisher(session.events, owner=label),
+    first_session_id,
+    protocol,
   )
   let router = session.router
   let policy = session.permission
-  let speed_metrics = @stats.Stats(bus=Some(session_bus))
-  let statusbar = @statusbar.StatusBar(bus=Some(session_bus))
-  seed_status(session_bus, label)
+  // The speed metrics publish their typed ops on the session event system the
+  // bar listens on.
+  let speed_metrics = @stats.Stats()
+  let statusbar = @statusbar.StatusBar(events=Some(session.events))
+  seed_status(@cetas_core.mint_events_publisher(session.events, owner=label))
   let tail_exts : Array[&@posoco.Extension] = [
     observer as &@posoco.Extension,
     speed_metrics,
@@ -734,7 +753,7 @@ async fn build_workspace(
   let agent = @cetas_core.compose_cetas_agent(
     session~,
     tail_exts~,
-    runtime_group=Some(group),
+    runtime_group=lifetime_group,
   )
   let handle : SessionHandle = {
     agent,
@@ -769,6 +788,7 @@ pub async fn compose_console_runtime(
   config : ConsoleConfig,
   cwd : String,
   group : @async.TaskGroup[Unit],
+  lifetime_group~ : @core_async.TaskGroup? = None,
 ) -> ConsoleRuntime {
   let hub = EventHub::new()
   let ui_registry = UiRegistry::new()
@@ -777,6 +797,7 @@ pub async fn compose_console_runtime(
     config.home,
     cwd,
     group,
+    lifetime_group,
     hub,
     ui_registry,
     @permission.PermissionMode::WorkspaceWrite,
@@ -796,6 +817,7 @@ pub async fn compose_console_runtime(
     label: config.label,
     protocol: config.protocol,
     group,
+    lifetime_group,
     hub,
     ui_registry,
     workspaces,

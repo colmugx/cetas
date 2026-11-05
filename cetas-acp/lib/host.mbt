@@ -171,6 +171,7 @@ pub async fn CetasAcpHost::CetasAcpHost(
   cwd~ : String,
   agent_version~ : String = "0.1.0",
   mcp_group? : @async.TaskGroup[Unit],
+  lifetime_group? : @core_async.TaskGroup,
   mcp_mode~ : @mcp.LoadMode = @mcp.LoadMode::Lazy,
 ) -> CetasAcpHost raise @posoco.CompositionError {
   let fs = @workspace.NativeWorkspaceFs()
@@ -179,6 +180,7 @@ pub async fn CetasAcpHost::CetasAcpHost(
     cwd~,
     fs,
     mcp_group~,
+    lifetime_group~,
     mcp_mode~,
     delegation=startup_delegation_mode(),
     debug=startup_debug_taps(),
@@ -1199,6 +1201,10 @@ priv struct Platform {
   /// The host's process task group (nmem flusher, MCP monitors);
   /// `None` in tests without a group.
   mcp_group : @async.TaskGroup[Unit]?
+  /// Session-lifetime group on posoco's core-async stack: the quota guard's
+  /// recovery runtime (fuwaroid) runs here. `None` composes sessions without
+  /// starting recovery.
+  lifetime_group : @core_async.TaskGroup?
   /// The MCP discovery load mode every session's bridge discovers under.
   mcp_mode : @mcp.LoadMode
   /// The `CETAS_DELEGATE_FS` resolution stamped at assembly.
@@ -1239,6 +1245,7 @@ async fn build_platform(
   cwd~ : String,
   fs : &@workspace.WorkspaceFs,
   mcp_group~ : @async.TaskGroup[Unit]?,
+  lifetime_group~ : @core_async.TaskGroup? = None,
   mcp_mode~ : @mcp.LoadMode,
   delegation~ : DelegateFsMode = DelegateFsMode::Local,
   debug~ : DebugTaps = { catalog: false, wire: false, },
@@ -1358,6 +1365,7 @@ async fn build_platform(
     refreshables,
     refresh_snapshot: snapshot,
     mcp_group,
+    lifetime_group,
     mcp_mode,
     delegation,
     debug,
@@ -1416,10 +1424,19 @@ async fn build_session_agent(
   host_kind~ : HostKind = HostKind::Generic,
   env~ : (String) -> String? = read_env_var,
 ) -> SessionHandle raise @posoco.CompositionError {
+  // Session-private event channel: every cross-extension protocol payload
+  // (status ops, tool exemptions, model/selection facts) travels here, and
+  // the composed agent takes ownership of it at the end of the assembly.
+  // Constructed before the router so the router can mint its publisher.
+  let events = @posoco.EventSystem()
+  // Provider model ports publish below this composition layer, so they reach
+  // the session's system by process identity.
+  @devkit.events_system_register(events)
   // The router is built first so the bridge can stamp the active slot's
   // context window; the assembly reuses it instead of minting another.
   let router = @llm.RouterModelPort::from_catalogs(
     platform.catalogs,
+    events=@cetas_core.mint_events_publisher(events, owner="posoco_ext_llm"),
     model_metadata=Some(platform.model_metadata),
     default_slot_id=platform.default_slot_id,
     allow_missing_default=platform.default_slot_pending,
@@ -1461,8 +1478,6 @@ async fn build_session_agent(
       context_contributor as &@posoco.SystemPromptContributor,
     ),
   )
-  // Session-private so plan/permission facts never leak into another's hooks.
-  let event_bus = @devkit.EventBus()
   // `CETAS_DELEGATE_FS=host`: the tool-facing fs is a delegate shell; the
   // host stamps the invocation context at every attach point, so until the
   // first prompt (and after retirement) reads/writes stay local.
@@ -1484,17 +1499,23 @@ async fn build_session_agent(
   let permission_policy = @permission.PermissionPolicy(
     platform.permission_mode,
     approval=Some(bridge as &@permission.ApprovalSource),
-    bus=Some(event_bus),
+    // Subscribed at construction: plan mode below reports its enter/exit
+    // tools as exemptions fire-and-forget, so the gate must already listen.
+    events=@cetas_core.mint_events_publisher(
+      events,
+      owner="posoco_ext_permission",
+    ),
   )
   // Plan mode's enter/exit tools bypass the permission ask — their decision
   // is the plan review, not a tool-permission prompt. It must be built
   // after the policy above: its constructor publishes the tool exemptions
-  // on the shared bus and only a subscribed gate receives them. Plan mode
-  // itself is a write gate; every other tool passes to the policy above.
+  // on the shared event channel and only a subscribed gate receives them.
+  // Plan mode itself is a write gate; every other tool passes to the policy
+  // above.
   let plan_mode = @plan.PlanMode(
     config={ ..@plan.PlanModeConfig::default(), allow_model_entry: true, },
     review=Some(AcpPlanReview::{ bridge, } as &@plan.PlanReviewSource),
-    bus=Some(event_bus),
+    events=@cetas_core.mint_events_publisher(events, owner="posoco_ext_plan"),
     fs=Some(platform.fs),
   )
   let exts : Array[&@posoco.Extension] = [
@@ -1536,7 +1557,6 @@ async fn build_session_agent(
           session_fs,
           home=platform.home,
           label="cetas-acp",
-          bus=event_bus,
           group~,
           initial_slot_id=router.active_id,
         ) {
@@ -1579,7 +1599,13 @@ async fn build_session_agent(
       )
   }
   match platform.mcp_group {
-    Some(group) => mcp_bridge.attach(group)
+    Some(group) =>
+      // The connection actors (fuwaroid 0.4) spawn on the session-lifetime
+      // core-async group; the stdio children stay on the I/O group above.
+      match platform.lifetime_group {
+        Some(lifetime) => mcp_bridge.attach(group, lifetime~)
+        None => mcp_bridge.attach(group)
+      }
     None => ()
   }
   // The split: injected-server and Eager sessions connect here at
@@ -1621,13 +1647,17 @@ async fn build_session_agent(
     fallback=base_runtime as &@runtime.Runtime,
   )
   exts.push(mcp_bridge as &@posoco.Extension)
+  // The agent takes ownership of the session's event system: listeners
+  // registered before composition keep receiving in registration order.
   let agent = @posoco.Agent::with_runtime(
     exts~,
     config~,
+    events~,
     runtime=runtime as &@runtime.Runtime,
   )
-  // The Fuwaroid recovery runtime shares the host task-group lifetime.
-  match platform.mcp_group {
+  // The Fuwaroid recovery runtime shares the session-lifetime group, which is
+  // a posoco core-async group (the guard and fuwaroid run on that stack).
+  match platform.lifetime_group {
     Some(group) => ratelimit.start(group~, agent~)
     None => ()
   }

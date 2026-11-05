@@ -17,16 +17,20 @@ pub extend CetasPtcStatus with @moonbitlang/core/debug.Debug::{to_repr}
 
 ///|
 pub struct CetasPtcMode {
-  bus : @devkit.EventBus?
+  /// Host-minted publisher capability on the session event system (owner
+  /// `posoco_ext_bunraku`, the namespace the status segment is attributed
+  /// to). `None` means no channel: the mode still works, it just publishes
+  /// no status segment.
+  events : @posoco.Events?
   mut current_ : CetasPtcStatus
   mut revision_ : Int32
 }
 
 ///|
 pub fn CetasPtcMode::CetasPtcMode(
-  bus~ : @devkit.EventBus? = None,
+  events~ : @posoco.Events? = None,
 ) -> CetasPtcMode {
-  let self = { bus, current_: PtcHybrid, revision_: 0, }
+  let self = { events, current_: PtcHybrid, revision_: 0, }
   // The statusbar is already subscribed when the host composes this mode.
   self.publish_status()
   self
@@ -60,36 +64,37 @@ fn CetasPtcMode::status_json(self : CetasPtcMode) -> Json {
 }
 
 ///|
+/// Publish the mode segment as a typed `StatusChanged` op. Fire-and-forget:
+/// a closed channel only means the session is retiring.
 fn CetasPtcMode::publish_status(self : CetasPtcMode) -> Unit {
-  match self.bus {
+  match self.events {
     None => ()
-    Some(bus) =>
-      match self.current_ {
-        PtcDirect =>
-          @devkit.publish_status_unregister(
-            bus,
-            source="posoco_ext_bunraku",
-            segment="ptc",
-          )
-        PtcHybrid =>
-          @devkit.publish_status_register(
-            bus,
-            source="posoco_ext_bunraku",
-            segment="ptc",
-            priority=11,
-            value="Hybrid",
-            color="muted",
-          )
-        PtcOnly =>
-          @devkit.publish_status_register(
-            bus,
-            source="posoco_ext_bunraku",
-            segment="ptc",
-            priority=11,
-            value="PTC",
-            color="accent",
-          )
-      }
+    Some(events) =>
+      ignore(
+        events.publish(
+          @kit_events.StatusChanged(
+            match self.current_ {
+              PtcDirect => @kit_events.Unregister(segment="ptc")
+              PtcHybrid =>
+                @kit_events.Register(
+                  segment="ptc",
+                  label=None,
+                  priority=11,
+                  value=Some("Hybrid"),
+                  color=Some("muted"),
+                )
+              PtcOnly =>
+                @kit_events.Register(
+                  segment="ptc",
+                  label=None,
+                  priority=11,
+                  value=Some("PTC"),
+                  color=Some("accent"),
+                )
+            },
+          ),
+        ),
+      )
   }
 }
 
