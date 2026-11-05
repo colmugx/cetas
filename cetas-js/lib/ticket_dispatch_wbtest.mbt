@@ -71,7 +71,7 @@ async test "ticket run dispatches a background child and moves the ticket to rev
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
@@ -238,7 +238,7 @@ async test "ticket shaping can split an oversized ticket into ready children and
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
@@ -430,7 +430,7 @@ async test "ticket shaping clarifies the ticket and moves it to ready" {
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
@@ -554,7 +554,7 @@ async test "ticket run uses the pinned model instead of the current active model
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
@@ -816,7 +816,7 @@ async test "ticket retry from review starts a fresh child session" {
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
@@ -909,7 +909,7 @@ async test "ticket retry from suspended starts a fresh child session" {
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
@@ -1004,7 +1004,7 @@ async test "ticket retry is rejected while the ticket is running" {
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
@@ -1098,7 +1098,7 @@ async test "ticket retry is rejected from a stage that is not retryable" {
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
@@ -1162,7 +1162,7 @@ async test "ticket resume continues the durable child session" {
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
@@ -1386,7 +1386,7 @@ async test "ticket request changes records the feedback, returns the ticket to R
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
@@ -1490,7 +1490,7 @@ async test "ticket request changes rejects empty feedback and a ticket without a
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
@@ -1634,7 +1634,7 @@ async test "ticket worker prompt carries the reviewer feedback on the new attemp
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
@@ -2108,7 +2108,7 @@ async test "ticket progress state json keeps a bounded per-ticket log" {
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
@@ -2223,7 +2223,7 @@ async test "ticket run persists the submitted work report instead of the minimal
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
@@ -2322,7 +2322,7 @@ async test "ticket finish fails visibly when the Board rejects the report" {
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
@@ -2416,7 +2416,7 @@ async test "RD-only role plan reaches review without starting SET or TE" {
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),
@@ -2561,7 +2561,7 @@ async test "worker question to PO is answered in the background" {
       authorize=() => true,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let tickets = BoardWorkHost::BoardWorkHost(
       board~,
       manager=Providers(router),

@@ -172,7 +172,7 @@ async test "js mcp login flow and startup token injection" {
   @core_async.with_task_group(async fn(lifetime) {
     @async.with_task_group(async fn(group) {
       bridge.attach(group, lifetime~)
-      defer bridge.close()
+      defer @async.protect_from_cancel(() => bridge.close())
       inspect(bridge.activate().length(), content="1")
       inspect(bridge.auth_challenge("oa") is Some(_), content="true")
       // The full login chain — the same function the intercepted /mcp login runs.

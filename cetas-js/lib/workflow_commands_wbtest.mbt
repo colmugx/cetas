@@ -462,7 +462,7 @@ async test "board_work reads durable ticket provenance and filters by review pat
       agents~,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let product = CetasWorkflowCommands::{
       board,
       agents,

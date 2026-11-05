@@ -3,7 +3,7 @@ async test "subagent first use accepts missing settings without creating files" 
   let fs = @workspace.JsWorkspaceFs()
   let home = "./cetas-subagent-settings-js-" + @cetas_core.mint_session_id()
   fs.mkdir(home, recursive=true)
-  errdefer fs.remove(home)
+  errdefer @async.protect_from_cancel(() => fs.remove(home))
   for stage in 0..<2 {
     if stage == 1 {
       fs.mkdir(home + "/.cetas", recursive=true)
@@ -22,7 +22,7 @@ async test "subagent settings loader rejects present empty malformed and unreada
   let home = "./cetas-subagent-settings-js-" + @cetas_core.mint_session_id()
   let path = home + "/.cetas/settings.json"
   fs.mkdir(home + "/.cetas", recursive=true)
-  errdefer fs.remove(home)
+  errdefer @async.protect_from_cancel(() => fs.remove(home))
   for text in ["", "{broken"] {
     fs.write_file(path, text)
     try load_cetas_subagent_settings(home~) catch {

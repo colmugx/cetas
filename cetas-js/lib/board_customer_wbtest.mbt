@@ -102,7 +102,7 @@ async test "Cetas JS factory drives real Agent plan graph scope preparation and 
       ),
       now_ms=() => 100L,
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let agent = @posoco.Agent(
       exts=[router, ui, board],
       config=@cetas_core.default_agent_config(),
@@ -196,7 +196,7 @@ async test "Cetas Board is absent by default and readonly cannot acquire workflo
       authorize=() => false,
       policy=@board.BoardWorkflowPolicy(enabled=true),
     )
-    defer ignore(board.shutdown())
+    defer ignore(@async.protect_from_cancel(() => board.shutdown()))
     let ui = WorkflowCustomerUi::{ prompts: [], }
     let agent = @posoco.Agent(
       exts=[router, ui, board],
