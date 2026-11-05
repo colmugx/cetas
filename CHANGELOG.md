@@ -2,6 +2,56 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.11.0 (2026-11-06)
+
+## General
+
+### Feats
+
+- All surface can now use OpenAI/Codex hosted Web Search.
+- Z.ai GLM Coding Plan subscribers now get the plan's three bundled remote MCP servers — Web Search, Web Reader and Zread.
+
+### Fixes
+
+- Model calls now ride out network trouble instead of failing the turn.
+- Answering one pending question no longer silently withdraws the others.
+
+## Bun Ver.（cetas-bun）
+
+### Feats
+
+- Input typed while a turn is running is no longer dropped: it queues in order, stays visible as pending input, and starts as its own new turn as soon as the agent is idle — after an interrupt, a compaction or a failed turn alike — and only says the text was not delivered once three delivery attempts really failed.
+- The status bar now shows what the active model brings: a `web_search` segment while the model is searching, and a provider capability segment such as `3/3 Official MCP` for the model's provider-owned MCP set.
+- Board work now drives the app status: running tickets read "Board: N running", and a Board waiting on your answer flips the status to blocked with the question it is waiting for.
+- Any Board question can be escalated to the product owner in one click ("Ask <PO name>") from the ticket inbox, instead of being answered by a separate refiner role.
+- Pi extension packages that declare a directory entry (`"pi": {"extensions": ["./dist"]}`, as pi-web-access 0.46+ does) now load, and a package whose entry resolves to nothing fails on its own with a warning instead of breaking the whole scan.
+- Pi packages can now change their active tool set at runtime: the tool list the model sees, with descriptions, schemas and prompt hints, follows the active set rather than the full registry.
+
+### Fixes
+
+- Subagent streams are clean: child-only facts (context occupancy, compaction progress) are filtered out before reaching the parent, and an event the host cannot parse names its own inner type instead of surfacing as a misleading "unknown type subagent_event".
+- A closed or stalled Board tab can no longer queue unbounded frames or keep cetas from exiting, and a slow backend no longer stacks overlapping polls.
+
+## Unreleased
+
+### Events migration (devkit EventBus → posoco `@events`)
+
+- All extensions and hosts now exchange cross-extension facts through posoco 0.24.1's
+  typed `@events` / `EventSystem` (closed payload ADTs from the new `posoco/kit-events`
+  protocol package: `StatusChanged`, `ToolExemptions`, `ModelSelection`,
+  `DecisionSelection`, `ProviderStatus`, `ProfilesActivated`).
+- Hosts create and exclusively transfer an `EventSystem` to the `Agent`; publishers
+  below the composition layer receive owner-bound capabilities minted at assembly
+  (`system.publisher(owner~)`).
+- The devkit event system (`EventBus` / `BusSubscriber` / `status_bus_*` /
+  `decode_status_op` / `STATUS_TOPIC` / `cetas_core.status_bus_token`) is removed
+  outright: the deprecation window was skipped. `publish_status_*` keeps its
+  behavior but drops the `EventBus` first argument and publishes typed
+  `StatusChanged` on the process default `EventSystem`; see
+  `extension/docs/events-migration.md`.
+- Known unrelated environmental failures (identical at git HEAD): posoco-ext-mbtx
+  guest-toolchain tests, posoco-ext-bunraku guest-execution tests.
+
 ## 0.10.14 (2026-10-29)
 
 ## Bun Ver.（cetas-bun）
