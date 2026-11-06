@@ -43,10 +43,12 @@ pub fn ConsoleRuntime::active_session_id(Self) -> String
 pub fn ConsoleRuntime::active_workspace(Self) -> String
 pub fn ConsoleRuntime::attach_sink(Self, (String) -> Unit) -> Unit
 pub fn ConsoleRuntime::cancel_pending_ui(Self) -> Unit
+pub fn ConsoleRuntime::commands_json(Self) -> @json.Json
 pub async fn ConsoleRuntime::compact_active_session(Self) -> Unit
 pub fn ConsoleRuntime::detach_sink(Self) -> Unit
 pub fn ConsoleRuntime::emit_active_snapshot(Self) -> Unit
 pub fn ConsoleRuntime::emit_event(Self, String, String, String, extra? : Array[(String, @json.Json)]) -> Unit
+pub async fn ConsoleRuntime::invoke_registered_command(Self, String, String, @json.Json) -> @json.Json
 pub async fn ConsoleRuntime::file_suggestions_json(Self, String, Int32) -> @json.Json
 pub async fn ConsoleRuntime::login(Self, String, String) -> String
 pub async fn ConsoleRuntime::logout(Self, String) -> String
