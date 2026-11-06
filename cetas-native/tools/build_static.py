@@ -126,7 +126,10 @@ def compile_archive(sources):
     include = moon_home / "include"
     if not runtime.is_dir() or not include.is_dir():
         raise RuntimeError(f"MoonBit C runtime/headers absent under {moon_home}")
-    runtime_sources = [runtime / name for name in RUNTIME_SOURCES]
+    runtime_sources = sorted(runtime.glob("*.c"))
+    if not runtime_sources:
+        raise RuntimeError("MoonBit C runtime sources missing; check MoonBit installation")
+    print("Linking MoonBit runtime C sources:", ", ".join(src.name for src in runtime_sources), flush=True)
     missing = [str(p) for p in runtime_sources if not p.is_file()]
     if missing:
         raise RuntimeError(f"MoonBit runtime sources missing: {missing}")
