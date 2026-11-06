@@ -406,6 +406,31 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
  return m,cmd
 }
 
+// dismissUI consumes a completion/cancellation event only for the indicated
+// request. The native runtime can finish a UiPort coroutine independently of
+// the focused Bubble Tea picker, so stale dismissals must not close the next
+// question (or an unrelated model/command selector).
+func (m *model) dismissUI(id string) {
+ if id=="" {return}
+ if id==m.modalRequestID {
+  m.modal="";m.modalRequestID="";m.modalItems=nil;m.modalValues=nil
+  m.modalBuffer=nil;m.modalPrompt="";m.modalIndex=0
+  if len(m.pendingUI)>0 {
+   next:=m.pendingUI[0];m.pendingUI=m.pendingUI[1:];m.activateUI(next)
+   m.status="waiting for user input"
+  } else {
+   m.status="ready"
+  }
+  return
+ }
+ for i,req:=range m.pendingUI {
+  if req.id==id {
+   m.pendingUI=append(m.pendingUI[:i:i],m.pendingUI[i+1:]...)
+   return
+  }
+ }
+}
+
 func (m *model) answerModal(answer map[string]any) tea.Cmd {
  id:=m.modalRequestID
  answer["request_id"]=id
@@ -502,9 +527,12 @@ func (m *model) applyEvent(e harness.Event) {
  case "session.redirect":if frame.From==m.session&&frame.To!="" {m.session=frame.To};m.status="session redirected"
  case "session.snapshot":m.running=frame.Busy
  case "ui.request":
+  if frame.RequestID=="" {m.err="ui.request missing request_id";return}
   prompt:=uiPrompt{id:frame.RequestID,kind:frame.Kind,prompt:frame.Prompt,options:frame.Options,defaultValue:frame.Default}
   if m.modalRequestID!="" {m.pendingUI=append(m.pendingUI,prompt)} else {m.activateUI(prompt)}
   m.status="waiting for user input"
+ case "ui.dismiss":
+  m.dismissUI(frame.RequestID)
  case "ui.render":
   text:=frame.Text
   if len(frame.Lines)>0 {text=strings.Join(frame.Lines,"\n")}
