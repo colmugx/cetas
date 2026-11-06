@@ -188,9 +188,15 @@ async fn harness_dispatch(
       harness_ok()
     }
     "session_compact" => {
-      // Compaction is a real LLM call, never invoked in offline tests.
-      runtime.compact_active_session()
-      harness_ok()
+      // Compaction may invoke an LLM and a blocking UiPort prompt. It MUST
+      // never suspend the only native command consumer: ui_response, abort
+      // and shutdown must remain serviceable while compaction is running.
+      runtime.spawn_background(async fn() {
+        runtime.compact_active_session()
+      })
+      Json::object(Map::from_array([
+        ("status", Json::string("started")),
+      ]))
     }
     "status_refresh" => {
       let sid = harness_string(args, "session_id").unwrap_or(runtime.active_session_id())
