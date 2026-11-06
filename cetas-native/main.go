@@ -461,7 +461,7 @@ func (m *model) refreshTranscript() {
   if m.markdownCache==nil {m.markdownCache=make(map[int]string)}
   for idx,raw:=range m.markdownRaw {
    rendered,ok:=m.markdownCache[idx]
-   if !ok {result,err:=m.markdownRenderer.Render(raw);if err!=nil {rendered=raw} else {rendered=strings.TrimRight(result,"\\n")};m.markdownCache[idx]=rendered}
+   if !ok {result,err:=m.markdownRenderer.Render(raw);if err!=nil {rendered=raw} else {rendered=strings.TrimRight(result,"\n")};m.markdownCache[idx]=rendered}
    if idx<len(items) {items[idx]=rendered}
   }
  }
