@@ -229,9 +229,7 @@ impl @posoco.UiPort for HubUiPort with fn request(
     }
   }
   self.hub.emit(self.session_id, "", "ui.request", extra~)
-  let raw = queue.get() catch {
-    _ => return @posoco.UiResponse::Cancelled
-  }
+  let raw = queue.get() catch { _ => return @posoco.UiResponse::Cancelled }
   ui_response_for_request(request, raw)
 }
 
