@@ -42,18 +42,14 @@ test "UiPort response decoding is request-type strict" {
     @posoco.UiResponse::Selected(2) => ()
     _ => fail("valid selection was not preserved")
   }
-  for invalid in [
-    "{\"selected\":-1}",
-    "{\"selected\":3}",
-    "{\"selected\":1.5}",
-    "{\"selected\":2147483648}",
-    "{\"text\":\"injected\"}",
-    "{\"yes\":true}",
-    "not-json",
-  ] {
+  for
+    invalid in [
+      "{\"selected\":-1}", "{\"selected\":3}", "{\"selected\":1.5}", "{\"selected\":2147483648}",
+      "{\"text\":\"injected\"}", "{\"yes\":true}", "not-json",
+    ] {
     assert_true(
-      ui_response_for_request(select_request, invalid) is
-      @posoco.UiResponse::Cancelled,
+      ui_response_for_request(select_request, invalid)
+      is @posoco.UiResponse::Cancelled,
     )
   }
   let input = @posoco.UiRequest::Input(prompt="Question?", default=None)
@@ -62,21 +58,20 @@ test "UiPort response decoding is request-type strict" {
     _ => fail("input response was not preserved")
   }
   assert_true(
-    ui_response_for_request(input, "{\"selected\":0}") is
-    @posoco.UiResponse::Cancelled,
+    ui_response_for_request(input, "{\"selected\":0}")
+    is @posoco.UiResponse::Cancelled,
   )
   let confirm = @posoco.UiRequest::Confirm(prompt="Confirm?")
   assert_true(
-    ui_response_for_request(confirm, "{\"text\":\"yes\"}") is
-    @posoco.UiResponse::Cancelled,
+    ui_response_for_request(confirm, "{\"text\":\"yes\"}")
+    is @posoco.UiResponse::Cancelled,
   )
   assert_true(
-    ui_response_for_request(confirm, "{\"yes\":true}") is
-    @posoco.UiResponse::Yes,
+    ui_response_for_request(confirm, "{\"yes\":true}")
+    is @posoco.UiResponse::Yes,
   )
   assert_true(
-    ui_response_for_request(confirm, "{\"no\":false}") is
-    @posoco.UiResponse::No,
+    ui_response_for_request(confirm, "{\"no\":false}") is @posoco.UiResponse::No,
   )
 }
 
@@ -89,11 +84,12 @@ async test "UiPort request waits until corresponding answer and retires itself" 
     hub.attach(fn(frame) { frames.push(frame) })
     let registry = UiRegistry::new()
     let port = HubUiPort::new(hub, registry, "session-a")
-    let answer = group.spawn(() =>
-      @posoco.UiPort::request(port, 
+    let answer = group.spawn(() => {
+      @posoco.UiPort::request(
+        port,
         @posoco.UiRequest::Input(prompt="CJK question", default=None),
       )
-    )
+    })
     @async.sleep(10)
     assert_true(registry.pending.contains("u-1"))
     assert_true(frames.length() >= 1)
@@ -117,18 +113,22 @@ async test "UiPort shutdown wakes simultaneous waiters fail closed" {
     let hub = EventHub::new()
     let registry = UiRegistry::new()
     let port = HubUiPort::new(hub, registry, "session-a")
-    let approval = group.spawn(() =>
-      @posoco.UiPort::request(port, 
+    let approval = group.spawn(() => {
+      @posoco.UiPort::request(
+        port,
         @posoco.UiRequest::Select(
           prompt="Approve shell?",
           options=["once", "deny"],
           default=None,
         ),
       )
-    )
-    let question = group.spawn(() =>
-      @posoco.UiPort::request(port, @posoco.UiRequest::Input(prompt="Question", default=None))
-    )
+    })
+    let question = group.spawn(() => {
+      @posoco.UiPort::request(
+        port,
+        @posoco.UiRequest::Input(prompt="Question", default=None),
+      )
+    })
     @async.sleep(10)
     assert_true(registry.pending.contains("u-1"))
     assert_true(registry.pending.contains("u-2"))
