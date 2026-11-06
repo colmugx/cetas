@@ -64,6 +64,8 @@ type model struct {
  modalBuffer []rune
  pendingUI []uiPrompt
  followups []string
+ completionPrefix string
+ completionToken string
  modelSlots []struct {
   ID string `json:"id"`
   Label string `json:"label"`
@@ -158,6 +160,23 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
     for _,s:=range m.modelSlots {m.modalItems=append(m.modalItems,s.Label);m.modalValues=append(m.modalValues,s.ID)}
    }
   }
+  if msg.name=="file_search" {
+   var data struct{Query string `json:"query"`;Entries []struct{Path string `json:"path"`} `json:"entries"`}
+   if json.Unmarshal(msg.payload,&data)==nil && m.completionToken=="@"+data.Query && strings.HasSuffix(m.textarea.Value(),m.completionToken) {
+    m.modal="files";m.modalIndex=0;m.modalItems=nil;m.modalValues=nil
+    for _,v:=range data.Entries {m.modalItems=append(m.modalItems,v.Path);m.modalValues=append(m.modalValues,v.Path)}
+   }
+  }
+  if msg.name=="skills" {
+   var data struct{Skills []struct{Name string `json:"name"`;Description string `json:"description"`} `json:"skills"`}
+   if json.Unmarshal(msg.payload,&data)==nil {
+    m.modal="skills";m.modalIndex=0;m.modalItems=nil;m.modalValues=nil
+    for _,v:=range data.Skills {
+     if m.completionToken!="" && !strings.Contains(strings.ToLower(v.Name),strings.ToLower(strings.TrimPrefix(m.completionToken,"$"))) {continue}
+     m.modalItems=append(m.modalItems,v.Name+" "+v.Description);m.modalValues=append(m.modalValues,v.Name)
+    }
+   }
+  }
   if msg.name=="sessions" {
    var payload struct{Sessions []struct{ID string `json:"id"`;Title string `json:"title"`;Active bool `json:"active"`} `json:"sessions"`}
    if json.Unmarshal(msg.payload,&payload)==nil {
@@ -230,6 +249,11 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
      case "models":m.modal="";m.modalValues=nil;return m,request(m.host,"switch_model",map[string]any{"slot_id":chosen})
      case "sessions":m.modal="";m.modalValues=nil;return m,request(m.host,"switch_session",map[string]any{"id":chosen})
      case "providers":m.modal="";m.modalValues=nil;return m,request(m.host,"login",map[string]any{"provider":chosen})
+     case "files","skills":
+      symbol:="@";if m.modal=="skills" {symbol="$"}
+      inserted:=m.completionPrefix+symbol+chosen
+      if !strings.HasSuffix(chosen,"/") {inserted+=" "}
+      m.textarea.SetValue(inserted);m.textarea.Focus();m.modal="";m.modalValues=nil;m.completionToken="";return m,nil
      }
     }
     m.modal="";m.modalValues=nil
@@ -237,6 +261,17 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
    return m,nil
   }
   switch key {
+  case "tab":
+   if m.host==nil {return m,nil}
+   value:=m.textarea.Value()
+   at:=strings.LastIndexAny(value,"@$")
+   if at>=0 && !strings.ContainsAny(value[at:]," \t\n") {
+    m.completionPrefix=value[:at]
+    m.completionToken=value[at:]
+    if value[at]=='@' {return m,request(m.host,"file_search",map[string]any{"q":value[at+1:]})}
+    return m,request(m.host,"skills",map[string]any{})
+   }
+   return m,nil
   case "ctrl+o":m.showTools=!m.showTools;return m,nil
   case "ctrl+t":m.showThinking=!m.showThinking;return m,nil
   case "esc":
@@ -291,6 +326,7 @@ func (m model) command(value string) tea.Cmd {
  case "/login":if len(parts)>1 {method:="";if len(parts)>2 {method=parts[2]};return request(m.host,"login",map[string]any{"provider":parts[1],"method":method})};return request(m.host,"providers",map[string]any{})
  case "/logout":if len(parts)>1 {return request(m.host,"logout",map[string]any{"provider":parts[1]})}
  case "/sessions":return request(m.host,"sessions",map[string]any{})
+ case "/skills":m.completionToken="";return request(m.host,"skills",map[string]any{})
  case "/compact":return request(m.host,"session_compact",map[string]any{})
  case "/permission":
   if len(parts)>1 {return request(m.host,"set_permission",map[string]any{"mode":parts[1]})}
