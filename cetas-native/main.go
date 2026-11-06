@@ -51,6 +51,9 @@ type model struct {
  modal string
  modalItems []string
  modalIndex int
+ modalRequestID string
+ modalPrompt string
+ modalBuffer []rune
  modelSlots []struct {
   ID string `json:"id"`
   Label string `json:"label"`
@@ -140,6 +143,21 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   key:=msg.String()
   if key=="ctrl+c" {return m,tea.Quit}
   if m.modal!="" {
+   if m.modalRequestID!="" {
+    switch key {
+    case "esc":return m,m.answerModal(map[string]any{"cancelled":true})
+    case "enter":
+     switch m.modal {
+     case "input":return m,m.answerModal(map[string]any{"text":string(m.modalBuffer)})
+     case "select":return m,m.answerModal(map[string]any{"selected":m.modalIndex})
+     case "confirm":if m.modalIndex==0{return m,m.answerModal(map[string]any{"yes":true})};return m,m.answerModal(map[string]any{"no":false})
+     }
+    case "up","ctrl+p":if m.modalIndex>0 {m.modalIndex--};return m,nil
+    case "down","ctrl+n":if m.modalIndex+1<len(m.modalItems) {m.modalIndex++};return m,nil
+    case "backspace":if m.modal=="input"&&len(m.modalBuffer)>0 {m.modalBuffer=m.modalBuffer[:len(m.modalBuffer)-1]};return m,nil
+    default:if m.modal=="input"&&msg.Text!="" {m.modalBuffer=append(m.modalBuffer,[]rune(msg.Text)...)};return m,nil
+    }
+   }
    switch key {
    case "esc":m.modal="";m.modalItems=nil
    case "up","ctrl+p":if m.modalIndex>0 {m.modalIndex--}
@@ -158,6 +176,8 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   case "esc":
    if m.host!=nil&&m.running {return m,request(m.host,"turn_abort",map[string]any{})}
    return m,nil
+  case "pgup","pageup":m.viewport.ScrollUp(max(1,m.viewport.Height()/2));return m,nil
+  case "pgdown","pagedown":m.viewport.ScrollDown(max(1,m.viewport.Height()/2));return m,nil
   case "enter":
    value:=strings.TrimSpace(m.textarea.Value())
    if value=="" {return m,nil}
@@ -175,11 +195,21 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
  return m,cmd
 }
 
+func (m *model) answerModal(answer map[string]any) tea.Cmd {
+ id:=m.modalRequestID
+ answer["request_id"]=id
+ m.modal="";m.modalRequestID="";m.modalItems=nil;m.modalBuffer=nil;m.modalPrompt=""
+ return request(m.host,"ui_response",answer)
+}
+
 func (m model) command(value string) tea.Cmd {
  parts:=strings.Fields(value)
  switch parts[0] {
  case "/model":return request(m.host,"models",map[string]any{})
  case "/new":return request(m.host,"switch_session",map[string]any{})
+ case "/login":if len(parts)>1 {method:="";if len(parts)>2 {method=parts[2]};return request(m.host,"login",map[string]any{"provider":parts[1],"method":method}};return request(m.host,"providers",map[string]any{})
+ case "/logout":if len(parts)>1 {return request(m.host,"logout",map[string]any{"provider":parts[1]})}
+ case "/sessions":return request(m.host,"sessions",map[string]any{})
  case "/compact":return request(m.host,"session_compact",map[string]any{})
  case "/permission":
   if len(parts)>1 {return request(m.host,"set_permission",map[string]any{"mode":parts[1]})}
@@ -197,6 +227,12 @@ func (m *model) applyEvent(e harness.Event) {
   Message string `json:"message"`
   ToolName string `json:"tool_name"`
   SessionID string `json:"session_id"`
+  RequestID string `json:"request_id"`
+  Kind string `json:"kind"`
+  Prompt string `json:"prompt"`
+  Options []string `json:"options"`
+  Slot string `json:"slot"`
+  Lines []string `json:"lines"`
  }
  if json.Unmarshal(e.Raw,&frame)!=nil {return}
  if frame.SessionID!="" {m.session=frame.SessionID}
@@ -223,7 +259,13 @@ func (m *model) applyEvent(e harness.Event) {
   m.transcript=append(m.transcript,"Error: "+frame.Message)
   m.streaming.Reset();m.reasoning.Reset();m.running=false;m.status="failed"
  case "session.redirect":m.status="session redirected"
- case "ui.request":m.status="interactive approval requested (native UI migration pending)"
+ case "ui.request":
+  m.modalRequestID=frame.RequestID;m.modal=frame.Kind;m.modalPrompt=frame.Prompt
+  m.modalBuffer=nil;m.modalIndex=0;m.modalItems=append([]string(nil),frame.Options...)
+  if frame.Kind=="confirm" {m.modalItems=[]string{"Yes","No"}}
+  m.status="waiting for user input"
+ case "ui.render":
+  if frame.Slot=="Notice"||frame.Slot=="Widget" {text:=frame.Text;if len(frame.Lines)>0 {text=strings.Join(frame.Lines,"\n")};if text!="" {m.transcript=append(m.transcript,text)}}
  }
  m.refreshTranscript()
 }
@@ -263,5 +305,11 @@ func (m model) View() tea.View {
 }
 func main() {
  p:=tea.NewProgram(newModel())
- if _,err:=p.Run();err!=nil {fmt.Fprintln(os.Stderr,err);os.Exit(1)}
+ result,err:=p.Run()
+ if state,ok:=result.(model);ok && state.host!=nil {
+  ctx,cancel:=context.WithTimeout(context.Background(),15*time.Second)
+  if closeErr:=state.host.Close(ctx);closeErr!=nil {fmt.Fprintln(os.Stderr,"shutdown:",closeErr)}
+  cancel()
+ }
+ if err!=nil {fmt.Fprintln(os.Stderr,err);os.Exit(1)}
 }
