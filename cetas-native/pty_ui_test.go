@@ -94,7 +94,7 @@ func TestInteractivePTYApprovals(t *testing.T) {
 	m.feed=h.events
 	m.session="pty-session"
 	m.status="ready"
-	_,err:=tea.NewProgram(ptyBubbleTeaModel{model:m,host:h}).Run()
+	_,err:=tea.NewProgram(ptyBubbleTeaModel{model:m,host:h},tea.WithWindowSize(108,36)).Run()
 	if err!=nil {t.Fatalf("Bubble Tea PTY program failed: %v",err)}
 	h.mu.Lock()
 	defer h.mu.Unlock()
