@@ -58,3 +58,20 @@ func TestCommandPaletteDoesNotExecuteOnSelection(t *testing.T) {
   t.Fatalf("command palette dispatched instead of editing: %q",state.textarea.Value())
  }
 }
+
+func TestNeedsInputReopensTypedCommandWithoutStartingAnotherTurn(t *testing.T) {
+ m:=newModel()
+ m.session="session-a"
+ m.installCommandCatalog(json.RawMessage(commandFixture))
+ m.applyEvent(event(`{"type":"command.completed","session_id":"session-a","command_id":"ptc","outcome":{"type":"needs_input","prompt":"Select a PTC mode"}}`))
+ if m.textarea.Value()!="/ptc "||m.status!="Select a PTC mode" {
+  t.Fatalf("needs-input outcome did not offer command editor: editor=%q status=%q",m.textarea.Value(),m.status)
+ }
+ found:=m.commandSuggestions(m.textarea.Value())
+ if len(found)!=3 {t.Fatalf("typed choices missing: %#v",found)}
+ m.session="session-b"
+ m.applyEvent(event(`{"type":"command.completed","session_id":"session-a","command_id":"ptc","outcome":{"type":"success","feedback":"stale"}}`))
+ if strings.Contains(strings.Join(m.transcript,"\n"),"stale") {
+  t.Fatal("stale command response crossed session boundary")
+ }
+}
