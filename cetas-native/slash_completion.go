@@ -24,6 +24,9 @@ var nativeSlashCommands = []nativeSlashCommand{
 	{"/permission", "Set the permission mode", true},
 	{"/skills", "Browse installed skills", false},
 	{"/compact", "Compact session context", false},
+	{"/find", "Find transcript text across the full history", true},
+	{"/find-next", "Jump to next transcript match", false},
+	{"/find-prev", "Jump to previous transcript match", false},
 	{"/help", "Show available commands", false},
 }
 
