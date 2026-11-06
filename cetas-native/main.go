@@ -337,7 +337,7 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
    case "up","ctrl+p":if m.modalIndex>0 {m.modalIndex--}
    case "down","ctrl+n":if m.modalIndex+1<len(m.modalItems) {m.modalIndex++}
    case "enter":
-    if m.modalIndex<len(m.modalValues)&&(m.host!=nil||m.modal=="slash") {
+    if m.modalIndex<len(m.modalValues)&&(m.host!=nil||m.modal=="slash"||m.modal=="skills"||m.modal=="skills_browse"||m.modal=="files") {
      chosen:=m.modalValues[m.modalIndex]
      switch m.modal {
      case "models":m.modal="";m.modalValues=nil;return m,request(m.host,"switch_model",map[string]any{"slot_id":chosen})
@@ -479,6 +479,16 @@ func (m *model) command(value string) tea.Cmd {
  return func() tea.Msg {return commandResult{name:value,err:fmt.Errorf("command not available in this migration checkpoint")}}
 }
 
+// The EventHub carries tool results as text and auth.login outcomes as
+// structured JSON. Decoding the entire event through a string "result" field
+// rejected valid auth outcomes before the type switch even ran.
+func toolResultText(raw json.RawMessage) string {
+ if len(raw)==0||string(raw)=="null" {return ""}
+ var value string
+ if json.Unmarshal(raw,&value)==nil {return value}
+ return string(raw)
+}
+
 func (m *model) applyEvent(e harness.Event) {
  var frame struct {
   Type string `json:"type"`
@@ -488,7 +498,7 @@ func (m *model) applyEvent(e harness.Event) {
   Message string `json:"message"`
   ToolName string `json:"tool_name"`
   ToolCallID string `json:"tool_call_id"`
-  Result string `json:"result"`
+  Result json.RawMessage `json:"result"`
   IsError bool `json:"is_error"`
   Title string `json:"title"`
   Entries []struct {Key string `json:"key"`;Value string `json:"value"`} `json:"entries"`
@@ -527,7 +537,7 @@ func (m *model) applyEvent(e harness.Event) {
  case "tool.completed":
   marker:="✓";if frame.IsError {marker="✗"}
   if at,ok:=m.toolIndex[frame.ToolCallID];ok&&at<len(m.transcript) {m.transcript[at]="• "+frame.ToolName+" "+marker}
-  if m.showTools&&frame.Result!="" {m.transcript=append(m.transcript,frame.Result)}
+  if rendered:=toolResultText(frame.Result);m.showTools&&rendered!="" {m.transcript=append(m.transcript,rendered)}
  case "turn.completed":
   text:=m.streaming;if text=="" {text=frame.Text}
   if text!="" {m.appendAssistant(text)}
