@@ -186,6 +186,15 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   return m,receive(m.feed)
  case commandResult:
   if msg.err!=nil {m.err=msg.name+": "+msg.err.Error();if msg.name=="turn_start" {m.running=false};return m,nil}
+  // Harness can return a protocol-level error inside an otherwise valid
+  // correlated response. It is not a transport failure; still render it and
+  // do not accidentally treat it as successful rewind/login/turn dispatch.
+  var failure struct{Error string `json:"error"`}
+  if json.Unmarshal(msg.payload,&failure)==nil && failure.Error!="" {
+   m.err=msg.name+": "+failure.Error
+   if msg.name=="turn_start" {m.running=false}
+   return m,nil
+  }
   if msg.name=="models" {
    var x struct{ Models []struct {
     ID string `json:"id"`
@@ -283,8 +292,12 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   }
   if msg.name=="help" {m.transcript=append(m.transcript,"/model · /effort · /sessions · /rewind · /new · /login [provider] · /logout provider · /permission mode · /compact · /help");m.refreshTranscript()}
   if msg.name=="runtime_state" {
-   var s struct{SessionID string `json:"session_id"`;Status string `json:"status"`}
-   if json.Unmarshal(msg.payload,&s)==nil {m.session=s.SessionID}
+   var snapshot struct{SessionID string `json:"session_id"`;Status string `json:"status"`}
+   if json.Unmarshal(msg.payload,&snapshot)==nil && snapshot.SessionID!="" {
+    firstAttach:=m.session==""
+    m.session=snapshot.SessionID
+    if firstAttach {return m,request(m.host,"session_transcript",map[string]any{"id":m.session})}
+   }
   }
   return m,nil
  case tea.MouseWheelMsg:

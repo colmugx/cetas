@@ -109,3 +109,16 @@ func TestFinalMarkdownIsCached(t *testing.T) {
  m.refreshTranscript()
  if got:=m.markdownCache[0];!strings.Contains(got,"bold")||!strings.Contains(got,"code") {t.Fatalf("markdown not rendered: %q",got)}
 }
+
+func TestProtocolErrorDoesNotSilentlySucceed(t *testing.T) {
+ m:=newModel();m.running=true
+ next,_:=m.Update(commandResult{name:"turn_start",payload:json.RawMessage(`{"error":"session is busy"}`)})
+ state:=next.(model)
+ if state.running || !strings.Contains(state.err,"session is busy") {t.Fatalf("protocol error lost: %#v",state)}
+}
+func TestStartupLoadsPersistedTranscript(t *testing.T) {
+ m:=newModel();m.host=&testHost{}
+ next,cmd:=m.Update(commandResult{name:"runtime_state",payload:json.RawMessage(`{"session_id":"s-1","status":"ready"}`)})
+ state:=next.(model)
+ if state.session!="s-1"||cmd==nil {t.Fatalf("startup failed to request replay: %#v",state)}
+}
