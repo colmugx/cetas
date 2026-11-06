@@ -60,6 +60,7 @@ pub fn run_infra() -> Int32 {
             ).stringify(),
           )
       }
+      let auth_tasks = NativeAuthTasks::new()
       let harness_buffer = Bytes::make(262144, 0)
       let mut stopping = false
       while !stopping {
@@ -69,7 +70,7 @@ pub fn run_infra() -> Int32 {
             if n > 0 {
               let raw = @utf8.decode_lossy(harness_buffer[:n])
               match boot {
-                Ok(runtime) => harness_handle_frame(runtime, raw)
+                Ok(runtime) => harness_handle_frame(runtime, auth_tasks, group, raw)
                 Err(detail) => emit(harness_reply(-1, harness_error(detail)))
               }
             } else {
@@ -124,6 +125,7 @@ pub fn run_infra() -> Int32 {
           // Wake suspended approval/auth coroutines BEFORE draining Posoco.
           // The Go terminal has already requested shutdown and cannot
           // answer an outstanding UiPort request anymore.
+          auth_tasks.cancel_all()
           runtime.cancel_pending_ui()
           runtime.detach_sink()
           runtime.shutdown_all()
