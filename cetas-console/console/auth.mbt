@@ -195,7 +195,9 @@ impl @oauth.AuthPromptInteraction for HubAuthUi with fn prompt(
   }
   match request {
     @oauth.AuthPromptRequest::Secret(message~) => {
-      let response = self.ui.request_secret(message) catch {
+      let response = self
+        .port()
+        .request(@posoco.UiRequest::Input(prompt=message, default=None)) catch {
           _ => raise @oauth.OAuthError::Cancelled
         }
       match response {
@@ -352,7 +354,7 @@ pub async fn ConsoleRuntime::login(
     error => return login_failure_json(provider, auth_method, error.to_string())
   }
   let auth = HubAuthUi::HubAuthUi(
-    HubUiPort::new(self.hub, self.ui_registry, self.active_session_id()),
+    HubUiPort::new_secret(self.hub, self.ui_registry, self.active_session_id()),
   )
   let outcome = @cetas_core.login_provider(
     provider,
