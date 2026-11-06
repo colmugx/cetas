@@ -33,8 +33,8 @@ func TestTranscriptSearchFullSourceAndWrap(t *testing.T) {
 		t.Fatalf("first search hit missing: %#v", m.searchHits)
 	}
 	m.navigateTranscriptSearch(true)
-	if m.searchActive != 3 || m.viewport.YOffset() <= 0 {
-		t.Fatalf("reverse must wrap to final offscreen match: active=%d offset=%d", m.searchActive, m.viewport.YOffset())
+	if m.searchActive != 3 || m.virtualScroll == nil || m.virtualScroll.top <= 0 {
+		t.Fatalf("reverse must wrap to final offscreen match: active=%d offset=%d", m.searchActive, m.virtualScroll.top)
 	}
 	m.navigateTranscriptSearch(false)
 	if m.searchActive != 0 {
