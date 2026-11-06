@@ -138,3 +138,53 @@ func TestSlashTabOpensPickerAndInsertKeepsDraft(t *testing.T) {
   t.Fatalf("completion must only edit the prompt: %#v",state)
  }
 }
+
+func TestUiDismissRetiresOnlyMatchingPendingPrompt(t *testing.T) {
+ m:=newModel()
+ m.applyEvent(event(`{"type":"ui.request","request_id":"u-1","kind":"confirm","prompt":"approval"}`))
+ m.applyEvent(event(`{"type":"ui.request","request_id":"u-2","kind":"input","prompt":"second"}`))
+ m.applyEvent(event(`{"type":"ui.request","request_id":"u-3","kind":"select","prompt":"third","options":["a","b"]}`))
+ m.applyEvent(event(`{"type":"ui.dismiss","request_id":"u-2"}`))
+ if m.modalRequestID!="u-1"||len(m.pendingUI)!=1||m.pendingUI[0].id!="u-3" {
+  t.Fatalf("queued dismiss lost active/following prompts: active=%q queued=%#v",m.modalRequestID,m.pendingUI)
+ }
+ m.applyEvent(event(`{"type":"ui.dismiss","request_id":"u-1"}`))
+ if m.modalRequestID!="u-3"||m.modal!="select"||len(m.pendingUI)!=0 {
+  t.Fatalf("active dismiss did not advance FIFO: active=%q modal=%q queued=%#v",m.modalRequestID,m.modal,m.pendingUI)
+ }
+}
+
+func TestUiDismissAfterReplyCannotCloseNextPrompt(t *testing.T) {
+ m:=newModel()
+ m.host=&testHost{}
+ m.applyEvent(event(`{"type":"ui.request","request_id":"u-1","kind":"confirm","prompt":"approval"}`))
+ m.applyEvent(event(`{"type":"ui.request","request_id":"u-2","kind":"input","prompt":"secret"}`))
+ next,cmd:=m.Update(tea.KeyPressMsg{Code:tea.KeyEsc})
+ state:=next.(model)
+ if cmd==nil||state.modalRequestID!="u-2" {
+  t.Fatalf("escape did not cancel first prompt and advance: %#v",state)
+ }
+ state.applyEvent(event(`{"type":"ui.dismiss","request_id":"u-1"}`))
+ state.applyEvent(event(`{"type":"ui.dismiss","request_id":"unknown"}`))
+ state.applyEvent(event(`{"type":"ui.dismiss"}`))
+ if state.modalRequestID!="u-2"||state.modal!="input" {
+  t.Fatalf("late/unknown dismissal closed current prompt: %#v",state)
+ }
+ state.applyEvent(event(`{"type":"ui.dismiss","request_id":"u-2"}`))
+ if state.modalRequestID!=""||state.modal!=""||len(state.pendingUI)!=0 {
+  t.Fatalf("dismiss did not clear last prompt: %#v",state)
+ }
+}
+
+func TestUiDismissDoesNotCloseUnrelatedPicker(t *testing.T) {
+ m:=newModel()
+ m.modal="slash";m.modalValues=[]string{"/help"}
+ m.applyEvent(event(`{"type":"ui.dismiss","request_id":"u-1"}`))
+ if m.modal!="slash"||len(m.modalValues)!=1 {
+  t.Fatalf("unrelated dismissal closed local picker: %#v",m)
+ }
+ m.applyEvent(event(`{"type":"ui.request","kind":"confirm","prompt":"missing id"}`))
+ if m.modal!="slash"||m.modalRequestID!=""||m.err=="" {
+  t.Fatalf("malformed request corrupted selection: %#v",m)
+ }
+}
