@@ -34,6 +34,10 @@ type eventResult struct {
  event harness.Event
  ok bool
 }
+type eventBatchResult struct {
+ events []harness.Event
+ closed bool
+}
 type errorResult struct {
  err error
  ok bool
@@ -100,7 +104,22 @@ func boot() tea.Msg {
  return bootResult{host:h,err:e}
 }
 func receive(events <-chan harness.Event) tea.Cmd {
- return func() tea.Msg { e,ok:=<-events; return eventResult{event:e,ok:ok} }
+ return func() tea.Msg {
+  first,ok:=<-events
+  if !ok {return eventBatchResult{closed:true}}
+  result:=eventBatchResult{events:[]harness.Event{first}}
+  // One native command drains a bounded burst, respecting EventHub order.
+  // A single Bubble Tea render then covers many rapid token deltas.
+  for len(result.events)<64 {
+   select {
+   case e,ok:=<-events:
+    if !ok {result.closed=true;return result}
+    result.events=append(result.events,e)
+   default:return result
+   }
+  }
+  return result
+ }
 }
 func receiveErrors(errors <-chan error) tea.Cmd {
  return func() tea.Msg {err,ok:=<-errors;return errorResult{err:err,ok:ok}}
@@ -128,11 +147,26 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   if !msg.ok {return m,nil}
   if msg.err!=nil {m.err=msg.err.Error();m.status="runtime problem"}
   return m,receiveErrors(m.host.Errors())
+ case eventBatchResult:
+  var next string
+  for _,e:=range msg.events {
+   var meta struct{Type string `json:"type"`;Busy bool `json:"busy"`;SessionID string `json:"session_id"`}
+   _=json.Unmarshal(e.Raw,&meta)
+   m.applyEvent(e)
+   if meta.Type=="session.snapshot"&&!meta.Busy&&meta.SessionID==m.session&&len(m.followups)>0&&next=="" {
+    next=m.followups[0];m.followups=m.followups[1:];m.running=true
+   }
+  }
+  m.refreshTranscript()
+  if msg.closed {m.status="MoonBit host stopped";return m,nil}
+  if next!="" {return m,tea.Batch(receive(m.feed),request(m.host,"turn_start",map[string]any{"prompt":next,"session_id":m.session}))}
+  return m,receive(m.feed)
  case eventResult:
   if !msg.ok {m.status="MoonBit host stopped";return m,nil}
   var meta struct {Type string `json:"type"`;Busy bool `json:"busy"`;SessionID string `json:"session_id"`}
   _=json.Unmarshal(msg.event.Raw,&meta)
   m.applyEvent(msg.event)
+  m.refreshTranscript()
   if meta.Type=="session.snapshot"&&!meta.Busy&&meta.SessionID==m.session&&len(m.followups)>0 {
    next:=m.followups[0];m.followups=m.followups[1:];m.running=true
    return m,tea.Batch(receive(m.feed),request(m.host,"turn_start",map[string]any{"prompt":next,"session_id":m.session}))
@@ -392,7 +426,6 @@ func (m *model) applyEvent(e harness.Event) {
  case "ui.render":
   if frame.Slot=="Notice"||frame.Slot=="Widget" {text:=frame.Text;if len(frame.Lines)>0 {text=strings.Join(frame.Lines,"\n")};if text!="" {m.transcript=append(m.transcript,text)}}
  }
- m.refreshTranscript()
 }
 
 func (m *model) refreshTranscript() {
