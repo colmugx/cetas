@@ -53,6 +53,8 @@ jobs:
           go build -o ../_build/cetas-native-go .
       - name: Headless PTY terminal ownership smoke
         run: python3 cetas-native/tools/pty_smoke.py
+      - name: Interactive PTY approval and question smoke
+        run: python3 cetas-native/tools/pty_ui_smoke.py
       - name: Check Rust elimination
         run: |
           test ! -e cetas-native/native/cetas-tui
