@@ -21,6 +21,7 @@ import (
 type runtimeHost interface {
  Request(context.Context, string, any) (json.RawMessage, error)
  Events() <-chan harness.Event
+ Errors() <-chan error
  Close(context.Context) error
 }
 
@@ -31,6 +32,10 @@ type commandResult struct {
 }
 type eventResult struct {
  event harness.Event
+ ok bool
+}
+type errorResult struct {
+ err error
  ok bool
 }
 type uiPrompt struct { id, kind, prompt string; options []string; defaultValue json.RawMessage }
@@ -95,6 +100,9 @@ func boot() tea.Msg {
 func receive(events <-chan harness.Event) tea.Cmd {
  return func() tea.Msg { e,ok:=<-events; return eventResult{event:e,ok:ok} }
 }
+func receiveErrors(errors <-chan error) tea.Cmd {
+ return func() tea.Msg {err,ok:=<-errors;return errorResult{err:err,ok:ok}}
+}
 func request(host runtimeHost, command string, args any) tea.Cmd {
  return func() tea.Msg {
   ctx,cancel:=context.WithTimeout(context.Background(),30*time.Second)
@@ -113,7 +121,11 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
  case bootResult:
   if msg.err!=nil {m.status="startup failed";m.err=msg.err.Error();return m,nil}
   m.host=msg.host;m.feed=msg.host.Events();m.status="ready"
-  return m,tea.Batch(receive(m.feed),request(m.host,"runtime_state",map[string]string{}))
+  return m,tea.Batch(receive(m.feed),receiveErrors(m.host.Errors()),request(m.host,"runtime_state",map[string]string{}))
+ case errorResult:
+  if !msg.ok {return m,nil}
+  if msg.err!=nil {m.err=msg.err.Error();m.status="runtime problem"}
+  return m,receiveErrors(m.host.Errors())
  case eventResult:
   if !msg.ok {m.status="MoonBit host stopped";return m,nil}
   var meta struct {Type string `json:"type"`;Busy bool `json:"busy"`;SessionID string `json:"session_id"`}
@@ -381,7 +393,13 @@ func (m model) View() tea.View {
  if m.modal=="" {if cursor:=m.textarea.Cursor();cursor!=nil {cursor.Y+=m.viewport.Height()+2;view.Cursor=cursor}}
  return view
 }
+var version="0.10.14"
+
 func main() {
+ for _,arg:=range os.Args[1:] {
+  if arg=="--version"||arg=="-version" {fmt.Println("cetas "+version);return}
+  if arg=="--help"||arg=="-h" {fmt.Println("Cetas native terminal\nUsage: cetas [--version|--help]\nInside the UI: /help");return}
+ }
  p:=tea.NewProgram(newModel())
  result,err:=p.Run()
  if state,ok:=result.(model);ok && state.host!=nil {
