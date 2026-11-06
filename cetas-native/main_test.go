@@ -235,3 +235,58 @@ func TestLoginCompletionDoesNotEchoProviderError(t *testing.T) {
   t.Fatalf("login completion not rendered: %q",m.status)
  }
 }
+
+func TestSkillsBrowserIsReadOnly(t *testing.T) {
+ m:=newModel()
+ m.host=&testHost{}
+ m.textarea.SetValue("unchanged draft")
+ cmd:=m.command("/skills")
+ if cmd==nil {t.Fatal("missing skills browse command")}
+ result,ok:=cmd().(commandResult)
+ if !ok||result.name!="skills_browse" {t.Fatalf("browse response must preserve intent: %#v",result)}
+ next,_:=m.Update(commandResult{name:"skills_browse",payload:json.RawMessage(`{"skills":[{"name":"example","description":"Example skill"}]}`)})
+ state:=next.(model)
+ if state.modal!="skills_browse"||len(state.modalValues)!=1||state.modalValues[0]!="example" {
+  t.Fatalf("browse picker did not open: %#v",state)
+ }
+ next,cmd=state.Update(tea.KeyPressMsg{Code:tea.KeyEnter})
+ state=next.(model)
+ if cmd!=nil||state.modal!=""||state.textarea.Value()!="unchanged draft" {
+  t.Fatalf("browse selected a skill instead of closing: %#v",state)
+ }
+}
+
+func TestSkillCompletionDoesNotAcceptStaleResponse(t *testing.T) {
+ m:=newModel()
+ m.completionToken="$exa"
+ m.textarea.SetValue("please use $different")
+ next,_:=m.Update(commandResult{name:"skills",payload:json.RawMessage(`{"skills":[{"name":"example","description":"Example"}]}`)})
+ state:=next.(model)
+ if state.modal!=""||state.textarea.Value()!="please use $different" {
+  t.Fatalf("stale completion overwrote changed draft: %#v",state)
+ }
+ m.textarea.SetValue("please use $exa")
+ m.completionPrefix="please use "
+ next,_=m.Update(commandResult{name:"skills",payload:json.RawMessage(`{"skills":[{"name":"example","description":"Example"}]}`)})
+ state=next.(model)
+ if state.modal!="skills"||len(state.modalValues)!=1 {
+  t.Fatalf("current completion did not open: %#v",state.modalValues)
+ }
+ next,_=state.Update(tea.KeyPressMsg{Code:tea.KeyEnter})
+ state=next.(model)
+ if state.textarea.Value()!="please use $example " {
+  t.Fatalf("completion did not insert skill: %q",state.textarea.Value())
+ }
+}
+
+func TestSkillsBrowserReplyDoesNotReplaceSkillCompletion(t *testing.T) {
+ m:=newModel()
+ m.textarea.SetValue("$exa")
+ m.completionToken="$exa"
+ m.applyEvent(event(`{"type":"ui.request","request_id":"u-1","kind":"confirm","prompt":"approval"}`))
+ next,_:=m.Update(commandResult{name:"skills_browse",payload:json.RawMessage(`{"skills":[{"name":"example","description":"Example"}]}`)})
+ state:=next.(model)
+ if state.modalRequestID!="u-1" {
+  t.Fatalf("async browse response must not replace active approval: %#v",state)
+ }
+}
