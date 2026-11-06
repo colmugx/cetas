@@ -229,7 +229,7 @@ func (m model) command(value string) tea.Cmd {
  switch parts[0] {
  case "/model":return request(m.host,"models",map[string]any{})
  case "/new":return request(m.host,"switch_session",map[string]any{})
- case "/login":if len(parts)>1 {method:="";if len(parts)>2 {method=parts[2]};return request(m.host,"login",map[string]any{"provider":parts[1],"method":method}};return request(m.host,"providers",map[string]any{})
+ case "/login":if len(parts)>1 {method:="";if len(parts)>2 {method=parts[2]};return request(m.host,"login",map[string]any{"provider":parts[1],"method":method})};return request(m.host,"providers",map[string]any{})
  case "/logout":if len(parts)>1 {return request(m.host,"logout",map[string]any{"provider":parts[1]})}
  case "/sessions":return request(m.host,"sessions",map[string]any{})
  case "/compact":return request(m.host,"session_compact",map[string]any{})
