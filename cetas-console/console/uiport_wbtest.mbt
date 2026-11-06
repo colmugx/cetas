@@ -143,3 +143,37 @@ async test "UiPort shutdown wakes simultaneous waiters fail closed" {
     assert_false(registry.pending.contains("u-2"))
   })
 }
+
+///|
+/// Direct task cancellation must retire the pending request even when no
+/// host ui_response arrives. This covers turn abort and provider cancellation.
+async test "UiPort suspended task cancellation removes request and dismisses UI" {
+  @async.with_task_group(group => {
+    let hub = EventHub::new()
+    let frames : Array[String] = []
+    hub.attach(fn(frame) { frames.push(frame) })
+    let registry = UiRegistry::new()
+    let port = HubUiPort::new(hub, registry, "session-a")
+    let waiter = group.spawn(
+      () => {
+        @posoco.UiPort::request(
+          port,
+          @posoco.UiRequest::Select(
+            prompt="Approve tool?",
+            options=["allow", "deny"],
+            default=None,
+          ),
+        )
+      },
+      allow_failure=true,
+    )
+    @async.sleep(10)
+    assert_true(registry.pending.contains("u-1"))
+    waiter.cancel()
+    let _ = waiter.wait() catch { _ => @posoco.UiResponse::Cancelled }
+    assert_false(registry.pending.contains("u-1"))
+    assert_true(frames.join("\n").contains("ui.dismiss"))
+    registry.resolve("u-1", "{\"selected\":0}")
+    assert_false(registry.pending.contains("u-1"))
+  })
+}
