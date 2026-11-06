@@ -326,3 +326,51 @@ func TestLocalCompletionPickerWorksBeforeHostBoot(t *testing.T) {
   t.Fatalf("local completion must insert without dispatch: %q",state.textarea.Value())
  }
 }
+
+func TestOAuthEscapeCancelsByAuthIDWithoutAbortingTurn(t *testing.T) {
+ m:=newModel()
+ m.host=&testHost{}
+ next,_:=m.Update(commandResult{name:"login",payload:json.RawMessage(`{"status":"started","auth_id":"auth-5","provider":"example"}`)})
+ state:=next.(model)
+ if state.authID!="auth-5" {t.Fatalf("lost login id: %q",state.authID)}
+ next,cmd:=state.Update(tea.KeyPressMsg{Code:tea.KeyEsc})
+ state=next.(model)
+ if cmd==nil||state.status!="cancelling authentication" {
+  t.Fatalf("Escape did not initiate OAuth cancellation: status=%q",state.status)
+ }
+ result,ok:=cmd().(commandResult)
+ if !ok||result.name!="login_cancel" {t.Fatalf("wrong cancellation command: %#v",result)}
+ state.applyEvent(event(`{"type":"auth.cancelled","auth_id":"auth-other"}`))
+ if state.authID!="auth-5" {t.Fatal("foreign cancellation cleared active login")}
+ state.applyEvent(event(`{"type":"auth.cancelled","auth_id":"auth-5"}`))
+ if state.authID!=""||state.status!="authentication cancelled" {
+  t.Fatalf("matched login cancellation did not settle: id=%q status=%q",state.authID,state.status)
+ }
+}
+
+func TestCancelledOAuthResultCannotOverwriteNewLogin(t *testing.T) {
+ m:=newModel()
+ m.session="s-1"
+ m.authID="auth-2"
+ m.status="authenticating second"
+ m.applyEvent(event(`{"type":"auth.login","session_id":"s-1","auth_id":"auth-1","provider":"old","result":{"type":"success","feedback":"old result"}}`))
+ if m.authID!="auth-2"||m.status!="authenticating second" {
+  t.Fatalf("stale login result replaced active login: id=%q status=%q",m.authID,m.status)
+ }
+ m.applyEvent(event(`{"type":"auth.login","session_id":"s-1","auth_id":"auth-2","provider":"new","result":{"type":"success","feedback":"done"}}`))
+ if m.authID!=""||m.status!="signed in to new" {
+  t.Fatalf("active login did not finish: id=%q status=%q",m.authID,m.status)
+ }
+ m.applyEvent(event(`{"type":"auth.cancelled","session_id":"s-1","auth_id":"auth-1"}`))
+ if m.status!="signed in to new" {t.Fatal("late cancellation regressed completed login")}
+}
+
+func TestLoginCancelNotFoundDoesNotStallUI(t *testing.T) {
+ m:=newModel()
+ m.authID="auth-3"
+ next,_:=m.Update(commandResult{name:"login_cancel",payload:json.RawMessage(`{"cancelled":false,"auth_id":"auth-3"}`)})
+ state:=next.(model)
+ if state.authID!=""||state.status!="authentication already settled" {
+  t.Fatalf("missing login task must reset UI: id=%q status=%q",state.authID,state.status)
+ }
+}
