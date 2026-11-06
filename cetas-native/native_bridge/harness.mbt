@@ -228,7 +228,7 @@ async fn harness_handle_frame(
   match request {
     Json::Object(fields) => {
       let id = match fields.get("id") {
-        Some(Json::Number(n)) => n.to_int()
+        Some(Json::Number(n, ..)) => n.to_int()
         _ => -1
       }
       let command = match fields.get("command") {
