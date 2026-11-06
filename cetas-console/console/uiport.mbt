@@ -193,15 +193,17 @@ impl @posoco.UiPort for HubUiPort with fn request(
   match request {
     @posoco.UiRequest::Input(prompt~, default~) => {
       extra.push(("prompt", Json::string(prompt)))
-      extra.push(
-        (
-          "default",
-          match default {
-            Some(value) => Json::string(value)
-            None => Json::null()
-          },
-        ),
-      )
+      // Even a future credential provider passing a default must not leak
+      // that value through the EventHub trace or PTY protocol.
+      let default_json = if self.secret_inputs {
+        Json::null()
+      } else {
+        match default {
+          Some(value) => Json::string(value)
+          None => Json::null()
+        }
+      }
+      extra.push(("default", default_json))
     }
     @posoco.UiRequest::Confirm(prompt~) =>
       extra.push(("prompt", Json::string(prompt)))
@@ -233,6 +235,17 @@ impl @posoco.UiPort for HubUiPort with fn request(
   // Resolve and cancel paths both retire the id. A response already removes
   // it from the registry; forget is intentionally idempotent.
   self.retire_request(request_id)
+  ui_response_for_request(request, raw)
+}
+
+///|
+/// Reject replies for a different prompt kind or an invalid option index.
+/// When a stale/incorrect UI message reaches a suspended approval coroutine,
+/// the only safe result is Cancelled (upstream maps this to Deny).
+fn ui_response_for_request(
+  request : @posoco.UiRequest,
+  raw : String,
+) -> @posoco.UiResponse {
   let parsed = @json.parse(raw) catch {
     _ => return @posoco.UiResponse::Cancelled
   }
@@ -242,19 +255,35 @@ impl @posoco.UiPort for HubUiPort with fn request(
   if fields.get("cancelled") is Some(Json::True) {
     return @posoco.UiResponse::Cancelled
   }
-  if fields.get("selected") is Some(Json::Number(index, ..)) {
-    return @posoco.UiResponse::Selected(index.to_int())
+  match request {
+    @posoco.UiRequest::Input(..) =>
+      match fields.get("text") {
+        Some(Json::String(value)) => @posoco.UiResponse::Text(value)
+        _ => @posoco.UiResponse::Cancelled
+      }
+    @posoco.UiRequest::Confirm(..) =>
+      if fields.get("yes") is Some(Json::True) {
+        @posoco.UiResponse::Yes
+      } else if fields.get("no") is Some(Json::False) {
+        @posoco.UiResponse::No
+      } else {
+        @posoco.UiResponse::Cancelled
+      }
+    @posoco.UiRequest::Select(options~, ..) =>
+      match fields.get("selected") {
+        Some(Json::Number(index, ..)) => {
+          let choice = index.to_int()
+          if choice >= 0 &&
+            choice < options.length() &&
+            choice.to_double() == index {
+            @posoco.UiResponse::Selected(choice)
+          } else {
+            @posoco.UiResponse::Cancelled
+          }
+        }
+        _ => @posoco.UiResponse::Cancelled
+      }
   }
-  if fields.get("text") is Some(Json::String(value)) {
-    return @posoco.UiResponse::Text(value)
-  }
-  if fields.get("yes") is Some(Json::True) {
-    return @posoco.UiResponse::Yes
-  }
-  if fields.get("no") is Some(Json::False) {
-    return @posoco.UiResponse::No
-  }
-  @posoco.UiResponse::Cancelled
 }
 
 ///|
