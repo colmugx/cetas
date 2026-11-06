@@ -31,10 +31,24 @@ CGO_ENABLED=1 go run .
 
 The bridge archive is generated in `go_bridge/lib/`. It must not be committed. The first bridge build targets Darwin/Linux; other targets require tested runtime C stubs and linker flags.
 
-## Migration contract
+## Product scope and Alpha
 
-`cetas-js` is the functional reference. Do not cut over release binaries until all of the following are verified against it: login and OAuth, provider/model/effort selection, sessions and rewind, live streaming with tool/render events, approvals and questions, extension UI mounts, completion, multiline editor, Markdown/diff, queued prompts, scrollback/search, cancellation, startup recovery, and terminal restoration. The native transport must never silently drop events under backpressure.
+`cetas-native` is a separate product frontend for the shared Cetas/Posoco
+Agent. It does **not** aim for feature parity with `cetas-js`. Pi and other
+Node/Bun-only integrations remain JS-exclusive; Native may have its own
+exclusive capabilities later.
 
-## Current status
+**Current status:** Alpha candidate / internal evaluation. The Go/Bubble Tea
+build, MoonBit bridge, command system, virtualized transcript and PTY
+interaction suite are integrated. Automated tests alone do not prove safe
+real-provider operation or clean first-run onboarding.
 
-Bridge infrastructure and the initial Bubble Tea terminal model are present. This is **not yet feature parity** with `cetas-js`. A successful Go unit test alone does not establish live MoonBit/Posoco end-to-end correctness. The migration PR must remain draft until interactive PTY and provider smoke tests pass.
+Use [ALPHA.md](ALPHA.md) for supported platforms, opt-in downloadable Actions
+artifacts, isolated-state instructions, and external Alpha release gates.
+Current release.yml does **not** distribute `cetas-native`; production
+`cetas-js` remains unaffected.
+
+A public/self-service Alpha requires a functioning first-run provider setup
+flow, a clean-machine binary installation test, and live provider/session
+acceptance. We will prioritize these release blockers over JS parity,
+cosmetic enhancements, or platform expansion.
