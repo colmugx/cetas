@@ -327,7 +327,7 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
    case "up","ctrl+p":if m.modalIndex>0 {m.modalIndex--}
    case "down","ctrl+n":if m.modalIndex+1<len(m.modalItems) {m.modalIndex++}
    case "enter":
-    if m.host!=nil&&m.modalIndex<len(m.modalValues) {
+    if m.modalIndex<len(m.modalValues)&&(m.host!=nil||m.modal=="slash") {
      chosen:=m.modalValues[m.modalIndex]
      switch m.modal {
      case "models":m.modal="";m.modalValues=nil;return m,request(m.host,"switch_model",map[string]any{"slot_id":chosen})
