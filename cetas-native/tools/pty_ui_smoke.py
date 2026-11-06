@@ -11,6 +11,7 @@ import json
 import os
 import pty
 import select
+import signal
 import struct
 import subprocess
 import tempfile
@@ -42,8 +43,10 @@ def run_pty(trace_path: Path) -> bytes:
     )
     os.close(slave)
     output = bytearray()
+    negotiated = False
 
     def until(marker: bytes, timeout: float = 40) -> None:
+        nonlocal negotiated
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if marker in output:
@@ -62,6 +65,13 @@ def run_pty(trace_path: Path) -> bytes:
                     else:
                         raise
                 output.extend(chunk)
+                if not negotiated and b"\\x1b[?1049h" in output:
+                    # The PTY is not a full xterm emulator. Bubble Tea v2
+                    # probes synchronized updates and the keyboard protocol;
+                    # answer as an unsupported terminal and issue a resize.
+                    os.write(master, b"\\x1b[?2026;2$y\\x1b[?2027;2$y\\x1b[?0u")
+                    os.killpg(proc.pid, signal.SIGWINCH)
+                    negotiated = True
         raise TimeoutError(f"PTY did not render {marker!r}: {output[-2500:]!r}")
 
     try:
