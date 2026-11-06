@@ -66,6 +66,41 @@ async fn harness_dispatch(
         ]),
       )
     "runtime_state" => runtime.runtime_json()
+    "commands" => runtime.commands_json()
+    "invoke_command" =>
+      match (harness_required(args, "session_id"), harness_required(args, "id")) {
+        (Ok(session_id), Ok(id)) => {
+          let arguments = match args {
+            Json::Object(fields) =>
+              fields.get("arguments").unwrap_or(Json::object(Map::from_array([])))
+            _ => Json::object(Map::from_array([]))
+          }
+          let request_id = harness_string(args, "request_id").unwrap_or("")
+          // CommandPorts may request UI input or perform slow async work.
+          // Do not block the sole dispatcher waiting for their completion.
+          runtime.spawn_background(async fn() {
+            let outcome = runtime.invoke_registered_command(
+              session_id, id, arguments,
+            ) catch {
+              e =>
+                Json::object({
+                  "type": Json::string("failure"),
+                  "reason": Json::string(e.to_string()),
+                })
+            }
+            runtime.emit_event(session_id, "", "command.completed", extra=[
+              ("command_id", Json::string(id)),
+              ("request_id", Json::string(request_id)),
+              ("outcome", outcome),
+            ])
+          })
+          Json::object({
+            "status": Json::string("started"),
+            "request_id": Json::string(request_id),
+          })
+        }
+        _ => harness_error("invoke_command requires session_id and id")
+      }
     "sessions" => runtime.sessions_json()
     "session_transcript" =>
       match harness_required(args, "id") {
