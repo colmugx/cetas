@@ -55,6 +55,33 @@ jobs:
         run: python3 cetas-native/tools/pty_smoke.py
       - name: Interactive PTY approval and question smoke
         run: python3 cetas-native/tools/pty_ui_smoke.py
+      - name: Package opt-in native Alpha candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          arch="$(go env GOARCH)"
+          os="$(go env GOOS)"
+          artifact="cetas-native-alpha-${os}-${arch}"
+          mkdir -p "stage/${artifact}"
+          cp _build/cetas-native-go "stage/${artifact}/cetas-native"
+          cp cetas-native/ALPHA.md "stage/${artifact}/ALPHA.md"
+          chmod +x "stage/${artifact}/cetas-native"
+          cd stage
+          tar -czf "${artifact}.tar.gz" "${artifact}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${artifact}.tar.gz" > "${artifact}.tar.gz.sha256"
+          else
+            shasum -a 256 "${artifact}.tar.gz" > "${artifact}.tar.gz.sha256"
+          fi
+      - name: Upload opt-in native Alpha candidate
+        uses: actions/upload-artifact@v6
+        with:
+          name: cetas-native-alpha-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            stage/cetas-native-alpha-*.tar.gz
+            stage/cetas-native-alpha-*.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
       - name: Check Rust elimination
         run: |
           test ! -e cetas-native/native/cetas-tui
