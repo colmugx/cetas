@@ -93,6 +93,13 @@ func (m *model) commandSuggestions(value string) []slashSuggestion {
    seen[candidate]=true
   }
  }
+ // Rank exact prefixes ahead of fuzzy subsequences across both the native
+ // and composed registries, not as two unrelated suggestion lists.
+ sort.SliceStable(suggestions,func(i,j int)bool{
+  a:=strings.HasPrefix(strings.ToLower(suggestions[i].insert),prefix)
+  b:=strings.HasPrefix(strings.ToLower(suggestions[j].insert),prefix)
+  return a&&!b
+ })
  return suggestions
 }
 func (m *model) commandInsertion(value string) string {
