@@ -5,11 +5,12 @@
 priv struct NativeAuthTasks {
   mut next_id : Int32
   pending : Map[String, @async.Task[Unit]]
+  cancelled : Map[String, Bool]
 }
 
 ///|
 fn NativeAuthTasks::new() -> NativeAuthTasks {
-  { next_id: 1, pending: Map([]), }
+  { next_id: 1, pending: Map([]), cancelled: Map([]), }
 }
 
 ///|
@@ -38,11 +39,15 @@ fn NativeAuthTasks::start(
   let session_id = runtime.active_session_id()
   let task = group.spawn(
     () => {
-      let result = runtime.login(provider, auth_method)
-      // A cancellation removes the id before task.cancel(). A late result
-      // from that task is never allowed to overwrite a cancelled login.
-      if self.pending.contains(id) {
+      // Release the single-flight slot only when the child actually settles.
+      // A cancellation before provider polling finishes must not make a
+      // second OAuth flow eligible to start.
+      defer {
         self.pending.remove(id)
+        self.cancelled.remove(id)
+      }
+      let result = runtime.login(provider, auth_method)
+      if !self.cancelled.contains(id) {
         runtime.emit_event(session_id, "", "auth.login", extra=[
           ("auth_id", Json::string(id)),
           ("provider", Json::string(provider)),
@@ -74,8 +79,19 @@ fn NativeAuthTasks::cancel(
 ) -> Bool {
   match self.pending.get(id) {
     Some(task) => {
-      self.pending.remove(id)
+      if self.cancelled.contains(id) {
+        return false
+      }
+      self.cancelled[id] = true
       task.cancel()
+      // A cancellation can occur before the spawned body first runs. In that
+      // case its defer cannot fire. Join in a separate background coroutine,
+      // never in the native command dispatcher itself.
+      runtime.spawn_background(async fn() {
+        let _ = task.wait() catch { _ => () }
+        self.pending.remove(id)
+        self.cancelled.remove(id)
+      })
       runtime.emit_event(runtime.active_session_id(), "", "auth.cancelled", extra=[
         ("auth_id", Json::string(id)),
       ])
@@ -96,8 +112,10 @@ fn NativeAuthTasks::cancel_all(self : NativeAuthTasks) -> Unit {
   for id in ids {
     match self.pending.get(id) {
       Some(task) => {
-        self.pending.remove(id)
+        self.cancelled[id] = true
         task.cancel()
+        self.pending.remove(id)
+        self.cancelled.remove(id)
       }
       None => ()
     }
