@@ -33,6 +33,8 @@ type eventResult struct {
  event harness.Event
  ok bool
 }
+type uiPrompt struct { id, kind, prompt string; options []string; defaultValue json.RawMessage }
+
 type bootResult struct {
  host *harness.Host
  err error
@@ -55,6 +57,8 @@ type model struct {
  modalRequestID string
  modalPrompt string
  modalBuffer []rune
+ pendingUI []uiPrompt
+ followups []string
  modelSlots []struct {
   ID string `json:"id"`
   Label string `json:"label"`
@@ -112,10 +116,16 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   return m,tea.Batch(receive(m.feed),request(m.host,"runtime_state",map[string]string{}))
  case eventResult:
   if !msg.ok {m.status="MoonBit host stopped";return m,nil}
+  var meta struct {Type string `json:"type"`;Busy bool `json:"busy"`;SessionID string `json:"session_id"`}
+  _=json.Unmarshal(msg.event.Raw,&meta)
   m.applyEvent(msg.event)
+  if meta.Type=="session.snapshot"&&!meta.Busy&&meta.SessionID==m.session&&len(m.followups)>0 {
+   next:=m.followups[0];m.followups=m.followups[1:];m.running=true
+   return m,tea.Batch(receive(m.feed),request(m.host,"turn_start",map[string]any{"prompt":next,"session_id":m.session}))
+  }
   return m,receive(m.feed)
  case commandResult:
-  if msg.err!=nil {m.err=msg.name+": "+msg.err.Error();return m,nil}
+  if msg.err!=nil {m.err=msg.name+": "+msg.err.Error();if msg.name=="turn_start" {m.running=false};return m,nil}
   if msg.name=="models" {
    var x struct{ Models []struct {
     ID string `json:"id"`
@@ -148,6 +158,28 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
    if json.Unmarshal(msg.payload,&payload)==nil {
     m.modal="providers";m.modalIndex=0;m.modalItems=nil;m.modalValues=nil
     for _,v:=range payload.Providers {title:=v.Name;if title=="" {title=v.ID};if v.SignedIn {title+=" (signed in)"};m.modalItems=append(m.modalItems,title);m.modalValues=append(m.modalValues,v.ID)}
+   }
+  }
+  if msg.name=="switch_session" {
+   var payload struct{SessionID string `json:"session_id"`}
+   if json.Unmarshal(msg.payload,&payload)==nil && payload.SessionID!="" {
+    m.session=payload.SessionID;m.transcript=nil;m.streaming.Reset();m.reasoning.Reset();m.running=false
+    return m,request(m.host,"session_transcript",map[string]any{"id":m.session})
+   }
+  }
+  if msg.name=="session_transcript" {
+   var payload struct{ Items []struct{Kind string `json:"kind"`;Text string `json:"text"`;Name string `json:"name"`;Result string `json:"result"`} `json:"items"` }
+   if json.Unmarshal(msg.payload,&payload)==nil {
+    m.transcript=nil
+    for _,row:=range payload.Items {
+     switch row.Kind {
+     case "user":m.transcript=append(m.transcript,"> "+row.Text)
+     case "assistant":m.transcript=append(m.transcript,row.Text)
+     case "reasoning":if m.showThinking {m.transcript=append(m.transcript,"Thinking: "+row.Text)}
+     case "tool":m.transcript=append(m.transcript,"• "+row.Name);if m.showTools&&row.Result!="" {m.transcript=append(m.transcript,row.Result)}
+     }
+    }
+    m.refreshTranscript()
    }
   }
   if msg.name=="help" {m.transcript=append(m.transcript,"/model · /sessions · /new · /login [provider] · /logout provider · /permission mode · /compact · /help");m.refreshTranscript()}
@@ -207,8 +239,13 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
    m.textarea.Reset()
    if strings.HasPrefix(value,"/") {return m,m.command(value)}
    m.transcript=append(m.transcript,"> "+value)
-   m.refreshTranscript()
-   return m,request(m.host,"turn_start",map[string]any{"prompt":value})
+   if m.running {
+    m.followups=append(m.followups,value)
+    m.status=fmt.Sprintf("queued %d follow-up(s)",len(m.followups))
+    m.refreshTranscript();return m,nil
+   }
+   m.running=true;m.refreshTranscript()
+   return m,request(m.host,"turn_start",map[string]any{"prompt":value,"session_id":m.session})
   case "shift+enter","ctrl+j":m.textarea.InsertString("\n");return m,nil
   }
  }
@@ -221,7 +258,17 @@ func (m *model) answerModal(answer map[string]any) tea.Cmd {
  id:=m.modalRequestID
  answer["request_id"]=id
  m.modal="";m.modalRequestID="";m.modalItems=nil;m.modalBuffer=nil;m.modalPrompt=""
+ if len(m.pendingUI)>0 {next:=m.pendingUI[0];m.pendingUI=m.pendingUI[1:];m.activateUI(next)}
  return request(m.host,"ui_response",answer)
+}
+
+func (m *model) activateUI(req uiPrompt) {
+ m.modalRequestID=req.id;m.modal=req.kind;m.modalPrompt=req.prompt;m.modalIndex=0
+ m.modalItems=append([]string(nil),req.options...);m.modalBuffer=nil
+ if req.kind=="confirm" {m.modalItems=[]string{"Yes","No"}}
+ if req.kind=="input"&&len(req.defaultValue)>0 {
+  var text string;if json.Unmarshal(req.defaultValue,&text)==nil {m.modalBuffer=[]rune(text)}
+ }
 }
 
 func (m model) command(value string) tea.Cmd {
@@ -255,9 +302,17 @@ func (m *model) applyEvent(e harness.Event) {
   Options []string `json:"options"`
   Slot string `json:"slot"`
   Lines []string `json:"lines"`
+  Default json.RawMessage `json:"default"`
+  Busy bool `json:"busy"`
+  From string `json:"from"`
+  To string `json:"to"`
  }
  if json.Unmarshal(e.Raw,&frame)!=nil {return}
- if frame.SessionID!="" {m.session=frame.SessionID}
+ if frame.SessionID!="" {
+  if m.session=="" {m.session=frame.SessionID}
+  // Do not let another running session mutate the visible transcript.
+  if frame.SessionID!=m.session {return}
+ }
  switch frame.Type {
  case "turn.accepted","turn.started":m.running=true;m.status="working"
  case "assistant.text_delta":
@@ -280,11 +335,11 @@ func (m *model) applyEvent(e harness.Event) {
  case "turn.failed":
   m.transcript=append(m.transcript,"Error: "+frame.Message)
   m.streaming.Reset();m.reasoning.Reset();m.running=false;m.status="failed"
- case "session.redirect":m.status="session redirected"
+ case "session.redirect":if frame.From==m.session&&frame.To!="" {m.session=frame.To};m.status="session redirected"
+ case "session.snapshot":m.running=frame.Busy
  case "ui.request":
-  m.modalRequestID=frame.RequestID;m.modal=frame.Kind;m.modalPrompt=frame.Prompt
-  m.modalBuffer=nil;m.modalIndex=0;m.modalItems=append([]string(nil),frame.Options...)
-  if frame.Kind=="confirm" {m.modalItems=[]string{"Yes","No"}}
+  prompt:=uiPrompt{id:frame.RequestID,kind:frame.Kind,prompt:frame.Prompt,options:frame.Options,defaultValue:frame.Default}
+  if m.modalRequestID!="" {m.pendingUI=append(m.pendingUI,prompt)} else {m.activateUI(prompt)}
   m.status="waiting for user input"
  case "ui.render":
   if frame.Slot=="Notice"||frame.Slot=="Widget" {text:=frame.Text;if len(frame.Lines)>0 {text=strings.Join(frame.Lines,"\n")};if text!="" {m.transcript=append(m.transcript,text)}}
@@ -312,7 +367,8 @@ func (m model) View() tea.View {
  content.WriteString(header+"\n")
  content.WriteString(lipgloss.NewStyle().Faint(true).Render("session: "+m.session)+"\n\n")
  if m.modal!="" {
-  content.WriteString("Select model (↑/↓, Enter, Esc):\n")
+  if m.modalPrompt!="" {content.WriteString(m.modalPrompt+"\n")} else {content.WriteString("Choose (↑/↓, Enter, Esc):\n")}
+  if m.modal=="input" {content.WriteString("> "+string(m.modalBuffer)+"_\n")}
   for i,s:=range m.modalItems {if i==m.modalIndex {content.WriteString("▶ ")} else {content.WriteString("  ")};content.WriteString(s+"\n")}
  } else {
   content.WriteString(m.viewport.View()+"\n")
