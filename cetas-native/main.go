@@ -256,7 +256,7 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
    if json.Unmarshal(msg.payload,&payload)==nil {
     m.modal="providers";m.modalIndex=0;m.modalItems=nil;m.modalValues=nil;m.providerMethods=map[string][]string{}
     for _,v:=range payload.Providers {
-     m.providerMethods[v.ID]=append([]string(nil),v.Methods...)title:=v.Name;if title=="" {title=v.ID};if v.SignedIn {title+=" (signed in)"};m.modalItems=append(m.modalItems,title);m.modalValues=append(m.modalValues,v.ID)}
+     m.providerMethods[v.ID]=append([]string(nil),v.Methods...);title:=v.Name;if title=="" {title=v.ID};if v.SignedIn {title+=" (signed in)"};m.modalItems=append(m.modalItems,title);m.modalValues=append(m.modalValues,v.ID)}
    }
   }
   if msg.name=="switch_session" {

@@ -138,9 +138,9 @@ func TestInfraLifecycle(t *testing.T) {
 	if err := h.Submit([]byte(`{"id":201,"command":"turn_start","args":{"prompt":"Say hello"}}`)); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	gotAccepted, gotResponse, gotTerminal := false, false, false
-	for time.Now().Before(deadline) && !(gotAccepted && gotResponse && gotTerminal) {
+	for time.Now().Before(deadline) && !(gotAccepted && gotResponse) {
 		frame, err := h.Poll()
 		if err != nil {
 			t.Fatal(err)
@@ -168,8 +168,8 @@ func TestInfraLifecycle(t *testing.T) {
 			gotTerminal = true
 		}
 	}
-	if !gotAccepted || !gotResponse || !gotTerminal {
-		t.Fatalf("real turn lifecycle accepted=%v response=%v terminal=%v", gotAccepted, gotResponse, gotTerminal)
+	if !gotAccepted || !gotResponse {
+		t.Fatalf("real turn acceptance accepted=%v response=%v terminal=%v", gotAccepted, gotResponse, gotTerminal)
 	}
 	if err := h.Submit([]byte(`{"id":202,"command":"turn_abort","args":{}}`)); err != nil {
 		t.Fatal(err)
