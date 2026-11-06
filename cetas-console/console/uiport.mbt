@@ -163,9 +163,30 @@ impl @posoco.UiPort for HubUiPort with fn request(
   self : HubUiPort,
   request : @posoco.UiRequest,
 ) -> @posoco.UiResponse raise {
+  self.ask_with_kind(request, false)
+}
+
+///|
+/// Authentication credentials require a distinct wire kind: the native UI
+/// must never render them through a normal, echoing input control.
+fn HubUiPort::request_secret(
+  self : HubUiPort,
+  prompt : String,
+) -> @posoco.UiResponse raise {
+  self.ask_with_kind(@posoco.UiRequest::Input(prompt~, default=None), true)
+}
+
+///|
+/// Keep standard Input/Confirm/Select semantics on the shared UiPort. Only
+/// the explicit auth-secret call is masked, never inferred from prompt text.
+fn HubUiPort::ask_with_kind(
+  self : HubUiPort,
+  request : @posoco.UiRequest,
+  secret : Bool,
+) -> @posoco.UiResponse raise {
   let (request_id, queue) = self.registry.register()
   let kind : String = match request {
-    @posoco.UiRequest::Input(..) => "input"
+    @posoco.UiRequest::Input(..) => if secret { "secret" } else { "input" }
     @posoco.UiRequest::Confirm(..) => "confirm"
     @posoco.UiRequest::Select(..) => "select"
   }
