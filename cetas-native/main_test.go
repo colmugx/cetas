@@ -374,3 +374,18 @@ func TestLoginCancelNotFoundDoesNotStallUI(t *testing.T) {
   t.Fatalf("missing login task must reset UI: id=%q status=%q",state.authID,state.status)
  }
 }
+
+func TestOAuthCompletionSurvivesSessionSwitch(t *testing.T) {
+ m:=newModel()
+ m.session="session-new"
+ m.authID="auth-7"
+ m.applyEvent(event(`{"type":"auth.login","session_id":"session-old","auth_id":"auth-7","provider":"example","result":{"type":"success","feedback":"done"}}`))
+ if m.session!="session-new"||m.authID!=""||m.status!="signed in to example" {
+  t.Fatalf("global OAuth result lost when session changed: session=%q auth=%q status=%q",m.session,m.authID,m.status)
+ }
+ m.authID="auth-8"
+ m.applyEvent(event(`{"type":"auth.cancelled","session_id":"session-old","auth_id":"auth-8"}`))
+ if m.authID!=""||m.status!="authentication cancelled" {
+  t.Fatalf("global auth cancellation lost after session switch: %q %q",m.authID,m.status)
+ }
+}
