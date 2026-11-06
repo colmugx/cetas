@@ -290,3 +290,39 @@ func TestSkillsBrowserReplyDoesNotReplaceSkillCompletion(t *testing.T) {
   t.Fatalf("async browse response must not replace active approval: %#v",state)
  }
 }
+
+func TestStructuredAuthResultDoesNotBreakEventProjection(t *testing.T) {
+ m:=newModel()
+ m.applyEvent(event(`{"type":"auth.login","session_id":"s1","provider":"openai","result":{"type":"success","structured":{"provider":"openai"},"feedback":"ok"}}`))
+ if m.session!="s1"||m.status!="signed in to openai" {
+  t.Fatalf("structured EventHub result was discarded: session=%q status=%q",m.session,m.status)
+ }
+ // Tool output is still a text wire field, including content that resembles
+ // JSON; changing auth result decoding must not break tool completion.
+ m.showTools=true
+ m.applyEvent(event(`{"type":"tool.started","session_id":"s1","tool_call_id":"t1","tool_name":"read"}`))
+ m.applyEvent(event(`{"type":"tool.completed","session_id":"s1","tool_call_id":"t1","tool_name":"read","result":"plain result"}`))
+ if !strings.Contains(strings.Join(m.transcript,"\n"),"plain result") {
+  t.Fatalf("string tool output was lost: %#v",m.transcript)
+ }
+ m.applyEvent(event(`{"type":"tool.started","session_id":"s1","tool_call_id":"t2","tool_name":"read"}`))
+ m.applyEvent(event(`{"type":"tool.completed","session_id":"s1","tool_call_id":"t2","tool_name":"read","result":{"kind":"json"}}`))
+ if !strings.Contains(strings.Join(m.transcript,"\n"),`"kind":"json"`) {
+  t.Fatalf("structured tool result was lost: %#v",m.transcript)
+ }
+}
+
+func TestLocalCompletionPickerWorksBeforeHostBoot(t *testing.T) {
+ m:=newModel()
+ m.textarea.SetValue("use $exa")
+ m.completionPrefix="use "
+ m.completionToken="$exa"
+ next,_:=m.Update(commandResult{name:"skills",payload:json.RawMessage(`{"skills":[{"name":"example","description":"Example"}]}`)})
+ state:=next.(model)
+ if state.modal!="skills"||state.host!=nil {t.Fatalf("picker not available without host: %#v",state.modal)}
+ next,cmd:=state.Update(tea.KeyPressMsg{Code:tea.KeyEnter})
+ state=next.(model)
+ if cmd!=nil||state.textarea.Value()!="use $example " {
+  t.Fatalf("local completion must insert without dispatch: %q",state.textarea.Value())
+ }
+}
