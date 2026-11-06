@@ -36,6 +36,14 @@ fn UiRegistry::resolve(
 }
 
 ///|
+/// If a waiting task is cancelled before any host reply arrives, do not keep
+/// its one-shot queue in the registry. A late response to that id must never
+/// wake a different request.
+fn UiRegistry::forget(self : UiRegistry, request_id : String) -> Unit {
+  self.pending.remove(request_id)
+}
+
+///|
 /// Fail-closed shutdown: every pending approval, OAuth question and input
 /// coroutine must be resumed before the hosting TaskGroup is drained. Never
 /// leave a Posoco coroutine waiting for a terminal that has already exited.
@@ -141,6 +149,16 @@ impl @posoco.UiPort for HubUiPort with fn render(
 }
 
 ///|
+/// Tell the terminal that this exact request no longer needs an answer.
+/// The UI matches ids, so a delayed close cannot dismiss the next question.
+fn HubUiPort::retire_request(self : HubUiPort, request_id : String) -> Unit {
+  self.registry.forget(request_id)
+  self.hub.emit(self.session_id, "", "ui.dismiss", extra=[
+    ("request_id", Json::string(request_id)),
+  ])
+}
+
+///|
 impl @posoco.UiPort for HubUiPort with fn request(
   self : HubUiPort,
   request : @posoco.UiRequest,
@@ -189,7 +207,15 @@ impl @posoco.UiPort for HubUiPort with fn request(
     }
   }
   self.hub.emit(self.session_id, "", "ui.request", extra~)
-  let raw = queue.get() catch { _ => return @posoco.UiResponse::Cancelled }
+  let raw = queue.get() catch {
+    _ => {
+      self.retire_request(request_id)
+      return @posoco.UiResponse::Cancelled
+    }
+  }
+  // Resolve and cancel paths both retire the id. A response already removes
+  // it from the registry; forget is intentionally idempotent.
+  self.retire_request(request_id)
   let parsed = @json.parse(raw) catch {
     _ => return @posoco.UiResponse::Cancelled
   }
