@@ -545,6 +545,7 @@ func (m *model) applyEvent(e harness.Event) {
   if json.Unmarshal(e.Raw,&payload)!=nil||json.Unmarshal(payload.Result,&result)!=nil {
    m.err="authentication returned an invalid result";m.status="authentication failed"
   } else if result.Type=="success" {
+   m.err=""
    m.status="signed in to "+payload.Provider
   } else {
    m.status="authentication failed"
