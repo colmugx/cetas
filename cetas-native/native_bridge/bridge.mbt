@@ -102,6 +102,10 @@ pub fn run_infra() -> Int {
       }
       match boot {
         Ok(runtime) => {
+          // Wake suspended approval/auth coroutines BEFORE draining Posoco.
+          // The Go terminal has already requested shutdown and cannot
+          // answer an outstanding UiPort request anymore.
+          runtime.cancel_pending_ui()
           runtime.detach_sink()
           runtime.shutdown_all()
         }
