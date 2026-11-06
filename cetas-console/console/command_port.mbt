@@ -145,7 +145,9 @@ pub async fn ConsoleRuntime::invoke_registered_command(
 ) -> Json {
   if self.active_session_id() != session_id {
     return console_command_outcome_json(
-      @posoco.CommandOutcome::Failure(reason="session changed before command invocation"),
+      @posoco.CommandOutcome::Failure(
+        reason="session changed before command invocation",
+      ),
     )
   }
   let ports = self.active().active().agent.commands()
