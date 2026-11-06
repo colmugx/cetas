@@ -58,6 +58,11 @@ type model struct {
  viewport viewport.Model
  width, height int
  transcript []string
+ transcriptRows []int
+ searchQuery string
+ searchHits []transcriptSearchHit
+ searchActive int
+ hiddenSearchSources []hiddenTranscriptSource
  markdownRaw map[int]string
  toolIndex map[string]int
  markdownCache map[int]string
@@ -107,7 +112,7 @@ func newModel() model {
  vp:=viewport.New(viewport.WithWidth(80),viewport.WithHeight(18))
  vp.SetWidth(80)
  vp.SetHeight(18)
- return model{textarea:ta,viewport:vp,markdownRenderer:renderer,status:"connecting to Posoco…"}
+ return model{textarea:ta,viewport:vp,markdownRenderer:renderer,status:"connecting to Posoco…",searchActive:-1}
 }
 
 func boot() tea.Msg {
@@ -296,20 +301,25 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   if msg.name=="switch_session" {
    var payload struct{SessionID string `json:"session_id"`}
    if json.Unmarshal(msg.payload,&payload)==nil && payload.SessionID!="" {
-    m.session=payload.SessionID;m.transcript=nil;m.markdownRaw=nil;m.markdownCache=nil;m.toolIndex=nil;m.streaming="";m.reasoning="";m.running=false;m.followups=nil
+    m.session=payload.SessionID;m.clearTranscriptSearch();m.transcript=nil;m.markdownRaw=nil;m.markdownCache=nil;m.toolIndex=nil;m.streaming="";m.reasoning="";m.running=false;m.followups=nil
     return m,request(m.host,"session_transcript",map[string]any{"id":m.session})
    }
   }
   if msg.name=="session_transcript" {
    var payload struct{ Items []struct{Kind string `json:"kind"`;Text string `json:"text"`;Name string `json:"name"`;Result string `json:"result"`} `json:"items"` }
    if json.Unmarshal(msg.payload,&payload)==nil {
-    m.transcript=nil;m.markdownRaw=nil;m.markdownCache=nil;m.toolIndex=nil
+    m.clearTranscriptSearch();m.transcript=nil;m.markdownRaw=nil;m.markdownCache=nil;m.toolIndex=nil
     for _,row:=range payload.Items {
      switch row.Kind {
      case "user":m.transcript=append(m.transcript,"> "+row.Text)
      case "assistant":m.appendAssistant(row.Text)
-     case "reasoning":if m.showThinking {m.transcript=append(m.transcript,"Thinking: "+row.Text)}
-     case "tool":m.transcript=append(m.transcript,"• "+row.Name);if m.showTools&&row.Result!="" {m.transcript=append(m.transcript,row.Result)}
+     case "reasoning":
+       if m.showThinking {m.transcript=append(m.transcript,"Thinking: "+row.Text)} else {m.addHiddenSource(max(0,len(m.transcript)-1),"Thinking: "+row.Text)}
+     case "tool":
+       m.transcript=append(m.transcript,"• "+row.Name)
+       if row.Result!="" {
+        if m.showTools {m.transcript=append(m.transcript,row.Result)} else {m.addHiddenSource(len(m.transcript)-1,row.Result)}
+       }
      }
     }
     m.refreshTranscript()
@@ -491,6 +501,15 @@ func (m *model) command(value string) tea.Cmd {
  case "/rewind":return request(m.host,"rewind_points",map[string]any{})
  case "/skills":return requestAs(m.host,"skills_browse","skills",map[string]any{})
  case "/compact":return request(m.host,"session_compact",map[string]any{})
+ case "/find":
+  m.findTranscript(strings.TrimSpace(strings.TrimPrefix(value,"/find")))
+  return nil
+ case "/find-next":
+  m.navigateTranscriptSearch(false)
+  return nil
+ case "/find-prev":
+  m.navigateTranscriptSearch(true)
+  return nil
  case "/permission":
   if len(parts)>1 {return request(m.host,"set_permission",map[string]any{"mode":parts[1]})}
  case "/help":return func() tea.Msg {return commandResult{name:"help",payload:json.RawMessage(`{"ok":true}`)}}
@@ -556,11 +575,15 @@ func (m *model) applyEvent(e harness.Event) {
  case "tool.completed":
   marker:="✓";if frame.IsError {marker="✗"}
   if at,ok:=m.toolIndex[frame.ToolCallID];ok&&at<len(m.transcript) {m.transcript[at]="• "+frame.ToolName+" "+marker}
-  if rendered:=toolResultText(frame.Result);m.showTools&&rendered!="" {m.transcript=append(m.transcript,rendered)}
+  if rendered:=toolResultText(frame.Result);rendered!="" {
+   if m.showTools {m.transcript=append(m.transcript,rendered)} else if at,ok:=m.toolIndex[frame.ToolCallID];ok {m.addHiddenSource(at,rendered)}
+  }
  case "turn.completed":
   text:=m.streaming;if text=="" {text=frame.Text}
   if text!="" {m.appendAssistant(text)}
-  if m.showThinking&&len(m.reasoning)>0 {m.transcript=append(m.transcript,"Thinking: "+m.reasoning)}
+  if len(m.reasoning)>0 {
+   if m.showThinking {m.transcript=append(m.transcript,"Thinking: "+m.reasoning)} else {m.addHiddenSource(max(0,len(m.transcript)-1),"Thinking: "+m.reasoning)}
+  }
   m.streaming="";m.reasoning="";m.running=false;m.status="ready"
  case "turn.failed":
   m.transcript=append(m.transcript,"Error: "+frame.Message)
@@ -635,6 +658,12 @@ func (m *model) refreshTranscript() {
  }
  if m.showThinking&&len(m.reasoning)>0 {items=append(items,"Thinking: "+m.reasoning)}
  if len(m.streaming)>0 {items=append(items,m.streaming)}
+ m.transcriptRows=make([]int,len(items))
+ row:=0
+ for i,item:=range items {
+  m.transcriptRows[i]=row
+  row+=strings.Count(item,"\n")+3
+ }
  stickToEnd:=m.viewport.AtBottom()
  oldOffset:=m.viewport.YOffset()
  m.viewport.SetContent(strings.Join(items,"\n\n"))
