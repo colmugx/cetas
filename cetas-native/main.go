@@ -58,6 +58,7 @@ type model struct {
  width, height int
  transcript []string
  markdownRaw map[int]string
+ toolIndex map[string]int
  markdownCache map[int]string
  markdownRenderer *glamour.TermRenderer
  streaming string
@@ -243,14 +244,14 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   if msg.name=="switch_session" {
    var payload struct{SessionID string `json:"session_id"`}
    if json.Unmarshal(msg.payload,&payload)==nil && payload.SessionID!="" {
-    m.session=payload.SessionID;m.transcript=nil;m.markdownRaw=nil;m.markdownCache=nil;m.streaming="";m.reasoning="";m.running=false;m.followups=nil
+    m.session=payload.SessionID;m.transcript=nil;m.markdownRaw=nil;m.markdownCache=nil;m.toolIndex=nil;m.streaming="";m.reasoning="";m.running=false;m.followups=nil
     return m,request(m.host,"session_transcript",map[string]any{"id":m.session})
    }
   }
   if msg.name=="session_transcript" {
    var payload struct{ Items []struct{Kind string `json:"kind"`;Text string `json:"text"`;Name string `json:"name"`;Result string `json:"result"`} `json:"items"` }
    if json.Unmarshal(msg.payload,&payload)==nil {
-    m.transcript=nil;m.markdownRaw=nil;m.markdownCache=nil
+    m.transcript=nil;m.markdownRaw=nil;m.markdownCache=nil;m.toolIndex=nil
     for _,row:=range payload.Items {
      switch row.Kind {
      case "user":m.transcript=append(m.transcript,"> "+row.Text)
@@ -399,6 +400,11 @@ func (m *model) applyEvent(e harness.Event) {
   Token string `json:"token"`
   Message string `json:"message"`
   ToolName string `json:"tool_name"`
+  ToolCallID string `json:"tool_call_id"`
+  Result string `json:"result"`
+  IsError bool `json:"is_error"`
+  Title string `json:"title"`
+  Entries []struct {Key string `json:"key"`;Value string `json:"value"`} `json:"entries"`
   SessionID string `json:"session_id"`
   RequestID string `json:"request_id"`
   Kind string `json:"kind"`
@@ -428,9 +434,13 @@ func (m *model) applyEvent(e harness.Event) {
   if delta=="" {delta=frame.Text};if delta=="" {delta=frame.Token}
   m.reasoning+=delta
  case "tool.started":
+  if m.toolIndex==nil {m.toolIndex=make(map[string]int)}
+  if frame.ToolCallID!="" {m.toolIndex[frame.ToolCallID]=len(m.transcript)}
   m.transcript=append(m.transcript,"• "+frame.ToolName+" …")
  case "tool.completed":
-  if m.showTools {m.transcript=append(m.transcript,"  "+frame.ToolName+" completed")}
+  marker:="✓";if frame.IsError {marker="✗"}
+  if at,ok:=m.toolIndex[frame.ToolCallID];ok&&at<len(m.transcript) {m.transcript[at]="• "+frame.ToolName+" "+marker}
+  if m.showTools&&frame.Result!="" {m.transcript=append(m.transcript,frame.Result)}
  case "turn.completed":
   text:=m.streaming;if text=="" {text=frame.Text}
   if text!="" {m.appendAssistant(text)}
@@ -446,7 +456,15 @@ func (m *model) applyEvent(e harness.Event) {
   if m.modalRequestID!="" {m.pendingUI=append(m.pendingUI,prompt)} else {m.activateUI(prompt)}
   m.status="waiting for user input"
  case "ui.render":
-  if frame.Slot=="Notice"||frame.Slot=="Widget" {text:=frame.Text;if len(frame.Lines)>0 {text=strings.Join(frame.Lines,"\n")};if text!="" {m.transcript=append(m.transcript,text)}}
+  text:=frame.Text
+  if len(frame.Lines)>0 {text=strings.Join(frame.Lines,"\n")}
+  if len(frame.Entries)>0 {for _,entry:=range frame.Entries {text+=" "+entry.Key+"="+entry.Value}}
+  slot:=strings.ToLower(frame.Slot)
+  if strings.Contains(slot,"status") {if strings.TrimSpace(text)!="" {m.status=text}}
+  if strings.Contains(slot,"notice")||strings.Contains(slot,"widget") {
+   if frame.Title!="" {text=frame.Title+": "+text}
+   if strings.TrimSpace(text)!="" {m.transcript=append(m.transcript,text)}
+  }
  }
 }
 
