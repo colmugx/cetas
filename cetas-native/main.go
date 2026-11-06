@@ -235,6 +235,9 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   if msg.name=="skills"||msg.name=="skills_browse" {
    var data struct{Skills []struct{Name string `json:"name"`;Description string `json:"description"`} `json:"skills"`}
    if json.Unmarshal(msg.payload,&data)==nil {
+    // A delayed skills catalog must not steal focus from an approval or an
+    // unrelated picker opened after the request was sent.
+    if m.modal!="" {return m,nil}
     if msg.name=="skills" && (m.completionToken=="" || !strings.HasSuffix(m.textarea.Value(),m.completionToken)) {return m,nil}
     m.modal="skills";if msg.name=="skills_browse" {m.modal="skills_browse"}
     m.modalIndex=0;m.modalItems=nil;m.modalValues=nil
