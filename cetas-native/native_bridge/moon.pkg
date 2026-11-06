@@ -10,8 +10,7 @@ import {
 
 supported_targets = "native"
 
-pkgtype(kind: "foreign_library")
-
 options(
+  link: true,
   "native-stub": ["test_symbols.c"],
 )
