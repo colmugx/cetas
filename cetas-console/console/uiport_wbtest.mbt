@@ -90,7 +90,7 @@ async test "UiPort request waits until corresponding answer and retires itself" 
     let registry = UiRegistry::new()
     let port = HubUiPort::new(hub, registry, "session-a")
     let answer = group.spawn(() =>
-      port.request(
+      @posoco.UiPort::request(port, 
         @posoco.UiRequest::Input(prompt="CJK question", default=None),
       )
     )
@@ -118,7 +118,7 @@ async test "UiPort shutdown wakes simultaneous waiters fail closed" {
     let registry = UiRegistry::new()
     let port = HubUiPort::new(hub, registry, "session-a")
     let approval = group.spawn(() =>
-      port.request(
+      @posoco.UiPort::request(port, 
         @posoco.UiRequest::Select(
           prompt="Approve shell?",
           options=["once", "deny"],
@@ -127,7 +127,7 @@ async test "UiPort shutdown wakes simultaneous waiters fail closed" {
       )
     )
     let question = group.spawn(() =>
-      port.request(@posoco.UiRequest::Input(prompt="Question", default=None))
+      @posoco.UiPort::request(port, @posoco.UiRequest::Input(prompt="Question", default=None))
     )
     @async.sleep(10)
     assert_true(registry.pending.contains("u-1"))
