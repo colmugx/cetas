@@ -35,6 +35,27 @@ fn UiRegistry::resolve(
   }
 }
 
+
+ 
+///|
+/// Fail-closed shutdown: every pending approval, OAuth question and input
+/// coroutine must be resumed before the hosting TaskGroup is drained. Never
+/// leave a Posoco coroutine waiting for a terminal that has already exited.
+fn UiRegistry::cancel_all(self : UiRegistry) -> Unit {
+  let ids : Array[String] = []
+  for id, _ in self.pending {
+    ids.push(id)
+  }
+  for id in ids {
+    self.resolve(id, "{\\"cancelled\\":true}")
+  }
+}
+
+///|
+pub fn ConsoleRuntime::cancel_pending_ui(self : ConsoleRuntime) -> Unit {
+  self.ui_registry.cancel_all()
+}
+
 ///|
 /// The web host's UiPort: renders nothing itself, bridges `UiRequest` to the
 /// browser over the event hub and suspends the ask-coroutine on a one-shot
