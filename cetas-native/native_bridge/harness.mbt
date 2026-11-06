@@ -68,7 +68,8 @@ async fn harness_dispatch(
     "runtime_state" => runtime.runtime_json()
     "commands" => runtime.commands_json()
     "invoke_command" =>
-      match (harness_required(args, "session_id"), harness_required(args, "id")) {
+      match
+        (harness_required(args, "session_id"), harness_required(args, "id")) {
         (Ok(session_id), Ok(id)) => {
           let arguments = match args {
             Json::Object(fields) =>
