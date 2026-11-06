@@ -73,7 +73,9 @@ async fn harness_dispatch(
         (Ok(session_id), Ok(id)) => {
           let arguments = match args {
             Json::Object(fields) =>
-              fields.get("arguments").unwrap_or(Json::object(Map::from_array([])))
+              fields
+              .get("arguments")
+              .unwrap_or(Json::object(Map::from_array([])))
             _ => Json::object(Map::from_array([]))
           }
           let request_id = harness_string(args, "request_id").unwrap_or("")
