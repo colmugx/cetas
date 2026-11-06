@@ -312,14 +312,14 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
     case "esc":return m,m.answerModal(map[string]any{"cancelled":true})
     case "enter":
      switch m.modal {
-     case "input":return m,m.answerModal(map[string]any{"text":string(m.modalBuffer)})
+     case "input","secret":return m,m.answerModal(map[string]any{"text":string(m.modalBuffer)})
      case "select":return m,m.answerModal(map[string]any{"selected":m.modalIndex})
      case "confirm":if m.modalIndex==0{return m,m.answerModal(map[string]any{"yes":true})};return m,m.answerModal(map[string]any{"no":false})
      }
     case "up","ctrl+p":if m.modalIndex>0 {m.modalIndex--};return m,nil
     case "down","ctrl+n":if m.modalIndex+1<len(m.modalItems) {m.modalIndex++};return m,nil
-    case "backspace":if m.modal=="input"&&len(m.modalBuffer)>0 {m.modalBuffer=m.modalBuffer[:len(m.modalBuffer)-1]};return m,nil
-    default:if m.modal=="input"&&msg.Text!="" {m.modalBuffer=append(m.modalBuffer,[]rune(msg.Text)...)};return m,nil
+    case "backspace":if (m.modal=="input"||m.modal=="secret")&&len(m.modalBuffer)>0 {m.modalBuffer=m.modalBuffer[:len(m.modalBuffer)-1]};return m,nil
+    default:if (m.modal=="input"||m.modal=="secret")&&msg.Text!="" {m.modalBuffer=append(m.modalBuffer,[]rune(msg.Text)...)};return m,nil
     }
    }
    switch key {
@@ -533,6 +533,25 @@ func (m *model) applyEvent(e harness.Event) {
   m.status="waiting for user input"
  case "ui.dismiss":
   m.dismissUI(frame.RequestID)
+ case "auth.login":
+  // Login outcomes are provider-neutral and intentionally contain no
+  // credentials. Never dump the raw result into the transcript or errors.
+  var result struct {
+   Type string `json:"type"`
+   Feedback string `json:"feedback"`
+   Error string `json:"error"`
+  }
+  var payload struct {Provider string `json:"provider"`; Result json.RawMessage `json:"result"`}
+  if json.Unmarshal(e.Raw,&payload)!=nil||json.Unmarshal(payload.Result,&result)!=nil {
+   m.err="authentication returned an invalid result";m.status="authentication failed"
+  } else if result.Type=="success" {
+   m.status="signed in to "+payload.Provider
+  } else {
+   m.status="authentication failed"
+   // Do not echo arbitrary provider diagnostics: a provider may include the
+   // submitted API key in its error detail.
+   m.err="login failed for "+payload.Provider
+  }
  case "ui.render":
   text:=frame.Text
   if len(frame.Lines)>0 {text=strings.Join(frame.Lines,"\n")}
@@ -584,6 +603,7 @@ func (m model) View() tea.View {
  if m.modal!="" {
   if m.modalPrompt!="" {content.WriteString(m.modalPrompt+"\n")} else {content.WriteString("Choose (↑/↓, Enter, Esc):\n")}
   if m.modal=="input" {content.WriteString("> "+string(m.modalBuffer)+"_\n")}
+  if m.modal=="secret" {content.WriteString("> "+strings.Repeat("•",len(m.modalBuffer))+"_\n")}
   for i,s:=range m.modalItems {if i==m.modalIndex {content.WriteString("▶ ")} else {content.WriteString("  ")};content.WriteString(s+"\n")}
  } else {
   content.WriteString(m.viewport.View()+"\n")
