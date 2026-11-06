@@ -177,7 +177,12 @@ impl @posoco.UiPort for HubUiPort with fn request(
 ) -> @posoco.UiResponse raise {
   let (request_id, queue) = self.registry.register()
   let kind : String = match request {
-    @posoco.UiRequest::Input(..) => if self.secret_inputs { "secret" } else { "input" }
+    @posoco.UiRequest::Input(..) =>
+      if self.secret_inputs {
+        "secret"
+      } else {
+        "input"
+      }
     @posoco.UiRequest::Confirm(..) => "confirm"
     @posoco.UiRequest::Select(..) => "select"
   }
