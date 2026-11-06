@@ -56,6 +56,7 @@ type model struct {
  feed <-chan harness.Event
  textarea textarea.Model
  viewport viewport.Model
+ virtualScroll *virtualTranscript
  width, height int
  transcript []string
  transcriptRows []int
@@ -112,6 +113,7 @@ func newModel() model {
  vp:=viewport.New(viewport.WithWidth(80),viewport.WithHeight(18))
  vp.SetWidth(80)
  vp.SetHeight(18)
+ vp.SoftWrap=true
  return model{textarea:ta,viewport:vp,markdownRenderer:renderer,status:"connecting to Posoco…",searchActive:-1}
 }
 
@@ -301,14 +303,14 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   if msg.name=="switch_session" {
    var payload struct{SessionID string `json:"session_id"`}
    if json.Unmarshal(msg.payload,&payload)==nil && payload.SessionID!="" {
-    m.session=payload.SessionID;m.clearTranscriptSearch();m.transcript=nil;m.markdownRaw=nil;m.markdownCache=nil;m.toolIndex=nil;m.streaming="";m.reasoning="";m.running=false;m.followups=nil
+    m.session=payload.SessionID;m.clearTranscriptSearch();m.resetVirtualTranscript();m.transcript=nil;m.markdownRaw=nil;m.markdownCache=nil;m.toolIndex=nil;m.streaming="";m.reasoning="";m.running=false;m.followups=nil
     return m,request(m.host,"session_transcript",map[string]any{"id":m.session})
    }
   }
   if msg.name=="session_transcript" {
    var payload struct{ Items []struct{Kind string `json:"kind"`;Text string `json:"text"`;Name string `json:"name"`;Result string `json:"result"`} `json:"items"` }
    if json.Unmarshal(msg.payload,&payload)==nil {
-    m.clearTranscriptSearch();m.transcript=nil;m.markdownRaw=nil;m.markdownCache=nil;m.toolIndex=nil
+    m.clearTranscriptSearch();m.resetVirtualTranscript();m.transcript=nil;m.markdownRaw=nil;m.markdownCache=nil;m.toolIndex=nil
     for _,row:=range payload.Items {
      switch row.Kind {
      case "user":m.transcript=append(m.transcript,"> "+row.Text)
@@ -336,7 +338,12 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   }
   return m,nil
  case tea.MouseWheelMsg:
-  if m.modal=="" {m.viewport,_=m.viewport.Update(msg)}
+  if m.modal=="" {
+   switch msg.Button {
+   case tea.MouseWheelUp:m.scrollTranscript(-3)
+   case tea.MouseWheelDown:m.scrollTranscript(3)
+   }
+  }
   return m,nil
  case tea.KeyPressMsg:
   key:=msg.String()
@@ -423,8 +430,8 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
    }
    if m.host!=nil&&time.Since(m.lastEscape)<450*time.Millisecond {m.lastEscape=time.Time{};return m,request(m.host,"rewind_points",map[string]any{})}
    m.lastEscape=time.Now();return m,nil
-  case "pgup","pageup":m.viewport.ScrollUp(max(1,m.viewport.Height()/2));return m,nil
-  case "pgdown","pagedown":m.viewport.ScrollDown(max(1,m.viewport.Height()/2));return m,nil
+  case "pgup","pageup":m.scrollTranscript(-max(1,m.viewport.Height()/2));return m,nil
+  case "pgdown","pagedown":m.scrollTranscript(max(1,m.viewport.Height()/2));return m,nil
   case "enter":
    value:=strings.TrimSpace(m.textarea.Value())
    if value=="" {return m,nil}
@@ -646,29 +653,6 @@ func (m *model) appendAssistant(text string) {
  idx:=len(m.transcript);m.transcript=append(m.transcript,text);m.markdownRaw[idx]=text
 }
 
-func (m *model) refreshTranscript() {
- items:=append([]string(nil),m.transcript...)
- if m.markdownRenderer!=nil {
-  if m.markdownCache==nil {m.markdownCache=make(map[int]string)}
-  for idx,raw:=range m.markdownRaw {
-   rendered,ok:=m.markdownCache[idx]
-   if !ok {result,err:=m.markdownRenderer.Render(raw);if err!=nil {rendered=raw} else {rendered=strings.TrimRight(result,"\n")};m.markdownCache[idx]=rendered}
-   if idx<len(items) {items[idx]=rendered}
-  }
- }
- if m.showThinking&&len(m.reasoning)>0 {items=append(items,"Thinking: "+m.reasoning)}
- if len(m.streaming)>0 {items=append(items,m.streaming)}
- m.transcriptRows=make([]int,len(items))
- row:=0
- for i,item:=range items {
-  m.transcriptRows[i]=row
-  row+=strings.Count(item,"\n")+3
- }
- stickToEnd:=m.viewport.AtBottom()
- oldOffset:=m.viewport.YOffset()
- m.viewport.SetContent(strings.Join(items,"\n\n"))
- if stickToEnd {m.viewport.GotoBottom()} else {m.viewport.SetYOffset(oldOffset)}
-}
 func (m *model) resize() {
  width:=max(20,m.width-2)
  m.textarea.SetWidth(width)
