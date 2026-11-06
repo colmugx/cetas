@@ -290,7 +290,7 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
     m.refreshTranscript()
    }
   }
-  if msg.name=="help" {m.transcript=append(m.transcript,"/model · /effort · /sessions · /rewind · /new · /login [provider] · /logout provider · /permission mode · /compact · /help");m.refreshTranscript()}
+  if msg.name=="help" {m.transcript=append(m.transcript,nativeSlashHelp());m.refreshTranscript()}
   if msg.name=="runtime_state" {
    var snapshot struct{SessionID string `json:"session_id"`;Status string `json:"status"`}
    if json.Unmarshal(msg.payload,&snapshot)==nil && snapshot.SessionID!="" {
@@ -343,6 +343,8 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
       index,err:=strconv.Atoi(chosen);m.modal="";m.modalValues=nil
       if err!=nil {m.err="invalid rewind index";return m,nil}
       return m,request(m.host,"rewind_apply",map[string]any{"message_index":index})
+     case "slash":
+      m.textarea.SetValue(slashInsertion(chosen));m.textarea.Focus();m.modal="";m.modalValues=nil;m.completionToken="";return m,nil
      case "files","skills":
       symbol:="@";if m.modal=="skills" {symbol="$"}
       inserted:=m.completionPrefix+symbol+chosen
@@ -356,8 +358,16 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   }
   switch key {
   case "tab":
-   if m.host==nil {return m,nil}
    value:=m.textarea.Value()
+   if strings.HasPrefix(value,"/") {
+    choices:=slashSuggestions(value)
+    if len(choices)>0 {
+     m.modal="slash";m.modalIndex=0;m.modalItems=nil;m.modalValues=nil
+     for _,choice:=range choices {m.modalItems=append(m.modalItems,choice.label);m.modalValues=append(m.modalValues,choice.insert)}
+    }
+    return m,nil
+   }
+   if m.host==nil {return m,nil}
    at:=strings.LastIndexAny(value,"@$")
    if at>=0 && !strings.ContainsAny(value[at:]," \t\n") {
     m.completionPrefix=value[:at]
