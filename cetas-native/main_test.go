@@ -47,3 +47,32 @@ func TestToolUsesConsoleProtocolField(t *testing.T) {
   t.Fatalf("tool renderer dropped wire name: %v",m.transcript)
  }
 }
+
+func TestModalRequestFIFOAndCancellation(t *testing.T) {
+ m:=newModel()
+ m.applyEvent(event(`{"type":"ui.request","session_id":"s-1","request_id":"u-1","kind":"confirm","prompt":"approve?"}`))
+ m.applyEvent(event(`{"type":"ui.request","session_id":"s-1","request_id":"u-2","kind":"input","prompt":"credential","default":"abc"}`))
+ if m.modalRequestID!="u-1"||len(m.pendingUI)!=1 {t.Fatalf("lost queued request: %#v",m)}
+ _=m.answerModal(map[string]any{"cancelled":true})
+ if m.modalRequestID!="u-2"||m.modal!="input"||string(m.modalBuffer)!="abc" {t.Fatalf("did not activate next request: %#v",m)}
+}
+func TestIgnoreOtherSessionEvents(t *testing.T) {
+ m:=newModel();m.session="s-1"
+ m.applyEvent(event(`{"type":"assistant.text_delta","session_id":"s-2","delta":"foreign"}`))
+ if m.streaming!=""||m.session!="s-1" {t.Fatalf("cross-session event entered UI: %#v",m)}
+ m.applyEvent(event(`{"type":"assistant.text_delta","session_id":"s-1","delta":"ours"}`))
+ if m.streaming!="ours" {t.Fatalf("own session event dropped: %#v",m)}
+}
+func TestStreamingModelCopyIsSafe(t *testing.T) {
+ m:=newModel()
+ m.applyEvent(event(`{"type":"assistant.text_delta","session_id":"s-1","delta":"first"}`))
+ copied:=m
+ copied.applyEvent(event(`{"type":"assistant.text_delta","session_id":"s-1","delta":"second"}`))
+ if m.streaming!="first"||copied.streaming!="firstsecond" {t.Fatalf("copy lost immutable streaming state: %q %q",m.streaming,copied.streaming)}
+}
+func TestTranscriptReplayedFromConsole(t *testing.T) {
+ m:=newModel();m.session="s-1"
+ out,_:=m.Update(commandResult{name:"session_transcript",payload:json.RawMessage(`{"items":[{"kind":"user","text":"你好"},{"kind":"assistant","text":"hello"},{"kind":"tool","name":"bash"}]}`)})
+ state:=out.(model)
+ if len(state.transcript)!=3||state.transcript[0]!="> 你好"||!strings.Contains(state.transcript[2],"bash") {t.Fatalf("replay: %#v",state.transcript)}
+}
