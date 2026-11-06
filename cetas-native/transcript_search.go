@@ -129,8 +129,8 @@ func (m *model) navigateTranscriptSearch(reverse bool) {
 		m.searchActive = (m.searchActive + 1) % len(m.searchHits)
 	}
 	hit := m.searchHits[m.searchActive]
-	if hit.block >= 0 && hit.block < len(m.transcriptRows) {
-		m.viewport.SetYOffset(m.transcriptRows[hit.block])
+	if m.virtualScroll != nil && hit.block >= 0 && hit.block < len(m.virtualScroll.heights) {
+		m.jumpToTranscriptBlock(hit.block)
 	}
 	kind := ""
 	if hit.hidden {
