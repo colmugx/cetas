@@ -93,6 +93,9 @@ type model struct {
  pendingProvider string
  authID string
  providerMethods map[string][]string
+ dynamicCommands map[string]registeredCommand
+ commandSession string
+ nextCommandRequest int
  session string
  status string
  err string
@@ -302,8 +305,8 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   if msg.name=="switch_session" {
    var payload struct{SessionID string `json:"session_id"`}
    if json.Unmarshal(msg.payload,&payload)==nil && payload.SessionID!="" {
-    m.session=payload.SessionID;m.clearTranscriptSearch();m.resetVirtualTranscript();m.transcript=nil;m.markdownRaw=nil;m.markdownCache=nil;m.toolIndex=nil;m.streaming="";m.reasoning="";m.running=false;m.followups=nil
-    return m,request(m.host,"session_transcript",map[string]any{"id":m.session})
+    m.session=payload.SessionID;m.dynamicCommands=nil;m.commandSession="";m.clearTranscriptSearch();m.resetVirtualTranscript();m.transcript=nil;m.markdownRaw=nil;m.markdownCache=nil;m.toolIndex=nil;m.streaming="";m.reasoning="";m.running=false;m.followups=nil
+    return m,tea.Batch(request(m.host,"session_transcript",map[string]any{"id":m.session}),request(m.host,"commands",map[string]any{}))
    }
   }
   if msg.name=="session_transcript" {
@@ -326,13 +329,22 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
     m.refreshTranscript()
    }
   }
-  if msg.name=="help" {m.transcript=append(m.transcript,nativeSlashHelp());m.refreshTranscript()}
+  if msg.name=="commands" {m.installCommandCatalog(msg.payload)}
+  if msg.name=="help" {
+   content:=nativeSlashHelp()
+   if m.commandSession==m.session {
+    for _,def:=range m.dynamicCommands {
+     if def.Visible&&!strings.Contains(content,"/"+def.ID+" — ") {content+="\n/"+def.ID+" — "+def.Description}
+    }
+   }
+   m.transcript=append(m.transcript,content);m.refreshTranscript()
+  }
   if msg.name=="runtime_state" {
    var snapshot struct{SessionID string `json:"session_id"`;Status string `json:"status"`}
    if json.Unmarshal(msg.payload,&snapshot)==nil && snapshot.SessionID!="" {
     firstAttach:=m.session==""
     m.session=snapshot.SessionID
-    if firstAttach {return m,request(m.host,"session_transcript",map[string]any{"id":m.session})}
+    if firstAttach {return m,tea.Batch(request(m.host,"session_transcript",map[string]any{"id":m.session}),request(m.host,"commands",map[string]any{}))}
    }
   }
   return m,nil
@@ -385,7 +397,7 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
       if err!=nil {m.err="invalid rewind index";return m,nil}
       return m,request(m.host,"rewind_apply",map[string]any{"message_index":index})
      case "slash":
-      m.textarea.SetValue(slashInsertion(chosen));m.textarea.Focus();m.modal="";m.modalValues=nil;m.completionToken="";return m,nil
+      m.textarea.SetValue(m.commandInsertion(chosen));m.textarea.Focus();m.modal="";m.modalValues=nil;m.completionToken="";return m,nil
      case "skills_browse":
       m.modal="";m.modalItems=nil;m.modalValues=nil;return m,nil
      case "files","skills":
@@ -403,7 +415,7 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   case "tab":
    value:=m.textarea.Value()
    if strings.HasPrefix(value,"/") {
-    choices:=slashSuggestions(value)
+    choices:=m.commandSuggestions(value)
     if len(choices)>0 {
      m.modal="slash";m.modalIndex=0;m.modalItems=nil;m.modalValues=nil
      for _,choice:=range choices {m.modalItems=append(m.modalItems,choice.label);m.modalValues=append(m.modalValues,choice.insert)}
@@ -524,7 +536,7 @@ func (m *model) command(value string) tea.Cmd {
   if len(parts)>1 {return request(m.host,"set_permission",map[string]any{"mode":parts[1]})}
  case "/help":return func() tea.Msg {return commandResult{name:"help",payload:json.RawMessage(`{"ok":true}`)}}
  }
- return func() tea.Msg {return commandResult{name:value,err:fmt.Errorf("command not available in this migration checkpoint")}}
+ return m.invokeDynamicCommand(value)
 }
 
 // The EventHub carries tool results as text and auth.login outcomes as
@@ -569,6 +581,7 @@ func (m *model) applyEvent(e harness.Event) {
   if frame.SessionID!=m.session && frame.Type!="auth.login" && frame.Type!="auth.cancelled" {return}
  }
  switch frame.Type {
+ case "command.completed":m.handleCommandCompletion(e.Raw)
  case "turn.accepted","turn.started":m.running=true;m.status="working"
  case "assistant.text_delta":
   delta:=frame.Delta
