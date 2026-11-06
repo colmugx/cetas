@@ -537,7 +537,7 @@ func (m *model) applyEvent(e harness.Event) {
  if frame.SessionID!="" {
   if m.session=="" {m.session=frame.SessionID}
   // Do not let another running session mutate the visible transcript.
-  if frame.SessionID!=m.session {return}
+  if frame.SessionID!=m.session && frame.Type!="auth.login" && frame.Type!="auth.cancelled" {return}
  }
  switch frame.Type {
  case "turn.accepted","turn.started":m.running=true;m.status="working"
