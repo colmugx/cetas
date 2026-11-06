@@ -42,6 +42,7 @@ pub async fn ConsoleRuntime::abort_turn(Self, String?) -> Unit noraise
 pub fn ConsoleRuntime::active_session_id(Self) -> String
 pub fn ConsoleRuntime::active_workspace(Self) -> String
 pub fn ConsoleRuntime::attach_sink(Self, (String) -> Unit) -> Unit
+pub fn ConsoleRuntime::cancel_pending_ui(Self) -> Unit
 pub async fn ConsoleRuntime::compact_active_session(Self) -> Unit
 pub fn ConsoleRuntime::detach_sink(Self) -> Unit
 pub fn ConsoleRuntime::emit_active_snapshot(Self) -> Unit
@@ -57,6 +58,8 @@ pub async fn ConsoleRuntime::quota_json(Self) -> @json.Json
 pub async fn ConsoleRuntime::rename_session(Self, String, String) -> Result[Unit, String]
 pub fn ConsoleRuntime::republish_status(Self) -> Unit
 pub fn ConsoleRuntime::resolve_ui(Self, String, String) -> Unit
+pub async fn ConsoleRuntime::rewind_active_session(Self, Int32) -> @json.Json
+pub async fn ConsoleRuntime::rewind_points_json(Self) -> @json.Json
 pub fn ConsoleRuntime::runtime_json(Self) -> @json.Json
 pub async fn ConsoleRuntime::select_effort(Self, String, String?) -> Result[Unit, String] noraise
 pub async fn ConsoleRuntime::sessions_json(Self) -> @json.Json
