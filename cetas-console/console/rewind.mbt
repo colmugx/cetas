@@ -56,7 +56,7 @@ pub async fn ConsoleRuntime::rewind_active_session(
     index,
   ) {
     Some(value) => value
-    None => return rewind_error("invalid rewind address"),
+    None => return rewind_error("invalid rewind address")
   }
   @cetas_core.rewind_session(
     workspace.platform.session_store as &@posoco.SessionPort,
