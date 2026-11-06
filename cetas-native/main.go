@@ -618,7 +618,7 @@ func (m model) View() tea.View {
  if m.modal=="" {if cursor:=m.textarea.Cursor();cursor!=nil {cursor.Y+=m.viewport.Height()+2;view.Cursor=cursor}}
  return view
 }
-var version="0.10.14"
+var version="0.11.0"
 
 func main() {
  for _,arg:=range os.Args[1:] {
