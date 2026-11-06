@@ -2,7 +2,7 @@
 /// Only the native harness owns these Task handles. Provider sign-in must not
 /// monopolize the command dispatcher: in particular login_cancel and
 /// ui_response must remain serviceable while OAuth polls.
-struct NativeAuthTasks {
+priv struct NativeAuthTasks {
   mut next_id : Int32
   pending : Map[String, @async.Task[Unit]]
 }
@@ -28,7 +28,7 @@ fn NativeAuthTasks::start(
   runtime : @console.ConsoleRuntime,
   group : @async.TaskGroup[Unit],
   provider : String,
-  method : String,
+  auth_method : String,
 ) -> Json {
   if self.busy() {
     return harness_error("another provider login is already active")
@@ -38,7 +38,7 @@ fn NativeAuthTasks::start(
   let session_id = runtime.active_session_id()
   let task = group.spawn(
     () => {
-      let result = runtime.login(provider, method)
+      let result = runtime.login(provider, auth_method)
       // A cancellation removes the id before task.cancel(). A late result
       // from that task is never allowed to overwrite a cancelled login.
       if self.pending.contains(id) {
