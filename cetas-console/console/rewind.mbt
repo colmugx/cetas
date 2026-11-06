@@ -17,11 +17,10 @@ pub async fn ConsoleRuntime::rewind_points_json(self : ConsoleRuntime) -> Json {
     workspace.platform.session_store.root_dir,
     handle.session_id,
   )
-  let jsonl = match @fs.read_file(path) {
-    data => data.text()
-  } catch {
-    _ => ""
+  let data = @fs.read_file(path) catch {
+    _ => return Json::object(Map::from_array([("points", Json::array([]))]))
   }
+  let jsonl = data.text()
   let points : Array[Json] = []
   for point in @cetas_core.list_persisted_rewind_points(jsonl) {
     points.push(Json::object(Map::from_array([
