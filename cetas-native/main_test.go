@@ -32,3 +32,18 @@ func TestEditorResizesForSmallTerminal(t *testing.T) {
  m:=newModel();m.width=18;m.height=6;m.resize()
  if m.viewport.Height()<1 || m.viewport.Width()<20 {t.Fatalf("bad dimensions: %d x %d",m.viewport.Width(),m.viewport.Height())}
 }
+
+func TestUiRequestModalUsesWireRequestID(t *testing.T) {
+ m:=newModel()
+ m.applyEvent(event(`{"type":"ui.request","request_id":"u-7","kind":"select","prompt":"Choose","options":["one","two"]}`))
+ if m.modal!="select"||m.modalRequestID!="u-7"||len(m.modalItems)!=2 {
+  t.Fatalf("UI request was not projected: %#v",m.modalItems)
+ }
+}
+func TestToolUsesConsoleProtocolField(t *testing.T) {
+ m:=newModel()
+ m.applyEvent(event(`{"type":"tool.started","tool_name":"bash","tool_call_id":"t-1"}`))
+ if len(m.transcript)!=1||!strings.Contains(m.transcript[0],"bash") {
+  t.Fatalf("tool renderer dropped wire name: %v",m.transcript)
+ }
+}
