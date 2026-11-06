@@ -2,6 +2,7 @@ package bridge
 
 /*
 #cgo darwin LDFLAGS: -L${SRCDIR}/lib -lcetas_moon
+#cgo linux LDFLAGS: -L${SRCDIR}/lib -lcetas_moon -lpthread -lm -ldl
 #include <stdint.h>
 void cetas_host_boot(void);
 int32_t cetas_host_infra_run(void);

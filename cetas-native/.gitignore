@@ -1,1 +1,7 @@
-target
+# Generated MoonBit static archive, runtime objects and test outputs
+go_bridge/lib/*.a
+go_bridge/lib/*.dylib
+go_bridge/lib/*.so
+build/
+_build/
+*.test
