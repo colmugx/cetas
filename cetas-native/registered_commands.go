@@ -218,6 +218,11 @@ func (m *model) handleCommandCompletion(raw json.RawMessage) {
   m.status="/"+data.CommandID+" complete"
   if data.Outcome.Feedback!="" {m.transcript=append(m.transcript,data.Outcome.Feedback)}
  case "failure":m.err="/"+data.CommandID+": "+data.Outcome.Reason
- case "needs_input":m.status=data.Outcome.Prompt
+ case "needs_input":
+  m.status=data.Outcome.Prompt
+  if definition,found:=m.lookupCommand("/"+data.CommandID);found {
+   m.textarea.SetValue("/"+definition.ID+" ")
+   m.textarea.Focus()
+  }
  }
 }
