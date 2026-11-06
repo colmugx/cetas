@@ -188,3 +188,50 @@ func TestUiDismissDoesNotCloseUnrelatedPicker(t *testing.T) {
   t.Fatalf("malformed request corrupted selection: %#v",m)
  }
 }
+
+func TestSecretUiPromptNeverRendersCredential(t *testing.T) {
+ m:=newModel()
+ m.applyEvent(event(`{"type":"ui.request","request_id":"u-secret","kind":"secret","prompt":"API Key","default":"LEAKED-DEFAULT"}`))
+ if m.modal!="secret"||len(m.modalBuffer)!=0 {
+  t.Fatalf("secret prompt must never prefill credentials: modal=%q buffer=%d",m.modal,len(m.modalBuffer))
+ }
+ m.modalBuffer=[]rune("sensitive-credential-xyz")
+ view:=m.View()
+ if strings.Contains(view.Content,"sensitive-credential-xyz")||strings.Contains(view.Content,"LEAKED-DEFAULT") {
+  t.Fatal("secret leaked through the terminal view")
+ }
+ if !strings.Contains(view.Content,"••••") {
+  t.Fatal("secret input did not show masked feedback")
+ }
+}
+
+func TestSecretReplyIsCorrelatedAndCleared(t *testing.T) {
+ m:=newModel()
+ m.host=&testHost{}
+ m.applyEvent(event(`{"type":"ui.request","request_id":"u-secret","kind":"secret","prompt":"API Key"}`))
+ m.modalBuffer=[]rune("private-key")
+ next,cmd:=m.Update(tea.KeyPressMsg{Code:tea.KeyEnter})
+ state:=next.(model)
+ if cmd==nil||state.modalRequestID!=""||state.modal!=""||len(state.modalBuffer)!=0 {
+  t.Fatalf("secret reply left credential in active modal: %#v",state.modal)
+ }
+ response:=cmd()
+ if result,ok:=response.(commandResult);!ok||result.name!="ui_response" {
+  t.Fatalf("missing correlated UiPort response: %#v",response)
+ }
+}
+
+func TestLoginCompletionDoesNotEchoProviderError(t *testing.T) {
+ m:=newModel()
+ m.applyEvent(event(`{"type":"auth.login","provider":"example","result":{"type":"error","error":"bad credential sensitive-credential-xyz"}}`))
+ if m.status!="authentication failed"||!strings.Contains(m.err,"example") {
+  t.Fatalf("login failure was lost: status=%q err=%q",m.status,m.err)
+ }
+ if strings.Contains(m.View().Content,"sensitive-credential-xyz") {
+  t.Fatal("provider error text leaked potentially sensitive input")
+ }
+ m.applyEvent(event(`{"type":"auth.login","provider":"example","result":{"type":"success","feedback":"logged in"}}`))
+ if !strings.Contains(m.status,"signed in") {
+  t.Fatalf("login completion not rendered: %q",m.status)
+ }
+}
