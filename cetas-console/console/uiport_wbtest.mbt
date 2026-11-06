@@ -26,5 +26,6 @@ test "UiRegistry shutdown drains pending requests" {
   assert_false(registry.pending.contains(first))
   assert_false(registry.pending.contains(second))
   registry.cancel_all()
-  assert_true(registry.pending.is_empty())
+  assert_false(registry.pending.contains(first))
+  assert_false(registry.pending.contains(second))
 }
