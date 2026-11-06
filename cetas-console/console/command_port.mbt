@@ -40,8 +40,8 @@ fn console_command_def_json(def : @posoco.CommandDef) -> Json {
     params.push(Json::object(Map::from_array(fields)))
   }
   let aliases : Array[Json] = []
-  for alias in def.aliases {
-    aliases.push(Json::string(alias))
+  for alternate in def.aliases {
+    aliases.push(Json::string(alternate))
   }
   let fields : Array[(String, Json)] = [
     ("id", Json::string(def.id)),
