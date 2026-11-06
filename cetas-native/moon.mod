@@ -8,9 +8,9 @@ repository = "https://github.com/colmugx/cetas"
 
 license = "Apache-2.0"
 
-keywords = [ "cetas", "tui", "native", "ratatui" ]
+keywords = [ "cetas", "tui", "native", "bubbletea" ]
 
-description = "Native Cetas TUI host backed by Ratatui"
+description = "Native Cetas TUI host backed by Bubble Tea and Posoco"
 
 preferred_target = "native"
 
@@ -52,6 +52,3 @@ import {
   // recipe-deps:end
 }
 
-options(
-  "--moonbit-unstable-prebuild": "build.js",
-)

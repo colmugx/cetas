@@ -1,9 +1,0 @@
-import {
-  "colmugx/cetas-native/src/app",
-  "moonbitlang/async",
-  "moonbitlang/async/stdio",
-}
-
-pkgtype(kind: "executable")
-
-supported_targets = "+native"
