@@ -114,8 +114,9 @@ fn NativeAuthTasks::cancel_all(self : NativeAuthTasks) -> Unit {
       Some(task) => {
         self.cancelled[id] = true
         task.cancel()
-        self.pending.remove(id)
-        self.cancelled.remove(id)
+        // Keep the cancellation tombstone until the task settles. Even if
+        // provider polling returns late during shutdown, it cannot publish a
+        // successful login after the terminal has stopped accepting input.
       }
       None => ()
     }
