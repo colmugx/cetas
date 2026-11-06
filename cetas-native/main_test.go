@@ -2,6 +2,7 @@ package main
 
 import (
  "encoding/json"
+ "context"
  "strings"
  "testing"
 
@@ -75,4 +76,36 @@ func TestTranscriptReplayedFromConsole(t *testing.T) {
  out,_:=m.Update(commandResult{name:"session_transcript",payload:json.RawMessage(`{"items":[{"kind":"user","text":"你好"},{"kind":"assistant","text":"hello"},{"kind":"tool","name":"bash"}]}`)})
  state:=out.(model)
  if len(state.transcript)!=3||state.transcript[0]!="> 你好"||!strings.Contains(state.transcript[2],"bash") {t.Fatalf("replay: %#v",state.transcript)}
+}
+
+type testHost struct{}
+func (*testHost) Request(context.Context,string,any)(json.RawMessage,error){return json.RawMessage("{}"),nil}
+func (*testHost) Events() <-chan harness.Event {return nil}
+func (*testHost) Errors() <-chan error {return nil}
+func (*testHost) Close(context.Context) error {return nil}
+
+func TestFollowupWaitsUntilMoonBitIdleSnapshot(t *testing.T) {
+ m:=newModel();m.host=&testHost{};m.session="s-1";m.running=true;m.followups=[]string{"next"}
+ out,_:=m.Update(eventBatchResult{events:[]harness.Event{event(`{"type":"turn.completed","session_id":"s-1","text":"ok"}`)}})
+ mid:=out.(model)
+ if len(mid.followups)!=1 {t.Fatal("followup started before idle snapshot")}
+ out,_=mid.Update(eventBatchResult{events:[]harness.Event{event(`{"type":"session.snapshot","session_id":"s-1","busy":false}`)}})
+ last:=out.(model)
+ if len(last.followups)!=0||!last.running {t.Fatalf("followup not dispatched on idle: %#v",last)}
+}
+func TestToolCompletionMatchesCallID(t *testing.T) {
+ m:=newModel()
+ m.applyEvent(event(`{"type":"tool.started","session_id":"s","tool_call_id":"tc-1","tool_name":"bash"}`))
+ m.applyEvent(event(`{"type":"tool.completed","session_id":"s","tool_call_id":"tc-1","tool_name":"bash","is_error":false}`))
+ if len(m.transcript)!=1||!strings.Contains(m.transcript[0],"✓") {t.Fatalf("tool completion not adopted: %#v",m.transcript)}
+}
+func TestExtensionStatusRender(t *testing.T) {
+ m:=newModel()
+ m.applyEvent(event(`{"type":"ui.render","slot":"Status","text":"working: 25%"}`))
+ if m.status!="working: 25%" {t.Fatalf("status UI dropped: %q",m.status)}
+}
+func TestFinalMarkdownIsCached(t *testing.T) {
+ m:=newModel();m.appendAssistant("**bold** and `code`")
+ m.refreshTranscript()
+ if got:=m.markdownCache[0];!strings.Contains(got,"bold")||!strings.Contains(got,"code") {t.Fatalf("markdown not rendered: %q",got)}
 }
