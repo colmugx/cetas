@@ -28,11 +28,17 @@ def run_pty(trace_path: Path) -> bytes:
     env = dict(os.environ, CETAS_PTY_UI_HELPER="1",
                CETAS_PTY_UI_TRACE=str(trace_path),
                TERM="xterm-256color", NO_COLOR="1")
+    def acquire_tty():
+        # The Go test opens /dev/tty through Bubble Tea. A PTY slave passed
+        # as stdin is not enough on macOS: make it the controlling terminal.
+        os.setsid()
+        fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+
     proc = subprocess.Popen(
         ["go", "test", "-run", "^TestInteractivePTYApprovals$", "-count=1",
          "-v", "."],
         cwd=NATIVE, stdin=slave, stdout=slave, stderr=slave, env=env,
-        start_new_session=True,
+        preexec_fn=acquire_tty,
     )
     os.close(slave)
     output = bytearray()
