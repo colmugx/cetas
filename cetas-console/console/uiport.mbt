@@ -176,6 +176,9 @@ impl @posoco.UiPort for HubUiPort with fn request(
   request : @posoco.UiRequest,
 ) -> @posoco.UiResponse raise {
   let (request_id, queue) = self.registry.register()
+  // Cancellation can unwind a suspended queue.get without executing its
+  // catch branch. Synchronous defer is the only common retirement path.
+  defer self.retire_request(request_id)
   let kind : String = match request {
     @posoco.UiRequest::Input(..) =>
       if self.secret_inputs {
@@ -227,14 +230,8 @@ impl @posoco.UiPort for HubUiPort with fn request(
   }
   self.hub.emit(self.session_id, "", "ui.request", extra~)
   let raw = queue.get() catch {
-    _ => {
-      self.retire_request(request_id)
-      return @posoco.UiResponse::Cancelled
-    }
+    _ => return @posoco.UiResponse::Cancelled
   }
-  // Resolve and cancel paths both retire the id. A response already removes
-  // it from the registry; forget is intentionally idempotent.
-  self.retire_request(request_id)
   ui_response_for_request(request, raw)
 }
 
