@@ -64,6 +64,17 @@ async fn harness_dispatch(
         Ok(id) => runtime.transcript_json(id)
         Err(e) => harness_error(e)
       }
+    "rewind_points" => runtime.rewind_points_json()
+    "rewind_apply" =>
+      match args {
+        Json::Object(fields) =>
+          match fields.get("message_index") {
+            Some(Json::Number(index, ..)) =>
+              runtime.rewind_active_session(index.to_int())
+            _ => harness_error("rewind_apply requires message_index")
+          }
+        _ => harness_error("rewind_apply requires an object")
+      }
     "session_rename" =>
       match (harness_required(args, "id"), harness_required(args, "name")) {
         (Ok(id), Ok(name)) =>
