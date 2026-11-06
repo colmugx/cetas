@@ -85,7 +85,13 @@ def dependency_native_sources():
         "watch_inotify.c", "watch_windows.c", "process_windows.c",
         "windows.c", "windows_subsystem.c",
     }
-    if sys.platform == "darwin":\n        excluded.add("epoll.c")\n        excluded.add("watch_inotify.c")\n    else:\n        excluded.add("kqueue.c")\n        excluded.add("watch_kqueue.c")\n    seen = set()
+    if sys.platform == "darwin":
+        excluded.add("epoll.c")
+        excluded.add("watch_inotify.c")
+    else:
+        excluded.add("kqueue.c")
+        excluded.add("watch_kqueue.c")
+    seen = set()
     files = []
     for root in roots:
         if not root.exists():
