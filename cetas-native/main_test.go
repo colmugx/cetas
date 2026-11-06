@@ -7,6 +7,7 @@ import (
  "testing"
 
  "github.com/colmugx/cetas/cetas-native/harness"
+ tea "charm.land/bubbletea/v2"
 )
 
 func event(raw string) harness.Event {
@@ -121,4 +122,19 @@ func TestStartupLoadsPersistedTranscript(t *testing.T) {
  next,cmd:=m.Update(commandResult{name:"runtime_state",payload:json.RawMessage(`{"session_id":"s-1","status":"ready"}`)})
  state:=next.(model)
  if state.session!="s-1"||cmd==nil {t.Fatalf("startup failed to request replay: %#v",state)}
+}
+
+func TestSlashTabOpensPickerAndInsertKeepsDraft(t *testing.T) {
+ m:=newModel()
+ m.textarea.SetValue("/mo")
+ next,_:=m.Update(tea.KeyPressMsg{Code:tea.KeyTab})
+ state:=next.(model)
+ if state.modal!="slash"||len(state.modalValues)==0||state.modalValues[0]!="/model" {
+  t.Fatalf("slash completion picker: %#v",state.modalValues)
+ }
+ next,cmd:=state.Update(tea.KeyPressMsg{Code:tea.KeyEnter})
+ state=next.(model)
+ if cmd!=nil||state.modal!=""||state.textarea.Value()!="/model" {
+  t.Fatalf("completion must only edit the prompt: %#v",state)
+ }
 }
