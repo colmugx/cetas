@@ -517,6 +517,10 @@ func (m *model) command(value string) tea.Cmd {
  case "/find-prev":
   m.navigateTranscriptSearch(true)
   return nil
+ case "/copyhistory":
+  text,err:=m.copyHistoryCommand(parts)
+  if err!=nil {m.err=err.Error();return nil}
+  return tea.SetClipboard(text)
  case "/permission":
   if len(parts)>1 {return request(m.host,"set_permission",map[string]any{"mode":parts[1]})}
  case "/help":return func() tea.Msg {return commandResult{name:"help",payload:json.RawMessage(`{"ok":true}`)}}
