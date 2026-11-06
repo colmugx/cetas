@@ -59,7 +59,6 @@ type model struct {
  virtualScroll *virtualTranscript
  width, height int
  transcript []string
- transcriptRows []int
  searchQuery string
  searchHits []transcriptSearchHit
  searchActive int
