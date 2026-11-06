@@ -1,5 +1,5 @@
 import {
-  "colmugx/cetas-console/console" @console,
+  "colmugx/cetas-console/console",
   "colmugx/cetas-core/lib" @cetas_core,
   "colmugx/posoco-ext-workspace" @workspace,
   "moonbitlang/async",
@@ -7,5 +7,7 @@ import {
   "moonbitlang/core/json",
   "moonbitlang/core/encoding/utf8",
 }
+
 supported_targets = "native"
+
 pkgtype(kind: "foreign_library")

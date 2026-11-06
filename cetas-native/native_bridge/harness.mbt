@@ -35,7 +35,9 @@ fn harness_required(args : Json, name : String) -> Result[String, String] {
 /// friends produce); the harness envelope carries objects, so decode once here
 /// and fall back to the raw text if a future reply is not JSON.
 fn harness_console_json(text : String) -> Json {
-  @json.parse(text) catch { _ => Json::string(text) }
+  @json.parse(text) catch {
+    _ => Json::string(text)
+  }
 }
 
 ///|
@@ -46,17 +48,21 @@ async fn harness_dispatch(
 ) -> Json {
   match command {
     "health" =>
-      Json::object(Map::from_array([
-        ("status", Json::string("ok")),
-        ("host", Json::string("cetas-native")),
-        ("protocol", Json::string("0.1")),
-      ]))
+      Json::object(
+        Map::from_array([
+          ("status", Json::string("ok")),
+          ("host", Json::string("cetas-native")),
+          ("protocol", Json::string("0.1")),
+        ]),
+      )
     "versions" =>
-      Json::object(Map::from_array([
-        ("posoco", Json::string("0.22.0")),
-        ("cetas", Json::string("0.2.0")),
-        ("desktop", Json::string("0.1.0")),
-      ]))
+      Json::object(
+        Map::from_array([
+          ("posoco", Json::string("0.22.0")),
+          ("cetas", Json::string("0.2.0")),
+          ("desktop", Json::string("0.1.0")),
+        ]),
+      )
     "runtime_state" => runtime.runtime_json()
     "sessions" => runtime.sessions_json()
     "session_transcript" =>
@@ -99,11 +105,13 @@ async fn harness_dispatch(
               ("result", harness_console_json(result)),
             ])
           })
-          Json::object(Map::from_array([
-            ("status", Json::string("started")),
-            ("provider", Json::string(provider)),
-            ("session_id", Json::string(session_id)),
-          ]))
+          Json::object(
+            Map::from_array([
+              ("status", Json::string("started")),
+              ("provider", Json::string(provider)),
+              ("session_id", Json::string(session_id)),
+            ]),
+          )
         }
         Err(e) => harness_error(e)
       }
@@ -121,7 +129,10 @@ async fn harness_dispatch(
       runtime.file_suggestions_json(harness_string(args, "q").unwrap_or(""), 50)
     "skills" => runtime.skills_json()
     "trace" =>
-      runtime.trace_json(harness_string(args, "session"), harness_string(args, "turn"))
+      runtime.trace_json(
+        harness_string(args, "session"),
+        harness_string(args, "turn"),
+      )
     "workspaces" => runtime.workspaces_json()
     "switch_workspace" =>
       match harness_required(args, "cwd") {
@@ -137,13 +148,17 @@ async fn harness_dispatch(
         Some(id) =>
           match runtime.switch_session(id) {
             Ok(session_id) =>
-              Json::object(Map::from_array([("session_id", Json::string(session_id))]))
+              Json::object(
+                Map::from_array([("session_id", Json::string(session_id))]),
+              )
             Err(e) => harness_error(e)
           }
         None =>
           match runtime.new_session() {
             Ok(session_id) =>
-              Json::object(Map::from_array([("session_id", Json::string(session_id))]))
+              Json::object(
+                Map::from_array([("session_id", Json::string(session_id))]),
+              )
             Err(e) => harness_error(e)
           }
       }
@@ -160,7 +175,8 @@ async fn harness_dispatch(
     "select_effort" =>
       match harness_required(args, "effort") {
         Ok(effort) =>
-          match runtime.select_effort(effort, harness_string(args, "session_id")) {
+          match
+            runtime.select_effort(effort, harness_string(args, "session_id")) {
             Ok(_) => runtime.runtime_json()
             Err(e) => harness_error(e)
           }
@@ -186,9 +202,12 @@ async fn harness_dispatch(
           if prompt.trim().is_empty() {
             harness_error("prompt must not be empty")
           } else {
-            match runtime.start_turn(prompt, harness_string(args, "session_id")) {
+            match
+              runtime.start_turn(prompt, harness_string(args, "session_id")) {
               Ok(turn_id) =>
-                Json::object(Map::from_array([("turn_id", Json::string(turn_id))]))
+                Json::object(
+                  Map::from_array([("turn_id", Json::string(turn_id))]),
+                )
               Err(e) => harness_error(e)
             }
           }
@@ -202,19 +221,23 @@ async fn harness_dispatch(
       // Compaction may invoke an LLM and a blocking UiPort prompt. It MUST
       // never suspend the only native command consumer: ui_response, abort
       // and shutdown must remain serviceable while compaction is running.
-      runtime.spawn_background(async fn() {
-        runtime.compact_active_session()
-      })
-      Json::object(Map::from_array([
-        ("status", Json::string("started")),
-      ]))
+      runtime.spawn_background(async fn() { runtime.compact_active_session() })
+      Json::object(Map::from_array([("status", Json::string("started"))]))
     }
     "status_refresh" => {
-      let sid = harness_string(args, "session_id").unwrap_or(runtime.active_session_id())
-      let quota = runtime.quota_json() catch { e => harness_error(e.to_string()) }
+      let sid = harness_string(args, "session_id").unwrap_or(
+        runtime.active_session_id(),
+      )
+      let quota = runtime.quota_json() catch {
+        e => harness_error(e.to_string())
+      }
       runtime.emit_event(sid, "", "statusbar.quota", extra=[("payload", quota)])
-      let all = runtime.quota_all_json() catch { e => harness_error(e.to_string()) }
-      runtime.emit_event(sid, "", "statusbar.quota_all", extra=[("payload", all)])
+      let all = runtime.quota_all_json() catch {
+        e => harness_error(e.to_string())
+      }
+      runtime.emit_event(sid, "", "statusbar.quota_all", extra=[
+        ("payload", all),
+      ])
       harness_ok()
     }
     "ui_response" =>
@@ -267,10 +290,12 @@ async fn harness_handle_frame(
 }
 
 ///|
-fn harness_reply(id : Int, result : Json) -> String {
-  Json::object(Map::from_array([
-    ("type", Json::string("harness.response")),
-    ("id", Json::number(id.to_double())),
-    ("result", result),
-  ])).stringify()
+fn harness_reply(id : Int32, result : Json) -> String {
+  Json::object(
+    Map::from_array([
+      ("type", Json::string("harness.response")),
+      ("id", Json::number(id.to_double())),
+      ("result", result),
+    ]),
+  ).stringify()
 }

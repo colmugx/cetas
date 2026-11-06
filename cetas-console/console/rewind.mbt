@@ -23,10 +23,14 @@ pub async fn ConsoleRuntime::rewind_points_json(self : ConsoleRuntime) -> Json {
   let jsonl = data.text()
   let points : Array[Json] = []
   for point in @cetas_core.list_persisted_rewind_points(jsonl) {
-    points.push(Json::object(Map::from_array([
-      ("message_index", Json::number(point.message_index.to_double())),
-      ("preview", Json::string(point.preview)),
-    ])))
+    points.push(
+      Json::object(
+        Map::from_array([
+          ("message_index", Json::number(point.message_index.to_double())),
+          ("preview", Json::string(point.preview)),
+        ]),
+      ),
+    )
   }
   Json::object(Map::from_array([("points", Json::array(points))]))
 }
@@ -51,10 +55,8 @@ pub async fn ConsoleRuntime::rewind_active_session(
   let data = @fs.read_file(path) catch {
     error => return rewind_error("cannot read JSONL: " + error.to_string())
   }
-  let text = match @cetas_core.read_persisted_rewind_user_message(
-    data.text(),
-    index,
-  ) {
+  let text = match
+    @cetas_core.read_persisted_rewind_user_message(data.text(), index) {
     Some(value) => value
     None => return rewind_error("invalid rewind address")
   }
@@ -69,12 +71,17 @@ pub async fn ConsoleRuntime::rewind_active_session(
   workspace.handles.remove(handle.session_id)
   let restored = self.compose_handle(workspace, handle.session_id)
   match restored {
-    Err(detail) => return rewind_error("rewind applied but session recompose failed: " + detail)
+    Err(detail) =>
+      return rewind_error(
+        "rewind applied but session recompose failed: " + detail,
+      )
     Ok(next) => emit_workspace_snapshot(workspace, next)
   }
-  Json::object(Map::from_array([
-    ("text", Json::string(text)),
-    ("message_index", Json::number(index.to_double())),
-    ("session_id", Json::string(handle.session_id)),
-  ]))
+  Json::object(
+    Map::from_array([
+      ("text", Json::string(text)),
+      ("message_index", Json::number(index.to_double())),
+      ("session_id", Json::string(handle.session_id)),
+    ]),
+  )
 }

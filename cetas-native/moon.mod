@@ -1,6 +1,6 @@
 name = "colmugx/cetas-native"
 
-version = "0.11.0"
+version = "0.10.14"
 
 readme = "README.md"
 
@@ -51,4 +51,3 @@ import {
   "colmugx/posoco-kit-subagent@0.1.1",
   // recipe-deps:end
 }
-

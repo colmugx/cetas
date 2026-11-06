@@ -35,8 +35,6 @@ fn UiRegistry::resolve(
   }
 }
 
-
- 
 ///|
 /// Fail-closed shutdown: every pending approval, OAuth question and input
 /// coroutine must be resumed before the hosting TaskGroup is drained. Never
