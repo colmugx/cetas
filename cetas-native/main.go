@@ -287,6 +287,9 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
    if json.Unmarshal(msg.payload,&s)==nil {m.session=s.SessionID}
   }
   return m,nil
+ case tea.MouseWheelMsg:
+  if m.modal=="" {m.viewport,_=m.viewport.Update(msg)}
+  return m,nil
  case tea.KeyPressMsg:
   key:=msg.String()
   if key=="ctrl+c" {return m,tea.Quit}
@@ -509,8 +512,10 @@ func (m *model) refreshTranscript() {
  }
  if m.showThinking&&len(m.reasoning)>0 {items=append(items,"Thinking: "+m.reasoning)}
  if len(m.streaming)>0 {items=append(items,m.streaming)}
+ stickToEnd:=m.viewport.AtBottom()
+ oldOffset:=m.viewport.YOffset()
  m.viewport.SetContent(strings.Join(items,"\n\n"))
- m.viewport.GotoBottom()
+ if stickToEnd {m.viewport.GotoBottom()} else {m.viewport.SetYOffset(oldOffset)}
 }
 func (m *model) resize() {
  width:=max(20,m.width-2)
@@ -537,6 +542,7 @@ func (m model) View() tea.View {
  if m.err!="" {content.WriteString("\n"+lipgloss.NewStyle().Foreground(lipgloss.Color("#D64C4C")).Render(m.err))}
  view:=tea.NewView(content.String())
  view.AltScreen=true
+ view.MouseMode=tea.MouseModeCellMotion
  if m.modal=="" {if cursor:=m.textarea.Cursor();cursor!=nil {cursor.Y+=m.viewport.Height()+2;view.Cursor=cursor}}
  return view
 }
