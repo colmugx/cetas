@@ -195,9 +195,7 @@ impl @oauth.AuthPromptInteraction for HubAuthUi with fn prompt(
   }
   match request {
     @oauth.AuthPromptRequest::Secret(message~) => {
-      let response = self
-        .port()
-        .request(@posoco.UiRequest::Input(prompt=message, default=None)) catch {
+      let response = self.ui.request_secret(message) catch {
           _ => raise @oauth.OAuthError::Cancelled
         }
       match response {
