@@ -47,7 +47,7 @@ fn UiRegistry::cancel_all(self : UiRegistry) -> Unit {
     ids.push(id)
   }
   for id in ids {
-    self.resolve(id, "{\\"cancelled\\":true}")
+    self.resolve(id, "{\"cancelled\":true}")
   }
 }
 
