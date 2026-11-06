@@ -86,6 +86,7 @@ type model struct {
  nextPicker string
  lastEscape time.Time
  pendingProvider string
+ authID string
  providerMethods map[string][]string
  session string
  status string
@@ -199,6 +200,20 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
    m.err=msg.name+": "+failure.Error
    if msg.name=="turn_start" {m.running=false}
    return m,nil
+  }
+  if msg.name=="login" {
+   var started struct{Status string `json:"status"`; AuthID string `json:"auth_id"`; Provider string `json:"provider"`}
+   if json.Unmarshal(msg.payload,&started)==nil && started.Status=="started" && started.AuthID!="" {
+    m.authID=started.AuthID
+    m.status="authenticating "+started.Provider+" (Esc cancels)"
+   }
+  }
+  if msg.name=="login_cancel" {
+   var outcome struct{Cancelled bool `json:"cancelled"`;AuthID string `json:"auth_id"`}
+   if json.Unmarshal(msg.payload,&outcome)==nil && outcome.AuthID==m.authID&&!outcome.Cancelled {
+    m.status="authentication already settled"
+    m.authID=""
+   }
   }
   if msg.name=="models" {
    var x struct{ Models []struct {
@@ -392,6 +407,10 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   case "ctrl+t":m.showThinking=!m.showThinking;return m,nil
   case "esc":
    if m.host!=nil&&m.running {m.lastEscape=time.Time{};return m,request(m.host,"turn_abort",map[string]any{})}
+   if m.host!=nil&&m.authID!="" {
+    m.status="cancelling authentication"
+    return m,request(m.host,"login_cancel",map[string]any{"auth_id":m.authID})
+   }
    if m.host!=nil&&time.Since(m.lastEscape)<450*time.Millisecond {m.lastEscape=time.Time{};return m,request(m.host,"rewind_points",map[string]any{})}
    m.lastEscape=time.Now();return m,nil
   case "pgup","pageup":m.viewport.ScrollUp(max(1,m.viewport.Height()/2));return m,nil
@@ -555,6 +574,13 @@ func (m *model) applyEvent(e harness.Event) {
   m.status="waiting for user input"
  case "ui.dismiss":
   m.dismissUI(frame.RequestID)
+ case "auth.cancelled":
+  var payload struct{AuthID string `json:"auth_id"`}
+  if json.Unmarshal(e.Raw,&payload)==nil && payload.AuthID!="" && payload.AuthID==m.authID {
+   m.authID=""
+   m.err=""
+   m.status="authentication cancelled"
+  }
  case "auth.login":
   // Login outcomes are provider-neutral and intentionally contain no
   // credentials. Never dump the raw result into the transcript or errors.
@@ -563,8 +589,12 @@ func (m *model) applyEvent(e harness.Event) {
    Feedback string `json:"feedback"`
    Error string `json:"error"`
   }
-  var payload struct {Provider string `json:"provider"`; Result json.RawMessage `json:"result"`}
-  if json.Unmarshal(e.Raw,&payload)!=nil||json.Unmarshal(payload.Result,&result)!=nil {
+  var payload struct {Provider string `json:"provider"`; AuthID string `json:"auth_id"`; Result json.RawMessage `json:"result"`}
+  // A cancelled or replaced task must not mutate the visible login state.
+  if payloadErr:=json.Unmarshal(e.Raw,&payload);payloadErr!=nil {return}
+  if payload.AuthID!="" && payload.AuthID!=m.authID {return}
+  m.authID=""
+  if json.Unmarshal(payload.Result,&result)!=nil {
    m.err="authentication returned an invalid result";m.status="authentication failed"
   } else if result.Type=="success" {
    m.err=""
