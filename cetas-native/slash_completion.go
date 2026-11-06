@@ -27,6 +27,7 @@ var nativeSlashCommands = []nativeSlashCommand{
 	{"/find", "Find transcript text across the full history", true},
 	{"/find-next", "Jump to next transcript match", false},
 	{"/find-prev", "Jump to previous transcript match", false},
+	{"/copyhistory", "Copy source transcript entry range", true},
 	{"/help", "Show available commands", false},
 }
 
