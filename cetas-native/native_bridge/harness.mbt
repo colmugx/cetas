@@ -43,6 +43,8 @@ fn harness_console_json(text : String) -> Json {
 ///|
 async fn harness_dispatch(
   runtime : @console.ConsoleRuntime,
+  auth_tasks : NativeAuthTasks,
+  group : @async.TaskGroup[Unit],
   command : String,
   args : Json,
 ) -> Json {
@@ -92,27 +94,24 @@ async fn harness_dispatch(
       }
     "login" =>
       match harness_required(args, "provider") {
-        Ok(provider) => {
-          // Provider sign-in parks on the GUI's ui_response, so it cannot be
-          // awaited here: this loop is what delivers that answer. The console's
-          // outcome JSON arrives as an auth.login frame once the flow settles.
-          let auth_method = harness_string(args, "method").unwrap_or("")
-          let session_id = runtime.active_session_id()
-          runtime.spawn_background(async fn() {
-            let result = runtime.login(provider, auth_method)
-            runtime.emit_event(session_id, "", "auth.login", extra=[
-              ("provider", Json::string(provider)),
-              ("result", harness_console_json(result)),
-            ])
-          })
+        Ok(provider) =>
+          auth_tasks.start(
+            runtime,
+            group,
+            provider,
+            harness_string(args, "method").unwrap_or(""),
+          )
+        Err(e) => harness_error(e)
+      }
+    "login_cancel" =>
+      match harness_required(args, "auth_id") {
+        Ok(id) =>
           Json::object(
             Map::from_array([
-              ("status", Json::string("started")),
-              ("provider", Json::string(provider)),
-              ("session_id", Json::string(session_id)),
+              ("cancelled", Json::boolean(auth_tasks.cancel(runtime, id))),
+              ("auth_id", Json::string(id)),
             ]),
           )
-        }
         Err(e) => harness_error(e)
       }
     "logout" =>
@@ -257,6 +256,8 @@ async fn harness_dispatch(
 /// args: object}. Results are {type:"harness.response", id, result}.
 async fn harness_handle_frame(
   runtime : @console.ConsoleRuntime,
+  auth_tasks : NativeAuthTasks,
+  group : @async.TaskGroup[Unit],
   raw : String,
 ) -> Unit {
   let request : Json = @json.parse(raw) catch {
@@ -279,7 +280,7 @@ async fn harness_handle_frame(
       if id < 0 || command.is_empty() {
         emit(harness_reply(id, harness_error("invalid request envelope")))
       } else {
-        let result : Json = harness_dispatch(runtime, command, args) catch {
+        let result : Json = harness_dispatch(runtime, auth_tasks, group, command, args) catch {
           e => harness_error(e.to_string())
         }
         emit(harness_reply(id, result))
