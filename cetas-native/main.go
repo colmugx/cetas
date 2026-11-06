@@ -14,6 +14,7 @@ import (
  "charm.land/bubbles/v2/viewport"
  tea "charm.land/bubbletea/v2"
  "charm.land/lipgloss/v2"
+ "charm.land/glamour/v2"
 
  "github.com/colmugx/cetas/cetas-native/harness"
 )
@@ -56,6 +57,9 @@ type model struct {
  viewport viewport.Model
  width, height int
  transcript []string
+ markdownRaw map[int]string
+ markdownCache map[int]string
+ markdownRenderer *glamour.TermRenderer
  streaming string
  reasoning string
  running bool
@@ -95,10 +99,11 @@ func newModel() model {
  ta.SetHeight(3)
  ta.Focus()
  ta.KeyMap.InsertNewline.SetEnabled(false)
+ renderer,_:=glamour.NewTermRenderer(glamour.WithWordWrap(78))
  vp:=viewport.New(viewport.WithWidth(80),viewport.WithHeight(18))
  vp.SetWidth(80)
  vp.SetHeight(18)
- return model{textarea:ta,viewport:vp,status:"connecting to Posoco…"}
+ return model{textarea:ta,viewport:vp,markdownRenderer:renderer,status:"connecting to Posoco…"}
 }
 
 func boot() tea.Msg {
@@ -238,18 +243,18 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   if msg.name=="switch_session" {
    var payload struct{SessionID string `json:"session_id"`}
    if json.Unmarshal(msg.payload,&payload)==nil && payload.SessionID!="" {
-    m.session=payload.SessionID;m.transcript=nil;m.streaming="";m.reasoning="";m.running=false;m.followups=nil
+    m.session=payload.SessionID;m.transcript=nil;m.markdownRaw=nil;m.markdownCache=nil;m.streaming="";m.reasoning="";m.running=false;m.followups=nil
     return m,request(m.host,"session_transcript",map[string]any{"id":m.session})
    }
   }
   if msg.name=="session_transcript" {
    var payload struct{ Items []struct{Kind string `json:"kind"`;Text string `json:"text"`;Name string `json:"name"`;Result string `json:"result"`} `json:"items"` }
    if json.Unmarshal(msg.payload,&payload)==nil {
-    m.transcript=nil
+    m.transcript=nil;m.markdownRaw=nil;m.markdownCache=nil
     for _,row:=range payload.Items {
      switch row.Kind {
      case "user":m.transcript=append(m.transcript,"> "+row.Text)
-     case "assistant":m.transcript=append(m.transcript,row.Text)
+     case "assistant":m.appendAssistant(row.Text)
      case "reasoning":if m.showThinking {m.transcript=append(m.transcript,"Thinking: "+row.Text)}
      case "tool":m.transcript=append(m.transcript,"• "+row.Name);if m.showTools&&row.Result!="" {m.transcript=append(m.transcript,row.Result)}
      }
@@ -428,7 +433,7 @@ func (m *model) applyEvent(e harness.Event) {
   if m.showTools {m.transcript=append(m.transcript,"  "+frame.ToolName+" completed")}
  case "turn.completed":
   text:=m.streaming;if text=="" {text=frame.Text}
-  if text!="" {m.transcript=append(m.transcript,text)}
+  if text!="" {m.appendAssistant(text)}
   if m.showThinking&&len(m.reasoning)>0 {m.transcript=append(m.transcript,"Thinking: "+m.reasoning)}
   m.streaming="";m.reasoning="";m.running=false;m.status="ready"
  case "turn.failed":
@@ -445,8 +450,21 @@ func (m *model) applyEvent(e harness.Event) {
  }
 }
 
+func (m *model) appendAssistant(text string) {
+ if m.markdownRaw==nil {m.markdownRaw=make(map[int]string)}
+ idx:=len(m.transcript);m.transcript=append(m.transcript,text);m.markdownRaw[idx]=text
+}
+
 func (m *model) refreshTranscript() {
  items:=append([]string(nil),m.transcript...)
+ if m.markdownRenderer!=nil {
+  if m.markdownCache==nil {m.markdownCache=make(map[int]string)}
+  for idx,raw:=range m.markdownRaw {
+   rendered,ok:=m.markdownCache[idx]
+   if !ok {result,err:=m.markdownRenderer.Render(raw);if err!=nil {rendered=raw} else {rendered=strings.TrimRight(result,"\\n")};m.markdownCache[idx]=rendered}
+   if idx<len(items) {items[idx]=rendered}
+  }
+ }
  if m.showThinking&&len(m.reasoning)>0 {items=append(items,"Thinking: "+m.reasoning)}
  if len(m.streaming)>0 {items=append(items,m.streaming)}
  m.viewport.SetContent(strings.Join(items,"\n\n"))
@@ -455,6 +473,7 @@ func (m *model) refreshTranscript() {
 func (m *model) resize() {
  width:=max(20,m.width-2)
  m.textarea.SetWidth(width)
+ if renderer,err:=glamour.NewTermRenderer(glamour.WithWordWrap(width));err==nil {m.markdownRenderer=renderer;m.markdownCache=nil}
  m.viewport.SetWidth(width)
  m.viewport.SetHeight(max(1,m.height-10))
  m.refreshTranscript()
