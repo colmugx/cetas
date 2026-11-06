@@ -44,15 +44,20 @@ def capture_c():
     original = PKG.read_bytes()
     if b"link:" in original:
         raise RuntimeError("moon.pkg already has a link override")
-    extra = ('\noptions(\n  link: {\n    "native": { "cc": ' +
-             json.dumps(str(driver)) + ' },\n  },\n)\n').encode()
+    # Inject into the *existing* options form: moon.pkg permits only one
+    # options declaration, while foreign_library is a separate pkgtype.
+    insertion = ('options(\n  link: {\n    "native": { "cc": ' +
+                 json.dumps(str(driver)) + ' },\n  },\n').encode()
+    if original.count(b"options(") != 1:
+        raise RuntimeError("expected one native_bridge options declaration")
+    injected = original.replace(b"options(\n", insertion, 1)
     if CAPTURE.exists():
         shutil.rmtree(CAPTURE)
     # Force compiler invocation even when Moon has a cached successful build.
     native_build = MOON / "_build/native"
     if native_build.exists():
         shutil.rmtree(native_build)
-    PKG.write_bytes(original + extra)
+    PKG.write_bytes(injected)
     env = dict(os.environ, MOONBIT_NEW_NATIVE="0", MOON_CC_CAPTURE_DIR=str(CAPTURE))
     try:
         run(["moon", "build", "cetas-native/native_bridge", "--target", "native", "--release"],
