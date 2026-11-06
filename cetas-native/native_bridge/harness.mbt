@@ -280,7 +280,9 @@ async fn harness_handle_frame(
       if id < 0 || command.is_empty() {
         emit(harness_reply(id, harness_error("invalid request envelope")))
       } else {
-        let result : Json = harness_dispatch(runtime, auth_tasks, group, command, args) catch {
+        let result : Json = harness_dispatch(
+          runtime, auth_tasks, group, command, args,
+        ) catch {
           e => harness_error(e.to_string())
         }
         emit(harness_reply(id, result))
