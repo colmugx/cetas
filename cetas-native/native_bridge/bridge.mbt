@@ -70,7 +70,8 @@ pub fn run_infra() -> Int32 {
             if n > 0 {
               let raw = @utf8.decode_lossy(harness_buffer[:n])
               match boot {
-                Ok(runtime) => harness_handle_frame(runtime, auth_tasks, group, raw)
+                Ok(runtime) =>
+                  harness_handle_frame(runtime, auth_tasks, group, raw)
                 Err(detail) => emit(harness_reply(-1, harness_error(detail)))
               }
             } else {
