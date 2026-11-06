@@ -50,6 +50,7 @@ type model struct {
  running bool
  modal string
  modalItems []string
+ modalValues []string
  modalIndex int
  modalRequestID string
  modalPrompt string
@@ -131,9 +132,25 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
     m.modelSlots=x.Models
     if len(m.modelSlots)==0 {m.modelSlots=x.Slots}
     m.modal="models";m.modalItems=nil;m.modalIndex=0
-    for _,s:=range m.modelSlots {m.modalItems=append(m.modalItems,s.Label)}
+    m.modalValues=nil
+    for _,s:=range m.modelSlots {m.modalItems=append(m.modalItems,s.Label);m.modalValues=append(m.modalValues,s.ID)}
    }
   }
+  if msg.name=="sessions" {
+   var payload struct{Sessions []struct{ID string `json:"id"`;Title string `json:"title"`;Active bool `json:"active"`} `json:"sessions"`}
+   if json.Unmarshal(msg.payload,&payload)==nil {
+    m.modal="sessions";m.modalIndex=0;m.modalItems=nil;m.modalValues=nil
+    for _,v:=range payload.Sessions {title:=v.Title;if title=="" {title=v.ID};if v.Active {title="● "+title};m.modalItems=append(m.modalItems,title);m.modalValues=append(m.modalValues,v.ID)}
+   }
+  }
+  if msg.name=="providers" {
+   var payload struct{Providers []struct{ID string `json:"id"`;Name string `json:"name"`;SignedIn bool `json:"signed_in"`} `json:"providers"`}
+   if json.Unmarshal(msg.payload,&payload)==nil {
+    m.modal="providers";m.modalIndex=0;m.modalItems=nil;m.modalValues=nil
+    for _,v:=range payload.Providers {title:=v.Name;if title=="" {title=v.ID};if v.SignedIn {title+=" (signed in)"};m.modalItems=append(m.modalItems,title);m.modalValues=append(m.modalValues,v.ID)}
+   }
+  }
+  if msg.name=="help" {m.transcript=append(m.transcript,"/model · /sessions · /new · /login [provider] · /logout provider · /permission mode · /compact · /help");m.refreshTranscript()}
   if msg.name=="runtime_state" {
    var s struct{SessionID string `json:"session_id"`;Status string `json:"status"`}
    if json.Unmarshal(msg.payload,&s)==nil {m.session=s.SessionID}
@@ -159,14 +176,19 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
     }
    }
    switch key {
-   case "esc":m.modal="";m.modalItems=nil
+   case "esc":m.modal="";m.modalItems=nil;m.modalValues=nil
    case "up","ctrl+p":if m.modalIndex>0 {m.modalIndex--}
    case "down","ctrl+n":if m.modalIndex+1<len(m.modalItems) {m.modalIndex++}
    case "enter":
-    if m.modal=="models"&&m.modalIndex<len(m.modelSlots)&&m.host!=nil {
-     id:=m.modelSlots[m.modalIndex].ID;m.modal="";return m,request(m.host,"switch_model",map[string]any{"slot_id":id})
+    if m.host!=nil&&m.modalIndex<len(m.modalValues) {
+     chosen:=m.modalValues[m.modalIndex]
+     switch m.modal {
+     case "models":m.modal="";m.modalValues=nil;return m,request(m.host,"switch_model",map[string]any{"slot_id":chosen})
+     case "sessions":m.modal="";m.modalValues=nil;return m,request(m.host,"switch_session",map[string]any{"id":chosen})
+     case "providers":m.modal="";m.modalValues=nil;return m,request(m.host,"login",map[string]any{"provider":chosen})
+     }
     }
-    m.modal=""
+    m.modal="";m.modalValues=nil
    }
    return m,nil
   }
