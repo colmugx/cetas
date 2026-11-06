@@ -137,11 +137,16 @@ func receiveErrors(errors <-chan error) tea.Cmd {
  return func() tea.Msg {err,ok:=<-errors;return errorResult{err:err,ok:ok}}
 }
 func request(host runtimeHost, command string, args any) tea.Cmd {
+ return requestAs(host,command,command,args)
+}
+// requestAs preserves the wire command while distinguishing independent UI
+// intents that otherwise race on the same asynchronous reply.
+func requestAs(host runtimeHost, name, command string, args any) tea.Cmd {
  return func() tea.Msg {
   ctx,cancel:=context.WithTimeout(context.Background(),30*time.Second)
   defer cancel()
   result,err:=host.Request(ctx,command,args)
-  return commandResult{name:command,payload:result,err:err}
+  return commandResult{name:name,payload:result,err:err}
  }
 }
 func (m model) Init() tea.Cmd { return boot }
@@ -227,12 +232,14 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
     for _,v:=range data.Entries {m.modalItems=append(m.modalItems,v.Path);m.modalValues=append(m.modalValues,v.Path)}
    }
   }
-  if msg.name=="skills" {
+  if msg.name=="skills"||msg.name=="skills_browse" {
    var data struct{Skills []struct{Name string `json:"name"`;Description string `json:"description"`} `json:"skills"`}
    if json.Unmarshal(msg.payload,&data)==nil {
-    m.modal="skills";m.modalIndex=0;m.modalItems=nil;m.modalValues=nil
+    if msg.name=="skills" && (m.completionToken=="" || !strings.HasSuffix(m.textarea.Value(),m.completionToken)) {return m,nil}
+    m.modal="skills";if msg.name=="skills_browse" {m.modal="skills_browse"}
+    m.modalIndex=0;m.modalItems=nil;m.modalValues=nil
     for _,v:=range data.Skills {
-     if m.completionToken!="" && !strings.Contains(strings.ToLower(v.Name),strings.ToLower(strings.TrimPrefix(m.completionToken,"$"))) {continue}
+     if msg.name=="skills" && !strings.Contains(strings.ToLower(v.Name),strings.ToLower(strings.TrimPrefix(m.completionToken,"$"))) {continue}
      m.modalItems=append(m.modalItems,v.Name+" "+v.Description);m.modalValues=append(m.modalValues,v.Name)
     }
    }
@@ -345,6 +352,8 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
       return m,request(m.host,"rewind_apply",map[string]any{"message_index":index})
      case "slash":
       m.textarea.SetValue(slashInsertion(chosen));m.textarea.Focus();m.modal="";m.modalValues=nil;m.completionToken="";return m,nil
+     case "skills_browse":
+      m.modal="";m.modalItems=nil;m.modalValues=nil;return m,nil
      case "files","skills":
       symbol:="@";if m.modal=="skills" {symbol="$"}
       inserted:=m.completionPrefix+symbol+chosen
@@ -458,7 +467,7 @@ func (m *model) command(value string) tea.Cmd {
  case "/logout":if len(parts)>1 {return request(m.host,"logout",map[string]any{"provider":parts[1]})}
  case "/sessions":return request(m.host,"sessions",map[string]any{})
  case "/rewind":return request(m.host,"rewind_points",map[string]any{})
- case "/skills":m.completionToken="";return request(m.host,"skills",map[string]any{})
+ case "/skills":return requestAs(m.host,"skills_browse","skills",map[string]any{})
  case "/compact":return request(m.host,"session_compact",map[string]any{})
  case "/permission":
   if len(parts)>1 {return request(m.host,"set_permission",map[string]any{"mode":parts[1]})}
