@@ -7,6 +7,7 @@ import (
  "encoding/json"
  "fmt"
  "os"
+ "strconv"
  "strings"
  "time"
 
@@ -83,6 +84,7 @@ type model struct {
   Efforts []string `json:"efforts"`
  }
  nextPicker string
+ lastEscape time.Time
  pendingProvider string
  providerMethods map[string][]string
  session string
@@ -226,6 +228,22 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
     }
    }
   }
+  if msg.name=="rewind_points" {
+   var data struct{Points []struct{MessageIndex int `json:"message_index"`;Preview string `json:"preview"`} `json:"points"`}
+   if json.Unmarshal(msg.payload,&data)==nil {
+    m.modal="rewind";m.modalIndex=0;m.modalItems=nil;m.modalValues=nil
+    for _,point:=range data.Points {m.modalItems=append(m.modalItems,point.Preview);m.modalValues=append(m.modalValues,strconv.Itoa(point.MessageIndex))}
+    if len(m.modalItems)==0 {m.modal="";m.status="no rewind points"}
+   }
+  }
+  if msg.name=="rewind_apply" {
+   var data struct{Text string `json:"text"`;SessionID string `json:"session_id"`}
+   if json.Unmarshal(msg.payload,&data)==nil {
+    m.textarea.SetValue(data.Text);m.textarea.Focus()
+    m.streaming="";m.reasoning="";m.running=false;m.followups=nil
+    return m,request(m.host,"session_transcript",map[string]any{"id":m.session})
+   }
+  }
   if msg.name=="sessions" {
    var payload struct{Sessions []struct{ID string `json:"id"`;Title string `json:"title"`;Active bool `json:"active"`} `json:"sessions"`}
    if json.Unmarshal(msg.payload,&payload)==nil {
@@ -263,7 +281,7 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
     m.refreshTranscript()
    }
   }
-  if msg.name=="help" {m.transcript=append(m.transcript,"/model · /effort · /sessions · /new · /login [provider] · /logout provider · /permission mode · /compact · /help");m.refreshTranscript()}
+  if msg.name=="help" {m.transcript=append(m.transcript,"/model · /effort · /sessions · /rewind · /new · /login [provider] · /logout provider · /permission mode · /compact · /help");m.refreshTranscript()}
   if msg.name=="runtime_state" {
    var s struct{SessionID string `json:"session_id"`;Status string `json:"status"`}
    if json.Unmarshal(msg.payload,&s)==nil {m.session=s.SessionID}
@@ -305,6 +323,10 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
       m.modal="";m.modalValues=nil;return m,request(m.host,"login",map[string]any{"provider":chosen,"method":method})
      case "login_methods":provider:=m.pendingProvider;m.pendingProvider="";m.modal="";m.modalValues=nil;return m,request(m.host,"login",map[string]any{"provider":provider,"method":chosen})
      case "efforts":m.modal="";m.modalValues=nil;return m,request(m.host,"select_effort",map[string]any{"effort":chosen})
+     case "rewind":
+      index,err:=strconv.Atoi(chosen);m.modal="";m.modalValues=nil
+      if err!=nil {m.err="invalid rewind index";return m,nil}
+      return m,request(m.host,"rewind_apply",map[string]any{"message_index":index})
      case "files","skills":
       symbol:="@";if m.modal=="skills" {symbol="$"}
       inserted:=m.completionPrefix+symbol+chosen
@@ -331,8 +353,9 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   case "ctrl+o":m.showTools=!m.showTools;return m,nil
   case "ctrl+t":m.showThinking=!m.showThinking;return m,nil
   case "esc":
-   if m.host!=nil&&m.running {return m,request(m.host,"turn_abort",map[string]any{})}
-   return m,nil
+   if m.host!=nil&&m.running {m.lastEscape=time.Time{};return m,request(m.host,"turn_abort",map[string]any{})}
+   if m.host!=nil&&time.Since(m.lastEscape)<450*time.Millisecond {m.lastEscape=time.Time{};return m,request(m.host,"rewind_points",map[string]any{})}
+   m.lastEscape=time.Now();return m,nil
   case "pgup","pageup":m.viewport.ScrollUp(max(1,m.viewport.Height()/2));return m,nil
   case "pgdown","pagedown":m.viewport.ScrollDown(max(1,m.viewport.Height()/2));return m,nil
   case "enter":
@@ -383,6 +406,7 @@ func (m *model) command(value string) tea.Cmd {
  case "/login":if len(parts)>1 {method:="";if len(parts)>2 {method=parts[2]};return request(m.host,"login",map[string]any{"provider":parts[1],"method":method})};return request(m.host,"providers",map[string]any{})
  case "/logout":if len(parts)>1 {return request(m.host,"logout",map[string]any{"provider":parts[1]})}
  case "/sessions":return request(m.host,"sessions",map[string]any{})
+ case "/rewind":return request(m.host,"rewind_points",map[string]any{})
  case "/skills":m.completionToken="";return request(m.host,"skills",map[string]any{})
  case "/compact":return request(m.host,"session_compact",map[string]any{})
  case "/permission":
