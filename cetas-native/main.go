@@ -47,8 +47,8 @@ type model struct {
  viewport viewport.Model
  width, height int
  transcript []string
- streaming strings.Builder
- reasoning strings.Builder
+ streaming string
+ reasoning string
  running bool
  modal string
  modalItems []string
@@ -163,7 +163,7 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   if msg.name=="switch_session" {
    var payload struct{SessionID string `json:"session_id"`}
    if json.Unmarshal(msg.payload,&payload)==nil && payload.SessionID!="" {
-    m.session=payload.SessionID;m.transcript=nil;m.streaming.Reset();m.reasoning.Reset();m.running=false
+    m.session=payload.SessionID;m.transcript=nil;m.streaming="";m.reasoning="";m.running=false;m.followups=nil
     return m,request(m.host,"session_transcript",map[string]any{"id":m.session})
    }
   }
@@ -318,23 +318,23 @@ func (m *model) applyEvent(e harness.Event) {
  case "assistant.text_delta":
   delta:=frame.Delta
   if delta=="" {delta=frame.Text};if delta=="" {delta=frame.Token}
-  m.streaming.WriteString(delta)
+  m.streaming+=delta
  case "assistant.reasoning_delta":
   delta:=frame.Delta
   if delta=="" {delta=frame.Text};if delta=="" {delta=frame.Token}
-  m.reasoning.WriteString(delta)
+  m.reasoning+=delta
  case "tool.started":
   m.transcript=append(m.transcript,"• "+frame.ToolName+" …")
  case "tool.completed":
   if m.showTools {m.transcript=append(m.transcript,"  "+frame.ToolName+" completed")}
  case "turn.completed":
-  text:=m.streaming.String();if text=="" {text=frame.Text}
+  text:=m.streaming;if text=="" {text=frame.Text}
   if text!="" {m.transcript=append(m.transcript,text)}
-  if m.showThinking&&m.reasoning.Len()>0 {m.transcript=append(m.transcript,"Thinking: "+m.reasoning.String())}
-  m.streaming.Reset();m.reasoning.Reset();m.running=false;m.status="ready"
+  if m.showThinking&&len(m.reasoning)>0 {m.transcript=append(m.transcript,"Thinking: "+m.reasoning)}
+  m.streaming="";m.reasoning="";m.running=false;m.status="ready"
  case "turn.failed":
   m.transcript=append(m.transcript,"Error: "+frame.Message)
-  m.streaming.Reset();m.reasoning.Reset();m.running=false;m.status="failed"
+  m.streaming="";m.reasoning="";m.running=false;m.status="failed"
  case "session.redirect":if frame.From==m.session&&frame.To!="" {m.session=frame.To};m.status="session redirected"
  case "session.snapshot":m.running=frame.Busy
  case "ui.request":
@@ -349,8 +349,8 @@ func (m *model) applyEvent(e harness.Event) {
 
 func (m *model) refreshTranscript() {
  items:=append([]string(nil),m.transcript...)
- if m.showThinking&&m.reasoning.Len()>0 {items=append(items,"Thinking: "+m.reasoning.String())}
- if m.streaming.Len()>0 {items=append(items,m.streaming.String())}
+ if m.showThinking&&len(m.reasoning)>0 {items=append(items,"Thinking: "+m.reasoning)}
+ if len(m.streaming)>0 {items=append(items,m.streaming)}
  m.viewport.SetContent(strings.Join(items,"\n\n"))
  m.viewport.GotoBottom()
 }
