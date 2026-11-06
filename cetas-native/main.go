@@ -75,7 +75,11 @@ type model struct {
   Label string `json:"label"`
   Model string `json:"model"`
   Active bool `json:"active"`
+  Efforts []string `json:"efforts"`
  }
+ nextPicker string
+ pendingProvider string
+ providerMethods map[string][]string
  session string
  status string
  err string
@@ -180,18 +184,23 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
     Label string `json:"label"`
     Model string `json:"model"`
     Active bool `json:"active"`
+    Efforts []string `json:"efforts"`
    } `json:"models"`; Slots []struct {
     ID string `json:"id"`
     Label string `json:"label"`
     Model string `json:"model"`
     Active bool `json:"active"`
+    Efforts []string `json:"efforts"`
    } `json:"slots"` }
    if json.Unmarshal(msg.payload,&x)==nil {
     m.modelSlots=x.Models
     if len(m.modelSlots)==0 {m.modelSlots=x.Slots}
-    m.modal="models";m.modalItems=nil;m.modalIndex=0
-    m.modalValues=nil
-    for _,s:=range m.modelSlots {m.modalItems=append(m.modalItems,s.Label);m.modalValues=append(m.modalValues,s.ID)}
+    m.modal="models";m.modalItems=nil;m.modalIndex=0;m.modalValues=nil
+    if m.nextPicker=="efforts" {
+     m.modal="efforts"
+     for _,slot:=range m.modelSlots {if slot.Active {for _,effort:=range slot.Efforts {m.modalItems=append(m.modalItems,effort);m.modalValues=append(m.modalValues,effort)}}}
+    } else {for _,slot:=range m.modelSlots {m.modalItems=append(m.modalItems,slot.Label);m.modalValues=append(m.modalValues,slot.ID)}}
+    m.nextPicker=""
    }
   }
   if msg.name=="file_search" {
@@ -219,10 +228,11 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
    }
   }
   if msg.name=="providers" {
-   var payload struct{Providers []struct{ID string `json:"id"`;Name string `json:"name"`;SignedIn bool `json:"signed_in"`} `json:"providers"`}
+   var payload struct{Providers []struct{ID string `json:"id"`;Name string `json:"name"`;SignedIn bool `json:"signed_in"`;Methods []string `json:"methods"`} `json:"providers"`}
    if json.Unmarshal(msg.payload,&payload)==nil {
-    m.modal="providers";m.modalIndex=0;m.modalItems=nil;m.modalValues=nil
-    for _,v:=range payload.Providers {title:=v.Name;if title=="" {title=v.ID};if v.SignedIn {title+=" (signed in)"};m.modalItems=append(m.modalItems,title);m.modalValues=append(m.modalValues,v.ID)}
+    m.modal="providers";m.modalIndex=0;m.modalItems=nil;m.modalValues=nil;m.providerMethods=map[string][]string{}
+    for _,v:=range payload.Providers {
+     m.providerMethods[v.ID]=append([]string(nil),v.Methods...)title:=v.Name;if title=="" {title=v.ID};if v.SignedIn {title+=" (signed in)"};m.modalItems=append(m.modalItems,title);m.modalValues=append(m.modalValues,v.ID)}
    }
   }
   if msg.name=="switch_session" {
@@ -247,7 +257,7 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
     m.refreshTranscript()
    }
   }
-  if msg.name=="help" {m.transcript=append(m.transcript,"/model · /sessions · /new · /login [provider] · /logout provider · /permission mode · /compact · /help");m.refreshTranscript()}
+  if msg.name=="help" {m.transcript=append(m.transcript,"/model · /effort · /sessions · /new · /login [provider] · /logout provider · /permission mode · /compact · /help");m.refreshTranscript()}
   if msg.name=="runtime_state" {
    var s struct{SessionID string `json:"session_id"`;Status string `json:"status"`}
    if json.Unmarshal(msg.payload,&s)==nil {m.session=s.SessionID}
@@ -282,7 +292,13 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
      switch m.modal {
      case "models":m.modal="";m.modalValues=nil;return m,request(m.host,"switch_model",map[string]any{"slot_id":chosen})
      case "sessions":m.modal="";m.modalValues=nil;return m,request(m.host,"switch_session",map[string]any{"id":chosen})
-     case "providers":m.modal="";m.modalValues=nil;return m,request(m.host,"login",map[string]any{"provider":chosen})
+     case "providers":
+      methods:=m.providerMethods[chosen]
+      if len(methods)>1 {m.pendingProvider=chosen;m.modal="login_methods";m.modalItems=append([]string(nil),methods...);m.modalValues=append([]string(nil),methods...);m.modalIndex=0;return m,nil}
+      method:="";if len(methods)==1 {method=methods[0]}
+      m.modal="";m.modalValues=nil;return m,request(m.host,"login",map[string]any{"provider":chosen,"method":method})
+     case "login_methods":provider:=m.pendingProvider;m.pendingProvider="";m.modal="";m.modalValues=nil;return m,request(m.host,"login",map[string]any{"provider":provider,"method":chosen})
+     case "efforts":m.modal="";m.modalValues=nil;return m,request(m.host,"select_effort",map[string]any{"effort":chosen})
      case "files","skills":
       symbol:="@";if m.modal=="skills" {symbol="$"}
       inserted:=m.completionPrefix+symbol+chosen
@@ -352,10 +368,11 @@ func (m *model) activateUI(req uiPrompt) {
  }
 }
 
-func (m model) command(value string) tea.Cmd {
+func (m *model) command(value string) tea.Cmd {
  parts:=strings.Fields(value)
  switch parts[0] {
- case "/model":return request(m.host,"models",map[string]any{})
+ case "/model":m.nextPicker="models";return request(m.host,"models",map[string]any{})
+ case "/effort":if len(parts)>1 {return request(m.host,"select_effort",map[string]any{"effort":parts[1]})};m.nextPicker="efforts";return request(m.host,"models",map[string]any{})
  case "/new":return request(m.host,"switch_session",map[string]any{})
  case "/login":if len(parts)>1 {method:="";if len(parts)>2 {method=parts[2]};return request(m.host,"login",map[string]any{"provider":parts[1],"method":method})};return request(m.host,"providers",map[string]any{})
  case "/logout":if len(parts)>1 {return request(m.host,"logout",map[string]any{"provider":parts[1]})}
