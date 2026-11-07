@@ -55,6 +55,8 @@ jobs:
         run: python3 cetas-native/tools/pty_smoke.py
       - name: Fresh-home provider bootstrap PTY smoke
         run: python3 cetas-native/tools/pty_bootstrap_smoke.py
+      - name: Offline first-run credential and restart PTY smoke
+        run: python3 cetas-native/tools/pty_bootstrap_login_smoke.py
       - name: Interactive PTY approval and question smoke
         run: python3 cetas-native/tools/pty_ui_smoke.py
       - name: Package opt-in native Alpha candidate
