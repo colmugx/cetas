@@ -86,8 +86,14 @@ def one_run(home, *, setup):
                        lambda b: b"First-run setup" in b and b"openai" in b)
             # API-key-capable OpenAI provider is the first static factory.
             os.write(master, b"\r")
+            # OpenAI exposes BOTH OAuth and API key in Posoco. Choose the
+            # first method explicitly; sending a key to this picker would
+            # otherwise be interpreted as selection keystrokes.
             read_until(proc, master, output,
-                       lambda b: b"key" in b.lower() and b"First-run setup" in b)
+                       lambda b: b"api_key" in b and b"oauth" in b)
+            os.write(master, b"\r")
+            read_until(proc, master, output,
+                       lambda b: b"OpenAI API key" in b)
             os.write(master, DUMMY_KEY.encode() + b"\r")
         read_until(
             proc, master, output,
