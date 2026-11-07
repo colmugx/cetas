@@ -1,0 +1,155 @@
+# Compare real cetas-js builds on one macOS arm64 runner.
+# Stable/no-AOT is a baseline to explain local-size discrepancies; Canary
+# builds use the same Bun revision with AOT as the only changed option.
+name: cetas-js macOS AOT binaries
+
+on:
+  pull_request:
+    paths:
+      - "cetas-js/**"
+      - ".github/workflows/cetas-js-aot-benchmark.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    name: macOS arm64 binaries and stable-size control
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - name: checkout cetas
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: setup stable Bun baseline
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: verify platform
+        run: |
+          uname -a
+          test "$(uname -m)" = "arm64"
+          moon version --all
+
+      - name: resolve MoonBit dependencies
+        run: moon update
+
+      - name: install JS dependencies
+        working-directory: cetas-js
+        run: bun install --frozen-lockfile
+
+      - name: baseline build with Stable Bun and no AOT
+        working-directory: cetas-js
+        run: |
+          set -euo pipefail
+          mkdir -p ../stage/aot-compare ../stage/aot-artifacts
+          bun --version | tee ../stage/aot-compare/STABLE_BUN_VERSION.txt
+          bun build.ts darwin-arm64
+          cp dist/cetas-bun-darwin-arm64 ../stage/aot-compare/cetas-bun-darwin-arm64-stable-no-aot
+
+      - name: setup Bun Canary for actual comparison
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: canary
+
+      - name: build Canary without AOT
+        working-directory: cetas-js
+        run: |
+          set -euo pipefail
+          bun --version | tee ../stage/aot-compare/CANARY_BUN_VERSION.txt
+          bun build.ts darwin-arm64
+          cp dist/cetas-bun-darwin-arm64 ../stage/aot-compare/cetas-bun-darwin-arm64-no-aot
+          chmod +x ../stage/aot-compare/cetas-bun-darwin-arm64-no-aot
+
+      - name: build Canary with AOT and Pi plugin loading
+        working-directory: cetas-js
+        run: |
+          set -euo pipefail
+          bun build.ts darwin-arm64 --aot
+          cp dist/cetas-bun-darwin-arm64 ../stage/aot-compare/cetas-bun-darwin-arm64-aot
+          chmod +x ../stage/aot-compare/cetas-bun-darwin-arm64-aot
+
+      - name: record precise sizes and package two separate tarballs
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p stage/aot-compare stage/aot-artifacts
+          {
+            echo "macOS $(sw_vers -productVersion) / $(uname -m)"
+            echo "Cetas $(cat VERSION)"
+            echo "Stable Bun: $(cat stage/aot-compare/STABLE_BUN_VERSION.txt 2>/dev/null || echo unavailable)"
+            echo "Canary Bun: $(cat stage/aot-compare/CANARY_BUN_VERSION.txt 2>/dev/null || echo unavailable)"
+            echo
+            for mode in stable-no-aot no-aot aot; do
+              name="cetas-bun-darwin-arm64-$mode"
+              exe="stage/aot-compare/$name"
+              echo "== $name =="
+              if [[ -f "$exe" ]]; then
+                file "$exe"
+                echo "bytes: $(stat -f '%z' "$exe")"
+                shasum -a 256 "$exe"
+                "$exe" --version || true
+              else
+                echo "NOT BUILT"
+              fi
+              echo
+            done
+          } | tee stage/aot-compare/SIZES.txt
+
+          for mode in no-aot aot; do
+            name="cetas-bun-darwin-arm64-$mode"
+            exe="stage/aot-compare/$name"
+            if [[ -f "$exe" ]]; then
+              tar -czf "stage/aot-artifacts/$name.tar.gz" -C stage/aot-compare "$name" SIZES.txt
+              echo "compressed $name: $(stat -f '%z' "stage/aot-artifacts/$name.tar.gz") bytes"
+            fi
+          done
+
+          {
+            echo "### macOS ARM64 cetas-js binary size (exact bytes)"
+            echo
+            echo "| Build | Raw size |"
+            echo "|---|---:|"
+            for mode in stable-no-aot no-aot aot; do
+              exe="stage/aot-compare/cetas-bun-darwin-arm64-$mode"
+              if [[ -f "$exe" ]]; then
+                bytes=$(stat -f '%z' "$exe")
+                mib=$(awk -v n="$bytes" 'BEGIN {printf "%.2f", n/1048576}')
+                echo "| $mode | $mib MiB ($bytes bytes) |"
+              else
+                echo "| $mode | FAILED |"
+              fi
+            done
+            echo
+            echo "Stable (non-AOT) is measured only, to explain size drift."
+            echo "Two separate compressed artifacts below contain the Canary no-AOT and AOT executables."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: upload non-AOT Canary binary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cetas-js-macos-arm64-no-aot
+          path: stage/aot-artifacts/cetas-bun-darwin-arm64-no-aot.tar.gz
+          compression-level: 0
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: upload AOT Canary binary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cetas-js-macos-arm64-aot
+          path: stage/aot-artifacts/cetas-bun-darwin-arm64-aot.tar.gz
+          compression-level: 0
+          retention-days: 30
+          if-no-files-found: warn
