@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -80,6 +81,7 @@ type Host struct {
 	done      chan struct{}
 	exited    chan struct{}
 	exitCode  int
+	needsSetup bool
 	closeOnce sync.Once
 	stopped   bool
 	// cause keeps the first fatal reason the runtime stopped answering.
@@ -165,6 +167,10 @@ func (h *Host) awaitBoot(ctx context.Context) (*Host, error) {
 			_ = h.Close(ctx)
 			return nil, fmt.Errorf("invalid Harness boot: %w", err)
 		}
+		if v.Status == "needs_setup" && strings.Contains(v.Detail, "providers: no configured model provider") {
+			h.needsSetup = true
+			return h, nil
+		}
 		if v.Status != "ready" {
 			_ = h.Close(ctx)
 			return nil, fmt.Errorf("Cetas startup: %s: %s", v.Status, v.Detail)
@@ -179,6 +185,10 @@ func (h *Host) awaitBoot(ctx context.Context) (*Host, error) {
 		return nil, h.stoppedErr()
 	}
 }
+
+// NeedsSetup is true only for a clean missing-provider startup. All other
+// composition errors remain fatal; setup never bypasses unrelated errors.
+func (h *Host) NeedsSetup() bool { return h.needsSetup }
 
 // Events contains all real EventHub payloads plus lifecycle frames.
 // The consuming MyGo adapter must feed them into Window.Update.
