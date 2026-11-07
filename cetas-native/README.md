@@ -41,14 +41,15 @@ exclusive capabilities later.
 **Current status:** Alpha candidate / internal evaluation. The Go/Bubble Tea
 build, MoonBit bridge, command system, virtualized transcript and PTY
 interaction suite are integrated. Automated tests alone do not prove safe
-real-provider operation or clean first-run onboarding.
+real-provider operation. First-run onboarding has a dedicated empty-home
+PTY test in CI.
 
 Use [ALPHA.md](ALPHA.md) for supported platforms, opt-in downloadable Actions
 artifacts, isolated-state instructions, and external Alpha release gates.
 Current release.yml does **not** distribute `cetas-native`; production
 `cetas-js` remains unaffected.
 
-A public/self-service Alpha requires a functioning first-run provider setup
-flow, a clean-machine binary installation test, and live provider/session
+A public/self-service Alpha requires a passing clean-home setup smoke,
+a clean-machine binary installation test, and live provider/session
 acceptance. We will prioritize these release blockers over JS parity,
 cosmetic enhancements, or platform expansion.
