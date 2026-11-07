@@ -35,8 +35,8 @@ pub async fn ConsoleBootstrap::providers_json(self : ConsoleBootstrap) -> Json {
   for row in provider_inventory(settings) {
     let (id, methods) = row
     let method_json : Array[Json] = []
-    for method in methods {
-      method_json.push(Json::string(method))
+    for auth_method in methods {
+      method_json.push(Json::string(auth_method))
     }
     providers.push(
       Json::object({
@@ -56,22 +56,22 @@ pub async fn ConsoleBootstrap::providers_json(self : ConsoleBootstrap) -> Json {
 pub async fn ConsoleBootstrap::login(
   self : ConsoleBootstrap,
   provider : String,
-  method : String,
+  auth_method : String,
 ) -> String {
   if !provider_id_is_valid(provider) {
-    return login_failure_json(provider, method, "invalid provider id")
+    return login_failure_json(provider, auth_method, "invalid provider id")
   }
   let settings = @cetas_core.load_provider_settings(
     self.fs,
     home=self.home,
     label="cetas-native.bootstrap",
   ) catch {
-    _ => return login_failure_json(provider, method, "cannot read provider settings")
+    _ => return login_failure_json(provider, auth_method, "cannot read provider settings")
   }
   let selected = @cetas_core.resolve_login_method(
-    provider, method, settings~,
+    provider, auth_method, settings~,
   ) catch {
-    _ => return login_failure_json(provider, method, "unknown provider or method")
+    _ => return login_failure_json(provider, auth_method, "unknown provider or auth_method")
   }
   let auth = HubAuthUi::HubAuthUi(
     HubUiPort::new_secret(self.hub, self.ui_registry, ""),
