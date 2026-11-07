@@ -111,10 +111,9 @@ fn NativeBootstrapTasks::cancel(
           self.cancelled.remove(id)
         },
         allow_failure=true,
-      ) |> ignore
-      setup.emit_event("auth.cancelled", extra=[
-        ("auth_id", Json::string(id)),
-      ])
+      )
+      |> ignore
+      setup.emit_event("auth.cancelled", extra=[("auth_id", Json::string(id))])
       true
     }
     None => false
@@ -181,10 +180,7 @@ async fn bootstrap_dispatch(
         }
         Err(error) => harness_error(error)
       }
-    other =>
-      harness_error(
-        "complete provider setup before using " + other,
-      )
+    other => harness_error("complete provider setup before using " + other)
   }
 }
 
@@ -217,7 +213,9 @@ async fn bootstrap_handle_frame(
       if id < 0 || command.is_empty() {
         emit(harness_reply(id, harness_error("invalid request envelope")))
       } else {
-        let args = fields.get("args").unwrap_or(Json::object(Map::from_array([])))
+        let args = fields
+          .get("args")
+          .unwrap_or(Json::object(Map::from_array([])))
         let result : Json = bootstrap_dispatch(
           setup, tasks, boot, config, cwd, group, command, args,
         ) catch {
