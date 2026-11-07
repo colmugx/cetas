@@ -98,7 +98,9 @@ def one_run(home, *, setup):
             os.write(master, DUMMY_KEY.encode() + b"\r")
         read_until(
             proc, master, output,
-            lambda b: re.search(rb"session: [a-zA-Z0-9_-]{8,}", b) is not None,
+            # Bubble Tea can redraw only the changed session ID via a cursor
+            # move rather than painting the full "session: ID" line again.
+            lambda b: re.search(rb"cetas-[0-9]{8,}", b) is not None and b" ready  |" in b,
             timeout=45,
         )
         if DUMMY_KEY.encode() in output:
