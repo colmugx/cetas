@@ -35,12 +35,14 @@ pub fn run_infra() -> Int32 {
       let config = @console.console_config(
         fs, home, "cetas-native", "cetas-native/0.1",
       )
-      let boot : Result[@console.ConsoleRuntime, String] = Ok(
-        @console.compose_console_runtime(config, cwd, group),
-      ) catch {
-        error => Err(error.to_string())
-      }
-      match boot {
+      let boot : Ref[Result[@console.ConsoleRuntime, String]] = Ref(
+        Ok(@console.compose_console_runtime(config, cwd, group)) catch {
+          error => Err(error.to_string())
+        },
+      )
+      let setup = @console.console_bootstrap(fs, home, fn(frame) { emit(frame) })
+      let setup_tasks = NativeBootstrapTasks::new()
+      match boot.val {
         Ok(runtime) => {
           runtime.attach_sink(fn(frame : String) { emit(frame) })
           emit(
@@ -51,13 +53,17 @@ pub fn run_infra() -> Int32 {
         }
         Err(detail) =>
           emit(
-            Json::object(
-              Map::from_array([
-                ("type", Json::string("infra.boot")),
-                ("status", Json::string("needs_setup")),
-                ("detail", Json::string(detail)),
-              ]),
-            ).stringify(),
+            Json::object({
+              "type": Json::string("infra.boot"),
+              "status": Json::string(
+                if detail.contains("providers: no configured model provider") {
+                  "needs_setup"
+                } else {
+                  "error"
+                },
+              ),
+              "detail": Json::string(detail),
+            }).stringify(),
           )
       }
       let auth_tasks = NativeAuthTasks::new()
@@ -69,17 +75,24 @@ pub fn run_infra() -> Int32 {
             let n = next_harness(harness_buffer, harness_buffer.length())
             if n > 0 {
               let raw = @utf8.decode_lossy(harness_buffer[:n])
-              match boot {
+              match boot.val {
                 Ok(runtime) =>
                   harness_handle_frame(runtime, auth_tasks, group, raw)
-                Err(detail) => emit(harness_reply(-1, harness_error(detail)))
+                Err(detail) =>
+                  if detail.contains("providers: no configured model provider") {
+                    bootstrap_handle_frame(
+                      setup, setup_tasks, boot, config, cwd, group, raw,
+                    )
+                  } else {
+                    emit(harness_reply(-1, harness_error(detail)))
+                  }
               }
             } else {
               @async.sleep(10)
             }
           }
           1 =>
-            match boot {
+            match boot.val {
               Ok(runtime) =>
                 emit(
                   "{\"type\":\"infra.state\",\"snapshot\":" +
@@ -98,7 +111,7 @@ pub fn run_infra() -> Int32 {
                 )
             }
           2 =>
-            match boot {
+            match boot.val {
               Ok(runtime) => {
                 runtime.emit_event("", "", "infra.ping", extra=[
                   ("source", Json::string("moonbit")),
@@ -121,7 +134,9 @@ pub fn run_infra() -> Int32 {
             )
         }
       }
-      match boot {
+      setup_tasks.cancel_all()
+      setup.cancel_all()
+      match boot.val {
         Ok(runtime) => {
           // Wake suspended approval/auth coroutines BEFORE draining Posoco.
           // The Go terminal has already requested shutdown and cannot
