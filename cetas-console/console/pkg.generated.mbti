@@ -10,6 +10,8 @@ import {
 // Values
 pub async fn compose_console_runtime(ConsoleConfig, String, @moonbitlang/async.TaskGroup[Unit], lifetime_group? : @moonbitlang/core/async.TaskGroup?) -> ConsoleRuntime
 
+pub fn console_bootstrap(&@posoco-ext-workspace.WorkspaceFs, String, (String) -> Unit) -> ConsoleBootstrap
+
 pub fn console_config(&@posoco-ext-workspace.WorkspaceFs, String, String, String) -> ConsoleConfig
 
 pub fn transcript_empty_json() -> @json.Json
@@ -17,6 +19,18 @@ pub fn transcript_empty_json() -> @json.Json
 // Errors
 
 // Types and methods
+pub struct ConsoleBootstrap {
+  fs : &@posoco-ext-workspace.WorkspaceFs
+  home : String
+  hub : EventHub
+  ui_registry : UiRegistry
+}
+pub fn ConsoleBootstrap::cancel_all(Self) -> Unit
+pub fn ConsoleBootstrap::emit_event(Self, String, extra? : Array[(String, @json.Json)]) -> Unit
+pub async fn ConsoleBootstrap::login(Self, String, String) -> String
+pub async fn ConsoleBootstrap::providers_json(Self) -> @json.Json
+pub fn ConsoleBootstrap::resolve_ui(Self, String, String) -> Unit
+
 pub struct ConsoleConfig {
   fs : &@posoco-ext-workspace.WorkspaceFs
   home : String
