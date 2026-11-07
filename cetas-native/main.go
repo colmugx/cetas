@@ -70,6 +70,7 @@ type model struct {
  streaming string
  reasoning string
  running bool
+ needsSetup bool
  modal string
  modalItems []string
  modalValues []string
@@ -168,7 +169,13 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   return m,nil
  case bootResult:
   if msg.err!=nil {m.status="startup failed";m.err=msg.err.Error();return m,nil}
-  m.host=msg.host;m.feed=msg.host.Events();m.status="ready"
+  m.host=msg.host;m.feed=msg.host.Events()
+  if msg.host.NeedsSetup() {
+   m.needsSetup=true
+   m.status="Choose a provider to set up Cetas Native"
+   return m,tea.Batch(receive(m.feed),receiveErrors(m.host.Errors()),request(m.host,"providers",map[string]any{}))
+  }
+  m.status="ready"
   return m,tea.Batch(receive(m.feed),receiveErrors(m.host.Errors()),request(m.host,"runtime_state",map[string]string{}))
  case errorResult:
   if !msg.ok {return m,nil}
@@ -176,16 +183,21 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   return m,receiveErrors(m.host.Errors())
  case eventBatchResult:
   var next string
+  ready:=false
   for _,e:=range msg.events {
    var meta struct{Type string `json:"type"`;Busy bool `json:"busy"`;SessionID string `json:"session_id"`}
    _=json.Unmarshal(e.Raw,&meta)
    m.applyEvent(e)
+   if meta.Type=="infra.ready" {ready=true}
    if meta.Type=="session.snapshot"&&!meta.Busy&&meta.SessionID==m.session&&len(m.followups)>0&&next=="" {
     next=m.followups[0];m.followups=m.followups[1:];m.running=true
    }
   }
   m.refreshTranscript()
   if msg.closed {m.status="MoonBit host stopped";return m,nil}
+  if ready {
+   return m,tea.Batch(receive(m.feed),request(m.host,"session_transcript",map[string]any{"id":m.session}),request(m.host,"commands",map[string]any{}))
+  }
   if next!="" {return m,tea.Batch(receive(m.feed),request(m.host,"turn_start",map[string]any{"prompt":next,"session_id":m.session}))}
   return m,receive(m.feed)
  case eventResult:
@@ -194,6 +206,9 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
   _=json.Unmarshal(msg.event.Raw,&meta)
   m.applyEvent(msg.event)
   m.refreshTranscript()
+  if meta.Type=="infra.ready" {
+   return m,tea.Batch(receive(m.feed),request(m.host,"session_transcript",map[string]any{"id":m.session}),request(m.host,"commands",map[string]any{}))
+  }
   if meta.Type=="session.snapshot"&&!meta.Busy&&meta.SessionID==m.session&&len(m.followups)>0 {
    next:=m.followups[0];m.followups=m.followups[1:];m.running=true
    return m,tea.Batch(receive(m.feed),request(m.host,"turn_start",map[string]any{"prompt":next,"session_id":m.session}))
@@ -298,8 +313,10 @@ func (m model) Update(message tea.Msg) (tea.Model,tea.Cmd) {
    var payload struct{Providers []struct{ID string `json:"id"`;Name string `json:"name"`;SignedIn bool `json:"signed_in"`;Methods []string `json:"methods"`} `json:"providers"`}
    if json.Unmarshal(msg.payload,&payload)==nil {
     m.modal="providers";m.modalIndex=0;m.modalItems=nil;m.modalValues=nil;m.providerMethods=map[string][]string{}
+    if m.needsSetup {m.modalPrompt="First-run setup — choose an authentication provider" }
     for _,v:=range payload.Providers {
      m.providerMethods[v.ID]=append([]string(nil),v.Methods...);title:=v.Name;if title=="" {title=v.ID};if v.SignedIn {title+=" (signed in)"};m.modalItems=append(m.modalItems,title);m.modalValues=append(m.modalValues,v.ID)}
+    if m.needsSetup&&len(m.modalItems)==0 {m.modal="";m.err="No authentication providers are available. Check the provider configuration.";m.modalPrompt=""}
    }
   }
   if msg.name=="switch_session" {
@@ -581,6 +598,15 @@ func (m *model) applyEvent(e harness.Event) {
   if frame.SessionID!=m.session && frame.Type!="auth.login" && frame.Type!="auth.cancelled" {return}
  }
  switch frame.Type {
+ case "infra.ready":
+  var data struct{Snapshot struct{SessionID string `json:"session_id"`} `json:"snapshot"`}
+  if json.Unmarshal(e.Raw,&data)==nil&&data.Snapshot.SessionID!="" {
+   m.needsSetup=false;m.session=data.Snapshot.SessionID
+   m.status="ready";m.err="";m.modal="";m.modalPrompt="";m.modalValues=nil
+  }
+ case "infra.setup_failed":
+  m.needsSetup=true;m.status="Provider setup incomplete"
+  m.err="Authentication saved, but no usable model is configured. Choose another provider or configure a model, then restart."
  case "command.completed":m.handleCommandCompletion(e.Raw)
  case "turn.accepted","turn.started":m.running=true;m.status="working"
  case "assistant.text_delta":
@@ -644,7 +670,7 @@ func (m *model) applyEvent(e harness.Event) {
    m.err="authentication returned an invalid result";m.status="authentication failed"
   } else if result.Type=="success" {
    m.err=""
-   m.status="signed in to "+payload.Provider
+   if m.needsSetup {m.status="signed in to "+payload.Provider+"; initializing Agent…"} else {m.status="signed in to "+payload.Provider}
   } else {
    m.status="authentication failed"
    // Do not echo arbitrary provider diagnostics: a provider may include the
