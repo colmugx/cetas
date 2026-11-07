@@ -5,6 +5,10 @@ No secrets or network access are required. The real MoonBit bootstrap
 resolves auth capabilities; the UI must remain alive and restore its TTY.
 """
 import errno
+import fcntl
+import signal
+import struct
+import termios
 import os
 import pty
 import select
@@ -33,6 +37,13 @@ def wait_until(proc, master, output, needle, timeout=35):
             except OSError as e:
                 if e.errno != errno.EIO:
                     raise
+        if b"\x1b[?1049h" in output and not getattr(proc, "_probed", False):
+            # A headless PTY does not implement Bubble Tea's capability
+            # queries. Reply as an unsupported xterm and force a resize so
+            # the renderer can make its first visible frame.
+            os.write(master, b"\x1b[?2026;2$y\x1b[?2027;2$y\x1b[?0u")
+            os.killpg(proc.pid, signal.SIGWINCH)
+            proc._probed = True
     raise TimeoutError(f"first-run picker not rendered: {output[-2500:]!r}")
 
 
@@ -41,11 +52,16 @@ def main():
         raise FileNotFoundError(BINARY)
     with tempfile.TemporaryDirectory(prefix="cetas-first-run-") as isolated:
         master, slave = pty.openpty()
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 36, 108, 0, 0))
+        def acquire_tty():
+            os.setsid()
+            fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
+
         env = dict(os.environ, CETAS_HOME=isolated, TERM="xterm-256color",
                    NO_COLOR="1")
         proc = subprocess.Popen([str(BINARY)], cwd=ROOT, stdin=slave,
                                 stdout=slave, stderr=slave, env=env,
-                                start_new_session=True)
+                                preexec_fn=acquire_tty)
         os.close(slave)
         output = bytearray()
         try:
