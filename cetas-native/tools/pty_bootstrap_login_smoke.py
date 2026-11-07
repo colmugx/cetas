@@ -100,7 +100,9 @@ def one_run(home, *, setup):
             proc, master, output,
             # Bubble Tea can redraw only the changed session ID via a cursor
             # move rather than painting the full "session: ID" line again.
-            lambda b: re.search(rb"cetas-[0-9]{8,}", b) is not None and b" ready  |" in b,
+            # Both Linux and macOS update the status line in place, but
+            # the exact ANSI edit sequence differs between terminals.
+            lambda b: re.search(rb"cetas-[0-9]{8,}.*ready", b, re.DOTALL) is not None,
             timeout=45,
         )
         if DUMMY_KEY.encode() in output:
