@@ -21,7 +21,7 @@ fn NativeBootstrapTasks::start(
   cwd : String,
   group : @async.TaskGroup[Unit],
   provider : String,
-  method : String,
+  auth_method : String,
 ) -> Json {
   for _, _ in self.pending {
     return harness_error("another provider login is still active")
@@ -34,7 +34,7 @@ fn NativeBootstrapTasks::start(
         self.pending.remove(id)
         self.cancelled.remove(id)
       }
-      let outcome = harness_console_json(setup.login(provider, method))
+      let outcome = harness_console_json(setup.login(provider, auth_method))
       if self.cancelled.contains(id) {
         return
       }
