@@ -44,16 +44,17 @@ State will be stored beneath
 `$HOME/cetas-native-alpha-home/.cetas/`, **not** directly in
 `$CETAS_HOME`. Configure a test provider/account inside the isolated state.
 Do not copy live credential files or production session JSONL files into it.
-**Current first-run limitation:** a newly empty `CETAS_HOME` cannot
-currently reach the native `/login` UI. The core rejects composition when
-there is no configured provider, and the Native Harness answers commands with
-a setup error in that state. For internal testing, preconfigure a *throwaway*
-provider in the isolated `$CETAS_HOME/.cetas/settings.json` and its
-credential store according to [provider configuration](../docs/configuration.md),
-or initialize that isolated home through an existing supported Cetas client.
-Do not copy the real production home. Native first-run onboarding is a
-**release blocker for self-service external Alpha** until it can collect a
-provider credential before the Agent is composed.
+**First-run onboarding:** starting with a completely empty `CETAS_HOME`
+now offers a provider picker before the Agent is composed. The secret-input
+flow uses the registered Posoco provider factory and writes to the isolated
+credential store. Once the provider exposes a usable model catalog, the
+runtime starts normally without requiring a second process. If login succeeds
+but the provider has no runnable model, the terminal reports the missing model
+instead of treating setup as complete. The empty-home PTY smoke is part of
+CI, but actual authentication with a live provider still needs manual
+acceptance before external Alpha distribution.
+
+Do not copy the real production home.
 
 Use a clean Git worktree for permission and tool-write testing. Start with
 interactive or read-only permissions; do not use `/permission yolo` in Alpha.
