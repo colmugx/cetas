@@ -29,7 +29,7 @@ pub async fn ConsoleBootstrap::providers_json(self : ConsoleBootstrap) -> Json {
     home=self.home,
     label="cetas-native.bootstrap",
   ) catch {
-    _ => return Json::object({ "providers": Json::array([]), })
+    _ => return Json::object({ "providers": Json::array([]) })
   }
   let providers : Array[Json] = []
   for row in provider_inventory(settings) {
@@ -47,7 +47,7 @@ pub async fn ConsoleBootstrap::providers_json(self : ConsoleBootstrap) -> Json {
       }),
     )
   }
-  Json::object({ "providers": Json::array(providers), })
+  Json::object({ "providers": Json::array(providers) })
 }
 
 ///|
@@ -66,12 +66,20 @@ pub async fn ConsoleBootstrap::login(
     home=self.home,
     label="cetas-native.bootstrap",
   ) catch {
-    _ => return login_failure_json(provider, auth_method, "cannot read provider settings")
+    _ =>
+      return login_failure_json(
+        provider, auth_method, "cannot read provider settings",
+      )
   }
   let selected = @cetas_core.resolve_login_method(
-    provider, auth_method, settings~,
+    provider,
+    auth_method,
+    settings~,
   ) catch {
-    _ => return login_failure_json(provider, auth_method, "unknown provider or auth_method")
+    _ =>
+      return login_failure_json(
+        provider, auth_method, "unknown provider or auth_method",
+      )
   }
   let auth = HubAuthUi::HubAuthUi(
     HubUiPort::new_secret(self.hub, self.ui_registry, ""),
@@ -84,19 +92,28 @@ pub async fn ConsoleBootstrap::login(
     auth as &@oauth.AuthInteraction,
     auth as &@oauth.AuthPromptInteraction,
   ) catch {
-    _ => return login_failure_json(provider, selected, "authentication failed or was cancelled")
+    _ =>
+      return login_failure_json(
+        provider, selected, "authentication failed or was cancelled",
+      )
   }
   credential_store(self.fs, self.home).write(
-    outcome.provider_id, outcome.credential,
+    outcome.provider_id,
+    outcome.credential,
   ) catch {
-    _ => return login_failure_json(provider, selected, "credential could not be saved")
+    _ =>
+      return login_failure_json(
+        provider, selected, "credential could not be saved",
+      )
   }
   @cetas_core.login_outcome_json(outcome)
 }
 
 ///|
 pub fn ConsoleBootstrap::resolve_ui(
-  self : ConsoleBootstrap, id : String, response : String,
+  self : ConsoleBootstrap,
+  id : String,
+  response : String,
 ) -> Unit {
   self.ui_registry.resolve(id, response)
 }
