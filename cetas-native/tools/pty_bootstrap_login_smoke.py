@@ -84,8 +84,9 @@ def one_run(home, *, setup):
         if setup:
             read_until(proc, master, output,
                        lambda b: b"First-run setup" in b and b"openai" in b)
-            # API-key-capable OpenAI provider is the first static factory.
-            os.write(master, b"\r")
+            # Core's static factory order is DeepSeek, Kimi, OpenAI. Choose
+            # the third provider rather than relying on the cursor default.
+            os.write(master, b"\x1b[B\x1b[B\r")
             # OpenAI exposes BOTH OAuth and API key in Posoco. Choose the
             # first method explicitly; sending a key to this picker would
             # otherwise be interpreted as selection keystrokes.
