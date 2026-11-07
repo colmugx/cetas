@@ -12,14 +12,14 @@ func TestBootstrapProviderPickerWithEmptySession(t *testing.T) {
  m.needsSetup=true
  m.host=&testHost{}
  updated,_:=m.Update(commandResult{name:"providers",payload:json.RawMessage(`{"providers":[{"id":"openai","name":"openai","signed_in":false,"methods":["api_key"]},{"id":"kimi","name":"kimi","signed_in":false,"methods":["api_key","oauth"]}]}`)})
- model:=updated.(model)
- if model.modal!="providers"||len(model.modalValues)!=2||!strings.Contains(model.modalPrompt,"First-run") {
-  t.Fatalf("setup provider picker missing: modal=%q values=%#v prompt=%q",model.modal,model.modalValues,model.modalPrompt)
+ state:=updated.(model)
+ if state.modal!="providers"||len(state.modalValues)!=2||!strings.Contains(state.modalPrompt,"First-run") {
+  t.Fatalf("setup provider picker missing: modal=%q values=%#v prompt=%q",state.modal,state.modalValues,state.modalPrompt)
  }
- if model.session!="" {t.Fatal("setup must not fabricate a session before Agent composition")}
- updated,cmd:=model.Update(tea.KeyPressMsg{Code:tea.KeyEnter})
- model=updated.(model)
- if cmd==nil||model.modal!="" {t.Fatalf("provider selection did not launch login: %q",model.modal)}
+ if state.session!="" {t.Fatal("setup must not fabricate a session before Agent composition")}
+ updated,cmd:=state.Update(tea.KeyPressMsg{Code:tea.KeyEnter})
+ state=updated.(model)
+ if cmd==nil||state.modal!="" {t.Fatalf("provider selection did not launch login: %q",state.modal)}
  if result,ok:=cmd().(commandResult);!ok||result.name!="login" {
   t.Fatalf("unexpected setup command: %#v",result)
  }
