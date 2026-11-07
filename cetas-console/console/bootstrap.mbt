@@ -97,6 +97,10 @@ pub async fn ConsoleBootstrap::login(
         provider, selected, "authentication failed or was cancelled",
       )
   }
+  // A cancelled login must never persist a late provider response.
+  if @async.is_being_cancelled() {
+    return login_failure_json(provider, selected, "authentication cancelled")
+  }
   credential_store(self.fs, self.home).write(
     outcome.provider_id,
     outcome.credential,
