@@ -24,6 +24,12 @@ fn cetas_base_system_prompt(project_name~ : String) -> String {
     $|- Errors Never Pass Silently.
     $|- Don't Paper Over Bugs.
     $|- Design for Traceability.
+    $|- When writing code, keep these rules in mind regarding comments: Comments have only one legitimate purpose: explaining intent when the code cannot reasonably speak for itself.
+    $|  What to avoid:
+    $|    - Storytelling: Skip the narrative and internal monologue.
+    $|    - Changelogs or historical baggage: Don’t leave comments explaining what the code used to look like or why deleted code was removed. Version control handles history; treat deleted code as if it never existed.
+    $|    - Stating the glaringly obvious: Don’t spend lines explaining why there are eggs in egg fried rice.
+    $|    - Tombstones or roadmap milestones: Never log implementation milestones, sprint notes, or project phases in code comments. Readers don't know—and shouldn't know—what was going on in your personal life or schedule when you wrote it.
     $|
     $|Working Suggestion:
     $|- if you realize the problem at hand is complex, use `memory_search` first to check for past successful experience with similar problems before diving in.

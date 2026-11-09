@@ -529,16 +529,14 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
           ("detail", Json::string(detail)),
         ]),
       )
-    // "Agent is waiting for the user" presence signals (permission confirm,
-    // plan review, ask_question). The TS host renders those modals through
-    // the UI bridge and consumes no wire tag for them; forwarding would trip
-    // its unknown-type skip notice.
-    @posoco.TurnEvent::UserRequestStarted(..) => Json::null()
-    @posoco.TurnEvent::UserRequestFinished(..) => Json::null()
-    // 0.23.0: tool child declaration and catalog changes carry no wire tag;
-    // the TS host projects its own tool surface.
-    @posoco.TurnEvent::ToolChildDeclared(..) => Json::null()
-    @posoco.TurnEvent::ToolCatalogChanged(..) => Json::null()
+
+    // FIXME: TurnCancelled
+    // @posoco.TurnEvent::UserRequestStarted(..) => Json::null()
+    // @posoco.TurnEvent::UserRequestFinished(..) => Json::null()
+    // @posoco.TurnEvent::ToolChildDeclared(..) => Json::null()
+    // @posoco.TurnEvent::ToolCatalogChanged(..) => Json::null()
+
+    _ => Json::null()
   }
   json
 }

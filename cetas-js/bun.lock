@@ -10,7 +10,7 @@
         "ws": "^8.22.0",
       },
       "devDependencies": {
-        "@types/bun": "latest",
+        "@types/bun": "^1.4.4",
         "@types/ws": "^8.18.2",
         "acorn": "^8.19.0",
         "astring": "^1.9.0",
@@ -40,7 +40,7 @@
 
     "@javascript-obfuscator/estraverse": ["@javascript-obfuscator/estraverse@5.4.0", "https://registry.npmmirror.com/@javascript-obfuscator/estraverse/-/estraverse-5.4.0.tgz", {}, "sha512-CZFX7UZVN9VopGbjTx4UXaXsi9ewoM1buL0kY7j1ftYdSs7p2spv9opxFjHlQ/QGTgh4UqufYqJJ0WKLml7b6w=="],
 
-    "@types/bun": ["@types/bun@1.4.3", "https://registry.npmmirror.com/@types/bun/-/bun-1.4.3.tgz", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
+    "@types/bun": ["@types/bun@1.4.4", "https://registry.npmmirror.com/@types/bun/-/bun-1.4.4.tgz", { "dependencies": { "bun-types": "1.4.4" } }, "sha512-9wkRDXUXK124pEnAutE6n/l18j+i9GC5IAHK8TmX/2nlySETmky0OU6yL5U8pW1AoKh++AN9auDCr647BfurjQ=="],
 
     "@types/estree": ["@types/estree@1.0.9", "https://registry.npmmirror.com/@types/estree/-/estree-1.0.9.tgz", {}, "sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg=="],
 
@@ -126,7 +126,7 @@
 
     "bun-plugin-moonbit": ["bun-plugin-moonbit@0.1.0-beta.1", "https://registry.npmmirror.com/bun-plugin-moonbit/-/bun-plugin-moonbit-0.1.0-beta.1.tgz", { "bin": { "bun-plugin-moonbit": "src/cli.ts" } }, "sha512-8B3bHj60DcDHzBie7GPnMi9rG5MkW1wMeCKT9LBoOBlQknnGLKBuI8YVQfTfnSscTolwQm8LBm+kL02igaV/bw=="],
 
-    "bun-types": ["bun-types@1.4.3", "https://registry.npmmirror.com/bun-types/-/bun-types-1.4.3.tgz", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-tinRJNGOmUN+tEAsn2y2e942n9JHRHR42iUYzDH75NmhJqVBokGSQkkfSFdNWwsANIdrK6ACH9t01M452YyTwg=="],
+    "bun-types": ["bun-types@1.4.4", "https://registry.npmmirror.com/bun-types/-/bun-types-1.4.4.tgz", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-yjrJh5oGX7mMPKGd19YXyIjmEuj4G4zNC30bs7PM9Az7NQ3ndF3j6hbeRdvJTRQEhJ/FYQwW0a2moweEi2hMxQ=="],
 
     "call-bind": ["call-bind@1.0.9", "https://registry.npmmirror.com/call-bind/-/call-bind-1.0.9.tgz", { "dependencies": { "call-bind-apply-helpers": "^1.0.2", "es-define-property": "^1.0.1", "get-intrinsic": "^1.3.0", "set-function-length": "^1.2.2" } }, "sha512-a/hy+pNsFUTR+Iz8TCJvXudKVLAnz/DyeSUo10I5yvFDQJBFU2s9uqQpoSrJlroHUKoKqzg+epxyP9lqFdzfBQ=="],
 

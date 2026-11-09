@@ -422,6 +422,55 @@ describe("SubagentActivityStore", () => {
     expect(notice.run_id).toBe("call_2");
   });
 
+  it("a superseded terminal never terminates the resumed run", () => {
+    const store = new SubagentActivityStore();
+    spawned(store, "bg", "call_1", { background: true });
+    label(store, "bg", "background_spawned", { task_id: "task_1" });
+
+    // Resume: a new spawn call opens the current run of the same child.
+    spawned(store, "bg", "call_2", { background: true });
+    label(store, "bg", "background_spawned", { task_id: "task_2" });
+    label(store, "bg", "question_asked", {
+      question_id: "question-2",
+      question: "still there?",
+      type: "input",
+    });
+
+    // The stopped first run's envelope arrives late, flagged `superseded`:
+    // it describes its own run, never the current one.
+    expect(
+      label(store, "bg", "background_terminal", {
+        state: "cancelled",
+        summary: "cancelled by the parent",
+        task_id: "task_1",
+        superseded: true,
+      }),
+    ).toBe(false);
+
+    const record = store.get("bg")!;
+    expect(record.status).toBe("running");
+    expect(record.terminal_received).toBe(false);
+    expect(record.terminal_state).toBeUndefined();
+    expect(record.summary).toBeUndefined();
+    expect(record.exited).toBe(false);
+    expect(record.task_id).toBe("task_2");
+    expect(record.question?.id).toBe("question-2");
+    expect(store.runningBackground().map((r) => r.child_session)).toEqual(["bg"]);
+    expect(store.claimTerminalNotification("bg")).toBeUndefined();
+
+    // The resumed run's own terminal still lands as the authoritative one.
+    expect(
+      label(store, "bg", "background_terminal", {
+        state: "completed",
+        summary: "second run done",
+        task_id: "task_2",
+        superseded: false,
+      }),
+    ).toBe(true);
+    expect(store.get("bg")!.status).toBe("completed");
+    expect(store.get("bg")!.summary).toBe("second run done");
+  });
+
   it("assigns stable unique nicknames in order; resumes keep theirs", () => {
     const store = new SubagentActivityStore();
     spawned(store, "a", "call_a");

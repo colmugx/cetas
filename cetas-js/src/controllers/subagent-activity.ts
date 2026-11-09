@@ -721,6 +721,11 @@ export class SubagentActivityStore {
         return true;
       }
       case "background_terminal": {
+        // A terminal the extension flags `superseded` belongs to a run that a
+        // later `resume` of the same child already replaced: it is delivered
+        // once for its own run (stop + resume leaves it in flight), but it
+        // never classifies, summarizes, or disarms the current run.
+        if (data.superseded === true) return false;
         // Authoritative and exactly once per run: repeats never mutate.
         if (record.terminal_received) return false;
         let changed = put(record, "terminal_received", true);

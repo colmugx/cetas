@@ -39,7 +39,9 @@ const CETAS_VERSION = (() => {
   try {
     return readFileSync(join(import.meta.dir, "../VERSION"), "utf8").trim();
   } catch {
-    console.error("cannot read ../VERSION — build from the cetas workspace checkout");
+    console.error(
+      "cannot read ../VERSION — build from the cetas workspace checkout",
+    );
     process.exit(2);
   }
 })();
@@ -47,12 +49,15 @@ const VERSION_DEFINE = { __CETAS_VERSION__: JSON.stringify(CETAS_VERSION) };
 const executableIdx = args.indexOf("--executable");
 const executable = executableIdx >= 0 ? args[executableIdx + 1] : undefined;
 const positional =
-  executableIdx >= 0 ? [...args.slice(0, executableIdx), ...args.slice(executableIdx + 2)] : args;
+  executableIdx >= 0
+    ? [...args.slice(0, executableIdx), ...args.slice(executableIdx + 2)]
+    : args;
 const dtsOnly = positional.includes("--dts-only");
 const nodeBundle = positional.includes("--node-bundle");
 const requested = new Set(positional.filter((a) => !a.startsWith("--")));
 
-const osFor = (name: string) => (name.startsWith("windows") ? "windows" : "unix");
+const osFor = (name: string) =>
+  name.startsWith("windows") ? "windows" : "unix";
 const CORE_ROOT = join(import.meta.dir, "../cetas-core");
 const selected = (Object.keys(TARGETS) as (keyof typeof TARGETS)[]).filter(
   (name) => requested.size === 0 || requested.has(name),
@@ -63,7 +68,9 @@ if (unknown.length > 0) {
   process.exit(2);
 }
 if (executable && selected.length !== 1) {
-  console.error("--executable needs exactly one target: bun build.ts windows-x64 --executable <path>");
+  console.error(
+    "--executable needs exactly one target: bun build.ts windows-x64 --executable <path>",
+  );
   process.exit(2);
 }
 
@@ -81,10 +88,10 @@ const MOONBIT_DTS = {
 if (dtsOnly) {
   const result = await Bun.build({
     entrypoints: ["host.ts"],
-    // bun target like the compile passes; browser (the default) rejects
-    // pi-tui's node builtin imports.
     target: "bun",
-    plugins: [moonbit({ root: import.meta.dir, mode: "release", dts: MOONBIT_DTS })],
+    plugins: [
+      moonbit({ root: import.meta.dir, mode: "release", dts: MOONBIT_DTS }),
+    ],
   });
   if (!result.success) {
     console.error("✗ dts gen/mbt.d.ts");
@@ -103,22 +110,31 @@ console.log("platform: per-target  composition: checked-in MoonBit sources");
 // .node addons resolve from node_modules. No sourcemap is generated
 // (Bun.build defaults to "none").
 if (nodeBundle) {
-  const moonBuild = Bun.spawnSync(["moon", "build", "--target", "js", "--release", "--output-json"], {
-    cwd: import.meta.dir,
-    env: process.env,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const moonBuild = Bun.spawnSync(
+    ["moon", "build", "--target", "js", "--release", "--output-json"],
+    {
+      cwd: import.meta.dir,
+      env: process.env,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
   if (moonBuild.exitCode !== 0) {
-    console.error(`moon build failed for the node bundle:\n${moonBuild.stdout.toString().trim()}\n${moonBuild.stderr.toString().trim()}`);
+    console.error(
+      `moon build failed for the node bundle:\n${moonBuild.stdout.toString().trim()}\n${moonBuild.stderr.toString().trim()}`,
+    );
     process.exit(2);
   }
   const result = await Bun.build({
     entrypoints: ["host.ts"],
     target: "node",
     minify: true,
+    treeShaking: true,
     external: ["@earendil-works/pi-tui"],
     define: VERSION_DEFINE,
+    compile: {
+      trim: true,
+    },
     plugins: [
       moonbit({
         root: import.meta.dir,
@@ -137,13 +153,18 @@ if (nodeBundle) {
   const [out] = result.outputs;
   let code = await out.text();
   if (process.env.CETAS_PROTECT === "0") {
-    console.log("- protect    skipped (CETAS_PROTECT=0) — do not publish this artifact");
+    console.log(
+      "- protect    skipped (CETAS_PROTECT=0) — do not publish this artifact",
+    );
   } else {
     const { code: guarded, stats } = protect(code);
     code = guarded;
-    const total = stats.sites + Object.values(stats.skipped).reduce((a, b) => a + b, 0);
+    const total =
+      stats.sites + Object.values(stats.skipped).reduce((a, b) => a + b, 0);
     const pct = total === 0 ? 0 : (stats.sites / total) * 100;
-    const skip = Object.entries(stats.skipped).map(([k, v]) => `${k}=${v}`).join(" ");
+    const skip = Object.entries(stats.skipped)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(" ");
     console.log(
       `✓ protect    obfuscate=${stats.profile}  ${stats.sites} strings encrypted (${pct.toFixed(1)}%, ${stats.unique} unique, skipped: ${skip})  ` +
         `${(stats.bytesIn / 1024 / 1024).toFixed(1)} → ${(stats.bytesOut / 1024 / 1024).toFixed(1)} MB  ` +
@@ -152,7 +173,9 @@ if (nodeBundle) {
   }
   await Bun.write("dist/cetas.js", `#!/usr/bin/env node\n${code}`);
   const stat = await Bun.file("dist/cetas.js").stat();
-  console.log(`✓ node bundle  dist/cetas.js  ${(stat.size / 1024 / 1024).toFixed(1)} MB`);
+  console.log(
+    `✓ node bundle  dist/cetas.js  ${(stat.size / 1024 / 1024).toFixed(1)} MB`,
+  );
   process.exit(0);
 }
 
@@ -177,19 +200,25 @@ if (group === "") {
 const os = group as ReturnType<typeof osFor>;
 for (const name of selected.filter((n) => osFor(n) === os)) {
   // Build from the checked-in MoonBit composition.
-  const moonBuild = Bun.spawnSync(["moon", "build", "--target", "js", "--release", "--output-json"], {
-    cwd: import.meta.dir,
-    env: process.env,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const moonBuild = Bun.spawnSync(
+    ["moon", "build", "--target", "js", "--release", "--output-json"],
+    {
+      cwd: import.meta.dir,
+      env: process.env,
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
   if (moonBuild.exitCode !== 0) {
-    console.error(`moon build failed for ${os}:\n${moonBuild.stdout.toString().trim()}\n${moonBuild.stderr.toString().trim()}`);
+    console.error(
+      `moon build failed for ${os}:\n${moonBuild.stdout.toString().trim()}\n${moonBuild.stderr.toString().trim()}`,
+    );
     process.exit(2);
   }
   const outfile = `dist/cetas-bun-${name}`;
   const result = await Bun.build({
     entrypoints: ["host.ts"],
+    treeShaking: true,
     plugins: [
       moonbit({
         root: import.meta.dir,
@@ -199,7 +228,14 @@ for (const name of selected.filter((n) => osFor(n) === os)) {
     ],
     // A shipped CLI must not load the customer's bunfig preloads (or this
     // repository's development MoonBit plugin) before its own entry point.
-    compile: { target: TARGETS[name], outfile, autoloadBunfig: false, ...(executable ? { executablePath: executable } : {}) },
+    compile: {
+      aot: true,
+      trim: true,
+      target: TARGETS[name],
+      outfile,
+      autoloadBunfig: false,
+      ...(executable ? { executablePath: executable } : {}),
+    },
     define: VERSION_DEFINE,
     minify: !debugBuild,
     ...(debugBuild ? { sourcemap: "linked" as const } : {}),
