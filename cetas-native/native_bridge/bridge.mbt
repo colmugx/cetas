@@ -15,6 +15,60 @@ extern "C" fn next_command() -> Int32 = "cetas_bridge_next_command"
 extern "C" fn next_harness(dst : Bytes, capacity : Int32) -> Int32 = "cetas_bridge_next_harness"
 
 ///|
+/// Read end of the command/request readiness pipe. The Go host writes one byte
+/// after it queues work; the queue stays authoritative and the byte only means
+/// "there may be work". Ownership of the descriptor transfers to this
+/// scheduler, which is its single reader; it is closed when this async loop
+/// shuts down. The host keeps the write end (and its own duplicate of this
+/// end) for the process lifetime, so a late write can neither block nor raise
+/// SIGPIPE. Returns -1 when the channel is unusable; the stage below says why.
+extern "C" fn command_wake_fd() -> Int32 = "cetas_bridge_command_fd"
+
+///|
+/// Exact step that failed while building the notify channel (0 = healthy,
+/// 1 = `pipe()`, 2 = `fcntl()` non-blocking/cloexec, 3 = the dup write guard,
+/// 4 = disabled by a transport test).
+extern "C" fn command_wake_stage() -> Int32 = "cetas_bridge_command_wake_stage"
+
+///|
+/// The errno behind `command_wake_stage`; 0 when none applies.
+extern "C" fn command_wake_errno() -> Int32 = "cetas_bridge_command_wake_errno"
+
+///|
+/// Human name for one notify-channel failure stage. Never invented: an unknown
+/// stage says so instead of guessing a cause.
+fn wake_stage_text(stage : Int32) -> String {
+  match stage {
+    0 => "no failure recorded"
+    1 => "pipe() failed"
+    2 => "fcntl() failed setting non-blocking/cloexec"
+    3 => "fcntl(F_DUPFD_CLOEXEC) failed for the producer-write guard"
+    4 => "notification channel disabled by a transport test"
+    _ => "unknown failure stage " + stage.to_string()
+  }
+}
+
+///|
+/// The notify channel is an optimization, never a requirement: without it the
+/// host still serves commands through bounded polling. So the degradation is
+/// reported exactly once as an explicit `infra.error` frame, and the failed
+/// descriptor is closed rather than retried every iteration. It is never
+/// silently swallowed and never claims the wait is still healthy.
+fn emit_degraded(detail : String) -> Unit {
+  emit(
+    Json::object({
+      "type": Json::string("infra.error"),
+      "degraded": Json::string("command_poll_10ms"),
+      "detail": Json::string(detail + "; falling back to 10 ms command polling"),
+    }).stringify(),
+  )
+}
+
+///|
+/// A rejected publish is not swallowed here on purpose: C counts each
+/// rejection under its exact cause and the Go pump turns any new rejection into
+/// a fatal, named diagnostic for the host. Writing to stderr instead would
+/// corrupt the terminal the TUI owns, so the counter stays the single channel.
 fn emit(frame : String) -> Unit {
   let data = @utf8.encode(frame)
   ignore(publish(data, data.length()))
@@ -32,15 +86,33 @@ pub fn run_infra() -> Int32 {
       let fs : &@workspace.WorkspaceFs = fs_impl
       let cwd = @env.current_dir().unwrap_or(".")
       let home = @cetas_core.cetas_home()
+      // The terminal is the one consumer that opts into the full realtime UI
+      // projection (tool lifecycle phases, argument deltas, Custom/scope
+      // attribution, ledger facts, unflattened UiRender). Every other console
+      // consumer keeps the shared default contract.
       let config = @console.console_config(
-        fs, home, "cetas-native", "cetas-native/0.1",
+        fs,
+        home,
+        "cetas-native",
+        "cetas-native/0.1",
+        native_ui=true,
+        // Native terminal default: yolo, exactly like the JS shell. The
+        // console's shared default stays WorkspaceWrite, and an explicit
+        // runtime `/permission` still wins afterwards. New workspaces reuse
+        // this host policy instead of a second hardcoded default.
+        permission_mode=@permission.PermissionMode::Yolo,
       )
       let boot : Ref[Result[@console.ConsoleRuntime, String]] = Ref(
         Ok(@console.compose_console_runtime(config, cwd, group)) catch {
           error => Err(error.to_string())
         },
       )
-      let setup = @console.console_bootstrap(fs, home, fn(frame) { emit(frame) })
+      let setup = @console.console_bootstrap(
+        fs,
+        home,
+        fn(frame) { emit(frame) },
+        native_ui=true,
+      )
       let setup_tasks = NativeBootstrapTasks::new()
       match boot.val {
         Ok(runtime) => {
@@ -67,7 +139,41 @@ pub fn run_infra() -> Int32 {
           )
       }
       let auth_tasks = NativeAuthTasks::new()
+      let replay_tasks = NativeReplayTasks::new()
       let harness_buffer = Bytes::make(262144, 0)
+      // Wait for the host's readiness byte instead of waking up on a fixed
+      // 10ms interval. The owner thread parks inside the async scheduler, so
+      // every other task on this domain keeps running while the loop waits.
+      // Adoption failures are reported once, never swallowed: the loop then
+      // degrades to bounded polling instead of pretending the wait works.
+      let mut wake_reported = false
+      let mut command_wake : @raw_fd.RawFd? = None
+      let wake_fd = command_wake_fd()
+      if wake_fd < 0 {
+        emit_degraded(
+          "command notification channel unavailable: " +
+          wake_stage_text(command_wake_stage()) +
+          " (errno=" +
+          command_wake_errno().to_string() +
+          ")",
+        )
+        wake_reported = true
+      } else {
+        // `RawFd` takes ownership of the descriptor even when adoption fails
+        // (it closes the fd itself), so neither branch can leak it.
+        command_wake = Some(@raw_fd.RawFd(wake_fd)) catch {
+          error => {
+            emit_degraded(
+              "command notification descriptor could not be adopted by the async scheduler: " +
+              error.to_string(),
+            )
+            wake_reported = true
+            None
+          }
+        }
+      }
+      let mut protocol_reported = false
+      let wake_buffer = FixedArray::make(1, b'\x00')
       let mut stopping = false
       while !stopping {
         match next_command() {
@@ -77,7 +183,9 @@ pub fn run_infra() -> Int32 {
               let raw = @utf8.decode_lossy(harness_buffer[:n])
               match boot.val {
                 Ok(runtime) =>
-                  harness_handle_frame(runtime, auth_tasks, group, raw)
+                  harness_handle_frame(
+                    runtime, auth_tasks, replay_tasks, group, raw,
+                  )
                 Err(detail) =>
                   if detail.contains("providers: no configured model provider") {
                     bootstrap_handle_frame(
@@ -88,7 +196,57 @@ pub fn run_infra() -> Int32 {
                   }
               }
             } else {
-              @async.sleep(10)
+              if n < 0 && !protocol_reported {
+                // A request larger than this dispatcher buffer stays at the
+                // FIFO head and would otherwise stall every later request with
+                // no trace. Unreachable while `Submit` enforces the same
+                // 256 KiB bound, but never silent: report the exact sizes once.
+                protocol_reported = true
+                emit(
+                  Json::object({
+                    "type": Json::string("infra.error"),
+                    "detail": Json::string(
+                      "harness request does not fit the " +
+                      harness_buffer.length().to_string() +
+                      "-byte dispatcher buffer (" +
+                      (-n).to_string() +
+                      " bytes queued); the native request queue cannot advance",
+                    ),
+                  }).stringify(),
+                )
+              }
+              match command_wake {
+                Some(wake) => {
+                  // One byte per queued item, so a wakeup may coalesce but is
+                  // never lost: the queues above are re-read after every wait.
+                  let resumed = wake.read(wake_buffer) catch {
+                    error => {
+                      if !wake_reported {
+                        emit_degraded(
+                          "command notification wait failed: " +
+                          error.to_string(),
+                        )
+                        wake_reported = true
+                      }
+                      -1
+                    }
+                  }
+                  if resumed <= 0 {
+                    // A failed or closed channel ends this wait for good: the
+                    // descriptor is closed and the loop falls back to polling
+                    // instead of retrying a dead fd every iteration.
+                    if !wake_reported {
+                      emit_degraded(
+                        "command notification channel closed while waiting (EOF)",
+                      )
+                      wake_reported = true
+                    }
+                    wake.close()
+                    command_wake = None
+                  }
+                }
+                None => @async.sleep(10)
+              }
             }
           }
           1 =>
@@ -134,6 +292,7 @@ pub fn run_infra() -> Int32 {
             )
         }
       }
+      replay_tasks.cancel_all()
       setup_tasks.cancel_all()
       setup.cancel_all()
       match boot.val {

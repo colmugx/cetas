@@ -73,18 +73,52 @@ def capture_c():
     return sources
 
 
+def workspace_roots():
+    """Package roots that belong to the build graph.
+
+    `moon.work` is authoritative: it names every member module of the root
+    workspace and of the nested `extension` submodule. The registry vendor
+    directories at the workspace root hold the pinned external dependencies.
+    Walking the whole tree instead also picks up docs, agent skill templates
+    and per-extension vendor copies, none of which are part of any build.
+    """
+    manifests = [MOON / "moon.work"]
+    manifests += sorted(MOON.glob("*/moon.work"))
+    manifests = [w for w in manifests if w.is_file()]
+    if not manifests:
+        raise RuntimeError("no moon.work found at the workspace root")
+    roots = []
+    for manifest in manifests:
+        base = manifest.parent
+        primary = base == MOON
+        for member in re.findall(r'"([^"]+)"', manifest.read_text()):
+            path = (base / member).resolve()
+            if path.is_dir():
+                roots.append(path)
+            elif primary:
+                raise RuntimeError(f"moon.work member missing: {path}")
+            else:
+                print(f"Skipping absent workspace member: {path}", flush=True)
+    for vendored in ("_mooncakes", ".mooncakes"):
+        path = MOON / vendored
+        if path.is_dir():
+            roots.append(path)
+    if not roots:
+        raise RuntimeError("no MoonBit workspace members found")
+    return roots
+
+
 def dependency_native_sources():
-    """Compile native-stub units from the full source-pinned Moon workspace.
+    """Compile native-stub units from the build graph's own packages.
 
     Moon's generated C is monolithic; foreign C units in dependency packages
-    are not. Traverse both registry modules and the nested Cetas submodule.
+    are not. Only workspace members and the root registry contribute units:
+    vendored copies nested in submodules belong to other builds, and Moon
+    never compiles the packages under `.agents/`, `docs/` or `_build/`.
     For macOS skip Linux/Windows backend units using explicit filenames.
     """
-    roots = [
-        MOON / "_mooncakes",
-        MOON / ".mooncakes",
-        MOON,
-    ]
+    roots = workspace_roots()
+    skip_parts = {"_build", "_mooncakes", ".mooncakes"}
     excluded = {
         "iocp.c", "io_windows.c", "signal_windows.c",
         "watch_inotify.c", "watch_windows.c", "process_windows.c",
@@ -99,12 +133,11 @@ def dependency_native_sources():
     seen = set()
     files = []
     for root in roots:
-        if not root.exists():
-            continue
         for pkg in root.rglob("moon.pkg"):
             rel = pkg.relative_to(root)
-            if ("test" in rel.parts or "tests" in rel.parts or "_build" in rel.parts
-                or "external_loop_test" in rel.parts
+            if (skip_parts & set(rel.parts)
+                or any(p in ("test", "tests") or p.startswith("test_") or p.endswith("_test")
+                       for p in rel.parts)
                 or "moonbit-community" in rel.parts and "proton" in rel.parts):
                 continue
             match = re.search(r'"native-stub"\s*:\s*\[([^]]+)\]', pkg.read_text(), re.S)

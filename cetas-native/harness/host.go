@@ -14,6 +14,7 @@ import (
 	"time"
 
 	bridge "github.com/colmugx/cetas/cetas-native/go_bridge"
+	"github.com/colmugx/cetas/cetas-native/internal/wire"
 )
 
 var (
@@ -25,10 +26,7 @@ var (
 
 // Event contains a full, unmodified EventHub frame (not a Go reinterpretation).
 // Harness responses are matched by ID and are not delivered on Events.
-type Event struct {
-	Type string
-	Raw  json.RawMessage
-}
+type Event = wire.Event
 
 type envelope struct {
 	ID      uint64 `json:"id"`
@@ -44,6 +42,13 @@ type transport interface {
 	Run() int
 	Send(code int32) error
 	Poll() ([]byte, error)
+	// Wait blocks until the native side signals that the bounded queue may
+	// hold data. It replaces a fixed poll interval, so an idle host sleeps
+	// instead of waking up hundreds of times a second.
+	Wait() error
+	// Wake rings the same doorbell from the host side, for state published
+	// outside the queue (rejections) or for the scheduler's exit.
+	Wake() error
 	DroppedEvents() int
 	Rejections() bridge.Rejections
 	Submit(request []byte) error
@@ -71,19 +76,19 @@ func rejectionsDelta(current, seen bridge.Rejections) bridge.Rejections {
 }
 
 type Host struct {
-	infra     transport
-	nextID    atomic.Uint64
-	mu        sync.Mutex
-	pending   map[uint64]chan json.RawMessage
-	events    chan Event
-	problems  chan error
-	boot      chan Event
-	done      chan struct{}
-	exited    chan struct{}
-	exitCode  int
+	infra      transport
+	nextID     atomic.Uint64
+	mu         sync.Mutex
+	pending    map[uint64]chan json.RawMessage
+	events     chan Event
+	problems   chan error
+	boot       chan Event
+	done       chan struct{}
+	exited     chan struct{}
+	exitCode   int
 	needsSetup bool
-	closeOnce sync.Once
-	stopped   bool
+	closeOnce  sync.Once
+	stopped    bool
 	// cause keeps the first fatal reason the runtime stopped answering.
 	// The problems channel is best-effort and closes with the pump, so a
 	// later Request must still be able to say why the harness died
@@ -110,6 +115,9 @@ func (h *Host) launch() {
 	go func() {
 		h.exitCode = h.infra.Run()
 		close(h.exited)
+		// The pump may be asleep in Wait with an empty queue and no frame
+		// left to wake it: its owner exiting is itself news.
+		_ = h.infra.Wake()
 	}()
 	go h.pump()
 }
@@ -266,8 +274,6 @@ func (h *Host) pump() {
 	defer close(h.done)
 	defer close(h.events)
 	defer close(h.problems)
-	ticker := time.NewTicker(2 * time.Millisecond)
-	defer ticker.Stop()
 	// seen holds the rejection counts the pump already acted on; the native
 	// counters are cumulative, so only deltas are new information.
 	seen := bridge.Rejections{}
@@ -276,9 +282,6 @@ func (h *Host) pump() {
 		if rej := h.infra.Rejections(); rej != seen {
 			delta := rejectionsDelta(rej, seen)
 			seen = rej
-			if detail, ok := h.infra.(interface{ RejectionContext() string }); ok {
-				h.report(fmt.Errorf("native EventHub rejection diagnostics: %s", detail.RejectionContext()))
-			}
 			switch {
 			case delta.Oversized > 0:
 				h.fail(fmt.Errorf("native framing rejected %d oversized EventHub frame(s) over the %d MiB chunked-frame limit: the bounded transport carries at most %d bytes per frame as %d KiB chunks", delta.Oversized, bridge.FrameLimit>>20, bridge.FrameLimit, bridge.ChunkLimit>>10))
@@ -310,13 +313,21 @@ func (h *Host) pump() {
 			case <-h.exited:
 				h.fail(fmt.Errorf("MoonBit scheduler exited: code=%d", h.exitCode))
 				return
-			case <-ticker.C:
+			default:
+			}
+			// Nothing queued: sleep until the native side signals. The
+			// notification is only a hint, so a spurious or coalesced
+			// wakeup costs one empty Poll and never loses a frame.
+			if err := h.infra.Wait(); err != nil {
+				h.fail(fmt.Errorf("native EventHub notification channel unusable: %w", err))
+				_ = h.infra.Send(bridge.CommandStop)
+				return
 			}
 			continue
 		}
 		var tag struct {
 			Type   string          `json:"type"`
-			ID     uint64          `json:"id"`
+			ID     json.RawMessage `json:"id"`
 			Result json.RawMessage `json:"result"`
 		}
 		if err := json.Unmarshal(payload, &tag); err != nil {
@@ -324,8 +335,15 @@ func (h *Host) pump() {
 			continue
 		}
 		if tag.Type == "harness.response" {
+			// Only responses carry numeric correlation IDs. Tool argument
+			// deltas use the provider's string ID in the same field name.
+			var id uint64
+			if err := json.Unmarshal(tag.ID, &id); err != nil {
+				h.report(fmt.Errorf("bad harness response id: %w", err))
+				continue
+			}
 			h.mu.Lock()
-			answer := h.pending[tag.ID]
+			answer := h.pending[id]
 			h.mu.Unlock()
 			if answer != nil {
 				select {

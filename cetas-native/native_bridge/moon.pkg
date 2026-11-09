@@ -1,8 +1,10 @@
 import {
   "colmugx/cetas-console/console",
   "colmugx/cetas-core/lib" @cetas_core,
+  "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-workspace" @workspace,
   "moonbitlang/async",
+  "moonbitlang/async/raw_fd",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
   "moonbitlang/core/encoding/utf8",

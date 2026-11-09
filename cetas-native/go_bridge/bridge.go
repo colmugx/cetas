@@ -13,6 +13,10 @@ void cetas_host_rejections(int32_t*, int32_t*, int32_t*, int32_t*);
 void cetas_host_rejection_context(int32_t*);
 int32_t cetas_host_submit_harness(const uint8_t*, int32_t);
 int32_t cetas_bridge_publish(const uint8_t*, int32_t);
+int32_t cetas_host_wait_event(void);
+int32_t cetas_host_wake(void);
+int32_t cetas_host_event_wake_stage(void);
+int32_t cetas_host_event_wake_errno(void);
 */
 import "C"
 import (
@@ -20,6 +24,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"unsafe"
 )
 
 var (
@@ -27,6 +32,9 @@ var (
 	moonCalls sync.Mutex
 )
 
+// initialize brings the MoonBit runtime up once. It must run on the same
+// locked OS thread that later runs the scheduler: the native runtime and the
+// single-owner objects it creates are thread-affine from init onwards.
 func initialize() { once.Do(func() { C.cetas_host_boot() }) }
 
 // Verified bounded-transport limits, mirrored by go_bridge/host.c.
@@ -40,6 +48,8 @@ const (
 	QueueFrameCap = 256
 	// QueueByteCap is the native event queue's total byte bound.
 	QueueByteCap = 16777216 // 16 MiB
+	// HarnessLimit is the native harness request queue's per-request bound.
+	HarnessLimit = 262144 // 256 KiB
 )
 
 // chunk framing flags returned through cetas_host_poll_event.
@@ -48,9 +58,22 @@ const (
 	chunkEnd   = 2
 )
 
-type Infra struct{}
+// Chunk scratch sizing. The buffer starts small and grows once, to at most
+// ChunkLimit, when a chunk is larger than it; idle polls never touch it.
+const pollScratch = 16384
 
-func NewInfra() *Infra { initialize(); return &Infra{} }
+type Infra struct {
+	// scratch is the pump-owned chunk buffer, reused serially by the single
+	// consumer. Frames handed to the caller are copied out of it, so a
+	// returned event never aliases memory a later Poll overwrites.
+	scratch []byte
+	// flags receives the chunk framing bits. It lives here so the address
+	// handed to C is a field of an already-heap transport instead of a
+	// fresh per-call allocation.
+	flags int32
+}
+
+func NewInfra() *Infra { return &Infra{} }
 
 // Run must execute on a background goroutine and owns the MoonBit runtime
 // for its entire lifetime. Only C queues can be used while it runs.
@@ -59,6 +82,9 @@ func (h *Infra) Run() int {
 	defer moonCalls.Unlock()
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+	// Runtime initialization happens here, not in the constructor: the
+	// scheduler must start on the very OS thread that initialized it.
+	initialize()
 	return int(C.cetas_host_infra_run())
 }
 
@@ -115,27 +141,40 @@ func (h *Infra) Rejections() Rejections {
 	}
 }
 
-// pollChunk copies one native chunk out of the queue. On an undersized
-// scratch buffer the chunk stays queued and is re-read at exact size.
-func (h *Infra) pollChunk(scratch []byte) ([]byte, int32, error) {
-	var flags C.int32_t
-	n := int(C.cetas_host_poll_event((*C.uint8_t)(&scratch[0]), C.int32_t(len(scratch)), &flags))
-	if n == 0 {
-		return nil, 0, nil
+// pollChunk copies the next native chunk into the transport-owned scratch
+// buffer, growing it once when a chunk is larger than the current size. The
+// returned slice aliases that scratch buffer until the next call, so Poll
+// copies what it returns. An empty queue allocates nothing and never touches
+// the buffer, which is what keeps an idle pump allocation-free.
+func (h *Infra) pollChunk() ([]byte, int32, error) {
+	if h.scratch == nil {
+		h.scratch = make([]byte, pollScratch)
 	}
-	if n > 0 {
-		return append([]byte(nil), scratch[:n]...), int32(flags), nil
+	for {
+		h.flags = 0
+		n := int(C.cetas_host_poll_event(
+			(*C.uint8_t)(unsafe.Pointer(&h.scratch[0])),
+			C.int32_t(len(h.scratch)),
+			(*C.int32_t)(unsafe.Pointer(&h.flags)),
+		))
+		if n == 0 {
+			return nil, 0, nil
+		}
+		if n > 0 {
+			return h.scratch[:n], int32(h.flags), nil
+		}
+		required := -n
+		if required <= 0 || required > ChunkLimit {
+			return nil, 0, errors.New("native EventHub chunk needs a buffer outside the 256 KiB chunk bound")
+		}
+		if required <= len(h.scratch) {
+			return nil, 0, errors.New("native EventHub chunk size changed between probe and read")
+		}
+		// The chunk stayed queued; re-read it at exactly its size. The
+		// grown buffer is kept for the rest of the process, so the bigger
+		// frames that follow are single reads.
+		h.scratch = make([]byte, required)
 	}
-	required := -n
-	if required <= 0 || required > ChunkLimit {
-		return nil, 0, errors.New("native EventHub chunk needs a buffer outside the 256 KiB chunk bound")
-	}
-	payload := make([]byte, required)
-	m := int(C.cetas_host_poll_event((*C.uint8_t)(&payload[0]), C.int32_t(len(payload)), &flags))
-	if m != required {
-		return nil, 0, errors.New("native EventHub chunk size changed between probe and read")
-	}
-	return payload, int32(flags), nil
 }
 
 // Poll returns the next complete EventHub frame. The native queue stores
@@ -145,11 +184,10 @@ func (h *Infra) pollChunk(scratch []byte) ([]byte, int32, error) {
 // all-or-nothing, so incomplete runs are protocol errors, never silently
 // discarded or combined with a later frame.
 func (h *Infra) Poll() ([]byte, error) {
-	var scratch [16384]byte
 	var frame []byte
 	started := false
 	for {
-		chunk, flags, err := h.pollChunk(scratch[:])
+		chunk, flags, err := h.pollChunk()
 		if err != nil {
 			return nil, err
 		}
@@ -177,6 +215,50 @@ func (h *Infra) Poll() ([]byte, error) {
 	}
 }
 
+// wakeStageText names the exact step that failed to build a notification
+// channel, so the host never reports a bare "unavailable".
+func wakeStageText(stage int32) string {
+	switch stage {
+	case 1:
+		return "pipe() failed"
+	case 2:
+		return "fcntl() failed setting non-blocking/cloexec"
+	case 3:
+		return "fcntl(F_DUPFD_CLOEXEC) failed for the producer-write guard"
+	case 4:
+		return "notification channel disabled by a transport test"
+	default:
+		return fmt.Sprintf("unknown failure stage %d", stage)
+	}
+}
+
+// channelError explains a failed wait with the native stage and errno. The
+// queue is still authoritative, so this is fatal for the pump: waiting is how
+// it learns about new frames, and pretending to wait would silently spin.
+func channelError(stage, errno int32) error {
+	return fmt.Errorf("native EventHub notification channel unusable: %s (errno=%d)", wakeStageText(stage), errno)
+}
+
+// Wait blocks until the native side signals that the bounded event queue may
+// hold data, then returns. The signal is only a hint: the queue stays the
+// source of truth, so a coalesced wakeup costs one extra Poll and never loses
+// a frame. A signal that arrives before Wait is kept by the pipe.
+func (h *Infra) Wait() error {
+	if int(C.cetas_host_wait_event()) == 1 {
+		return nil
+	}
+	return channelError(int32(C.cetas_host_event_wake_stage()), int32(C.cetas_host_event_wake_errno()))
+}
+
+// Wake rings the host's own doorbell so a blocked Wait returns after the
+// runtime published state outside the queue (a rejection) or exited.
+func (h *Infra) Wake() error {
+	if int(C.cetas_host_wake()) == 1 {
+		return nil
+	}
+	return channelError(int32(C.cetas_host_event_wake_stage()), int32(C.cetas_host_event_wake_errno()))
+}
+
 func (h *Infra) DroppedEvents() int { return int(C.cetas_host_event_drops()) }
 
 // publish enqueues one EventHub frame exactly the way the MoonBit runtime
@@ -193,7 +275,7 @@ func publish(b []byte) int {
 var ErrHarnessTooLarge = errors.New("harness command exceeds 256 KiB")
 
 func (h *Infra) Submit(request []byte) error {
-	if len(request) == 0 || len(request) > 262144 {
+	if len(request) == 0 || len(request) > HarnessLimit {
 		return ErrHarnessTooLarge
 	}
 	switch int(C.cetas_host_submit_harness((*C.uint8_t)(&request[0]), C.int32_t(len(request)))) {

@@ -58,6 +58,12 @@ func TestInfraLifecycle(t *testing.T) {
 	if !ok || snapshot["status"] != "ready" {
 		t.Fatalf("invalid runtime snapshot: %#v", boot)
 	}
+	// The native terminal defaults to yolo, exactly like the JS shell. This is
+	// the runtime's own policy mode, not a statusbar label: a host that forgot
+	// to pass it would report workspace_write here.
+	if snapshot["permission"] != "yolo" {
+		t.Fatalf("native default permission is %v, want yolo", snapshot["permission"])
+	}
 	if err := h.Send(CommandState); err != nil {
 		t.Fatal(err)
 	}
@@ -130,6 +136,34 @@ func TestInfraLifecycle(t *testing.T) {
 		if _, ok := result[tc.wantKey]; !ok {
 			t.Fatalf("%s missing %s: %#v", tc.command, tc.wantKey, result)
 		}
+	}
+
+	// The explicit switch still wins over the host default, an unknown value is
+	// rejected instead of silently elevating, and the runtime (not just a
+	// statusbar label) carries the mode.
+	setPermission := func(id int, mode string) map[string]any {
+		payload := []byte(fmt.Sprintf(`{"id":%d,"command":"set_permission","args":{"mode":%q}}`, id, mode))
+		if err := h.Submit(payload); err != nil {
+			t.Fatalf("set_permission %q submit: %v", mode, err)
+		}
+		resp := wait("harness.response")
+		if int(resp["id"].(float64)) != id {
+			t.Fatalf("set_permission %q response id mismatch: %#v", mode, resp)
+		}
+		result, _ := resp["result"].(map[string]any)
+		return result
+	}
+	if got := setPermission(120, "workspace_write"); got["permission"] != "workspace_write" {
+		t.Fatalf("explicit workspace_write not applied: %#v", got)
+	}
+	if got := setPermission(121, "yolo"); got["permission"] != "yolo" {
+		t.Fatalf("explicit yolo not applied: %#v", got)
+	}
+	if got := setPermission(122, "escalate"); got["error"] == nil {
+		t.Fatalf("unknown permission mode was accepted: %#v", got)
+	}
+	if got := setPermission(123, "yolo"); got["permission"] != "yolo" {
+		t.Fatalf("permission did not return to yolo: %#v", got)
 	}
 
 	// Exercise a real background agent turn against an intentionally offline

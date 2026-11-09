@@ -27,6 +27,12 @@ type fakeTransport struct {
 	afterSubmit bool // hold queued frames until the first Submit
 	submitted   chan struct{}
 	subOnce     sync.Once
+	// waitCh, when set, stands in for the native notification pipe: Wait
+	// blocks on it until Wake rings, exactly as the real transport does. A
+	// nil channel keeps the short re-check interval the older failure-path
+	// tests rely on.
+	waitCh chan struct{}
+	polls  int
 }
 
 func (f *fakeTransport) Run() int {
@@ -50,6 +56,7 @@ func (f *fakeTransport) Poll() ([]byte, error) {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.polls++
 	if len(f.payload) > 0 {
 		next := f.payload[0]
 		f.payload = f.payload[1:]
@@ -58,11 +65,52 @@ func (f *fakeTransport) Poll() ([]byte, error) {
 	return nil, f.pollErr
 }
 
+// Wait mirrors the native notification pipe when a test asks for it: the pump
+// blocks here until Wake rings, so an idle host does no work at all.
+func (f *fakeTransport) Wait() error {
+	f.mu.Lock()
+	ch := f.waitCh
+	f.mu.Unlock()
+	if ch != nil {
+		<-ch
+		return nil
+	}
+	time.Sleep(time.Millisecond)
+	return nil
+}
+
+// Wake is the host-side doorbell: the pump's runtime owner rings it as it
+// exits, and tests ring it after publishing diagnostics outside the queue.
+func (f *fakeTransport) Wake() error {
+	f.mu.Lock()
+	ch := f.waitCh
+	f.mu.Unlock()
+	if ch == nil {
+		return nil
+	}
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+// pollCount reports how often the pump actually polled the queue.
+func (f *fakeTransport) pollCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.polls
+}
+
 func (f *fakeTransport) DroppedEvents() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.drops
 }
+
+// Production transports attach diagnostics to the same fatal error. Exercise
+// that path too: a separate diagnostic must not occupy the one-slot error feed.
+func (f *fakeTransport) RejectionContext() string { return "fixture rejection context" }
 
 func (f *fakeTransport) Rejections() bridge.Rejections {
 	f.mu.Lock()
@@ -361,5 +409,53 @@ func TestRejectionsDeltaClampsNegatives(t *testing.T) {
 	delta = rejectionsDelta(bridge.Rejections{Oversized: 1}, bridge.Rejections{QueueFull: 4})
 	if delta.Oversized != 1 || delta.QueueFull != 0 || delta.Invalid != 0 {
 		t.Fatalf("negative delta must clamp to zero: %+v", delta)
+	}
+}
+
+// The pump used to wake up every 2ms forever, polling an empty native queue
+// (and allocating a 16 KiB scratch buffer each time). With the notification
+// channel it must sleep until a producer signals.
+func TestIdlePumpSleepsUntilNotified(t *testing.T) {
+	tr := &fakeTransport{run: make(chan struct{}), waitCh: make(chan struct{}, 1)}
+	h := newFatalHost(t, tr)
+	time.Sleep(60 * time.Millisecond)
+	if polls := tr.pollCount(); polls > 3 {
+		t.Fatalf("idle pump polled %d times in 60ms; it must block in Wait", polls)
+	}
+	// A diagnostic published outside the queue still reaches the pump, but
+	// only because it rings the doorbell: nothing else wakes it.
+	tr.setRejections(bridge.Rejections{Invalid: 1})
+	if err := tr.Wake(); err != nil {
+		t.Fatal(err)
+	}
+	waitStopped(t, h)
+	select {
+	case err := <-h.Errors():
+		if !strings.Contains(err.Error(), "null or empty") {
+			t.Fatalf("woken pump lost the rejection cause: %v", err)
+		}
+	default:
+		t.Fatal("invalid rejection was never reported after the wakeup")
+	}
+}
+
+// The scheduler owner rings the doorbell as it exits, so a pump asleep in Wait
+// wakes and reports why the runtime stopped instead of hanging.
+func TestOwnerExitWakesSleepingPump(t *testing.T) {
+	tr := &fakeTransport{run: make(chan struct{}), waitCh: make(chan struct{}, 1)}
+	h := newFatalHost(t, tr)
+	time.Sleep(20 * time.Millisecond)
+	if polls := tr.pollCount(); polls > 3 {
+		t.Fatalf("pump woke %d times before the owner exited; it must sleep", polls)
+	}
+	tr.release() // the owner returns: Run exits, then Wake rings the doorbell
+	waitStopped(t, h)
+	select {
+	case err := <-h.Errors():
+		if !strings.Contains(err.Error(), "scheduler exited") {
+			t.Fatalf("exit wake lost its cause: %v", err)
+		}
+	default:
+		t.Fatal("scheduler exit was not reported")
 	}
 }

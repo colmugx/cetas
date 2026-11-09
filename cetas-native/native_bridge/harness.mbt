@@ -31,6 +31,29 @@ fn harness_required(args : Json, name : String) -> Result[String, String] {
 }
 
 ///|
+/// Session selectors accept the bounded replay schema's `session_id` and the
+/// older `session_transcript` alias `id`, so both spellings address the same
+/// journal.
+fn harness_session_arg(args : Json) -> String? {
+  match harness_string(args, "session_id") {
+    Some(id) => Some(id)
+    None => harness_string(args, "id")
+  }
+}
+
+///|
+fn harness_int(args : Json, name : String, fallback : Int32) -> Int32 {
+  match args {
+    Json::Object(fields) =>
+      match fields.get(name) {
+        Some(Json::Number(value, ..)) => value.to_int()
+        _ => fallback
+      }
+    _ => fallback
+  }
+}
+
+///|
 /// Console auth replies are JSON text (the bytes `login_outcome_json` and
 /// friends produce); the harness envelope carries objects, so decode once here
 /// and fall back to the raw text if a future reply is not JSON.
@@ -105,10 +128,63 @@ async fn harness_dispatch(
         _ => harness_error("invoke_command requires session_id and id")
       }
     "sessions" => runtime.sessions_json()
+    "session_catalog" =>
+      runtime.session_catalog_json(
+        harness_string(args, "scope").unwrap_or("current"),
+        harness_string(args, "after").unwrap_or(""),
+        harness_int(args, "limit", 100),
+      )
     "session_transcript" =>
       match harness_required(args, "id") {
         Ok(id) => runtime.transcript_json(id)
         Err(e) => harness_error(e)
+      }
+    // Bounded native replay of the persisted JSONL journal: light index,
+    // paged transcript items, and byte-range source chunks for giant bodies.
+    // `session_transcript` above stays the whole-session oracle for the shared
+    // and web hosts.
+    "transcript_index" =>
+      match harness_session_arg(args) {
+        Some(session_id) =>
+          runtime.transcript_index_json(
+            session_id,
+            first=harness_int(args, "first", -1),
+            limit=harness_int(args, "limit", 0),
+          )
+        None => harness_error("transcript_index requires session_id")
+      }
+    "transcript_page" =>
+      match harness_session_arg(args) {
+        Some(session_id) =>
+          runtime.transcript_page_json(
+            session_id,
+            harness_string(args, "revision").unwrap_or(""),
+            harness_int(args, "first", 0),
+            harness_int(args, "limit", 0),
+            harness_int(args, "max_bytes", 0),
+          )
+        None => harness_error("transcript_page requires session_id")
+      }
+    "transcript_source" =>
+      match harness_session_arg(args) {
+        Some(session_id) =>
+          match args {
+            Json::Object(fields) =>
+              match fields.get("index") {
+                Some(Json::Number(index, ..)) =>
+                  runtime.transcript_source_json(
+                    session_id,
+                    harness_string(args, "revision").unwrap_or(""),
+                    index.to_int(),
+                    field=harness_string(args, "field").unwrap_or(""),
+                    offset=harness_int(args, "offset", 0),
+                    length=harness_int(args, "length", 0),
+                  )
+                _ => harness_error("transcript_source requires index")
+              }
+            _ => harness_error("transcript_source requires an object")
+          }
+        None => harness_error("transcript_source requires session_id")
       }
     "rewind_points" => runtime.rewind_points_json()
     "rewind_apply" =>
@@ -183,12 +259,30 @@ async fn harness_dispatch(
     "switch_session" =>
       match harness_string(args, "id") {
         Some(id) =>
-          match runtime.switch_session(id) {
-            Ok(session_id) =>
-              Json::object(
-                Map::from_array([("session_id", Json::string(session_id))]),
-              )
-            Err(e) => harness_error(e)
+          match harness_string(args, "cwd") {
+            // An explicit cwd is a cross-workspace resume: workspace switch
+            // and session attach commit together or not at all.
+            Some(cwd) =>
+              match
+                runtime.resume_workspace_session(
+                  cwd,
+                  id,
+                  harness_string(args, "permission"),
+                ) {
+                Ok(session_id) =>
+                  Json::object(
+                    Map::from_array([("session_id", Json::string(session_id))]),
+                  )
+                Err(e) => harness_error(e)
+              }
+            None =>
+              match runtime.switch_session(id) {
+                Ok(session_id) =>
+                  Json::object(
+                    Map::from_array([("session_id", Json::string(session_id))]),
+                  )
+                Err(e) => harness_error(e)
+              }
           }
         None =>
           match runtime.new_session() {
@@ -295,6 +389,7 @@ async fn harness_dispatch(
 async fn harness_handle_frame(
   runtime : @console.ConsoleRuntime,
   auth_tasks : NativeAuthTasks,
+  replay_tasks : NativeReplayTasks,
   group : @async.TaskGroup[Unit],
   raw : String,
 ) -> Unit {
@@ -317,6 +412,8 @@ async fn harness_handle_frame(
       let args = fields.get("args").unwrap_or(Json::object(Map::from_array([])))
       if id < 0 || command.is_empty() {
         emit(harness_reply(id, harness_error("invalid request envelope")))
+      } else if native_replay_command(command) {
+        replay_tasks.submit(runtime, auth_tasks, group, id, command, args)
       } else {
         let result : Json = harness_dispatch(
           runtime, auth_tasks, group, command, args,

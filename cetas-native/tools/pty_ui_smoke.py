@@ -37,7 +37,7 @@ def run_pty(trace_path: Path) -> bytes:
 
     proc = subprocess.Popen(
         ["go", "test", "-run", "^TestInteractivePTYApprovals$", "-count=1",
-         "-v", "."],
+         "-v", "./internal/tui"],
         cwd=NATIVE, stdin=slave, stdout=slave, stderr=slave, env=env,
         preexec_fn=acquire_tty,
     )
