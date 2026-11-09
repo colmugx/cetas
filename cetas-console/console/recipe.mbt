@@ -53,6 +53,7 @@ fn canonical_cetas_tool_name(name : String) -> String {
 fn build_cetas_tools(
   ctx~ : @cetas_core.HostContext,
   names : Array[String],
+  question~ : &@askquestion.QuestionEndpoint? = None,
   host_group~ : @async.TaskGroup[Unit]? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
   let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
@@ -109,7 +110,17 @@ fn build_cetas_tools(
         }
       "webfetch" => exts.push(@webfetch.WebFetchTools() as &@posoco.Extension)
       "ask_question" =>
-        exts.push(@askquestion.AskQuestionTools() as &@posoco.Extension)
+        match question {
+          // Child face: the answerer is the spawning parent agent, through the
+          // subagent extension's question channel.
+          Some(endpoint) =>
+            exts.push(
+              @askquestion.AskQuestionTools::for_parent(endpoint~)
+              as &@posoco.Extension,
+            )
+          None =>
+            exts.push(@askquestion.AskQuestionTools() as &@posoco.Extension)
+        }
       _ =>
         raise @posoco.CompositionError::ManifestSchemaError(
           manifest_id="cetas.tools",
@@ -188,6 +199,7 @@ async fn build_compiled_recipe_features(
   host_group~ : @async.TaskGroup[Unit]? = None,
   host_help_note~ : String? = None,
   obsidian_vault~ : String? = None,
+  askquestion~ : @askquestion.AskQuestionTools? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
   let _ = obsidian_vault
   let exts : Array[&@posoco.Extension] = []
@@ -242,7 +254,15 @@ async fn build_compiled_recipe_features(
         }
       }
       "askquestion" =>
-        exts.push(@askquestion.AskQuestionTools() as &@posoco.Extension)
+        // The native projection subscribes to this instance before the agent
+        // exists, so the non-blocking question lifecycle reaches the terminal;
+        // the default console keeps constructing its own unobserved instance.
+        exts.push(
+          match askquestion {
+            Some(tools) => tools as &@posoco.Extension
+            None => @askquestion.AskQuestionTools() as &@posoco.Extension
+          },
+        )
       "handoff" =>
         exts.push(
           @handoff.Handoff(

@@ -15,7 +15,7 @@ preferred_target = "native"
 supported_targets = "native"
 
 import {
-  "colmugx/posoco@0.24.1",
+  "colmugx/posoco@0.24.2",
   "colmugx/cetas-core@0.2.0",
   "posoco/devkit@0.4.1",
   "colmugx/posoco-ext-permission@0.2.0",
@@ -23,7 +23,6 @@ import {
   "colmugx/posoco-ext-credentials@0.1.0",
   "posoco/ext-oauth@0.1.0",
   "moonbitlang/async@0.22.7",
-  // recipe-deps:begin
   "colmugx/cetas-ext-forme@0.2.0",
   "colmugx/posoco-ext-read@0.2.0",
   "colmugx/posoco-ext-write@0.2.0",
@@ -38,7 +37,9 @@ import {
   "colmugx/posoco-ext-askquestion@0.1.0",
   "colmugx/posoco-ext-handoff@0.1.0",
   "colmugx/posoco-ext-lazytools@0.1.0",
-  // recipe-deps:end
+  "colmugx/posoco-ext-subagent@0.1.3",
+  "colmugx/posoco-ext-kind@0.1.0",
+  "colmugx/posoco-kit-subagent@0.1.1",
   "posoco/ext-llm@0.2.0",
   "posoco/kit-events@0.1.0",
   "colmugx/posoco-ext-fs-session@0.4.0",

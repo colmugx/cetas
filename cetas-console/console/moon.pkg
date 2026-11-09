@@ -20,6 +20,11 @@ import {
   "colmugx/posoco-ext-handoff" @handoff,
   "colmugx/posoco-ext-lazytools" @lazytools,
   // recipe-imports:end
+  // Native-only delegation surface (`native_ui` opt-in): kind presets, the
+  // orchestration kit and the subagent tool extension itself.
+  "colmugx/posoco-ext-subagent" @subagent,
+  "colmugx/posoco-ext-kind" @kind,
+  "colmugx/posoco-kit-subagent" @subagent_kit,
   "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-statusbar" @statusbar,
   "bobzhang/fuzzyscore",
@@ -33,6 +38,7 @@ import {
   "posoco/ext-oauth" @oauth,
   "moonbitlang/core/debug",
   "moonbitlang/core/json",
+  "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/async" @core_async,
   "moonbitlang/async",
   "moonbitlang/async/aqueue",

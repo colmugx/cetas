@@ -354,7 +354,12 @@ pub async fn ConsoleRuntime::login(
     error => return login_failure_json(provider, auth_method, error.to_string())
   }
   let auth = HubAuthUi::HubAuthUi(
-    HubUiPort::new_secret(self.hub, self.ui_registry, self.active_session_id()),
+    HubUiPort::new_secret(
+      self.hub,
+      self.ui_registry,
+      self.active_session_id(),
+      native_ui=self.native_ui,
+    ),
   )
   let outcome = @cetas_core.login_provider(
     provider,

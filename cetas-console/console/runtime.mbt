@@ -7,6 +7,17 @@ pub struct ConsoleConfig {
   home : String
   label : String
   protocol : String
+  /// Explicit opt-in for the native terminal host's realtime UI projection
+  /// (tool lifecycle phases, argument deltas, `Custom` attribution, ledger
+  /// facts and the unflattened `UiRender` shape). Off keeps every existing
+  /// consumer on the shared wire contract.
+  native_ui : Bool
+  /// Host-resolved startup permission posture, stamped on the first workspace
+  /// and on every workspace composed later. The shared default stays
+  /// `WorkspaceWrite`; a host whose own policy differs (the native terminal
+  /// resolves `Yolo`) states it here exactly once instead of the console
+  /// hardcoding a second default per workspace.
+  permission_mode : @permission.PermissionMode
 }
 
 ///|
@@ -15,8 +26,10 @@ pub fn console_config(
   home : String,
   label : String,
   protocol : String,
+  native_ui~ : Bool = false,
+  permission_mode~ : @permission.PermissionMode = @permission.PermissionMode::WorkspaceWrite,
 ) -> ConsoleConfig {
-  { fs, home, label, protocol, }
+  { fs, home, label, protocol, native_ui, permission_mode, }
 }
 
 ///|
@@ -34,6 +47,15 @@ priv struct SessionHandle {
   mut effort : String
   mut busy : Bool
   mut turn_no : Int32
+  /// The parent's `ask_question`/`notify_user` instance, held only under the
+  /// native projection so an answer to a non-blocking question (delivered
+  /// through the existing `resolve_ui` command, keyed by `question_id`) can
+  /// reach the registry that parked it. `None` for the default console.
+  questions : @askquestion.AskQuestionTools?
+  /// Native session-lifetime scope owner: the close signal that lets
+  /// `Agent::run_scoped` retire when the host shuts the session down. `None`
+  /// when the projection is off or the scope could not be activated.
+  close : @aqueue.Queue[Unit]?
 }
 
 ///|
@@ -55,6 +77,14 @@ pub struct ConsoleRuntime {
   home : String
   label : String
   protocol : String
+  /// Native terminal UI projection opt-in, carried from `ConsoleConfig` to
+  /// every session observer and UiPort this runtime composes.
+  native_ui : Bool
+  /// Host startup permission posture, carried from `ConsoleConfig`: the seed
+  /// for the first workspace and every workspace composed on a later switch.
+  /// Immutable — an interactive `/permission` switch only moves the live
+  /// workspace, never this host policy.
+  startup_permission : @permission.PermissionMode
   /// Host I/O task group (MCP connections, provider tool planes).
   group : @async.TaskGroup[Unit]
   /// Session-lifetime task group on posoco's core-async stack: the quota
@@ -70,6 +100,9 @@ pub struct ConsoleRuntime {
   /// TTL-cached `@`-mention index for the active workspace: (built_at_ms,
   /// relative paths; directories carry a trailing `/`).
   mut file_index_cache : (Int64, Array[String])?
+  /// Native-only bounded replay index cache (one compact line table per
+  /// session revision). The default console never reads or writes it.
+  replay_cache : NativeReplayCache
 }
 
 ///|
@@ -198,6 +231,7 @@ async fn ConsoleRuntime::compose_handle(
     workspace.permission_mode,
     self.label,
     self.protocol,
+    self.native_ui,
     session_id,
   ) catch {
     error => return Err(error.to_string())
@@ -301,20 +335,34 @@ async fn compose_session_agent(
   permission_mode : @permission.PermissionMode,
   label : String,
   protocol : String,
+  native_ui : Bool,
   session_id : String,
 ) -> SessionHandle {
   let warn = async fn(text : String) noraise {
-    @stdio.stderr.write(label + ": " + text) catch {
-      _ => ()
+    if native_ui {
+      hub.native_warning(session_id, text)
+    } else {
+      @stdio.stderr.write(label + ": " + text) catch {
+        _ => ()
+      }
     }
   }
+  let ui_port : &@posoco.UiPort = HubUiPort::new(
+    hub,
+    ui_registry,
+    session_id,
+    native_ui~,
+  )
+  let approval : &@permission.ApprovalSource = UiBlockingApprovalSource::new(
+    ui_port,
+  )
+  // Native only: hold the parent question instance so its lifecycle reaches
+  // the terminal and the existing answer command can settle it.
+  let questions = native_question_tools(hub, session_id, native_ui~)
   let feature_exts = build_compiled_recipe_features(
     ctx={ fs, cwd, home, },
     host_group=Some(group),
-  )
-  let ui_port : &@posoco.UiPort = HubUiPort::new(hub, ui_registry, session_id)
-  let approval : &@permission.ApprovalSource = UiBlockingApprovalSource::new(
-    ui_port,
+    askquestion=questions,
   )
   let session = @cetas_core.build_cetas_session(
     platform~,
@@ -336,6 +384,7 @@ async fn compose_session_agent(
     @cetas_core.mint_events_publisher(session.events, owner=label),
     session_id,
     protocol,
+    native_ui~,
   )
   // The speed metrics publish their typed ops on the session event system the
   // bar below listens on.
@@ -347,11 +396,31 @@ async fn compose_session_agent(
     speed_metrics,
     statusbar,
   ]
+  // Native only: the real delegation surface, with child events forwarded to
+  // this session's sink. The default console never composes it.
+  match native_subagent_sink(hub, session_id, native_ui~) {
+    Some(sink) =>
+      tail_exts.push(
+        compose_native_subagents(
+          fs,
+          home,
+          cwd,
+          group,
+          ui_port,
+          approval,
+          router,
+          fn() { policy.mode() },
+          observers=[sink],
+        ),
+      )
+    None => ()
+  }
   let agent = @cetas_core.compose_cetas_agent(
     session~,
     tail_exts~,
     runtime_group=lifetime_group,
   )
+  let close = native_session_scope(group, agent, native_ui~, label)
   {
     agent,
     session_id,
@@ -363,6 +432,8 @@ async fn compose_session_agent(
     policy,
     busy: false,
     turn_no: 0,
+    questions,
+    close,
   }
 }
 
@@ -415,9 +486,10 @@ pub async fn ConsoleRuntime::switch_workspace(
     self.lifetime_group,
     self.hub,
     self.ui_registry,
-    @permission.PermissionMode::WorkspaceWrite,
+    self.startup_permission,
     self.label,
     self.protocol,
+    self.native_ui,
   ) catch {
     error => return Err(error.to_string())
   }
@@ -430,6 +502,66 @@ pub async fn ConsoleRuntime::switch_workspace(
 }
 
 ///|
+/// Atomic cross-workspace resume. The target workspace and its session handle
+/// are located or composed first; only when both exist does the active
+/// workspace move, so a failure leaves the caller's workspace and session
+/// exactly as they were. `permission` seeds a workspace this process has never
+/// opened — an already-open workspace keeps the permission it has, and no
+/// switch ever widens an inherited narrowed mode by accident. Background work
+/// in the previous workspace keeps running; nothing is torn down.
+pub async fn ConsoleRuntime::resume_workspace_session(
+  self : ConsoleRuntime,
+  cwd : String,
+  session_id : String,
+  permission : String?,
+) -> Result[String, String] noraise {
+  let normalized = @fs_session.normalize_cwd(cwd)
+  let workspace = match self.workspaces.get(normalized) {
+    Some(workspace) => workspace
+    None => {
+      let mode = match permission {
+        Some(name) =>
+          match parse_permission_mode(name) {
+            Ok(mode) => mode
+            Err(reason) => return Err(reason)
+          }
+        None => self.startup_permission
+      }
+      build_workspace(
+        self.fs,
+        self.home,
+        normalized,
+        self.group,
+        self.lifetime_group,
+        self.hub,
+        self.ui_registry,
+        mode,
+        self.label,
+        self.protocol,
+        self.native_ui,
+      ) catch {
+        error => return Err(error.to_string())
+      }
+    }
+  }
+  let handle = match workspace.handles.get(session_id) {
+    Some(handle) => handle
+    None =>
+      match self.compose_handle(workspace, session_id) {
+        Ok(handle) => handle
+        Err(reason) => return Err(reason)
+      }
+  }
+  workspace.active_id = session_id
+  self.workspaces[normalized] = workspace
+  self.registry = self.registry.filter(registered => registered != normalized)
+  self.sync_registry()
+  self.active_cwd = normalized
+  emit_handle_snapshot(workspace, handle)
+  Ok(session_id)
+}
+
+///|
 async fn ConsoleRuntime::sync_registry(self : ConsoleRuntime) -> Unit noraise {
   let cwds = self.registry.copy()
   for cwd, _ in self.workspaces {
@@ -439,8 +571,12 @@ async fn ConsoleRuntime::sync_registry(self : ConsoleRuntime) -> Unit noraise {
   }
   save_registry(self.home, cwds) catch {
     error =>
-      @stdio.stderr.write(self.label + ": registry write failed: \{error}") catch {
-        _ => ()
+      if self.native_ui {
+        self.hub.native_warning("", "registry write failed: \{error}")
+      } else {
+        @stdio.stderr.write(self.label + ": registry write failed: \{error}") catch {
+          _ => ()
+        }
       }
   }
 }
@@ -502,10 +638,17 @@ async fn ConsoleRuntime::persist_model_selection(
   )
   @cetas_core.write_active_model_selection(self.fs, home=self.home, selection) catch {
     error =>
-      @stdio.stderr.write(
-        self.label + ": persist model selection failed: \{error}",
-      ) catch {
-        _ => ()
+      if self.native_ui {
+        self.hub.native_warning(
+          handle.session_id,
+          "persist model selection failed: \{error}",
+        )
+      } else {
+        @stdio.stderr.write(
+          self.label + ": persist model selection failed: \{error}",
+        ) catch {
+          _ => ()
+        }
       }
   }
 }
@@ -560,16 +703,9 @@ pub fn ConsoleRuntime::set_permission(
   self : ConsoleRuntime,
   mode_name : String,
 ) -> Result[Unit, String] {
-  let mode = match mode_name {
-    "readonly" => @permission.PermissionMode::ReadOnly
-    "workspace_write" => @permission.PermissionMode::WorkspaceWrite
-    "yolo" => @permission.PermissionMode::Yolo
-    "interactive" => @permission.PermissionMode::Interactive
-    "auto" =>
-      return Err(
-        "permission mode 'auto' needs a DecisionPort, which this console host has not composed",
-      )
-    other => return Err("unknown permission mode: \{other}")
+  let mode = match parse_permission_mode(mode_name) {
+    Ok(mode) => mode
+    Err(reason) => return Err(reason)
   }
   let workspace = self.active()
   workspace.permission_mode = mode
@@ -578,6 +714,25 @@ pub fn ConsoleRuntime::set_permission(
   }
   self.emit_active_snapshot()
   Ok(())
+}
+
+///|
+/// Parse a wire permission name. `auto` needs a DecisionPort this console
+/// host has not composed, so it is rejected like an unknown name.
+fn parse_permission_mode(
+  mode_name : String,
+) -> Result[@permission.PermissionMode, String] {
+  match mode_name {
+    "readonly" => Ok(@permission.PermissionMode::ReadOnly)
+    "workspace_write" => Ok(@permission.PermissionMode::WorkspaceWrite)
+    "yolo" => Ok(@permission.PermissionMode::Yolo)
+    "interactive" => Ok(@permission.PermissionMode::Interactive)
+    "auto" =>
+      Err(
+        "permission mode 'auto' needs a DecisionPort, which this console host has not composed",
+      )
+    other => Err("unknown permission mode: \{other}")
+  }
 }
 
 ///|
@@ -654,6 +809,27 @@ pub fn ConsoleRuntime::zoo_json(self : ConsoleRuntime) -> Json {
 }
 
 ///|
+/// Native picker metadata only; shared sessions_json keeps its existing shape.
+pub async fn ConsoleRuntime::session_catalog_json(
+  self : ConsoleRuntime,
+  scope : String,
+  after : String,
+  limit : Int32,
+) -> Json {
+  if !self.native_ui {
+    return replay_error("session_catalog is native-only")
+  }
+  native_session_catalog_json(
+    self.home,
+    self.active_cwd,
+    self.active().active_id,
+    scope,
+    after,
+    limit,
+  )
+}
+
+///|
 pub async fn ConsoleRuntime::sessions_json(self : ConsoleRuntime) -> Json {
   let workspace = self.active()
   let active_id = workspace.active_id
@@ -661,16 +837,40 @@ pub async fn ConsoleRuntime::sessions_json(self : ConsoleRuntime) -> Json {
   let ids = workspace.catalog.list_ids()
   for index in 0..<ids.length() {
     let id = ids[ids.length() - 1 - index]
-    let entry = workspace.catalog.entry(id) catch { _ => continue }
-    sessions.push(
-      Json::object(
-        Map::from_array([
-          ("id", Json::string(entry.id)),
-          ("title", Json::string(entry.title)),
-          ("active", Json::boolean(entry.id == active_id)),
-        ]),
-      ),
-    )
+    if self.native_ui {
+      // Native path: the title comes from the metadata line plus the legacy
+      // first-user line, streamed. `entry` (store.summary -> store.load) would
+      // materialise every listed session, which is exactly the long-session
+      // cost this seam removes.
+      let path = match workspace.catalog.transcript_path(id) {
+        Ok(path) => path
+        Err(_) => continue
+      }
+      let title = match native_replay_title(id, path) {
+        Ok(title) => title
+        Err(_) => continue
+      }
+      sessions.push(
+        Json::object(
+          Map::from_array([
+            ("id", Json::string(id)),
+            ("title", Json::string(title)),
+            ("active", Json::boolean(id == active_id)),
+          ]),
+        ),
+      )
+    } else {
+      let entry = workspace.catalog.entry(id) catch { _ => continue }
+      sessions.push(
+        Json::object(
+          Map::from_array([
+            ("id", Json::string(entry.id)),
+            ("title", Json::string(entry.title)),
+            ("active", Json::boolean(entry.id == active_id)),
+          ]),
+        ),
+      )
+    }
   }
   Json::object(
     Map::from_array([
@@ -695,10 +895,15 @@ async fn build_workspace(
   permission_mode : @permission.PermissionMode,
   label : String,
   protocol : String,
+  native_ui : Bool,
 ) -> WorkspaceRuntime {
   let warn = async fn(text : String) noraise {
-    @stdio.stderr.write(label + ": " + text) catch {
-      _ => ()
+    if native_ui {
+      hub.native_warning("", text)
+    } else {
+      @stdio.stderr.write(label + ": " + text) catch {
+        _ => ()
+      }
     }
   }
   let platform = @cetas_core.build_cetas_platform(
@@ -712,14 +917,19 @@ async fn build_workspace(
   )
   let first_session_id = @cetas_core.mint_session_id()
   let ui_port : &@posoco.UiPort = HubUiPort::new(
-    hub, ui_registry, first_session_id,
+    hub,
+    ui_registry,
+    first_session_id,
+    native_ui~,
   )
   let approval : &@permission.ApprovalSource = UiBlockingApprovalSource::new(
     ui_port,
   )
+  let questions = native_question_tools(hub, first_session_id, native_ui~)
   let feature_exts = build_compiled_recipe_features(
     ctx={ fs, cwd, home, },
     host_group=Some(group),
+    askquestion=questions,
   )
   let session = @cetas_core.build_cetas_session(
     platform~,
@@ -737,6 +947,7 @@ async fn build_workspace(
     @cetas_core.mint_events_publisher(session.events, owner=label),
     first_session_id,
     protocol,
+    native_ui~,
   )
   let router = session.router
   let policy = session.permission
@@ -750,11 +961,29 @@ async fn build_workspace(
     speed_metrics,
     statusbar,
   ]
+  match native_subagent_sink(hub, first_session_id, native_ui~) {
+    Some(sink) =>
+      tail_exts.push(
+        compose_native_subagents(
+          fs,
+          home,
+          cwd,
+          group,
+          ui_port,
+          approval,
+          router,
+          fn() { policy.mode() },
+          observers=[sink],
+        ),
+      )
+    None => ()
+  }
   let agent = @cetas_core.compose_cetas_agent(
     session~,
     tail_exts~,
     runtime_group=lifetime_group,
   )
+  let close = native_session_scope(group, agent, native_ui~, label)
   let handle : SessionHandle = {
     agent,
     session_id: first_session_id,
@@ -766,6 +995,8 @@ async fn build_workspace(
     policy,
     busy: false,
     turn_no: 0,
+    questions,
+    close,
   }
   let zoo = collect_zoo(session.exts, tail_exts)
   let handles : Map[String, SessionHandle] = Map::from_array([
@@ -791,6 +1022,9 @@ pub async fn compose_console_runtime(
   lifetime_group~ : @core_async.TaskGroup? = None,
 ) -> ConsoleRuntime {
   let hub = EventHub::new()
+  if config.native_ui {
+    hub.enable_native_retention()
+  }
   let ui_registry = UiRegistry::new()
   let first = build_workspace(
     config.fs,
@@ -800,9 +1034,10 @@ pub async fn compose_console_runtime(
     lifetime_group,
     hub,
     ui_registry,
-    @permission.PermissionMode::WorkspaceWrite,
+    config.permission_mode,
     config.label,
     config.protocol,
+    config.native_ui,
   )
   let workspaces : Map[String, WorkspaceRuntime] = Map::from_array([
     (cwd, first),
@@ -816,6 +1051,8 @@ pub async fn compose_console_runtime(
     home: config.home,
     label: config.label,
     protocol: config.protocol,
+    native_ui: config.native_ui,
+    startup_permission: config.permission_mode,
     group,
     lifetime_group,
     hub,
@@ -824,6 +1061,7 @@ pub async fn compose_console_runtime(
     registry,
     active_cwd: cwd,
     file_index_cache: None,
+    replay_cache: NativeReplayCache::new(),
   }
 }
 
@@ -898,26 +1136,28 @@ pub fn ConsoleRuntime::trace_json(
         } else if turn_filter is Some(want_turn) && turn_part != want_turn {
           continue
         } else {
-          turns.push(
-            Json::object(
-              Map::from_array([
-                ("turn_id", Json::string(turn_part)),
-                ("session_id", Json::string(sid)),
-                ("events", Json::array(ledger.copy())),
-              ]),
-            ),
-          )
+          let fields = Map::from_array([
+            ("turn_id", Json::string(turn_part)),
+            ("session_id", Json::string(sid)),
+            ("events", Json::array(ledger.copy())),
+          ])
+          if self.native_ui {
+            fields["retention"] = self.hub.turn_retention_json(key)
+          }
+          turns.push(Json::object(fields))
         }
       }
       None => ()
     }
   }
-  Json::object(
-    Map::from_array([
-      ("turns", Json::array(turns)),
-      ("orphans", Json::array(orphans)),
-    ]),
-  )
+  let fields = Map::from_array([
+    ("turns", Json::array(turns)),
+    ("orphans", Json::array(orphans)),
+  ])
+  if self.native_ui {
+    fields["retention"] = self.hub.retention_json()
+  }
+  Json::object(fields)
 }
 
 ///|
@@ -936,6 +1176,98 @@ pub async fn ConsoleRuntime::transcript_json(
       } catch {
         _ => transcript_empty_json()
       }
+  }
+}
+
+///|
+/// Native-only bounded index of one session's transcript: revision, absolute
+/// projected block total, context state, and a light metadata window (defaults
+/// to the tail so resume starts near the end of the journal). No bodies.
+pub async fn ConsoleRuntime::transcript_index_json(
+  self : ConsoleRuntime,
+  session_id : String,
+  first~ : Int32 = -1,
+  limit~ : Int32 = 0,
+) -> Json {
+  if !self.native_ui {
+    return replay_error(
+      "transcript_index is native-only (native_ui projection)",
+    )
+  }
+  match self.active().catalog.transcript_path(session_id) {
+    Err(reason) => replay_error(reason)
+    Ok(path) =>
+      native_replay_index_json(
+        self.replay_cache,
+        session_id,
+        path,
+        first,
+        limit,
+      )
+  }
+}
+
+///|
+/// Native-only bounded transcript page: seeks to the journal line holding
+/// `first` and streams forward. Items keep the existing transcript item schema
+/// with absolute `index`es; oversized bodies become previews plus refs served
+/// by `transcript_source`.
+pub async fn ConsoleRuntime::transcript_page_json(
+  self : ConsoleRuntime,
+  session_id : String,
+  revision : String,
+  first : Int32,
+  limit : Int32,
+  max_bytes : Int32,
+) -> Json {
+  if !self.native_ui {
+    return replay_error("transcript_page is native-only (native_ui projection)")
+  }
+  match self.active().catalog.transcript_path(session_id) {
+    Err(reason) => replay_error(reason)
+    Ok(path) =>
+      native_replay_page_json(
+        self.replay_cache,
+        session_id,
+        path,
+        revision,
+        first,
+        limit,
+        max_bytes,
+      )
+  }
+}
+
+///|
+/// Native-only range read of one block's decoded payload, for the refs a page
+/// emits instead of giant bodies. Chunks are capped below the host frame limit.
+pub async fn ConsoleRuntime::transcript_source_json(
+  self : ConsoleRuntime,
+  session_id : String,
+  revision : String,
+  index : Int32,
+  field~ : String = "",
+  offset~ : Int32 = 0,
+  length~ : Int32 = 0,
+) -> Json {
+  if !self.native_ui {
+    return replay_error(
+      "transcript_source is native-only (native_ui projection)",
+    )
+  }
+  match self.active().catalog.transcript_path(session_id) {
+    Err(reason) => replay_error(reason)
+    Ok(path) =>
+      native_replay_source_json(
+        self.replay_cache,
+        session_id,
+        path,
+        revision,
+        index,
+        field,
+        offset,
+        length,
+      )
   }
 }
 
@@ -998,12 +1330,32 @@ pub fn ConsoleRuntime::emit_event(
 }
 
 ///|
+/// Adaptor surface: settle one UI request by id. Blocking asks (approvals,
+/// `ask_question`, OAuth prompts) wait in the `UiRegistry`. Under the native
+/// projection a non-blocking question (`notify_user`) is keyed by its
+/// `question_id` instead, so the very same command settles it — no second
+/// response route. Question ids never collide with `u-<n>` request ids, and an
+/// unmatched id stays the no-op it always was.
 pub fn ConsoleRuntime::resolve_ui(
   self : ConsoleRuntime,
   request_id : String,
   response : String,
 ) -> Unit {
   self.ui_registry.resolve(request_id, response)
+  if !self.native_ui {
+    return
+  }
+  for _, workspace in self.workspaces {
+    for _, handle in workspace.handles {
+      match handle.questions {
+        Some(questions) =>
+          if native_answer_question(questions, request_id, response) {
+            return
+          }
+        None => ()
+      }
+    }
+  }
 }
 
 ///|
@@ -1020,7 +1372,15 @@ pub fn ConsoleRuntime::active_workspace(self : ConsoleRuntime) -> String {
 pub async fn ConsoleRuntime::shutdown_all(self : ConsoleRuntime) -> Unit {
   for _, workspace in self.workspaces {
     for _, handle in workspace.handles {
-      handle.agent.shutdown()
+      match handle.close {
+        // Native sessions own exactly one `run_scoped`, and that scope is the
+        // Agent's shutdown owner: releasing it makes `run_scoped` retire the
+        // Agent itself (task runtime, wakeup pump, lifecycle shutdown). Calling
+        // `shutdown` here as well would race it, so the signal is the whole
+        // hand-off. The host task group drains the parked owner on exit.
+        Some(close) => ignore(close.try_put(()) catch { _ => false })
+        None => handle.agent.shutdown()
+      }
     }
   }
 }

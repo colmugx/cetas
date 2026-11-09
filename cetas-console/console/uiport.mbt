@@ -71,6 +71,10 @@ priv struct HubUiPort {
   session_id : String
   registry : UiRegistry
   secret_inputs : Bool
+  /// Explicit opt-in for the native terminal host: the unflattened `UiRender`
+  /// shape on `ui.render`, and traceable response-decode diagnostics. Off
+  /// keeps the flattened web frame unchanged.
+  native_ui : Bool
 }
 
 ///|
@@ -78,8 +82,9 @@ fn HubUiPort::new(
   hub : EventHub,
   registry : UiRegistry,
   session_id : String,
+  native_ui~ : Bool = false,
 ) -> HubUiPort {
-  { hub, session_id, registry, secret_inputs: false, }
+  { hub, session_id, registry, secret_inputs: false, native_ui, }
 }
 
 ///|
@@ -89,8 +94,9 @@ fn HubUiPort::new_secret(
   hub : EventHub,
   registry : UiRegistry,
   session_id : String,
+  native_ui~ : Bool = false,
 ) -> HubUiPort {
-  { hub, session_id, registry, secret_inputs: true, }
+  { hub, session_id, registry, secret_inputs: true, native_ui, }
 }
 
 ///|
@@ -144,7 +150,7 @@ impl @posoco.UiPort for HubUiPort with fn render(
     @posoco.UiBody::Text(value) => Json::string(value)
     _ => Json::null()
   }
-  self.hub.emit(self.session_id, "", "ui.render", extra=[
+  let extra : Array[(String, Json)] = [
     ("key", Json::string(render.key)),
     ("slot", Json::string(@debug.to_string(render.slot))),
     (
@@ -157,7 +163,13 @@ impl @posoco.UiPort for HubUiPort with fn render(
     ("entries", Json::array(entries)),
     ("text", text),
     ("lines", Json::array(lines)),
-  ])
+  ]
+  if self.native_ui {
+    // Additive: the flat fields above stay byte-identical for existing
+    // consumers, while the terminal reads the real body/ttl shape.
+    extra.push(("render", native_ui_render_json(render)))
+  }
+  self.hub.emit(self.session_id, "", "ui.render", extra~)
 }
 
 ///|
@@ -230,53 +242,80 @@ impl @posoco.UiPort for HubUiPort with fn request(
   }
   self.hub.emit(self.session_id, "", "ui.request", extra~)
   let raw = queue.get() catch { _ => return @posoco.UiResponse::Cancelled }
-  ui_response_for_request(request, raw)
+  let (response, decode_error) = ui_response_decoded(request, raw)
+  match decode_error {
+    Some(reason) =>
+      if self.native_ui {
+        // A malformed host reply used to fail closed silently. Natively it
+        // leaves one bounded diagnostic; `reason` is a fixed label, never the
+        // reply text, so a bad secret answer cannot reach the event trace.
+        self.hub.emit(self.session_id, "", "ui.response_error", extra=[
+          ("request_id", Json::string(request_id)),
+          ("kind", Json::string(kind)),
+          ("reason", Json::string(reason)),
+        ])
+      }
+    None => ()
+  }
+  response
 }
 
 ///|
 /// Reject replies for a different prompt kind or an invalid option index.
 /// When a stale/incorrect UI message reaches a suspended approval coroutine,
 /// the only safe result is Cancelled (upstream maps this to Deny).
-fn ui_response_for_request(
+///
+/// The second component is a bounded decode-error label (`None` = valid
+/// answer, including a host that dismissed the prompt). It never carries any
+/// of the reply text: a malformed credential answer must not leak.
+fn ui_response_decoded(
   request : @posoco.UiRequest,
   raw : String,
-) -> @posoco.UiResponse {
+) -> (@posoco.UiResponse, String?) {
   let parsed = @json.parse(raw) catch {
-    _ => return @posoco.UiResponse::Cancelled
+    _ => return (@posoco.UiResponse::Cancelled, Some("invalid_json"))
   }
-  guard parsed is Json::Object(fields) else {
-    return @posoco.UiResponse::Cancelled
+  let fields = match parsed {
+    Json::Object(fields) => fields
+    _ => return (@posoco.UiResponse::Cancelled, Some("not_an_object"))
   }
   if fields.get("cancelled") is Some(Json::True) {
-    return @posoco.UiResponse::Cancelled
+    // An explicit dismissal is a valid answer, not a decode failure.
+    return (@posoco.UiResponse::Cancelled, None)
   }
   match request {
     @posoco.UiRequest::Input(..) =>
       match fields.get("text") {
-        Some(Json::String(value)) => @posoco.UiResponse::Text(value)
-        _ => @posoco.UiResponse::Cancelled
+        Some(Json::String(value)) => (@posoco.UiResponse::Text(value), None)
+        Some(_) => (@posoco.UiResponse::Cancelled, Some("text_not_string"))
+        None => (@posoco.UiResponse::Cancelled, Some("text_missing"))
       }
     @posoco.UiRequest::Confirm(..) =>
       if fields.get("yes") is Some(Json::True) {
-        @posoco.UiResponse::Yes
+        (@posoco.UiResponse::Yes, None)
       } else if fields.get("no") is Some(Json::False) {
-        @posoco.UiResponse::No
+        (@posoco.UiResponse::No, None)
+      } else if fields.get("yes") is Some(_) || fields.get("no") is Some(_) {
+        (@posoco.UiResponse::Cancelled, Some("confirm_not_boolean"))
       } else {
-        @posoco.UiResponse::Cancelled
+        (@posoco.UiResponse::Cancelled, Some("confirm_field_missing"))
       }
     @posoco.UiRequest::Select(options~, ..) =>
       match fields.get("selected") {
         Some(Json::Number(index, ..)) => {
           let choice = index.to_int()
-          if choice >= 0 &&
+          if index != index.floor() {
+            (@posoco.UiResponse::Cancelled, Some("selected_not_integer"))
+          } else if choice >= 0 &&
             choice < options.length() &&
             choice.to_double() == index {
-            @posoco.UiResponse::Selected(choice)
+            (@posoco.UiResponse::Selected(choice), None)
           } else {
-            @posoco.UiResponse::Cancelled
+            (@posoco.UiResponse::Cancelled, Some("selected_out_of_range"))
           }
         }
-        _ => @posoco.UiResponse::Cancelled
+        Some(_) => (@posoco.UiResponse::Cancelled, Some("selected_not_number"))
+        None => (@posoco.UiResponse::Cancelled, Some("selected_missing"))
       }
   }
 }

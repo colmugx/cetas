@@ -38,7 +38,7 @@ test "UiPort response decoding is request-type strict" {
     options=["once", "session", "deny"],
     default=Some(0),
   )
-  match ui_response_for_request(select_request, "{\"selected\":2}") {
+  match ui_response_decoded(select_request, "{\"selected\":2}").0 {
     @posoco.UiResponse::Selected(2) => ()
     _ => fail("valid selection was not preserved")
   }
@@ -48,30 +48,29 @@ test "UiPort response decoding is request-type strict" {
       "{\"text\":\"injected\"}", "{\"yes\":true}", "not-json",
     ] {
     assert_true(
-      ui_response_for_request(select_request, invalid)
+      ui_response_decoded(select_request, invalid).0
       is @posoco.UiResponse::Cancelled,
     )
   }
   let input = @posoco.UiRequest::Input(prompt="Question?", default=None)
-  match ui_response_for_request(input, "{\"text\":\"你好\"}") {
+  match ui_response_decoded(input, "{\"text\":\"你好\"}").0 {
     @posoco.UiResponse::Text(value) => assert_eq(value, "你好")
     _ => fail("input response was not preserved")
   }
   assert_true(
-    ui_response_for_request(input, "{\"selected\":0}")
+    ui_response_decoded(input, "{\"selected\":0}").0
     is @posoco.UiResponse::Cancelled,
   )
   let confirm = @posoco.UiRequest::Confirm(prompt="Confirm?")
   assert_true(
-    ui_response_for_request(confirm, "{\"text\":\"yes\"}")
+    ui_response_decoded(confirm, "{\"text\":\"yes\"}").0
     is @posoco.UiResponse::Cancelled,
   )
   assert_true(
-    ui_response_for_request(confirm, "{\"yes\":true}")
-    is @posoco.UiResponse::Yes,
+    ui_response_decoded(confirm, "{\"yes\":true}").0 is @posoco.UiResponse::Yes,
   )
   assert_true(
-    ui_response_for_request(confirm, "{\"no\":false}") is @posoco.UiResponse::No,
+    ui_response_decoded(confirm, "{\"no\":false}").0 is @posoco.UiResponse::No,
   )
 }
 

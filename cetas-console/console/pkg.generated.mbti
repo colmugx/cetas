@@ -2,6 +2,7 @@
 package "colmugx/cetas-console/console"
 
 import {
+  "colmugx/posoco-ext-permission",
   "colmugx/posoco-ext-workspace",
   "colmugx/posoco/types",
   "moonbitlang/core/json",
@@ -10,9 +11,9 @@ import {
 // Values
 pub async fn compose_console_runtime(ConsoleConfig, String, @moonbitlang/async.TaskGroup[Unit], lifetime_group? : @moonbitlang/core/async.TaskGroup?) -> ConsoleRuntime
 
-pub fn console_bootstrap(&@posoco-ext-workspace.WorkspaceFs, String, (String) -> Unit) -> ConsoleBootstrap
+pub fn console_bootstrap(&@posoco-ext-workspace.WorkspaceFs, String, (String) -> Unit, native_ui? : Bool) -> ConsoleBootstrap
 
-pub fn console_config(&@posoco-ext-workspace.WorkspaceFs, String, String, String) -> ConsoleConfig
+pub fn console_config(&@posoco-ext-workspace.WorkspaceFs, String, String, String, native_ui? : Bool, permission_mode? : @posoco-ext-permission.PermissionMode) -> ConsoleConfig
 
 pub fn transcript_empty_json() -> @json.Json
 
@@ -24,6 +25,7 @@ pub struct ConsoleBootstrap {
   home : String
   hub : EventHub
   ui_registry : UiRegistry
+  native_ui : Bool
 }
 pub fn ConsoleBootstrap::cancel_all(Self) -> Unit
 pub fn ConsoleBootstrap::emit_event(Self, String, extra? : Array[(String, @json.Json)]) -> Unit
@@ -36,6 +38,8 @@ pub struct ConsoleConfig {
   home : String
   label : String
   protocol : String
+  native_ui : Bool
+  permission_mode : @posoco-ext-permission.PermissionMode
 }
 
 pub struct ConsoleRuntime {
@@ -43,6 +47,8 @@ pub struct ConsoleRuntime {
   home : String
   label : String
   protocol : String
+  native_ui : Bool
+  startup_permission : @posoco-ext-permission.PermissionMode
   group : @moonbitlang/async.TaskGroup[Unit]
   lifetime_group : @moonbitlang/core/async.TaskGroup?
   hub : EventHub
@@ -51,6 +57,7 @@ pub struct ConsoleRuntime {
   mut registry : Array[String]
   mut active_cwd : String
   mut file_index_cache : (Int64, Array[String])?
+  replay_cache : NativeReplayCache
 }
 pub async fn ConsoleRuntime::abort_turn(Self, String?) -> Unit noraise
 pub fn ConsoleRuntime::active_session_id(Self) -> String
@@ -74,10 +81,12 @@ pub async fn ConsoleRuntime::quota_json(Self) -> @json.Json
 pub async fn ConsoleRuntime::rename_session(Self, String, String) -> Result[Unit, String]
 pub fn ConsoleRuntime::republish_status(Self) -> Unit
 pub fn ConsoleRuntime::resolve_ui(Self, String, String) -> Unit
+pub async fn ConsoleRuntime::resume_workspace_session(Self, String, String, String?) -> Result[String, String] noraise
 pub async fn ConsoleRuntime::rewind_active_session(Self, Int32) -> @json.Json
 pub async fn ConsoleRuntime::rewind_points_json(Self) -> @json.Json
 pub fn ConsoleRuntime::runtime_json(Self) -> @json.Json
 pub async fn ConsoleRuntime::select_effort(Self, String, String?) -> Result[Unit, String] noraise
+pub async fn ConsoleRuntime::session_catalog_json(Self, String, String, Int32) -> @json.Json
 pub async fn ConsoleRuntime::sessions_json(Self) -> @json.Json
 pub fn ConsoleRuntime::set_permission(Self, String) -> Result[Unit, String]
 pub async fn ConsoleRuntime::shutdown_all(Self) -> Unit
@@ -88,12 +97,23 @@ pub async fn ConsoleRuntime::switch_model(Self, String, String?) -> Result[Unit,
 pub async fn ConsoleRuntime::switch_session(Self, String) -> Result[String, String] noraise
 pub async fn ConsoleRuntime::switch_workspace(Self, String) -> Result[String, String] noraise
 pub fn ConsoleRuntime::trace_json(Self, String?, String?) -> @json.Json
+pub async fn ConsoleRuntime::transcript_index_json(Self, String, first? : Int32, limit? : Int32) -> @json.Json
 pub async fn ConsoleRuntime::transcript_json(Self, String) -> @json.Json
+pub async fn ConsoleRuntime::transcript_page_json(Self, String, String, Int32, Int32, Int32) -> @json.Json
+pub async fn ConsoleRuntime::transcript_source_json(Self, String, String, Int32, field? : String, offset? : Int32, length? : Int32) -> @json.Json
 pub async fn ConsoleRuntime::workspace_file_index(Self) -> Array[String]
 pub fn ConsoleRuntime::workspaces_json(Self) -> @json.Json
 pub fn ConsoleRuntime::zoo_json(Self) -> @json.Json
 
 type EventHub
+
+pub struct NativeReplayCache {
+  // private fields
+}
+
+pub struct NativeReplayIndex {
+  // private fields
+}
 
 type SessionCatalogEntry
 
@@ -110,4 +130,5 @@ pub(open) trait SessionCatalog {
   async fn entry(Self, String) -> SessionCatalogEntry
   async fn set_name(Self, String, String) -> Unit
   async fn load(Self, String) -> @types.Session
+  fn transcript_path(Self, String) -> Result[String, String]
 }

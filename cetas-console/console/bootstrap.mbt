@@ -7,6 +7,9 @@ pub struct ConsoleBootstrap {
   home : String
   hub : EventHub
   ui_registry : UiRegistry
+  /// Same explicit native terminal UI projection opt-in as a composed
+  /// runtime; first-run authentication renders through it.
+  native_ui : Bool
 }
 
 ///|
@@ -14,10 +17,14 @@ pub fn console_bootstrap(
   fs : &@workspace.WorkspaceFs,
   home : String,
   sink : (String) -> Unit,
+  native_ui~ : Bool = false,
 ) -> ConsoleBootstrap {
   let hub = EventHub::new()
+  if native_ui {
+    hub.enable_native_retention()
+  }
   hub.attach(sink)
-  { fs, home, hub, ui_registry: UiRegistry::new(), }
+  { fs, home, hub, ui_registry: UiRegistry::new(), native_ui, }
 }
 
 ///|
@@ -82,7 +89,12 @@ pub async fn ConsoleBootstrap::login(
       )
   }
   let auth = HubAuthUi::HubAuthUi(
-    HubUiPort::new_secret(self.hub, self.ui_registry, ""),
+    HubUiPort::new_secret(
+      self.hub,
+      self.ui_registry,
+      "",
+      native_ui=self.native_ui,
+    ),
   )
   let outcome = @cetas_core.login_provider(
     provider,
