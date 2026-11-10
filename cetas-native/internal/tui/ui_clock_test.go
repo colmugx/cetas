@@ -37,3 +37,22 @@ func TestStaleAnimationCannotReviveAfterTurnEnds(t *testing.T) {
 		t.Fatal("stale frame restarted animation after completion")
 	}
 }
+
+func TestColdReplayIndexDeadlineWakesIdleUI(t *testing.T) {
+	m := newModel()
+	m.session = "s-1"
+	m.host = &testHost{}
+	m.startPagedReplay()
+	if !m.replayIndexPending {
+		t.Fatal("fixture: replay index not pending")
+	}
+	want := m.replayIndexSince.Add(replayIndexTimeout + time.Millisecond)
+	due := m.nextUIWake(time.Now())
+	if due.IsZero() || !due.Equal(want) {
+		t.Fatalf("idle replay index must schedule its timeout: got %v, want %v", due, want)
+	}
+	m.replayIndexPending = false
+	if got := m.nextUIWake(time.Now()); !got.IsZero() {
+		t.Fatalf("settled replay index kept the idle clock awake: %v", got)
+	}
+}
