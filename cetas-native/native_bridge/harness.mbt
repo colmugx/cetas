@@ -256,42 +256,68 @@ async fn harness_dispatch(
           }
         Err(e) => harness_error(e)
       }
-    "switch_session" =>
-      match harness_string(args, "id") {
-        Some(id) =>
-          match harness_string(args, "cwd") {
-            // An explicit cwd is a cross-workspace resume: workspace switch
-            // and session attach commit together or not at all.
-            Some(cwd) =>
-              match
-                runtime.resume_workspace_session(
-                  cwd,
-                  id,
-                  harness_string(args, "permission"),
-                ) {
-                Ok(session_id) =>
-                  Json::object(
-                    Map::from_array([("session_id", Json::string(session_id))]),
-                  )
-                Err(e) => harness_error(e)
-              }
-            None =>
-              match runtime.switch_session(id) {
-                Ok(session_id) =>
-                  Json::object(
-                    Map::from_array([("session_id", Json::string(session_id))]),
-                  )
-                Err(e) => harness_error(e)
-              }
-          }
-        None =>
-          match runtime.new_session() {
-            Ok(session_id) =>
-              Json::object(
-                Map::from_array([("session_id", Json::string(session_id))]),
-              )
-            Err(e) => harness_error(e)
-          }
+    "switch_session" => {
+      // Resuming a journal this process has not composed yet builds a whole
+      // agent (recipe, tools, observers) — disk-heavy work that must never
+      // hold the sole command consumer: ui_response, turn_abort and ping
+      // stay serviceable while the switch composes. The reply is an
+      // immediate ack; completion arrives as a `session.switched` event.
+      let id = harness_string(args, "id")
+      let cwd = harness_string(args, "cwd")
+      let permission = harness_string(args, "permission")
+      runtime.spawn_background(async fn() {
+        let outcome : Result[String, String] = match id {
+          Some(session_id) =>
+            match cwd {
+              Some(dir) =>
+                runtime.resume_workspace_session(dir, session_id, permission)
+              None => runtime.switch_session(session_id)
+            }
+          None => runtime.new_session()
+        }
+        match outcome {
+          Ok(session_id) =>
+            runtime.emit_host_event(session_id, "session.switched", extra=[
+              ("fresh", Json::boolean(id is None)),
+              ("snapshot", runtime.runtime_json()),
+            ])
+          Err(detail) =>
+            runtime.emit_host_event(
+              runtime.active_session_id(),
+              "session.switch_failed",
+              extra=[
+                ("target", Json::string(id.unwrap_or(""))),
+                ("detail", Json::string(detail)),
+              ],
+            )
+        }
+      })
+      Json::object({
+        "status": Json::string("switching"),
+        "target": Json::string(id.unwrap_or("")),
+      })
+    }
+    "session_prefetch" =>
+      // Warm the handle cache for a row the picker is likely to choose.
+      // Fire-and-forget on the background group: no reply payload beyond the
+      // ack, and a prefetch that loses a race with a real switch is simply
+      // redundant work whose handle lands in the cache.
+      match harness_string(args, "session_id") {
+        Some(session_id) => {
+          runtime.spawn_background(async fn() {
+            // The result is deliberate fire-and-forget: a failed prefetch
+            // only means the row was not warmed; the real switch reports
+            // its own failure through session.switch_failed.
+            let _ : Result[String, String] = runtime.prefetch_session(
+              session_id,
+            )
+          })
+          Json::object({
+            "status": Json::string("prefetching"),
+            "session_id": Json::string(session_id),
+          })
+        }
+        None => harness_error("session_prefetch requires session_id")
       }
     "models" => runtime.model_slots_json(None)
     "switch_model" =>

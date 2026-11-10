@@ -124,7 +124,18 @@ type model struct {
 	modelPicker         overlays.Models
 	sessionPicker       sessionPickerState
 	sessionPickerEpoch  uint64
-	nextPicker          string
+	// switchInFlight holds the target id of a session switch whose ack
+	// arrived but whose `session.switched` event has not: a second choose
+	// in that window must not issue a second switch.
+	switchInFlight string
+	// pendingSessionCmd carries ask-cancellation commands produced while
+	// reducing a `session.switched` event (applyEvent cannot return them);
+	// the event pump batches it with the replay restart.
+	pendingSessionCmd tea.Cmd
+	// pendingAskReject settles an unsupported ui.request with a typed
+	// cancellation once the event pump can issue commands.
+	pendingAskReject string
+	nextPicker        string
 	lastEscape          time.Time
 	pendingProvider     string
 	authID              string
@@ -339,6 +350,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case eventBatchResult:
 		var next string
 		ready := false
+		switched := false
 		for _, e := range msg.events {
 			var meta struct {
 				Type      string `json:"type"`
@@ -349,6 +361,9 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.applyEvent(e)
 			if meta.Type == "infra.ready" {
 				ready = true
+			}
+			if meta.Type == "session.switched" {
+				switched = true
 			}
 			if meta.Type == "session.snapshot" && !meta.Busy && meta.SessionID == m.session && len(m.followups) > 0 && next == "" {
 				next = m.followups[0]
@@ -368,6 +383,19 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if ready {
 			return m, tea.Batch(receive(m.feed), m.startPagedReplay(), request(m.host, "commands", map[string]any{}))
+		}
+		if switched {
+			// applyEvent already moved the model onto the target session;
+			// settle the departed session's abandoned asks beside the fresh
+			// paged replay and the registered-command catalog.
+			retired := m.pendingSessionCmd
+			m.pendingSessionCmd = nil
+			m.status = "ready"
+			return m, tea.Batch(receive(m.feed), retired, m.startPagedReplay(), request(m.host, "commands", map[string]any{}))
+		}
+		if reject := m.pendingAskReject; reject != "" {
+			m.pendingAskReject = ""
+			return m, tea.Batch(receive(m.feed), request(m.host, "ui_response", map[string]any{"request_id": reject, "cancelled": true, "reason": "unsupported ask kind"}))
 		}
 		if next != "" {
 			return m, tea.Batch(receive(m.feed), request(m.host, "turn_start", map[string]any{"prompt": next, "session_id": m.session}))
@@ -394,6 +422,13 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.name + ": " + msg.err.Error()
 			if msg.name == "turn_start" {
 				m.running = false
+			}
+			if msg.name == "switch_session" {
+				// The async switch never started server-side: release the
+				// choose latch instead of waiting for a session.switched that
+				// cannot come.
+				m.switchInFlight = ""
+				m.status = "ready"
 			}
 			return m, nil
 		}
@@ -616,12 +651,25 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if msg.name == "switch_session" || msg.name == "new_session" {
+			var ack struct {
+				Status string `json:"status"`
+			}
+			if json.Unmarshal(msg.payload, &ack) == nil && ack.Status == "switching" {
+				// The runtime composes the target's agent in the background;
+				// the picker's job is done and `session.switched` completes
+				// the switch (retirement, snapshot, paged replay) as an event.
+				m.closeSessionPicker()
+				m.status = "loading session…"
+				return m, nil
+			}
 			var payload struct {
 				SessionID string `json:"session_id"`
 			}
 			if json.Unmarshal(msg.payload, &payload) == nil && payload.SessionID != "" {
-				// A successful switch retires the picker (and its epoch) so the
-				// window cannot be chosen from twice; a failed one leaves it open.
+				// A synchronous host reply (whole-switch completion): retire
+				// the picker (and its epoch) so the window cannot be chosen
+				// from twice, and restart the replay for the attached session.
+				m.switchInFlight = ""
 				m.closeSessionPicker()
 				retired := m.retireSessionPresentation()
 				m.session = payload.SessionID
@@ -811,6 +859,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 					case "sessions":
 						m.modal = ""
 						m.modalValues = nil
+						m.switchInFlight = chosen
 						return m, request(m.host, "switch_session", map[string]any{"id": chosen})
 					case "providers":
 						methods := m.providerMethods[chosen]
@@ -1220,7 +1269,9 @@ func (m *model) applyEvent(e wire.Event) {
 			m.session = frame.SessionID
 		}
 		// Do not let another running session mutate the visible transcript.
-		if frame.SessionID != m.session && frame.Type != "auth.login" && frame.Type != "auth.cancelled" {
+		// Host-level lifecycle facts (async switch completion) are exempt:
+		// they are emitted scoped to the *target* session on purpose.
+		if frame.SessionID != m.session && frame.Type != "auth.login" && frame.Type != "auth.cancelled" && frame.Type != "session.switched" && frame.Type != "session.switch_failed" {
 			return
 		}
 	}
@@ -1262,6 +1313,20 @@ func (m *model) applyEvent(e wire.Event) {
 			m.modal = ""
 			m.modalPrompt = ""
 			m.modalValues = nil
+		}
+	case "infra.boot.progress":
+		// Live startup feedback while the runtime composes in the background;
+		// the terminal paints the phase instead of a static connecting line.
+		var data struct {
+			Phase string `json:"phase"`
+			MS    int64  `json:"ms"`
+		}
+		if json.Unmarshal(e.Raw, &data) == nil && data.Phase != "" && !m.needsSetup {
+			if data.Phase == "composed" {
+				m.status = fmt.Sprintf("connected in %d ms", data.MS)
+			} else {
+				m.status = "connecting: " + data.Phase + "…"
+			}
 		}
 	case "infra.setup_failed":
 		m.needsSetup = true
@@ -1327,12 +1392,74 @@ func (m *model) applyEvent(e wire.Event) {
 			m.closeSessionPicker()
 			m.session = frame.To
 		}
+		m.switchInFlight = ""
 		m.status = "session redirected"
+	case "session.switched":
+		// Completion of the async `switch_session` ack: the runtime has
+		// composed and attached the target session. applyEvent cannot return
+		// commands, so the ask-cancellation batch rides pendingSessionCmd and
+		// the event pump restarts the paged replay beside it.
+		var data struct {
+			SessionID string          `json:"session_id"`
+			Fresh     bool            `json:"fresh"`
+			Snapshot  json.RawMessage `json:"snapshot"`
+		}
+		if err := json.Unmarshal(e.Raw, &data); err != nil || data.SessionID == "" {
+			m.err = "invalid session.switched event"
+			return
+		}
+		m.switchInFlight = ""
+		m.pendingSessionCmd = m.retireSessionPresentation()
+		m.session = data.SessionID
+		// A brand-new session shows the empty-start welcome; resuming a
+		// journal keeps working content on screen.
+		m.welcomeHidden = !data.Fresh
+		m.dynamicCommands = nil
+		m.commandSession = ""
+		m.clearTranscriptSearch()
+		m.resetVirtualTranscript()
+		m.transcript = nil
+		m.markdownRaw = nil
+		m.markdownCache = nil
+		m.toolIndex = nil
+		m.streaming = ""
+		m.reasoning = ""
+		m.running = false
+		m.followups = nil
+		if len(data.Snapshot) > 0 {
+			m.snapshotSurface(data.Snapshot)
+		}
+		m.status = "loading transcript…"
+	case "session.switch_failed":
+		var data struct {
+			Target  string `json:"target"`
+			Detail  string `json:"detail"`
+		}
+		m.switchInFlight = ""
+		m.status = "ready"
+		if json.Unmarshal(e.Raw, &data) == nil && data.Detail != "" {
+			m.err = "switch_session: " + data.Detail
+		} else {
+			m.err = "switch_session failed"
+		}
 	case "session.snapshot":
 		m.running = frame.Busy
 	case "ui.request":
 		if frame.RequestID == "" {
 			m.err = "ui.request missing request_id"
+			return
+		}
+		switch frame.Kind {
+		case "input", "secret", "select", "confirm":
+		default:
+			// An unknown kind used to produce a modal no key branch could
+			// answer, parking the runtime coroutine forever; the empty kind
+			// variant was worse — a modalRequestID with no modal, which the
+			// key router does not route to the ask branch at all. Reject at
+			// ingest: settle the request with a typed cancellation and keep
+			// the composer usable.
+			m.err = "unsupported ui.request kind: " + strconv.Quote(frame.Kind)
+			m.pendingAskReject = frame.RequestID
 			return
 		}
 		prompt := uiPrompt{id: frame.RequestID, kind: frame.Kind, prompt: frame.Prompt, options: frame.Options, defaultValue: frame.Default}

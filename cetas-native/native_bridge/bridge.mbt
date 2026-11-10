@@ -75,6 +75,38 @@ fn emit(frame : String) -> Unit {
 }
 
 ///|
+/// Startup progress for the terminal: one frame per composition phase so the
+/// first-paint status line reflects work instead of a static "connecting".
+fn emit_boot_progress(phase : String, ms : Int64) -> Unit {
+  emit(
+    Json::object({
+      "type": Json::string("infra.boot.progress"),
+      "phase": Json::string(phase),
+      "ms": Json::number(ms.to_double()),
+    }).stringify(),
+  )
+}
+
+///|
+/// Reply to a harness request that arrived while the runtime was still
+/// composing, preserving the request's correlation id: a named refusal, not
+/// a dropped request the host would wait on.
+fn reject_while_composing(raw : String) -> Unit {
+  let request : Json = @json.parse(raw) catch {
+    _ => Json::null()
+  }
+  let id = match request {
+    Json::Object(fields) =>
+      match fields.get("id") {
+        Some(Json::Number(number, ..)) => number.to_int()
+        _ => -1
+      }
+    _ => -1
+  }
+  emit(harness_reply(id, harness_error("runtime is still composing")))
+}
+
+///|
 /// Run a single-owner async domain on a locked Go worker OS thread.
 /// Real ConsoleRuntime construction is attempted, never fabricated.
 #export_name("cetas_infra_run")
@@ -103,10 +135,9 @@ pub fn run_infra() -> Int32 {
         permission_mode=@permission.PermissionMode::Yolo,
       )
       let boot : Ref[Result[@console.ConsoleRuntime, String]] = Ref(
-        Ok(@console.compose_console_runtime(config, cwd, group)) catch {
-          error => Err(error.to_string())
-        },
+        Err("connecting"),
       )
+      let composing = Ref(true)
       let setup = @console.console_bootstrap(
         fs,
         home,
@@ -114,30 +145,66 @@ pub fn run_infra() -> Int32 {
         native_ui=true,
       )
       let setup_tasks = NativeBootstrapTasks::new()
-      match boot.val {
-        Ok(runtime) => {
-          runtime.attach_sink(fn(frame : String) { emit(frame) })
-          emit(
-            "{\"type\":\"infra.boot\",\"status\":\"ready\",\"snapshot\":" +
-            runtime.runtime_json().stringify() +
-            "}",
-          )
-        }
-        Err(detail) =>
-          emit(
-            Json::object({
-              "type": Json::string("infra.boot"),
-              "status": Json::string(
-                if detail.contains("providers: no configured model provider") {
-                  "needs_setup"
-                } else {
-                  "error"
-                },
-              ),
-              "detail": Json::string(detail),
-            }).stringify(),
-          )
-      }
+      // Composition is disk-heavy (settings, credentials, model cache,
+      // recipe, a whole first agent) and previously ran before this loop
+      // started, leaving the terminal on a static "connecting" line with the
+      // dispatcher unreachable. Compose on the background group instead: the
+      // command loop below serves ping/state immediately, progress frames
+      // stream to the terminal, and infra.boot lands exactly as before.
+      ignore(
+        group.spawn(
+          async fn() {
+            // Whatever ends this task — completion, error, cancellation —
+            // the shutdown epilogue below waits on this flag; a raise in the
+            // middle must never park it at `true` forever.
+            defer { composing.val = false }
+            let started = @async.now()
+            emit_boot_progress("composing", 0)
+            // Protected: cancelling the boot mid-build would strand a
+            // half-built workspace whose session scopes already parked on
+            // close signals nobody would send (the async runtime's deadlock
+            // detector aborts the whole process at group exit). Composition
+            // always runs to its install-or-error decision; shutdown waits
+            // for it below.
+            let composed : Result[@console.ConsoleRuntime, String] = @async.protect_from_cancel(
+              async fn() {
+                Ok(@console.compose_console_runtime(config, cwd, group)) catch {
+                  error => Err(error.to_string())
+                }
+              },
+            )
+            boot.val = composed
+            emit_boot_progress("composed", @async.now() - started)
+            match composed {
+              Ok(runtime) => {
+                runtime.attach_sink(fn(frame : String) { emit(frame) })
+                emit(
+                  "{\"type\":\"infra.boot\",\"status\":\"ready\",\"snapshot\":" +
+                  runtime.runtime_json().stringify() +
+                  "}",
+                )
+              }
+              Err(detail) =>
+                emit(
+                  Json::object({
+                    "type": Json::string("infra.boot"),
+                    "status": Json::string(
+                      if detail.contains(
+                          "providers: no configured model provider",
+                        ) {
+                        "needs_setup"
+                      } else {
+                        "error"
+                      },
+                    ),
+                    "detail": Json::string(detail),
+                  }).stringify(),
+                )
+            }
+          },
+          allow_failure=true,
+        ),
+      )
       let auth_tasks = NativeAuthTasks::new()
       let replay_tasks = NativeReplayTasks::new()
       let harness_buffer = Bytes::make(262144, 0)
@@ -181,19 +248,28 @@ pub fn run_infra() -> Int32 {
             let n = next_harness(harness_buffer, harness_buffer.length())
             if n > 0 {
               let raw = @utf8.decode_lossy(harness_buffer[:n])
-              match boot.val {
-                Ok(runtime) =>
-                  harness_handle_frame(
-                    runtime, auth_tasks, replay_tasks, group, raw,
-                  )
-                Err(detail) =>
-                  if detail.contains("providers: no configured model provider") {
-                    bootstrap_handle_frame(
-                      setup, setup_tasks, boot, config, cwd, group, raw,
+              if composing.val {
+                // A request that raced composition cannot be served yet; the
+                // host terminal only issues commands after infra.boot, so
+                // this reply is a named refusal, never a silent drop.
+                reject_while_composing(raw)
+              } else {
+                match boot.val {
+                  Ok(runtime) =>
+                    harness_handle_frame(
+                      runtime, auth_tasks, replay_tasks, group, raw,
                     )
-                  } else {
-                    emit(harness_reply(-1, harness_error(detail)))
-                  }
+                  Err(detail) =>
+                    if detail.contains(
+                        "providers: no configured model provider",
+                      ) {
+                      bootstrap_handle_frame(
+                        setup, setup_tasks, boot, config, cwd, group, raw,
+                      )
+                    } else {
+                      emit(harness_reply(-1, harness_error(detail)))
+                    }
+                }
               }
             } else {
               if n < 0 && !protocol_reported {
@@ -250,38 +326,51 @@ pub fn run_infra() -> Int32 {
             }
           }
           1 =>
-            match boot.val {
-              Ok(runtime) =>
-                emit(
-                  "{\"type\":\"infra.state\",\"snapshot\":" +
-                  runtime.runtime_json().stringify() +
-                  "}",
-                )
-              Err(detail) =>
-                emit(
-                  Json::object(
-                    Map::from_array([
-                      ("type", Json::string("infra.state")),
-                      ("status", Json::string("needs_setup")),
-                      ("detail", Json::string(detail)),
-                    ]),
-                  ).stringify(),
-                )
+            if composing.val {
+              emit(
+                Json::object({
+                  "type": Json::string("infra.state"),
+                  "status": Json::string("connecting"),
+                }).stringify(),
+              )
+            } else {
+              match boot.val {
+                Ok(runtime) =>
+                  emit(
+                    "{\"type\":\"infra.state\",\"snapshot\":" +
+                    runtime.runtime_json().stringify() +
+                    "}",
+                  )
+                Err(detail) =>
+                  emit(
+                    Json::object(
+                      Map::from_array([
+                        ("type", Json::string("infra.state")),
+                        ("status", Json::string("needs_setup")),
+                        ("detail", Json::string(detail)),
+                      ]),
+                    ).stringify(),
+                  )
+              }
             }
           2 =>
-            match boot.val {
-              Ok(runtime) => {
-                runtime.emit_event("", "", "infra.ping", extra=[
-                  ("source", Json::string("moonbit")),
-                ])
-                emit(
-                  "{\"type\":\"infra.workspaces\",\"snapshot\":" +
-                  runtime.workspaces_json().stringify() +
-                  "}",
-                )
+            if composing.val {
+              emit("{\"type\":\"infra.ping\",\"status\":\"connecting\"}")
+            } else {
+              match boot.val {
+                Ok(runtime) => {
+                  runtime.emit_event("", "", "infra.ping", extra=[
+                    ("source", Json::string("moonbit")),
+                  ])
+                  emit(
+                    "{\"type\":\"infra.workspaces\",\"snapshot\":" +
+                    runtime.workspaces_json().stringify() +
+                    "}",
+                  )
+                }
+                Err(_) =>
+                  emit("{\"type\":\"infra.ping\",\"status\":\"needs_setup\"}")
               }
-              Err(_) =>
-                emit("{\"type\":\"infra.ping\",\"status\":\"needs_setup\"}")
             }
           9 => stopping = true
           other =>
@@ -295,6 +384,13 @@ pub fn run_infra() -> Int32 {
       replay_tasks.cancel_all()
       setup_tasks.cancel_all()
       setup.cancel_all()
+      // A shutdown that won the composition race still waits for the
+      // protected compose task to settle: once boot.val is final,
+      // shutdown_all sweeps every installed handle. An early break here
+      // would leave a freshly composed runtime's scopes parked.
+      while composing.val {
+        @async.pause()
+      }
       match boot.val {
         Ok(runtime) => {
           // Wake suspended approval/auth coroutines BEFORE draining Posoco.

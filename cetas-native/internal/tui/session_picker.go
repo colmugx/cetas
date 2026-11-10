@@ -60,6 +60,9 @@ type sessionPickerState struct {
 	requested string
 	// direction is how that page will be installed once it is accepted.
 	direction sessionPickerDirection
+	// prefetched remembers the rows this window already warmed, so cursor
+	// motion issues at most one prefetch per session id per picker.
+	prefetched map[string]bool
 }
 
 // sessionCatalogPage is one `session_catalog` reply
@@ -200,19 +203,18 @@ func (m *model) applySessionCatalogReply(result commandResult) tea.Cmd {
 	if page.Scope != "" && overlays.SessionsScope(page.Scope) != p.panel.Scope {
 		return nil
 	}
-	m.installSessionCatalogPage(page)
-	return nil
+	return m.installSessionCatalogPage(page)
 }
 
 // installSessionCatalogPage adopts the accepted page and moves the page
 // history. The history changes only on success: a refused or failed page
 // leaves the cursors exactly where they were, so retrying is honest.
-func (m *model) installSessionCatalogPage(page sessionCatalogPage) {
+func (m *model) installSessionCatalogPage(page sessionCatalogPage) tea.Cmd {
 	p := &m.sessionPicker
 	if !p.panel.SetEntries(p.panel.Generation, m.sessionPageResumable(page.Items), false) {
 		// The installer refused the page (over the picker's row cap) and
 		// reported why; nothing was installed, so nothing moves.
-		return
+		return nil
 	}
 	switch p.direction {
 	case sessionPickerForward:
@@ -238,6 +240,19 @@ func (m *model) installSessionCatalogPage(page sessionCatalogPage) {
 		p.next = *page.Next
 	}
 	p.panel.More = p.next != ""
+	// Warm the head of a fresh page: the first rows are what Enter is most
+	// likely to hit next, and three concurrent composes interleave harmlessly
+	// on the runtime's single async domain.
+	var cmds []tea.Cmd
+	for i := range page.Items {
+		if len(cmds) >= 3 {
+			break
+		}
+		if cmd := m.sessionPickerPrefetch(page.Items[i]); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	return tea.Batch(cmds...)
 }
 
 // sessionPageResumable fills in the catalog's optional `resumable` decision for
@@ -292,6 +307,31 @@ func (m *model) sessionPickerMove(delta int) tea.Cmd {
 	return nil
 }
 
+// sessionPickerPrefetch warms the runtime's handle cache for the rows a
+// fresh page makes most likely to be chosen, so the eventual Enter answers
+// from the cache instead of composing a whole agent on the interactive path.
+// Cursor motion deliberately does not prefetch: one compose per highlighted
+// row would multiply full agent instances far beyond what browsing justifies.
+// Only this workspace's rows can be warmed: a foreign row's agent belongs to
+// another workspace and is composed by the atomic cross-workspace switch.
+func (m *model) sessionPickerPrefetch(entry overlays.SessionEntry) tea.Cmd {
+	p := &m.sessionPicker
+	if !p.open || m.host == nil || !m.sessionPickerSameCwd(entry) {
+		return nil
+	}
+	if entry.ID == "" || entry.ID == m.session {
+		return nil
+	}
+	if p.prefetched == nil {
+		p.prefetched = map[string]bool{}
+	}
+	if p.prefetched[entry.ID] {
+		return nil
+	}
+	p.prefetched[entry.ID] = true
+	return request(m.host, "session_prefetch", map[string]any{"session_id": entry.ID})
+}
+
 // sessionPickerKey routes one key to the typed picker while it owns focus. The
 // boundary-sensitive arrows are handled here so paging is decided before the
 // overlay clamps the cursor; every other key stays with the overlay's own
@@ -326,6 +366,11 @@ func (m *model) sessionPickerAction(action overlays.SessionsAction) tea.Cmd {
 // workspace reuses the existing `switch_session {id}` request; a foreign row
 // with a recorded folder goes through the atomic cross-workspace route below.
 func (m *model) sessionPickerChoose(entry overlays.SessionEntry) tea.Cmd {
+	if m.switchInFlight != "" {
+		// One switch at a time: the ack retires the picker, but completion
+		// (session.switched / session.switch_failed) is still pending.
+		return nil
+	}
 	if !m.sessionPickerSameCwd(entry) {
 		return m.resumeForeignSession(entry)
 	}
@@ -337,8 +382,9 @@ func (m *model) sessionPickerChoose(entry overlays.SessionEntry) tea.Cmd {
 		m.err = "Posoco is not connected"
 		return nil
 	}
-	// The picker stays open until the switch actually succeeds: a failed
-	// switch must leave the user where they were, not on a dismissed overlay.
+	// The switch composes in the background: the reply is an immediate ack
+	// that closes the picker, and the switched/switch_failed event finishes.
+	m.switchInFlight = entry.ID
 	return request(m.host, "switch_session", map[string]any{"id": entry.ID})
 }
 
@@ -375,8 +421,9 @@ func (m *model) resumeForeignSession(entry overlays.SessionEntry) tea.Cmd {
 	if permission := strings.TrimSpace(m.surface.permission); permission != "" {
 		args["permission"] = permission
 	}
-	// The picker stays open until the switch succeeds; the switch_session
-	// reply path retires it, resets the replay and pages the new transcript.
+	// Same async contract as the in-workspace choose: ack closes the picker,
+	// the event completes the cross-workspace switch or reports the failure.
+	m.switchInFlight = entry.ID
 	return request(m.host, "switch_session", args)
 }
 

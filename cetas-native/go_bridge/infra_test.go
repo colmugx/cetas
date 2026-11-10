@@ -27,6 +27,7 @@ func TestInfraLifecycle(t *testing.T) {
 	dropsBefore := h.DroppedEvents()
 	finished := make(chan int, 1)
 	go func() { finished <- h.Run() }()
+	sawBootProgress := false
 	wait := func(want string) map[string]any {
 		deadline := time.Now().Add(35 * time.Second)
 		for time.Now().Before(deadline) {
@@ -43,6 +44,9 @@ func TestInfraLifecycle(t *testing.T) {
 				t.Fatalf("invalid event %q: %v", frame, err)
 			}
 			t.Logf("infra frame: %s", frame)
+			if event["type"] == "infra.boot.progress" {
+				sawBootProgress = true
+			}
 			if event["type"] == want {
 				return event
 			}
@@ -51,6 +55,12 @@ func TestInfraLifecycle(t *testing.T) {
 		return nil
 	}
 	boot := wait("infra.boot")
+	// Composition runs beside the dispatcher loop, so its progress frames
+	// stream to the host before the terminal boot frame — the ordering the
+	// startup status line depends on.
+	if !sawBootProgress {
+		t.Fatal("composition finished without streaming infra.boot.progress before infra.boot")
+	}
 	if boot["status"] != "ready" {
 		t.Fatalf("real ConsoleRuntime failed to compose: %#v", boot)
 	}

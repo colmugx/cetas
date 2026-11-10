@@ -58,6 +58,7 @@ pub struct ConsoleRuntime {
   mut active_cwd : String
   mut file_index_cache : (Int64, Array[String])?
   replay_cache : NativeReplayCache
+  mut stopping : Bool
 }
 pub async fn ConsoleRuntime::abort_turn(Self, String?) -> Unit noraise
 pub fn ConsoleRuntime::active_session_id(Self) -> String
@@ -69,12 +70,14 @@ pub async fn ConsoleRuntime::compact_active_session(Self) -> Unit
 pub fn ConsoleRuntime::detach_sink(Self) -> Unit
 pub fn ConsoleRuntime::emit_active_snapshot(Self) -> Unit
 pub fn ConsoleRuntime::emit_event(Self, String, String, String, extra? : Array[(String, @json.Json)]) -> Unit
+pub fn ConsoleRuntime::emit_host_event(Self, String, String, extra? : Array[(String, @json.Json)]) -> Unit
 pub async fn ConsoleRuntime::file_suggestions_json(Self, String, Int32) -> @json.Json
 pub async fn ConsoleRuntime::invoke_registered_command(Self, String, String, @json.Json) -> @json.Json
 pub async fn ConsoleRuntime::login(Self, String, String) -> String
 pub async fn ConsoleRuntime::logout(Self, String) -> String
 pub async fn ConsoleRuntime::model_slots_json(Self, String?) -> @json.Json noraise
 pub async fn ConsoleRuntime::new_session(Self) -> Result[String, String] noraise
+pub async fn ConsoleRuntime::prefetch_session(Self, String) -> Result[String, String] noraise
 pub async fn ConsoleRuntime::providers_json(Self) -> @json.Json
 pub async fn ConsoleRuntime::quota_all_json(Self) -> @json.Json
 pub async fn ConsoleRuntime::quota_json(Self) -> @json.Json

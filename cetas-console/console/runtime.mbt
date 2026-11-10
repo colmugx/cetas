@@ -103,6 +103,13 @@ pub struct ConsoleRuntime {
   /// Native-only bounded replay index cache (one compact line table per
   /// session revision). The default console never reads or writes it.
   replay_cache : NativeReplayCache
+  /// Set by `shutdown_all` before it releases the existing session scopes.
+  /// Composition that observes it releases its fresh handle instead of
+  /// adding one nobody will signal again: posoco's `run_scoped` exits on the
+  /// close signal, not on task cancellation, so a handle added after the
+  /// sweep parks its scope owner forever and trips the async runtime's
+  /// deadlock detector at task-group exit.
+  mut stopping : Bool
 }
 
 ///|
@@ -210,34 +217,71 @@ async fn ConsoleRuntime::resolve_handle(
 }
 
 ///|
+/// Release one composed handle's session scope exactly the way `shutdown_all`
+/// does: the close signal retires the parked `run_scoped` owner, or a
+/// scope-less agent shuts down directly.
+async fn release_handle_scope(handle : SessionHandle) -> Unit {
+  match handle.close {
+    Some(close) => ignore(close.try_put(()) catch { _ => false })
+    None => handle.agent.shutdown()
+  }
+}
+///|
 async fn ConsoleRuntime::compose_handle(
   self : ConsoleRuntime,
   workspace : WorkspaceRuntime,
   session_id : String,
 ) -> Result[SessionHandle, String] noraise {
+  // Fast refusal: never start a fresh composition once the shutdown sweep
+  // has begun (the mid-compose window is handled after the protected region).
+  if self.stopping {
+    return Err("runtime is shutting down")
+  }
   match workspace.catalog.check_id(session_id) {
     Err(reason) => return Err(reason)
     Ok(_) => ()
   }
-  let handle = compose_session_agent(
-    self.fs,
-    self.home,
-    workspace.cwd,
-    self.group,
-    self.lifetime_group,
-    workspace.platform,
-    self.hub,
-    self.ui_registry,
-    workspace.permission_mode,
-    self.label,
-    self.protocol,
-    self.native_ui,
-    session_id,
+  // Composition suspends on disk I/O, so a shutdown can land mid-compose:
+  // `shutdown_all` may already have swept the workspace's handles. Protect
+  // the compose-and-decide region, then either install the handle or — once
+  // stopping — release the fresh scope instead of parking it on a close
+  // signal nobody will ever send.
+  let handle : Result[SessionHandle, String] = @async.protect_from_cancel(
+    async fn() {
+      Ok(
+        compose_session_agent(
+          self.fs,
+          self.home,
+          workspace.cwd,
+          self.group,
+          self.lifetime_group,
+          workspace.platform,
+          self.hub,
+          self.ui_registry,
+          workspace.permission_mode,
+          self.label,
+          self.protocol,
+          self.native_ui,
+          session_id,
+        ),
+      ) catch {
+        error => Err(error.to_string())
+      }
+    },
   ) catch {
     error => return Err(error.to_string())
   }
-  workspace.handles[session_id] = handle
-  Ok(handle)
+  match handle {
+    Ok(handle) => {
+      if self.stopping {
+        release_handle_scope(handle) catch { _ => () }
+        return Err("runtime is shutting down")
+      }
+      workspace.handles[session_id] = handle
+      Ok(handle)
+    }
+    Err(reason) => Err(reason)
+  }
 }
 
 ///|
@@ -466,39 +510,71 @@ pub async fn ConsoleRuntime::new_session(
 }
 
 ///|
+/// Release every session scope of a freshly built workspace that lost the
+/// shutdown race: same hand-off as `shutdown_all`, applied to a workspace
+/// that was never installed.
+async fn release_workspace_scopes(workspace : WorkspaceRuntime) -> Unit {
+  for _, handle in workspace.handles {
+    release_handle_scope(handle)
+  }
+}
+
+///|
 /// Switch the active workspace, composing its platform and first session on
 /// first touch. Composition failures (bad cwd, broken recipe) surface as 409.
 pub async fn ConsoleRuntime::switch_workspace(
   self : ConsoleRuntime,
   cwd : String,
 ) -> Result[String, String] noraise {
+  if self.stopping {
+    return Err("runtime is shutting down")
+  }
   let normalized = @fs_session.normalize_cwd(cwd)
   if self.workspaces.contains(normalized) {
     self.active_cwd = normalized
     self.emit_active_snapshot()
     return Ok(normalized)
   }
-  let workspace = build_workspace(
-    self.fs,
-    self.home,
-    normalized,
-    self.group,
-    self.lifetime_group,
-    self.hub,
-    self.ui_registry,
-    self.startup_permission,
-    self.label,
-    self.protocol,
-    self.native_ui,
+  let workspace : Result[WorkspaceRuntime, String] = @async.protect_from_cancel(
+    async fn() {
+      Ok(
+        build_workspace(
+          self.fs,
+          self.home,
+          normalized,
+          self.group,
+          self.lifetime_group,
+          self.hub,
+          self.ui_registry,
+          self.startup_permission,
+          self.label,
+          self.protocol,
+          self.native_ui,
+        ),
+      ) catch {
+        error => Err(error.to_string())
+      }
+    },
   ) catch {
     error => return Err(error.to_string())
   }
-  self.workspaces[normalized] = workspace
-  self.registry = self.registry.filter(registered => registered != normalized)
-  self.sync_registry()
-  self.active_cwd = normalized
-  self.emit_active_snapshot()
-  Ok(normalized)
+  match workspace {
+    Err(reason) => Err(reason)
+    Ok(workspace) => {
+      // A shutdown that swept during the build must not strand the fresh
+      // workspace's parked scopes: release and refuse instead of installing.
+      if self.stopping {
+        release_workspace_scopes(workspace) catch { _ => () }
+        return Err("runtime is shutting down")
+      }
+      self.workspaces[normalized] = workspace
+      self.registry = self.registry.filter(registered => registered != normalized)
+      self.sync_registry()
+      self.active_cwd = normalized
+      self.emit_active_snapshot()
+      Ok(normalized)
+    }
+  }
 }
 
 ///|
@@ -515,6 +591,9 @@ pub async fn ConsoleRuntime::resume_workspace_session(
   session_id : String,
   permission : String?,
 ) -> Result[String, String] noraise {
+  if self.stopping {
+    return Err("runtime is shutting down")
+  }
   let normalized = @fs_session.normalize_cwd(cwd)
   let workspace = match self.workspaces.get(normalized) {
     Some(workspace) => workspace
@@ -527,20 +606,40 @@ pub async fn ConsoleRuntime::resume_workspace_session(
           }
         None => self.startup_permission
       }
-      build_workspace(
-        self.fs,
-        self.home,
-        normalized,
-        self.group,
-        self.lifetime_group,
-        self.hub,
-        self.ui_registry,
-        mode,
-        self.label,
-        self.protocol,
-        self.native_ui,
+      let built : Result[WorkspaceRuntime, String] = @async.protect_from_cancel(
+        async fn() {
+          Ok(
+            build_workspace(
+              self.fs,
+              self.home,
+              normalized,
+              self.group,
+              self.lifetime_group,
+              self.hub,
+              self.ui_registry,
+              mode,
+              self.label,
+              self.protocol,
+              self.native_ui,
+            ),
+          ) catch {
+            error => Err(error.to_string())
+          }
+        },
       ) catch {
         error => return Err(error.to_string())
+      }
+      match built {
+        Err(reason) => return Err(reason)
+        Ok(workspace) => {
+          // Same shutdown hand-off as switch_workspace: never install a
+          // workspace whose scopes the sweep can no longer reach.
+          if self.stopping {
+            release_workspace_scopes(workspace) catch { _ => () }
+            return Err("runtime is shutting down")
+          }
+          workspace
+        }
       }
     }
   }
@@ -559,6 +658,25 @@ pub async fn ConsoleRuntime::resume_workspace_session(
   self.active_cwd = normalized
   emit_handle_snapshot(workspace, handle)
   Ok(session_id)
+}
+
+///|
+/// Compose one session's agent handle without activating it, so a later
+/// `switch_session` to the same id answers from the handle cache instead of
+/// composing on the interactive path. Additive for every host: no events are
+/// emitted and neither the active workspace nor the active session moves.
+pub async fn ConsoleRuntime::prefetch_session(
+  self : ConsoleRuntime,
+  session_id : String,
+) -> Result[String, String] noraise {
+  let workspace = self.active()
+  if workspace.handles.get(session_id) is Some(_) {
+    return Ok(session_id)
+  }
+  match self.compose_handle(workspace, session_id) {
+    Ok(_) => Ok(session_id)
+    Err(reason) => Err(reason)
+  }
 }
 
 ///|
@@ -1062,6 +1180,7 @@ pub async fn compose_console_runtime(
     active_cwd: cwd,
     file_index_cache: None,
     replay_cache: NativeReplayCache::new(),
+    stopping: false,
   }
 }
 
@@ -1330,6 +1449,20 @@ pub fn ConsoleRuntime::emit_event(
 }
 
 ///|
+/// Fan one host-level lifecycle fact to the attached sink only: it enters
+/// neither the rolling wire log nor any session ledger. Completion events
+/// for host-initiated commands (async session switching) are terminal host
+/// facts, not transcript rows, so out-of-band is the exact channel.
+pub fn ConsoleRuntime::emit_host_event(
+  self : ConsoleRuntime,
+  session_id : String,
+  event_type : String,
+  extra~ : Array[(String, Json)] = [],
+) -> Unit {
+  self.hub.emit_out_of_band(session_id, event_type, extra~)
+}
+
+///|
 /// Adaptor surface: settle one UI request by id. Blocking asks (approvals,
 /// `ask_question`, OAuth prompts) wait in the `UiRegistry`. Under the native
 /// projection a non-blocking question (`notify_user`) is keyed by its
@@ -1370,17 +1503,19 @@ pub fn ConsoleRuntime::active_workspace(self : ConsoleRuntime) -> String {
 
 ///|
 pub async fn ConsoleRuntime::shutdown_all(self : ConsoleRuntime) -> Unit {
+  // Fence FIRST: composition in flight must observe stopping when its
+  // protected region ends, release its fresh scope, and refuse the install —
+  // a handle added after this sweep would park on a close signal that no
+  // second sweep will ever send.
+  self.stopping = true
   for _, workspace in self.workspaces {
     for _, handle in workspace.handles {
-      match handle.close {
-        // Native sessions own exactly one `run_scoped`, and that scope is the
-        // Agent's shutdown owner: releasing it makes `run_scoped` retire the
-        // Agent itself (task runtime, wakeup pump, lifecycle shutdown). Calling
-        // `shutdown` here as well would race it, so the signal is the whole
-        // hand-off. The host task group drains the parked owner on exit.
-        Some(close) => ignore(close.try_put(()) catch { _ => false })
-        None => handle.agent.shutdown()
-      }
+      // Native sessions own exactly one `run_scoped`, and that scope is the
+      // Agent's shutdown owner: releasing it makes `run_scoped` retire the
+      // Agent itself (task runtime, wakeup pump, lifecycle shutdown). Calling
+      // `shutdown` here as well would race it, so the signal is the whole
+      // hand-off. The host task group drains the parked owner on exit.
+      release_handle_scope(handle)
     }
   }
 }
