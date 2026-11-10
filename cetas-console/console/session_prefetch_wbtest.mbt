@@ -91,7 +91,9 @@ async test "composition after the shutdown sweep is refused without installing" 
     assert_true(runtime.new_session() is Err(_))
     assert_eq(runtime.active().handles.length(), handles_before)
     ignore(second)
-    @fs.remove(other) catch { _ => () }
+    @fs.remove(other) catch {
+      _ => ()
+    }
     permission_fixture_cleanup(cwd)
     permission_fixture_cleanup(home)
   })
@@ -109,11 +111,9 @@ async test "emit_host_event reaches the sink but not the wire log" {
     let frames : Array[String] = []
     runtime.attach_sink(fn(frame) { frames.push(frame) })
     let trace_before = runtime.hub.trace.length()
-    runtime.emit_host_event(
-      "s-x",
-      "session.switched",
-      extra=[("snapshot", Json::object(Map::from_array([])))],
-    )
+    runtime.emit_host_event("s-x", "session.switched", extra=[
+      ("snapshot", Json::object(Map::from_array([]))),
+    ])
     assert_eq(frames.length(), 1)
     assert_true(frames[0].contains("\"session.switched\""))
     assert_true(frames[0].contains("\"s-x\""))
