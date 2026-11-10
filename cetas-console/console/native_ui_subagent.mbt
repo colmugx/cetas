@@ -668,7 +668,7 @@ fn NativeChildMeter::observe(
 }
 
 ///|
-fn NativeChildMeter::live_count(self : NativeChildMeter) -> Int {
+fn NativeChildMeter::live_count(self : NativeChildMeter) -> Int32 {
   self.live.length()
 }
 
