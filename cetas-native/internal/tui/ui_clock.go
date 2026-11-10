@@ -20,6 +20,11 @@ func (m model) nextUIWake(now time.Time) time.Time {
 		}
 	}
 	consider(m.replayRetryAt)
+	// A lost cold transcript index reply must wake even on an idle screen;
+	// the timeout handler releases the latch and retries with a fresh deadline.
+	if m.replayIndexPending && !m.replayIndexSince.IsZero() {
+		consider(m.replayIndexSince.Add(replayIndexTimeout + time.Millisecond))
+	}
 	if m.running {
 		consider(now.Add(80 * time.Millisecond))
 	}
