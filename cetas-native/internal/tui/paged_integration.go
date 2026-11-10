@@ -117,6 +117,11 @@ func (m *model) applyPagedReply(result commandResult) (tea.Cmd, bool) {
 }
 
 func (m *model) ensureTranscriptPages() tea.Cmd {
+	if m.replayIndexTimeouts > replayIndexTimeoutBudget {
+		// Pagination gave up on this document; only a replay restart
+		// (session switch/redirect) re-arms it.
+		return nil
+	}
 	if !m.replayRetryAt.IsZero() {
 		if time.Now().Before(m.replayRetryAt) {
 			return nil

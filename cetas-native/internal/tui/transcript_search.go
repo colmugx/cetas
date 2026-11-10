@@ -101,7 +101,9 @@ func highlightLiteralRows(rows []string, source string, hits []transcriptSearchH
 			before := ansi.Cut(result, 0, span.start)
 			middle := ansi.Cut(result, span.start, span.end)
 			after := ansi.Cut(result, span.end, total)
-			result = before + "\x1b[4m" + middle + "\x1b[24m" + after
+			// Styled undercurl (SGR 4:3) reads as a search hit at a glance;
+			// terminals without styled underlines degrade to a plain one.
+			result = before + "\x1b[4:3m" + middle + "\x1b[24m" + after
 		}
 		out[index] = result
 	}

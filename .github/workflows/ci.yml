@@ -166,6 +166,22 @@ jobs:
           CGO_ENABLED: '1'
         run: go test ./... -count=1
 
+      # The cgo boundary is shared-memory by design; the race detector is the
+      # tool-level guard for the Go side of that contract.
+      - name: go test (race)
+        working-directory: cetas-native
+        env:
+          CGO_ENABLED: '1'
+        run: go test -race ./go_bridge/ ./harness/ ./internal/... -count=1
+
+      # Fault-injection builds carry the transport failure probes; ordinary
+      # builds must stay without them (see go_bridge/faults.go).
+      - name: go test (fault injection tag)
+        working-directory: cetas-native
+        env:
+          CGO_ENABLED: '1'
+        run: go test -tags cetas_native_faults ./go_bridge/ -count=1
+
       - name: Prepare output directory
         shell: bash
         run: mkdir -p bin

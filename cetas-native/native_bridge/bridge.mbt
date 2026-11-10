@@ -185,6 +185,11 @@ pub fn run_infra() -> Int32 {
         Err("connecting"),
       )
       let composing = Ref(true)
+      // Settled once by the compose task: whether the error state is the
+      // clean missing-provider setup (first-run onboarding) rather than a
+      // fatal composition failure. The dispatcher routes on this flag rather
+      // than re-sniffing the error text every frame.
+      let needs_setup = Ref(false)
       let setup = @console.console_bootstrap(
         fs,
         home,
@@ -221,13 +226,18 @@ pub fn run_infra() -> Int32 {
                 }
               },
             )
+            needs_setup.val = match composed {
+              Err(detail) =>
+                detail.contains("providers: no configured model provider")
+              Ok(_) => false
+            }
             boot.val = composed
             emit_boot_progress("composed", @async.now() - started)
             match composed {
               Ok(runtime) => {
                 runtime.attach_sink(fn(frame : String) { emit(frame) })
                 emit(
-                  "{\"type\":\"infra.boot\",\"status\":\"ready\",\"snapshot\":" +
+                  "{\"type\":\"infra.boot\",\"status\":\"ready\",\"boot_state\":\"ready\",\"snapshot\":" +
                   runtime.runtime_json().stringify() +
                   "}",
                 )
@@ -237,9 +247,14 @@ pub fn run_infra() -> Int32 {
                   Json::object({
                     "type": Json::string("infra.boot"),
                     "status": Json::string(
-                      if detail.contains(
-                          "providers: no configured model provider",
-                        ) {
+                      if needs_setup.val {
+                        "needs_setup"
+                      } else {
+                        "error"
+                      },
+                    ),
+                    "boot_state": Json::string(
+                      if needs_setup.val {
                         "needs_setup"
                       } else {
                         "error"
@@ -291,9 +306,7 @@ pub fn run_infra() -> Int32 {
                       runtime, auth_tasks, replay_tasks, group, raw,
                     )
                   Err(detail) =>
-                    if detail.contains(
-                        "providers: no configured model provider",
-                      ) {
+                    if needs_setup.val {
                       bootstrap_handle_frame(
                         setup, setup_tasks, boot, config, cwd, group, raw,
                       )

@@ -44,8 +44,10 @@ func initialize() { once.Do(func() { C.cetas_host_boot() }) }
 
 // Verified bounded-transport limits, mirrored by go_bridge/host.c.
 const (
-	// ChunkLimit is the wire bound for one queued EventHub chunk.
-	ChunkLimit = 262144 // 256 KiB
+	// ChunkLimit is the wire bound for one queued EventHub chunk. A larger
+	// chunk quarters the cgo crossings of a big frame; it is the mirrored
+	// bound of EVENT_CHUNK_MAX in go_bridge/host.c and must change with it.
+	ChunkLimit = 1048576 // 1 MiB
 	// FrameLimit is the largest logical frame the native side accepts and
 	// Poll reassembles from chunks.
 	FrameLimit = 4194304 // 4 MiB = 16 chunks
@@ -170,7 +172,7 @@ func (h *Infra) pollChunk() ([]byte, int32, error) {
 		}
 		required := -n
 		if required <= 0 || required > ChunkLimit {
-			return nil, 0, errors.New("native EventHub chunk needs a buffer outside the 256 KiB chunk bound")
+			return nil, 0, fmt.Errorf("native EventHub chunk needs a buffer outside the %d MiB chunk bound", ChunkLimit>>20)
 		}
 		if required <= len(h.scratch) {
 			return nil, 0, errors.New("native EventHub chunk size changed between probe and read")

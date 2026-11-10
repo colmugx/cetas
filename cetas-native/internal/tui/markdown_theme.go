@@ -142,6 +142,10 @@ func (p *markdownPipeline) run() {
 	p.mu.Unlock()
 	var renderer *glamour.TermRenderer
 	identity := ""
+	// One reusable coalesce timer: a per-render time.After allocated a fresh
+	// timer that only the collector could retire.
+	coalesce := time.NewTimer(markdownCoalesceDelay)
+	defer coalesce.Stop()
 	for {
 		p.mu.Lock()
 		job := p.pending
@@ -177,11 +181,14 @@ func (p *markdownPipeline) run() {
 		p.mu.Unlock()
 		p.finish(markdownRenderResult{revision: job.revision, width: job.width, themeKey: job.themeKey, rendered: rendered, err: err})
 		// Give the next delta a chance to merge into one document render.
+		// A tick left over from an idle period closes this one window early —
+		// harmless, since no deltas were racing while the worker was idle.
 		select {
-		case <-time.After(markdownCoalesceDelay):
+		case <-coalesce.C:
 		case <-p.done:
 			return
 		}
+		coalesce.Reset(markdownCoalesceDelay)
 	}
 }
 

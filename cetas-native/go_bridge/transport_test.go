@@ -61,8 +61,8 @@ func assertQuiet(t *testing.T, h *Infra, before Rejections) {
 	}
 }
 
-// A synthetic 300 KiB snapshot reproduces the old size failure: larger than the
-// 256 KiB wire chunk, it must still arrive whole through chunk framing.
+// A synthetic snapshot larger than one wire chunk reproduces the old size
+// failure: it must still arrive whole through chunk framing.
 func TestChunkedSnapshotRoundTrip(t *testing.T) {
 	h := transportUnderTest()
 	before := snapshotRejections(t, h)
@@ -70,7 +70,7 @@ func TestChunkedSnapshotRoundTrip(t *testing.T) {
 		t.Fatalf("queue was not empty at start: %d frame(s)", len(got))
 	}
 
-	const size = 300_000 // 262144 + 37856 chunks
+	const size = ChunkLimit + 37856 // crosses the single-chunk bound
 	snapshot, err := json.Marshal(map[string]any{
 		"type": "harness.response", "id": 42,
 		"result": map[string]any{"session_id": "large-fixture", "messages": []any{map[string]any{"role": "assistant", "content": strings.Repeat("long tool result\n", size/16+1)}}},
@@ -79,10 +79,10 @@ func TestChunkedSnapshotRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(snapshot) <= ChunkLimit {
-		t.Fatal("fixture did not cross old frame bound")
+		t.Fatal("fixture did not cross the chunk bound")
 	}
 	if rc := publishFrame(snapshot); rc != 1 {
-		t.Fatalf("300 KiB snapshot publish rejected: rc=%d rejections=%+v", rc, h.Rejections())
+		t.Fatalf("oversize snapshot publish rejected: rc=%d rejections=%+v", rc, h.Rejections())
 	}
 
 	small := []byte(`{"type":"infra.ping"}`)
@@ -196,9 +196,10 @@ func TestInterruptedChunkRunSelfHeals(t *testing.T) {
 			t.Fatalf("queue filler publish rc=%d at %d", rc, i)
 		}
 	}
-	// One free slot is left, but a 300 KiB frame needs two chunks: the whole
-	// run must be rejected, leaving no stranded partial behind.
-	toolarge := testPayload(t, 300_000)
+	// One free slot is left, but a frame one byte over one chunk needs two
+	// chunk slots: the whole run must be rejected, leaving no stranded
+	// partial behind.
+	toolarge := testPayload(t, ChunkLimit+16)
 	if rc := publishFrame(toolarge); rc != 0 {
 		t.Fatalf("run past the entry bound must report queue full: rc=%d", rc)
 	}
@@ -241,14 +242,16 @@ func TestTransportProducerConsumerRace(t *testing.T) {
 		t.Fatalf("queue was not empty at start: %d frame(s)", len(got))
 	}
 
-	// 90 one-chunk frames + 10 two-chunk frames: 110 chunks and ~9 MiB, both
-	// inside the bounded queue, so a correct transport must drop nothing.
+	// 90 one-chunk frames + 10 two-chunk frames: 110 chunks, and the byte
+	// total stays inside the bounded queue, so a correct transport drops
+	// nothing. With a 1 MiB chunk the two-chunk frames need the queue's
+	// timed wait; that path is exactly what races here.
 	frames := make([][]byte, 0, 100)
 	for i := 0; i < 90; i++ {
 		frames = append(frames, testPayload(t, 64<<10))
 	}
 	for i := 0; i < 10; i++ {
-		frames = append(frames, testPayload(t, 300_000))
+		frames = append(frames, testPayload(t, ChunkLimit+1024))
 	}
 
 	received := make([][]byte, 0, len(frames))

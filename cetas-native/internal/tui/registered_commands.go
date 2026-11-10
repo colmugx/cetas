@@ -318,6 +318,7 @@ func (m *model) invokeDynamicCommand(input string) tea.Cmd {
 	}
 	m.nextCommandRequest++
 	id := fmt.Sprintf("command-%d", m.nextCommandRequest)
+	m.commandRequestInFlight = id
 	m.status = "running /" + definition.ID
 	return request(m.host, "invoke_command", map[string]any{
 		"session_id": m.session, "id": definition.ID, "arguments": args, "request_id": id,
@@ -326,6 +327,7 @@ func (m *model) invokeDynamicCommand(input string) tea.Cmd {
 func (m *model) handleCommandCompletion(raw json.RawMessage) {
 	var data struct {
 		CommandID string `json:"command_id"`
+		RequestID string `json:"request_id"`
 		Outcome   struct {
 			Type     string `json:"type"`
 			Feedback string `json:"feedback"`
@@ -336,6 +338,19 @@ func (m *model) handleCommandCompletion(raw json.RawMessage) {
 	if json.Unmarshal(raw, &data) != nil {
 		return
 	}
+	// A completion without correlation would let any late event overwrite
+	// status, transcript and composer. The host tags every invocation with
+	// a request id; a completion that does not match the outstanding one is
+	// dropped.
+	if data.RequestID == "" || data.RequestID != m.commandRequestInFlight {
+		if m.commandRequestInFlight == "" && data.RequestID == "" {
+			// Legacy events without ids keep flowing for older hosts.
+		} else {
+			return
+		}
+	}
+	m.commandRequestInFlight = ""
+	_ = data.CommandID
 	switch data.Outcome.Type {
 	case "success":
 		m.status = "/" + data.CommandID + " complete"

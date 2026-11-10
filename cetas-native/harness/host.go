@@ -168,14 +168,21 @@ func (h *Host) awaitBoot(ctx context.Context) (*Host, error) {
 	select {
 	case evt := <-h.boot:
 		var v struct {
-			Status string `json:"status"`
-			Detail string `json:"detail"`
+			Status    string `json:"status"`
+			BootState string `json:"boot_state"`
+			Detail    string `json:"detail"`
 		}
 		if err := json.Unmarshal(evt.Raw, &v); err != nil {
 			_ = h.Close(ctx)
 			return nil, fmt.Errorf("invalid Harness boot: %w", err)
 		}
-		if v.Status == "needs_setup" && strings.Contains(v.Detail, "providers: no configured model provider") {
+		// The explicit enum is the contract; the substring sniff only keeps
+		// older runtimes (which never sent boot_state) bootable.
+		setup := v.BootState == "needs_setup"
+		if !setup && v.BootState == "" {
+			setup = v.Status == "needs_setup" && strings.Contains(v.Detail, "providers: no configured model provider")
+		}
+		if setup {
 			h.needsSetup = true
 			return h, nil
 		}
@@ -217,8 +224,11 @@ func (h *Host) Request(ctx context.Context, command string, args any) (json.RawM
 		return nil, errors.New("empty Harness command")
 	}
 	id := h.nextID.Add(1)
-	if id >= 1<<53 {
-		return nil, errors.New("request id precision limit reached")
+	// The native dispatcher parses ids into Int32; minting beyond that range
+	// would wrap negative on the MoonBit side and be refused as an invalid
+	// envelope, leaving this request waiting forever.
+	if id >= 1<<31-1 {
+		return nil, errors.New("request id space exhausted")
 	}
 	req, err := json.Marshal(envelope{ID: id, Command: command, Args: args})
 	if err != nil {

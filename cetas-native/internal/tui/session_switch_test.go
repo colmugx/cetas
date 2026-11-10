@@ -280,6 +280,12 @@ func TestIndexDeadlineReleasesLatchAndBoundedRetries(t *testing.T) {
 	if m.replayIndexPending {
 		t.Fatal("a later UI frame must not revive an exhausted cold index")
 	}
+	if m.replayIndexPending {
+		t.Fatal("give-up must stop re-arming the index")
+	}
+	if !strings.Contains(m.err, "pagination disabled") {
+		t.Fatalf("give-up not visible: %q", m.err)
+	}
 }
 
 func TestBackpressureRetriesAreBounded(t *testing.T) {
@@ -312,5 +318,70 @@ func TestRearmScanCountsConsumedRestarts(t *testing.T) {
 	r.rearmScan(&m, r.scan)
 	if fresh.restarts != 0 {
 		t.Fatalf("unconsumed scan must rebind without a restart: %d", fresh.restarts)
+	}
+}
+
+func TestAbortLatchSuppressesRepeatEscAndClearsOnSnapshot(t *testing.T) {
+	m := newModel()
+	m.host = &testHost{}
+	m.session = "s-current"
+	m.running = true
+	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if state := next.(model); !state.aborting {
+		t.Fatal("first Esc while running must arm the abort latch")
+	}
+	m2 := next.(model)
+	m2.lastProgramStatus = formatProgramStatus(m2.projectProgramStatus())
+	again, _ := m2.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if state := again.(model); state.aborting != true {
+		t.Fatal("latch must suppress a second abort dispatch")
+	}
+	m2.applyEvent(event(`{"type":"session.snapshot","session_id":"s-current","busy":false}`))
+	if m2.aborting {
+		t.Fatal("an idle snapshot must clear the abort latch")
+	}
+	m2.running = true
+	m2.aborting = true
+	m2.applyEvent(event(`{"type":"turn.completed","session_id":"s-current","text":"done"}`))
+	if m2.aborting || m2.running {
+		t.Fatal("a terminal turn event must clear the abort posture")
+	}
+}
+
+func TestTurnFailureDropsStrandedFollowups(t *testing.T) {
+	m := switchPickerModel(t, &testHost{})
+	m.running = true
+	m.followups = []string{"next prompt"}
+	m.applyEvent(event(`{"type":"turn.failed","session_id":"s-current","message":"provider offline"}`))
+	if len(m.followups) != 0 {
+		t.Fatal("queued follow-ups stranded behind a failed turn")
+	}
+	next, _ := m.Update(commandResult{name: "turn_start", err: errString("queue full")})
+	if state := next.(model); state.running || len(state.followups) != 0 {
+		t.Fatal("turn_start transport error must clear running and follow-ups")
+	}
+}
+
+func TestBackgroundChildFinishingGraceExpires(t *testing.T) {
+	m := switchPickerModel(t, &testHost{})
+	m.applyEvent(event(`{"type":"subagent.event","session_id":"s-current","child_session":"c-1","kind":"explore","parent_call":"spawn-1","ev":{"type":"custom","source":"posoco_ext_subagent","label":"spawned","data":{"background":true}}}`))
+	m.applyEvent(event(`{"type":"subagent.event","session_id":"s-current","child_session":"c-1","kind":"explore","parent_call":"spawn-1","ev":{"type":"turn.completed"}}`))
+	a := m.surface.activities.records["c-1"]
+	if a == nil || !a.live() {
+		t.Fatal("a freshly finished background child stays live for its terminal event")
+	}
+	a.turnDoneAt = time.Now().Add(-backgroundFinishGrace - time.Minute)
+	if a.live() {
+		t.Fatal("an unreported background child must expire from the active set")
+	}
+}
+
+func TestPasteBehindLegacyDialogDoesNotEditComposer(t *testing.T) {
+	m := switchPickerModel(t, &testHost{})
+	m.modal = "models"
+	next, _ := m.Update(tea.PasteMsg{Content: "injected"})
+	state := next.(model)
+	if state.textarea.Value() != "" {
+		t.Fatalf("paste mutated the composer behind a dialog: %q", state.textarea.Value())
 	}
 }

@@ -182,6 +182,9 @@ func (m *model) applySessionCatalogReply(result commandResult) tea.Cmd {
 	// behind an approval; the deferred replay keeps these tags, so it is
 	// refused like any other reply if the picker moved on in the meantime.
 	if m.modalRequestID != "" {
+		if len(m.deferredDialogs) >= deferredDialogsCap {
+			m.deferredDialogs = m.deferredDialogs[1:]
+		}
 		m.deferredDialogs = append(m.deferredDialogs, result)
 		return nil
 	}

@@ -282,7 +282,7 @@ static void wake_channels_init(void) {
 enum {
     COMMAND_CAP = 64,
     EVENT_CAP = 256,
-    EVENT_CHUNK_MAX = 262144,  /* 256 KiB bounded chunk on the wire */
+    EVENT_CHUNK_MAX = 1048576, /* 1 MiB bounded chunk on the wire */
     EVENT_FRAME_MAX = 4194304, /* 4 MiB reassembled logical frame bound */
     EVENT_TOTAL_MAX = 16777216, /* 16 MiB bounded queue */
     EVENT_RUN_MAX = EVENT_FRAME_MAX / EVENT_CHUNK_MAX /* chunks per run */

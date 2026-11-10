@@ -72,6 +72,14 @@ type bootResult struct {
 	err        error
 }
 
+// Event-driven queue caps: without them a host that out-produces the user
+// grows memory without bound (audit finding).
+const (
+	pendingUICap       = 32
+	deferredDialogsCap = 64
+	followupsCap       = 16
+)
+
 type model struct {
 	start               Startup
 	version             string
@@ -108,6 +116,9 @@ type model struct {
 	streaming           string
 	reasoning           string
 	running             bool
+	// aborting marks a turn_abort in flight: Esc re-presses are ignored
+	// until a snapshot or a terminal turn event settles the posture.
+	aborting            bool
 	needsSetup          bool
 	welcomeHidden       bool
 	initialReplayLoaded bool
@@ -123,6 +134,9 @@ type model struct {
 	followups           []string
 	completionPrefix    string
 	completionToken     string
+	// completionDueAt stages the debounced completion request (see
+	// autocomplete.go); the update pump fires it when typing settles.
+	completionDueAt time.Time
 	modelSlots          []overlays.ModelSlot
 	modelPicker         overlays.Models
 	sessionPicker       sessionPickerState
@@ -146,6 +160,9 @@ type model struct {
 	dynamicCommands     map[string]registeredCommand
 	commandSession      string
 	nextCommandRequest  int
+	// commandRequestInFlight is the request_id of the outstanding dynamic
+	// command; completions that do not match it are stale and dropped.
+	commandRequestInFlight string
 	session             string
 	status              string
 	err                 string
@@ -156,6 +173,14 @@ type model struct {
 	showTools           bool
 	// lastProgramStatus dedupes OSC 7501 reports: one frame per state change.
 	lastProgramStatus string
+	// focused tracks terminal focus reporting (Ghostty-class terminals):
+	// unfocused turn completions become OSC 9 desktop notifications.
+	focused bool
+	// pendingTitle / lastTitle drive the OSC 2 terminal title; pendingNotice
+	// carries one OSC 9 notification out of applyEvent.
+	pendingTitle  string
+	lastTitle     string
+	pendingNotice string
 }
 
 func newModel() model {
@@ -172,7 +197,7 @@ func newModel() model {
 	// The document supplies cell-wrapped row pages already. Rewrapping those
 	// rows in viewport.View repeats ANSI/grapheme work for every scroll.
 	vp.SoftWrap = false
-	m := model{textarea: ta, viewport: vp, markdownRenderer: renderer, status: "connecting to Posoco…", searchActive: -1, surface: initialSurface(), version: "0.11.0"}
+	m := model{textarea: ta, viewport: vp, markdownRenderer: renderer, status: "connecting to Posoco…", searchActive: -1, surface: initialSurface(), version: "0.11.0", focused: true}
 	if renderErr != nil {
 		m.err = "Markdown renderer initialization failed: " + renderErr.Error()
 	}
@@ -276,6 +301,12 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	if raw := state.emitProgramStatus(); raw != nil {
 		cmd = tea.Batch(cmd, raw)
 	}
+	if chrome := state.emitTerminalChrome(); chrome != nil {
+		cmd = tea.Batch(cmd, chrome)
+	}
+	if due := state.fireCompletion(); due != nil {
+		cmd = tea.Batch(cmd, due)
+	}
 	if state.modal == "" && state.modalRequestID == "" && len(state.deferredDialogs) > 0 {
 		reply := state.deferredDialogs[0]
 		state.deferredDialogs = state.deferredDialogs[1:]
@@ -312,6 +343,12 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	switch msg := message.(type) {
+	case tea.FocusMsg:
+		m.focused = true
+		return m, nil
+	case tea.BlurMsg:
+		m.focused = false
+		return m, nil
 	case pagedCopyResult:
 		return m, m.applyPagedCopyResult(msg)
 	case clockTick:
@@ -383,6 +420,9 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.closed {
 			m.flushAssistant()
 			m.running = false
+			m.aborting = false
+			m.followups = nil
+			m.authID = ""
 			m.Close()
 			m.document.markdown = nil
 			m.document.live = liveMarkdown{}
@@ -432,6 +472,8 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.name + ": " + msg.err.Error()
 			if msg.name == "turn_start" {
 				m.running = false
+				m.aborting = false
+				m.followups = nil
 			}
 			if msg.name == "switch_session" {
 				// The async switch never started server-side: release the
@@ -456,6 +498,12 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.modalRequestID != "" && opensDialog(msg.name) {
+			if len(m.deferredDialogs) >= deferredDialogsCap {
+				// The oldest deferred reply is by construction the stalest;
+				// dropping it keeps the queue bounded without losing the
+				// freshest dialog the user is about to see.
+				m.deferredDialogs = m.deferredDialogs[1:]
+			}
 			m.deferredDialogs = append(m.deferredDialogs, msg)
 			return m, nil
 		}
@@ -766,6 +814,12 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.modalBuffer = append(m.modalBuffer, []rune(msg.Content)...)
 			return m, nil
 		}
+		if m.modal != "" {
+			// No other dialog accepts a paste; letting it fall through would
+			// mutate the composer (and its completion popup) behind the
+			// dialog the user is looking at.
+			return m, nil
+		}
 	case tea.KeyPressMsg:
 		key := msg.String()
 		if key == "ctrl+c" {
@@ -993,7 +1047,14 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "esc":
 			if m.host != nil && m.running {
+				if m.aborting {
+					// One abort is already in flight; re-issuing per press
+					// only floods the dispatcher without a second effect.
+					return m, nil
+				}
 				m.lastEscape = time.Time{}
+				m.aborting = true
+				m.status = "aborting"
 				return m, request(m.host, "turn_abort", map[string]any{})
 			}
 			if m.host != nil && m.authID != "" {
@@ -1047,6 +1108,10 @@ func (m *model) submitEditor() tea.Cmd {
 	}
 	m.appendUser(value)
 	if m.running {
+		if len(m.followups) >= followupsCap {
+			m.err = "follow-up queue full; prompt dropped"
+			return nil
+		}
 		m.followups = append(m.followups, value)
 		m.status = fmt.Sprintf("queued %d follow-up(s)", len(m.followups))
 		m.refreshTranscript()
@@ -1328,6 +1393,7 @@ func (m *model) applyEvent(e wire.Event) {
 		if json.Unmarshal(e.Raw, &data) == nil && data.Snapshot.SessionID != "" {
 			m.needsSetup = false
 			m.session = data.Snapshot.SessionID
+			m.requestTitle()
 			m.status = "ready"
 			m.err = ""
 			m.modal = ""
@@ -1397,14 +1463,23 @@ func (m *model) applyEvent(e wire.Event) {
 		m.streaming = ""
 		m.reasoning = ""
 		m.running = false
+		m.aborting = false
 		m.status = "ready"
+		m.requestNotice("Cetas: turn completed")
 	case "turn.failed":
 		m.flushAssistant()
 		m.transcript = append(m.transcript, "Error: "+ui.SanitizeSGR(frame.Message))
 		m.streaming = ""
 		m.reasoning = ""
 		m.running = false
+		m.aborting = false
+		// Queued follow-ups waited for an idle snapshot that a failed turn
+		// never produces; keeping them strands prompts forever.
+		if len(m.followups) > 0 {
+			m.followups = nil
+		}
 		m.status = "failed"
+		m.requestNotice("Cetas: turn failed")
 	case "session.redirect":
 		if frame.From == m.session && frame.To != "" {
 			// The picker browses one session's catalog with at most one switch
@@ -1429,6 +1504,7 @@ func (m *model) applyEvent(e wire.Event) {
 			m.reasoning = ""
 			m.running = false
 			m.followups = nil
+			m.requestTitle()
 		}
 		m.switchInFlight = ""
 		m.status = "session redirected"
@@ -1447,8 +1523,10 @@ func (m *model) applyEvent(e wire.Event) {
 			return
 		}
 		m.switchInFlight = ""
+		m.aborting = false
 		m.pendingSessionCmd = m.retireSessionPresentation()
 		m.session = data.SessionID
+		m.requestTitle()
 		// A brand-new session shows the empty-start welcome; resuming a
 		// journal keeps working content on screen.
 		m.welcomeHidden = !data.Fresh
@@ -1482,6 +1560,9 @@ func (m *model) applyEvent(e wire.Event) {
 		}
 	case "session.snapshot":
 		m.running = frame.Busy
+		// The runtime's busy flag is authoritative: a snapshot settles any
+		// outstanding abort posture either way.
+		m.aborting = m.aborting && frame.Busy
 	case "ui.request":
 		if frame.RequestID == "" {
 			m.err = "ui.request missing request_id"
@@ -1502,6 +1583,13 @@ func (m *model) applyEvent(e wire.Event) {
 		}
 		prompt := uiPrompt{id: frame.RequestID, kind: frame.Kind, prompt: frame.Prompt, options: frame.Options, defaultValue: frame.Default}
 		if m.modalRequestID != "" {
+			if len(m.pendingUI) >= pendingUICap {
+				// An event-driven queue must not grow without bound: settle
+				// the overflow ask immediately instead of stacking it.
+				m.err = "ask queue full; request cancelled"
+				m.pendingAskReject = frame.RequestID
+				return
+			}
 			m.pendingUI = append(m.pendingUI, prompt)
 		} else {
 			m.activateUI(prompt)

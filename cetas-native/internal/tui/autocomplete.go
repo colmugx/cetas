@@ -1,8 +1,10 @@
 package tui
 
 import (
-	tea "charm.land/bubbletea/v2"
 	"strings"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 func (m model) completing() bool {
@@ -68,6 +70,33 @@ func (m *model) autocomplete() tea.Cmd {
 	}
 	m.completionPrefix = prefix
 	m.completionToken = token
+	// Debounce: fast typing changes the token every keystroke, and one
+	// harness request per character floods the dispatcher. Stage the request;
+	// the update pump fires it once typing settles (fireCompletion).
+	m.completionDueAt = time.Now().Add(completionDebounce)
+	return nil
+}
+
+// completionDebounce is how long typing must settle before one completion
+// request is issued for the token under the caret.
+const completionDebounce = 40 * time.Millisecond
+
+// fireCompletion issues the staged completion request once its debounce
+// deadline passes, re-validating that the caret still sits on the staged
+// token so typing past the deadline costs nothing.
+func (m *model) fireCompletion() tea.Cmd {
+	if m.completionDueAt.IsZero() || time.Now().Before(m.completionDueAt) {
+		return nil
+	}
+	m.completionDueAt = time.Time{}
+	if m.host == nil {
+		return nil
+	}
+	value := m.textarea.Value()
+	prefix, token := completionAtEnd(value)
+	if token == "" || token != m.completionToken || prefix != m.completionPrefix {
+		return nil
+	}
 	command := "skills"
 	args := map[string]any{}
 	if token[0] == '@' {

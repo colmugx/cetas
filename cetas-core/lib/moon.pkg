@@ -33,8 +33,6 @@ import {
   "posoco/devkit/testkit" @tk,
 } for "wbtest"
 
-warnings = "-unused_package"
-
 supported_targets = "+native +js +wasm"
 
 // The rate-limit guard and its recovery runtime (posoco) live on the

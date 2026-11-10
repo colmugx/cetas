@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -120,4 +121,78 @@ func cmdMsgs(t *testing.T, cmd tea.Cmd) []tea.Msg {
 		return msgs
 	}
 	return []tea.Msg{msg}
+}
+
+func TestTerminalChromeTitleAndUnfocusedNotice(t *testing.T) {
+	m := newModel()
+	m.host = &testHost{}
+	m.focused = true
+	m.surface.cwd = "/work/cetas-native"
+	m.requestTitle()
+	if m.pendingTitle == "" {
+		t.Fatal("cwd change must stage a title")
+	}
+	cmd := m.emitTerminalChrome()
+	if cmd == nil || m.lastTitle != "cetas · cetas-native" || m.pendingTitle != "" {
+		t.Fatalf("title not flushed/deduped: %q", m.lastTitle)
+	}
+	if again := m.emitTerminalChrome(); again != nil {
+		t.Fatal("unchanged title must not emit again")
+	}
+	// A focused terminal never gets completion notifications.
+	m.requestNotice("Cetas: turn completed")
+	if m.pendingNotice != "" {
+		t.Fatal("focused terminal must not stage a notification")
+	}
+	m.focused = false
+	m.requestNotice("Cetas: turn failed")
+	if m.pendingNotice == "" {
+		t.Fatal("unfocused terminal must stage the notification")
+	}
+	if cmd := m.emitTerminalChrome(); cmd == nil || m.pendingNotice != "" {
+		t.Fatal("notification not flushed exactly once")
+	}
+}
+
+func TestCompletionDebounceFiresOnceAndValidatesToken(t *testing.T) {
+	host := &switchRecordingHost{}
+	m := newModel()
+	m.host = host
+	m.textarea.SetValue("read @doc")
+	next, _ := m.Update(tea.KeyPressMsg{Text: "s"})
+	state := next.(model)
+	if state.completionDueAt.IsZero() {
+		t.Fatal("typing staged no completion request")
+	}
+	for _, name := range host.names {
+		if name == "file_search" {
+			t.Fatal("debounced request fired before the deadline")
+		}
+	}
+	// Typing settles: the deadline passes and the pump fires exactly one.
+	state.completionDueAt = time.Now().Add(-time.Millisecond)
+	fired, cmd := state.Update(struct{}{})
+	final := fired.(model)
+	saw := false
+	for _, msg := range cmdMsgs(t, cmd) {
+		if result, ok := msg.(commandResult); ok && strings.HasPrefix(result.name, "complete:") {
+			saw = true
+		}
+	}
+	if !saw {
+		t.Fatalf("settled typing did not fire one completion: %#v", cmdMsgs(t, cmd))
+	}
+	if !final.completionDueAt.IsZero() {
+		t.Fatal("fired request left its deadline armed")
+	}
+	before := len(host.names)
+	// A stale deadline with a moved caret must not fire anything.
+	final.completionDueAt = time.Now().Add(-time.Millisecond)
+	final.textarea.SetValue("plain text")
+	if again, _ := final.Update(struct{}{}); again == nil {
+		t.Fatal("update returned no model")
+	}
+	if len(host.names) != before {
+		t.Fatal("stale completion fired without a token under the caret")
+	}
 }

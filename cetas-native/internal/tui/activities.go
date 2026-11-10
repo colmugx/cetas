@@ -12,16 +12,38 @@ import (
 
 // These are projections of real extension facts, never task execution state.
 // A background task has a longer clock than any one of its child turns.
+// backgroundFinishGrace is how long a background child may sit in the
+// finishing phase without a background_terminal event before it stops
+// counting as an active agent.
+const backgroundFinishGrace = 2 * time.Minute
+
 type childActivity struct {
 	child, nickname, kind, parentCall, taskID, model, effort string
 	state, tool, tail, summary, questionID, question         string
 	background, exited, terminal, childTurnDone              bool
 	steps                                                    int
 	started                                                  time.Time
+	// turnDoneAt timestamps the settled turn of a parked background child;
+	// live() uses it to expire the finishing phase.
+	turnDoneAt                                               time.Time
 	history                                                  []string
 }
 
-func (a *childActivity) live() bool { return a.state == "running" && !a.exited && !a.terminal }
+func (a *childActivity) live() bool {
+	if a.state != "running" || a.exited || a.terminal {
+		return false
+	}
+	// A background child parks in the "finishing" phase until its
+	// authoritative background_terminal event lands. One that never reports
+	// must not pin the dashboard's active count and a permanent 1 Hz redraw:
+	// after the grace period it stops counting as live. An outstanding
+	// question keeps it live regardless — its answer is still expected.
+	if a.background && a.childTurnDone && a.questionID == "" &&
+		!a.turnDoneAt.IsZero() && time.Since(a.turnDoneAt) > backgroundFinishGrace {
+		return false
+	}
+	return true
+}
 func (a *childActivity) begin(call string, now time.Time) {
 	a.parentCall, a.started, a.state = call, now, "running"
 	a.steps, a.taskID, a.tool, a.tail, a.summary = 0, "", "", "", ""
@@ -35,6 +57,17 @@ func (a *childActivity) log(text string) {
 	a.history = append(a.history, text)
 	if len(a.history) > 12 {
 		a.history = a.history[len(a.history)-12:]
+	}
+}
+
+// pruneQuestionOrder removes one settled question from the render walk so
+// the order slice tracks the active set, not the session's full history.
+func (s *activityState) pruneQuestionOrder(id string) {
+	for i, candidate := range s.questionOrder {
+		if candidate == id {
+			s.questionOrder = append(s.questionOrder[:i:i], s.questionOrder[i+1:]...)
+			return
+		}
 	}
 }
 
@@ -58,6 +91,7 @@ func (s *activityState) expire(now time.Time) {
 	for id, q := range s.questions {
 		if q.Deadline > 0 && now.UnixMilli() > q.Deadline {
 			delete(s.questions, id)
+			s.pruneQuestionOrder(id)
 			if s.settled == nil {
 				s.settled = map[string]bool{}
 			}
@@ -133,6 +167,7 @@ func (m *model) activityEvent(kind string, raw json.RawMessage) bool {
 		}
 		if kind == "question.answered" {
 			delete(s.questions, q.ID)
+			s.pruneQuestionOrder(q.ID)
 			s.settled[q.ID] = true
 			return true
 		}
@@ -303,6 +338,7 @@ func (m *model) foldChild(child, kind, call string, raw json.RawMessage) {
 	case "turn.completed", "turn.failed":
 		a.childTurnDone = true
 		a.tool = ""
+		a.turnDoneAt = time.Now()
 		if !a.background {
 			a.state = "completed"
 			if ev.Type == "turn.failed" {
@@ -384,6 +420,11 @@ func (m *model) openQuestion(key string) {
 		}
 		prompt := uiPrompt{id: q.ID, kind: q.Kind, prompt: q.Text, options: q.Options}
 		if m.modalRequestID != "" {
+			if len(m.pendingUI) >= pendingUICap {
+				m.err = "ask queue full; request cancelled"
+				m.pendingAskReject = prompt.id
+				return
+			}
 			m.pendingUI = append(m.pendingUI, prompt)
 		} else {
 			m.activateUI(prompt)
