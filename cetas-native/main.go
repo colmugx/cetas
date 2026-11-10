@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -77,13 +78,20 @@ func launch(mode string, args []string) {
 // resolveSibling prefers the directory this executable was installed into, so
 // an install directory wins over an unrelated copy earlier on PATH.
 func resolveSibling(name string) (string, error) {
+	// Go does not implicitly add PATHEXT when probing os.Stat on Windows.
+	// Prefer the actual .exe next to cetas rather than falling through to
+	// LookPath, which can reject a relative result with exec.ErrDot.
+	binary := name
+	if runtime.GOOS == "windows" && filepath.Ext(binary) == "" {
+		binary += ".exe"
+	}
 	if self, err := os.Executable(); err == nil {
-		candidate := filepath.Join(filepath.Dir(self), name)
+		candidate := filepath.Join(filepath.Dir(self), binary)
 		if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
 			return candidate, nil
 		}
 	}
-	return exec.LookPath(name)
+	return exec.LookPath(binary)
 }
 
 func runTUI() {
