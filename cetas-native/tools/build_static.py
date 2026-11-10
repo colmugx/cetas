@@ -207,7 +207,11 @@ def compile_archive(sources):
     # mean nothing to the MSVC ABI, and llvm-ar/llvm-nm come with clang.
     flags = ["-std=gnu11", "-O2", "-Wno-missing-braces", "-Wno-parentheses",
              "-I", include, "-I", runtime]
-    if not windows:
+    if windows:
+        # UCRT declares rand_s only when _CRT_RAND_S is defined before
+        # stdlib.h; the board-native randomness stub uses this Windows API.
+        flags.insert(0, "-D_CRT_RAND_S")
+    else:
         flags[2:2] = ["-fPIC", "-pthread"]
     for i, src in enumerate([*sources, *runtime_sources, *dependency_native_sources()]):
         obj = OBJECTS / f"unit-{i:04d}.o"
