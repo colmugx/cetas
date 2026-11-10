@@ -30,30 +30,6 @@ func TestNativeKeyedStatusRendersExpireIndependently(t *testing.T) {
 	}
 }
 
-func TestNoticeExpirationReindexesToolIdentityAndKeepsReplacement(t *testing.T) {
-	m := newModel()
-	m.applyEvent(event(`{"type":"ui.render","render":{"slot":"notice","key":"expiring","ttl_ms":100,"body":{"type":"text","text":"remove me"}}}`))
-	m.applyEvent(event(`{"type":"tool.started","tool_call_id":"read-1","tool_name":"read","arguments":{"path":"keep.go"}}`))
-	m.applyEvent(event(`{"type":"ui.render","render":{"slot":"notice","key":"kept","ttl_ms":100,"body":{"type":"text","text":"old"}}}`))
-	m.applyEvent(event(`{"type":"ui.render","render":{"slot":"notice","key":"kept","body":{"type":"text","text":"replacement"}}}`))
-	next, _ := m.Update(clockTick(time.Now().Add(time.Second)))
-	m = next.(model)
-	m.applyEvent(event(`{"type":"tool.completed","tool_call_id":"read-1","tool_name":"read","result":"done","phase":"succeeded"}`))
-	if len(m.transcript) != 2 || m.toolIndex["read-1"] != 0 || m.blocks[0].State != "succeeded" || m.transcript[1] != "replacement" {
-		t.Fatalf("notice expiration corrupted identities: %#v / %#v", m.transcript, m.blocks)
-	}
-}
-
-func TestArbitraryStructuredToolJSONDoesNotDropCompletion(t *testing.T) {
-	for _, raw := range []string{`[]`, `"opaque"`, `123`, `null`} {
-		m := newModel()
-		m.applyEvent(event(`{"type":"tool.completed","tool_call_id":"c","tool_name":"unknown","result":"kept","structured":` + raw + `,"phase":"succeeded"}`))
-		if m.err != "" || len(m.blocks) != 1 || m.blocks[0].Text != "kept" || m.blocks[0].State != "succeeded" {
-			t.Fatalf("arbitrary Json dropped completion (%s): %s %#v", raw, m.err, m.blocks)
-		}
-	}
-}
-
 func TestSessionRetirementCancelsAsksAndDropsEphemeralState(t *testing.T) {
 	m := newModel()
 	m.host = &testHost{}

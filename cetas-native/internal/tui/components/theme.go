@@ -86,6 +86,72 @@ func Clean(s string) string {
 		return r
 	}, ansi.Strip(s))
 }
+
+// SanitizeSGR is the ingest filter for runtime-sourced text that will be
+// re-emitted to the terminal (tool results, summaries, diagnostics): it keeps
+// printable text, tabs and newlines plus SGR color sequences — colored tool
+// output stays legible — and drops every other escape or control sequence.
+// OSC 8 hyperlink spoofing, OSC 52 clipboard writes, kitty graphics passthrough,
+// title rewrites and screen clears from untrusted tool output all die here,
+// while locally generated styling (applied after ingest) is unaffected.
+func SanitizeSGR(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); {
+		c := s[i]
+		switch {
+		case c == '\x1b':
+			if i+1 >= len(s) {
+				i++
+				continue
+			}
+			switch next := s[i+1]; {
+			case next == '[':
+				// CSI: parameter/intermediate bytes then one final byte.
+				// Only SGR ('m') survives.
+				j := i + 2
+				for j < len(s) && s[j] >= 0x20 && s[j] <= 0x3f {
+					j++
+				}
+				if j >= len(s) {
+					i = len(s) // truncated run: drop it
+					continue
+				}
+				if s[j] == 'm' {
+					b.WriteString(s[i : j+1])
+				}
+				i = j + 1
+			case next == ']' || next == 'P' || next == 'X' || next == '^' || next == '_':
+				// String sequences (OSC/DCS/SOS/PM/APC) run to BEL or ST.
+				j := i + 2
+				for j < len(s) {
+					if s[j] == '\x07' {
+						j++
+						break
+					}
+					if s[j] == '\x1b' && j+1 < len(s) && s[j+1] == '\\' {
+						j += 2
+						break
+					}
+					j++
+				}
+				i = j
+			default:
+				i += 2 // two-byte escape: dropped
+			}
+		case c == '\n' || c == '\t':
+			b.WriteByte(c)
+			i++
+		case c < 0x20 || c == 0x7f:
+			b.WriteByte(' ')
+			i++
+		default:
+			b.WriteByte(c)
+			i++
+		}
+	}
+	return b.String()
+}
 func Fit(s string, width int) string {
 	if width <= 0 {
 		return ""

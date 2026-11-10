@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 	"image/color"
 	"strings"
 	"testing"
@@ -13,6 +14,9 @@ import (
 
 func TestIdleUIStopsSchedulingFrames(t *testing.T) {
 	m := newModel()
+	// Seed the terminal status report: the assertion is about scheduling,
+	// not about the first OSC 7501 frame.
+	m.lastProgramStatus = formatProgramStatus(m.projectProgramStatus())
 	next, cmd := m.Update(clockTick(time.Now()))
 	if cmd != nil {
 		t.Fatal("idle UI scheduled another periodic frame")
@@ -58,8 +62,14 @@ func TestHostStopFinalizesStreamAndStopsIdleClock(t *testing.T) {
 	defer worker.stop()
 	next, cmd := m.Update(eventBatchResult{closed: true})
 	m = next.(model)
-	if m.running || cmd != nil || m.markdownRenderPending() {
+	if m.running || m.markdownRenderPending() {
 		t.Fatal("closed host left an animation/Markdown clock running")
+	}
+	// The only command a closed host may leave is the terminal status clear.
+	for _, msg := range cmdMsgs(t, cmd) {
+		if raw, ok := msg.(tea.RawMsg); !ok || !strings.Contains(fmt.Sprint(raw.Msg), "state=clear") {
+			t.Fatalf("closed host left work scheduled: %#v", msg)
+		}
 	}
 	if !strings.Contains(strings.Join(m.transcript, "\n"), "before host exit") {
 		t.Fatal("host stop lost the visible partial answer")

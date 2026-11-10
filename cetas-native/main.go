@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -17,17 +19,74 @@ import (
 
 var version = "0.11.0"
 
+const usage = `Cetas agent
+
+Usage:
+  cetas                 start the terminal UI
+  cetas tui             same, spelled out
+  cetas acp [args...]   replace this process with cetas-acp
+  cetas run [args...]   replace this process with cetas-run
+  cetas --version       print the version
+  cetas --help          this help
+
+Inside the UI: /help`
+
 func main() {
-	for _, arg := range os.Args[1:] {
-		switch arg {
-		case "--version", "-version":
+	// `cetas tui` is the spelled-out form of the default; strip it so the flags
+	// below keep working (`cetas tui --version`).
+	args := os.Args[1:]
+	for len(args) > 0 && args[0] == "tui" {
+		args = args[1:]
+	}
+	if len(args) > 0 {
+		switch args[0] {
+		case "--version", "-version", "-v":
 			fmt.Println("cetas " + version)
 			return
-		case "--help", "-h":
-			fmt.Println("Cetas native terminal\nUsage: cetas [--version|--help]\nInside the UI: /help")
+		case "--help", "-h", "-help", "help":
+			fmt.Println(usage)
 			return
+		case "acp", "run":
+			launch(args[0], args[1:])
+			return
+		default:
+			fmt.Fprintf(os.Stderr, "cetas: unknown command %q\n\n%s\n", args[0], usage)
+			os.Exit(2)
 		}
 	}
+	runTUI()
+}
+
+// launch replaces this process with a sibling mode binary. The two modes own
+// their own stdio protocol (ACP JSON-RPC, run's stdin task), their own exit
+// status and their own signal handling: nothing survives here to relay or
+// confuse them, and `cetas acp` never leaves a supervising parent behind.
+func launch(mode string, args []string) {
+	name := "cetas-" + mode
+	path, err := resolveSibling(name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cetas: %v\n%s must sit next to cetas; install.sh installs all three.\n", err, name)
+		os.Exit(1)
+	}
+	if err := replaceProcess(path, append([]string{name}, args...)); err != nil {
+		fmt.Fprintf(os.Stderr, "cetas: cannot start %s: %v\n", name, err)
+		os.Exit(1)
+	}
+}
+
+// resolveSibling prefers the directory this executable was installed into, so
+// an install directory wins over an unrelated copy earlier on PATH.
+func resolveSibling(name string) (string, error) {
+	if self, err := os.Executable(); err == nil {
+		candidate := filepath.Join(filepath.Dir(self), name)
+		if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+	return exec.LookPath(name)
+}
+
+func runTUI() {
 	lifetime, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var active atomic.Pointer[harness.Host]

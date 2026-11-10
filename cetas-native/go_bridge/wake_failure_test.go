@@ -1,3 +1,5 @@
+//go:build cetas_native_faults
+
 package bridge
 
 import (

@@ -24,8 +24,12 @@ func TestLatePickerReplyCannotStealFIFOQuestionFocus(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("completed picker result was silently lost")
 	}
-	next, _ = m.Update(cmd())
-	m = next.(model)
+	// The batch may also carry a terminal status report; drive every real
+	// command so the deferred picker reply still reaches the model.
+	for _, msg := range cmdMsgs(t, cmd) {
+		next, _ = m.Update(msg)
+		m = next.(model)
+	}
 	if m.modal != "sessions" || len(m.modalItems) != 1 {
 		t.Fatal("deferred picker did not open after asks")
 	}

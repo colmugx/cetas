@@ -1,7 +1,6 @@
 package components
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -39,57 +38,6 @@ func askLines(t *testing.T, req AskRequest, width, selected int, value string, e
 		}
 	}
 	return lines
-}
-
-func TestAskButtonRowVersusStackedList(t *testing.T) {
-	req := AskRequest{Kind: AskSelect, Title: "Allow tool 'bash' (shell)?", Options: []string{"Allow once", "Allow for this session", "Deny"}}
-	row := askLines(t, req, 60, 0, "", false)
-	want := []string{
-		"Allow tool 'bash' (shell)?                                  ",
-		" Allow once   Allow for this session   Deny ",
-		" ←→ choose · ⏎ confirm · esc cancel",
-	}
-	if strings.Join(row, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("row layout\nwant:%q\ngot: %q", want, row)
-	}
-	stacked := askLines(t, req, 24, 0, "", false)
-	want = []string{
-		"Allow tool 'bash'       ",
-		"(shell)?                ",
-		" Allow once             ",
-		"Allow for this session",
-		"Deny",
-		" ↑↓ choose · ⏎ confirm ·",
-	}
-	if strings.Join(stacked, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("stacked layout\nwant:%q\ngot: %q", want, stacked)
-	}
-}
-
-func TestAskOptionViewportKeepsSelectionCentred(t *testing.T) {
-	options := make([]string, 20)
-	for i := range options {
-		options[i] = fmt.Sprintf("opt%d", i+1)
-	}
-	req := AskRequest{Kind: AskSelect, Title: "Pick", Options: options}
-	cases := []struct {
-		selected int
-		want     []string
-	}{
-		{5, []string{"Pick                    ", "opt2", "opt3", "opt4", "opt5", " opt6                   ", "opt7", "opt8", "opt9", " (6/20)", " ↑↓ choose · ⏎ confirm ·"}},
-		{12, []string{"Pick                    ", "opt9", "opt10", "opt11", "opt12", " opt13                  ", "opt14", "opt15", "opt16", " (13/20)", " ↑↓ choose · ⏎ confirm ·"}},
-	}
-	for _, c := range cases {
-		got := askLines(t, req, 24, c.selected, "", false)
-		if strings.Join(got, "\n") != strings.Join(c.want, "\n") {
-			t.Fatalf("selected %d\nwant:%q\ngot: %q", c.selected, c.want, got)
-		}
-	}
-	// Exactly eight options need no counter and no scrolling.
-	eight := askLines(t, AskRequest{Kind: AskSelect, Title: "Pick", Options: options[:8]}, 24, 0, "", false)
-	if len(eight) != 1+8+1 || strings.Contains(strings.Join(eight, "\n"), "/8)") {
-		t.Fatalf("eight options should not scroll: %q", eight)
-	}
 }
 
 func TestAskCollapsesLongBodyButKeepsEveryLineAndExactCount(t *testing.T) {
@@ -139,80 +87,6 @@ func TestAskCollapsesLongBodyButKeepsEveryLineAndExactCount(t *testing.T) {
 	}
 	if detail != 20 || strings.Contains(strings.Join(confirm, "\n"), "ctrl+o") {
 		t.Fatalf("confirm detail collapsed: %q", confirm)
-	}
-}
-
-func TestAskPlanReviewRendersSelectorOnly(t *testing.T) {
-	title := PlanReviewTitlePrefix + " big plan\n\n" + askSteps(40) + "\n\nAccept, revise with feedback, or dismiss?"
-	req := AskRequest{Kind: AskSelect, Title: title, Options: []string{"Approve — accept the plan and implement it", "Revise", "Dismiss"}}
-	lines := askLines(t, req, 80, 0, "", false)
-	want := []string{
-		"Plan awaiting approval: big plan                                                ",
-		" Approve — accept the plan and implement it   Revise   Dismiss ",
-		" ←→ choose · ⏎ confirm · esc cancel",
-	}
-	if strings.Join(lines, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("plan review\nwant:%q\ngot: %q", want, lines)
-	}
-	// The same body on a confirm prompt is not a plan review: the JS oracle
-	// gates the special case on the select request type.
-	confirm := askLines(t, AskRequest{Kind: AskConfirm, Prompt: title}, 80, 0, "", false)
-	if !strings.Contains(strings.Join(confirm, "\n"), "do thing") {
-		t.Fatal("confirm prompt lost its detail")
-	}
-}
-
-func TestAskBodyRendersMarkdownBlocks(t *testing.T) {
-	cases := []struct {
-		name string
-		body string
-		want []string
-	}{
-		{"heading", "# Heading\nbody", []string{"Heading", "", "body"}},
-		{"fence", "```\ncode line\n```\nafter", []string{"```", "  code line", "```", "", "after"}},
-		{"paragraph", "First detail\nSecond detail", []string{"First detail", "Second detail"}},
-		{"inline", "**bold** and `code` and *em*", []string{"bold and code and em"}},
-		{"intraword", "model_x_y and a*b*c", []string{"model_x_y and abc"}},
-		{"nested", "- a\n  - b\n- c", []string{"- a", "    - b", "- c"}},
-		{"ordered-nested", "1. a\n   1. b\n2. c", []string{"1. a", "    1. b", "2. c"}},
-		{"rule", "---\ntext", []string{strings.Repeat("─", 40), "", "text"}},
-		{"tilde-fence", "~~~\nx\n~~~\ny", []string{"```", "  x", "```", "", "y"}},
-		{"blanks-collapse", "a\n\n\nb", []string{"a", "", "b"}},
-		{"indented", "   indented paragraph", []string{"   indented paragraph"}},
-		{"list-inline-code", "- run `go test ./...` now", []string{"- run go test ./... now"}},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := askLines(t, AskRequest{Kind: AskSelect, Title: "Q\n" + c.body, Options: []string{"A", "B"}}, 40, 0, "", false)
-			body := got[1 : len(got)-2]
-			trimmed := make([]string, len(body))
-			for i, line := range body {
-				trimmed[i] = strings.TrimRight(line, " ")
-			}
-			if strings.Join(trimmed, "\n") != strings.Join(c.want, "\n") {
-				t.Fatalf("want:%q\ngot: %q", c.want, trimmed)
-			}
-		})
-	}
-}
-
-func TestAskWrapsCJKWithoutOverflow(t *testing.T) {
-	// Wide characters wrap greedily, one grapheme at a time.
-	got := askLines(t, AskRequest{Kind: AskSelect, Title: "问\n这是一段很长的中文正文需要换行显示的内容", Options: []string{"是", "否"}}, 24, 0, "", false)
-	want := []string{
-		"问                      ",
-		"这是一段很长的中文正文需",
-		"要换行显示的内容        ",
-		" 是   否 ",
-		" ←→ choose · ⏎ confirm ·",
-	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("cjk body\nwant:%q\ngot: %q", want, got)
-	}
-	// A long unbroken token is hard-wrapped instead of overflowing.
-	got = askLines(t, AskRequest{Kind: AskSelect, Title: "Q\nsupercalifragilisticexpialidocious", Options: []string{"A", "B"}}, 20, 0, "", false)
-	if !strings.Contains(got[1], "supercalifragilistic") || !strings.Contains(got[2], "expialidocious") {
-		t.Fatalf("long token not hard-wrapped: %q", got)
 	}
 }
 

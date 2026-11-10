@@ -306,6 +306,11 @@ func (m *model) surfaceEvent(kind string, raw json.RawMessage) bool {
 			if m.surface.notices == nil {
 				m.surface.notices = map[string]int{}
 			}
+			// Extension notice lines are runtime text painted through the raw
+			// transcript path: same SGR allowlist as tool results.
+			for i := range lines {
+				lines[i] = ui.SanitizeSGR(lines[i])
+			}
 			if at, ok := m.surface.notices[key]; ok && at < len(m.transcript) {
 				m.transcript[at] = strings.Join(lines, "\n")
 				m.invalidateTranscriptBlock(at)
@@ -354,7 +359,7 @@ func (m *model) retireSessionPresentation() tea.Cmd {
 	m.modalRequestID = ""
 	m.modal = ""
 	m.modalPrompt = ""
-	m.modalBuffer = nil
+	m.clearModalBuffer()
 	m.modalItems = nil
 	m.modalValues = nil
 	m.fragments = nil

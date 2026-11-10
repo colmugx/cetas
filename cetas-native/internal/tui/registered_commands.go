@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	ui "github.com/colmugx/cetas/cetas-native/internal/tui/components"
 )
 
 type registeredCommandParam struct {
@@ -339,7 +340,7 @@ func (m *model) handleCommandCompletion(raw json.RawMessage) {
 	case "success":
 		m.status = "/" + data.CommandID + " complete"
 		if data.Outcome.Feedback != "" {
-			m.transcript = append(m.transcript, data.Outcome.Feedback)
+			m.transcript = append(m.transcript, ui.SanitizeSGR(data.Outcome.Feedback))
 		}
 	case "failure":
 		m.err = "/" + data.CommandID + ": " + data.Outcome.Reason

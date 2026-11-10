@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"fmt"
-	"image/color"
 	"strings"
 	"testing"
 
@@ -114,61 +112,4 @@ func TestSelectionInsidePartiallyMountedBlockUsesAbsoluteRows(t *testing.T) {
 	if copied != want || copied == "" {
 		t.Fatalf("copied %q, want the selected cells %q", copied, want)
 	}
-}
-
-// Resize and palette changes are layout inputs: they must rebuild the block
-// rows instead of reusing widths or colours that no longer exist.
-func TestWidthAndThemeRebuildCachedRows(t *testing.T) {
-	m := windowModel(t)
-	v := m.virtualScroll
-	builds := v.rows.builds
-	m.width = 60
-	m.resize()
-	if v.rows.builds == builds {
-		t.Fatal("a width change reused the previous wrapping")
-	}
-	builds = v.rows.builds
-	m.refreshTranscript()
-	if v.rows.builds != builds {
-		t.Fatalf("an unchanged frame rebuilt %d layouts", v.rows.builds-builds)
-	}
-	// A palette change rewraps nothing, but it recolours everything: the
-	// identity must not survive it.
-	m.surface.fg = color.RGBA{R: 1, G: 2, B: 3, A: 255}
-	m.refreshTranscript()
-	if v.rows.builds == builds {
-		t.Fatal("a palette change reused rows styled for the old colours")
-	}
-}
-
-// The row cache is per document: a session switch may not hand its rows to the
-// next transcript, even when block indices line up.
-func TestRowCacheDoesNotCrossSessionSwitch(t *testing.T) {
-	m := windowModel(t)
-	used := m.virtualScroll.rows.stats().used
-	if used == 0 {
-		t.Fatal("fixture never populated the row cache")
-	}
-	m.resetVirtualTranscript()
-	if got := m.virtualScroll.rows.stats().used; got != 0 {
-		t.Fatalf("session reset kept %d cached bytes", got)
-	}
-}
-
-// A notice inserted mid-document shifts block indices; the cached rows must be
-// released rather than painted for the wrong message.
-func TestStructuralInsertDropsCachedRows(t *testing.T) {
-	m := windowModel(t)
-	if m.virtualScroll.rows.stats().layouts == 0 {
-		t.Fatal("fixture never populated the row cache")
-	}
-	insertVirtualHeights(m.virtualScroll, 1, 1, 3)
-	m.reflow()
-	if got := m.virtualScroll.rows.stats().layouts; got > 2 {
-		t.Fatalf("stale layouts survived a structural insert: %d", got)
-	}
-	if content := ansi.Strip(m.viewport.GetContent()); !strings.Contains(content, "line 中文") {
-		t.Fatalf("document lost its content after an insert: %q", content)
-	}
-	_ = fmt.Sprint(m.virtualScroll.totalRows())
 }

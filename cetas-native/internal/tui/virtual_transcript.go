@@ -498,12 +498,10 @@ type transcriptMount struct {
 }
 
 // settledToolState reports a terminal tool row: its label no longer animates.
+// Unknown wire phases settle too — an unrecognized phase must not animate
+// forever.
 func settledToolState(state string) bool {
-	switch state {
-	case "succeeded", "failed", "rejected", "abandoned":
-		return true
-	}
-	return false
+	return transcriptui.ParseToolPhase(state).Terminal()
 }
 
 // blockLayoutIdentity decides whether a block's rows may be cached. Animated

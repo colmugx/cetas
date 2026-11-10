@@ -644,11 +644,15 @@ func (r *pagedReplay) rearmScan(m *model, scan *pagedScan) {
 	if scan == nil {
 		return
 	}
+	// Decide restart-ness BEFORE resetting: a scan that had consumed nothing
+	// of the retired generation is a rebinding, not a restart. Testing the
+	// reset values (the old always-true guard) could never see a restart.
+	consumed := scan.next > 0 || scan.awaiting || len(scan.streams) > 0 || len(scan.hits) > 0
 	scan.hits = scan.hits[:0]
 	scan.streams = nil
 	scan.next = 0
 	scan.awaiting = false
-	if scan.next == 0 && !scan.awaiting && len(scan.streams) == 0 && len(scan.hits) == 0 {
+	if !consumed {
 		// Nothing of the retired generation was consumed yet: rebinding the scan
 		// to the document is not a restart.
 		r.scan = scan
@@ -1052,12 +1056,17 @@ func (r *pagedReplay) rebuildBlock(m *model, block int) {
 		}
 		m.welcomeHidden = true
 	case "tool":
+		// The journal's historical status words and the live wire phases
+		// share one vocabulary: known statuses map to their canonical label,
+		// unknown statuses settle the row on the journal's own word rather
+		// than leaving it animating on a label no renderer recognizes.
 		state := "running"
-		switch item.Status {
-		case "done", "succeeded", "completed":
-			state = "succeeded"
-		case "error", "failed":
-			state = "failed"
+		if phase := transcriptui.ParseToolPhase(item.Status); phase.Terminal() {
+			if phase == transcriptui.PhaseUnknown {
+				state = item.Status
+			} else {
+				state = phase.Label()
+			}
 		}
 		result := toolResultText(item.Result)
 		m.transcript[block] = "• " + item.Name

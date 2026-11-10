@@ -44,8 +44,39 @@ fn wake_stage_text(stage : Int32) -> String {
     2 => "fcntl() failed setting non-blocking/cloexec"
     3 => "fcntl(F_DUPFD_CLOEXEC) failed for the producer-write guard"
     4 => "notification channel disabled by a transport test"
+    5 => "this platform hands the command channel over as a HANDLE, not a descriptor"
     _ => "unknown failure stage " + stage.to_string()
   }
+}
+
+///|
+/// Adopt the command-channel readiness signal into the async scheduler.
+/// POSIX hands over a descriptor; `RawFd` takes ownership even when adoption
+/// fails (it closes the descriptor itself), so neither branch can leak it.
+#cfg(not(platform="windows"))
+async fn adopt_command_wake() -> Result[@raw_fd.RawFd, String] {
+  let fd = command_wake_fd()
+  if fd < 0 {
+    return Err(
+      wake_stage_text(command_wake_stage()) +
+      " (errno=" +
+      command_wake_errno().to_string() +
+      ")",
+    )
+  }
+  Ok(@raw_fd.RawFd(fd)) catch {
+    error => Err("descriptor could not be adopted by the async scheduler: " + error.to_string())
+  }
+}
+
+///|
+/// Windows hands the channel over as a HANDLE, not a descriptor, so the int32
+/// transfer above cannot carry it. The owner loop stays correct on bounded
+/// polling and reports that exact stage once instead of pretending the wait
+/// works; adopting the HANDLE is the next step, not a silent no-op.
+#cfg(platform="windows")
+async fn adopt_command_wake() -> Result[@raw_fd.RawFd, String] {
+  Err(wake_stage_text(command_wake_stage()))
 }
 
 ///|
@@ -215,28 +246,11 @@ pub fn run_infra() -> Int32 {
       // degrades to bounded polling instead of pretending the wait works.
       let mut wake_reported = false
       let mut command_wake : @raw_fd.RawFd? = None
-      let wake_fd = command_wake_fd()
-      if wake_fd < 0 {
-        emit_degraded(
-          "command notification channel unavailable: " +
-          wake_stage_text(command_wake_stage()) +
-          " (errno=" +
-          command_wake_errno().to_string() +
-          ")",
-        )
-        wake_reported = true
-      } else {
-        // `RawFd` takes ownership of the descriptor even when adoption fails
-        // (it closes the fd itself), so neither branch can leak it.
-        command_wake = Some(@raw_fd.RawFd(wake_fd)) catch {
-          error => {
-            emit_degraded(
-              "command notification descriptor could not be adopted by the async scheduler: " +
-              error.to_string(),
-            )
-            wake_reported = true
-            None
-          }
+      match adopt_command_wake() {
+        Ok(wake) => command_wake = Some(wake)
+        Err(detail) => {
+          emit_degraded("command notification channel unavailable: " + detail)
+          wake_reported = true
         }
       }
       let mut protocol_reported = false

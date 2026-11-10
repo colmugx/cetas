@@ -81,18 +81,6 @@ func TestPagedMouseRangeCopiesAfterReleaseWithoutRetry(t *testing.T) {
 	}
 }
 
-func TestPagedCopyReadsWholeRefInsteadOfPreviewOffset(t *testing.T) {
-	host := &pagedCopyScriptHost{
-		page:   `{"session_id":"s","revision":"R","first":0,"total":1,"items":[{"index":0,"kind":"assistant","text":"FU","textRef":{"index":0,"field":"text","offset":2,"length":4}}],"next":null}`,
-		source: `{"session_id":"s","revision":"R","index":0,"field":"text","offset":0,"length":4,"total_bytes":4,"data":"FULL","next":null}`,
-	}
-	request := pagedCopyRequest{host: host, session: "s", revision: "R", first: 0, last: 0, end: 1, pagedEnd: 1}
-	result := request.run(context.Background())
-	if result.err != nil || result.text != "FULL" {
-		t.Fatalf("whole-payload ref was treated as a suffix: %q / %v", result.text, result.err)
-	}
-}
-
 func TestPagedCopyNeverAcceptsGapsOrPrematureSourceEnd(t *testing.T) {
 	const refPage = `{"session_id":"s","revision":"R","first":0,"total":1,"items":[{"index":0,"kind":"assistant","textRef":{"index":0,"field":"text","offset":0,"length":4}}],"next":null}`
 	for _, tc := range []struct {

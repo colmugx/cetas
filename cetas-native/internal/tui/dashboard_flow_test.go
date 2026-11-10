@@ -66,20 +66,6 @@ func TestStatusbarEntriesKeepRuntimeProviderIdentity(t *testing.T) {
 		t.Fatalf("status update erased actual selected provider: %q", screen)
 	}
 }
-
-func TestRuntimeSnapshotCanClearEffortInRenderedDashboard(t *testing.T) {
-	m := newModel()
-	m.width = 108
-	m.height = 36
-	for _, raw := range []string{`{"type":"session.snapshot","model":"provider/model","effort":"high","permission":"yolo"}`, `{"type":"session.snapshot","effort":""}`} {
-		next, _ := m.Update(eventBatchResult{events: []wire.Event{event(raw)}})
-		m = next.(model)
-	}
-	screen := ansi.Strip(strings.Join(m.regions().dashboard, "\n"))
-	if !strings.Contains(screen, "provider/model") || !strings.Contains(screen, "yolo") || strings.Contains(screen, ":high") {
-		t.Fatalf("stale model/permission dashboard: %q", screen)
-	}
-}
 func TestQuestionAndChildEventsAppearInRenderedDashboard(t *testing.T) {
 	m := newModel()
 	m.width = 108

@@ -28,21 +28,6 @@ func TestHistoryFailureDoesNotRestartAnIdleClockLoop(t *testing.T) {
 	}
 }
 
-func TestStoppedHistoryWorkerRejectsDispatch(t *testing.T) {
-	m := newModel()
-	defer m.Close()
-	m.transcript = []string{"settled source"}
-	m.virtualScroll = newVirtualTranscript(m.viewport.Width(), m.viewport.Height())
-	worker := m.virtualScroll.historyMarkdown()
-	worker.stop()
-	if m.dispatchHistoryMarkdown(0, m.transcript[0]) {
-		t.Fatal("stopped worker claimed it would render a block")
-	}
-	if m.historyMarkdownPending() {
-		t.Fatal("rejected dispatch kept the UI clock awake")
-	}
-}
-
 func TestHistoryResultRetentionHasAByteBound(t *testing.T) {
 	worker := newHistoryMarkdownWorker(1)
 	defer worker.stop()

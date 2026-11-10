@@ -53,10 +53,6 @@ def capture_c():
     injected = original.replace(b"options(\n", insertion, 1)
     if CAPTURE.exists():
         shutil.rmtree(CAPTURE)
-    # Force compiler invocation even when Moon has a cached successful build.
-    native_build = MOON / "_build/native"
-    if native_build.exists():
-        shutil.rmtree(native_build)
     PKG.write_bytes(injected)
     env = dict(os.environ, MOONBIT_NEW_NATIVE="0", MOON_CC_CAPTURE_DIR=str(CAPTURE))
     try:
@@ -119,17 +115,27 @@ def dependency_native_sources():
     """
     roots = workspace_roots()
     skip_parts = {"_build", "_mooncakes", ".mooncakes"}
-    excluded = {
-        "iocp.c", "io_windows.c", "signal_windows.c",
-        "watch_inotify.c", "watch_windows.c", "process_windows.c",
-        "windows.c", "windows_subsystem.c",
-    }
-    if sys.platform == "darwin":
-        excluded.add("epoll.c")
-        excluded.add("watch_inotify.c")
+    # Moon's own stubs are guarded per target, but a foreign unit for the wrong
+    # platform often includes a header that only exists there. Exclude the
+    # other platform's units explicitly instead of letting the compiler find
+    # the first missing header.
+    if sys.platform == "win32":
+        excluded = {
+            "epoll.c", "kqueue.c", "watch_kqueue.c", "watch_inotify.c",
+            "io_unix.c", "unix.c", "process_unix.c", "signal_unix.c",
+        }
     else:
-        excluded.add("kqueue.c")
-        excluded.add("watch_kqueue.c")
+        excluded = {
+            "iocp.c", "io_windows.c", "signal_windows.c",
+            "watch_inotify.c", "watch_windows.c", "process_windows.c",
+            "windows.c", "windows_subsystem.c",
+        }
+        if sys.platform == "darwin":
+            excluded.add("epoll.c")
+            excluded.add("watch_inotify.c")
+        else:
+            excluded.add("kqueue.c")
+            excluded.add("watch_kqueue.c")
     seen = set()
     files = []
     for root in roots:
@@ -171,23 +177,30 @@ def compile_archive(sources):
     missing = [str(p) for p in runtime_sources if not p.is_file()]
     if missing:
         raise RuntimeError(f"MoonBit runtime sources missing: {missing}")
-    cc, ar = shutil.which("clang") or shutil.which("cc"), shutil.which("ar")
-    if not cc or not ar:
-        raise RuntimeError("clang and ar are required")
+    windows = sys.platform == "win32"
+    cc = shutil.which("clang") or shutil.which("cc")
+    ar = shutil.which("llvm-ar") if windows else shutil.which("ar")
+    nm = shutil.which("llvm-nm") if windows else shutil.which("nm")
+    if not cc or not ar or not nm:
+        raise RuntimeError("clang, llvm-ar/ar and llvm-nm/nm are required")
     if OBJECTS.exists():
         shutil.rmtree(OBJECTS)
     OBJECTS.mkdir(parents=True)
     objects = []
+    # Windows objects are COFF and the toolchain is LLVM's: -fPIC and -pthread
+    # mean nothing to the MSVC ABI, and llvm-ar/llvm-nm come with clang.
+    flags = ["-std=gnu11", "-O2", "-Wno-missing-braces", "-Wno-parentheses",
+             "-I", include, "-I", runtime]
+    if not windows:
+        flags[2:2] = ["-fPIC", "-pthread"]
     for i, src in enumerate([*sources, *runtime_sources, *dependency_native_sources()]):
         obj = OBJECTS / f"unit-{i:04d}.o"
-        run([cc, "-std=gnu11", "-O2", "-fPIC", "-pthread",
-             "-Wno-missing-braces", "-Wno-parentheses", "-I", include,
-             "-I", runtime, "-c", src, "-o", obj])
+        run([cc, *flags, "-c", src, "-o", obj])
         objects.append(obj)
     ARCHIVE.parent.mkdir(parents=True, exist_ok=True)
     ARCHIVE.unlink(missing_ok=True)
     run([ar, "rcs", ARCHIVE, *objects])
-    symbols = subprocess.run(["nm", "-g", str(ARCHIVE)],
+    symbols = subprocess.run([nm, "-g", str(ARCHIVE)],
                              capture_output=True, text=True, check=True).stdout
     for sym in ("cetas_infra_run", "moonbit_init",
                 "moonbit_runtime_init"):
@@ -197,13 +210,15 @@ def compile_archive(sources):
 
 
 def main():
-    if sys.platform not in ("darwin", "linux") or platform.machine() not in ("arm64", "aarch64", "x86_64"):
-        raise RuntimeError("Cetas native static build supports Darwin/Linux arm64/x64")
+    if sys.platform not in ("darwin", "linux", "win32") or platform.machine().lower() not in (
+        "arm64", "aarch64", "x86_64", "amd64",
+    ):
+        raise RuntimeError("Cetas native static build supports Darwin/Linux/Windows arm64/x64")
     BUILD.mkdir(parents=True, exist_ok=True)
     sources = capture_c()
     objects = compile_archive(sources)
     (BUILD / "build-info.json").write_text(json.dumps({
-        "platform": "darwin/arm64",
+        "platform": f"{sys.platform}/{platform.machine().lower()}",
         "sources": [str(s.relative_to(CAPTURE)) for s in sources],
         "objects": len(objects),
     }, indent=2) + "\n")

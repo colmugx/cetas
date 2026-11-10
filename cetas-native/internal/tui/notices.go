@@ -1,8 +1,10 @@
 package tui
 
 import (
-	transcriptui "github.com/colmugx/cetas/cetas-native/internal/tui/transcript"
 	"strings"
+
+	transcriptui "github.com/colmugx/cetas/cetas-native/internal/tui/transcript"
+	ui "github.com/colmugx/cetas/cetas-native/internal/tui/components"
 )
 
 // Keep err as a diagnostic for command callers, but never render it beside the
@@ -19,9 +21,12 @@ func (m *model) presentErrorNotice() bool {
 	if m.blocks == nil {
 		m.blocks = map[int]transcriptui.Block{}
 	}
+	// Runtime diagnostics flow into the terminal verbatim: the same SGR
+	// allowlist as tool results keeps hostile sequences out of the screen.
+	safe := ui.SanitizeSGR(m.err)
 	at := len(m.transcript)
-	m.transcript = append(m.transcript, "● "+m.err)
-	m.blocks[at] = transcriptui.Block{Kind: "error", Text: m.err}
+	m.transcript = append(m.transcript, "● "+safe)
+	m.blocks[at] = transcriptui.Block{Kind: "error", Text: safe}
 	return true
 }
 

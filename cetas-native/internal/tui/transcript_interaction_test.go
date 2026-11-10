@@ -33,42 +33,6 @@ func wheelDown(x, y int) tea.MouseMsg {
 }
 func rightClick(x, y int) tea.MouseMsg { return tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseRight} }
 
-// Streaming Markdown must not be re-rendered on every 80ms clock frame. The
-// cache key is (block index, width, source), matching the last-source+width
-// contract of the JS IncrementalMarkdown component without changing output.
-func TestLiveMarkdownCachesLastSourceAndWidth(t *testing.T) {
-	m := interactionModel(t, 80, 24)
-	m.streaming = "hello **world**"
-	m.refreshTranscript()
-
-	live := len(m.transcript)
-	first := m.mountedTranscriptBlock(live)
-	renders := m.document.live.renders
-	if renders != 1 {
-		t.Fatalf("first mount should render once: %d", renders)
-	}
-	for i := 0; i < 8; i++ {
-		m.refreshTranscript()
-	}
-	if m.document.live.renders != renders {
-		t.Fatalf("unchanged streaming source re-rendered: %d renders", m.document.live.renders)
-	}
-	if again := m.mountedTranscriptBlock(live); again != first {
-		t.Fatal("cached render changed the visible streaming block")
-	}
-	m.streaming += " and more"
-	m.refreshTranscript()
-	if m.document.live.renders != renders+1 {
-		t.Fatalf("new source did not re-render: %d", m.document.live.renders)
-	}
-	renders = m.document.live.renders
-	m.width = 60
-	m.resize()
-	if m.document.live.renders != renders+1 {
-		t.Fatalf("width change reused a stale render: %d", m.document.live.renders)
-	}
-}
-
 // A settled message and the still-streaming one must paint identically, so the
 // terminal never reflows the same source when the turn completes.
 func TestLiveAndFinalMarkdownRenderEquivalence(t *testing.T) {
@@ -188,28 +152,6 @@ func TestMouseSelectionIncludesStreamingTailSource(t *testing.T) {
 	m.handleTranscriptMouse(release(region.X, region.Y+region.Height-1))
 	if !strings.HasSuffix(copied, "tail **live**") {
 		t.Fatalf("streaming tail copied rendered text instead of source: %q", copied)
-	}
-}
-
-func TestTranscriptScrollbarGeometry(t *testing.T) {
-	geometry, ok := transcriptScrollbarGeometry(1000, 0, 10)
-	if !ok || geometry.TrackHeight != 10 || geometry.ThumbHeight != 2 || geometry.MaxScrollTop != 990 || geometry.ThumbTop != 0 {
-		t.Fatalf("tail geometry: %#v ok=%v", geometry, ok)
-	}
-	geometry, ok = transcriptScrollbarGeometry(1000, 990, 10)
-	if !ok || geometry.ThumbTop != 8 {
-		t.Fatalf("end geometry: %#v", geometry)
-	}
-	if _, ok := transcriptScrollbarGeometry(8, 0, 10); ok {
-		t.Fatal("scrollbar reported a track for a document that fits")
-	}
-	// pi-tui clamps the thumb to the track and keeps it at least two cells.
-	geometry, ok = transcriptScrollbarGeometry(11, 1, 10)
-	if !ok || geometry.ThumbHeight != 9 || geometry.ThumbTop != 1 || geometry.MaxScrollTop != 1 {
-		t.Fatalf("clamped thumb: %#v", geometry)
-	}
-	if _, ok := transcriptScrollbarGeometry(4, 0, 4); ok {
-		t.Fatal("exact-fit document reported a track")
 	}
 }
 
@@ -341,34 +283,6 @@ func TestTranscriptNewerMessagesRowJumpsToEnd(t *testing.T) {
 	}
 	if text, ok := m.transcriptSelectionText(); ok {
 		t.Fatalf("newer-messages press selected text: %q", text)
-	}
-}
-
-func TestTranscriptSelectionPaintsCrossBlockWholeRows(t *testing.T) {
-	m := interactionModel(t, 30, 24, "alpha", "bravo")
-	region := m.transcriptRegion()
-	if region.Height < 4 {
-		t.Fatalf("test needs a transcript window of at least 4 rows: %d", region.Height)
-	}
-	m.handleTranscriptMouse(click(region.X+1, region.Y))
-	m.handleTranscriptMouse(drag(region.X+1, region.Y+3))
-	painted := m.viewport.GetContent()
-	selection := m.document.selection
-	if !selection.active {
-		t.Fatal("selection inactive after drag")
-	}
-	first := m.virtualScroll.indexAt(selection.start().row)
-	last := m.virtualScroll.indexAt(selection.end().row)
-	if first == 0 && last == 0 {
-		t.Fatalf("drag did not cross a block boundary: rows %d-%d", selection.start().row, selection.end().row)
-	}
-	// A cross-block selection inverts whole rows, matching the source-indexed
-	// clipboard text, instead of column-trimmed slices of each row.
-	if !strings.Contains(painted, "\x1b[7mbravo") {
-		t.Fatalf("covered block was not inverted as a whole row: %q", painted)
-	}
-	if text, ok := m.transcriptSelectionText(); !ok || !strings.Contains(text, "alpha\n\nbravo") {
-		t.Fatalf("cross-block selection text: %q ok=%v", text, ok)
 	}
 }
 

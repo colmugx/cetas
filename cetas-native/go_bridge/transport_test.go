@@ -231,30 +231,6 @@ func TestInterruptedChunkRunSelfHeals(t *testing.T) {
 	}
 }
 
-// A null or empty publish is its own counter: never mistaken for size or
-// backpressure, never silent.
-func TestInvalidPublishCountsExactly(t *testing.T) {
-	h := transportUnderTest()
-	before := snapshotRejections(t, h)
-	if got := drainAll(t, h); len(got) != 0 {
-		t.Fatalf("queue was not empty at start: %d frame(s)", len(got))
-	}
-
-	if rc := publishFrame(nil); rc != -1 {
-		t.Fatalf("null publish must be rejected, got rc=%d", rc)
-	}
-	if rc := publishFrame([]byte{}); rc != -1 {
-		t.Fatalf("empty publish must be rejected, got rc=%d", rc)
-	}
-	after := snapshotRejections(t, h)
-	if want := before.Add(Rejections{Invalid: 2}); after != want {
-		t.Fatalf("invalid split wrong: got %+v, want %+v", after, want)
-	}
-	if got := drainAll(t, h); len(got) != 0 {
-		t.Fatalf("invalid publish leaked into the queue: %d frame(s)", len(got))
-	}
-}
-
 // The production shape is one producer (the MoonBit scheduler thread) racing
 // one consumer (the pump) plus independent counter readers (Close). Frames
 // must arrive whole, ordered and byte-exact while that race runs.

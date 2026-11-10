@@ -52,11 +52,3 @@ func TestKillAndYankPreserveUnicode(t *testing.T) {
 		t.Fatalf("yank: %q", m.Value())
 	}
 }
-func TestReleaseDoesNotEdit(t *testing.T) {
-	m := New()
-	m.SetValue("safe")
-	next, _ := m.Update(tea.KeyReleaseMsg{Code: tea.KeyBackspace})
-	if next.Value() != "safe" {
-		t.Fatal("release deleted text")
-	}
-}

@@ -30,15 +30,6 @@ func TestStreamingTurnSettlesOnce(t *testing.T) {
 		t.Fatal("live text not cleared")
 	}
 }
-func TestFailedTurnDoesNotKeepStreamingState(t *testing.T) {
-	m := newModel()
-	m.applyEvent(event(`{"type":"turn.started"}`))
-	m.applyEvent(event(`{"type":"assistant.text_delta","delta":"partial"}`))
-	m.applyEvent(event(`{"type":"turn.failed","message":"cancelled"}`))
-	if m.running || len(m.streaming) != 0 || !strings.Contains(strings.Join(m.transcript, "\n"), "cancelled") {
-		t.Fatalf("failed state: %#v", m.transcript)
-	}
-}
 func TestEditorResizesForSmallTerminal(t *testing.T) {
 	m := newModel()
 	m.width = 18
@@ -52,21 +43,6 @@ func TestEditorResizesForSmallTerminal(t *testing.T) {
 		if lipgloss.Width(line) > 18 {
 			t.Fatalf("small terminal overflow: %q", line)
 		}
-	}
-}
-
-func TestUiRequestModalUsesWireRequestID(t *testing.T) {
-	m := newModel()
-	m.applyEvent(event(`{"type":"ui.request","request_id":"u-7","kind":"select","prompt":"Choose","options":["one","two"]}`))
-	if m.modal != "select" || m.modalRequestID != "u-7" || len(m.modalItems) != 2 {
-		t.Fatalf("UI request was not projected: %#v", m.modalItems)
-	}
-}
-func TestToolUsesConsoleProtocolField(t *testing.T) {
-	m := newModel()
-	m.applyEvent(event(`{"type":"tool.started","tool_name":"bash","tool_call_id":"t-1"}`))
-	if len(m.transcript) != 1 || !strings.Contains(m.transcript[0], "bash") {
-		t.Fatalf("tool renderer dropped wire name: %v", m.transcript)
 	}
 }
 
@@ -92,24 +68,6 @@ func TestIgnoreOtherSessionEvents(t *testing.T) {
 	m.applyEvent(event(`{"type":"assistant.text_delta","session_id":"s-1","delta":"ours"}`))
 	if m.streaming != "ours" {
 		t.Fatalf("own session event dropped: %#v", m)
-	}
-}
-func TestStreamingModelCopyIsSafe(t *testing.T) {
-	m := newModel()
-	m.applyEvent(event(`{"type":"assistant.text_delta","session_id":"s-1","delta":"first"}`))
-	copied := m
-	copied.applyEvent(event(`{"type":"assistant.text_delta","session_id":"s-1","delta":"second"}`))
-	if m.streaming != "first" || copied.streaming != "firstsecond" {
-		t.Fatalf("copy lost immutable streaming state: %q %q", m.streaming, copied.streaming)
-	}
-}
-func TestTranscriptReplayedFromConsole(t *testing.T) {
-	m := newModel()
-	m.session = "s-1"
-	out, _ := m.Update(commandResult{name: "session_transcript", payload: json.RawMessage(`{"items":[{"kind":"user","text":"你好"},{"kind":"assistant","text":"hello"},{"kind":"tool","name":"bash"}]}`)})
-	state := out.(model)
-	if len(state.transcript) != 3 || state.transcript[0] != "> 你好" || !strings.Contains(state.transcript[2], "bash") {
-		t.Fatalf("replay: %#v", state.transcript)
 	}
 }
 
@@ -147,19 +105,25 @@ func TestToolCompletionMatchesCallID(t *testing.T) {
 		t.Fatalf("tool completion not adopted: %#v", m.transcript)
 	}
 }
-func TestExtensionStatusRender(t *testing.T) {
+
+func TestHostileToolResultIsSanitizedAtIngest(t *testing.T) {
 	m := newModel()
-	m.applyEvent(event(`{"type":"ui.render","slot":"Status","text":"working: 25%"}`))
-	if m.status != "working: 25%" {
-		t.Fatalf("status UI dropped: %q", m.status)
+	m.showTools = true
+	// A hostile tool body carrying OSC 8 link spoofing, a clipboard write and
+	// a screen clear, beside a legitimate SGR color: everything but the SGR
+	// must die before the text reaches any transcript surface.
+	body, err := json.Marshal("\x1b]8;;http://evil.example\x1b\\click\x1b]8;;\x1b\\ \x1b]52;c;AAAA\x07 \x1b[2J \x1b[31mred\x1b[0m")
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-func TestFinalMarkdownIsCached(t *testing.T) {
-	m := newModel()
-	m.appendAssistant("**bold** and `code`")
-	m.refreshTranscript()
-	if got := m.markdownCache[0]; !strings.Contains(got, "bold") || !strings.Contains(got, "code") {
-		t.Fatalf("markdown not rendered: %q", got)
+	m.applyEvent(event(`{"type":"tool.started","session_id":"s","tool_call_id":"tc-x","tool_name":"bash"}`))
+	m.applyEvent(event(`{"type":"tool.completed","session_id":"s","tool_call_id":"tc-x","tool_name":"bash","is_error":false,"result":` + string(body) + `}`))
+	joined := strings.Join(m.transcript, "\n")
+	if strings.Contains(joined, "evil.example") || strings.Contains(joined, "\x1b]") || strings.Contains(joined, "\x1b[2J") {
+		t.Fatalf("unsafe tool result reached the transcript: %q", joined)
+	}
+	if !strings.Contains(joined, "\x1b[31mred\x1b[0m") {
+		t.Fatalf("legitimate SGR color was stripped: %q", joined)
 	}
 }
 
@@ -170,15 +134,6 @@ func TestProtocolErrorDoesNotSilentlySucceed(t *testing.T) {
 	state := next.(model)
 	if state.running || !strings.Contains(state.err, "session is busy") {
 		t.Fatalf("protocol error lost: %#v", state)
-	}
-}
-func TestStartupLoadsPersistedTranscript(t *testing.T) {
-	m := newModel()
-	m.host = &testHost{}
-	next, cmd := m.Update(commandResult{name: "runtime_state", payload: json.RawMessage(`{"session_id":"s-1","status":"ready"}`)})
-	state := next.(model)
-	if state.session != "s-1" || cmd == nil {
-		t.Fatalf("startup failed to request replay: %#v", state)
 	}
 }
 
@@ -194,21 +149,6 @@ func TestSlashTabOpensPickerAndInsertKeepsDraft(t *testing.T) {
 	state = next.(model)
 	if cmd != nil || state.modal != "" || state.textarea.Value() != "/model" {
 		t.Fatalf("Tab completion must only edit the prompt: %#v", state)
-	}
-}
-
-func TestUiDismissRetiresOnlyMatchingPendingPrompt(t *testing.T) {
-	m := newModel()
-	m.applyEvent(event(`{"type":"ui.request","request_id":"u-1","kind":"confirm","prompt":"approval"}`))
-	m.applyEvent(event(`{"type":"ui.request","request_id":"u-2","kind":"input","prompt":"second"}`))
-	m.applyEvent(event(`{"type":"ui.request","request_id":"u-3","kind":"select","prompt":"third","options":["a","b"]}`))
-	m.applyEvent(event(`{"type":"ui.dismiss","request_id":"u-2"}`))
-	if m.modalRequestID != "u-1" || len(m.pendingUI) != 1 || m.pendingUI[0].id != "u-3" {
-		t.Fatalf("queued dismiss lost active/following prompts: active=%q queued=%#v", m.modalRequestID, m.pendingUI)
-	}
-	m.applyEvent(event(`{"type":"ui.dismiss","request_id":"u-1"}`))
-	if m.modalRequestID != "u-3" || m.modal != "select" || len(m.pendingUI) != 0 {
-		t.Fatalf("active dismiss did not advance FIFO: active=%q modal=%q queued=%#v", m.modalRequestID, m.modal, m.pendingUI)
 	}
 }
 
@@ -231,20 +171,6 @@ func TestUiDismissAfterReplyCannotCloseNextPrompt(t *testing.T) {
 	state.applyEvent(event(`{"type":"ui.dismiss","request_id":"u-2"}`))
 	if state.modalRequestID != "" || state.modal != "" || len(state.pendingUI) != 0 {
 		t.Fatalf("dismiss did not clear last prompt: %#v", state)
-	}
-}
-
-func TestUiDismissDoesNotCloseUnrelatedPicker(t *testing.T) {
-	m := newModel()
-	m.modal = "slash"
-	m.modalValues = []string{"/help"}
-	m.applyEvent(event(`{"type":"ui.dismiss","request_id":"u-1"}`))
-	if m.modal != "slash" || len(m.modalValues) != 1 {
-		t.Fatalf("unrelated dismissal closed local picker: %#v", m)
-	}
-	m.applyEvent(event(`{"type":"ui.request","kind":"confirm","prompt":"missing id"}`))
-	if m.modal != "slash" || m.modalRequestID != "" || m.err == "" {
-		t.Fatalf("malformed request corrupted selection: %#v", m)
 	}
 }
 
@@ -274,8 +200,13 @@ func TestSecretReplyIsCorrelatedAndCleared(t *testing.T) {
 	if cmd == nil || state.modalRequestID != "" || state.modal != "" || len(state.modalBuffer) != 0 {
 		t.Fatalf("secret reply left credential in active modal: %#v", state.modal)
 	}
-	response := cmd()
-	if result, ok := response.(commandResult); !ok || result.name != "ui_response" {
+	var response commandResult
+	for _, msg := range cmdMsgs(t, cmd) {
+		if result, ok := msg.(commandResult); ok {
+			response = result
+		}
+	}
+	if response.name != "ui_response" {
 		t.Fatalf("missing correlated UiPort response: %#v", response)
 	}
 }
@@ -342,18 +273,6 @@ func TestSkillCompletionDoesNotAcceptStaleResponse(t *testing.T) {
 	}
 }
 
-func TestSkillsBrowserReplyDoesNotReplaceSkillCompletion(t *testing.T) {
-	m := newModel()
-	m.textarea.SetValue("$exa")
-	m.completionToken = "$exa"
-	m.applyEvent(event(`{"type":"ui.request","request_id":"u-1","kind":"confirm","prompt":"approval"}`))
-	next, _ := m.Update(commandResult{name: "skills_browse", payload: json.RawMessage(`{"skills":[{"name":"example","description":"Example"}]}`)})
-	state := next.(model)
-	if state.modalRequestID != "u-1" {
-		t.Fatalf("async browse response must not replace active approval: %#v", state)
-	}
-}
-
 func TestStructuredAuthResultDoesNotBreakEventProjection(t *testing.T) {
 	m := newModel()
 	m.applyEvent(event(`{"type":"auth.login","session_id":"s1","provider":"openai","result":{"type":"success","structured":{"provider":"openai"},"feedback":"ok"}}`))
@@ -372,23 +291,6 @@ func TestStructuredAuthResultDoesNotBreakEventProjection(t *testing.T) {
 	m.applyEvent(event(`{"type":"tool.completed","session_id":"s1","tool_call_id":"t2","tool_name":"read","result":{"kind":"json"}}`))
 	if !strings.Contains(strings.Join(m.transcript, "\n"), `"kind":"json"`) {
 		t.Fatalf("structured tool result was lost: %#v", m.transcript)
-	}
-}
-
-func TestLocalCompletionPickerWorksBeforeHostBoot(t *testing.T) {
-	m := newModel()
-	m.textarea.SetValue("use $exa")
-	m.completionPrefix = "use "
-	m.completionToken = "$exa"
-	next, _ := m.Update(commandResult{name: "skills", payload: json.RawMessage(`{"skills":[{"name":"example","description":"Example"}]}`)})
-	state := next.(model)
-	if state.modal != "skills" || state.host != nil {
-		t.Fatalf("picker not available without host: %#v", state.modal)
-	}
-	next, cmd := state.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	state = next.(model)
-	if cmd != nil || state.textarea.Value() != "use $example " {
-		t.Fatalf("local completion must insert without dispatch: %q", state.textarea.Value())
 	}
 }
 

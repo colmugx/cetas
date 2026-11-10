@@ -3,6 +3,10 @@ package bridge
 /*
 #cgo darwin LDFLAGS: -L${SRCDIR}/lib -lcetas_moon
 #cgo linux LDFLAGS: -L${SRCDIR}/lib -lcetas_moon -lpthread -lm -ldl
+// ws2_32/bcrypt are the only system libraries the MoonBit native runtime
+// and its async backend actually import on Windows (WSAStartup/WSARecv,
+// BCryptGenRandom); everything else is kernel32, which Go links already.
+#cgo windows LDFLAGS: -L${SRCDIR}/lib -lcetas_moon -lws2_32 -lbcrypt
 #include <stdint.h>
 void cetas_host_boot(void);
 int32_t cetas_host_infra_run(void);

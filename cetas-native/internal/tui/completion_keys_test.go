@@ -49,6 +49,9 @@ func TestCompletionTabAndNonSlashEnterOnlyInsert(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newModel()
 			m.host = &testHost{}
+			// Seed the terminal status report so the only possible command
+			// from this Update is a completion side effect.
+			m.lastProgramStatus = formatProgramStatus(m.projectProgramStatus())
 			m.modal = tc.modal
 			m.modalItems = []string{tc.value}
 			m.modalValues = []string{tc.value}

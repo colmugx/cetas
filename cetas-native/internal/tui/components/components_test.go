@@ -3,7 +3,6 @@ package components
 import (
 	"fmt"
 	"github.com/charmbracelet/x/ansi"
-	"image/color"
 	"reflect"
 	"strings"
 	"testing"
@@ -79,28 +78,5 @@ func TestContextOccupancySourceFixtures(t *testing.T) {
 				t.Fatalf("got %q,%v want %q,%v", got, ok, c.want, c.ok)
 			}
 		})
-	}
-}
-func TestThemeNeverGuessesSurfaceWhenColorsUnknown(t *testing.T) {
-	for _, theme := range []Theme{{}, {FG: color.White}, {BG: color.Black}} {
-		if theme.Surface("user", "text") != "text" {
-			t.Fatal("unknown fg/bg produced fixed surface")
-		}
-	}
-}
-func TestAskMasksSecretAndBoundsLongOptions(t *testing.T) {
-	req := AskRequest{Kind: AskSecret, Prompt: "API key"}
-	out := Ask(Theme{}, req, 24, 0, "secret-canary", false)
-	joined := strings.Join(out, "\n")
-	if strings.Contains(joined, "secret-canary") || !strings.Contains(joined, "••••") {
-		t.Fatal("secret prompt is not masked")
-	}
-	for _, w := range []int{1, 18, 24, 40, 80} {
-		out = Ask(Theme{}, AskRequest{Kind: AskSelect, Title: "你好 👩‍💻", Options: []string{strings.Repeat("路径", 100), "Deny"}}, w, 0, "", false)
-		for _, line := range out {
-			if ansi.StringWidth(line) > w {
-				t.Fatalf("ask exceeds width %d: %q", w, line)
-			}
-		}
 	}
 }

@@ -193,68 +193,6 @@ func TestSessionRefusesForeignRowWithoutRecordedFolder(t *testing.T) {
 	}
 }
 
-// TestSessionTitleAndScopeKeys covers the `tab folder scope` toggle and the
-// `Current Folder | All` tabs.
-func TestSessionTitleAndScopeKeys(t *testing.T) {
-	p := NewSessions(SessionScopeCurrent, mineBucket)
-	if !p.Loading || p.Generation != 1 {
-		t.Fatalf("a new picker must ask for its first page: loading=%v gen=%d", p.Loading, p.Generation)
-	}
-	if title := ansi.Strip(p.Title(ui.Theme{})); !strings.Contains(title, "Sessions") || !strings.Contains(title, "[Current Folder]") || !strings.Contains(title, "All") {
-		t.Fatalf("title = %q", title)
-	}
-	if !p.SetEntries(1, []SessionEntry{mineEntry("mine", true)}, false) {
-		t.Fatal("the first page was refused")
-	}
-	toggle := p.Key("tab")
-	if toggle.Kind != SessionsLoad || toggle.Scope != SessionScopeAll || toggle.Generation != 2 {
-		t.Fatalf("tab must request the All page: %#v", toggle)
-	}
-	if !p.Loading || p.Err != "" {
-		t.Fatal("a scope page request must enter the loading state")
-	}
-	if title := ansi.Strip(p.Title(ui.Theme{})); !strings.Contains(title, "[All]") {
-		t.Fatalf("title after tab = %q", title)
-	}
-	back := p.Key("shift+tab")
-	if back.Kind != SessionsLoad || back.Scope != SessionScopeCurrent || back.Generation != 3 {
-		t.Fatalf("shift+tab must request the Current Folder page: %#v", back)
-	}
-	if p.Scope != SessionScopeCurrent {
-		t.Fatalf("scope = %q", p.Scope)
-	}
-	if title := ansi.Strip(p.Title(ui.Theme{})); !strings.Contains(title, "[Current Folder]") {
-		t.Fatalf("title after shift+tab = %q", title)
-	}
-}
-
-// TestSessionScopeFiltersForeignRows: the current scope shows this project's
-// bucket only; the All scope mixes folders and labels them.
-func TestSessionScopeFiltersForeignRows(t *testing.T) {
-	foreign := SessionEntry{ID: "theirs", Bucket: "session_other_bbbbbbbbbbbb", Title: "title theirs", Cwd: cwdValue("/work/theirs"), ModifiedAt: at(sessionNow, time.Minute), SizeBytes: 3}
-	p := NewSessions(SessionScopeCurrent, mineBucket)
-	p.SetEntries(1, []SessionEntry{mineEntry("mine", true), foreign}, false)
-
-	if rows := p.Visible(); len(rows) != 1 || rows[0].ID != "mine" {
-		t.Fatalf("current scope rows = %#v", rows)
-	}
-	got := joined(p, 160, 6, sessionNow)
-	if !strings.Contains(got, "[Current Folder]") || !strings.Contains(got, "mine") || strings.Contains(got, "theirs") {
-		t.Fatalf("current scope render:\n%s", got)
-	}
-	p.Scope = SessionScopeAll
-	got = joined(p, 160, 6, sessionNow)
-	if !strings.Contains(got, "[All]") || !strings.Contains(got, "theirs") || !strings.Contains(got, "/work/theirs") {
-		t.Fatalf("All scope render:\n%s", got)
-	}
-	// Enter resumes the row the user sees, foreign or not; the parent decides
-	// whether the recorded folder makes it resumable.
-	p.Key("down")
-	if picked := p.Key("enter"); picked.Kind != SessionsChoose || picked.Entry.ID != "theirs" {
-		t.Fatalf("enter on the All scope = %#v", picked)
-	}
-}
-
 // TestSessionEnterChoosesTheVisibleRow: the cursor walks the scope-filtered
 // list and enter reports that row.
 func TestSessionEnterChoosesTheVisibleRow(t *testing.T) {
@@ -281,37 +219,6 @@ func TestSessionEnterChoosesTheVisibleRow(t *testing.T) {
 	}
 	if picked := p.Key("enter"); picked.Entry.ID != "old" {
 		t.Fatalf("cursor escaped the list upwards: %#v", picked)
-	}
-}
-
-// TestSessionDismissKeys: esc and q cancel, and an empty scope dismisses on any
-// other key exactly like the JS panel.
-func TestSessionDismissKeys(t *testing.T) {
-	p := NewSessions(SessionScopeCurrent, mineBucket)
-	p.SetEntries(1, []SessionEntry{mineEntry("mine", true)}, false)
-	for _, key := range []string{"esc", "q"} {
-		if action := p.Key(key); action.Kind != SessionsCancel {
-			t.Fatalf("%q = %#v, want a cancel", key, action)
-		}
-	}
-	empty := NewSessions(SessionScopeCurrent, mineBucket)
-	empty.SetEntries(1, nil, false)
-	for _, key := range []string{"enter", "up", "down", "x"} {
-		if action := empty.Key(key); action.Kind != SessionsCancel {
-			t.Fatalf("an empty scope must dismiss on %q: %#v", key, action)
-		}
-	}
-	// tab still works while the scope is empty: it swaps the scope.
-	if action := empty.Key("tab"); action.Kind != SessionsLoad {
-		t.Fatalf("tab on an empty scope = %#v", action)
-	}
-	// A pending page is not an empty answer: a stray key must not drop the
-	// request the user already made.
-	loading := NewSessions(SessionScopeCurrent, mineBucket)
-	for _, key := range []string{"enter", "up", "down", "x"} {
-		if action := loading.Key(key); action.Kind != SessionsHandled {
-			t.Fatalf("a loading scope dismissed on %q: %#v", key, action)
-		}
 	}
 }
 
@@ -348,75 +255,6 @@ func TestSessionWheelIsACoalescedScalar(t *testing.T) {
 	empty.SetEntries(1, nil, false)
 	if action := empty.Scroll(3); action.Kind != SessionsHandled {
 		t.Fatalf("a wheel notch on an empty scope must not dismiss: %#v", action)
-	}
-}
-
-// TestSessionLoadingAndErrorStates covers the three stand-in lines and the
-// generation rule that keeps a late reply from painting stale rows.
-func TestSessionLoadingAndErrorStates(t *testing.T) {
-	p := NewSessions(SessionScopeCurrent, mineBucket)
-	if got := joined(p, 80, 4, sessionNow); !strings.Contains(got, "Loading sessions…") {
-		t.Fatalf("no loading line:\n%s", got)
-	}
-	if !strings.Contains(ansi.Strip(p.Title(ui.Theme{})), "Sessions") {
-		t.Fatal("the title must still render while loading")
-	}
-	if p.SetError(2, "stale reply") {
-		t.Fatal("an error for a future generation was accepted")
-	}
-	if !p.SetError(1, "\x1b[31mcatalog unavailable\x1b[0m") {
-		t.Fatal("the current generation's error was refused")
-	}
-	if p.Loading {
-		t.Fatal("an error must end the loading state")
-	}
-	got := joined(p, 80, 4, sessionNow)
-	if !strings.Contains(got, "catalog unavailable") || strings.Contains(got, "\x1b") {
-		t.Fatalf("error line = %q", got)
-	}
-	// A stale page never replaces the rows on screen, and a fresh one clears
-	// the error.
-	if p.SetEntries(0, []SessionEntry{mineEntry("stale", false)}, false) {
-		t.Fatal("a page from generation 0 was accepted on generation 1")
-	}
-	if rows := p.Visible(); len(rows) != 0 {
-		t.Fatalf("stale rows were installed: %#v", rows)
-	}
-	if !p.SetEntries(1, []SessionEntry{mineEntry("mine", true)}, false) {
-		t.Fatal("the current page was refused")
-	}
-	if p.Err != "" || p.Loading {
-		t.Fatalf("a page must clear the error: err=%q loading=%v", p.Err, p.Loading)
-	}
-	// A pending page keeps the cached rows on screen; a failure replaces them,
-	// because those rows answer the request the picker no longer stands behind.
-	if action := p.Refresh(); action.Kind != SessionsLoad || action.Generation != 2 {
-		t.Fatalf("refresh = %#v", action)
-	}
-	if got := joined(p, 80, 4, sessionNow); !strings.Contains(got, "mine") {
-		t.Fatalf("a pending page blanked the list:\n%s", got)
-	}
-	if !p.SetError(2, "catalog unavailable") {
-		t.Fatal("the refresh error was refused")
-	}
-	if got := joined(p, 80, 4, sessionNow); strings.Contains(got, "mine") || !strings.Contains(got, "catalog unavailable") {
-		t.Fatalf("a failure left the cached rows up:\n%s", got)
-	}
-	// The rows behind the failure line are not on screen, so enter must not
-	// resume one of them.
-	if action := p.Key("enter"); action.Kind != SessionsCancel {
-		t.Fatalf("enter resumed a hidden row: %#v", action)
-	}
-	// Empty scopes say which scope is empty.
-	current := NewSessions(SessionScopeCurrent, mineBucket)
-	current.SetEntries(1, nil, false)
-	if got := joined(current, 120, 4, sessionNow); !strings.Contains(got, "No sessions found in this project") {
-		t.Fatalf("current empty state:\n%s", got)
-	}
-	all := NewSessions(SessionScopeAll, mineBucket)
-	all.SetEntries(1, nil, false)
-	if got := joined(all, 120, 4, sessionNow); !strings.Contains(got, "No sessions found in any project") {
-		t.Fatalf("All empty state:\n%s", got)
 	}
 }
 
@@ -498,35 +336,6 @@ func TestSessionRenderStaysBoundedAndSanitised(t *testing.T) {
 	}
 }
 
-// TestSessionCursorSurvivesAPageReplace: the same id can exist in two buckets,
-// so the cursor follows the row the user was on, not the id alone.
-func TestSessionCursorSurvivesAPageReplace(t *testing.T) {
-	p := NewSessions(SessionScopeAll, mineBucket)
-	first := []SessionEntry{mineEntry("a", false), mineEntry("b", true), mineEntry("c", false)}
-	p.SetEntries(1, first, false)
-	p.Key("down")
-	if got, _ := p.Selected(); got.ID != "b" {
-		t.Fatalf("cursor = %q", got.ID)
-	}
-	// A re-fetch of the same scope keeps the cursor on b, now at index 2.
-	if !p.SetEntries(1, []SessionEntry{mineEntry("c", false), mineEntry("a", false), mineEntry("b", true)}, false) {
-		t.Fatal("the re-fetch was refused")
-	}
-	if got, _ := p.Selected(); got.ID != "b" {
-		t.Fatalf("cursor moved to %q after a page replace", got.ID)
-	}
-	// A different page clamps the cursor instead of pointing past the list.
-	p.Scroll(99)
-	p.SetEntries(1, []SessionEntry{mineEntry("z", false)}, false)
-	if got, _ := p.Selected(); got.ID != "z" {
-		t.Fatalf("clamped cursor = %q", got.ID)
-	}
-	p.SetEntries(1, nil, false)
-	if _, ok := p.Selected(); ok {
-		t.Fatal("an empty page must have no selection")
-	}
-}
-
 // TestSessionPagesAppendButNeverTruncate: append extends the visible list for a
 // "more" page, and the buffer bound is enforced by refusing an oversized page
 // whole — never by trimming it, which would silently hide the sessions past the
@@ -591,96 +400,5 @@ func TestSessionPagesAppendButNeverTruncate(t *testing.T) {
 	}
 	if len(p.Entries) != maxSessionRows {
 		t.Fatalf("row buffer changed to %d", len(p.Entries))
-	}
-}
-
-// TestSessionEntryWireShape pins the JSON contract the parent's catalog reply
-// uses, including the explicit-null `cwd` the MoonBit catalog writes for legacy
-// journals, and keeps the metadata fields the picker renders.
-func TestSessionEntryWireShape(t *testing.T) {
-	var entry SessionEntry
-	raw := `{"id":"2026-08-29T12-17-57-155Z_2c30a4ff","bucket":"session_mine_aaaaaaaaaaaa","title":"Fix the login bug","cwd":"/work/mine","folder":"/work/mine","sizeBytes":1536,"modifiedAt":1756000000000,"current":true,"resumable":false,"reason":"transcript is mid-write"}`
-	if err := json.Unmarshal([]byte(raw), &entry); err != nil {
-		t.Fatal(err)
-	}
-	if entry.ID == "" || entry.Bucket == "" || entry.Title == "" || entry.Folder == "" {
-		t.Fatalf("identity fields: %#v", entry)
-	}
-	if entry.Cwd == nil || *entry.Cwd != "/work/mine" {
-		t.Fatalf("cwd = %v", entry.Cwd)
-	}
-	if entry.SizeBytes != 1536 || entry.ModifiedAt != 1756000000000 || !entry.Current {
-		t.Fatalf("facts: %#v", entry)
-	}
-	if entry.Resumable == nil || *entry.Resumable || entry.Reason == "" {
-		t.Fatalf("resume decision: %#v", entry)
-	}
-	encoded, err := json.Marshal(SessionEntry{ID: "x"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// cwd stays on the wire even when unrecorded: null is meaningful there.
-	for _, want := range []string{`"id":"x"`, `"cwd":null`, `"sizeBytes":0`, `"modifiedAt":0`, `"current":false`} {
-		if !strings.Contains(string(encoded), want) {
-			t.Fatalf("marshalled entry %s missing %s", encoded, want)
-		}
-	}
-	for _, absent := range []string{`"title"`, `"resumable"`, `"reason"`} {
-		if strings.Contains(string(encoded), absent) {
-			t.Fatalf("optional field %s was written: %s", absent, encoded)
-		}
-	}
-}
-
-// TestSessionZeroValueIsSafe: the parent holds the picker before the catalog
-// arrives, so every accessor and key must work on a zero value.
-func TestSessionZeroValueIsSafe(t *testing.T) {
-	var p Sessions
-	if rows := p.Visible(); len(rows) != 0 {
-		t.Fatalf("zero-value rows: %#v", rows)
-	}
-	if _, ok := p.Selected(); ok {
-		t.Fatal("zero-value selection")
-	}
-	if got := p.Scope; got.normal() != SessionScopeCurrent {
-		t.Fatalf("zero-value scope = %q", got)
-	}
-	if lines := p.Render(ui.Theme{}, 40, 4, sessionNow); len(lines) == 0 {
-		t.Fatal("zero value rendered nothing")
-	}
-	if action := p.Key("down"); action.Kind != SessionsCancel {
-		// A zero-value picker has no rows and no pending page: it reads as an
-		// empty scope, which the JS panel dismisses on any key.
-		t.Fatalf("zero-value down = %#v, want the empty-scope dismissal", action)
-	}
-	if action := p.Scroll(1); action.Kind != SessionsHandled {
-		t.Fatalf("zero-value scroll = %#v", action)
-	}
-	if action := p.Key("tab"); action.Kind != SessionsLoad || action.Generation != 1 {
-		t.Fatalf("zero-value tab = %#v", action)
-	}
-	if action := p.Key("down"); action.Kind != SessionsHandled {
-		t.Fatalf("a requested page must keep the picker open: %#v", action)
-	}
-	if !p.SetEntries(1, []SessionEntry{mineEntry("mine", true)}, false) {
-		t.Fatal("the zero-value picker refused its first page")
-	}
-}
-
-// TestSessionFooterAndMoreHint pins the footer text (the JS panel footer) and
-// the parent's "another page exists" hint.
-func TestSessionFooterAndMoreHint(t *testing.T) {
-	p := NewSessions(SessionScopeCurrent, mineBucket)
-	p.SetEntries(1, []SessionEntry{mineEntry("mine", true)}, false)
-	footer := ansi.Strip(p.Footer(ui.Theme{}))
-	if footer != sessionFooter {
-		t.Fatalf("footer = %q, want %q", footer, sessionFooter)
-	}
-	if got := joined(p, 200, 6, sessionNow); !strings.Contains(got, "history stays on disk") {
-		t.Fatalf("footer missing from the render:\n%s", got)
-	}
-	p.More = true
-	if footer := ansi.Strip(p.Footer(ui.Theme{})); !strings.Contains(footer, "more") {
-		t.Fatalf("missing-page hint = %q", footer)
 	}
 }

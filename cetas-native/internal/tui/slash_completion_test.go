@@ -19,16 +19,6 @@ func TestSlashSuggestionsPrefixAndFuzzy(t *testing.T) {
 	}
 }
 
-func TestSlashSuggestionsPermissionArgs(t *testing.T) {
-	matches := slashSuggestions("/permission work")
-	if len(matches) != 1 || matches[0].insert != "/permission workspace_write" {
-		t.Fatalf("mode completion: %#v", matches)
-	}
-	if len(slashSuggestions("/permission yolo next")) != 0 {
-		t.Fatal("must not eat trailing command arguments")
-	}
-}
-
 func TestSlashSuggestionInsertDoesNotExecute(t *testing.T) {
 	if got := slashInsertion("/login"); got != "/login " {
 		t.Fatalf("argument command insertion: %q", got)

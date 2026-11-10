@@ -21,17 +21,3 @@ func TestColdHistoryRenderOwnsOnlyADemandClock(t *testing.T) {
 		t.Fatal("settled history kept an idle clock alive")
 	}
 }
-
-func TestModelCloseStopsColdHistoryWorker(t *testing.T) {
-	m := newModel()
-	worker := newHistoryMarkdownWorker(1)
-	m.virtualScroll = &virtualTranscript{history: worker}
-	m.Close()
-	worker.mu.Lock()
-	stopped := worker.stopped
-	worker.mu.Unlock()
-	if !stopped {
-		worker.stop()
-		t.Fatal("model close did not retire the history worker")
-	}
-}

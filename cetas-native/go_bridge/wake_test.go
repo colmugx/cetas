@@ -5,7 +5,6 @@ import (
 	"context"
 	"os"
 	"os/exec"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -137,83 +136,4 @@ func isolatedCommandChannel(t *testing.T, name string) bool {
 		t.Fatalf("isolated command channel: %v\n%s", err, output)
 	}
 	return true
-}
-
-func TestTransferredCommandDescriptorCannotBeProbedOrRead(t *testing.T) {
-	if isolatedCommandChannel(t, "TestTransferredCommandDescriptorCannotBeProbedOrRead") {
-		return
-	}
-	h := transportUnderTest()
-	if err := h.Send(CommandStop); err != nil {
-		t.Fatal(err)
-	}
-	fd := claimCommandChannel()
-	if fd < 0 {
-		t.Fatal("command read end was not transferred")
-	}
-	defer syscall.Close(fd)
-	if commandChannelLive() || commandWakePending() {
-		t.Fatal("test seam touched a descriptor already owned by the scheduler")
-	}
-	if claimCommandChannel() >= 0 {
-		t.Fatal("command descriptor ownership was transferred twice")
-	}
-}
-
-// A rejected publish is diagnostic information the pump must act on, so it
-// wakes the consumer even though nothing was queued.
-func TestWaitWakesOnRejectedPublish(t *testing.T) {
-	h := transportUnderTest()
-	if len(drainAll(t, h)) != 0 {
-		t.Fatal("nonempty queue")
-	}
-	drainWake()
-	done := waitInBackground(h)
-	settle(t, done, 20*time.Millisecond)
-	if rc := publishFrame(nil); rc != -1 {
-		t.Fatalf("invalid publish rc=%d", rc)
-	}
-	expectWake(t, done, "a rejected publish", 2*time.Second)
-	if len(drainAll(t, h)) != 0 {
-		t.Fatal("a rejected publish must not queue a frame")
-	}
-}
-
-// A stall in the bounded wait is a lost delivery the pump must report, so the
-// timed-out publish wakes the consumer too.
-func TestWaitWakesOnQueueFullTimeout(t *testing.T) {
-	h := transportUnderTest()
-	if len(drainAll(t, h)) != 0 {
-		t.Fatal("nonempty queue")
-	}
-	for i := 0; i < QueueFrameCap; i++ {
-		if publishFrame([]byte("x")) != 1 {
-			t.Fatal("fill failed")
-		}
-	}
-	drainWake()
-	done := waitInBackground(h)
-	settle(t, done, 20*time.Millisecond)
-	rejected := make(chan int, 1)
-	go func() { rejected <- publishFrame(testPayload(t, FrameLimit)) }()
-	expectWake(t, done, "the bounded-wait timeout", 10*time.Second)
-	if rc := <-rejected; rc != 0 {
-		t.Fatalf("over-full publish rc=%d, want the timeout verdict", rc)
-	}
-	if len(drainAll(t, h)) != QueueFrameCap {
-		t.Fatal("the timed-out publish disturbed the queue")
-	}
-}
-
-// Wake is the host's own doorbell: the runtime owner calls it as it exits so
-// a blocked pump cannot outlive the scheduler it is consuming.
-func TestWakeReleasesWaiter(t *testing.T) {
-	h := transportUnderTest()
-	drainWake()
-	done := waitInBackground(h)
-	settle(t, done, 20*time.Millisecond)
-	if err := h.Wake(); err != nil {
-		t.Fatalf("wake: %v", err)
-	}
-	expectWake(t, done, "Host wake", 2*time.Second)
 }

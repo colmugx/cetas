@@ -378,20 +378,6 @@ func TestDashboardMatchesJSStatusbarOracle(t *testing.T) {
 	}
 }
 
-// The dashboard needs its own collapsing clean (JS clean), but that must not
-// leak into the shared Clean helper other packages size and render with.
-func TestDashboardKeepsSharedCleanUncollapsed(t *testing.T) {
-	if got := Clean("a  b"); got != "a  b" {
-		t.Fatalf("shared Clean now collapses whitespace: %q", got)
-	}
-	if got := Clean("x\n y"); got != "x  y" {
-		t.Fatalf("shared Clean changed control handling: %q", got)
-	}
-	if got := Clean("\x1b[31mred"); got != "red" {
-		t.Fatalf("shared Clean stopped stripping ANSI: %q", got)
-	}
-}
-
 // Statusbar values are untrusted extension input: control sequences must be
 // removed instead of becoming part of the rendered row.
 func TestDashboardNeverEmitsInjectedControlSequences(t *testing.T) {

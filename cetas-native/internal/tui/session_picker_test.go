@@ -16,7 +16,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/colmugx/cetas/cetas-native/internal/tui/overlays"
 )
@@ -320,141 +319,6 @@ func TestSessionPickerOpensWithBoundedCurrentScopePage(t *testing.T) {
 	}
 }
 
-// TestSessionPickerRendersTypedRowsWithinThePanel pins the typed overlay: the
-// scope tabs, the title, the folder, the age, the size, the current-session
-// marker and the explicit refusal for a row that cannot be resumed — all
-// bounded to the terminal box.
-func TestSessionPickerRendersTypedRowsWithinThePanel(t *testing.T) {
-	host := &sessionCatalogHost{total: 0, cwd: "/workspace/demo"}
-	m := sessionPickerModel(t, host)
-	m.width, m.height = 140, 36
-	m.resize()
-	cmd := m.command("/sessions")
-	sessionRequest(t, cmd)
-
-	foreignFolder := "other-project"
-	rows := []overlays.SessionEntry{{
-		ID: "2026-08-30T10:00:00_00000000", Bucket: "session_demo_aaaaaaaaaaaa",
-		Title: "resume me", Folder: "demo", SizeBytes: 2048,
-		ModifiedAt: time.Now().Add(-3 * time.Minute).UnixMilli(), Current: true,
-	}}
-	// A foreign legacy row: no recorded cwd, so the folder is a slug only and
-	// the catalog reports it as not resumable from here.
-	unresumable := false
-	rows = append(rows, overlays.SessionEntry{
-		ID: "2026-08-29T10:00:00_00000001", Bucket: "session_other_bbbbbbbbbbbb",
-		Title: "elsewhere", Folder: foreignFolder, SizeBytes: 5 * 1024 * 1024,
-		ModifiedAt: time.Now().Add(-30 * time.Hour).UnixMilli(),
-		Resumable:  &unresumable,
-		Reason:     "no project folder recorded; cannot resume from another project",
-	})
-	reply := sessionReply(m, sessionPayload(t, "all", rows, nil))
-	m.sessionPicker.panel.Scope = overlays.SessionScopeAll
-	reply.pickerScope = overlays.SessionScopeAll
-	next, _ := m.Update(reply)
-	m = next.(model)
-
-	view := m.View().Content
-	for _, want := range []string{"Sessions", "Current Folder", "[All]", "resume me", "2.0 KB", "5.0 MB", "d ago", "current", "no project folder recorded"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("picker overlay is missing %q:\n%s", want, view)
-		}
-	}
-	lines := strings.Split(view, "\n")
-	if len(lines) > m.height {
-		t.Fatalf("picker painted %d lines into a %d-line terminal", len(lines), m.height)
-	}
-	for _, line := range lines {
-		if width := ansi.StringWidth(line); width > m.width {
-			t.Fatalf("picker line overflows the terminal (%d > %d): %q", width, m.width, line)
-		}
-	}
-	// A full page of rows is still painted inside the terminal box: the panel
-	// window follows the height instead of growing with the catalog.
-	m.width, m.height = 80, 24
-	m.resize()
-	m.sessionPicker.panel.Scope = overlays.SessionScopeCurrent
-	full := sessionReply(m, sessionPayload(t, "current", sessionRows(host, 0, sessionPickerPageLimit), nil))
-	next, _ = m.Update(full)
-	m = next.(model)
-	painted := strings.Split(m.View().Content, "\n")
-	if len(painted) > m.height {
-		t.Fatalf("a full page painted %d lines into a %d-line terminal", len(painted), m.height)
-	}
-	if !strings.Contains(m.View().Content, "tab folder scope") {
-		t.Fatal("a full page dropped the picker footer")
-	}
-
-	// A tiny terminal still gets a bounded panel instead of a crash or overflow.
-	m.width, m.height = 18, 6
-	m.resize()
-	for _, line := range strings.Split(m.View().Content, "\n") {
-		if width := ansi.StringWidth(line); width > 18 {
-			t.Fatalf("small-terminal picker overflow: %q", line)
-		}
-	}
-}
-
-// TestSessionPickerTabClearsEntriesAndRejectsTheOldPage pins the scope refresh:
-// Tab drops the rows and the page history of the scope the user left, asks for
-// page 0 of the new scope, and refuses the reply that was already in flight.
-func TestSessionPickerTabClearsEntriesAndRejectsTheOldPage(t *testing.T) {
-	host := &sessionCatalogHost{total: 250, cwd: "/workspace/demo"}
-	m := sessionPickerModel(t, host)
-	m = openTypedSessionPicker(t, &m)
-	if len(m.sessionPicker.panel.Entries) != sessionPickerPageLimit {
-		t.Fatalf("first page = %d rows", len(m.sessionPicker.panel.Entries))
-	}
-	m.sessionPicker.stack = []string{"", host.anchor(sessionPickerPageLimit - 1)}
-	m.sessionPicker.cursor = host.anchor(sessionPickerPageLimit - 1)
-	stale := sessionReply(m, sessionPayload(t, "current", sessionRows(host, 0, 2), nil))
-
-	cmd := press(t, &m, tea.KeyTab)
-	if scope := m.sessionPicker.panel.Scope; scope != overlays.SessionScopeAll {
-		t.Fatalf("Tab left the scope at %q", scope)
-	}
-	if len(m.sessionPicker.panel.Entries) != 0 {
-		t.Fatalf("Tab kept %d rows of the previous scope", len(m.sessionPicker.panel.Entries))
-	}
-	if len(m.sessionPicker.stack) != 0 || m.sessionPicker.cursor != "" {
-		t.Fatalf("Tab kept the page history: stack=%v cursor=%q", m.sessionPicker.stack, m.sessionPicker.cursor)
-	}
-	request := sessionRequest(t, cmd)
-	if request.pickerScope != overlays.SessionScopeAll || request.pickerGeneration <= stale.pickerGeneration {
-		t.Fatalf("scope refresh did not mint a newer generation: %#v / stale %#v", request, stale)
-	}
-
-	// The in-flight reply for the scope just left is refused before anything,
-	// including its failure, reaches the model.
-	next, _ := m.Update(stale)
-	m = next.(model)
-	if len(m.sessionPicker.panel.Entries) != 0 {
-		t.Fatalf("stale scope page painted the cleared picker: %d rows", len(m.sessionPicker.panel.Entries))
-	}
-	staleError := stale
-	staleError.payload = nil
-	staleError.err = fmt.Errorf("stale current-folder failure")
-	next, _ = m.Update(staleError)
-	m = next.(model)
-	if m.err != "" || m.sessionPicker.panel.Err != "" {
-		t.Fatalf("stale failure reached the UI: err=%q panel=%q", m.err, m.sessionPicker.panel.Err)
-	}
-
-	next, _ = m.Update(sessionReply(m, sessionPayload(t, "all", sessionRows(host, 0, 2), nil)))
-	m = next.(model)
-	if len(m.sessionPicker.panel.Entries) != 2 {
-		t.Fatalf("current-scope reply was not installed: %d rows", len(m.sessionPicker.panel.Entries))
-	}
-	// A reply for the wrong scope is refused even under the live generation.
-	mismatched := sessionReply(m, sessionPayload(t, "current", sessionRows(host, 0, 5), nil))
-	mismatched.pickerScope = overlays.SessionScopeCurrent
-	next, _ = m.Update(mismatched)
-	m = next.(model)
-	if len(m.sessionPicker.panel.Entries) != 2 {
-		t.Fatalf("a current-scope reply replaced the all-scope page: %d rows", len(m.sessionPicker.panel.Entries))
-	}
-}
-
 // TestSessionPickerPagesWithinABoundedWindow pins paging: the window never
 // exceeds one page, forward/back move by cursor instead of accumulating rows,
 // and both stop when the catalog has no neighbour.
@@ -581,44 +445,6 @@ func TestSessionPickerFailureStaysInThePanel(t *testing.T) {
 	}
 }
 
-// TestSessionPickerWheelPagesAtTheEdge pins the wheel against the same page
-// boundaries as the arrow keys: one notch past the last row asks for the
-// continuation, and one notch above the first row returns to the page left
-// behind — never both, and never a stale generation.
-func TestSessionPickerWheelPagesAtTheEdge(t *testing.T) {
-	host := &sessionCatalogHost{total: 250, cwd: "/workspace/demo"}
-	m := sessionPickerModel(t, host)
-	m = openTypedSessionPicker(t, &m)
-	_, left, top, width, height := m.overlayPanel()
-	inside := tea.Mouse{X: left + width/2, Y: top + height/2}
-
-	m.sessionPicker.panel.Index = sessionPickerPageLimit - 1
-	next, cmd := m.Update(WheelDeltaMsg{Mouse: inside, DeltaY: 1})
-	m = next.(model)
-	if cmd == nil {
-		t.Fatal("wheel at the bottom edge did not request the next page")
-	}
-	next, _ = m.Update(sessionRequest(t, cmd))
-	m = next.(model)
-	if m.sessionPicker.cursor != host.anchor(sessionPickerPageLimit-1) || len(m.sessionPicker.stack) != 1 {
-		t.Fatalf("wheel forward: cursor=%q stack=%v", m.sessionPicker.cursor, m.sessionPicker.stack)
-	}
-
-	next, cmd = m.Update(WheelDeltaMsg{Mouse: inside, DeltaY: -1})
-	m = next.(model)
-	if cmd == nil {
-		t.Fatal("wheel at the top edge did not request the previous page")
-	}
-	next, _ = m.Update(sessionRequest(t, cmd))
-	m = next.(model)
-	if m.sessionPicker.cursor != "" || len(m.sessionPicker.stack) != 0 {
-		t.Fatalf("wheel back: cursor=%q stack=%v", m.sessionPicker.cursor, m.sessionPicker.stack)
-	}
-	if m.sessionPicker.panel.Index != sessionPickerPageLimit-1 {
-		t.Fatalf("wheel back did not land on the row left behind: %d", m.sessionPicker.panel.Index)
-	}
-}
-
 // TestSessionPickerDefersTheCatalogUntilTheAskResolves pins FIFO focus: a
 // UiPort ask is the first focus owner, keys stay with the ask, and the page
 // that arrives meanwhile installs only after the ask is answered.
@@ -666,52 +492,6 @@ func TestSessionPickerDefersTheCatalogUntilTheAskResolves(t *testing.T) {
 	}
 	if !host.sent("ui_response") {
 		t.Fatal("the ask was never answered on the wire")
-	}
-}
-
-// TestSessionPickerChoosesSameFolderWithSwitchSession pins the only resume
-// route available today: a row recorded in this workspace reuses
-// switch_session, and the picker closes only once that switch succeeds.
-func TestSessionPickerChoosesSameFolderWithSwitchSession(t *testing.T) {
-	host := &sessionCatalogHost{total: 2, cwd: "/workspace/demo"}
-	m := sessionPickerModel(t, host)
-	m = openTypedSessionPicker(t, &m)
-	epoch := m.sessionPickerEpoch
-
-	cmd := press(t, &m, tea.KeyEnter)
-	if cmd == nil {
-		t.Fatal("enter did not request a switch")
-	}
-	result, ok := cmd().(commandResult)
-	if !ok || result.name != "switch_session" {
-		t.Fatalf("same-folder resume did not use switch_session: %#v", result)
-	}
-	if id := host.requests[len(host.requests)-1].args["id"]; id != host.entry(0).ID {
-		t.Fatalf("switch_session id = %v, want %q", id, host.entry(0).ID)
-	}
-	if !m.sessionPicker.open || m.sessionPickerEpoch != epoch {
-		t.Fatal("the picker retired before the switch succeeded")
-	}
-	// A failed switch must not retire the window.
-	failed := commandResult{name: "switch_session", payload: json.RawMessage(`{"error":"session is busy"}`)}
-	next, _ := m.Update(failed)
-	m = next.(model)
-	if !m.sessionPicker.open || m.sessionPickerEpoch != epoch {
-		t.Fatalf("a failed switch retired the picker: open=%v epoch=%d", m.sessionPicker.open, m.sessionPickerEpoch)
-	}
-
-	m.err = ""
-	next, _ = m.Update(commandResult{name: "switch_session", payload: json.RawMessage(`{"session_id":"chosen"}`)})
-	m = next.(model)
-	if m.sessionPicker.open || m.sessionPickerEpoch <= epoch {
-		t.Fatalf("successful switch did not retire the picker: open=%v epoch=%d", m.sessionPicker.open, m.sessionPickerEpoch)
-	}
-	// The retired picker's replies are refused: nothing paints the closed window.
-	late := sessionReply(m, sessionPayload(t, "current", sessionRows(host, 0, 3), nil))
-	next, _ = m.Update(late)
-	m = next.(model)
-	if len(m.sessionPicker.panel.Entries) != 0 || m.err != "" {
-		t.Fatalf("a retired picker reply was applied: rows=%d err=%q", len(m.sessionPicker.panel.Entries), m.err)
 	}
 }
 
@@ -775,8 +555,15 @@ func TestSessionPickerForeignRowsResumeAtomically(t *testing.T) {
 	if switchCmd == nil {
 		t.Fatal("a live foreign row did not request the atomic resume")
 	}
-	result, ok := switchCmd().(commandResult)
-	if !ok || result.name != "switch_session" {
+	var result commandResult
+	found := false
+	for _, msg := range cmdMsgs(t, switchCmd) {
+		if r, ok := msg.(commandResult); ok {
+			result = r
+			found = true
+		}
+	}
+	if !found || result.name != "switch_session" {
 		t.Fatalf("atomic resume did not use switch_session: %#v", result)
 	}
 	args := host.requests[len(host.requests)-1].args

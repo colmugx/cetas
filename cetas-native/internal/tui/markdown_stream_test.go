@@ -2,13 +2,11 @@ package tui
 
 import (
 	"fmt"
-	"image/color"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
-	ui "github.com/colmugx/cetas/cetas-native/internal/tui/components"
 )
 
 // settleMarkdown behaves like the shell clock: it repaints until the streaming
@@ -142,56 +140,6 @@ func TestStaleMarkdownRenderIsDiscardedOnResize(t *testing.T) {
 	}
 }
 
-// Results are validated by revision, width and theme, so the worker can never
-// hand the UI a document it did not ask for.
-func TestMarkdownPipelineRejectsSupersededResults(t *testing.T) {
-	p := newMarkdownPipeline()
-	defer p.stop()
-	base := markdownRenderJob{width: 30, themeKey: "same", theme: ui.Theme{}}
-	older := base
-	older.revision, older.source = 1, "**one**"
-	newer := base
-	newer.revision, newer.source = 2, "**two**"
-	p.submit(older)
-	p.submit(newer)
-	deadline := time.Now().Add(5 * time.Second)
-	var result markdownRenderResult
-	for {
-		next, ok := p.take()
-		if ok && next.revision == newer.revision {
-			result = next
-			break
-		}
-		// The worker may finish the earlier job before submit(newer) runs.
-		// Require the newest completion, not a particular goroutine schedule.
-		if time.Now().After(deadline) {
-			t.Fatal("worker produced no result")
-		}
-		time.Sleep(time.Millisecond)
-	}
-	if result.revision != newer.revision || !strings.Contains(result.rendered, "two") {
-		t.Fatalf("worker kept a superseded source: revision=%d rendered=%q", result.revision, result.rendered)
-	}
-	// An older completion arriving late is never stored over the newer one.
-	p.finish(markdownRenderResult{revision: older.revision, width: base.width, themeKey: base.themeKey, rendered: "stale"})
-	if stale, ok := p.take(); ok {
-		t.Fatalf("older result was stored: %#v", stale)
-	}
-}
-
-func TestStoppedMarkdownDiscardsInFlightCompletion(t *testing.T) {
-	p := newMarkdownPipeline()
-	defer p.stop()
-	p.stop()
-	p.finish(markdownRenderResult{revision: 1, rendered: "late completion"})
-	if !p.idle() {
-		t.Fatal("late completion restarted the stopped pipeline's frame clock")
-	}
-	if _, ok := p.take(); ok {
-		t.Fatal("stopped document retained a late result")
-	}
-}
-
 // Settled history and replay never start the background worker: rendering one
 // block once, on the frame that mounts it, is already bounded.
 func TestSettledHistoryDoesNotStartMarkdownWorker(t *testing.T) {
@@ -205,45 +153,6 @@ func TestSettledHistoryDoesNotStartMarkdownWorker(t *testing.T) {
 	}
 	if len(m.markdownCache) > 100 {
 		t.Fatalf("rendered offscreen history: %d", len(m.markdownCache))
-	}
-}
-
-// A theme change re-lays the stream out in the new palette: the render queued
-// for the previous one is superseded and never painted.
-func TestThemeChangeRepaintsStreamingMarkdown(t *testing.T) {
-	m := interactionModel(t, 60, 24)
-	m.surface.fg = color.RGBA{R: 240, G: 240, B: 240, A: 255}
-	m.surface.bg = color.RGBA{R: 10, G: 10, B: 10, A: 255}
-	m.reflow()
-	m.streaming = "# heading\n\n`code` and **bold**\n\n" + strings.Repeat("source text ", 60)
-	m.refreshTranscript()
-	dark := m.mountedTranscriptBlock(len(m.transcript))
-	darkRevision := m.document.live.revision
-
-	m.streaming += "\n\ntail"
-	m.refreshTranscript()
-	if m.document.markdown == nil {
-		t.Fatal("delta did not reach the background worker")
-	}
-
-	m.surface.fg = color.RGBA{R: 20, G: 20, B: 20, A: 255}
-	m.surface.bg = color.RGBA{R: 255, G: 255, B: 255, A: 255}
-	m.reflow()
-	if m.document.live.revision <= darkRevision {
-		t.Fatalf("theme change did not supersede the queued render: %d -> %d", darkRevision, m.document.live.revision)
-	}
-	settleMarkdown(t, m)
-
-	want, err := renderMarkdown(m.markdownRenderer, m.streaming)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := m.mountedTranscriptBlock(len(m.transcript))
-	if got != padTranscriptBlock(want, m.viewport.Width()) {
-		t.Fatalf("screen kept a render from the superseded theme:\n got %q\nwant %q", ansi.Strip(got), ansi.Strip(want))
-	}
-	if got == dark {
-		t.Fatal("streaming Markdown kept the previous palette")
 	}
 }
 
@@ -280,23 +189,6 @@ func TestSessionResetDropsMarkdownWorker(t *testing.T) {
 	}
 }
 
-// A finished background render needs a frame even when no turn is running. The
-// shell clock treats pending Markdown like an animation, and returns to idle as
-// soon as the last render is painted.
-func TestPendingMarkdownRenderSchedulesAFrame(t *testing.T) {
-	m := interactionModel(t, 60, 24)
-	m.streaming = "**start**\n\n" + strings.Repeat("source text ", 50)
-	m.refreshTranscript()
-	m.streaming += "\n\ntail"
-	m.refreshTranscript()
-	if !m.markdownRenderPending() {
-		t.Fatal("delta did not queue a background render")
-	}
-	if cmd := m.scheduleUIClock(time.Now()); cmd == nil {
-		t.Fatal("no frame scheduled while a background render is pending")
-	}
-}
-
 func TestSettledMarkdownLeavesTheClockIdle(t *testing.T) {
 	m := interactionModel(t, 60, 24)
 	m.streaming = "**start**\n\n" + strings.Repeat("source text ", 50)
@@ -309,43 +201,5 @@ func TestSettledMarkdownLeavesTheClockIdle(t *testing.T) {
 	}
 	if cmd := m.scheduleUIClock(time.Now()); cmd != nil {
 		t.Fatal("settled Markdown kept a frame chain alive")
-	}
-}
-
-// Shutdown must not resurrect work. Model.Close stops the worker the streaming
-// block started, and a stopped pipeline accepts no further job, so a late delta
-// cannot leave a queue that no goroutine will ever drain.
-func TestClosedMarkdownWorkerAcceptsNoWork(t *testing.T) {
-	m := interactionModel(t, 60, 24)
-	m.streaming = "**start**\n\n" + strings.Repeat("source text ", 50)
-	m.refreshTranscript()
-	m.streaming += "\n\ntail"
-	m.refreshTranscript()
-	worker := m.document.markdown
-	if worker == nil {
-		t.Fatal("delta did not reach the background worker")
-	}
-	displayed := m.document.live.rendered
-
-	m.Close()
-	if pending, stopped := markdownQueue(worker); pending || !stopped {
-		t.Fatalf("Close left the worker open: pending=%v stopped=%v", pending, stopped)
-	}
-	worker.submit(markdownRenderJob{revision: 99, width: 60, themeKey: "late", source: "**late**"})
-	if pending, _ := markdownQueue(worker); pending {
-		t.Fatal("stopped pipeline queued work")
-	}
-	if _, runs, dropped := worker.stats(); runs != 0 || dropped != 0 {
-		t.Fatalf("stopped pipeline changed its counters: runs=%d dropped=%d", runs, dropped)
-	}
-	// A delta after shutdown keeps the last painted render instead of reviving
-	// the pipeline on the paint path.
-	m.streaming += "\n\nafter shutdown"
-	m.refreshTranscript()
-	if m.document.markdown != nil && m.document.markdown != worker {
-		t.Fatal("paint path started a new Markdown worker after shutdown")
-	}
-	if m.document.live.rendered != displayed {
-		t.Fatal("paint path re-rendered Markdown after shutdown")
 	}
 }

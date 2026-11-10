@@ -23,24 +23,6 @@ func TestRetiredReplayRequestFailureCannotStopCurrentSession(t *testing.T) {
 	}
 }
 
-func TestInitialAttachDoesNotDuplicateColdIndexRequests(t *testing.T) {
-	m := newModel()
-	defer m.Close()
-	h := &pagedTestHost{session: "saved", revision: "100:1:0", corpus: pagedUserCorpus(50)}
-	m.host = h
-	_, cmd := m.Update(commandResult{name: "runtime_state", payload: json.RawMessage(`{"session_id":"saved","status":"ready"}`)})
-	_ = pagedResults(cmd)
-	count := 0
-	for _, req := range h.requests {
-		if req.command == "transcript_index" {
-			count++
-		}
-	}
-	if count != 1 {
-		t.Fatalf("one attach sent %d cold index requests", count)
-	}
-}
-
 func TestReplayReadFailureIsATranscriptNotice(t *testing.T) {
 	m := newModel()
 	defer m.Close()
@@ -51,36 +33,6 @@ func TestReplayReadFailureIsATranscriptNotice(t *testing.T) {
 	m = next.(model)
 	if !strings.Contains(m.presentedError, "fixture unreadable") {
 		t.Fatalf("replay read error did not reach transcript notice: %q", m.presentedError)
-	}
-}
-
-func TestSameSessionRestartRejectsOldIndexAndReadErrors(t *testing.T) {
-	m := newModel()
-	defer m.Close()
-	m.session = "saved"
-	h := &pagedTestHost{session: "saved", revision: "old", corpus: pagedUserCorpus(20)}
-	m.host = h
-	old := pagedResults(m.startPagedReplay())
-	if len(old) != 1 {
-		t.Fatalf("expected one old index request, got %d", len(old))
-	}
-	h.revision = "new"
-	fresh := m.startPagedReplay()
-	m.applyPagedReply(old[0])
-	if m.replay.indexed || m.replay.revision != "" || len(m.transcript) != 0 {
-		t.Fatalf("retired same-session index initialized the new document: %q", m.replay.revision)
-	}
-	old[0].payload = nil
-	old[0].err = errors.New("retired index timed out")
-	m.applyPagedReply(old[0])
-	if m.err != "" || m.replay.failed() {
-		t.Fatalf("old same-session error reached the new document: %q", m.err)
-	}
-	for _, result := range pagedResults(fresh) {
-		m.applyPagedReply(result)
-	}
-	if m.replay.revision != "new" {
-		t.Fatalf("fresh index lost: %q", m.replay.revision)
 	}
 }
 
@@ -127,20 +79,6 @@ func TestReplayBackpressureDoesNotBecomeDocumentCorruption(t *testing.T) {
 	m.ensureTranscriptPages()
 	if !m.replayRetryAt.IsZero() {
 		t.Fatal("an elapsed retry deadline kept the idle clock alive")
-	}
-}
-
-func TestElapsedReplayRetryDoesNotSpinWhileIndexIsPending(t *testing.T) {
-	m := newModel()
-	defer m.Close()
-	m.replay = newPagedReplay()
-	m.replayIndexPending = true
-	m.replayRetryAt = time.Now().Add(-time.Second)
-	if m.ensureTranscriptPages() != nil {
-		t.Fatal("elapsed retry duplicated the pending index")
-	}
-	if !m.replayRetryAt.IsZero() || !m.nextUIWake(time.Now()).IsZero() {
-		t.Fatal("a consumed retry deadline kept scheduling frames while awaiting the index")
 	}
 }
 

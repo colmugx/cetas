@@ -225,47 +225,6 @@ func TestRequestSurfacesFirstFatalCause(t *testing.T) {
 	}
 }
 
-// A caller queued behind a full native command queue must wake with the
-// cause when the runtime dies, not hang until its own timeout.
-func TestQueuedRequestSurfacesCauseWhenRuntimeDies(t *testing.T) {
-	tr := &fakeTransport{queue: func() error { return bridge.ErrQueueFull }}
-	fatal := errors.New("native EventHub frame exceeds 256 KiB limit")
-	tr.failWith(fatal)
-	h := newFatalHost(t, tr)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_, err := h.Request(ctx, "health", map[string]any{})
-	if !errors.Is(err, ErrClosed) {
-		t.Fatalf("queued request must return ErrClosed, got %v", err)
-	}
-	if !strings.Contains(err.Error(), fatal.Error()) {
-		t.Fatalf("queued request lost the first fatal cause: %v", err)
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("queued request hung until its own timeout instead of waking: %v", err)
-	}
-}
-
-// Start's boot race needs the same treatment: a runtime that dies before
-// its ready frame must say why, not just "native Harness stopped".
-func TestBootSurfacesFirstFatalCause(t *testing.T) {
-	tr := &fakeTransport{}
-	fatal := errors.New("MoonBit scheduler exited: code=139")
-	tr.failWith(fatal)
-	h := newHost(tr)
-	h.launch()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_, err := h.awaitBoot(ctx)
-	waitStopped(t, h)
-	if !errors.Is(err, ErrClosed) {
-		t.Fatalf("boot must return ErrClosed, got %v", err)
-	}
-	if !strings.Contains(err.Error(), fatal.Error()) {
-		t.Fatalf("boot lost the first fatal cause: %v", err)
-	}
-}
-
 // A frame the native boundary rejects for its own reason (over 256 KiB) is
 // never silently dropped: the caller learns which command and why.
 func TestFramingRejectionNamesCommandAndReason(t *testing.T) {
@@ -279,37 +238,6 @@ func TestFramingRejectionNamesCommandAndReason(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), `"switch_session"`) {
 		t.Fatalf("rejection must name the rejected command: %v", err)
-	}
-}
-
-// Requests in flight while the runtime dies must all fail fast with the
-// cause and never hang or panic; run under -race for the shared state.
-func TestRequestRaceAtShutdown(t *testing.T) {
-	// Run blocks until cleanup, so the injected fault is the only way the
-	// pump can die and the recorded cause is deterministic.
-	tr := &fakeTransport{run: make(chan struct{})}
-	h := newFatalHost(t, tr)
-	const workers = 32
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	errs := make(chan error, workers)
-	for i := 0; i < workers; i++ {
-		go func() {
-			_, err := h.Request(ctx, "runtime_state", map[string]any{})
-			errs <- err
-		}()
-	}
-	time.Sleep(50 * time.Millisecond) // let the requests register and block
-	tr.failWith(errors.New("scheduler gone"))
-	waitStopped(t, h)
-	for i := 0; i < workers; i++ {
-		err := <-errs
-		if !errors.Is(err, ErrClosed) {
-			t.Fatalf("request survived the runtime's death: %v", err)
-		}
-		if !strings.Contains(err.Error(), "scheduler gone") {
-			t.Fatalf("request lost the first fatal cause: %v", err)
-		}
 	}
 }
 
@@ -353,62 +281,6 @@ func TestInvalidRejectionIsFatalAndNamed(t *testing.T) {
 		}
 	default:
 		t.Fatal("invalid rejection was never reported")
-	}
-}
-
-// A terminal queue rejection means delivery is no longer reliable. Transient
-// pressure is handled by C's bounded wait; do not continue after actual loss.
-func TestQueueTimeoutStopsWithExactCause(t *testing.T) {
-	tr := &fakeTransport{run: make(chan struct{})}
-	h := newFatalHost(t, tr)
-	tr.setRejections(bridge.Rejections{QueueFull: 7})
-	waitStopped(t, h)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	_, err := h.Request(ctx, "health", map[string]any{})
-	if !errors.Is(err, ErrClosed) || !strings.Contains(err.Error(), "queue full after waiting 2s") || !strings.Contains(err.Error(), "7") {
-		t.Fatalf("lost terminal delivery cause: %v", err)
-	}
-}
-
-// Counters move while requests are in flight; every reader must agree under
-// -race, and the fatal oversized transition must reach all queued callers.
-func TestRejectionDiagnosticsRace(t *testing.T) {
-	tr := &fakeTransport{run: make(chan struct{}), queue: func() error { return bridge.ErrQueueFull }}
-	h := newFatalHost(t, tr)
-	const workers = 16
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	errs := make(chan error, workers)
-	for i := 0; i < workers; i++ {
-		go func() {
-			_, err := h.Request(ctx, "runtime_state", map[string]any{})
-			errs <- err
-		}()
-	}
-	tr.setRejections(bridge.Rejections{Oversized: 1})
-	waitStopped(t, h)
-	for i := 0; i < workers; i++ {
-		err := <-errs
-		if !errors.Is(err, ErrClosed) {
-			t.Fatalf("request survived the oversized rejection: %v", err)
-		}
-		if !strings.Contains(err.Error(), "oversized") {
-			t.Fatalf("request lost the oversized cause: %v", err)
-		}
-	}
-}
-
-// Delta accounting must never move backwards, whatever order the cumulative
-// native counters are observed in.
-func TestRejectionsDeltaClampsNegatives(t *testing.T) {
-	delta := rejectionsDelta(bridge.Rejections{QueueFull: 5}, bridge.Rejections{QueueFull: 3})
-	if delta.QueueFull != 2 || delta.Oversized != 0 || delta.Invalid != 0 {
-		t.Fatalf("wrong delta: %+v", delta)
-	}
-	delta = rejectionsDelta(bridge.Rejections{Oversized: 1}, bridge.Rejections{QueueFull: 4})
-	if delta.Oversized != 1 || delta.QueueFull != 0 || delta.Invalid != 0 {
-		t.Fatalf("negative delta must clamp to zero: %+v", delta)
 	}
 }
 

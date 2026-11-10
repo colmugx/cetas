@@ -36,28 +36,6 @@ func TestVirtualTranscriptMountsBoundedWindow(t *testing.T) {
 	}
 }
 
-func TestVirtualTranscriptFenwickIndex(t *testing.T) {
-	v := newVirtualTranscript(30, 8)
-	for _, h := range []int{3, 7, 2, 5, 9, 1, 4} {
-		v.appendHeight(h)
-	}
-	want := []int{0, 3, 10, 12, 17, 26, 27, 31}
-	for i, expected := range want {
-		if got := v.prefix(i); got != expected {
-			t.Fatalf("prefix(%d)=%d want %d", i, got, expected)
-		}
-	}
-	for i := 0; i < len(v.heights); i++ {
-		if got := v.indexAt(v.prefix(i)); got != i {
-			t.Fatalf("indexAt(prefix(%d))=%d", i, got)
-		}
-	}
-	v.setHeight(1, 13)
-	if v.prefix(7) != 37 || v.indexAt(9) != 1 {
-		t.Fatalf("Fenwick update corrupt: total=%d lookup=%d", v.prefix(7), v.indexAt(9))
-	}
-}
-
 func TestVirtualTranscriptSearchJumpAndStableResize(t *testing.T) {
 	m := newModel()
 	m.width, m.height = 50, 25

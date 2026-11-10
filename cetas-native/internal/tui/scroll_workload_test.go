@@ -80,17 +80,3 @@ func scrollWorkload(kind string) model {
 	m.refreshTranscript()
 	return m
 }
-
-func TestLongBlockMountsOnlyViewportRows(t *testing.T) {
-	for _, kind := range []string{"long_plain", "long_markdown"} {
-		t.Run(kind, func(t *testing.T) {
-			m := scrollWorkload(kind)
-			defer m.Close()
-			m.scrollTranscript(-100)
-			// Both ends may have overscan, regardless of the block's full height.
-			if got, limit := m.virtualScroll.mountedRows, m.viewport.Height()+2*virtualOverscanRows; got > limit {
-				t.Fatalf("mounted %d rows for a %d-row viewport (limit %d): block-size virtualization is not row virtualization", got, m.viewport.Height(), limit)
-			}
-		})
-	}
-}

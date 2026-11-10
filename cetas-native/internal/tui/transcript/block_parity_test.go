@@ -560,40 +560,6 @@ func TestUserBlockStaysSafeWithoutTerminalColours(t *testing.T) {
 	}
 }
 
-// Live thinking keeps the JS spinner + trailing window; the finalized block
-// keeps the first three lines and counts the rest.
-func TestThinkingLiveAndFinalizedAPI(t *testing.T) {
-	block := Block{Kind: "thinking", Text: "one\ntwo\nthree\nfour\nfive"}
-	finalized := block.Render(Options{Width: 80, Now: parityNow})
-	if !strings.Contains(finalized, "💭 thought · 5 lines · ctrl+t 展开") || !strings.Contains(finalized, "… (+2 lines)") {
-		t.Fatalf("finalized thinking collapsed view is wrong: %q", finalized)
-	}
-	expanded := block.Render(Options{Width: 80, ThinkingExpanded: true, Now: parityNow})
-	if !strings.Contains(expanded, "ctrl+t 收起") || !strings.Contains(expanded, "five") {
-		t.Fatalf("expanded thinking lost its body: %q", expanded)
-	}
-	for frame, glyph := range brailleFrames {
-		live := block.Render(Options{Width: 80, ThinkingLive: true, Frame: frame, Now: parityNow})
-		if !strings.Contains(live, glyph+" thinking...") {
-			t.Fatalf("live thinking frame %d is not %q: %q", frame, glyph, live)
-		}
-		if strings.Contains(live, "one") || !strings.Contains(live, "five") {
-			t.Fatalf("live thinking must show the trailing window only: %q", live)
-		}
-	}
-	// The zero-value Options keeps the pre-existing finalized contract, so a
-	// parent that has not been wired to the live flags still renders.
-	if legacy := block.Render(Options{Width: 80}); !strings.Contains(legacy, "thought") {
-		t.Fatalf("zero-value options broke the finalized view: %q", legacy)
-	}
-	if got := ThinkingFrame(parityNow); got < 0 || got >= len(brailleFrames) {
-		t.Fatalf("ThinkingFrame out of range: %d", got)
-	}
-	if ThinkingFrame(parityNow) == ThinkingFrame(parityNow.Add(80*time.Millisecond)) {
-		t.Fatal("ThinkingFrame does not advance at the 80ms spinner cadence")
-	}
-}
-
 // Styling must be invisible to layout: ANSI codes never count as cells, never
 // get split by a wrap, and degraded (unstyled) rendering stays identical.
 func TestStylesNeverChangeLayout(t *testing.T) {

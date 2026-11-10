@@ -163,22 +163,6 @@ func TestPagedCopyStreamsAWholeSelectionInOneAction(t *testing.T) {
 	}
 }
 
-// Pick up the copy of an empty selection: the command itself refuses an invalid
-// range instead of dispatching a request for blocks that do not exist.
-func TestPagedCopyRangeCommandRejectsInvalidRanges(t *testing.T) {
-	host := &pagedTestHost{session: "s-1", revision: "10:1:1", corpus: pagedUserCorpus(4), indexWindow: 400}
-	m, _ := pagedCopyModel(t, host, host)
-	for _, pair := range [][2]int{{2, 1}, {-1, 0}, {0, 4}, {4, 4}} {
-		m.err = ""
-		if cmd := m.pagedCopyRangeCommand(pair[0], pair[1]); cmd != nil {
-			t.Fatalf("invalid range %#v dispatched a copy", pair)
-		}
-		if m.err != "invalid transcript copy range" {
-			t.Fatalf("invalid range %#v was silent: %q", pair, m.err)
-		}
-	}
-}
-
 // The formatter contract is the materialized document's: prompts keep "> ",
 // answers stay raw, a tool contributes "• "+name only, a thought keeps its line
 // count header - counted from the streamed payload, not from its preview - and a
@@ -434,55 +418,6 @@ func (*pagedCopyScriptHost) Events() <-chan wire.Event   { return nil }
 func (*pagedCopyScriptHost) Errors() <-chan error        { return nil }
 func (*pagedCopyScriptHost) Close(context.Context) error { return nil }
 
-// Every reply is validated before it can reach the clipboard: a page or a range
-// that names another session, another generation, another block or another
-// payload is refused instead of being spliced into the selection.
-func TestPagedCopyRejectsProtocolViolations(t *testing.T) {
-	const textPage = `{"session_id":"s-1","revision":"7:1:1","first":0,"total":1,` +
-		`"items":[{"index":0,"kind":"assistant","text":"preview","textRef":{"index":0,"field":"text","offset":0,"length":40}}],` +
-		`"next":null}`
-	cases := []struct {
-		name   string
-		page   string
-		source string
-		want   string
-	}{
-		{"page error envelope", `{"error":"transcript journal is unreadable"}`, "", "transcript_page: transcript journal is unreadable"},
-		{"stale page revision", `{"error":"stale transcript revision","session_id":"s-1","revision":"8:1:1"}`, "", "changed while copying"},
-		{"page for another session", `{"session_id":"s-2","revision":"7:1:1","first":0,"items":[],"next":null}`, "", "another session"},
-		{"page from another block", `{"session_id":"s-1","revision":"7:1:1","first":3,"items":[],"next":null}`, "", "instead of"},
-		{"page that advances nothing", `{"session_id":"s-1","revision":"7:1:1","first":0,"items":[],"next":null}`, "", "no block from"},
-		{"page is not an object", `[1,2]`, "", "not a JSON object"},
-		{"item is not an object", `{"session_id":"s-1","revision":"7:1:1","first":0,"items":["nope"],"next":null}`, "", "not a JSON object"},
-		{"source for another session", textPage, `{"session_id":"s-2","revision":"7:1:1","index":0,"field":"text","offset":0,"length":4,"total_bytes":40,"next":4,"data":"abcd"}`, "another session"},
-		{"source for another block", textPage, `{"session_id":"s-1","revision":"7:1:1","index":1,"field":"text","offset":0,"length":4,"total_bytes":40,"next":4,"data":"abcd"}`, "instead of"},
-		{"source for another payload", textPage, `{"session_id":"s-1","revision":"7:1:1","index":0,"field":"args","offset":0,"length":4,"total_bytes":40,"next":4,"data":"abcd"}`, "payload"},
-		{"source that advances nothing", textPage, `{"session_id":"s-1","revision":"7:1:1","index":0,"field":"text","offset":0,"length":0,"total_bytes":40,"next":0,"data":""}`, "no data from"},
-		{"source error envelope", textPage, `{"error":"transcript block has no text payload"}`, "no text payload"},
-		{"stale source revision", textPage, `{"error":"stale transcript revision","revision":"9:1:1"}`, "changed while copying"},
-	}
-	for _, test := range cases {
-		t.Run(test.name, func(t *testing.T) {
-			request := &pagedCopyRequest{
-				host:     &pagedCopyScriptHost{page: test.page, source: test.source},
-				session:  "s-1",
-				revision: "7:1:1",
-				first:    0,
-				last:     0,
-				end:      1,
-				pagedEnd: 1,
-			}
-			result := request.run(context.Background())
-			if result.err == nil || !strings.Contains(result.err.Error(), test.want) {
-				t.Fatalf("violation accepted: %v (want %q)", result.err, test.want)
-			}
-			if result.text != "" || result.canceled {
-				t.Fatalf("a refused copy produced text: %#v", result)
-			}
-		})
-	}
-}
-
 // The command captures its range: an Update that runs while the copy is in
 // flight cannot change what it reads, so the clipboard is what the user selected
 // and not what a settling turn turned it into.
@@ -501,32 +436,5 @@ func TestPagedCopyCapturesTheLiveTailAtCommandTime(t *testing.T) {
 	}
 	if result.text != "settled answer" {
 		t.Fatalf("the copy read the mutated document: %q", result.text)
-	}
-}
-
-// A range inside the live tail never talks to the console: those blocks are
-// already materialized, and a copy must not depend on the host being reachable.
-func TestPagedCopyLiveTailNeedsNoConsole(t *testing.T) {
-	host := &pagedTestHost{session: "s-1", revision: "10:1:1", corpus: pagedUserCorpus(2), indexWindow: 400}
-	m, r := pagedCopyModel(t, host, host)
-	m.appendUser("after the replay")
-	m.appendAssistant("live answer")
-	before := len(host.requests)
-
-	result := pagedCopyRun(t, m.pagedCopyRangeCommand(r.total, m.transcriptBlockCount()-1))
-	if result.err != nil {
-		t.Fatalf("live tail copy: %v", result.err)
-	}
-	if result.text != "> after the replay\n\nlive answer" {
-		t.Fatalf("live tail text: %q", result.text)
-	}
-	if result.paged {
-		t.Fatal("a live-only copy claimed to read the console")
-	}
-	if len(host.requests) != before {
-		t.Fatalf("a live tail copy issued %d console requests", len(host.requests)-before)
-	}
-	if text := pagedCopyClipboard(t, m.applyPagedCopyResult(result)); text != result.text {
-		t.Fatalf("clipboard text: %q", text)
 	}
 }

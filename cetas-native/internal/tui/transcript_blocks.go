@@ -61,8 +61,10 @@ func (m *model) projectToolEvent(kind string, raw json.RawMessage) bool {
 		m.blocks[at] = transcriptui.Block{Kind: "tool", CallID: frame.ID, Name: frame.Name, State: "pending", Arguments: frame.Arguments}
 	}
 	b := m.blocks[at]
-	terminal := b.State == "succeeded" || b.State == "failed" || b.State == "rejected" || b.State == "abandoned"
-	if terminal {
+	if transcriptui.ParseToolPhase(b.State).Terminal() {
+		// Settled rows are immutable, including rows whose wire phase fell
+		// outside the known vocabulary: a stray phase must latch the row, not
+		// keep it mutating (and animating) forever.
 		return true
 	}
 	if frame.Name != "" {

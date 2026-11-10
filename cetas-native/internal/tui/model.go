@@ -88,6 +88,9 @@ type model struct {
 	replay              *pagedReplay
 	replayGeneration    uint64
 	replayIndexPending  bool
+	replayIndexSince    time.Time
+	replayIndexTimeouts int
+	replayBackpressure  int
 	replayRetryAt       time.Time
 	copyGeneration      uint64
 	copyCancel          context.CancelFunc
@@ -151,6 +154,8 @@ type model struct {
 	clockDue            time.Time
 	showThinking        bool
 	showTools           bool
+	// lastProgramStatus dedupes OSC 7501 reports: one frame per state change.
+	lastProgramStatus string
 }
 
 func newModel() model {
@@ -268,6 +273,9 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	if timer := state.scheduleUIClock(time.Now()); timer != nil {
 		cmd = tea.Batch(cmd, timer)
 	}
+	if raw := state.emitProgramStatus(); raw != nil {
+		cmd = tea.Batch(cmd, raw)
+	}
 	if state.modal == "" && state.modalRequestID == "" && len(state.deferredDialogs) > 0 {
 		reply := state.deferredDialogs[0]
 		state.deferredDialogs = state.deferredDialogs[1:]
@@ -362,7 +370,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if meta.Type == "infra.ready" {
 				ready = true
 			}
-			if meta.Type == "session.switched" {
+			if meta.Type == "session.switched" || meta.Type == "session.redirect" {
 				switched = true
 			}
 			if meta.Type == "session.snapshot" && !meta.Busy && meta.SessionID == m.session && len(m.followups) > 0 && next == "" {
@@ -379,7 +387,9 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.document.markdown = nil
 			m.document.live = liveMarkdown{}
 			m.status = "MoonBit host stopped"
-			return m, nil
+			// Terminal-owned status ends with the host: report clear once so
+			// a supporting terminal drops the state before the exit restore.
+			return m, tea.Raw(formatProgramStatus(programStatus{state: "clear"}))
 		}
 		if ready {
 			return m, tea.Batch(receive(m.feed), m.startPagedReplay(), request(m.host, "commands", map[string]any{}))
@@ -1051,6 +1061,16 @@ func (m *model) submitEditor() tea.Cmd {
 // request. The native runtime can finish a UiPort coroutine independently of
 // the focused Bubble Tea picker, so stale dismissals must not close the next
 // question (or an unrelated model/command selector).
+// clearModalBuffer wipes the typed ask input before dropping the slice: a
+// kind=="secret" answer would otherwise linger in the unreachable backing
+// array until the collector happens to reclaim it.
+func (m *model) clearModalBuffer() {
+	for i := range m.modalBuffer {
+		m.modalBuffer[i] = 0
+	}
+	m.modalBuffer = nil
+}
+
 func (m *model) dismissUI(id string) {
 	if id == "" {
 		return
@@ -1060,7 +1080,7 @@ func (m *model) dismissUI(id string) {
 		m.modalRequestID = ""
 		m.modalItems = nil
 		m.modalValues = nil
-		m.modalBuffer = nil
+		m.clearModalBuffer()
 		m.modalPrompt = ""
 		m.modalIndex = 0
 		if len(m.pendingUI) > 0 {
@@ -1085,7 +1105,7 @@ func (m *model) answerModal(answer map[string]any) tea.Cmd {
 	m.modal = ""
 	m.modalRequestID = ""
 	m.modalItems = nil
-	m.modalBuffer = nil
+	m.clearModalBuffer()
 	m.modalPrompt = ""
 	if len(m.pendingUI) > 0 {
 		m.activateUI(m.takePendingUI())
@@ -1109,7 +1129,7 @@ func (m *model) activateUI(req uiPrompt) {
 	m.modalPrompt = req.prompt
 	m.modalIndex = 0
 	m.modalItems = append([]string(nil), req.options...)
-	m.modalBuffer = nil
+	m.clearModalBuffer()
 	m.surface.askExpanded = false
 	if req.kind == "confirm" {
 		m.modalItems = []string{"Yes", "No"}
@@ -1224,9 +1244,9 @@ func toolResultText(raw json.RawMessage) string {
 	}
 	var value string
 	if json.Unmarshal(raw, &value) == nil {
-		return value
+		return ui.SanitizeSGR(value)
 	}
-	return string(raw)
+	return ui.SanitizeSGR(string(raw))
 }
 
 func (m *model) applyEvent(e wire.Event) {
@@ -1380,7 +1400,7 @@ func (m *model) applyEvent(e wire.Event) {
 		m.status = "ready"
 	case "turn.failed":
 		m.flushAssistant()
-		m.transcript = append(m.transcript, "Error: "+frame.Message)
+		m.transcript = append(m.transcript, "Error: "+ui.SanitizeSGR(frame.Message))
 		m.streaming = ""
 		m.reasoning = ""
 		m.running = false
@@ -1390,7 +1410,25 @@ func (m *model) applyEvent(e wire.Event) {
 			// The picker browses one session's catalog with at most one switch
 			// in flight; a redirect retires the window it was asked from.
 			m.closeSessionPicker()
+			// A rewritten journal (compaction redirect) is a new document:
+			// adopt the id AND retire the old presentation, exactly like a
+			// switch. Skipping the retirement left the in-flight index reply
+			// stale-dropped before it could clear replayIndexPending,
+			// latching pagination dead until the next switch.
+			m.pendingSessionCmd = m.retireSessionPresentation()
 			m.session = frame.To
+			m.dynamicCommands = nil
+			m.commandSession = ""
+			m.clearTranscriptSearch()
+			m.resetVirtualTranscript()
+			m.transcript = nil
+			m.markdownRaw = nil
+			m.markdownCache = nil
+			m.toolIndex = nil
+			m.streaming = ""
+			m.reasoning = ""
+			m.running = false
+			m.followups = nil
 		}
 		m.switchInFlight = ""
 		m.status = "session redirected"

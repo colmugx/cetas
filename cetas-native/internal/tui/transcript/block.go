@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+	ui "github.com/colmugx/cetas/cetas-native/internal/tui/components"
 )
 
 type Attachment struct {
@@ -201,23 +202,68 @@ func frameIndex(frame int) int {
 
 // -- tool rows --------------------------------------------------------------
 
-// terminal reports a settled row: it renders the result view from now on and
-// never falls back to the call view, even when the result body is empty.
-func (b Block) terminal() bool {
-	switch b.State {
-	case "succeeded", "failed", "rejected", "abandoned":
-		return true
+// ToolPhase is the closed behavioral vocabulary for a tool row's lifecycle.
+// The wire sends phase strings (console protocol) and the replayed journal
+// sends its own historical status words; both normalize here so "is this row
+// settled / failed / animating" has exactly one source of truth. A wire value
+// outside the known sets is deliberately terminal: an unrecognized phase must
+// settle the row instead of animating and mutating forever.
+type ToolPhase uint8
+
+const (
+	PhaseActive ToolPhase = iota // pending, approved, started, streaming, running
+	PhaseSucceeded
+	PhaseFailed
+	PhaseRejected
+	PhaseAbandoned
+	PhaseUnknown // outside every known set: terminal, neither success nor failure
+)
+
+func ParseToolPhase(state string) ToolPhase {
+	switch state {
+	case "succeeded", "done", "completed":
+		return PhaseSucceeded
+	case "failed", "error":
+		return PhaseFailed
+	case "rejected":
+		return PhaseRejected
+	case "abandoned":
+		return PhaseAbandoned
+	case "", "pending", "approved", "started", "running", "streaming":
+		return PhaseActive
+	default:
+		return PhaseUnknown
 	}
-	return false
 }
 
-func (b Block) failed() bool {
-	switch b.State {
-	case "failed", "rejected", "abandoned":
-		return true
-	}
-	return false
+// Terminal reports a settled row: it renders the result view from now on and
+// never falls back to the call view, even when the result body is empty.
+func (p ToolPhase) Terminal() bool { return p != PhaseActive }
+
+func (p ToolPhase) Failed() bool {
+	return p == PhaseFailed || p == PhaseRejected || p == PhaseAbandoned
 }
+
+// Label is the canonical state string of a known phase; callers keep the raw
+// wire word for PhaseUnknown.
+func (p ToolPhase) Label() string {
+	switch p {
+	case PhaseSucceeded:
+		return "succeeded"
+	case PhaseFailed:
+		return "failed"
+	case PhaseRejected:
+		return "rejected"
+	case PhaseAbandoned:
+		return "abandoned"
+	default:
+		return ""
+	}
+}
+
+func (b Block) terminal() bool { return ParseToolPhase(b.State).Terminal() }
+
+func (b Block) failed() bool { return ParseToolPhase(b.State).Failed() }
 
 func (b Block) args() map[string]any {
 	if len(b.Arguments) == 0 {
@@ -818,7 +864,9 @@ func stringList(args map[string]any, key string) []string {
 // summaryOf extracts the reserved `summary : String` field of a payload.
 func summaryOf(structured map[string]any) string {
 	if s, ok := structured["summary"].(string); ok && s != "" {
-		return s
+		// Summaries are runtime text rendered on the plain-result path;
+		// the SGR allowlist is applied here so every caller inherits it.
+		return ui.SanitizeSGR(s)
 	}
 	return ""
 }

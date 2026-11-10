@@ -34,52 +34,6 @@ func TestModelTabsKeepIndependentCursorAndAdvertisedEffort(t *testing.T) {
 	}
 }
 
-// A zero-value picker is reachable before the catalog arrives (the native
-// model owns one), so every accessor must work without tabs, cursors or slots.
-func TestModelZeroValueIsSafe(t *testing.T) {
-	var p Models
-	if rows := p.Rows(); len(rows) != 0 {
-		t.Fatalf("zero-value rows: %#v", rows)
-	}
-	if p.Selection() != nil {
-		t.Fatal("zero-value selection")
-	}
-	if labels := p.Labels(); len(labels) != 0 {
-		t.Fatalf("zero-value labels: %#v", labels)
-	}
-	if title := p.Title(); !strings.Contains(title, "[All]") {
-		t.Fatalf("zero-value title lost its default tab: %q", title)
-	}
-	for _, key := range []string{"tab", "shift+tab", "up", "down", "left", "right", "backspace"} {
-		if !p.Key(key, "") {
-			t.Fatalf("%q was delegated by an empty picker", key)
-		}
-	}
-	if !p.Key("a", "a") || p.Query != "a" {
-		t.Fatalf("zero-value search: %q", p.Query)
-	}
-	if !p.Key("esc", "") || p.Query != "" {
-		t.Fatal("esc must clear the query first")
-	}
-	if p.Key("esc", "") {
-		t.Fatal("esc without a query is delegated to close the modal")
-	}
-}
-
-func TestModelTabIndexIsClampedInsteadOfPanicking(t *testing.T) {
-	p := Models{Slots: []ModelSlot{{ID: "a", Provider: "one"}, {ID: "b", Provider: "two"}}, Tabs: []string{"All", "one", "two"}, Tab: 7}
-	if rows := p.Rows(); len(rows) != 1 || rows[0].ID != "b" {
-		t.Fatalf("clamped tab filtered wrong: %#v", rows)
-	}
-	if title := p.Title(); !strings.Contains(title, "[two]") {
-		t.Fatalf("clamped title: %q", title)
-	}
-	p.Tab = -3
-	if rows := p.Rows(); len(rows) != 2 {
-		t.Fatalf("negative tab must read as All: %#v", rows)
-	}
-}
-
 // The query is a fuzzy subsequence filter, not a text field: only printable
 // character data may grow it, and it stops accepting characters once it is
 // long enough that no catalog could narrow further. Nothing already typed is

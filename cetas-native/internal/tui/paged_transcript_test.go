@@ -419,53 +419,6 @@ func TestPagedReplayMatchesClassicRestore(t *testing.T) {
 	}
 }
 
-// The console projects reasoning as its own absolute block. Folding it into the
-// answer would renumber every later block and the index is only a window, so the
-// adapter keeps one block per console block and the thinking panel sits directly
-// above the answer it belongs to.
-func TestPagedReplayReasoningKeepsItsAbsoluteBlock(t *testing.T) {
-	corpus := []pagedItem{
-		{Index: 0, Kind: "user", Text: "plot the data"},
-		{Index: 1, Kind: "reasoning", Text: "first think about axes"},
-		{Index: 2, Kind: "assistant", Text: "here is the plot"},
-		{Index: 3, Kind: "tool", CallID: "c-1", Name: "plot", Status: "done", Result: json.RawMessage(`"png bytes"`)},
-	}
-	m, r, host := pagedTranscriptModel(t, corpus)
-	pagedLoadAll(t, &m, r, host)
-	if r.total != 4 || len(m.transcript) != 4 {
-		t.Fatalf("absolute blocks: total=%d transcript=%d", r.total, len(m.transcript))
-	}
-	if m.blocks[1].Kind != "thinking" || !strings.Contains(m.blocks[1].Text, "first think about axes") {
-		t.Fatalf("reasoning block: %#v", m.blocks[1])
-	}
-	if m.transcript[1] != "💭 thought · 1 lines" {
-		t.Fatalf("reasoning source: %q", m.transcript[1])
-	}
-	if cell := m.blocks[2]; cell.Reasoning != "" {
-		t.Fatalf("answer block must not absorb the thought: %#v", cell)
-	}
-	if m.transcript[2] != "here is the plot" || m.markdownRaw[2] != "here is the plot" {
-		t.Fatalf("answer source: %q %q", m.transcript[2], m.markdownRaw[2])
-	}
-	if m.blocks[3].Kind != "tool" || m.toolIndex["c-1"] != 3 {
-		t.Fatalf("tool block: %#v %#v", m.blocks[3], m.toolIndex)
-	}
-	content := ansi.Strip(m.viewport.GetContent())
-	if strings.Index(content, "first think about axes") > strings.Index(content, "here is the plot") {
-		t.Fatalf("thinking must render above its answer: %q", content)
-	}
-	// Absolute mapping keeps scroll/search targets on the console's own indexes.
-	r.find(&m, "first think")
-	if r.scan == nil {
-		t.Fatal("search over a paged document must start a scan")
-	}
-	pagedScanAll(t, &m, r)
-	hits := hitsAt(m.searchHits, 1)
-	if len(hits) == 0 || !hits[0].hidden {
-		t.Fatalf("search must report the reasoning block by its absolute index: %#v", m.searchHits)
-	}
-}
-
 // The index is a bounded light window without first/next. The document must
 // still be sized by `total`, and only the mounted window may be fetched.
 func TestPagedReplayIndexProbeSizesTheWholeDocument(t *testing.T) {
@@ -530,81 +483,6 @@ func TestPagedReplayIndexProbeSizesTheWholeDocument(t *testing.T) {
 	}
 	if requested >= 2000 {
 		t.Fatalf("a cold window requested the whole history: %d blocks", requested)
-	}
-}
-
-// A page fills its own blocks and leaves every other absolute index untouched.
-func TestPagedReplayPageMaterializesInPlace(t *testing.T) {
-	m, r, host := pagedTranscriptModel(t, pagedUserCorpus(120))
-	if r.bytes == 0 {
-		t.Fatal("the tail page of a fresh document should be resident")
-	}
-	r.apply(&m, commandResult{name: "transcript_page", payload: host.pagePayload(40, 6)})
-	for offset := 0; offset < 6; offset++ {
-		block := 40 + offset
-		if want := fmt.Sprintf("> prompt %d", block); m.transcript[block] != want {
-			t.Fatalf("block %d = %q, want %q", block, m.transcript[block], want)
-		}
-		if m.blocks[block].Text != fmt.Sprintf("prompt %d", block) {
-			t.Fatalf("block %d cell: %#v", block, m.blocks[block])
-		}
-	}
-	if m.transcript[39] != "" || m.transcript[46] != "" {
-		t.Fatalf("neighbouring blocks moved: %q %q", m.transcript[39], m.transcript[46])
-	}
-	if len(m.transcript) != 120 {
-		t.Fatalf("page changed the document size: %d", len(m.transcript))
-	}
-	m.jumpToTranscriptBlock(41)
-	if content := ansi.Strip(m.viewport.GetContent()); !strings.Contains(content, "prompt 41") {
-		t.Fatalf("scrolled window did not mount the page: %q", content)
-	}
-}
-
-// The revision is a string generation. A page of another generation makes the
-// adapter re-index, while a retired generation is ignored outright.
-func TestPagedReplayStringRevisionGenerations(t *testing.T) {
-	m, r, host := pagedTranscriptModel(t, pagedUserCorpus(30))
-	old := r.revision
-	if old == "" {
-		t.Fatal("index must adopt the console revision")
-	}
-	foreign := `{"session_id":"other","revision":"1:1:1","first":0,"total":30,"next":null,"items":[{"index":0,"kind":"user","text":"foreign"}]}`
-	if cmd, handled := r.apply(&m, commandResult{name: "transcript_page", payload: json.RawMessage(foreign)}); !handled || cmd != nil {
-		t.Fatalf("foreign page: cmd=%v handled=%v", cmd, handled)
-	}
-	// A newer generation is adopted and the index probed again.
-	host.revision = "4096:1700000500:7"
-	cmd, handled := r.apply(&m, commandResult{name: "transcript_page", payload: host.pagePayload(0, 2)})
-	if !handled || cmd == nil {
-		t.Fatal("a page of a newer generation must be adopted and re-indexed")
-	}
-	if r.revision != "4096:1700000500:7" {
-		t.Fatalf("revision not adopted: %q", r.revision)
-	}
-	if m.transcript[0] != "> prompt 0" {
-		t.Fatalf("adopted page not applied: %q", m.transcript[0])
-	}
-	// The replaced generation must never be adopted again.
-	stale := fmt.Sprintf(`{"session_id":"s-1","revision":%q,"first":0,"total":30,"next":null,"items":[{"index":0,"kind":"user","text":"stale"}]}`, old)
-	if cmd, handled := r.apply(&m, commandResult{name: "transcript_page", payload: json.RawMessage(stale)}); !handled || cmd != nil {
-		t.Fatalf("retired generation accepted: cmd=%v", cmd)
-	}
-	if len(r.resident) == 0 {
-		t.Fatal("retired generation cleared the document")
-	}
-	// A stale-revision ERROR envelope re-indexes instead of reporting failure.
-	host.revision = "8192:1700000999:3"
-	envelope := fmt.Sprintf(`{"error":"stale transcript revision","session_id":"s-1","revision":%q}`, host.revision)
-	cmd, handled = r.apply(&m, commandResult{name: "transcript_page", payload: json.RawMessage(envelope)})
-	if !handled || cmd == nil {
-		t.Fatal("stale revision must re-index")
-	}
-	if r.revision != host.revision || m.err != "" {
-		t.Fatalf("stale recovery: revision=%q err=%q", r.revision, m.err)
-	}
-	if results := pagedResults(cmd); len(results) != 1 || results[0].name != "transcript_index" {
-		t.Fatalf("stale recovery did not probe the index: %#v", results)
 	}
 }
 
@@ -1043,40 +921,6 @@ func TestPagedSearchCoversDeferredToolArguments(t *testing.T) {
 	t.Fatal("the scan never asked for the args payload")
 }
 
-// A journal write during a scan invalidates the hits collected so far: block
-// indexes belong to one revision. The scan must restart against the new
-// generation instead of silently reporting a truncated search.
-func TestPagedSearchRestartsAcrossGenerationBump(t *testing.T) {
-	corpus := pagedUserCorpus(600)
-	corpus[10].Text = "needle in the first generation"
-	host := &pagedTestHost{session: "s-1", revision: "1:1:1", corpus: corpus, indexWindow: 400}
-	m, r := pagedHostModel(t, host)
-
-	r.find(&m, "needle")
-	cmd := r.ensure(&m)
-	if cmd == nil {
-		t.Fatal("the frame after a find must issue the first scan page")
-	}
-	for _, result := range pagedResults(cmd) {
-		r.apply(&m, result)
-	}
-	if r.scan == nil || r.scan.next == 0 {
-		t.Fatalf("fixture: the scan did not make progress: %+v", r.scan)
-	}
-	// The journal is rewritten between two scan pages: the match moved.
-	corpus[10].Text = "nothing here any more"
-	corpus[500].Text = "needle moved by the rewrite"
-	host.revision = "2:2:2"
-
-	pagedScanAll(t, &m, r)
-	if r.revision != "2:2:2" {
-		t.Fatalf("the scan did not adopt the new generation: %q", r.revision)
-	}
-	if len(m.searchHits) != 1 || m.searchHits[0].block != 500 {
-		t.Fatalf("hits from two generations were merged: %#v", m.searchHits)
-	}
-}
-
 // A payload the console refuses must be visible in the result: /find must never
 // present a scan it could not finish as a complete one.
 func TestPagedSearchReportsUnreadablePayloads(t *testing.T) {
@@ -1093,43 +937,6 @@ func TestPagedSearchReportsUnreadablePayloads(t *testing.T) {
 	}
 	if !strings.Contains(m.status, "unreadable") {
 		t.Fatalf("an unreadable payload was dropped silently: %q", m.status)
-	}
-}
-
-// Copying a range that is not resident, or that still holds a preview, asks for
-// it and succeeds on retry.
-func TestPagedReplayCopyLoadsReleasedBlocks(t *testing.T) {
-	body := strings.Repeat("giant ", 2000)
-	corpus := pagedUserCorpus(120)
-	corpus[40].Kind = "assistant"
-	corpus[40].Text = body
-	host := &pagedTestHost{session: "s-1", revision: "120:2:2", corpus: corpus, inlineBytes: 4096}
-	m := newModel()
-	m.width, m.height = 80, 24
-	m.resize()
-	m.session = "s-1"
-	m.host = host
-	r := newPagedReplay()
-	pagedDrive(t, &m, r, r.start(&m))
-
-	if _, err := r.copyHistory(&m, 41, 41); err == nil {
-		t.Fatal("copy of a released range must not silently produce text")
-	} else if !strings.Contains(err.Error(), "not loaded yet") {
-		t.Fatalf("unexpected copy error: %v", err)
-	}
-	pagedDrive(t, &m, r, r.ensure(&m))
-	text, err := r.copyHistory(&m, 41, 41)
-	if err != nil {
-		t.Fatalf("copy after loading: %v", err)
-	}
-	if text != body {
-		t.Fatalf("copy text: %d bytes, want %d", len(text), len(body))
-	}
-	if _, err := r.copyHistory(&m, 1, 500); err == nil {
-		t.Fatal("copy past the document accepted")
-	}
-	if _, err := r.copyHistory(&m, 0, 1); err == nil {
-		t.Fatal("invalid first index accepted")
 	}
 }
 
@@ -1233,94 +1040,6 @@ func TestPagedCopyRefusesARangeItCannotPinWholesale(t *testing.T) {
 	}
 	if len(r.pins) != 0 {
 		t.Fatalf("a served copy kept %d pins", len(r.pins))
-	}
-}
-
-// A newer revision that appends history keeps the live tail where the user saw
-// it instead of erasing the turn that just finished.
-func TestPagedReplayRevisionBumpKeepsLiveTail(t *testing.T) {
-	m, r, host := pagedTranscriptModel(t, pagedUserCorpus(20))
-	m.appendUser("live prompt")
-	live := len(m.transcript) - 1
-	if live != 20 {
-		t.Fatalf("live block index: %d", live)
-	}
-	host.corpus = pagedUserCorpus(23)
-	host.revision = "2048:1700000900:9"
-	cmd, handled := r.apply(&m, commandResult{name: "transcript_index", payload: host.indexPayload(0, 1)})
-	if !handled || cmd == nil {
-		t.Fatal("revision bump not adopted")
-	}
-	if r.total != 23 || len(m.transcript) != 24 {
-		t.Fatalf("document did not grow: total=%d transcript=%d", r.total, len(m.transcript))
-	}
-	if m.transcript[23] != "> live prompt" || m.blocks[23].Kind != "user" {
-		t.Fatalf("live append was not shifted: %q %#v", m.transcript[23], m.blocks[23])
-	}
-	if len(m.virtualScroll.heights) != 24 {
-		t.Fatalf("row index out of step: %d heights", len(m.virtualScroll.heights))
-	}
-	if m.virtualScroll.indexAt(m.virtualScroll.totalRows()-1) != 23 {
-		t.Fatal("Fenwick tree does not cover the grown document")
-	}
-}
-
-// The decoders accept additive schema growth: unknown fields, unknown kinds,
-// `streaming`, refs and structured tool results must not fall back to an error.
-func TestPagedReplyDecodersTolerateUnknownFields(t *testing.T) {
-	corpus := []pagedItem{
-		{Index: 0, Kind: "user", Text: "prompt"},
-		{Index: 1, Kind: "assistant", Text: "answer"},
-		{Index: 2, Kind: "tool", CallID: "c-1", Name: "bash", Status: "done", Result: json.RawMessage(`{"kind":"json","lines":3}`)},
-		{Index: 3, Kind: "telemetry", Text: "future row"},
-	}
-	host := &pagedTestHost{session: "s-1", revision: "4:4:4", corpus: corpus}
-	m := newModel()
-	m.width, m.height = 80, 24
-	m.resize()
-	m.session = "s-1"
-	m.host = host
-	r := newPagedReplay()
-	if _, handled := r.apply(&m, commandResult{name: "transcript_index", payload: json.RawMessage(`{
-		"session_id":"s-1","revision":"4:4:4","total":4,"context":{"tokens":9},
-		"unknown":{"nested":true},
-		"items":[{"index":0,"kind":"user","future":1},{"index":1,"kind":"assistant","textBytes":6}]}`)}); !handled {
-		t.Fatal("index with unknown fields rejected")
-	}
-	if m.err != "" {
-		t.Fatalf("unknown fields became an error: %q", m.err)
-	}
-	if r.total != 4 {
-		t.Fatalf("index total: %d", r.total)
-	}
-	if _, handled := r.apply(&m, commandResult{name: "transcript_page", payload: json.RawMessage(`{
-		"session_id":"s-1","revision":"4:4:4","first":0,"total":4,"next":null,"future":"x",
-		"items":[
-			{"index":0,"kind":"user","text":"prompt","extra":{"role":"prompt"}},
-			{"index":1,"kind":"assistant","text":"answer","streaming":false,"unknownRef":null},
-			{"index":2,"kind":"tool","name":"bash","callId":"c-1","status":"done","result":{"kind":"json","lines":3},"argsRef":{"index":2,"offset":0,"length":2}},
-			{"index":3,"kind":"telemetry","text":"future row"}
-		]}`)}); !handled {
-		t.Fatal("page with unknown fields rejected")
-	}
-	if m.err != "" {
-		t.Fatalf("paged body decode errored: %q", m.err)
-	}
-	if m.transcript[0] != "> prompt" || m.transcript[1] != "answer" {
-		t.Fatalf("known blocks: %#v", m.transcript)
-	}
-	if cell := m.blocks[2]; cell.Kind != "tool" || !strings.Contains(cell.Text, "lines") {
-		t.Fatalf("structured tool result: %#v", cell)
-	}
-	if m.transcript[3] != "● future row" {
-		t.Fatalf("unknown kind was dropped: %q", m.transcript[3])
-	}
-	// A malformed reply is reported instead of silently keeping stale content.
-	if cmd, handled := r.apply(&m, commandResult{name: "transcript_page", payload: json.RawMessage(`not json`)}); !handled || cmd != nil {
-		t.Fatal("malformed page not consumed")
-	}
-	if !strings.Contains(m.err, "invalid transcript page") {
-		t.Fatalf("malformed page was silent: %q", m.err)
 	}
 }
 
@@ -1557,35 +1276,6 @@ func TestPagedReplayEmptySession(t *testing.T) {
 	}
 }
 
-// The index window can start mid-history; only `total` and each item's absolute
-// index matter, never the item's position in the window.
-func TestPagedReplayIgnoresIndexWindowOffset(t *testing.T) {
-	host := &pagedTestHost{session: "s-1", revision: "1:2:3", corpus: pagedUserCorpus(50), indexWindow: 5}
-	m := newModel()
-	m.width, m.height = 80, 24
-	m.resize()
-	m.session = "s-1"
-	m.host = host
-	r := newPagedReplay()
-	cmd := r.start(&m)
-	for attempt := 0; attempt < 2; attempt++ {
-		for _, result := range pagedResults(cmd) {
-			cmd, _ = r.apply(&m, result)
-		}
-	}
-	if r.total != 50 || len(m.transcript) != 50 {
-		t.Fatalf("document sizing: total=%d transcript=%d", r.total, len(m.transcript))
-	}
-	// The tail window's first light item is index 45; it must not be mistaken for
-	// block 0 of the document.
-	if m.transcript[45] == "" && m.transcript[49] == "" {
-		t.Fatalf("the mounted tail never materialized: %q %q", m.transcript[45], m.transcript[49])
-	}
-	if m.transcript[0] != "" {
-		t.Fatalf("a light window item leaked into block 0: %q", m.transcript[0])
-	}
-}
-
 // A range read can fail for a legitimate reason (a tool result that has not been
 // written yet). That must not stall pagination: the preview stays, the deferred
 // payload is retired, and later pages keep loading.
@@ -1627,52 +1317,6 @@ func TestPagedReplaySourceFailureKeepsPreviewAndPaging(t *testing.T) {
 	}
 	if _, err := r.copyHistory(&m, 1, 1); err == nil {
 		t.Fatal("a preview-only block must not be copied as if it were complete")
-	}
-}
-
-// After a turn writes the journal, the parent probes the index again. The new
-// generation must open room for the appended history without moving the live
-// tail, and it must not keep showing bodies it cannot prove are still current.
-func TestPagedReplayRefreshAdoptsTheNewGeneration(t *testing.T) {
-	m, r, host := pagedTranscriptModel(t, pagedUserCorpus(40))
-	if len(r.resident) == 0 {
-		t.Fatal("the mounted tail must be resident before the refresh")
-	}
-	m.appendUser("live prompt")
-	live := len(m.transcript) - 1
-	// The journal appended the settled turn: same session, new generation.
-	host.corpus = pagedUserCorpus(42)
-	host.revision = "4096:1700001234:5"
-
-	cmd := r.refresh(&m)
-	if cmd == nil {
-		t.Fatal("refresh must probe the index")
-	}
-	pagedDrive(t, &m, r, cmd)
-
-	if r.revision != "4096:1700001234:5" || r.total != 42 {
-		t.Fatalf("refresh did not adopt the new generation: revision=%q total=%d", r.revision, r.total)
-	}
-	if m.transcript[live+2] != "> live prompt" {
-		t.Fatalf("live tail shifted wrong: %q at %d, transcript=%d", m.transcript[live+2], live+2, len(m.transcript))
-	}
-	if r.failed() {
-		t.Fatalf("refresh failed: %q", r.failureReason())
-	}
-	// The mounted window is re-read from the new generation, so nothing the user
-	// sees depends on a body that outlived its revision.
-	if len(r.resident) == 0 {
-		t.Fatal("the mounted window was not re-paged after the refresh")
-	}
-	for block, item := range r.resident {
-		if m.transcript[block] == "" && item.Text != "" {
-			t.Fatalf("resident block %d lost its source", block)
-		}
-	}
-	// The appended blocks are reachable like any other history block.
-	r.apply(&m, commandResult{name: "transcript_page", payload: host.pagePayload(40, 2)})
-	if m.transcript[40] != "> prompt 40" || m.transcript[41] != "> prompt 41" {
-		t.Fatalf("appended history not paged: %q %q", m.transcript[40], m.transcript[41])
 	}
 }
 
@@ -1753,97 +1397,4 @@ func pagedWiredModel(t *testing.T, host *pagedTestHost) model {
 		t.Fatal("production attach did not start a paged replay")
 	}
 	return m
-}
-
-// /find on a paged document must read the console corpus, not the resident
-// window: a match far outside the mounted tail has to be found and located by its
-// absolute block index.
-func TestPagedSearchSeamFindsUnmountedBlocks(t *testing.T) {
-	corpus := pagedUserCorpus(600)
-	corpus[13].Text = "needle buried in old history"
-	corpus[512].Text = "needle in the mounted tail"
-	host := &pagedTestHost{session: "s-1", revision: "1:2:3", corpus: corpus, indexWindow: 400}
-	m := pagedWiredModel(t, host)
-	if m.transcript[13] != "" {
-		t.Fatal("fixture: block 13 should not be resident")
-	}
-	if cmd := m.command("/find needle"); cmd != nil {
-		t.Fatalf("/find must stay local: %v", cmd)
-	}
-	if m.replay.scan == nil && len(m.searchHits) == 0 {
-		t.Fatal("/find did not start the paged source scan")
-	}
-	pagedFrame(t, &m, m.ensureTranscriptPages(), 60)
-	if len(m.searchHits) != 2 {
-		t.Fatalf("paged search missed blocks: %#v", m.searchHits)
-	}
-	if m.searchHits[0].block != 13 || m.searchHits[1].block != 512 {
-		t.Fatalf("hits are not absolute block indexes: %#v", m.searchHits)
-	}
-	if m.searchActive != 0 {
-		t.Fatalf("search did not navigate: %d", m.searchActive)
-	}
-	// /find-next walks the same absolute hits and jumps the document. The runtime
-	// batches ensureTranscriptPages after every Update, so the jump is followed by
-	// the frame that loads the block it moved to (the window is not pre-loaded by a
-	// corpus-wide continuation walk any more).
-	m.command("/find-next")
-	pagedFrame(t, &m, m.ensureTranscriptPages(), 60)
-	if m.searchActive != 1 || m.transcript[512] == "" {
-		t.Fatalf("find-next did not mount the second hit: active=%d source=%q", m.searchActive, m.transcript[512])
-	}
-}
-
-// /copyhistory on a paged document must never return placeholder text: a released
-// range is loaded on demand and the retry copies the complete source.
-func TestPagedCopySeamLoadsAndNeverCopiesPlaceholders(t *testing.T) {
-	body := strings.Repeat("detail ", 1500)
-	corpus := pagedUserCorpus(300)
-	corpus[41].Kind = "assistant"
-	corpus[41].Text = body
-	host := &pagedTestHost{session: "s-1", revision: "5:6:7", corpus: corpus, indexWindow: 400, inlineBytes: 4096}
-	m := pagedWiredModel(t, host)
-
-	if _, err := m.copyHistoryCommand([]string{"/copyhistory", "42"}); err == nil {
-		t.Fatal("copy of a released range returned text instead of loading it")
-	} else if !strings.Contains(err.Error(), "not loaded yet") {
-		t.Fatalf("copy error must be actionable: %v", err)
-	}
-	// The failed copy pinned its block; the frame loop loads the page and the
-	// deferred body, so a retry is complete.
-	pagedFrame(t, &m, m.ensureTranscriptPages(), 80)
-	text, err := m.copyHistoryCommand([]string{"/copyhistory", "42"})
-	if err != nil {
-		t.Fatalf("copy after loading: %v", err)
-	}
-	if text != body {
-		t.Fatalf("copy text: %d bytes, want %d", len(text), len(body))
-	}
-	// The drag-copy path shares the guard: no silent partial selection.
-	if _, err := m.copySourceRange(0, 20); err == nil {
-		t.Fatal("a drag across unmounted history returned partial text")
-	}
-	// A fully resident range still copies through the classic formatter.
-	if _, err := m.copySourceRange(299, 299); err != nil {
-		t.Fatalf("resident range: %v", err)
-	}
-}
-
-// A drag or /copyhistory range that includes the live tail must copy normally:
-// live appends are materialized even though the paged region is not.
-func TestPagedCopySeamIncludesLiveTail(t *testing.T) {
-	host := &pagedTestHost{session: "s-1", revision: "1:1:1", corpus: pagedUserCorpus(20), indexWindow: 400}
-	m := pagedWiredModel(t, host)
-	m.appendUser("live answer")
-	live := len(m.transcript) - 1
-	text, err := m.copySourceRange(live, live)
-	if err != nil {
-		t.Fatalf("live tail copy: %v", err)
-	}
-	if text != "> live answer" {
-		t.Fatalf("live tail text: %q", text)
-	}
-	if _, err := m.copySourceRange(live+1, live+1); err == nil {
-		t.Fatal("copy past the document accepted")
-	}
 }

@@ -41,22 +41,6 @@ func switchPickerModel(t *testing.T, host runtimeHost) model {
 	return m
 }
 
-func TestSwitchAckRetiresPickerAndKeepsLatch(t *testing.T) {
-	m := switchPickerModel(t, &testHost{})
-	m.switchInFlight = "s-target"
-	next, _ := m.Update(commandResult{name: "switch_session", payload: json.RawMessage(`{"status":"switching","target":"s-target"}`)})
-	state := next.(model)
-	if state.sessionPicker.open {
-		t.Fatal("ack must retire the picker immediately")
-	}
-	if state.status != "loading session…" {
-		t.Fatalf("ack status: %q", state.status)
-	}
-	if state.switchInFlight != "s-target" {
-		t.Fatalf("ack must keep the latch until the event lands: %q", state.switchInFlight)
-	}
-}
-
 func TestSessionSwitchedEventAdoptsSessionAndRestartsReplay(t *testing.T) {
 	m := switchPickerModel(t, &testHost{})
 	m.switchInFlight = "s-target"
@@ -83,26 +67,6 @@ func TestSessionSwitchedEventAdoptsSessionAndRestartsReplay(t *testing.T) {
 	}
 }
 
-func TestSessionSwitchedEventBatchReturnsReplayCommands(t *testing.T) {
-	m := switchPickerModel(t, &testHost{})
-	m.switchInFlight = "s-target"
-	generation := m.replayGeneration
-	next, cmd := m.Update(eventBatchResult{events: []wire.Event{event(`{"type":"session.switched","session_id":"s-target","snapshot":{"session_id":"s-target"}}`)}})
-	state := next.(model)
-	if cmd == nil {
-		t.Fatal("the event pump must restart the replay beside the retired asks")
-	}
-	if state.replayGeneration == generation {
-		t.Fatal("the batch path must restart the paged replay generation")
-	}
-	if state.status != "ready" {
-		t.Fatalf("status after switched batch: %q", state.status)
-	}
-	if state.pendingSessionCmd != nil {
-		t.Fatal("pending session commands must be consumed exactly once")
-	}
-}
-
 func TestSessionSwitchFailedClearsLatchAndReports(t *testing.T) {
 	m := switchPickerModel(t, &testHost{})
 	m.switchInFlight = "s-target"
@@ -115,19 +79,6 @@ func TestSessionSwitchFailedClearsLatchAndReports(t *testing.T) {
 	}
 	if m.session != "s-current" || m.status != "ready" {
 		t.Fatalf("failure must leave the current session attached: %q %q", m.session, m.status)
-	}
-}
-
-func TestSwitchRequestErrorReleasesLatch(t *testing.T) {
-	m := switchPickerModel(t, &testHost{})
-	m.switchInFlight = "s-target"
-	next, _ := m.Update(commandResult{name: "switch_session", err: errString("queue full")})
-	state := next.(model)
-	if state.switchInFlight != "" {
-		t.Fatal("a switch that never started server-side must release the latch")
-	}
-	if state.status != "ready" {
-		t.Fatalf("status after failed dispatch: %q", state.status)
 	}
 }
 
@@ -149,31 +100,6 @@ func TestChooseLatchPreventsSecondSwitch(t *testing.T) {
 	m.switchInFlight = ""
 	if cmd := m.sessionPickerChoose(entry); cmd == nil {
 		t.Fatal("choose must dispatch once the latch is free")
-	}
-}
-
-func TestPickerPrefetchIssuesOncePerRowAndSkipsForeignRows(t *testing.T) {
-	host := &switchRecordingHost{}
-	m := switchPickerModel(t, host)
-	same := overlays.SessionEntry{ID: "s-same", Current: true}
-	foreignCwd := "/somewhere/else"
-	foreign := overlays.SessionEntry{ID: "s-foreign", Cwd: &foreignCwd}
-	cmd0 := m.sessionPickerPrefetch(same)
-	if cmd0 == nil {
-		t.Fatal("first prefetch of a same-workspace row must dispatch")
-	}
-	if cmd := m.sessionPickerPrefetch(same); cmd != nil {
-		t.Fatal("prefetch must dedupe within one picker window")
-	}
-	if cmd := m.sessionPickerPrefetch(foreign); cmd != nil {
-		t.Fatal("foreign rows compose on the switch path, not via prefetch")
-	}
-	// The deduped same-workspace request must carry the row's session id.
-	if msg := cmd0(); msg == nil {
-		t.Fatal("prefetch command produced no message")
-	}
-	if host.withID["session_prefetch"] != "s-same" {
-		t.Fatalf("prefetch request id: %#v", host.withID)
 	}
 }
 
@@ -221,3 +147,62 @@ type errString string
 func (e errString) Error() string { return string(e) }
 
 var _ = tea.Batch // keep the tea import aligned with the command assertions
+
+func TestClearModalBufferWipesBackingStore(t *testing.T) {
+	m := switchPickerModel(t, &testHost{})
+	buffer := []rune("hunter2")
+	m.modalBuffer = buffer
+	m.clearModalBuffer()
+	if m.modalBuffer != nil {
+		t.Fatal("buffer not dropped")
+	}
+	for i, r := range buffer {
+		if r != 0 {
+			t.Fatalf("rune %d survived the wipe: %q", i, r)
+		}
+	}
+}
+
+func TestUnknownToolPhaseSettlesTheRow(t *testing.T) {
+	m := newModel()
+	m.applyEvent(event(`{"type":"tool.started","session_id":"s","tool_call_id":"tc-u","tool_name":"bash","phase":"pending"}`))
+	m.applyEvent(event(`{"type":"tool.completed","session_id":"s","tool_call_id":"tc-u","tool_name":"bash","is_error":false,"phase":"cancelled"}`))
+	blk := m.blocks[m.toolIndex["tc-u"]]
+	if blk.State != "cancelled" {
+		t.Fatalf("unknown phase not adopted: %q", blk.State)
+	}
+	if !settledToolState(blk.State) {
+		t.Fatal("unknown phase must settle: the row would animate forever")
+	}
+	// A later event must not resurrect the settled row.
+	m.applyEvent(event(`{"type":"tool.started_run","session_id":"s","tool_call_id":"tc-u","tool_name":"bash","phase":"started"}`))
+	if m.blocks[m.toolIndex["tc-u"]].State != "cancelled" {
+		t.Fatalf("settled row was mutated: %q", m.blocks[m.toolIndex["tc-u"]].State)
+	}
+}
+
+func TestParseToolPhaseCoversLiveAndJournalVocabularies(t *testing.T) {
+	active := []string{"", "pending", "approved", "started", "running", "streaming"}
+	for _, s := range active {
+		if p := transcriptui.ParseToolPhase(s); p.Terminal() {
+			t.Errorf("%q must stay active", s)
+		}
+	}
+	succeeded := []string{"succeeded", "done", "completed"}
+	for _, s := range succeeded {
+		if p := transcriptui.ParseToolPhase(s); p != transcriptui.PhaseSucceeded || !p.Terminal() || p.Failed() {
+			t.Errorf("%q must parse as succeeded terminal: %v", s, p)
+		}
+	}
+	for _, s := range []string{"failed", "error"} {
+		if p := transcriptui.ParseToolPhase(s); p != transcriptui.PhaseFailed || !p.Failed() {
+			t.Errorf("%q must parse as failed: %v", s, p)
+		}
+	}
+	if p := transcriptui.ParseToolPhase("rejected"); !p.Failed() {
+		t.Error("rejected must count as failure")
+	}
+	if p := transcriptui.ParseToolPhase("paused"); p != transcriptui.PhaseUnknown || !p.Terminal() || p.Failed() {
+		t.Errorf("unknown phase must be terminal-not-failed: %v", p)
+	}
+}

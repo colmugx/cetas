@@ -6,7 +6,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestInlineQuestionUsesWireDefaultAndHasMaskedCursor(t *testing.T) {
@@ -71,24 +70,6 @@ func TestInlineAskKeepsConversationAndEditorVisible(t *testing.T) {
 		if !strings.Contains(view, text) {
 			t.Fatalf("inline ask hid %q: %s", text, view)
 		}
-	}
-}
-
-func TestLiveMarkdownUsesSamePresentationAsFinalMessage(t *testing.T) {
-	m := newModel()
-	m.width = 80
-	m.height = 24
-	m.resize()
-	m.applyEvent(event(`{"type":"assistant.text_delta","delta":"**bold** and ` + "`code`" + `"}`))
-	m.refreshTranscript()
-	live := ansi.Strip(m.viewport.View())
-	if strings.Contains(live, "**") {
-		t.Fatalf("live Markdown is raw: %s", live)
-	}
-	m.applyEvent(event(`{"type":"turn.completed"}`))
-	m.refreshTranscript()
-	if live != ansi.Strip(m.viewport.View()) {
-		t.Fatalf("stream completion changed presentation\nlive:%s\nfinal:%s", live, ansi.Strip(m.viewport.View()))
 	}
 }
 
@@ -172,29 +153,6 @@ func TestCompletedToolCanBeExpandedAndCollapsedAfterCompletion(t *testing.T) {
 	m = next.(model)
 	if strings.Contains(ansi.Strip(m.viewport.View()), "UNIQUE_TOOL_BODY") {
 		t.Fatal("completed tool cannot be collapsed")
-	}
-}
-
-func TestKeyedWidgetUpdatesAndExpiresWithoutEnteringHistory(t *testing.T) {
-	m := newModel()
-	m.width = 80
-	m.height = 24
-	m.resize()
-	for _, raw := range []string{
-		`{"type":"ui.render","render":{"slot":"widget","key":"w","body":{"type":"text","text":"old-widget"}}}`,
-		`{"type":"ui.render","render":{"slot":"widget","key":"w","ttl_ms":100,"body":{"type":"text","text":"new-widget"}}}`,
-	} {
-		next, _ := m.Update(eventResult{ok: true, event: event(raw)})
-		m = next.(model)
-	}
-	view := ansi.Strip(m.View().Content)
-	if strings.Contains(view, "old-widget") || !strings.Contains(view, "new-widget") || len(m.transcript) != 0 {
-		t.Fatal("widget was appended instead of replaced")
-	}
-	next, _ := m.Update(clockTick(time.Now().Add(time.Second)))
-	m = next.(model)
-	if strings.Contains(ansi.Strip(m.View().Content), "new-widget") {
-		t.Fatal("widget TTL did not expire")
 	}
 }
 

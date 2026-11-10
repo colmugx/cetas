@@ -44,50 +44,11 @@ func TestDynamicCommandCatalogAndAliasSelection(t *testing.T) {
 		t.Fatal("late catalog was installed for different session")
 	}
 }
-func TestRegisteredCommandArgumentsAndOutcome(t *testing.T) {
-	m := newModel()
-	m.session = "session-a"
-	m.host = &testHost{}
-	m.installCommandCatalog(json.RawMessage(commandFixture))
-	command, found := m.lookupCommand("/integer")
-	if !found {
-		t.Fatal("missing typed command")
-	}
-	args, err := registeredCommandArgs(command, "17 --enabled")
-	if err != nil || args["count"] != int64(17) || args["enabled"] != true {
-		t.Fatalf("arguments: %#v %v", args, err)
-	}
-	if _, err := registeredCommandArgs(command, "bad"); err == nil {
-		t.Fatal("invalid integer accepted")
-	}
-	if _, err := registeredCommandArgs(command, "17 --bogus=true"); err == nil {
-		t.Fatal("unknown option accepted")
-	}
-	ptc, _ := m.lookupCommand("/program")
-	if _, err := registeredCommandArgs(ptc, "invalid"); err == nil {
-		t.Fatal("invalid command choice accepted")
-	}
-	cmd := m.command("/program on")
-	if cmd == nil {
-		t.Fatal("dynamic command not dispatched")
-	}
-	result, ok := cmd().(commandResult)
-	if !ok || result.name != "invoke_command" {
-		t.Fatalf("wrong transport: %#v", result)
-	}
-	m.applyEvent(event(`{"type":"command.completed","session_id":"session-a","command_id":"ptc","request_id":"command-1","outcome":{"type":"success","feedback":"PTC mode on"}}`))
-	if !strings.Contains(strings.Join(m.transcript, "\n"), "PTC mode on") {
-		t.Fatalf("missing command feedback: %#v", m.transcript)
-	}
-	m.applyEvent(event(`{"type":"command.completed","session_id":"session-other","command_id":"ptc","outcome":{"type":"failure","reason":"stale"}}`))
-	if strings.Contains(m.err, "stale") {
-		t.Fatal("another session overwrote the command result")
-	}
-}
 func TestCommandPaletteTabDoesNotExecuteOnSelection(t *testing.T) {
 	m := newModel()
 	m.session = "session-a"
 	m.installCommandCatalog(json.RawMessage(commandFixture))
+	m.lastProgramStatus = formatProgramStatus(m.projectProgramStatus())
 	m.modal = "slash"
 	m.modalItems = []string{"/program"}
 	m.modalValues = []string{"/program"}

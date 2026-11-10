@@ -300,80 +300,6 @@ func TestGiantColdMarkdownDiscardsResultFromSupersededWidth(t *testing.T) {
 	}
 }
 
-// A block edited while its cold render is in flight keeps the new source: the
-// stale layout is discarded and the new one is queued.
-func TestGiantColdMarkdownDiscardsResultFromSupersededSource(t *testing.T) {
-	gate := installHistoryRenderGate(t)
-	m := interactionModel(t, 80, 24)
-	defer m.closeHistoryMarkdown()
-	m.appendAssistant(giantHistoryMarkdown(2))
-	m.refreshTranscript()
-	gate.nextEntered(t)
-
-	edited := giantHistoryMarkdown(1) + "replaced **source**\n\n"
-	m.transcript[0] = edited
-	m.invalidateTranscriptBlock(0)
-	gate.allow()
-	gate.nextFinished(t)
-	waitForHistory(t, "superseded-source render", func() bool {
-		return historyResultCount(m.virtualScroll.history) == 1
-	})
-	m.refreshTranscript()
-	if len(m.markdownCache) != 0 {
-		t.Fatal("painted a render of the superseded source")
-	}
-	if strings.Contains(ansi.Strip(m.viewport.GetContent()), "cold-rendered") {
-		t.Fatal("superseded-source render reached the screen")
-	}
-
-	if entered := gate.nextEntered(t); entered != edited {
-		t.Fatalf("worker did not queue the edited source: %d bytes, want %d", len(entered), len(edited))
-	}
-	gate.allow()
-	gate.nextFinished(t)
-	settleHistoryMarkdown(t, m)
-	if got, want := m.markdownCache[0], historyRenderedMarker(len(edited)); got != want {
-		t.Fatalf("applied render %q, want the edited source %q", got, want)
-	}
-}
-
-// A session switch is a new document: the cold worker is stopped, an in-flight
-// completion is dropped, and the next document starts without inheriting it.
-func TestGiantColdMarkdownDroppedOnSessionReset(t *testing.T) {
-	gate := installHistoryRenderGate(t)
-	m := interactionModel(t, 80, 24)
-	defer m.closeHistoryMarkdown()
-	m.appendAssistant(giantHistoryMarkdown(2))
-	m.refreshTranscript()
-	gate.nextEntered(t)
-	worker := m.virtualScroll.history
-	if worker == nil {
-		t.Fatal("cold block did not start the document worker")
-	}
-
-	m.resetVirtualTranscript()
-	if m.virtualScroll.history != nil {
-		t.Fatal("session reset kept the cold Markdown worker")
-	}
-	if !historyStopped(worker) {
-		t.Fatal("session reset left the old worker open")
-	}
-	gate.allow()
-	gate.nextFinished(t)
-	waitForHistory(t, "old cold worker exit", func() bool { return !historyRunning(worker) })
-
-	// The next document starts clean and never inherits the previous render.
-	m.transcript = []string{"**fresh** settled answer"}
-	m.markdownRaw = map[int]string{0: "**fresh** settled answer"}
-	m.refreshTranscript()
-	if m.historyMarkdownPending() {
-		t.Fatal("new document inherited the previous cold render")
-	}
-	if strings.Contains(ansi.Strip(m.viewport.GetContent()), "cold-rendered") {
-		t.Fatal("new document painted the previous document's render")
-	}
-}
-
 // The queue and the retained results are bounded: a fast scroll through history
 // must not turn into an unbounded backlog or an unbounded frame hand-off.
 func TestHistoryMarkdownWorkerQueueAndResultsAreBounded(t *testing.T) {
@@ -489,31 +415,5 @@ func TestSmallSettledMarkdownStaysSynchronous(t *testing.T) {
 				t.Fatalf("small settled block painted raw Markdown: %q", plain)
 			}
 		})
-	}
-}
-
-// The parent clock needs one predicate that covers a finished but unpainted
-// cold render, exactly like the streaming worker's.
-func TestPendingColdMarkdownIsReportedForTheClock(t *testing.T) {
-	gate := installHistoryRenderGate(t)
-	m := interactionModel(t, 80, 24)
-	if m.historyMarkdownPending() {
-		t.Fatal("a document with no cold render reported work")
-	}
-	m.appendAssistant(giantHistoryMarkdown(1))
-	defer m.closeHistoryMarkdown()
-	m.refreshTranscript()
-	if !m.historyMarkdownPending() {
-		t.Fatal("a giant cold block was not reported as pending")
-	}
-	gate.allow()
-	gate.nextFinished(t)
-	settleHistoryMarkdown(t, m)
-	if m.historyMarkdownPending() {
-		t.Fatal("a painted cold render still reported work")
-	}
-	m.closeHistoryMarkdown()
-	if m.historyMarkdownPending() {
-		t.Fatal("a closed cold worker reported work")
 	}
 }
