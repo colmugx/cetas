@@ -76,7 +76,7 @@ def capture_c():
         target = CAPTURE / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(generated, target)
-        manifest.write_text(relative.as_posix() + "\\n")
+        manifest.write_text(relative.as_posix() + "\n")
     if not manifest.is_file():
         raise RuntimeError("Moon did not invoke the capture compiler")
     sources = [CAPTURE / s for s in manifest.read_text().splitlines() if s]
