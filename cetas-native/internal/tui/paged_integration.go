@@ -123,6 +123,11 @@ func (m *model) ensureTranscriptPages() tea.Cmd {
 		}
 		m.replayRetryAt = time.Time{}
 	}
+	// Once cold-index retry budget is exhausted, stay stopped until the
+	// document changes. A later Update must not silently restart the probe.
+	if m.replay != nil && !m.replay.indexed && m.replayIndexTimeouts > replayIndexTimeoutBudget {
+		return nil
+	}
 	if m.replayIndexPending {
 		// A cold index that never answers must not wedge pagination until the
 		// next switch: release the latch and re-probe, then give up visibly.
