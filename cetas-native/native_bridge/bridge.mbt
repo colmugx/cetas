@@ -48,7 +48,8 @@ fn wake_stage_text(stage : Int32) -> String {
     2 => "fcntl() failed setting non-blocking/cloexec"
     3 => "fcntl(F_DUPFD_CLOEXEC) failed for the producer-write guard"
     4 => "notification channel disabled by a transport test"
-    5 => "this platform hands the command channel over as a HANDLE, not a descriptor"
+    5 =>
+      "this platform hands the command channel over as a HANDLE, not a descriptor"
     _ => "unknown failure stage " + stage.to_string()
   }
 }
@@ -69,7 +70,11 @@ async fn adopt_command_wake() -> Result[@raw_fd.RawFd, String] {
     )
   }
   Ok(@raw_fd.RawFd(fd)) catch {
-    error => Err("descriptor could not be adopted by the async scheduler: " + error.to_string())
+    error =>
+      Err(
+        "descriptor could not be adopted by the async scheduler: " +
+        error.to_string(),
+      )
   }
 }
 
@@ -86,7 +91,9 @@ fn adopt_command_wake() -> Result[@raw_fd.RawFd, String] {
   if stage != 0 {
     Err(wake_stage_text(stage))
   } else {
-    Err("this platform hands the command channel over as a HANDLE, not a descriptor")
+    Err(
+      "this platform hands the command channel over as a HANDLE, not a descriptor",
+    )
   }
 }
 
@@ -134,9 +141,7 @@ fn emit_boot_progress(phase : String, ms : Int64) -> Unit {
 /// composing, preserving the request's correlation id: a named refusal, not
 /// a dropped request the host would wait on.
 fn reject_while_composing(raw : String) -> Unit {
-  let request : Json = @json.parse(raw) catch {
-    _ => Json::null()
-  }
+  let request : Json = @json.parse(raw) catch { _ => Json::null() }
   let id = match request {
     Json::Object(fields) =>
       match fields.get("id") {
@@ -199,7 +204,9 @@ pub fn run_infra() -> Int32 {
             // Whatever ends this task — completion, error, cancellation —
             // the shutdown epilogue below waits on this flag; a raise in the
             // middle must never park it at `true` forever.
-            defer { composing.val = false }
+            defer {
+              composing.val = false
+            }
             let started = @async.now()
             emit_boot_progress("composing", 0)
             // Protected: cancelling the boot mid-build would strand a
@@ -208,8 +215,7 @@ pub fn run_infra() -> Int32 {
             // detector aborts the whole process at group exit). Composition
             // always runs to its install-or-error decision; shutdown waits
             // for it below.
-            let composed : Result[@console.ConsoleRuntime, String] = @async.protect_from_cancel(
-              async fn() {
+            let composed : Result[@console.ConsoleRuntime, String] = @async.protect_from_cancel(async fn() {
                 Ok(@console.compose_console_runtime(config, cwd, group)) catch {
                   error => Err(error.to_string())
                 }
