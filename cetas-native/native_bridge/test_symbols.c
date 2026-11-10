@@ -21,6 +21,9 @@
 #pragma comment(linker, "/alternatename:cetas_bridge_publish=cetas_bridge_publish_missing_host")
 #pragma comment(linker, "/alternatename:cetas_bridge_next_command=cetas_bridge_next_command_missing_host")
 #pragma comment(linker, "/alternatename:cetas_bridge_next_harness=cetas_bridge_next_harness_missing_host")
+#pragma comment(linker, "/alternatename:cetas_bridge_command_fd=cetas_bridge_command_fd_missing_host")
+#pragma comment(linker, "/alternatename:cetas_bridge_command_wake_stage=cetas_bridge_command_wake_stage_missing_host")
+#pragma comment(linker, "/alternatename:cetas_bridge_command_wake_errno=cetas_bridge_command_wake_errno_missing_host")
 #define CETAS_TEST_FALLBACK
 #define CETAS_FALLBACK_NAME(name) name##_missing_host
 #elif defined(__GNUC__) || defined(__clang__)
@@ -39,5 +42,19 @@ CETAS_TEST_FALLBACK int32_t CETAS_FALLBACK_NAME(cetas_bridge_next_command)(void)
 }
 CETAS_TEST_FALLBACK int32_t CETAS_FALLBACK_NAME(cetas_bridge_next_harness)(uint8_t *dst, int32_t capacity) {
     (void)dst; (void)capacity;
+    abort();
+}
+
+/* Readiness-channel fallbacks: the Go host supplies real strong symbols.
+ * A standalone MoonBit test must still link, and may never claim that it
+ * owns a usable host command channel.
+ */
+CETAS_TEST_FALLBACK int32_t CETAS_FALLBACK_NAME(cetas_bridge_command_fd)(void) {
+    abort();
+}
+CETAS_TEST_FALLBACK int32_t CETAS_FALLBACK_NAME(cetas_bridge_command_wake_stage)(void) {
+    abort();
+}
+CETAS_TEST_FALLBACK int32_t CETAS_FALLBACK_NAME(cetas_bridge_command_wake_errno)(void) {
     abort();
 }
