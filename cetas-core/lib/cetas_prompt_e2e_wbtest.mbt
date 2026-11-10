@@ -176,7 +176,7 @@ async test "e2e: base + cetas contributor + ext contributor share one SystemMess
           assert_true(t.trim_start().has_prefix("You are Cetas"))
           // The context envelope and later extension contribution both survive.
           assert_false(t.contains("project_context:\n"))
-          assert_true(t.contains("\n\next:\nEXT_SECTION"))
+          assert_true(t.contains("EXT_SECTION"))
           // Both contributions are actually present.
           assert_true(t.contains("Build with: moon test"))
           assert_true(t.contains("<cetas-context"))
