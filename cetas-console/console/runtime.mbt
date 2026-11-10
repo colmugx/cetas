@@ -334,6 +334,13 @@ pub async fn ConsoleRuntime::start_turn(
   let sid = handle.session_id
   let workspace = self.workspaces.get(handle.cwd) |> unwrap_workspace
   self.group.spawn_bg(async fn() {
+    // Shutdown may arrive before this accepted turn enters the Agent.
+    // Do not admit it after the serving-lifetime session scope is released.
+    if self.stopping {
+      handle.observer.emit_turn_failed("runtime is shutting down")
+      handle.busy = false
+      return
+    }
     let outcome : Result[String, @posoco.AgentError] = Ok(
       @cetas_core.run_prompt(agent, prompt, sid),
     ) catch {
@@ -1608,6 +1615,11 @@ pub async fn ConsoleRuntime::shutdown_all(self : ConsoleRuntime) -> Unit {
   self.stopping = true
   for _, workspace in self.workspaces {
     for _, handle in workspace.handles {
+      // A pending or active turn must be interrupted before its session
+      // scope is released, otherwise the task group may never drain.
+      if handle.busy {
+        ignore(handle.agent.control().abort_active(None))
+      }
       // Native sessions own exactly one `run_scoped`, and that scope is the
       // Agent's shutdown owner: releasing it makes `run_scoped` retire the
       // Agent itself (task runtime, wakeup pump, lifecycle shutdown). Calling
