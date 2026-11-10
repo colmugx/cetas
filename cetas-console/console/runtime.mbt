@@ -231,6 +231,7 @@ async fn release_handle_scope(handle : SessionHandle) -> Unit {
     None => handle.agent.shutdown()
   }
 }
+
 ///|
 async fn ConsoleRuntime::compose_handle(
   self : ConsoleRuntime,
@@ -251,35 +252,35 @@ async fn ConsoleRuntime::compose_handle(
   // the compose-and-decide region, then either install the handle or — once
   // stopping — release the fresh scope instead of parking it on a close
   // signal nobody will ever send.
-  let handle : Result[SessionHandle, String] = @async.protect_from_cancel(
-    async fn() {
-      Ok(
-        compose_session_agent(
-          self.fs,
-          self.home,
-          workspace.cwd,
-          self.group,
-          self.lifetime_group,
-          workspace.platform,
-          self.hub,
-          self.ui_registry,
-          workspace.permission_mode,
-          self.label,
-          self.protocol,
-          self.native_ui,
-          session_id,
-        ),
-      ) catch {
-        error => Err(error.to_string())
-      }
-    },
-  ) catch {
+  let handle : Result[SessionHandle, String] = @async.protect_from_cancel(async fn() {
+    Ok(
+      compose_session_agent(
+        self.fs,
+        self.home,
+        workspace.cwd,
+        self.group,
+        self.lifetime_group,
+        workspace.platform,
+        self.hub,
+        self.ui_registry,
+        workspace.permission_mode,
+        self.label,
+        self.protocol,
+        self.native_ui,
+        session_id,
+      ),
+    ) catch {
+      error => Err(error.to_string())
+    }
+  }) catch {
     error => return Err(error.to_string())
   }
   match handle {
     Ok(handle) => {
       if self.stopping {
-        release_handle_scope(handle) catch { _ => () }
+        release_handle_scope(handle) catch {
+          _ => ()
+        }
         return Err("runtime is shutting down")
       }
       workspace.handles[session_id] = handle
@@ -457,7 +458,7 @@ async fn compose_session_agent(
   let mut children : NativeChildMeter? = None
   match native_subagent_sink(hub, session_id, native_ui~) {
     Some(sink) => {
-      let meter : NativeChildMeter = { live: Map::from_array([]) }
+      let meter : NativeChildMeter = { live: Map::from_array([]), }
       tail_exts.push(
         compose_native_subagents(
           fs,
@@ -525,7 +526,7 @@ pub async fn ConsoleRuntime::switch_session(
 /// journaled, so a retired handle recomposes from disk on demand; the ceiling
 /// bounds agent/context retention across long `/new` sequences without
 /// touching any live work.
-const MAX_RETAINED_SESSION_HANDLES : Int = 8
+const MAX_RETAINED_SESSION_HANDLES : Int32 = 8
 
 ///|
 /// Pure retirement predicate, split from the handle so every guard is testable
@@ -534,9 +535,9 @@ const MAX_RETAINED_SESSION_HANDLES : Int = 8
 /// detached child is still live.
 fn handle_retirable(
   busy : Bool,
-  questions_open : Int,
+  questions_open : Int32,
   questions_undelivered : Bool,
-  children_live : Int,
+  children_live : Int32,
 ) -> Bool {
   !busy && questions_open == 0 && !questions_undelivered && children_live == 0
 }
@@ -579,7 +580,8 @@ async fn ConsoleRuntime::retire_idle_handles(
   }
   let victims : Array[String] = []
   for id, handle in workspace.handles {
-    if workspace.handles.length() - victims.length() <= MAX_RETAINED_SESSION_HANDLES {
+    if workspace.handles.length() - victims.length() <=
+      MAX_RETAINED_SESSION_HANDLES {
       break
     }
     if id == workspace.active_id {
@@ -592,7 +594,9 @@ async fn ConsoleRuntime::retire_idle_handles(
   for id in victims {
     match workspace.handles.get(id) {
       Some(handle) => {
-        release_handle_scope(handle) catch { _ => () }
+        release_handle_scope(handle) catch {
+          _ => ()
+        }
         workspace.handles.remove(id)
       }
       None => ()
@@ -634,8 +638,7 @@ pub async fn ConsoleRuntime::switch_workspace(
     self.emit_active_snapshot()
     return Ok(normalized)
   }
-  let workspace : Result[WorkspaceRuntime, String] = @async.protect_from_cancel(
-    async fn() {
+  let workspace : Result[WorkspaceRuntime, String] = @async.protect_from_cancel(async fn() {
       Ok(
         build_workspace(
           self.fs,
@@ -663,11 +666,15 @@ pub async fn ConsoleRuntime::switch_workspace(
       // A shutdown that swept during the build must not strand the fresh
       // workspace's parked scopes: release and refuse instead of installing.
       if self.stopping {
-        release_workspace_scopes(workspace) catch { _ => () }
+        release_workspace_scopes(workspace) catch {
+          _ => ()
+        }
         return Err("runtime is shutting down")
       }
       self.workspaces[normalized] = workspace
-      self.registry = self.registry.filter(registered => registered != normalized)
+      self.registry = self.registry.filter(registered => {
+        registered != normalized
+      })
       self.sync_registry()
       self.active_cwd = normalized
       self.emit_active_snapshot()
@@ -705,8 +712,7 @@ pub async fn ConsoleRuntime::resume_workspace_session(
           }
         None => self.startup_permission
       }
-      let built : Result[WorkspaceRuntime, String] = @async.protect_from_cancel(
-        async fn() {
+      let built : Result[WorkspaceRuntime, String] = @async.protect_from_cancel(async fn() {
           Ok(
             build_workspace(
               self.fs,
@@ -734,7 +740,9 @@ pub async fn ConsoleRuntime::resume_workspace_session(
           // Same shutdown hand-off as switch_workspace: never install a
           // workspace whose scopes the sweep can no longer reach.
           if self.stopping {
-            release_workspace_scopes(workspace) catch { _ => () }
+            release_workspace_scopes(workspace) catch {
+              _ => ()
+            }
             return Err("runtime is shutting down")
           }
           workspace
@@ -1182,7 +1190,7 @@ async fn build_workspace(
   ]
   match native_subagent_sink(hub, first_session_id, native_ui~) {
     Some(sink) => {
-      let meter : NativeChildMeter = { live: Map::from_array([]) }
+      let meter : NativeChildMeter = { live: Map::from_array([]), }
       tail_exts.push(
         compose_native_subagents(
           fs,
