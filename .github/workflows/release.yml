@@ -144,7 +144,7 @@ jobs:
     name: build (${{ matrix.target }})
     needs: [deps]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -209,9 +209,9 @@ jobs:
             Copy-Item -Path (Join-Path $cache.source '*') -Destination $cache.target -Recurse -Force
           }
 
-      # One workspace build produces the ACP and Run native executables.
-      # Native TUI is still experimental: it may be built by Moon as a
-      # workspace member, but it is NOT packaged as a stable release asset.
+      # One workspace build produces the ACP and Run native executables. The
+      # native Go host is built from that same tree afterwards, so the bridge
+      # archive reuses the dependency compilation instead of redoing it.
       - name: moon update (native workspace)
         run: moon update
 
@@ -298,6 +298,45 @@ jobs:
             }
           }
 
+      # cetas-native (Go/Bubble Tea) — built after the MoonBit workspace build
+      # so the bridge archive reuses every dependency Moon just compiled. The
+      # static archive is the only cgo input; `cetas` is the installed name and
+      # `cetas acp` / `cetas run` hand the process over to the two siblings.
+      # Windows is not part of this asset: go_bridge/host.c has no Win32 path
+      # for its wake channels and build_static.py has no MSVC/LLVM arm.
+      - name: setup go (unix)
+        if: matrix.os != 'windows-latest'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: false
+
+      - name: compile MoonBit bridge archive (unix)
+        if: matrix.os != 'windows-latest'
+        run: python3 cetas-native/tools/build_static.py
+
+      - name: build cetas (unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: cetas-native
+        env:
+          CGO_ENABLED: '1'
+        run: go build -trimpath -o ../stage/cetas .
+
+      - name: version smoke cetas (unix)
+        if: matrix.os != 'windows-latest'
+        working-directory: stage
+        run: |
+          out="$(./cetas --version)"
+          echo "$out"
+          if [[ -n "$RELEASE_TAG" ]]; then
+            expected="cetas ${RELEASE_TAG#cetas-v}"
+            [[ "$out" == "$expected" ]] || { echo "::error::--version mismatch: got '$out', want '$expected'"; exit 1; }
+          fi
+          # The handover dispatches are shipped entry points: prove both
+          # siblings sit beside the binary and still answer.
+          ./cetas acp --version
+          ./cetas run --version
+
       # cetas-js (bun-compiled single-file) — the GitHub-Release channel of
       # the JS host, alongside cetas-acp/cetas-run. The npm channel ships the
       # platform-independent node bundle instead (cetas-js-dist job below).
@@ -350,6 +389,7 @@ jobs:
         run: |
           tar -czf "cetas-acp-${{ matrix.target }}.tar.gz" cetas-acp
           tar -czf "cetas-run-${{ matrix.target }}.tar.gz" cetas-run
+          tar -czf "cetas-${{ matrix.target }}.tar.gz" cetas
           tar -czf "cetas-bun-${{ matrix.target }}.tar.gz" cetas-bun native
 
       - name: package (Windows)

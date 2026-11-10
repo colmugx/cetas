@@ -646,6 +646,33 @@ fn native_effective_child_mode(
 }
 
 ///|
+/// Live-children bookkeeping for one parent session, fed from the subagent
+/// event stream. A detached child keeps running after the spawning turn
+/// returns, so this meter — not `busy` — decides whether retiring the handle
+/// would cancel live work.
+priv struct NativeChildMeter {
+  live : Map[String, Bool]
+}
+
+///|
+fn NativeChildMeter::observe(
+  self : NativeChildMeter,
+  event : @subagent_kit.SubagentEvent,
+) -> Unit {
+  match event.event {
+    @posoco.TurnEvent::TurnStarted => self.live[event.child_session] = true
+    @posoco.TurnEvent::TurnCompleted => self.live.remove(event.child_session)
+    @posoco.TurnEvent::TurnFailed(_) => self.live.remove(event.child_session)
+    _ => ()
+  }
+}
+
+///|
+fn NativeChildMeter::live_count(self : NativeChildMeter) -> Int {
+  self.live.length()
+}
+
+///|
 /// Native child composer: assembles one child Agent per spawn. It reuses the
 /// parent's model slots through a fresh router value (mutable active selection
 /// is never shared), the parent's workspace anchor/approval source, and the

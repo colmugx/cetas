@@ -52,6 +52,11 @@ priv struct SessionHandle {
   /// through the existing `resolve_ui` command, keyed by `question_id`) can
   /// reach the registry that parked it. `None` for the default console.
   questions : @askquestion.AskQuestionTools?
+  /// Live background children of this session, fed by the subagent event
+  /// stream. `None` when the delegation surface was never composed. A turn
+  /// finishing does not finish its detached children, so `busy` alone cannot
+  /// tell whether a handle is safe to retire.
+  children : NativeChildMeter?
   /// Native session-lifetime scope owner: the close signal that lets
   /// `Agent::run_scoped` retire when the host shuts the session down. `None`
   /// when the projection is off or the scope could not be activated.
@@ -442,8 +447,10 @@ async fn compose_session_agent(
   ]
   // Native only: the real delegation surface, with child events forwarded to
   // this session's sink. The default console never composes it.
+  let mut children : NativeChildMeter? = None
   match native_subagent_sink(hub, session_id, native_ui~) {
-    Some(sink) =>
+    Some(sink) => {
+      let meter : NativeChildMeter = { live: Map::from_array([]) }
       tail_exts.push(
         compose_native_subagents(
           fs,
@@ -454,9 +461,11 @@ async fn compose_session_agent(
           approval,
           router,
           fn() { policy.mode() },
-          observers=[sink],
+          observers=[sink, fn(event) { meter.observe(event) }],
         ),
       )
+      children = Some(meter)
+    }
     None => ()
   }
   let agent = @cetas_core.compose_cetas_agent(
@@ -477,6 +486,7 @@ async fn compose_session_agent(
     busy: false,
     turn_no: 0,
     questions,
+    children,
     close,
   }
 }
@@ -490,6 +500,7 @@ pub async fn ConsoleRuntime::switch_session(
   if workspace.handles.get(session_id) is Some(handle) {
     workspace.active_id = session_id
     emit_handle_snapshot(workspace, handle)
+    self.retire_idle_handles(workspace)
     return Ok(session_id)
   }
   let handle = match self.compose_handle(workspace, session_id) {
@@ -498,7 +509,88 @@ pub async fn ConsoleRuntime::switch_session(
   }
   workspace.active_id = session_id
   emit_handle_snapshot(workspace, handle)
+  self.retire_idle_handles(workspace)
   Ok(session_id)
+}
+
+///|
+/// Hard ceiling on retained session handles per workspace. Sessions are
+/// journaled, so a retired handle recomposes from disk on demand; the ceiling
+/// bounds agent/context retention across long `/new` sequences without
+/// touching any live work.
+const MAX_RETAINED_SESSION_HANDLES : Int = 8
+
+///|
+/// Pure retirement predicate, split from the handle so every guard is testable
+/// without composing an agent that has a parked question. A handle may only be
+/// dropped when no turn is running, no question is open or undelivered, and no
+/// detached child is still live.
+fn handle_retirable(
+  busy : Bool,
+  questions_open : Int,
+  questions_undelivered : Bool,
+  children_live : Int,
+) -> Bool {
+  !busy && questions_open == 0 && !questions_undelivered && children_live == 0
+}
+
+///|
+fn session_handle_retirable(handle : SessionHandle) -> Bool {
+  let questions_open = match handle.questions {
+    Some(tools) => tools.open_questions().length()
+    None => 0
+  }
+  let questions_undelivered = match handle.questions {
+    Some(tools) => tools.has_undelivered()
+    None => false
+  }
+  let children_live = match handle.children {
+    Some(meter) => meter.live_count()
+    None => 0
+  }
+  handle_retirable(
+    handle.busy,
+    questions_open,
+    questions_undelivered,
+    children_live,
+  )
+}
+
+///|
+/// Retire idle non-active handles above the retention ceiling. Retirement is
+/// the same scope release `shutdown_all` performs — the parked `run_scoped`
+/// owner, not a racing `shutdown` call, owns the agent's teardown — and the
+/// retired session stays resumable: its journal is on disk and a later switch
+/// recomposes the handle. The active session and every handle with live work
+/// are always kept.
+async fn ConsoleRuntime::retire_idle_handles(
+  self : ConsoleRuntime,
+  workspace : WorkspaceRuntime,
+) -> Unit noraise {
+  if self.stopping || workspace.handles.length() <= MAX_RETAINED_SESSION_HANDLES {
+    return
+  }
+  let victims : Array[String] = []
+  for id, handle in workspace.handles {
+    if workspace.handles.length() - victims.length() <= MAX_RETAINED_SESSION_HANDLES {
+      break
+    }
+    if id == workspace.active_id {
+      continue
+    }
+    if session_handle_retirable(handle) {
+      victims.push(id)
+    }
+  }
+  for id in victims {
+    match workspace.handles.get(id) {
+      Some(handle) => {
+        release_handle_scope(handle) catch { _ => () }
+        workspace.handles.remove(id)
+      }
+      None => ()
+    }
+  }
 }
 
 ///|
@@ -657,6 +749,7 @@ pub async fn ConsoleRuntime::resume_workspace_session(
   self.sync_registry()
   self.active_cwd = normalized
   emit_handle_snapshot(workspace, handle)
+  self.retire_idle_handles(workspace)
   Ok(session_id)
 }
 
@@ -1044,6 +1137,7 @@ async fn build_workspace(
     ui_port,
   )
   let questions = native_question_tools(hub, first_session_id, native_ui~)
+  let mut first_children : NativeChildMeter? = None
   let feature_exts = build_compiled_recipe_features(
     ctx={ fs, cwd, home, },
     host_group=Some(group),
@@ -1080,7 +1174,8 @@ async fn build_workspace(
     statusbar,
   ]
   match native_subagent_sink(hub, first_session_id, native_ui~) {
-    Some(sink) =>
+    Some(sink) => {
+      let meter : NativeChildMeter = { live: Map::from_array([]) }
       tail_exts.push(
         compose_native_subagents(
           fs,
@@ -1091,9 +1186,11 @@ async fn build_workspace(
           approval,
           router,
           fn() { policy.mode() },
-          observers=[sink],
+          observers=[sink, fn(event) { meter.observe(event) }],
         ),
       )
+      first_children = Some(meter)
+    }
     None => ()
   }
   let agent = @cetas_core.compose_cetas_agent(
@@ -1114,6 +1211,7 @@ async fn build_workspace(
     busy: false,
     turn_no: 0,
     questions,
+    children: first_children,
     close,
   }
   let zoo = collect_zoo(session.exts, tail_exts)

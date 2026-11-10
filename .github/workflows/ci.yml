@@ -96,3 +96,105 @@ jobs:
           bun install --no-audit --no-fund
           bun run check
           bun run build
+
+  # cetas-native is the only cgo product: it needs its own MoonBit archive
+  # (build_static.py) before Go can link anything, and it is the one place
+  # where the C transport has a per-platform branch. Three operating systems
+  # because the transport now has three arms; fail-fast stays off so one
+  # platform's breakage still reports the other two.
+  native:
+    name: native (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15, windows-latest]
+    steps:
+      - name: Checkout cetas (with extension submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install moon (unix)
+        if: runner.os != 'Windows'
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Install moon (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+          irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          "C:\Users\runneradmin\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: false
+
+      - name: moon version
+        run: moon version --all
+
+      - name: Resolve workspace
+        run: moon update
+
+      # Catches a Windows-only interface break in the bridge before the
+      # expensive archive build hides it.
+      - name: Check the bridge for this target
+        run: moon check -p cetas-native/native_bridge --target native --deny-warn
+
+      - name: Compile MoonBit bridge archive (unix)
+        if: runner.os != 'Windows'
+        run: python3 cetas-native/tools/build_static.py
+
+      - name: Compile MoonBit bridge archive (Windows)
+        if: runner.os == 'Windows'
+        run: python cetas-native/tools/build_static.py
+
+      - name: go vet
+        working-directory: cetas-native
+        env:
+          CGO_ENABLED: '1'
+        run: go vet ./...
+
+      - name: go test
+        working-directory: cetas-native
+        env:
+          CGO_ENABLED: '1'
+        run: go test ./... -count=1
+
+      - name: Prepare output directory
+        shell: bash
+        run: mkdir -p bin
+
+      - name: Build the cetas binary
+        working-directory: cetas-native
+        env:
+          CGO_ENABLED: '1'
+        run: go build -trimpath -o ../bin/cetas${{ runner.os == 'Windows' && '.exe' || '' }} .
+
+      # Both dispatch modes must find their sibling and answer on every
+      # platform: on Windows the handover is a supervised child, not execve.
+      - name: Dispatch smoke (unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd bin
+          ./cetas --version
+          cp cetas cetas-acp
+          cp cetas cetas-run
+          ./cetas acp --version
+          ./cetas run --version
+
+      - name: Dispatch smoke (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cd bin
+          .\cetas.exe --version
+          Copy-Item .\cetas.exe .\cetas-acp.exe
+          Copy-Item .\cetas.exe .\cetas-run.exe
+          .\cetas.exe acp --version
+          .\cetas.exe run --version
