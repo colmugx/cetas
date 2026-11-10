@@ -144,7 +144,7 @@ jobs:
       # Catches a Windows-only interface break in the bridge before the
       # expensive archive build hides it.
       - name: Check the bridge for this target
-        run: moon check -p cetas-native/native_bridge --target native --deny-warn
+        run: moon check -p cetas-native/native_bridge --target native --deny-warn --output-json
 
       - name: Compile MoonBit bridge archive (unix)
         if: runner.os != 'Windows'
