@@ -373,6 +373,55 @@ jobs:
           Copy-Item "dist\cetas-bun-${{ matrix.target }}.exe" -Destination "..\stage\cetas-bun.exe"
           Copy-Item -Recurse -Force "node_modules\@earendil-works\pi-tui\native" -Destination "..\stage\native"
 
+      # These free signatures do not establish a trusted publisher identity.
+      # Sign the final bytes before packaging, then smoke-test signed binaries.
+      - name: ad-hoc sign macOS release executables
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for bin in cetas-acp cetas-run cetas cetas-bun; do
+            if [[ "$bin" == "cetas-bun" ]]; then
+              # Compiled Bun's embedded JS runtime requires JIT entitlements.
+              codesign --force --sign - \
+                --entitlements .github/macos-bun-entitlements.plist \
+                "stage/$bin"
+            else
+              codesign --force --sign - "stage/$bin"
+            fi
+            codesign --verify --strict --verbose=2 "stage/$bin"
+            "stage/$bin" --version
+          done
+
+      - name: self-sign Windows release executables (untrusted)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # An ephemeral CI-only cert; SmartScreen will not trust it.
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert `
+            -Subject "CN=Cetas CI Self-Signed (Untrusted)" `
+            -CertStoreLocation "Cert:\CurrentUser\My" `
+            -HashAlgorithm SHA256 -KeyAlgorithm RSA -KeyLength 3072
+          foreach ($file in @("stage\cetas-acp.exe", "stage\cetas-run.exe", "stage\cetas-bun.exe")) {
+            $signed = Set-AuthenticodeSignature -FilePath $file `
+              -Certificate $cert -HashAlgorithm SHA256
+            if ($signed.SignatureType -ne 'Authenticode' -or $null -eq $signed.SignerCertificate) {
+              throw "Signing failed for ${file}: $($signed.StatusMessage)"
+            }
+            $sig = Get-AuthenticodeSignature -FilePath $file
+            if ($sig.SignatureType -ne 'Authenticode' -or
+                $null -eq $sig.SignerCertificate -or
+                $sig.SignerCertificate.Thumbprint -ne $cert.Thumbprint) {
+              throw "Missing or unexpected signature on $file"
+            }
+            Write-Host "$file : signature present; trust status=$($sig.Status)"
+            & (Resolve-Path $file).Path --version
+            if ($LASTEXITCODE -ne 0) {
+              throw "Signed executable failed --version smoke test: $file"
+            }
+          }
+
       # Release body = the CHANGELOG section for this version. Section end is
       # the next VERSION heading (`## X.Y.Z (` or `## Unreleased`) — notes
       # bodies carry their own `## Ver.` headings and must not end the scan.
