@@ -3,10 +3,11 @@ package bridge
 /*
 #cgo darwin LDFLAGS: -L${SRCDIR}/lib -lcetas_moon
 #cgo linux LDFLAGS: -L${SRCDIR}/lib -lcetas_moon -lpthread -lm -ldl
-// ws2_32/bcrypt are the only system libraries the MoonBit native runtime
-// and its async backend actually import on Windows (WSAStartup/WSARecv,
-// BCryptGenRandom); everything else is kernel32, which Go links already.
-#cgo windows LDFLAGS: -L${SRCDIR}/lib -lcetas_moon -lws2_32 -lbcrypt
+// Link the Windows APIs used by the MoonBit runtime and async backend:
+// Winsock, BCrypt, Win32 backtrace, long-path helpers, NT file operations,
+// interface enumeration, Schannel credentials and certificate validation.
+// MinGW's linker does not add these import libraries automatically.
+#cgo windows LDFLAGS: -L${SRCDIR}/lib -lcetas_moon -lws2_32 -lbcrypt -ldbghelp -lpathcch -lntdll -liphlpapi -lsecur32 -lcrypt32
 #include <stdint.h>
 void cetas_host_boot(void);
 int32_t cetas_host_infra_run(void);
