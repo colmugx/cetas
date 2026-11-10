@@ -245,29 +245,40 @@ func TestIndexDeadlineReleasesLatchAndBoundedRetries(t *testing.T) {
 	if !m.replayIndexPending {
 		t.Fatal("fixture: cold index pending")
 	}
-	// Simulate a lost reply: the deadline passes.
-	m.replayIndexSince = time.Now().Add(-replayIndexTimeout - time.Second)
-	next, _ := m.Update(struct{}{})
+	// Simulate a lost reply. Update retires that request AND immediately
+	// launches one bounded retry; a pending latch here belongs to the new
+	// request, not the expired one.
+	previousDeadline := time.Now().Add(-replayIndexTimeout - time.Second)
+	m.replayIndexSince = previousDeadline
+	next, cmd := m.Update(struct{}{})
 	m = next.(model)
-	if m.replayIndexPending {
-		t.Fatal("deadline must release the latch")
-	}
 	if m.replayIndexTimeouts != 1 {
 		t.Fatalf("timeout not counted: %d", m.replayIndexTimeouts)
 	}
-	if m.ensureTranscriptPages() == nil && !m.replayIndexPending {
-		t.Fatal("after one timeout the index should re-probe")
+	if !m.replayIndexPending || !m.replayIndexSince.After(previousDeadline) || cmd == nil {
+		t.Fatal("deadline must retire the old index request and issue a new bounded probe")
 	}
-	m.replayIndexSince = time.Now().Add(-replayIndexTimeout - time.Second)
+	if m.ensureTranscriptPages() != nil {
+		t.Fatal("pending retry must not dispatch a duplicate cold index")
+	}
+
+	// Each subsequent expiry consumes another retry slot. Exhausting the
+	// budget must release the latch and stop requests even on later Updates.
 	for i := 0; i < replayIndexTimeoutBudget; i++ {
-		next, _ := m.Update(struct{}{})
+		m.replayIndexSince = time.Now().Add(-replayIndexTimeout - time.Second)
+		next, _ = m.Update(struct{}{})
 		m = next.(model)
-		if !m.replayIndexPending {
-			m.replayIndexSince = time.Now().Add(-replayIndexTimeout - time.Second)
-		}
 	}
-	if m.replayIndexTimeouts <= replayIndexTimeoutBudget {
-		t.Fatalf("budget not enforced: %d", m.replayIndexTimeouts)
+	if m.replayIndexTimeouts != replayIndexTimeoutBudget+1 {
+		t.Fatalf("timeout budget not enforced: %d", m.replayIndexTimeouts)
+	}
+	if m.replayIndexPending || m.ensureTranscriptPages() != nil {
+		t.Fatal("budget exhaustion must release the latch without re-probing")
+	}
+	next, _ = m.Update(struct{}{})
+	m = next.(model)
+	if m.replayIndexPending {
+		t.Fatal("a later UI frame must not revive an exhausted cold index")
 	}
 }
 
