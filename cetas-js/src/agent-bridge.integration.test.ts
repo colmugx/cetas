@@ -890,7 +890,17 @@ const isCompactRequest = (body: string): boolean => {
 
       expect(requests.map((entry) => entry.path)).toEqual(["responses", "compact", "responses"]);
       // The interrupted user message was persisted once and never duplicated.
-      expect(requests[0]!.body.match(/first question/g)).toHaveLength(1);
+      // Count user input entries, not substrings in the serialized request:
+      // the prompt may also occur in instructions or request metadata.
+      const firstRequest = JSON.parse(requests[0]!.body) as {
+        input?: Array<{ role?: string; content?: unknown }>;
+      };
+      const userInputs = (firstRequest.input ?? []).filter(
+        (item) =>
+          item.role === "user" &&
+          JSON.stringify(item.content).includes("first question"),
+      );
+      expect(userInputs).toHaveLength(1);
       expect(requests[1]!.body.match(/first question/g)).toHaveLength(1);
       // The next request runs on the committed compacted window.
       expect(requests[2]!.body).toContain("compact checkpoint");
