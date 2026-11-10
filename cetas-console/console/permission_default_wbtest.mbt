@@ -101,6 +101,7 @@ async fn permission_mount(
   permission_mode : @permission.PermissionMode,
   cwd : String,
   group : @async.TaskGroup[Unit],
+  native_ui~ : Bool = false,
 ) -> (ConsoleRuntime, Array[String], String) {
   let home = permission_fixture("mount")
   let fs_impl = @workspace.NativeWorkspaceFs()
@@ -110,6 +111,7 @@ async fn permission_mount(
     home,
     "cetas-native",
     "cetas-native/0.1",
+    native_ui~,
     permission_mode~,
   )
   let runtime = compose_console_runtime(config, cwd, group)

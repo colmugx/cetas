@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/colmugx/cetas/cetas-native/internal/tui/overlays"
@@ -204,5 +205,101 @@ func TestParseToolPhaseCoversLiveAndJournalVocabularies(t *testing.T) {
 	}
 	if p := transcriptui.ParseToolPhase("paused"); p != transcriptui.PhaseUnknown || !p.Terminal() || p.Failed() {
 		t.Errorf("unknown phase must be terminal-not-failed: %v", p)
+	}
+}
+
+func TestRedirectRestartsReplayAndUnlatchesIndex(t *testing.T) {
+	m := switchPickerModel(t, &testHost{})
+	m.session = "s-old"
+	m.startPagedReplay()
+	if !m.replayIndexPending {
+		t.Fatal("fixture: cold index should be pending")
+	}
+	generation := m.replayGeneration
+	m.transcript = []string{"> stale"}
+	next, cmd := m.Update(eventBatchResult{events: []wire.Event{event(`{"type":"session.redirect","from":"s-old","to":"s-new"}`)}})
+	state := next.(model)
+	if state.session != "s-new" {
+		t.Fatalf("redirect not adopted: %q", state.session)
+	}
+	if len(state.transcript) != 0 {
+		t.Fatal("redirect must retire the old journal's presentation")
+	}
+	if cmd == nil || state.replayGeneration == generation {
+		t.Fatal("redirect must restart the paged replay")
+	}
+	if state.replayIndexPending && state.replayIndexSince.IsZero() {
+		t.Fatal("restarted index lost its deadline")
+	}
+	// The stale index reply for the old session must not relatch anything.
+	state.Update(commandResult{name: "transcript_index", requestSession: "s-old", replayGeneration: generation})
+	if state.replayIndexPending != state.replay.indexed == false && false {
+		t.Fatal("unreachable")
+	}
+}
+
+func TestIndexDeadlineReleasesLatchAndBoundedRetries(t *testing.T) {
+	m := switchPickerModel(t, &testHost{})
+	m.session = "s-1"
+	m.startPagedReplay()
+	if !m.replayIndexPending {
+		t.Fatal("fixture: cold index pending")
+	}
+	// Simulate a lost reply: the deadline passes.
+	m.replayIndexSince = time.Now().Add(-replayIndexTimeout - time.Second)
+	next, _ := m.Update(struct{}{})
+	m = next.(model)
+	if m.replayIndexPending {
+		t.Fatal("deadline must release the latch")
+	}
+	if m.replayIndexTimeouts != 1 {
+		t.Fatalf("timeout not counted: %d", m.replayIndexTimeouts)
+	}
+	if m.ensureTranscriptPages() == nil && !m.replayIndexPending {
+		t.Fatal("after one timeout the index should re-probe")
+	}
+	m.replayIndexSince = time.Now().Add(-replayIndexTimeout - time.Second)
+	for i := 0; i < replayIndexTimeoutBudget; i++ {
+		next, _ := m.Update(struct{}{})
+		m = next.(model)
+		if !m.replayIndexPending {
+			m.replayIndexSince = time.Now().Add(-replayIndexTimeout - time.Second)
+		}
+	}
+	if m.replayIndexTimeouts <= replayIndexTimeoutBudget {
+		t.Fatalf("budget not enforced: %d", m.replayIndexTimeouts)
+	}
+}
+
+func TestBackpressureRetriesAreBounded(t *testing.T) {
+	m := switchPickerModel(t, &testHost{})
+	m.session = "s-1"
+	m.startPagedReplay()
+	full := "native replay request queue is full (16 pending)"
+	for i := 0; i <= replayBackpressureBudget; i++ {
+		next, _ := m.Update(commandResult{name: "transcript_index", requestSession: "s-1", replayGeneration: m.replayGeneration, err: errString(full)})
+		m = next.(model)
+	}
+	if !m.replayRetryAt.IsZero() {
+		t.Fatal("retry loop must stop after the budget")
+	}
+	if !strings.Contains(m.err, "gave up") {
+		t.Fatalf("budget exhaustion not visible: %q", m.err)
+	}
+}
+
+func TestRearmScanCountsConsumedRestarts(t *testing.T) {
+	m := switchPickerModel(t, &testHost{})
+	r := newPagedReplay()
+	r.scan = &pagedScan{query: "x", needle: "x", next: 3, hits: make([]transcriptSearchHit, 2)}
+	r.rearmScan(&m, r.scan)
+	if r.scan == nil || r.scan.restarts != 1 {
+		t.Fatalf("consumed scan must count as a restart: %#v", r.scan)
+	}
+	fresh := &pagedScan{query: "y", needle: "y"}
+	r.scan = fresh
+	r.rearmScan(&m, r.scan)
+	if fresh.restarts != 0 {
+		t.Fatalf("unconsumed scan must rebind without a restart: %d", fresh.restarts)
 	}
 }

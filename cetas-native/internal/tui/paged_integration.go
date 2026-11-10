@@ -100,6 +100,7 @@ func (m *model) applyPagedReply(result commandResult) (tea.Cmd, bool) {
 				m.err = result.name + ": " + message + " (gave up after " +
 					strconv.Itoa(replayBackpressureBudget) + " retries)"
 				m.replay.releaseInflight()
+				m.replayRetryAt = time.Time{}
 				return nil, true
 			}
 			m.err = result.name + ": " + message
