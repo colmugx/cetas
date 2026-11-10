@@ -61,6 +61,22 @@ def capture_c():
     finally:
         PKG.write_bytes(original)
     manifest = CAPTURE / "sources.txt"
+    if sys.platform == "win32" and not manifest.is_file():
+        # Moon uses the MSVC compiler driver on Windows and does not honor
+        # options.link.native.cc for this package. Its generated monolithic C
+        # file is still available under the normal build output. Capture that
+        # exact file directly rather than claiming a custom compiler ran.
+        generated = (
+            MOON / "_build/native/release/build"
+            / "colmugx/cetas-native/native_bridge/native_bridge.c"
+        )
+        if not generated.is_file():
+            raise RuntimeError(f"Moon generated native C missing: {generated}")
+        relative = generated.relative_to(MOON / "_build")
+        target = CAPTURE / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(generated, target)
+        manifest.write_text(relative.as_posix() + "\\n")
     if not manifest.is_file():
         raise RuntimeError("Moon did not invoke the capture compiler")
     sources = [CAPTURE / s for s in manifest.read_text().splitlines() if s]
