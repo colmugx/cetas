@@ -166,19 +166,12 @@ func checkReplayClosesReadDescriptors(t *testing.T, h *Host, path, id string) {
 			}
 		}
 	}
-	count := func() int {
-		entries, err := os.ReadDir("/dev/fd")
-		if err != nil {
-			t.Fatal(err)
-		}
-		return len(entries)
-	}
 	read() // Account for lazily initialized async file workers before measuring.
-	before := count()
+	before := countOpenDescriptors(t)
 	for i := 0; i < 20; i++ {
 		read()
 	}
-	if after := count(); after > before+4 {
+	if after := countOpenDescriptors(t); after > before+4 {
 		t.Fatalf("replay/list reads retained file descriptors: %d → %d", before, after)
 	}
 }

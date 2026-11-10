@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -28,6 +29,23 @@ func TestInfraLifecycle(t *testing.T) {
 	finished := make(chan int, 1)
 	go func() { finished <- h.Run() }()
 	sawBootProgress := false
+	// Frames are evidence, not progress: keep only a bounded tail and print it
+	// when the test actually fails. A successful run stays silent.
+	var recent []string
+	record := func(frame []byte) {
+		recent = append(recent, string(frame))
+		if len(recent) > 8 {
+			recent = recent[1:]
+		}
+	}
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		for _, frame := range recent {
+			t.Logf("infra frame (tail): %s", frame)
+		}
+	})
 	wait := func(want string) map[string]any {
 		deadline := time.Now().Add(35 * time.Second)
 		for time.Now().Before(deadline) {
@@ -43,7 +61,7 @@ func TestInfraLifecycle(t *testing.T) {
 			if err := json.Unmarshal(frame, &event); err != nil {
 				t.Fatalf("invalid event %q: %v", frame, err)
 			}
-			t.Logf("infra frame: %s", frame)
+			record(frame)
 			if event["type"] == "infra.boot.progress" {
 				sawBootProgress = true
 			}
@@ -239,7 +257,12 @@ func TestInfraLifecycle(t *testing.T) {
 			t.Fatalf("MoonBit async returned %d", ret)
 		}
 	case <-time.After(15 * time.Second):
-		t.Fatal("MoonBit dispatcher did not exit")
+		// The dispatcher is stuck inside the native call, where a plain test
+		// failure says nothing. Dump every goroutine so the next run names the
+		// blocked side instead of asking for another guess.
+		stack := make([]byte, 1<<20)
+		frames := runtime.Stack(stack, true)
+		t.Fatalf("MoonBit dispatcher did not exit after infra.stopped\n%s", stack[:frames])
 	}
 	if drops := h.DroppedEvents() - dropsBefore; drops != 0 {
 		t.Fatalf("lost %d events", drops)

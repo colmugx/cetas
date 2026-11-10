@@ -3,7 +3,6 @@ package tui
 import (
 	"encoding/json"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 )
@@ -23,7 +22,11 @@ func TestRetiredReplayRequestFailureCannotStopCurrentSession(t *testing.T) {
 	}
 }
 
-func TestReplayReadFailureIsATranscriptNotice(t *testing.T) {
+// One refused read is a retryable condition, not an event: the document keeps
+// paging and the transcript stays free of noise. A persisting refusal still
+// becomes visible once the bounded budget runs out — that is
+// TestPagedReplayStallsAfterRepeatedErrors.
+func TestTransientReplayReadFailureStaysQuietAndRetryable(t *testing.T) {
 	m := newModel()
 	defer m.Close()
 	m.session = "saved"
@@ -31,8 +34,14 @@ func TestReplayReadFailureIsATranscriptNotice(t *testing.T) {
 	m.replay.session = "saved"
 	next, _ := m.Update(commandResult{name: "transcript_index", requestSession: "saved", err: errors.New("fixture unreadable")})
 	m = next.(model)
-	if !strings.Contains(m.presentedError, "fixture unreadable") {
-		t.Fatalf("replay read error did not reach transcript notice: %q", m.presentedError)
+	if m.presentedError != "" {
+		t.Fatalf("one refused read reached the transcript as a notice: %q", m.presentedError)
+	}
+	if m.replay.stalled {
+		t.Fatal("one refused read stalled pagination")
+	}
+	if m.replay.failures != 1 {
+		t.Fatalf("the failure was not counted against the stall budget: %d", m.replay.failures)
 	}
 }
 

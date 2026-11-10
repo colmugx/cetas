@@ -22,6 +22,8 @@ extern "C" fn next_harness(dst : Bytes, capacity : Int32) -> Int32 = "cetas_brid
 /// shuts down. The host keeps the write end (and its own duplicate of this
 /// end) for the process lifetime, so a late write can neither block nor raise
 /// SIGPIPE. Returns -1 when the channel is unusable; the stage below says why.
+/// POSIX only: Windows hands the channel over as a HANDLE, not a descriptor.
+#cfg(not(platform="windows"))
 extern "C" fn command_wake_fd() -> Int32 = "cetas_bridge_command_fd"
 
 ///|
@@ -31,7 +33,9 @@ extern "C" fn command_wake_fd() -> Int32 = "cetas_bridge_command_fd"
 extern "C" fn command_wake_stage() -> Int32 = "cetas_bridge_command_wake_stage"
 
 ///|
-/// The errno behind `command_wake_stage`; 0 when none applies.
+/// The errno behind `command_wake_stage`; 0 when none applies. POSIX only,
+/// because only the POSIX arm ever reports an errno.
+#cfg(not(platform="windows"))
 extern "C" fn command_wake_errno() -> Int32 = "cetas_bridge_command_wake_errno"
 
 ///|
@@ -72,11 +76,18 @@ async fn adopt_command_wake() -> Result[@raw_fd.RawFd, String] {
 ///|
 /// Windows hands the channel over as a HANDLE, not a descriptor, so the int32
 /// transfer above cannot carry it. The owner loop stays correct on bounded
-/// polling and reports that exact stage once instead of pretending the wait
-/// works; adopting the HANDLE is the next step, not a silent no-op.
+/// polling and reports this once instead of pretending the wait works;
+/// adopting the HANDLE is the next step, not a silent no-op.
 #cfg(platform="windows")
-async fn adopt_command_wake() -> Result[@raw_fd.RawFd, String] {
-  Err(wake_stage_text(command_wake_stage()))
+fn adopt_command_wake() -> Result[@raw_fd.RawFd, String] {
+  // A real setup failure (no pipe, no event) must still name its stage; the
+  // no-descriptor case is the normal Windows shape, not an error path.
+  let stage = command_wake_stage()
+  if stage != 0 {
+    Err(wake_stage_text(stage))
+  } else {
+    Err("this platform hands the command channel over as a HANDLE, not a descriptor")
+  }
 }
 
 ///|
