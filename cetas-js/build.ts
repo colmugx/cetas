@@ -132,9 +132,6 @@ if (nodeBundle) {
     treeShaking: true,
     external: ["@earendil-works/pi-tui"],
     define: VERSION_DEFINE,
-    compile: {
-      trim: true,
-    },
     plugins: [
       moonbit({
         root: import.meta.dir,
@@ -229,8 +226,6 @@ for (const name of selected.filter((n) => osFor(n) === os)) {
     // A shipped CLI must not load the customer's bunfig preloads (or this
     // repository's development MoonBit plugin) before its own entry point.
     compile: {
-      aot: true,
-      trim: true,
       target: TARGETS[name],
       outfile,
       autoloadBunfig: false,
