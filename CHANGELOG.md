@@ -2,6 +2,27 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.11.1 (2026-11-10)
+
+## General
+
+### Feats
+
+- The agent now writes code comments for one reason only — explaining intent the code cannot express. It stops narrating changes, keeps "this used to be…" history in your source, restates the obvious, and leaves sprint or milestone notes behind.
+- The native `cetas` terminal (new Alpha build for macOS and Linux, shipped as `cetas`) is now a real terminal application instead of a bare transcript: welcome screen, dashboard, status line and theme follow the JavaScript host.
+
+## Bun Ver.（cetas-bun）
+
+### Feats
+
+- Subagents now run in the background by default: spawning one returns its receipt immediately and the result arrives later as a follow-up turn, so your turn keeps going. Pass `background=false` when you really want to wait for the child.
+- A new `stop_subagent` tool stops one child you spawned without ending your own turn and without touching its siblings: its parked questions close at once and its cancelled result still arrives as a follow-up. Unknown ids, children of another session, runs that already finished, and repeated stops report their real state instead of pretending a fresh cancellation, and a blocking run that has no separate handle is refused explicitly.
+
+### Fixes
+
+- Stopping a subagent and resuming the same child no longer confuses the display: the replaced run's terminal still reaches you once, but it no longer classifies, summarizes or disarms the run that replaced it.
+- A subagent's question is no longer swallowed: once a question race ends or the child is shut down, the next question from that same child still reaches you.
+
 ## 0.11.0 (2026-11-06)
 
 ## General

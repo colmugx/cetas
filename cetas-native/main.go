@@ -18,7 +18,7 @@ import (
 	"github.com/colmugx/cetas/cetas-native/internal/tui"
 )
 
-var version = "0.11.0"
+var version = "0.11.1"
 
 const usage = `Cetas agent
 
