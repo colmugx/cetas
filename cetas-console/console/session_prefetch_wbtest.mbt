@@ -79,9 +79,8 @@ async test "composition after the shutdown sweep is refused without installing" 
     let runtime = compose_console_runtime(config, cwd, group)
     let frames : Array[String] = []
     runtime.attach_sink(fn(frame) { frames.push(frame) })
-    let first = runtime.active_session_id()
     let second = permission_ok(runtime.new_session())
-    let handles_before = runtime.active().handles.size()
+    let handles_before = runtime.active().handles.length()
     // The sweep fences every composer: no handle or workspace may appear
     // after it, because their scopes would park on close signals nobody
     // will send again.
@@ -90,7 +89,7 @@ async test "composition after the shutdown sweep is refused without installing" 
     assert_true(runtime.prefetch_session(never_composed) is Err(_))
     assert_true(runtime.switch_workspace(other) is Err(_))
     assert_true(runtime.new_session() is Err(_))
-    assert_eq(runtime.active().handles.size(), handles_before)
+    assert_eq(runtime.active().handles.length(), handles_before)
     ignore(second)
     @fs.remove(other) catch { _ => () }
     permission_fixture_cleanup(cwd)
