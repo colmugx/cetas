@@ -201,3 +201,34 @@ func TestCompletionDebounceFiresOnceAndValidatesToken(t *testing.T) {
 		t.Fatal("stale completion fired without a token under the caret")
 	}
 }
+
+func TestCompletionRepliesAreMatchedByID(t *testing.T) {
+	m := newModel()
+	m.host = &imageRecordingHost{}
+	m.session = "s-1"
+	// Dispatch one staged completion and capture its id.
+	m.textarea.SetValue("read @doc")
+	staged, _ := m.Update(tea.KeyPressMsg{Text: "s"})
+	m = staged.(model)
+	m.completionDueAt = time.Now().Add(-time.Millisecond)
+	fired, _ := m.Update(struct{}{})
+	state := fired.(model)
+	id := state.completionInFlight
+	if id == "" {
+		t.Fatal("dispatch minted no request id")
+	}
+	// A newer token mints a new id; the old id's reply is stale.
+	state.nextCompletionID++
+	state.completionInFlight = "c-newer"
+	stale := commandResult{name: "complete:" + id + ":file_search", payload: []byte(`{"entries":[]}`)}
+	next, _ := state.update(stale)
+	if next.(model).modal == "files" {
+		t.Fatal("stale completion reply installed a popup")
+	}
+	current := commandResult{name: "complete:" + state.completionInFlight + ":file_search", payload: []byte(`{"query":"docs","entries":[{"path":"docs/readme.md","isDir":false}]}`)}
+	next2, _ := state.update(current)
+	if next2.(model).modal != "files" {
+		t.Fatalf("current reply did not open completion: modal=%q", next2.(model).modal)
+	}
+}
+

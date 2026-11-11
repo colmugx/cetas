@@ -4,6 +4,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"encoding/json"
 	"fmt"
+	"sort"
 	transcriptui "github.com/colmugx/cetas/cetas-native/internal/tui/transcript"
 	"strings"
 	"time"
@@ -143,6 +144,19 @@ func (m *model) projectToolFragment(raw json.RawMessage) {
 	}
 	fragment.Text += f.Delta
 	m.fragments[f.Index] = fragment
+	// Fragment indices are monotonic per stream, so evicting the smallest
+	// keys drops the longest-settled streams. A late delta for an evicted
+	// index simply re-creates its fragment — degraded, never wrong.
+	if len(m.fragments) > toolFragmentCap {
+		keys := make([]int, 0, len(m.fragments))
+		for key := range m.fragments {
+			keys = append(keys, key)
+		}
+		sort.Ints(keys)
+		for _, key := range keys[:len(keys)-toolFragmentCap] {
+			delete(m.fragments, key)
+		}
+	}
 	id := fragment.ID
 	if id == "" {
 		return

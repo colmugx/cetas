@@ -78,6 +78,8 @@ const (
 	pendingUICap       = 32
 	deferredDialogsCap = 64
 	followupsCap       = 16
+	// toolFragmentCap bounds the streamed tool-argument accumulators.
+	toolFragmentCap = 256
 )
 
 type model struct {
@@ -137,6 +139,10 @@ type model struct {
 	// completionDueAt stages the debounced completion request (see
 	// autocomplete.go); the update pump fires it when typing settles.
 	completionDueAt    time.Time
+	// completionInFlight is the request id of the outstanding completion;
+	// replies carrying any other id are stale and dropped.
+	completionInFlight string
+	nextCompletionID   int
 	modelSlots         []overlays.ModelSlot
 	modelPicker        overlays.Models
 	sessionPicker      sessionPickerState
@@ -474,11 +480,16 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, follow
 		}
 		if strings.HasPrefix(msg.name, "complete:") {
+			// Reply identity is the request id minted at dispatch, not a
+			// value snapshot: every staged token gets a fresh id, so a
+			// reply that no longer matches the outstanding request is
+			// stale regardless of what the editor holds now.
+			// Format is "complete:<request-id>:<wire command>".
 			parts := strings.SplitN(msg.name, ":", 3)
-			if len(parts) != 3 || m.textarea.Value() != parts[2] {
+			if len(parts) != 3 || parts[1] != m.completionInFlight {
 				return m, nil
 			}
-			msg.name = parts[1]
+			msg.name = parts[2]
 		}
 		// A catalog reply is matched against the picker request it answers
 		// before any generic error handling: a stale failure must be dropped

@@ -79,22 +79,19 @@ async fn adopt_command_wake() -> Result[@raw_fd.RawFd, String] {
 }
 
 ///|
-/// Windows hands the channel over as a HANDLE, not a descriptor, so the int32
-/// transfer above cannot carry it. The owner loop stays correct on bounded
-/// polling and reports this once instead of pretending the wait works;
-/// adopting the HANDLE is the next step, not a silent no-op.
+/// Windows hands the channel over as a HANDLE, not a descriptor, so the
+/// int32 transfer above cannot carry it. Bounded 10 ms polling is the
+/// designed fallback on that platform, so the expected shape returns the
+/// empty sentinel error — silent by design, because every Windows run takes
+/// it. A real setup failure (no pipe, no event) still names its stage
+/// loudly. Adopting the HANDLE into the scheduler remains the next step.
 #cfg(platform="windows")
 fn adopt_command_wake() -> Result[@raw_fd.RawFd, String] {
-  // A real setup failure (no pipe, no event) must still name its stage; the
-  // no-descriptor case is the normal Windows shape, not an error path.
   let stage = command_wake_stage()
   if stage != 0 {
-    Err(wake_stage_text(stage))
-  } else {
-    Err(
-      "this platform hands the command channel over as a HANDLE, not a descriptor",
-    )
+    return Err(wake_stage_text(stage))
   }
+  Err("")
 }
 
 ///|
@@ -281,6 +278,11 @@ pub fn run_infra() -> Int32 {
       let mut command_wake : @raw_fd.RawFd? = None
       match adopt_command_wake() {
         Ok(wake) => command_wake = Some(wake)
+        Err("") =>
+          // The expected platform shape: the None branch below polls at
+          // 10 ms by design. No error frame — a normal Windows run must
+          // not greet the user with a scary "Native runtime:" notice.
+          ()
         Err(detail) => {
           emit_degraded("command notification channel unavailable: " + detail)
           wake_reported = true

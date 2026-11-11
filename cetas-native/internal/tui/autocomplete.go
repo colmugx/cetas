@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -70,6 +71,8 @@ func (m *model) autocomplete() tea.Cmd {
 	}
 	m.completionPrefix = prefix
 	m.completionToken = token
+	m.nextCompletionID++
+	m.completionInFlight = fmt.Sprintf("c%d", m.nextCompletionID)
 	// Debounce: fast typing changes the token every keystroke, and one
 	// harness request per character floods the dispatcher. Stage the request;
 	// the update pump fires it once typing settles (fireCompletion).
@@ -103,5 +106,5 @@ func (m *model) fireCompletion() tea.Cmd {
 		command = "file_search"
 		args["q"] = token[1:]
 	}
-	return requestAs(m.host, "complete:"+command+":"+value, command, args)
+	return requestAs(m.host, "complete:"+m.completionInFlight+":"+command, command, args)
 }

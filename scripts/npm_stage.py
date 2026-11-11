@@ -29,7 +29,11 @@ DIST_ARTIFACT = "cetas-js-dist.tar.gz"
 
 # Keep in sync with cetas-js/package.json dependencies. pi-tui ships native
 # .node prebuilds inside the package, so one dependency serves every platform.
+# ws backs the Board dashboard: Node ships no WebSocket server, and the
+# transport resolves it at runtime (ui/workflow-board-server.ts) rather than
+# bundling it into dist/cetas.js.
 PI_TUI_RANGE = "^1.3.0"
+WS_RANGE = "^8.22.0"
 
 README = f"""# cetas
 
@@ -99,7 +103,10 @@ def stage(out, staging, version):
             "bin": {"cetas": "dist/cetas.js"},
             "files": ["dist"],
             "engines": {"node": ">=24"},
-            "dependencies": {"@earendil-works/pi-tui": PI_TUI_RANGE},
+            "dependencies": {
+                "@earendil-works/pi-tui": PI_TUI_RANGE,
+                "ws": WS_RANGE,
+            },
         },
     )
     (pkg_dir / "README.md").write_text(README)
