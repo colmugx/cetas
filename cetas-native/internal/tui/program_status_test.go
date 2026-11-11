@@ -232,3 +232,36 @@ func TestCompletionRepliesAreMatchedByID(t *testing.T) {
 	}
 }
 
+
+// Revision 0.4 of the protocol: every report carries the record's title, and
+// finished turns report done/error so the tab bar can show they ended.
+func TestProgramStatusCarriesTitleAndTurnOutcomes(t *testing.T) {
+	m := newModel()
+	m.session = "s-1"
+	m.surface.cwd = "/work/cetas"
+	base := formatProgramStatus(m.projectProgramStatus())
+	if !strings.Contains(base, "title="+base64.StdEncoding.EncodeToString([]byte("cetas · cetas"))) {
+		t.Fatalf("report lost its title: %q", base)
+	}
+	m.turnOutcome, m.turnOutcomeDetail = turnDone, "Finished"
+	done := formatProgramStatus(m.projectProgramStatus())
+	if !strings.Contains(done, "state=done") || !strings.Contains(done, "msg="+base64.StdEncoding.EncodeToString([]byte("Finished"))) {
+		t.Fatalf("done report malformed: %q", done)
+	}
+	m.turnOutcome, m.turnOutcomeDetail = turnFailed, "boom"
+	failed := formatProgramStatus(m.projectProgramStatus())
+	if !strings.Contains(failed, "state=error") {
+		t.Fatalf("failed turn did not report error: %q", failed)
+	}
+	// A user keypress retires the outcome before the next report.
+	next, _ := m.update(tea.KeyPressMsg{Text: "x"})
+	if state := next.(model); state.turnOutcome != "" {
+		t.Fatal("key input did not retire the turn outcome")
+	}
+	idle := formatProgramStatus(state2ProgramStatus(next.(model)))
+	if strings.Contains(idle, "state=done") || strings.Contains(idle, "state=error") {
+		t.Fatalf("stale outcome leaked into the report: %q", idle)
+	}
+}
+
+func state2ProgramStatus(m model) programStatus { return m.projectProgramStatus() }

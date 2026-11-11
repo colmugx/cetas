@@ -8,6 +8,7 @@
 package transcript
 
 import (
+	"charm.land/lipgloss/v2"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -87,7 +88,10 @@ const (
 	// thinkingLiveLines is the trailing window of a live thinking block, and
 	// also the collapsed preview depth of a finalized one.
 	thinkingLiveLines = 3
-	spinnerInterval   = 80 * time.Millisecond
+	// zebraDetailLines is the shortest expanded body that earns the zebra
+	// gutter; a handful of lines reads fine evenly indented.
+	zebraDetailLines = 6
+	spinnerInterval  = 80 * time.Millisecond
 )
 
 // brailleFrames is the live thinking spinner (JS BRAILLE_FRAMES).
@@ -116,13 +120,29 @@ func (b Block) Render(o Options) string {
 		return strings.Join(textLines(b.thinkingText(o), width), "\n")
 	case "user":
 		// JS: Box(1, 0, userMessageBg) { Text("> " + prompt, 0, 0) }.
-		lines := bubbleLines("> "+clean(b.Text), width)
+		// The native parent deepens the box: one blank padded row above and
+		// below, two columns of padded margin each side, all carrying the
+		// user surface background so the block reads as one findable panel.
+		const padX = 2
+		inner := max(10, width-2*padX)
+		lines := bubbleLines("> "+clean(b.Text), inner)
+		for i, line := range lines {
+			if n := inner - lipgloss.Width(line); n > 0 {
+				lines[i] = line + strings.Repeat(" ", n)
+			}
+			lines[i] = strings.Repeat(" ", padX) + lines[i] + strings.Repeat(" ", padX)
+		}
+		blank := strings.Repeat(" ", width)
+		rows := make([]string, 0, len(lines)+2)
+		rows = append(rows, blank)
+		rows = append(rows, lines...)
+		rows = append(rows, blank)
 		if o.Styles.User != nil {
-			for i, line := range lines {
-				lines[i] = o.Styles.User(line)
+			for i, line := range rows {
+				rows[i] = o.Styles.User(line)
 			}
 		}
-		return strings.Join(lines, "\n")
+		return strings.Join(rows, "\n")
 	case "tool":
 		return strings.Join(textLines(b.toolText(o), width), "\n")
 	}
@@ -397,7 +417,7 @@ func (b Block) resultText(o Options, args map[string]any) string {
 		var summary string
 		switch {
 		case expanded:
-			summary = previewLines(content, expandedLines)
+			summary = zebraDetail(previewLines(content, expandedLines))
 		case failed:
 			summary = truncateForPreview(content, previewChars)
 		default:
@@ -422,13 +442,13 @@ func (b Block) resultText(o Options, args map[string]any) string {
 		head := s.bullet(b.State) + " " + s.title(title) + " " + s.muted(prompt) + " " + argText(args, "", "cmd", "command")
 		body := truncateForPreview(firstLine(content), previewChars)
 		if expanded {
-			body = previewLines(content, expandedLines)
+			body = zebraDetail(previewLines(content, expandedLines))
 		}
 		if body == "" {
 			return head
 		}
-		// JS keeps the whole body in one muted Text, so continuation lines of
-		// an expanded shell preview carry no extra indent.
+		// JS keeps the whole body in one muted Text; the expanded preview is
+		// where the native row adds the zebra gutter.
 		return head + "\n      " + s.muted(body)
 	case "subagent", "zcode":
 		return plainResultBlock(s, b.State, "subagent", b.specBody(content, expanded))
@@ -523,7 +543,7 @@ func (b Block) planResult(o Options, args map[string]any) string {
 // and ctrl+o widens any of them to the 50-line cap.
 func (b Block) specSummary(content string, expanded, failed bool, summarize func(string) string) string {
 	if expanded {
-		return previewLines(content, expandedLines)
+		return zebraDetail(previewLines(content, expandedLines))
 	}
 	if failed {
 		return truncateForPreview(content, previewChars)
@@ -537,6 +557,22 @@ func (b Block) specSummary(content string, expanded, failed bool, summarize func
 		return summary
 	}
 	return truncateForPreview(content, previewChars)
+}
+
+// zebraDetail steps every other line of a long expanded body out by one column.
+// Over dozens of argument or result lines the alternating gutter is what keeps
+// the eye on a single row; short bodies keep the even indent (a gutter over
+// three lines is noise), and the collapsed view never reaches here. Rendering
+// only: the block's raw text, which the copy path reads, is untouched.
+func zebraDetail(body string) string {
+	lines := strings.Split(body, "\n")
+	if len(lines) < zebraDetailLines {
+		return body
+	}
+	for i := 1; i < len(lines); i += 2 {
+		lines[i] = " " + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // specBody is the fallback result body: the structured summary wins over the

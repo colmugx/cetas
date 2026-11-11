@@ -104,6 +104,7 @@ package tui
 // in the status line instead of pretending to be complete.
 
 import (
+	"os"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1232,6 +1233,14 @@ func (r *pagedReplay) ensure(m *model) tea.Cmd {
 		return nil
 	}
 	var cmds []tea.Cmd
+	if os.Getenv("PAGED_ENSURE_DEBUG") != "" {
+		first, last := m.pagedVisibleBlocks()
+		var bodies []string
+		for block, body := range r.bodies {
+			bodies = append(bodies, fmt.Sprintf("b%d:inflight=%v,next=%d,total=%d,vis=%v", block, body.inflight, body.next, body.total, block >= first && block < last))
+		}
+		fmt.Fprintf(os.Stderr, "ensure: vis=%d..%d resident=%d bodies=%v covered=%v top=%d vH=%d rows=%d h117=%d h118=%d h119=%d p117=%d p118=%d p119=%d\n", first, last, len(r.resident), bodies, r.covered(first, last), m.virtualScroll.top, m.virtualScroll.height, m.virtualScroll.totalRows(), m.virtualScroll.heightAt(117), m.virtualScroll.heightAt(118), m.virtualScroll.heightAt(119), m.virtualScroll.prefix(117), m.virtualScroll.prefix(118), m.virtualScroll.prefix(119))
+	}
 	for _, span := range r.wantedSpans(m) {
 		for start := span[0]; start < span[1]; start += pagedPageLimit {
 			end := min(start+pagedPageLimit, span[1])

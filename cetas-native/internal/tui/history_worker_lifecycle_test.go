@@ -13,7 +13,10 @@ func TestHistoryFailureDoesNotRestartAnIdleClockLoop(t *testing.T) {
 	m.markdownRaw = map[int]string{0: m.transcript[0]}
 	v := newVirtualTranscript(m.viewport.Width(), m.viewport.Height())
 	m.virtualScroll = v
-	v.sync(1, m.viewport.Width(), m.viewport.Height(), m.rawTranscriptBlock)
+	w := m.viewport.Width()
+	v.sync(1, w, m.viewport.Height(), m.rawTranscriptBlock, func(index int, raw string) int {
+		return m.estimateBlockHeight(index, raw, w)
+	})
 	v.history = newHistoryMarkdownWorker(1)
 	v.history.finish(historyMarkdownResult{index: 0, key: historyMarkdownKey{
 		epoch: v.epoch, revision: v.revisionAt(0), width: m.viewport.Width(), themeKey: m.markdownThemeIdentity(),

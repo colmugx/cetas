@@ -364,6 +364,8 @@ answeredQuestion:
 			t.Fatal("typed question answer did not reach its extension registry")
 		}
 	}
+	checkSwitchSupersedesQueuedReplay(t, h, home)
+	checkSessionCatalogAnchorRoundTrip(t, h, home)
 	checkReplayDoesNotMonopolizeDispatcher(t, h, home)
 	if err := h.Close(ctx); err != nil {
 		t.Fatal(err)

@@ -31,9 +31,13 @@ const (
 	// transcriptRowPageSize is the materialization granularity: a wheel event
 	// that moves the viewport slightly reuses the entire page it was reading.
 	transcriptRowPageSize = 64
-	// transcriptRowSpacers is the inter-message gap every block contributes,
-	// matching mountedTranscriptRows.
-	transcriptRowSpacers = 2
+	// transcriptGapDefault is the inter-message gap a block contributes as
+	// leading blank rows. It matches cetas-js, where every block owns a
+	// leading Spacer(1) the native parent replaces.
+	transcriptGapDefault = 1
+	// transcriptGapToolRun is the gap inside a run of consecutive tool
+	// calls: dense stacking, like mainstream coding agents.
+	transcriptGapToolRun = 0
 	// transcriptLayoutOversized marks a block whose own metadata does not
 	// belong in a long-lived cache. Such a block stays cached only while it is
 	// on screen and is dropped as soon as it scrolls away.
@@ -53,6 +57,10 @@ type transcriptLayoutIdentity struct {
 	theme    string
 	tools    bool
 	thinking bool
+	// gap is this block's leading blank-row count. A layout is reused only
+	// while its gap matches, so a neighbor that changes the gap invalidates
+	// the cached rows instead of serving a stale height.
+	gap int
 }
 
 // transcriptBlockLayout is one block's source-to-row mapping. `checks[k]` is
@@ -61,6 +69,9 @@ type transcriptLayoutIdentity struct {
 type transcriptBlockLayout struct {
 	block    int
 	id       transcriptLayoutIdentity
+	// gap is the block's leading blank rows; leading, not trailing, so
+	// appending a block never re-lays-out its predecessor.
+	gap int
 	lines    []string
 	lineRows []int32
 	ascii    []bool
@@ -85,6 +96,7 @@ func newTranscriptBlockLayout(block int, id transcriptLayoutIdentity, text strin
 	layout := &transcriptBlockLayout{
 		block:    block,
 		id:       id,
+		gap:      max(0, id.gap),
 		lines:    lines,
 		lineRows: make([]int32, len(lines)),
 		ascii:    make([]bool, len(lines)),
@@ -125,9 +137,9 @@ func printableASCIILine(line string) bool {
 	return true
 }
 
-// height is the block's real document height: content rows plus the two
-// inter-message spacer rows every block owns.
-func (l *transcriptBlockLayout) height() int { return int(l.content) + transcriptRowSpacers }
+// height is the block's real document height: its leading gap rows plus
+// content rows.
+func (l *transcriptBlockLayout) height() int { return l.gap + int(l.content) }
 
 // transcriptLineRows is the number of terminal rows one source line occupies,
 // the same arithmetic wrapTranscriptBlock applies.
@@ -186,35 +198,37 @@ func (l *transcriptBlockLayout) rowsInto(dst []string, from, to int) []string {
 	height := l.height()
 	from = clampInt(from, 0, height)
 	to = clampInt(to, from, height)
-	content := int(l.content)
-	if from < content {
-		line, offset := l.lineAt(from)
-		limit := min(to, content)
-		for ; line < len(l.lines) && from < limit; line++ {
-			source := l.lines[line]
-			for ; offset < int(l.lineRows[line]) && from < limit; offset++ {
-				start := offset * width
-				var piece string
-				if l.ascii[line] {
-					piece = source[min(start, len(source)):min(start+width, len(source))]
-				} else if l.lineRows[line] == 1 {
-					piece = source
-				} else {
-					// Cut just this requested row, not every row in the physical
-					// line. Complex ANSI still costs a source scan per visible row;
-					// no whole-line row array is ever allocated for a window.
-					piece = ansi.Cut(source, start, start+width)
-				}
-				dst = append(dst, padTranscriptRow(piece, width))
-				from++
-			}
-			offset = 0
+	if from < l.gap {
+		blank := strings.Repeat(" ", width)
+		for row := from; row < min(to, l.gap); row++ {
+			dst = append(dst, blank)
 		}
 	}
-	if spacers := to - max(from, content); spacers > 0 {
-		blank := strings.Repeat(" ", width)
-		for i := 0; i < spacers; i++ {
-			dst = append(dst, blank)
+	content := l.gap + int(l.content)
+	limit := min(to, content)
+	line, offset := -1, 0
+	for row := max(from, l.gap); row < limit; row++ {
+		if line < 0 {
+			line, offset = l.lineAt(row - l.gap)
+		}
+		source := l.lines[line]
+		start := offset * width
+		var piece string
+		if l.ascii[line] {
+			piece = source[min(start, len(source)):min(start+width, len(source))]
+		} else if l.lineRows[line] == 1 {
+			piece = source
+		} else {
+			// Cut just this requested row, not every row in the physical
+			// line. Complex ANSI still costs a source scan per visible row;
+			// no whole-line row array is ever allocated for a window.
+			piece = ansi.Cut(source, start, start+width)
+		}
+		dst = append(dst, padTranscriptRow(piece, width))
+		offset++
+		if offset >= int(l.lineRows[line]) {
+			offset = 0
+			line++
 		}
 	}
 	return dst

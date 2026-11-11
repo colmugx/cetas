@@ -148,6 +148,67 @@ type kittyImageLayout struct {
 	transmits string
 }
 
+// kittyThumbLayout fits an image inside a fixed cell box, keeping its
+// aspect ratio. The attachment tray uses it so a strip of thumbnails keeps a
+// uniform height whatever the source image's shape.
+func kittyThumbLayout(imgWidth, imgHeight, maxCols, maxRows int) (cols, rows int) {
+	if imgWidth <= 0 || imgHeight <= 0 {
+		return 0, 0
+	}
+	cols = maxCols
+	rows = (cols*imgHeight + imgWidth - 1) / imgWidth
+	if rows > maxRows {
+		rows = maxRows
+		cols = (rows * imgWidth + imgHeight - 1) / imgHeight
+	}
+	if cols < 1 || rows < 1 {
+		return 0, 0
+	}
+	return cols, rows
+}
+
+// kittyDeleteImage removes an image and every placement that shows it.
+func kittyDeleteImage(id int) string {
+	return fmt.Sprintf("\x1b_Ga=d,i=%d\x1b\\", id)
+}
+
+// stageKittyThumb registers a tray thumbnail. Thumbs live apart from the
+// transcript registry: the same image is often both a tray chip now and a
+// transcript block after submit, and each presentation owns its geometry.
+func (m *model) stageKittyThumb(attachment imageAttachment) (kittyImageLayout, bool) {
+	if !kittySupported() || attachment.MediaType != "image/png" {
+		return kittyImageLayout{}, false
+	}
+	imgWidth, imgHeight, ok := pngDimensions(attachment.Data)
+	if !ok {
+		return kittyImageLayout{}, false
+	}
+	cols, rows := kittyThumbLayout(imgWidth, imgHeight, trayThumbCols, trayThumbRows)
+	if cols == 0 {
+		return kittyImageLayout{}, false
+	}
+	if m.kittyThumbs == nil {
+		m.kittyThumbs = map[string]kittyImageLayout{}
+	}
+	if existing, seen := m.kittyThumbs[attachment.Data]; seen {
+		return existing, true
+	}
+	if len(m.kittyThumbs) >= kittyMaxImages {
+		return kittyImageLayout{}, false
+	}
+	m.nextKittyID++
+	id := m.nextKittyID
+	layout := kittyImageLayout{
+		id:        id,
+		cols:      cols,
+		rows:      rows,
+		fallback:  attachment.Label,
+		transmits: kittyTransmit(id, attachment.Data) + kittyVirtualPlacement(id, cols, rows),
+	}
+	m.kittyThumbs[attachment.Data] = layout
+	return layout, true
+}
+
 // stageKittyImage registers one attachment for inline display, returning the
 // layout the image block renders from. Unsupported terminals or non-PNG
 // media degrade to the fallback chip line.

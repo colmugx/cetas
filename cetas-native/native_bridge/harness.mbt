@@ -476,6 +476,19 @@ async fn harness_handle_frame(
       } else if native_catalog_command(command) {
         catalog_tasks.submit(runtime, auth_tasks, group, id, command, args)
       } else {
+        // A resume retires the UI that queued the old session's reads; drop
+        // them the moment the switch is asked for, before the switched-to
+        // session's own first reads join the same FIFO. `new_session` has no
+        // target id to keep, so it supersedes nothing.
+        if command == "switch_session" {
+          match harness_string(args, "id") {
+            Some(target) =>
+              if !target.is_empty() {
+                replay_tasks.supersede(target)
+              }
+            None => ()
+          }
+        }
         let result : Json = harness_dispatch(
           runtime, auth_tasks, group, command, args,
         ) catch {

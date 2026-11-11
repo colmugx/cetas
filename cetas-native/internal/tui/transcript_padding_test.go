@@ -27,8 +27,8 @@ func TestTranscriptRowsPadToTerminalWidth(t *testing.T) {
 	}
 	for index := 0; index < m.transcriptBlockCount(); index++ {
 		rows := m.mountedTranscriptRows(index)
-		if len(rows) < 3 {
-			t.Fatalf("block %d lost its spacer rows: %d", index, len(rows))
+		if index > 0 && len(rows) < 2 {
+			t.Fatalf("block %d lost its gap row: %d", index, len(rows))
 		}
 		for _, row := range rows {
 			if got := ansi.StringWidth(row); got != width {

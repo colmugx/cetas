@@ -321,11 +321,11 @@ func TestMouseSelectionMultilineAndSpacerRows(t *testing.T) {
 
 	m.handleTranscriptMouse(click(region.X+2, region.Y))
 	m.handleTranscriptMouse(drag(region.X+2, region.Y+2))
-	if text, ok := m.transcriptSelectionText(); !ok || text != "cdef\nuvwxyz" {
-		t.Fatalf("spacer row leaked into selection: %q ok=%v", text, ok)
+	if text, ok := m.transcriptSelectionText(); !ok || text != "cdef\nuvw" {
+		t.Fatalf("gap row leaked into selection: %q ok=%v", text, ok)
 	}
 	m.handleTranscriptMouse(release(region.X+2, region.Y+2))
-	if copied != "cdef\nuvwxyz" {
-		t.Fatalf("spacer row leaked into clipboard: %q", copied)
+	if copied != "cdef\nuvw" {
+		t.Fatalf("gap row leaked into clipboard: %q", copied)
 	}
 }

@@ -8,6 +8,7 @@ import (
 
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 type snapshot struct {
@@ -30,7 +31,7 @@ type Model struct {
 
 func New() Model {
 	t := textarea.New()
-	t.Prompt = "> "
+	t.Prompt = ""
 	t.Placeholder = "Describe a task, or type /help"
 	t.ShowLineNumbers = false
 	t.SetVirtualCursor(false)
@@ -45,6 +46,13 @@ func New() Model {
 	t.KeyMap.WordForward.SetKeys("alt+right", "ctrl+right", "alt+f")
 	t.KeyMap.DeleteWordBackward.SetKeys("ctrl+w", "alt+backspace")
 	t.KeyMap.DeleteWordForward.SetKeys("alt+d", "alt+delete")
+	// The composer is chromeless: no prompt glyph and no cursor-line wash.
+	// The block cursor itself carries the caret; only the functional
+	// selection highlight keeps a background.
+	styles := t.Styles()
+	styles.Focused.CursorLine = lipgloss.NewStyle()
+	styles.Blurred.CursorLine = lipgloss.NewStyle()
+	t.SetStyles(styles)
 	return Model{Model: t, historyIndex: -1}
 }
 func (m Model) current() snapshot { return snapshot{m.Value(), m.Line(), m.Column()} }

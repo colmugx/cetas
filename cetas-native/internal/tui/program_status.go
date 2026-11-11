@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/base64"
+	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
@@ -20,9 +21,10 @@ import (
 // and is base64-encoded with a 2048-byte decoded budget.
 
 type programStatus struct {
-	state string // idle | working | blocked | clear
+	state string // idle | working | done | blocked | error | clear
 	kind  string // auth | question, blocked reports only
 	msg   string
+	title string // label reported with every record; the window title shares it
 }
 
 // projectProgramStatus mirrors the JS projection's priority order exactly:
@@ -34,22 +36,41 @@ func (m model) projectProgramStatus() programStatus {
 	if m.modalRequestID != "" {
 		pendingQuestions++
 	}
+	report := func(state, kind, msg string) programStatus {
+		return programStatus{state: state, kind: kind, msg: msg, title: m.programTitle()}
+	}
 	switch {
 	case m.status == "MoonBit host stopped":
+		// Clear carries no record keys; the terminal drops the record whole.
 		return programStatus{state: "clear"}
 	case m.authID != "":
-		return programStatus{state: "blocked", kind: "auth", msg: "Waiting for authentication"}
+		return report("blocked", "auth", "Waiting for authentication")
 	case pendingQuestions > 0:
-		return programStatus{state: "blocked", kind: "question", msg: "Waiting for your response"}
+		return report("blocked", "question", "Waiting for your response")
 	case m.needsSetup:
-		return programStatus{state: "blocked", kind: "auth", msg: "Connect a model provider"}
+		return report("blocked", "auth", "Connect a model provider")
 	case m.running || m.switchInFlight != "":
-		return programStatus{state: "working", msg: "Working"}
+		return report("working", "", "Working")
+	case m.turnOutcome == turnFailed:
+		// error survives until the user looks; the next activity replaces it.
+		return report("error", "", m.turnOutcomeDetail)
+	case m.turnOutcome == turnDone:
+		return report("done", "", m.turnOutcomeDetail)
 	case m.session != "":
-		return programStatus{state: "idle"}
+		return report("idle", "", "")
 	default:
-		return programStatus{state: "working", msg: "Starting"}
+		return report("working", "", "Starting")
 	}
+}
+
+// programTitle is the record label: the same workspace composition the OSC 2
+// title shows, so the terminal's two views of "who is this" agree.
+func (m model) programTitle() string {
+	title := "cetas"
+	if base := filepath.Base(strings.TrimSpace(m.surface.cwd)); base != "" && base != "." && base != "/" {
+		title = "cetas · " + base
+	}
+	return title
 }
 
 // formatProgramStatus encodes one report. Terminals discard reports whose
@@ -64,6 +85,9 @@ func formatProgramStatus(status programStatus) string {
 	}
 	if message := truncateStatusMessage(status.msg); message != "" {
 		pairs = append(pairs, "msg="+base64.StdEncoding.EncodeToString([]byte(message)))
+	}
+	if title := truncateStatusTitle(status.title); title != "" {
+		pairs = append(pairs, "title="+base64.StdEncoding.EncodeToString([]byte(title)))
 	}
 	return "\x1b]7501;" + strings.Join(pairs, ":") + "\x1b\\"
 }
@@ -80,6 +104,17 @@ func truncateStatusMessage(text string) string {
 	}, text)
 	cleaned = strings.TrimSpace(cleaned)
 	for utf8.RuneCountInString(cleaned) > 0 && len(cleaned) > 2048 {
+		_, size := utf8.DecodeLastRuneInString(cleaned)
+		cleaned = cleaned[:len(cleaned)-size]
+	}
+	return cleaned
+}
+
+// truncateStatusTitle applies the protocol's title budget: 192 decoded
+// bytes, the same control-character refusal as msg.
+func truncateStatusTitle(text string) string {
+	cleaned := truncateStatusMessage(text)
+	for utf8.RuneCountInString(cleaned) > 0 && len(cleaned) > 192 {
 		_, size := utf8.DecodeLastRuneInString(cleaned)
 		cleaned = cleaned[:len(cleaned)-size]
 	}

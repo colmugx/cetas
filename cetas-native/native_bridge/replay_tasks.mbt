@@ -104,6 +104,53 @@ fn NativeReplayTasks::submit(
 }
 
 ///|
+/// Pure half of `supersede`: which queued jobs outlived their session. The
+/// worker-held job is not in the queue, so it is never superseded.
+fn NativeReplayTasks::split_superseded(
+  self : NativeReplayTasks,
+  keep : String,
+) -> (Array[NativeReplayJob], Array[NativeReplayJob]) {
+  let kept : Array[NativeReplayJob] = []
+  let dropped : Array[NativeReplayJob] = []
+  for job in self.queue {
+    let session = harness_session_arg(job.args).unwrap_or("")
+    if session != "" && session != keep {
+      dropped.push(job)
+    } else {
+      kept.push(job)
+    }
+  }
+  (kept, dropped)
+}
+
+///|
+/// A session switch makes queued reads for every other session stale: the UI
+/// that requested them is being torn down and would reject their replies
+/// anyway. Dropping them with a named error keeps the FIFO clear for the
+/// switched-to session's first reads. A job without a session selector is
+/// kept, and the job the worker already holds still runs to completion.
+fn NativeReplayTasks::supersede(
+  self : NativeReplayTasks,
+  keep : String,
+) -> Unit {
+  if self.stopped || self.queue.is_empty() {
+    return
+  }
+  let (kept, dropped) = self.split_superseded(keep)
+  for job in dropped {
+    emit(
+      harness_reply(
+        job.id,
+        harness_error(self.label + " request superseded by session switch"),
+      ),
+    )
+  }
+  if dropped.length() > 0 {
+    self.queue = kept
+  }
+}
+
+///|
 /// Settle queued/in-flight request ids before detaching the sink. Cancellation
 /// belongs to the host TaskGroup, which drains the worker and its async files.
 fn NativeReplayTasks::cancel_all(self : NativeReplayTasks) -> Unit {

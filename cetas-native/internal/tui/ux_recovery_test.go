@@ -113,7 +113,20 @@ func TestSubmittedUserMessageUsesPaddedFullWidthSurface(t *testing.T) {
 		t.Fatal("user block has no background styling")
 	}
 	lines := strings.Split(rendered, "\n")
-	if ansi.StringWidth(lines[0]) != 40 || !strings.HasPrefix(ansi.Strip(lines[0]), " > 你好 task") {
-		t.Fatalf("user block lacks full-width padding: %q", rendered)
+	// The panel is a framed box: blank bg row, padded content row, blank bg
+	// row, every one exactly the transcript width.
+	if len(lines) != 3 {
+		t.Fatalf("user panel is not framed: %d lines", len(lines))
+	}
+	for i, line := range lines {
+		if w := ansi.StringWidth(line); w != 40 {
+			t.Fatalf("panel row %d is %d cells, want 40: %q", i, w, ansi.Strip(line))
+		}
+	}
+	if body := ansi.Strip(lines[1]); !strings.HasPrefix(body, "  ") || !strings.Contains(body, "> 你好 task") {
+		t.Fatalf("content row lost its prompt margins: %q", body)
+	}
+	if strings.TrimSpace(ansi.Strip(lines[0])) != "" || strings.TrimSpace(ansi.Strip(lines[2])) != "" {
+		t.Fatal("panel frame rows are not blank")
 	}
 }

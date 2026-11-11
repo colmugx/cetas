@@ -59,6 +59,10 @@ func (t Theme) Surface(kind, text string) string {
 	tint := t.FG
 	alpha := .11
 	switch kind {
+	case "user":
+		// The user's own message is the block to find at a glance, so its
+		// tint runs deeper than the ambient surfaces.
+		alpha = .18
 	case "pending":
 		tint = color.RGBA{202, 156, 56, 255}
 		alpha = .12

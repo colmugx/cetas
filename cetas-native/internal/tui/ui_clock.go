@@ -21,6 +21,10 @@ func (m model) nextUIWake(now time.Time) time.Time {
 		}
 	}
 	consider(m.replayRetryAt)
+	// A staged completion request owns a wake: once typing settles nothing
+	// else animates, and without this deadline the debounced request would
+	// wait for an unrelated message to pump it.
+	consider(m.completionDueAt)
 	// A lost cold transcript index reply must wake even on an idle screen;
 	// the timeout handler releases the latch and retries with a fresh deadline.
 	if m.replayIndexPending && !m.replayIndexSince.IsZero() {

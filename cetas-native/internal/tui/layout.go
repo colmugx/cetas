@@ -27,6 +27,34 @@ func (m model) dimensions() (int, int) {
 	return w, h
 }
 func (m model) theme() ui.Theme { return ui.NewTheme(m.surface.fg, m.surface.bg) }
+
+// completionMenuRows is the popup's fixed height. The menu sits directly above
+// the editor, so a pane that grew with its result count would shift the input
+// line on every keystroke.
+const completionMenuRows = 6
+
+// completionMenu renders the inline completion popup: the completionMenuRows
+// window of items around the cursor, padded with blank rows so one result and
+// forty results occupy the same six lines. No items means no pane at all.
+func completionMenu(theme ui.Theme, items []string, index, width int) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	start := max(0, index-5)
+	end := min(len(items), start+completionMenuRows)
+	rows := make([]string, 0, completionMenuRows)
+	for i := start; i < end; i++ {
+		line := "  " + items[i]
+		if i == index {
+			line = theme.Role("accent", "→ "+items[i])
+		}
+		rows = append(rows, ui.Pad(line, width))
+	}
+	for len(rows) < completionMenuRows {
+		rows = append(rows, ui.Pad("", width))
+	}
+	return rows
+}
 func (m model) regions() regions {
 	w, h := m.dimensions()
 	theme := m.theme()
@@ -48,7 +76,11 @@ func (m model) regions() regions {
 		frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 		label = frames[m.surface.frame] + " " + label
 	}
-	if label != "" {
+	if m.switchInFlight != "" {
+		// The switch has no transcript of its own yet: the skeleton stands in
+		// for the rows the target session is about to paint.
+		r.status = switchSkeletonLines(theme, w)
+	} else if label != "" {
 		r.status = []string{theme.Role("muted", " "+label)}
 	}
 	for _, line := range m.extensionStatusLines() {
@@ -63,20 +95,12 @@ func (m model) regions() regions {
 		}
 	}
 	if m.completing() {
-		start := max(0, m.modalIndex-5)
-		end := min(len(m.modalItems), start+6)
-		for i := start; i < end; i++ {
-			line := "  " + m.modalItems[i]
-			if i == m.modalIndex {
-				line = "→ " + m.modalItems[i]
-				line = theme.Role("accent", line)
-			}
-			r.menu = append(r.menu, ui.Pad(line, w))
-		}
+		r.menu = completionMenu(theme, m.modalItems, m.modalIndex, w)
 	}
 	border := theme.Role("brand", strings.Repeat("─", w))
 	r.editor = append([]string{border}, strings.Split(m.textarea.View(), "\n")...)
 	r.editor = append(r.editor, border)
+	r.editor = append(m.attachmentTrayLines(theme, w), r.editor...)
 	entries := append([]ui.DashboardEntry(nil), m.surface.entries...)
 	has := func(key string) bool {
 		for _, e := range entries {
@@ -263,7 +287,14 @@ func (m model) overlayPanel() (panel []string, left, top, width, height int) {
 	w, h := m.dimensions()
 	pw, ph := overlayPanelSize(w, h)
 	if m.modal != "" {
-		panel = ui.Panel(m.theme(), m.overlayTitle(), m.modalItems, m.modalIndex, pw, ph)
+		if m.modal == "models" {
+			// Fixed pane: switching tabs or narrowing the search changes the
+			// list length every keystroke; a box that resized with it would
+			// jump and recenter until nothing is legible.
+			panel = ui.PanelFixed(m.theme(), m.overlayTitle(), m.modalItems, m.modalIndex, pw, ph, 9)
+		} else {
+			panel = ui.Panel(m.theme(), m.overlayTitle(), m.modalItems, m.modalIndex, pw, ph)
+		}
 	} else {
 		now := time.Now()
 		key := m.pickerPanelKey(pw, ph, now)

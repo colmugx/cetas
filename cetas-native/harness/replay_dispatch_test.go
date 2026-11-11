@@ -112,6 +112,99 @@ func writeColdReplayFixture(t *testing.T, path string) {
 	}
 }
 
+// A resume must not inherit the departed session's queued reads: the switch
+// request sweeps them from the replay FIFO with a named error, while the job
+// the worker already holds still runs to completion.
+func checkSwitchSupersedesQueuedReplay(t *testing.T, h *Host, home string) {
+	t.Helper()
+	var journal string
+	if err := filepath.Walk(home, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && strings.HasSuffix(path, ".jsonl") && journal == "" {
+			journal = path
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if journal == "" {
+		t.Fatal("the scripted turn did not persist a journal")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	payload, err := h.Request(ctx, "sessions", map[string]any{})
+	if err != nil {
+		t.Fatalf("sessions request failed: %v", err)
+	}
+	var listing struct {
+		Active   string `json:"active"`
+		Sessions []struct {
+			ID     string `json:"id"`
+			Active bool   `json:"active"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal(payload, &listing); err != nil {
+		t.Fatal(err)
+	}
+	active := listing.Active
+	for _, entry := range listing.Sessions {
+		if entry.Active && active == "" {
+			active = entry.ID
+			break
+		}
+	}
+	if active == "" {
+		t.Fatal("no active session in the sessions listing")
+	}
+	const gone = "cetas-9000000000001"
+	path := filepath.Join(filepath.Dir(journal), gone+".jsonl")
+	defer os.Remove(path)
+	writeColdReplayFixture(t, path)
+	// The worker holds the cold index for a while; the page reads pile up
+	// behind it in the FIFO.
+	indexDone := make(chan error, 1)
+	go func() {
+		_, err := h.Request(ctx, "transcript_index", map[string]any{"session_id": gone})
+		indexDone <- err
+	}()
+	time.Sleep(20 * time.Millisecond)
+	pageDone := make(chan error, 3)
+	for i := 0; i < 3; i++ {
+		go func() {
+			_, err := h.Request(ctx, "transcript_page", map[string]any{"session_id": gone, "first": 0, "limit": 5})
+			pageDone <- err
+		}()
+	}
+	time.Sleep(20 * time.Millisecond)
+	if _, err := h.Request(ctx, "switch_session", map[string]any{"id": active}); err != nil {
+		t.Fatalf("switch request failed: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		err := <-pageDone
+		if err == nil || !strings.Contains(err.Error(), "superseded by session switch") {
+			t.Fatalf("queued page read survived the switch: %v", err)
+		}
+	}
+	select {
+	case err := <-indexDone:
+		if err != nil {
+			t.Fatalf("worker-held index failed: %v", err)
+		}
+		t.Fatal("cold index finished before the switch; the fixture lost the race")
+	default:
+	}
+	select {
+	case err := <-indexDone:
+		if err != nil {
+			t.Fatalf("worker-held index was disturbed by the switch: %v", err)
+		}
+	case <-time.After(25 * time.Second):
+		t.Fatal("worker-held index never completed")
+	}
+}
+
 // The MoonBit async scope owns I/O handles until explicitly closed. Repeating
 // page/source/list reads in a long-lived host must not accumulate one FD per
 // request and only release them on process shutdown.

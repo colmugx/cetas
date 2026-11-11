@@ -38,6 +38,11 @@ type virtualTranscript struct {
 	// insertion or a shorter session) moves block indices, so a cold render
 	// queued against the previous layout must never be applied to the new one.
 	epoch uint64
+	// jumpBlock is the block a jump pinned to the viewport, -1 when the
+	// position is ordinary scrolling. The mount pass re-anchors on it so
+	// estimate-to-truth growth in the blocks above cannot eject the very
+	// block the user jumped to.
+	jumpBlock int
 	// refreshes counts mounted frames. The parent reducer can compare it across
 	// one Update to prove a single presentation pass, without guessing from the
 	// viewport contents.
@@ -48,6 +53,7 @@ const virtualOverscanRows = 8
 
 func newVirtualTranscript(width, height int) *virtualTranscript {
 	return &virtualTranscript{
+		jumpBlock: -1,
 		width: max(1, width), height: max(1, height), followEnd: true, bit: []int{0},
 		rows: newTranscriptRowCache(transcriptRowCacheBudget),
 	}
@@ -176,16 +182,38 @@ func bitsForIndex(n int) int {
 // as each block is mounted and measured in the terminal's actual width.
 func estimateTranscriptHeight(raw string, width int) int {
 	width = max(1, width)
-	rows := 2 // between-message spacer, also retained for the final block
+	rows := 1 // inter-message gap; corrected when the block is mounted
 	for _, line := range strings.Split(raw, "\n") {
 		rows += max(1, int(math.Ceil(float64(lipgloss.Width(line))/float64(width))))
 	}
 	return max(3, rows)
 }
 
+// estimateUserBlockHeight mirrors the user panel's exact document shape: the
+// blank frame rows above and below plus content wrapped at the padded inner
+// width. Estimating a user block with the generic routine undershoots, and a
+// mounted block that grows pushes the window's tail out from under the user.
+func estimateUserBlockHeight(raw string, width int) int {
+	inner := max(10, max(1, width)-4)
+	rows := 2 // the panel's blank frame rows; the gap is zero
+	for _, line := range strings.Split(raw, "\n") {
+		rows += max(1, int(math.Ceil(float64(lipgloss.Width(line))/float64(inner))))
+	}
+	return max(3, rows)
+}
+
+// estimateBlockHeight is the kind-aware estimator: user blocks carry their
+// frame, everything else uses the generic shape.
+func (m *model) estimateBlockHeight(index int, raw string, width int) int {
+	if m.blockKindAt(index) == "user" {
+		return estimateUserBlockHeight(raw, width)
+	}
+	return estimateTranscriptHeight(raw, width)
+}
+
 // sync extends incrementally on append. Width changes and wholesale session
 // replacements rebuild the index once, not every token or keypress.
-func (v *virtualTranscript) sync(count, width, height int, rawAt func(int) string) {
+func (v *virtualTranscript) sync(count, width, height int, rawAt func(int) string, estimateAt func(int, string) int) {
 	width = max(1, width)
 	height = max(1, height)
 	// A structural edit outside the append path (a paged replay insertion)
@@ -225,7 +253,7 @@ func (v *virtualTranscript) sync(count, width, height int, rawAt func(int) strin
 	v.width = width
 	v.height = height
 	for i := len(v.heights); i < count; i++ {
-		v.appendHeight(estimateTranscriptHeight(rawAt(i), width))
+		v.appendHeight(estimateAt(i, rawAt(i)))
 	}
 	for len(v.revisions) < count {
 		v.revisions = append(v.revisions, 0)
@@ -258,7 +286,14 @@ func (v *virtualTranscript) jumpToBlock(index int) {
 	if index < 0 || index >= len(v.heights) {
 		return
 	}
-	v.top = min(v.prefix(index), max(0, v.totalRows()-v.height))
+	// Center the target block in the viewport instead of pinning it to the
+	// top edge: heights are estimates here and settle as pages mount, and a
+	// top-pinned block at a zero-margin edge slips out of its own window the
+	// moment a neighbour above it grows. Centering keeps the block visible
+	// across that drift for every viewport taller than the block itself.
+	span := v.heightAt(index)
+	v.top = clampInt(v.prefix(index)-max(0, (v.height-span)/2), 0, max(0, v.totalRows()-v.height))
+	v.jumpBlock = index
 	v.followEnd = false
 }
 
@@ -342,14 +377,14 @@ func padTranscriptBlock(text string, width int) string {
 }
 
 // mountedTranscriptRows is the exact row set a block contributes to the
-// document: its wrapped content plus the two inter-message spacer rows. Rows
+// document: its leading gap rows plus its wrapped content. Rows
 // are padded to the transcript width, including the spacers, so the document
 // has no ragged right edge. It is the whole-block view of the same layout the
 // mount path paints by range, so a copy or a selection can never disagree with
 // the screen.
 func (m *model) mountedTranscriptRows(index int) []string {
 	width := max(1, m.viewport.Width())
-	layout := newTranscriptBlockLayout(index, transcriptLayoutIdentity{width: width}, m.transcriptBlockText(index))
+	layout := newTranscriptBlockLayout(index, transcriptLayoutIdentity{width: width, gap: m.transcriptGap(index)}, m.transcriptBlockText(index))
 	return layout.rowsInto(make([]string, 0, layout.height()), 0, layout.height())
 }
 
@@ -452,7 +487,7 @@ func (m *model) invalidateTranscriptBlock(index int) {
 			v.history.drop(index)
 		}
 		if index >= 0 && index < len(v.heights) {
-			v.setHeight(index, estimateTranscriptHeight(m.rawTranscriptBlock(index), v.width))
+			v.setHeight(index, m.estimateBlockHeight(index, m.rawTranscriptBlock(index), v.width))
 		}
 	}
 }
@@ -460,6 +495,7 @@ func (m *model) scrollTranscript(delta int) {
 	if m.virtualScroll == nil {
 		return
 	}
+	m.virtualScroll.jumpBlock = -1
 	wasTop, wasFollow := m.virtualScroll.top, m.virtualScroll.followEnd
 	selection := m.document.selection
 	m.virtualScroll.scroll(delta)
@@ -504,7 +540,7 @@ func settledToolState(state string) bool {
 // rebuilt on every frame because their text is a function of the clock, not of
 // their source.
 func (m *model) blockLayoutIdentity(v *virtualTranscript, index int, mount transcriptMount) (transcriptLayoutIdentity, bool) {
-	id := transcriptLayoutIdentity{width: mount.width, theme: mount.theme, tools: mount.tools, thinking: mount.thinking}
+	id := transcriptLayoutIdentity{width: mount.width, theme: mount.theme, tools: mount.tools, thinking: mount.thinking, gap: m.transcriptGap(index)}
 	if index >= len(m.transcript) {
 		if index == m.liveThinkingIndex() {
 			return id, false
@@ -523,6 +559,39 @@ func (m *model) blockLayoutIdentity(v *virtualTranscript, index int, mount trans
 	}
 	id.revision = v.revisionAt(index)
 	return id, true
+}
+
+// transcriptGap is the blank-row count block `index` contributes above its
+// content. The first document row belongs to the first block; after that a
+// run of consecutive tool calls stacks densely (mainstream coding-agent
+// rhythm) while every other adjacency keeps the one-blank-line message gap.
+// The gap is leading and keyed on the predecessor only, so appending a block
+// lays out the new block alone and never invalidates its neighbor.
+func (m *model) transcriptGap(index int) int {
+	if index <= 0 {
+		return 0
+	}
+	switch {
+	case m.blockKindAt(index) == "tool" && m.blockKindAt(index-1) == "tool":
+		return transcriptGapToolRun
+	case m.blockKindAt(index) == "user":
+		// The user panel owns blank bg rows above and below its content;
+		// the plain gap would only add a third separator row and drift the
+		// mounted height away from the index estimate.
+		return 0
+	default:
+		return transcriptGapDefault
+	}
+}
+
+// blockKindAt is the settled display kind of a block, "" for plain
+// user/assistant text. A replayed page without block metadata reports "",
+// which degrades to the default gap instead of guessing.
+func (m *model) blockKindAt(index int) string {
+	if b, ok := m.blocks[index]; ok {
+		return b.Kind
+	}
+	return ""
 }
 
 // blockLayout returns the row mapping of one block, from the cache when its
@@ -641,7 +710,10 @@ func (m *model) refreshTranscript() {
 	}
 	v := m.virtualScroll
 	count := m.transcriptBlockCount()
-	v.sync(count, m.viewport.Width(), m.viewport.Height(), m.rawTranscriptBlock)
+	width := m.viewport.Width()
+	v.sync(count, width, m.viewport.Height(), m.rawTranscriptBlock, func(index int, raw string) int {
+		return m.estimateBlockHeight(index, raw, width)
+	})
 	// A cold settled block that finished in the background is applied before
 	// this frame measures and mounts it, so its rows and height describe the
 	// render rather than the plain fallback.
@@ -668,7 +740,13 @@ func (m *model) refreshTranscript() {
 	// The row under the user's eye is kept while estimates above it settle into
 	// exact heights, so a cold mount never jumps the scroll position.
 	anchor := v.indexAt(v.top)
-	intra := v.top - v.prefix(anchor)
+	if v.jumpBlock >= 0 && v.jumpBlock < len(v.heights) {
+		// A jump's target outranks the raw row under the top: neighbours
+		// settling from estimates to true heights move rows under a fixed
+		// anchor, and the target is the one row set that must not slip out.
+		anchor = v.jumpBlock
+	}
+	intra := clampInt(v.top-v.prefix(anchor), 0, max(0, v.heightAt(anchor)-1))
 	top, bottom := v.transcriptWindow()
 	for pass := 0; ; pass++ {
 		m.measureMountedBlocks(v, mount, top, bottom)

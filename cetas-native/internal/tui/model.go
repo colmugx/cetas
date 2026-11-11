@@ -80,6 +80,13 @@ const (
 	followupsCap       = 16
 	// toolFragmentCap bounds the streamed tool-argument accumulators.
 	toolFragmentCap = 256
+	// Attachment-tray thumbnail geometry, in cells.
+	trayThumbCols = 8
+	trayThumbRows = 3
+
+	// Turn outcomes for the program-status record (spec state names).
+	turnDone   = "done"
+	turnFailed = "failed"
 )
 
 type model struct {
@@ -138,11 +145,16 @@ type model struct {
 	completionToken     string
 	// completionDueAt stages the debounced completion request (see
 	// autocomplete.go); the update pump fires it when typing settles.
-	completionDueAt    time.Time
+	completionDueAt time.Time
 	// completionInFlight is the request id of the outstanding completion;
 	// replies carrying any other id are stale and dropped.
 	completionInFlight string
 	nextCompletionID   int
+	// turnOutcome latches the last finished turn (turnDone/turnFailed) so
+	// the OSC 7501 record reports done/error — the tab-bar signal that work
+	// finished while the user was elsewhere. Any user input resets it.
+	turnOutcome        string
+	turnOutcomeDetail  string
 	modelSlots         []overlays.ModelSlot
 	modelPicker        overlays.Models
 	sessionPicker      sessionPickerState
@@ -193,6 +205,9 @@ type model struct {
 	// pendingImages are staged image attachments (pasted from the clipboard)
 	// waiting for the next submit.
 	pendingImages []imageAttachment
+	// kittyThumbs registers attachment-tray thumbnails, separate from the
+	// transcript registry so one image can be chip now and block later.
+	kittyThumbs map[string]kittyImageLayout
 	// kittyImages registers inline-displayed images (base64 → layout); the
 	// block renderer materializes them as unicode-placeholder rows.
 	kittyImages map[string]kittyImageLayout
@@ -860,8 +875,29 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+		// Some terminals (Ghostty among them) deliver a pasted image as its
+		// file path. A paste whose whole body is one attachable image path
+		// becomes an attachment instead of text the user then has to clean
+		// out of the composer; anything else falls through untouched.
+		if token, ok := pasteImagePath(msg.Content, m.surface.cwd); ok {
+			resolved, warnings := resolveImageMentions("@"+token, m.surface.cwd)
+			if len(resolved) == 1 {
+				m.stageImageAttachments(resolved)
+				for _, warning := range warnings {
+					m.protocolNotice(warning)
+				}
+				m.status = m.stagedImageSummary()
+				m.lastProgramStatus = formatProgramStatus(m.projectProgramStatus())
+				return m, nil
+			}
+		}
 	case tea.KeyPressMsg:
 		key := msg.String()
+		if m.turnOutcome != "" {
+			// The done/error record has served its purpose once the user is
+			// typing here again; the next report replaces it with reality.
+			m.turnOutcome, m.turnOutcomeDetail = "", ""
+		}
 		if key == "ctrl+c" {
 			return m, tea.Quit
 		}
@@ -1103,7 +1139,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if len(m.pendingImages) > 0 {
 				// Staged attachments clear first; a second Esc arms rewind.
-				m.pendingImages = nil
+				m.clearStagedImages()
 				m.status = "ready"
 				return m, nil
 			}
@@ -1182,6 +1218,12 @@ func (m *model) submitEditor() tea.Cmd {
 		}
 	}
 	m.pendingImages = nil
+	// The tray thumbnails are superseded by the transcript image blocks
+	// staged above; delete them so the same pixels do not show twice.
+	for _, thumb := range m.kittyThumbs {
+		m.pendingKitty = append(m.pendingKitty, kittyDeleteImage(thumb.id))
+	}
+	m.kittyThumbs = nil
 	if m.running {
 		if len(m.followups) >= followupsCap {
 			m.err = "follow-up queue full; prompt dropped"
@@ -1548,6 +1590,7 @@ func (m *model) applyEvent(e wire.Event) {
 		m.running = false
 		m.aborting = false
 		m.status = "ready"
+		m.turnOutcome, m.turnOutcomeDetail = turnDone, "Finished"
 		m.requestNotice("Cetas: turn completed")
 	case "turn.failed":
 		m.flushAssistant()
@@ -1562,6 +1605,11 @@ func (m *model) applyEvent(e wire.Event) {
 			m.followups = nil
 		}
 		m.status = "failed"
+		m.turnOutcome = turnFailed
+		m.turnOutcomeDetail = ui.SanitizeSGR(frame.Message)
+		if m.turnOutcomeDetail == "" {
+			m.turnOutcomeDetail = "Turn failed"
+		}
 		m.requestNotice("Cetas: turn failed")
 	case "session.redirect":
 		if frame.From == m.session && frame.To != "" {

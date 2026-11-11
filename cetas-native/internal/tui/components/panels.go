@@ -681,6 +681,45 @@ func ComposeOverlay(t Theme, base, panel []string, width, height int) []string {
 	}
 	return out
 }
+// PanelFixed is Panel with a geometry promise: the item pane is exactly
+// `rows` lines — windowed around the selection, blank-padded when the list
+// is shorter, with a muted hint when there is nothing to show. The box never
+// resizes or recenters while the list changes under tabs or search, which is
+// what keeps a picker legible mid-interaction.
+func PanelFixed(t Theme, title string, items []string, selected, width, height, rows int) []string {
+	width = max(1, width)
+	height = max(1, height)
+	if width < 4 || height < 3 {
+		return Bound([]string{title}, width, height)
+	}
+	rows = min(max(0, rows), height-4)
+	inner := width - 4
+	out := []string{t.Role("muted", "╭"+strings.Repeat("─", width-2)+"╮"), "│ " + Pad(t.Role("brand", title), inner) + " │"}
+	painted := 0
+	if len(items) == 0 && rows > 0 {
+		out = append(out, "│ "+Pad(t.Role("muted", "(no matches)"), inner)+" │")
+		painted++
+	}
+	start := max(0, min(selected, len(items)-1)-rows/2)
+	if start+rows > len(items) {
+		start = max(0, len(items)-rows)
+	}
+	for i := start; i < len(items) && painted < rows; i++ {
+		line := "  " + Clean(items[i])
+		if i == selected {
+			line = "→ " + Clean(items[i])
+			line = t.Role("accent", line)
+		}
+		out = append(out, "│ "+Pad(line, inner)+" │")
+		painted++
+	}
+	for ; painted < rows; painted++ {
+		out = append(out, "│ "+Pad("", inner)+" │")
+	}
+	out = append(out, "│ "+Pad(t.Role("muted", "↑↓ choose · ⏎ confirm · esc cancel"), inner)+" │", t.Role("muted", "╰"+strings.Repeat("─", width-2)+"╯"))
+	return out
+}
+
 func Panel(t Theme, title string, items []string, selected, width, height int) []string {
 	width = max(1, width)
 	height = max(1, height)

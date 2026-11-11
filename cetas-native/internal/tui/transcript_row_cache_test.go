@@ -23,13 +23,13 @@ func TestRowCacheRowsMatchWrappedAndPaddedSource(t *testing.T) {
 		"tab\tseparated 中 文",
 	}, "\n")
 	for _, width := range []int{5, 9, 33, 80} {
-		layout := newTranscriptBlockLayout(0, transcriptLayoutIdentity{width: width}, text)
+		layout := newTranscriptBlockLayout(0, transcriptLayoutIdentity{width: width, gap: 1}, text)
 		want := wrapTranscriptBlock(padTranscriptBlock(text, width), width)
 		for index := range want {
 			want[index] = padTranscriptRow(want[index], width)
 		}
 		spacer := strings.Repeat(" ", width)
-		want = append(want, spacer, spacer)
+		want = append([]string{spacer}, want...)
 		if layout.height() != len(want) {
 			t.Fatalf("width %d: layout height %d, wrap/pad height %d", width, layout.height(), len(want))
 		}

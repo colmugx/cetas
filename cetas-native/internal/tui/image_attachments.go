@@ -154,10 +154,51 @@ func (m *model) stageImageAttachments(attachments []imageAttachment) {
 				break
 			}
 		}
-		if !duplicate {
-			m.pendingImages = append(m.pendingImages, attachment)
+		if duplicate {
+			continue
+		}
+		m.pendingImages = append(m.pendingImages, attachment)
+		if thumb, ok := m.stageKittyThumb(attachment); ok {
+			m.pendingKitty = append(m.pendingKitty, thumb.transmits)
 		}
 	}
+}
+
+// clearStagedImages empties the tray, deleting thumbnail images so a cleared
+// chip leaves no ghost behind on graphics terminals.
+func (m *model) clearStagedImages() {
+	for _, thumb := range m.kittyThumbs {
+		m.pendingKitty = append(m.pendingKitty, kittyDeleteImage(thumb.id))
+	}
+	m.kittyThumbs = nil
+	m.pendingImages = nil
+}
+
+// pasteImagePath recognizes a paste whose entire content is one line that
+// names an existing image file — how several terminals (Ghostty among them)
+// deliver a pasted image. It returns the workspace-relative token when the
+// file is attachable.
+func pasteImagePath(content, cwd string) (string, bool) {
+	line := strings.TrimSpace(content)
+	if line == "" || strings.ContainsAny(line, " \t\n\r\"'") || strings.HasPrefix(line, "@") {
+		return "", false
+	}
+	ext := strings.ToLower(filepath.Ext(line))
+	if _, ok := imageMentionExts[ext]; !ok {
+		return "", false
+	}
+	abs := line
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(cwd, filepath.FromSlash(line))
+	}
+	info, err := os.Stat(abs)
+	if err != nil || info.IsDir() || info.Size() > maxImageBytes {
+		return "", false
+	}
+	if rel, err := filepath.Rel(cwd, abs); err == nil && !strings.HasPrefix(rel, "..") {
+		line = filepath.ToSlash(rel)
+	}
+	return line, true
 }
 
 // stagedImageSummary renders the chip line the status area shows while

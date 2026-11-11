@@ -364,7 +364,11 @@ func pagedTranscriptModel(t *testing.T, corpus []pagedItem) (model, *pagedReplay
 func pagedHostModel(t *testing.T, host *pagedTestHost) (model, *pagedReplay) {
 	t.Helper()
 	m := newModel()
-	m.width, m.height = 80, 24
+	// The transcript viewport must hold a fully mounted window: block heights
+	// settle from 2-row estimates to their true shapes (user panels carry
+	// frame rows, a previewed giant body wraps), and a viewport only a few
+	// rows tall would push the very block under test out of its own window.
+	m.width, m.height = 80, 48
 	m.resize()
 	m.session = host.session
 	m.host = host
@@ -609,6 +613,11 @@ func TestPagedReplayGiantVisibleBodyCompletesAsOneOversizeException(t *testing.T
 	}
 	pagedAssertAccounting(t, r, "a preview is resident")
 
+	// Heights settle as the page mounts (a user panel carries frame rows, the
+	// previewed body wraps), so the jump is renewed once the truth is known:
+	// the block under test must sit squarely inside the window, not on its
+	// zero-margin edge where any estimate drift would push it out.
+	m.jumpToTranscriptBlock(giant)
 	pagedDrive(t, &m, r, r.ensure(&m))
 	held := r.resident[giant]
 	if held.partial() {

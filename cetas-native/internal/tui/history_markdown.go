@@ -444,7 +444,7 @@ func (m *model) pumpHistoryMarkdown() {
 		// both describe the old source and must be derived again.
 		v.bumpRevision(index)
 		if index < len(v.heights) {
-			v.setHeight(index, estimateTranscriptHeight(m.rawTranscriptBlock(index), width))
+			v.setHeight(index, m.estimateBlockHeight(index, m.rawTranscriptBlock(index), width))
 		}
 	}
 }
