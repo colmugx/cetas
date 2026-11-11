@@ -465,19 +465,10 @@ fn CetasWorkflowCommands::summary(
 }
 
 ///|
+/// Single-line label from untrusted text: every control, format, or separator
+/// scalar becomes a space, so a workflow id cannot forge or reorder the row.
 fn workflow_label(value : String) -> String {
-  String::from_array(
-    value
-    .iter()
-    .map(c => {
-      if c.to_int() < 32 || (c.to_int() >= 127 && c.to_int() <= 159) {
-        ' '
-      } else {
-        c
-      }
-    })
-    .to_array(),
-  )
+  @devkit.display_label(value)
 }
 
 ///|
