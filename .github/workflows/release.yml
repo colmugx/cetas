@@ -319,7 +319,7 @@ jobs:
         working-directory: cetas-native
         env:
           CGO_ENABLED: '1'
-        run: go build -trimpath -o ../stage/cetas .
+        run: go build -trimpath -ldflags="-s -w" -o ../stage/cetas .
 
       - name: version smoke cetas (unix)
         if: matrix.os != 'windows-latest'
@@ -496,7 +496,7 @@ jobs:
         working-directory: cetas-native
         env:
           CGO_ENABLED: '0'
-        run: go build -trimpath -o ../stage/cetas.exe .
+        run: go build -trimpath -ldflags="-s -w" -o ../stage/cetas.exe .
       - name: Collect ACP and Run siblings
         shell: pwsh
         run: |
