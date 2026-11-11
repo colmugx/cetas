@@ -94,18 +94,18 @@ func callRejectionContext(v *[5]int32) {
  runtime.KeepAlive(v)
 }
 func callPoll(buf []byte, flags *int32) int32 {
- n := callInt(requireAPI().poll, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), addr(flags))
+ n, _, _ := requireAPI().poll.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), addr(flags))
  runtime.KeepAlive(buf); runtime.KeepAlive(flags)
- return n
+ return int32(n)
 }
 func callPublish(buf []byte) int32 {
  if len(buf) == 0 { return callInt(requireAPI().publish, 0, 0) }
- n := callInt(requireAPI().publish, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+ n, _, _ := requireAPI().publish.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
  runtime.KeepAlive(buf)
- return n
+ return int32(n)
 }
 func callSubmit(buf []byte) int32 {
- n := callInt(requireAPI().submit, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+ n, _, _ := requireAPI().submit.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
  runtime.KeepAlive(buf)
- return n
+ return int32(n)
 }
