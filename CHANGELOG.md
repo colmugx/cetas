@@ -2,6 +2,38 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.11.3 (2026-11-11)
+
+## General
+
+## Native Ver.（cetas-native）
+
+### Feats
+
+- Cetas Native now installs on Windows x64 in one command: `install.ps1` resolves the latest Cetas release (or `-Version X.Y.Z`), prints the full installation plan, and only starts downloading after you confirm.
+- The Windows installer checks the release first: if `cetas-windows-x64.zip` or `SHA256SUMS` is missing it stops before touching your disk, and the archive it does download is verified against the published checksum.
+- On Windows all four files land side by side — `cetas.exe`, `cetas-acp.exe`, `cetas-run.exe` and `cetas_moon.dll` — because the executable loads its core from that DLL, so a split installation cannot silently break.
+- After installing, the installer runs `cetas --version`, `cetas acp --version` and `cetas run --version` itself, so a damaged or mismatched download fails at install time instead of on your first launch.
+- `install.sh` now covers Windows as well (Git Bash, MSYS2, Cygwin) and installs the same four files; `-y`/`--yes` makes it suitable for unattended setups, and it warns you when the install directory is not on `PATH` or when another `cetas` would shadow the new one.
+- `install.sh` shows the plan before it changes anything — host, target, version, repository, destination, archives, and every file it will write, with existing files marked as replaced — and asks for confirmation, so you can abort with no side effects; a piped curl-to-bash install still gets the prompt through your terminal.
+- Native release binaries are now built size-first: MoonBit's generated C, dependency stubs and runtime compile through a size-optimizing compiler wrapper with section garbage collection, the Windows DLL links with link-time optimization and identical-code folding, the Go host drops symbols and dead code, so the downloads stay lean without any post-download unpacking or compression tricks.
+
+## ACP Ver.（cetas-acp）
+
+### Feats
+
+- `cetas-acp` is covered by the same one-command install on Windows and Unix: the installer verifies the release checksum and then runs `cetas acp --version` for you, so an ACP binary that cannot start is reported during installation rather than when you open your editor.
+- The Windows package keeps `cetas-acp.exe` in the same folder as the `cetas_moon.dll` it loads, so an ACP host installed by the script works without extra manual placement.
+- `cetas-acp` is produced by the new size-first native build, so its download is smaller than in previous releases.
+
+## Run Ver.（cetas-run）
+
+### Feats
+
+- `cetas-run` is delivered by the same verified installer on Windows and Unix, which runs `cetas run --version` after copying the files, so a broken one-turn runner is caught at install time.
+- The Windows package keeps `cetas-run.exe` beside the `cetas_moon.dll` it loads, so scripted runs work straight after installation.
+- `cetas-run` is produced by the new size-first native build, so its download is smaller than in previous releases.
+
 ## 0.11.2 (2026-11-11)
 
 ## General(Include Native Ver)
