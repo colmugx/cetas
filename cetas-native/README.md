@@ -18,18 +18,20 @@ The architecture follows [Scena](https://github.com/colmugx/scena)'s native C br
 
 ## Development
 
-Prerequisites: MoonBit toolchain, Go 1.26+, Clang, Python 3, C compiler toolchain. Start in the repository root so `moon.work` resolves the local packages:
+Prerequisites: MoonBit toolchain, Go 1.26+, Clang, Python 3 (for PTY smoke scripts), and a C compiler toolchain. Start in the repository root so `moon.work` resolves the local packages:
 
 ```sh
 moon update
-python3 cetas-native/tools/build_static.py
+moon build cetas-native/native_bridge --target native --release
+mkdir -p cetas-native/go_bridge/lib
+cp _build/native/release/build/colmugx/cetas-native/native_bridge/native_bridge.a cetas-native/go_bridge/lib/libcetas_moon.a
 cd cetas-native
 CGO_ENABLED=1 go mod tidy
 CGO_ENABLED=1 go test ./...
 CGO_ENABLED=1 go run .
 ```
 
-The bridge archive is generated in `go_bridge/lib/`. It must not be committed. The first bridge build targets Darwin/Linux; other targets require tested runtime C stubs and linker flags.
+On Windows, Moon produces `native_bridge.lib` at the same path instead of `native_bridge.a`; copy it to `go_bridge/lib/libcetas_moon.a` before invoking Go. The bridge archive is generated in `go_bridge/lib/` and must not be committed.
 
 ## Product scope and Alpha
 

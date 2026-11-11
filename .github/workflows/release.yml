@@ -310,22 +310,17 @@ jobs:
           go-version: '1.26.x'
           cache: false
 
-      - name: compile MoonBit bridge archive (unix)
-        if: matrix.os != 'windows-latest'
-        run: python3 cetas-native/tools/build_static.py
-
-      - name: verify Windows LLVM toolchain
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
+      - name: compile MoonBit bridge archive
+        shell: bash
         run: |
-          foreach ($tool in @("clang", "llvm-ar", "llvm-nm")) {
-            $path = (Get-Command $tool -ErrorAction Stop).Source
-            Write-Host "$tool : $path"
-          }
-
-      - name: compile MoonBit bridge archive (Windows)
-        if: matrix.os == 'windows-latest'
-        run: python cetas-native/tools/build_static.py
+          moon build cetas-native/native_bridge --target native --release
+          ext=a
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            ext=lib
+          fi
+          src="_build/native/release/build/colmugx/cetas-native/native_bridge/native_bridge.${ext}"
+          mkdir -p cetas-native/go_bridge/lib
+          cp "$src" cetas-native/go_bridge/lib/libcetas_moon.a
 
       - name: build cetas (unix)
         if: matrix.os != 'windows-latest'
