@@ -46,6 +46,9 @@ jobs:
       - name: npm staging tests
         run: python3 -m unittest scripts/test_npm_stage.py
 
+      - name: package-manager manifest generator tests
+        run: python3 -m unittest scripts/test_package_managers.py
+
       - name: moon check (public)
         run: |
           moon update
