@@ -97,11 +97,9 @@ jobs:
           bun run check
           bun run build
 
-  # cetas-native is the only cgo product: it needs its own MoonBit archive
-  # (build_static.py) before Go can link anything, and it is the one place
-  # where the C transport has a per-platform branch. Three operating systems
-  # because the transport now has three arms; fail-fast stays off so one
-  # platform's breakage still reports the other two.
+  # cetas-native is the only cgo product: build its MoonBit archive
+  # before Go can link anything. Three operating systems cover the transport's
+  # per-platform branches; fail-fast stays off to report independent failures.
   native:
     name: native (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -146,13 +144,17 @@ jobs:
       - name: Check the bridge for this target
         run: moon check -p cetas-native/native_bridge --target native --deny-warn --output-json
 
-      - name: Compile MoonBit bridge archive (unix)
-        if: runner.os != 'Windows'
-        run: python3 cetas-native/tools/build_static.py
-
-      - name: Compile MoonBit bridge archive (Windows)
-        if: runner.os == 'Windows'
-        run: python cetas-native/tools/build_static.py
+      - name: Compile MoonBit bridge archive
+        shell: bash
+        run: |
+          moon build cetas-native/native_bridge --target native --release
+          ext=a
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            ext=lib
+          fi
+          src="_build/native/release/build/colmugx/cetas-native/native_bridge/native_bridge.${ext}"
+          mkdir -p cetas-native/go_bridge/lib
+          cp "$src" cetas-native/go_bridge/lib/libcetas_moon.a
 
       - name: go vet
         working-directory: cetas-native
