@@ -1,3 +1,5 @@
+//go:build !windows
+
 package bridge
 
 // Observability seams for the transport's own tests. They read and mutate the
