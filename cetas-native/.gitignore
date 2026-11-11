@@ -5,3 +5,6 @@ go_bridge/lib/*.so
 build/
 _build/
 *.test
+go_bridge/lib/*.dll
+go_bridge/lib/*.lib
+go_bridge/lib/*.obj

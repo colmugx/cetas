@@ -97,9 +97,8 @@ jobs:
           bun run check
           bun run build
 
-  # cetas-native is the only cgo product: build its MoonBit archive
-  # before Go can link anything. Three operating systems cover the transport's
-  # per-platform branches; fail-fast stays off to report independent failures.
+  # The Unix bridge remains statically linked. Windows has its own MSVC DLL
+  # job, so a broken Windows compiler/linker cannot disguise a Unix failure.
   native:
     name: native (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -107,7 +106,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-15, windows-latest]
+        os: [ubuntu-latest, macos-15]
     steps:
       - name: Checkout cetas (with extension submodule)
         uses: actions/checkout@v4
@@ -115,17 +114,9 @@ jobs:
           submodules: recursive
 
       - name: Install moon (unix)
-        if: runner.os != 'Windows'
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
-
-      - name: Install moon (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
-          irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
-          "C:\Users\runneradmin\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -148,11 +139,7 @@ jobs:
         shell: bash
         run: |
           moon build cetas-native/native_bridge --target native --release
-          ext=a
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            ext=lib
-          fi
-          src="_build/native/release/build/colmugx/cetas-native/native_bridge/native_bridge.${ext}"
+          src="_build/native/release/build/colmugx/cetas-native/native_bridge/native_bridge.a"
           mkdir -p cetas-native/go_bridge/lib
           cp "$src" cetas-native/go_bridge/lib/libcetas_moon.a
 
@@ -192,12 +179,11 @@ jobs:
         working-directory: cetas-native
         env:
           CGO_ENABLED: '1'
-        run: go build -trimpath -o ../bin/cetas${{ runner.os == 'Windows' && '.exe' || '' }} .
+        run: go build -trimpath -o ../bin/cetas .
 
       # Both dispatch modes must find their sibling and answer on every
       # platform: on Windows the handover is a supervised child, not execve.
       - name: Dispatch smoke (unix)
-        if: runner.os != 'Windows'
         run: |
           cd bin
           ./cetas --version
@@ -206,13 +192,65 @@ jobs:
           ./cetas acp --version
           ./cetas run --version
 
-      - name: Dispatch smoke (Windows)
-        if: runner.os == 'Windows'
+
+  # Independent Windows native path: MoonBit MSVC archive -> MSVC DLL ->
+  # CGO_ENABLED=0 Go TUI. All runtime tests exercise the DLL ABI.
+  native-windows:
+    name: native (Windows DLL, no cgo)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Install MoonBit
         shell: pwsh
         run: |
-          cd bin
-          .\cetas.exe --version
-          Copy-Item .\cetas.exe .\cetas-acp.exe
-          Copy-Item .\cetas.exe .\cetas-run.exe
-          .\cetas.exe acp --version
-          .\cetas.exe run --version
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+          irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          "$HOME\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - name: Build MoonBit archive
+        run: |
+          moon update
+          moon check -p cetas-native/native_bridge --target native --deny-warn --output-json
+          moon build cetas-native/native_bridge --target native --release
+      - name: Link MSVC runtime DLL
+        shell: pwsh
+        run: ./cetas-native/tools/build_windows_dll.ps1 -OutputDir bin
+      - name: Go vet (no cgo)
+        working-directory: cetas-native
+        env:
+          CGO_ENABLED: '0'
+          CETAS_NATIVE_DLL: ${{ github.workspace }}\bin\cetas_moon.dll
+        run: go vet ./...
+      - name: Go tests through MSVC DLL (no cgo)
+        working-directory: cetas-native
+        env:
+          CGO_ENABLED: '0'
+          CETAS_NATIVE_DLL: ${{ github.workspace }}\bin\cetas_moon.dll
+        run: go test ./... -count=1
+      - name: Build pure Go cetas.exe
+        working-directory: cetas-native
+        env:
+          CGO_ENABLED: '0'
+        run: go build -trimpath -o ../bin/cetas.exe .
+      - name: Binary and DLL smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./bin/cetas.exe --version
+          Copy-Item ./bin/cetas.exe ./bin/cetas-acp.exe
+          Copy-Item ./bin/cetas.exe ./bin/cetas-run.exe
+          ./bin/cetas.exe acp --version
+          ./bin/cetas.exe run --version
+      - uses: actions/upload-artifact@v6
+        with:
+          name: cetas-native-windows-ci
+          path: |
+            bin/cetas.exe
+            bin/cetas_moon.dll

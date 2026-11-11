@@ -8,7 +8,7 @@ This directory is being rebuilt as a single-process Go Bubble Tea v2 terminal ho
 Bubble Tea v2 (Go, owns terminal input, layout and rendering)
      │ commands and event reducer
 Go Harness (correlated JSON commands, lifecycle, error propagation)
-     │ cgo / deep-copied bounded C queues
+     │ Unix: cgo + static archive / Windows: pure Go + MSVC DLL
 MoonBit ConsoleRuntime (single locked OS-thread owner)
      │
 Cetas Core / Posoco (providers, tools, permissions, sessions, turns)
@@ -31,7 +31,29 @@ CGO_ENABLED=1 go test ./...
 CGO_ENABLED=1 go run .
 ```
 
-On Windows, Moon produces `native_bridge.lib` at the same path instead of `native_bridge.a`; copy it to `go_bridge/lib/libcetas_moon.a` before invoking Go. The bridge archive is generated in `go_bridge/lib/` and must not be committed.
+On Unix, the bridge archive is generated in `go_bridge/lib/` and must not be committed.
+
+Windows uses a separate MSVC DLL workflow. From a VS developer shell in the repository root:
+
+```powershell
+moon update
+moon build cetas-native/native_bridge --target native --release
+./cetas-native/tools/build_windows_dll.ps1 -OutputDir bin
+$env:CETAS_NATIVE_DLL = (Resolve-Path ./bin/cetas_moon.dll).Path
+$env:CGO_ENABLED = "0"
+cd cetas-native
+go test ./... -count=1
+go build -o ../bin/cetas.exe .
+```
+
+`build_windows_dll.ps1` consumes the fixed MoonBit archive at
+`_build/native/release/build/colmugx/cetas-native/native_bridge/native_bridge.a`
+(with `.lib` fallback) and links `host.c` and the MoonBit runtime through
+MSVC into `bin/cetas_moon.dll`. Shipping Windows binaries must include
+`cetas.exe` and `cetas_moon.dll` in the **same directory**. The Go
+binary uses `CGO_ENABLED=0` and dynamically resolves the DLL's C ABI.
+`CETAS_NATIVE_DLL` is only needed for tests whose Go executable lives in
+a temporary Go test directory.
 
 ## Product scope and Alpha
 
@@ -48,8 +70,8 @@ PTY test in CI.
 
 Use [ALPHA.md](ALPHA.md) for supported platforms, opt-in downloadable Actions
 artifacts, isolated-state instructions, and external Alpha release gates.
-Current release.yml does **not** distribute `cetas-native`; production
-`cetas-js` remains unaffected.
+Release builds produce the native `cetas` binary on Unix and an adjacent
+DLL-backed native Windows bundle. These do not replace the JS frontend.
 
 A public/self-service Alpha requires a passing clean-home setup smoke,
 a clean-machine binary installation test, and live provider/session

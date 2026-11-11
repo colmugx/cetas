@@ -1,35 +1,10 @@
 package bridge
 
-/*
-#cgo darwin LDFLAGS: -L${SRCDIR}/lib -lcetas_moon
-#cgo linux LDFLAGS: -L${SRCDIR}/lib -lcetas_moon -lpthread -lm -ldl
-// Link the Windows APIs used by the MoonBit runtime and async backend:
-// Winsock, BCrypt, Win32 backtrace, long-path helpers, NT file operations,
-// interface enumeration, Schannel credentials and certificate validation.
-// MinGW's linker does not add these import libraries automatically.
-#cgo windows LDFLAGS: -L${SRCDIR}/lib -lcetas_moon -lws2_32 -lbcrypt -ldbghelp -lpathcch -lntdll -liphlpapi -lsecur32 -lcrypt32
-#include <stdint.h>
-void cetas_host_boot(void);
-int32_t cetas_host_infra_run(void);
-int32_t cetas_host_send(int32_t);
-int32_t cetas_host_poll_event(uint8_t*, int32_t, int32_t*);
-int32_t cetas_host_event_drops(void);
-void cetas_host_rejections(int32_t*, int32_t*, int32_t*, int32_t*);
-void cetas_host_rejection_context(int32_t*);
-int32_t cetas_host_submit_harness(const uint8_t*, int32_t);
-int32_t cetas_bridge_publish(const uint8_t*, int32_t);
-int32_t cetas_host_wait_event(void);
-int32_t cetas_host_wake(void);
-int32_t cetas_host_event_wake_stage(void);
-int32_t cetas_host_event_wake_errno(void);
-*/
-import "C"
 import (
 	"errors"
 	"fmt"
 	"runtime"
 	"sync"
-	"unsafe"
 )
 
 var (
@@ -40,7 +15,7 @@ var (
 // initialize brings the MoonBit runtime up once. It must run on the same
 // locked OS thread that later runs the scheduler: the native runtime and the
 // single-owner objects it creates are thread-affine from init onwards.
-func initialize() { once.Do(func() { C.cetas_host_boot() }) }
+func initialize() { once.Do(func() { callBoot() }) }
 
 // Verified bounded-transport limits, mirrored by go_bridge/host.c.
 const (
@@ -92,7 +67,7 @@ func (h *Infra) Run() int {
 	// Runtime initialization happens here, not in the constructor: the
 	// scheduler must start on the very OS thread that initialized it.
 	initialize()
-	return int(C.cetas_host_infra_run())
+	return int(callRun())
 }
 
 var ErrQueueFull = errors.New("infra command queue full")
@@ -105,7 +80,7 @@ const (
 )
 
 func (h *Infra) Send(code int32) error {
-	switch int(C.cetas_host_send(C.int32_t(code))) {
+	switch int(callSend(code)) {
 	case 1:
 		return nil
 	case 0:
@@ -138,8 +113,8 @@ func (r Rejections) Add(other Rejections) Rejections {
 }
 
 func (h *Infra) Rejections() Rejections {
-	var oversized, full, invalid, allocation C.int32_t
-	C.cetas_host_rejections(&oversized, &full, &invalid, &allocation)
+	var oversized, full, invalid, allocation int32
+	callRejections(&oversized, &full, &invalid, &allocation)
 	return Rejections{
 		Oversized:  int32(oversized),
 		Allocation: int32(allocation),
@@ -159,11 +134,7 @@ func (h *Infra) pollChunk() ([]byte, int32, error) {
 	}
 	for {
 		h.flags = 0
-		n := int(C.cetas_host_poll_event(
-			(*C.uint8_t)(unsafe.Pointer(&h.scratch[0])),
-			C.int32_t(len(h.scratch)),
-			(*C.int32_t)(unsafe.Pointer(&h.flags)),
-		))
+		n := int(callPoll(h.scratch, &h.flags))
 		if n == 0 {
 			return nil, 0, nil
 		}
@@ -251,32 +222,29 @@ func channelError(stage, errno int32) error {
 // source of truth, so a coalesced wakeup costs one extra Poll and never loses
 // a frame. A signal that arrives before Wait is kept by the pipe.
 func (h *Infra) Wait() error {
-	if int(C.cetas_host_wait_event()) == 1 {
+	if int(callWait()) == 1 {
 		return nil
 	}
-	return channelError(int32(C.cetas_host_event_wake_stage()), int32(C.cetas_host_event_wake_errno()))
+	return channelError(int32(callEventWakeStage()), int32(callEventWakeErrno()))
 }
 
 // Wake rings the host's own doorbell so a blocked Wait returns after the
 // runtime published state outside the queue (a rejection) or exited.
 func (h *Infra) Wake() error {
-	if int(C.cetas_host_wake()) == 1 {
+	if int(callWake()) == 1 {
 		return nil
 	}
-	return channelError(int32(C.cetas_host_event_wake_stage()), int32(C.cetas_host_event_wake_errno()))
+	return channelError(int32(callEventWakeStage()), int32(callEventWakeErrno()))
 }
 
-func (h *Infra) DroppedEvents() int { return int(C.cetas_host_event_drops()) }
+func (h *Infra) DroppedEvents() int { return int(callDrops()) }
 
 // publish enqueues one EventHub frame exactly the way the MoonBit runtime
 // does, so the C chunk framing is testable without booting the runtime.
 // A nil or empty frame is handed through so the native Invalid rejection
 // path stays reachable.
 func publish(b []byte) int {
-	if len(b) == 0 {
-		return int(C.cetas_bridge_publish(nil, 0))
-	}
-	return int(C.cetas_bridge_publish((*C.uint8_t)(&b[0]), C.int32_t(len(b))))
+	return int(callPublish(b))
 }
 
 var ErrHarnessTooLarge = errors.New("harness command exceeds 256 KiB")
@@ -285,7 +253,7 @@ func (h *Infra) Submit(request []byte) error {
 	if len(request) == 0 || len(request) > HarnessLimit {
 		return ErrHarnessTooLarge
 	}
-	switch int(C.cetas_host_submit_harness((*C.uint8_t)(&request[0]), C.int32_t(len(request)))) {
+	switch int(callSubmit(request)) {
 	case 1:
 		return nil
 	case 0:
@@ -297,7 +265,7 @@ func (h *Infra) Submit(request []byte) error {
 
 // RejectionContext contains dimensions and exact queue limits, never event data.
 func (*Infra) RejectionContext() string {
-	var v [5]C.int32_t
-	C.cetas_host_rejection_context(&v[0])
+	var v [5]int32
+	callRejectionContext(&v)
 	return fmt.Sprintf("last_length=%d queued_chunks=%d queued_bytes=%d count_timeouts=%d byte_timeouts=%d", v[0], v[1], v[2], v[3], v[4])
 }

@@ -1,4 +1,4 @@
-//go:build cetas_native_faults
+//go:build cetas_native_faults && !windows
 
 package bridge
 

@@ -1,0 +1,20 @@
+LIBRARY cetas_moon
+EXPORTS
+    cetas_host_boot
+    cetas_host_infra_run
+    cetas_host_send
+    cetas_host_poll_event
+    cetas_host_event_drops
+    cetas_host_rejections
+    cetas_host_rejection_context
+    cetas_host_submit_harness
+    cetas_host_wait_event
+    cetas_host_wake
+    cetas_host_event_wake_stage
+    cetas_host_event_wake_errno
+    cetas_bridge_publish
+    cetas_bridge_read_wake
+    cetas_bridge_next_command
+    cetas_bridge_next_harness
+    cetas_bridge_command_channel_open
+    cetas_bridge_read_command_wake

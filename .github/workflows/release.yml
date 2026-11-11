@@ -298,27 +298,19 @@ jobs:
             }
           }
 
-      # cetas-native (Go/Bubble Tea) — built after the MoonBit workspace build
-      # so the bridge archive reuses every dependency Moon just compiled. The
-      # static archive is the only cgo input; `cetas` is the installed name and
-      # `cetas acp` / `cetas run` hand the process over to the two siblings.
-      # Windows uses the Win32 wake-channel bridge and LLVM COFF archive,
-      # already exercised in ci.yml's native Windows matrix.
+      # Unix continues to statically link the native MoonBit bridge.
       - name: setup go
         uses: actions/setup-go@v5
         with:
           go-version: '1.26.x'
           cache: false
 
-      - name: compile MoonBit bridge archive
+      - name: compile MoonBit bridge archive (unix)
+        if: matrix.os != 'windows-latest'
         shell: bash
         run: |
           moon build cetas-native/native_bridge --target native --release
-          ext=a
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            ext=lib
-          fi
-          src="_build/native/release/build/colmugx/cetas-native/native_bridge/native_bridge.${ext}"
+          src="_build/native/release/build/colmugx/cetas-native/native_bridge/native_bridge.a"
           mkdir -p cetas-native/go_bridge/lib
           cp "$src" cetas-native/go_bridge/lib/libcetas_moon.a
 
@@ -343,47 +335,6 @@ jobs:
           # siblings sit beside the binary and still answer.
           ./cetas acp --version
           ./cetas run --version
-
-      - name: go test cetas (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: cetas-native
-        env:
-          CGO_ENABLED: '1'
-        run: go test ./... -count=1
-
-      - name: build cetas (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: cetas-native
-        env:
-          CGO_ENABLED: '1'
-        run: go build -trimpath -o ../stage/cetas.exe .
-
-      - name: version and dispatch smoke cetas (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: stage
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $out = (& ".\cetas.exe" --version) -join ' '
-          if ($LASTEXITCODE -ne 0) { throw "cetas.exe --version failed" }
-          Write-Host $out
-          if ($env:RELEASE_TAG) {
-            $expected = "cetas " + ($env:RELEASE_TAG -replace '^cetas-v', '')
-            if ($out.Trim() -ne $expected) {
-              throw "--version mismatch: got '$out', want '$expected'"
-            }
-          }
-          foreach ($mode in @("acp", "run")) {
-            $out = (& ".\cetas.exe" $mode --version) -join ' '
-            if ($LASTEXITCODE -ne 0) { throw "cetas.exe $mode --version failed" }
-            Write-Host $out
-            if ($env:RELEASE_TAG) {
-              $expected = "cetas-$mode " + ($env:RELEASE_TAG -replace '^cetas-v', '')
-              if ($out.Trim() -ne $expected) {
-                throw "cetas $mode mismatch: got '$out', want '$expected'"
-              }
-            }
-          }
 
       # cetas-js (bun-compiled single-file) — the GitHub-Release channel of
       # the JS host, alongside cetas-acp/cetas-run. The npm channel ships the
@@ -494,7 +445,6 @@ jobs:
         working-directory: stage
         shell: pwsh
         run: |
-          Compress-Archive -Path "cetas.exe" -DestinationPath "cetas-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-acp.exe" -DestinationPath "cetas-acp-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-run.exe" -DestinationPath "cetas-run-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-bun.exe", "native" -DestinationPath "cetas-bun-windows-x64.zip" -Force
@@ -507,6 +457,73 @@ jobs:
             stage/*.tar.gz
             stage/*.zip
             stage/release_body.md
+
+  native-windows:
+    name: release (windows native DLL)
+    needs: [deps]
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_REF }}
+          submodules: recursive
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Install MoonBit
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+          irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          "$HOME\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - name: Build MoonBit runtime
+        run: |
+          moon update
+          moon build cetas-native/native_bridge --target native --release
+      - name: Build MSVC DLL
+        shell: pwsh
+        run: ./cetas-native/tools/build_windows_dll.ps1 -OutputDir stage
+      - name: Test Windows Go bridge (no cgo)
+        working-directory: cetas-native
+        env:
+          CGO_ENABLED: '0'
+          CETAS_NATIVE_DLL: ${{ github.workspace }}\stage\cetas_moon.dll
+        run: go test ./... -count=1
+      - name: Build pure Go TUI
+        working-directory: cetas-native
+        env:
+          CGO_ENABLED: '0'
+        run: go build -trimpath -o ../stage/cetas.exe .
+      - name: Version smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $actual = (& ./stage/cetas.exe --version) -join ' '
+          if ($LASTEXITCODE -ne 0) { throw "cetas.exe version smoke failed" }
+          if ($env:RELEASE_TAG -and $actual.Trim() -ne ("cetas " + ($env:RELEASE_TAG -replace '^cetas-v', ''))) {
+            throw "version mismatch: $actual"
+          }
+      - name: Self-sign Windows native DLL and EXE (untrusted)
+        shell: pwsh
+        run: |
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Cetas CI Self-Signed (Untrusted)" -CertStoreLocation "Cert:\CurrentUser\My" -HashAlgorithm SHA256 -KeyAlgorithm RSA -KeyLength 3072
+          foreach ($file in @("stage\cetas.exe", "stage\cetas_moon.dll")) {
+            $signed = Set-AuthenticodeSignature -FilePath $file -Certificate $cert -HashAlgorithm SHA256
+            if ($signed.SignatureType -ne 'Authenticode') { throw "Signing failed: $file" }
+          }
+          & ./stage/cetas.exe --version
+          if ($LASTEXITCODE -ne 0) { throw "Signed executable failed" }
+      - name: Package executable and adjacent DLL
+        shell: pwsh
+        working-directory: stage
+        run: Compress-Archive -Path "cetas.exe", "cetas_moon.dll" -DestinationPath "cetas-windows-x64.zip" -Force
+      - uses: actions/upload-artifact@v6
+        with:
+          name: binary-native-windows-x64
+          path: stage/cetas-windows-x64.zip
 
   cetas-js-dist:
     name: build cetas-js npm dist (node bundle)
@@ -580,7 +597,7 @@ jobs:
 
   release:
     name: publish GitHub release
-    needs: [preflight, build, cetas-js-dist]
+    needs: [preflight, build, native-windows, cetas-js-dist]
     if: startsWith(github.ref, 'refs/tags/cetas-v') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -603,6 +620,12 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: binaries-windows-x64
+          path: staging
+
+      - name: download Windows native DLL bundle
+        uses: actions/download-artifact@v7
+        with:
+          name: binary-native-windows-x64
           path: staging
 
       - name: download cetas-js dist
