@@ -1,19 +1,16 @@
 package transcript
 
-// Parity goldens in this file are SOURCE-DERIVED: they were rendered by the
-// JavaScript oracle (cetas-js/src/tool-renderers/* + registry/specs,
-// transcript/components.ts ToolRow/UserMessage and transcript/thinking.ts)
-// with the same fixtures, rendered with FORCE_COLOR=0 (chalk disabled),
-// ansi-stripped and with the zero-width OSC 133 prompt marks removed. They pin
-// the native port to the JS literals; do not re-derive them from the Go
-// implementation.
+// Parity goldens here are SOURCE-DERIVED: rendered by the JavaScript oracle
+// (cetas-js/src/tool-renderers/* + registry/specs, transcript/components.ts
+// ToolRow/UserMessage, transcript/thinking.ts) from the same fixtures with
+// FORCE_COLOR=0, ansi-stripped and with the zero-width OSC 133 prompt marks
+// removed. They pin the native port to the JS literals; do not re-derive them
+// from the Go implementation.
 //
-// Two JS rendering details the fixtures encode explicitly:
-//   * every JS block owns a leading Spacer(1); the native parent supplies the
-//     inter-block gap, so the oracle drops that blank row;
-//   * pi-tui `Text(..., 1, 0)` indents EVERY physical line by one column and
-//     word-wraps at width-2, so a JS row that embeds "\n" keeps its literal
-//     (ragged) indentation on the continuation lines.
+// Two JS details the fixtures encode: every JS block owns a leading Spacer(1)
+// that the native parent supplies instead, and pi-tui `Text(..., 1, 0)` indents
+// every physical line by one column and wraps at width-2, so a row embedding
+// "\n" keeps its literal ragged indentation.
 
 import (
 	"encoding/json"
@@ -25,7 +22,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// parityNow is the fixed clock the shell rows render their elapsed label at.
 var parityNow = time.Date(2024, 3, 4, 5, 6, 7, 0, time.UTC)
 
 type toolParityCase struct {
@@ -321,11 +317,8 @@ var toolParity = []toolParityCase{
 
 var textParity = []textParityCase{
 	{
-		// Native deviation, deliberate: the user block is a framed panel
-		// (blank padded rows above and below, two-column margins) — the JS
-		// oracle's bare "> " line is superseded by the native design that
-		// makes the user's own message findable at a glance. Content wraps
-		// at width-4; every row is exactly `width` cells.
+		// Deliberate deviation: the user block is a framed panel with two-column
+		// margins; content wraps at width-4 and every row is exactly `width` cells.
 		id: "user/short", width: 40, kind: "user", text: "explain the build", live: false,
 		want: []string{
 			"                                        ",
@@ -399,8 +392,8 @@ func TestUserAndThinkingBlocksMatchJSOracle(t *testing.T) {
 			var block Block
 			o := Options{Width: tc.width, Now: parityNow}
 			if tc.kind == "user" {
-				// The user bubble keeps its full-width surface padding, so the
-				// golden is compared verbatim (no right-trim).
+				// The bubble keeps its full-width padding, so the golden is compared
+				// verbatim, without a right-trim.
 				block = Block{Kind: "user", Text: tc.text}
 			} else {
 				block = Block{Kind: "thinking", Text: tc.text}
@@ -419,9 +412,8 @@ func TestUserAndThinkingBlocksMatchJSOracle(t *testing.T) {
 	}
 }
 
-// Traffic-light bullets: the bullet carries the state colour while the tool
-// title keeps its own (JS theme.toolTitle) style. A row whose title inherits
-// the state colour is the bug this pins.
+// The bullet carries the state colour while the tool title keeps its own style;
+// a row whose title inherits the state colour is the bug this pins.
 const (
 	probePending = "\x1b[33m"
 	probeSuccess = "\x1b[32m"
@@ -482,8 +474,6 @@ func TestToolBulletsAreStateColouredAndTitlesAreNot(t *testing.T) {
 	}
 }
 
-// A terminal row renders its result view forever: no running clock label and
-// no call-view extras may come back, even when the result body is empty.
 func TestTerminalToolRowNeverRendersTheCallView(t *testing.T) {
 	args := json.RawMessage(`{"cmd":"go test ./..."}`)
 	for _, state := range []string{"succeeded", "failed", "rejected", "abandoned"} {
@@ -500,11 +490,9 @@ func TestTerminalToolRowNeverRendersTheCallView(t *testing.T) {
 	}
 }
 
-// ctrl+o shows up to 50 result lines and then counts the remainder. This is
-// the one deliberate divergence from the JS read spec, which keeps its
-// one-line summary even when expanded; the native row must stay inspectable
-// (see `TestCompletedToolCanBeExpandedAndCollapsedAfterCompletion` in the tui
-// package, which drives the same contract end to end).
+// ctrl+o shows up to 50 result lines and counts the remainder: the one deliberate
+// divergence from the JS read spec, which keeps its one-line summary even when
+// expanded.
 func TestExpandedToolRowShowsBodyUpTo50Lines(t *testing.T) {
 	var lines []string
 	for i := 0; i < 60; i++ {
@@ -527,9 +515,8 @@ func TestExpandedToolRowShowsBodyUpTo50Lines(t *testing.T) {
 	}
 }
 
-// The user bubble is a full-width surface: one column of padding on each side
-// and the background applied to every padded cell, like the JS
-// `Box(1, 0, theme.userMessageBg)` around `Text("> " + prompt, 0, 0)`.
+// The user bubble is a full-width surface: the background covers every padded
+// cell.
 func TestUserBlockIsAFullWidthPaddedSurface(t *testing.T) {
 	const width = 40
 	block := Block{Kind: "user", Text: "explain the build"}
@@ -564,8 +551,8 @@ func TestUserBlockIsAFullWidthPaddedSurface(t *testing.T) {
 	}
 }
 
-// Without OSC 10/11 replies the theme must degrade to plain text: a structured
-// prompt block with no colour guessing and no stray escapes.
+// With no OSC 10/11 reply the theme degrades to plain text: no colour guessing,
+// no stray escapes.
 func TestUserBlockStaysSafeWithoutTerminalColours(t *testing.T) {
 	block := Block{Kind: "user", Text: "把这个目录下的测试全部跑一遍，报告失败原因"}
 	out := block.Render(Options{Width: 24})
@@ -583,8 +570,8 @@ func TestUserBlockStaysSafeWithoutTerminalColours(t *testing.T) {
 	}
 }
 
-// Styling must be invisible to layout: ANSI codes never count as cells, never
-// get split by a wrap, and degraded (unstyled) rendering stays identical.
+// Styling is invisible to layout: ANSI never counts as cells and never splits at
+// a wrap.
 func TestStylesNeverChangeLayout(t *testing.T) {
 	styled := probeStyles()
 	long := strings.Repeat("wide-token-without-breaks ", 6)
@@ -604,8 +591,8 @@ func TestStylesNeverChangeLayout(t *testing.T) {
 					block.Kind, block.Name, width, plain, ansi.Strip(fancy))
 			}
 			for _, line := range strings.Split(fancy, "\n") {
-				// A row may only exceed the terminal when a single grapheme
-				// cannot fit (a 2-cell CJK/emoji rune at width 1).
+				// A row only exceeds the terminal when one grapheme cannot fit (2
+				// cells at width 1).
 				if ansi.StringWidth(line) > max(width, 2) {
 					t.Fatalf("%s/%s w=%d: line overflows: %q", block.Kind, block.Name, width, line)
 				}

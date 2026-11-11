@@ -104,11 +104,12 @@ package tui
 // in the status line instead of pretending to be complete.
 
 import (
-	"os"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -121,6 +122,11 @@ const (
 	// body larger than the whole budget is allowed as the documented oversize
 	// working-set exception (see wantedBody) and is released when it scrolls out.
 	pagedResidentBudget = 8 << 20
+	// pagedAdoptTailBytes is the live-tail weight that triggers a re-index
+	// after a settled turn. Each probe is one bounded index read; sizing it at
+	// a fraction of the resident budget keeps the amortized index cost far
+	// below one scan per megabyte of conversation.
+	pagedAdoptTailBytes = 1 << 20
 	// pagedPageLimit is a bounded page; the console trims by max_bytes too and
 	// reports the continuation in `next`.
 	pagedPageLimit = 32
@@ -430,11 +436,18 @@ func (r *pagedReplay) start(m *model) tea.Cmd {
 }
 
 func (r *pagedReplay) requestIndex(m *model) tea.Cmd {
-	if m == nil || m.host == nil || r.session == "" {
+	// A fresh session has no id at ready time, so the document stays
+	// unindexed until the first turn names the session; ask with the model's
+	// current id then.
+	session := r.session
+	if session == "" && m != nil {
+		session = m.session
+	}
+	if m == nil || m.host == nil || session == "" {
 		return nil
 	}
 	return requestAs(m.host, "transcript_index", "transcript_index", map[string]any{
-		"session_id": r.session,
+		"session_id": session,
 		"first":      0,
 		"limit":      pagedIndexProbeLimit,
 	})
@@ -685,6 +698,169 @@ func (r *pagedReplay) refresh(m *model) tea.Cmd {
 	return r.requestIndex(m)
 }
 
+// adoptTrace logs the live-tail adoption decision path when
+// CETAS_ADOPT_TRACE names a file; empty disables it. Diagnosis only.
+func adoptTrace(format string, args ...any) {
+	path := "/tmp/cetas-adopt-hardtrace.log" // TEMP diagnosis only
+	_ = path
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	fmt.Fprintf(file, format+"\n", args...)
+}
+
+// refreshForTailGrowth is the turn-end hook: once the raw live tail the
+// conversation appended since the last index is heavy enough to matter for
+// retention, re-index so the reply can adopt it (see adoptLiveTail). Below the
+// threshold the tail stays raw — it is both the cheapest and the freshest copy
+// of what the user is reading. A session that was never indexed (a fresh
+// session's ready-time probe has no session id yet) is indexed here for the
+// first time; applyIndex then adopts instead of rebuilding.
+func (r *pagedReplay) refreshForTailGrowth(m *model) tea.Cmd {
+	if r == nil || m == nil || m.host == nil {
+		return nil
+	}
+	bytes := 0
+	for i := r.total; i < len(m.transcript); i++ {
+		bytes += len(m.transcript[i])
+		if b, ok := m.blocks[i]; ok {
+			bytes += len(b.Arguments) + len(b.Text) + len(b.Reasoning)
+		}
+	}
+	if bytes < pagedAdoptTailBytes {
+		return nil
+	}
+	adoptTrace("refresh: indexed=%v total=%d doc=%d tailBytes=%d session=%q replaySession=%q watermark=%d/%q",
+		r.indexed, r.total, len(m.transcript), bytes, m.session, r.session, m.replayLiveFrom, m.replayLiveSession)
+	if !r.indexed {
+		return r.requestIndex(m)
+	}
+	return r.refresh(m)
+}
+
+// uiLocalBlock reports whether a tail row is a UI fact rather than a journal
+// projection: exactly the kinds installBlocks preserves across a rebuild.
+func (m *model) uiLocalBlock(index int) bool {
+	b, ok := m.blocks[index]
+	return ok && (b.Kind == "notice" || b.Kind == "error")
+}
+
+// blockKindDebug renders the tail's block kinds for the adoption trace.
+func (m *model) blockKindDebug(from int) string {
+	kinds := "["
+	for i := from; i < len(m.transcript) && len(kinds) < 200; i++ {
+		if i > from {
+			kinds += " "
+		}
+		if b, ok := m.blocks[i]; ok {
+			kinds += b.Kind
+		} else {
+			kinds += "-"
+		}
+	}
+	return kinds + "]"
+}
+
+// markJournalBoundary records where the live tail begins after an index,
+// install or adoption settled the journal boundary.
+func (r *pagedReplay) markJournalBoundary(m *model) {
+	if m == nil {
+		return
+	}
+	m.replayLiveFrom = r.total
+	m.replayLiveSession = r.session
+}
+
+// adoptLiveTail converts the journal-projected blocks the live conversation
+// appended since the last index into first-class paged blocks. Only blocks
+// past the model's live watermark (replayLiveFrom, for this session) are
+// adoptable, so a replay reset over an existing document can never mistake
+// history for a live tail. The projected run moves to its absolute index
+// (UI-local rows that shared the tail ride behind it, in order), a synthesized
+// page registers the run as resident, and the ordinary eviction budget owns it
+// from then on: scrolling far away releases the sources and a later approach
+// reads them back from the journal. The synthesized items rebuild
+// byte-identically, so a revision bump that drops resident bodies re-installs
+// exactly what the live path had painted.
+func (r *pagedReplay) adoptLiveTail(m *model, total int) bool {
+	base := r.total
+	if m != nil && m.replayLiveSession != "" && m.replayLiveSession == r.session && m.replayLiveFrom > base {
+		base = m.replayLiveFrom
+	}
+	delta := total - base
+	if delta <= 0 || m == nil || len(m.transcript) <= base {
+		return false
+	}
+	// The journal projection is block-for-block what the live path appended:
+	// the adoptable rows must form exactly one contiguous run of delta blocks,
+	// with UI-local rows only before or after it.
+	start, end, count := -1, -1, 0
+	for i := base; i < len(m.transcript); i++ {
+		if m.uiLocalBlock(i) {
+			continue
+		}
+		if start < 0 {
+			start = i
+		} else if i != end+1 {
+			return false // a UI row interleaves the projected run
+		}
+		end = i
+		count++
+	}
+	if count != delta || start < 0 {
+		adoptTrace("adopt: refused total=%d base=%d delta=%d count=%d start=%d doc=%d kinds=%v",
+			total, base, delta, count, start, len(m.transcript), m.blockKindDebug(base))
+		return false
+	}
+	if start != base {
+		m.moveTailRun(base, start, delta)
+	}
+	if r.resident == nil {
+		r.resident = map[int]pagedItem{}
+	}
+	if r.pages == nil {
+		r.pages = map[int]*pagedPage{}
+	}
+	page := &pagedPage{first: base, used: r.clock, indices: make([]int, 0, delta)}
+	for block := base; block < total; block++ {
+		item := pagedItem{Index: block}
+		if b, ok := m.blocks[block]; ok {
+			item.Kind = b.Kind
+			item.Name = b.Name
+			item.CallID = b.CallID
+			item.Arguments = b.Arguments
+			item.Reasoning = b.Reasoning
+			switch b.Kind {
+			case "user", "thinking":
+				// The decorated source is re-derived on rebuild.
+				item.Text = b.Text
+			case "assistant":
+				item.Text = m.transcript[block]
+			case "tool":
+				item.Status = b.State
+				if b.Text != "" {
+					// toolResultText unmarshals a JSON string; quoting the
+					// settled display text survives that round trip.
+					item.Result = json.RawMessage(strconv.Quote(b.Text))
+				}
+			}
+		} else {
+			// An answer the live path appended without reasoning renders from
+			// its Markdown source directly.
+			item.Text = m.transcript[block]
+		}
+		r.resident[block] = item
+		r.bytes += item.bytes()
+		page.indices = append(page.indices, block)
+	}
+	r.pages[page.first] = page
+	r.total = total
+	adoptTrace("adopt: ok first=%d blocks=%d bytes=%d", page.first, len(page.indices), r.bytes)
+	return true
+}
+
 // retire records a generation that must never be adopted again.
 func (r *pagedReplay) retire(revision string) {
 	if revision == "" {
@@ -732,15 +908,30 @@ func (r *pagedReplay) applyIndex(m *model, payload json.RawMessage) tea.Cmd {
 	}
 	scan := r.scan
 	switch {
-	case !r.indexed || total < r.total:
+	case !r.indexed:
+		// The first index of a session that already ran live (its ready-time
+		// probe had no session id yet) adopts the tail in place when the
+		// projection maps it; every other first index rebuilds the skeleton,
+		// which also releases the scan's page and stream state.
+		if !r.adoptLiveTail(m, total) {
+			r.installBlocks(m, total)
+		}
+	case total < r.total:
 		// A shrunken total is a rewrite: the document skeleton is rebuilt, which
 		// also releases the scan's page and stream state.
 		r.installBlocks(m, total)
 	case total > r.total:
-		// The journal appended blocks: open room before the live tail so the
-		// absolute index of everything the user already sees does not move.
-		m.insertPagedPlaceholders(r.total, total-r.total)
-		r.total = total
+		// The journal grew. The common live case is this process's own turn
+		// blocks: adopt them in place so the raw tail becomes budget-managed
+		// paged blocks without a duplicate placeholder render. Growth with no
+		// live tail at all is another writer's append: open room for it. A
+		// tail the projection cannot map (mismatched shapes, rows the journal
+		// never persisted) keeps its raw blocks and retries on the next
+		// refresh rather than duplicating anything.
+		if !r.adoptLiveTail(m, total) && len(m.transcript) == r.total {
+			m.insertPagedPlaceholders(r.total, total-r.total)
+			r.total = total
+		}
 	}
 	if scan != nil && r.scan == nil {
 		// installBlocks released the document; the search itself is still the
@@ -748,6 +939,7 @@ func (r *pagedReplay) applyIndex(m *model, payload json.RawMessage) tea.Cmd {
 		r.rearmScan(m, scan)
 	}
 	r.indexed = true
+	r.markJournalBoundary(m)
 	m.initialReplayLoaded = true
 	m.refreshTranscript()
 	return r.ensure(m)
@@ -879,10 +1071,15 @@ func (r *pagedReplay) applyPage(m *model, payload json.RawMessage) tea.Cmd {
 		return r.scanStep(m)
 	}
 	// The journal can grow between the index and a page; follow the larger
-	// total and let the index probe confirm it.
+	// total the same way the index does: adopt this process's live tail when
+	// the projection maps it, open room only when no tail can duplicate, and
+	// otherwise leave the boundary for the next index probe.
 	if reply.Total != nil && *reply.Total > r.total {
-		m.insertPagedPlaceholders(r.total, *reply.Total-r.total)
-		r.total = *reply.Total
+		if !r.adoptLiveTail(m, *reply.Total) && len(m.transcript) == r.total {
+			m.insertPagedPlaceholders(r.total, *reply.Total-r.total)
+			r.total = *reply.Total
+		}
+		r.markJournalBoundary(m)
 	}
 	r.storePage(m, first, items)
 	m.refreshTranscript()
@@ -2110,6 +2307,68 @@ func (m *model) insertPagedPlaceholders(at, count int) {
 	}
 	m.document.selection = transcriptSelection{}
 	insertVirtualHeights(m.virtualScroll, at, count, 3)
+	if m.searchQuery != "" {
+		m.searchHits = transcriptMatches(m.transcript, m.hiddenSearchSources, m.searchQuery)
+		m.searchActive = min(m.searchActive, len(m.searchHits)-1)
+	}
+}
+
+// rotateIndex maps one block index through a moveTailRun rotation: the moved
+// run [from, from+count) slides down to `at`, and the blocks it passed shift up
+// behind it. Everything outside the rotated span keeps its index.
+func rotateIndex(index, at, from, count int) int {
+	switch {
+	case index >= from && index < from+count:
+		return index - (from - at)
+	case index >= at && index < from:
+		return index + count
+	}
+	return index
+}
+
+func rotateBlockMap[T any](old map[int]T, at, from, count int) map[int]T {
+	if old == nil {
+		return nil
+	}
+	next := make(map[int]T, len(old))
+	for index, value := range old {
+		next[rotateIndex(index, at, from, count)] = value
+	}
+	return next
+}
+
+// moveTailRun relocates `count` contiguous document blocks so the run that
+// starts at `from` starts at `at` instead; the blocks between shift up behind
+// it, preserving their order. Live-tail adoption uses it to give the
+// journal-projected run its absolute index while the UI-local rows that shared
+// the tail keep their relative order behind it. Every block index in the model
+// moves in the same permutation, so no cache or map can name a stale block.
+func (m *model) moveTailRun(at, from, count int) {
+	if count <= 0 || at < 0 || from <= at || from+count > len(m.transcript) {
+		return
+	}
+	run := append([]string(nil), m.transcript[from:from+count]...)
+	mid := append([]string(nil), m.transcript[at:from]...)
+	copy(m.transcript[at:], run)
+	copy(m.transcript[at+count:], mid)
+	m.blocks = rotateBlockMap(m.blocks, at, from, count)
+	m.markdownRaw = rotateBlockMap(m.markdownRaw, at, from, count)
+	m.markdownCache.rotate(at, from, count)
+	for key, index := range m.toolIndex {
+		m.toolIndex[key] = rotateIndex(index, at, from, count)
+	}
+	for i := range m.hiddenSearchSources {
+		m.hiddenSearchSources[i].block = rotateIndex(m.hiddenSearchSources[i].block, at, from, count)
+	}
+	for key, index := range m.surface.notices {
+		m.surface.notices[key] = rotateIndex(index, at, from, count)
+	}
+	if m.document.live.valid && m.document.live.index >= at && m.document.live.index < from+count {
+		m.document.live.index = rotateIndex(m.document.live.index, at, from, count)
+		m.document.live.valid = false
+	}
+	m.document.selection = transcriptSelection{}
+	rotateVirtualWindow(m.virtualScroll, at, from, count)
 	if m.searchQuery != "" {
 		m.searchHits = transcriptMatches(m.transcript, m.hiddenSearchSources, m.searchQuery)
 		m.searchActive = min(m.searchActive, len(m.searchHits)-1)

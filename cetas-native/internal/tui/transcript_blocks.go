@@ -4,8 +4,8 @@ import (
 	"charm.land/lipgloss/v2"
 	"encoding/json"
 	"fmt"
-	"sort"
 	transcriptui "github.com/colmugx/cetas/cetas-native/internal/tui/transcript"
+	"sort"
 	"strings"
 	"time"
 )

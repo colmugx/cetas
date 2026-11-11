@@ -60,8 +60,8 @@ func (t Theme) Surface(kind, text string) string {
 	alpha := .11
 	switch kind {
 	case "user":
-		// The user's own message is the block to find at a glance, so its
-		// tint runs deeper than the ambient surfaces.
+		// Deeper than the ambient surfaces: the user's message is the block to
+		// find at a glance.
 		alpha = .18
 	case "pending":
 		tint = color.RGBA{202, 156, 56, 255}
@@ -91,13 +91,12 @@ func Clean(s string) string {
 	}, ansi.Strip(s))
 }
 
-// SanitizeSGR is the ingest filter for runtime-sourced text that will be
-// re-emitted to the terminal (tool results, summaries, diagnostics): it keeps
-// printable text, tabs and newlines plus SGR color sequences — colored tool
-// output stays legible — and drops every other escape or control sequence.
-// OSC 8 hyperlink spoofing, OSC 52 clipboard writes, kitty graphics passthrough,
-// title rewrites and screen clears from untrusted tool output all die here,
-// while locally generated styling (applied after ingest) is unaffected.
+// Ingest filter for runtime-sourced text re-emitted to the terminal (tool
+// results, summaries, diagnostics): printable text, tabs, newlines and SGR
+// colors survive — colored tool output stays legible — and every other escape
+// dies here, so OSC 8 spoofing, OSC 52 clipboard writes, kitty passthrough,
+// title rewrites and screen clears from untrusted output cannot land. Locally
+// generated styling is applied after ingest and is unaffected.
 func SanitizeSGR(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -111,8 +110,7 @@ func SanitizeSGR(s string) string {
 			}
 			switch next := s[i+1]; {
 			case next == '[':
-				// CSI: parameter/intermediate bytes then one final byte.
-				// Only SGR ('m') survives.
+				// CSI: params/intermediates then one final byte; only SGR survives.
 				j := i + 2
 				for j < len(s) && s[j] >= 0x20 && s[j] <= 0x3f {
 					j++

@@ -8,9 +8,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// The inline completion popup sits directly above the editor and grows with
-// the result count up to its cap: one match opens a one-row hint instead of a
-// pane of blanks, and forty matches never exceed the cap.
 func TestCompletionMenuGrowsToItsCapOnly(t *testing.T) {
 	const width = 48
 	m := newModel()
@@ -42,9 +39,6 @@ func TestCompletionMenuGrowsToItsCapOnly(t *testing.T) {
 	}
 }
 
-// Candidates stack bottom-up: the best match sits on the row nearest the
-// composer and the cursor starts there, so up walks away into alternatives —
-// the shell-completion habit.
 func TestCompletionInstallsBestMatchAtTheBottom(t *testing.T) {
 	m := newModel()
 	m.installCompletion("files", []string{"best.go", "mid.go", "last.go"}, []string{"best.go", "mid.go", "last.go"})
@@ -57,7 +51,6 @@ func TestCompletionInstallsBestMatchAtTheBottom(t *testing.T) {
 	if m.modalValues[m.modalIndex] != "best.go" {
 		t.Fatalf("the bottom row must insert the best match: %v", m.modalValues)
 	}
-	// An empty candidate set opens nothing.
 	before := m.modal
 	m.installCompletion("files", nil, nil)
 	if m.modal != before || m.modalItems == nil {

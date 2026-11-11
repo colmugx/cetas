@@ -46,9 +46,8 @@ func New() Model {
 	t.KeyMap.WordForward.SetKeys("alt+right", "ctrl+right", "alt+f")
 	t.KeyMap.DeleteWordBackward.SetKeys("ctrl+w", "alt+backspace")
 	t.KeyMap.DeleteWordForward.SetKeys("alt+d", "alt+delete")
-	// The composer is chromeless: no prompt glyph and no cursor-line wash.
-	// The block cursor itself carries the caret; only the functional
-	// selection highlight keeps a background.
+	// Chromeless: no prompt glyph, no cursor-line wash. The block cursor carries
+	// the caret; only the functional selection highlight keeps a background.
 	styles := t.Styles()
 	styles.Focused.CursorLine = lipgloss.NewStyle()
 	styles.Blurred.CursorLine = lipgloss.NewStyle()
@@ -73,8 +72,8 @@ func (m *Model) Reset() {
 	m.beforeYank = nil
 }
 
-// Submission expands only intact paste markers; editing/deleting a chip never
-// silently submits a different visible value.
+// Only intact paste markers expand: deleting a chip never silently submits a
+// different visible value.
 func (m Model) Submission() string {
 	text := m.Value()
 	for _, p := range m.pastes {

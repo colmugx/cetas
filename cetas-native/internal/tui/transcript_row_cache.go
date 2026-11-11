@@ -6,85 +6,76 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// The transcript paints a window of rows, never a window of whole blocks. Two
-// structures make that possible without re-laying-out a block on every wheel
-// event:
+// The transcript paints a window of rows, never a window of whole blocks:
 //
 //   - transcriptBlockLayout maps a block's source lines onto display rows with
 //     cumulative checkpoints, so any row range costs O(rows) instead of
-//     O(block). A giant block therefore contributes the same number of rows to
-//     a frame as a short one.
-//   - transcriptRowCache keeps the most recently painted row pages (and the
-//     layout metadata) inside a hard byte budget. Scrolling inside a long block
-//     reuses both, so no row is split, padded or ANSI-scanned twice while it
-//     stays near the viewport.
+//     O(block).
+//   - transcriptRowCache keeps the most recently painted row pages and the
+//     layout metadata inside a hard byte budget, so no row is split, padded or
+//     ANSI-scanned twice while it stays near the viewport.
 //
-// Source text is never copied: `lines` are substrings of the formatted block,
-// exactly like the render the terminal would have painted before.
+// Source text is never copied: `lines` are substrings of the formatted block.
 const (
-	// transcriptRowCacheBudget is the hard byte budget of the cache. It is
-	// accounted on every insert, so a long session cannot grow it silently.
+	// transcriptRowCacheBudget is the hard byte budget, accounted on every insert
+	// so a long session cannot grow it silently.
 	transcriptRowCacheBudget = 8 << 20
-	// transcriptLayoutStride is the number of source lines between two
-	// cumulative row checkpoints. A row lookup scans at most this many lines.
+	// transcriptLayoutStride is the source lines between two row checkpoints, so
+	// a lookup scans at most this many lines.
 	transcriptLayoutStride = 32
-	// transcriptRowPageSize is the materialization granularity: a wheel event
-	// that moves the viewport slightly reuses the entire page it was reading.
+	// transcriptRowPageSize is the materialization granularity: a small scroll
+	// reuses the entire page it was reading.
 	transcriptRowPageSize = 64
-	// transcriptGapDefault is the inter-message gap a block contributes as
-	// leading blank rows. It matches cetas-js, where every block owns a
-	// leading Spacer(1) the native parent replaces.
+	// transcriptGapDefault is the inter-message gap a block contributes as leading
+	// blank rows.
 	transcriptGapDefault = 1
-	// transcriptGapToolRun is the gap inside a run of consecutive tool
-	// calls: dense stacking, like mainstream coding agents.
+	// transcriptGapToolRun is the gap inside a run of consecutive tool calls:
+	// dense stacking.
 	transcriptGapToolRun = 0
-	// transcriptLayoutOversized marks a block whose own metadata does not
-	// belong in a long-lived cache. Such a block stays cached only while it is
-	// on screen and is dropped as soon as it scrolls away.
+	// transcriptLayoutOversized marks a block whose metadata does not belong in a
+	// long-lived cache: it is dropped as soon as it scrolls away.
 	transcriptLayoutOversized = transcriptRowCacheBudget / 4
-	// transcriptRowCacheEntries bounds the number of cached blocks so a scroll
-	// through a very long session with tiny messages stays cheap to trim.
+	// transcriptRowCacheEntries bounds the number of cached blocks, so a scroll
+	// through a long session of tiny messages stays cheap to trim.
 	transcriptRowCacheEntries = 1024
 )
 
-// transcriptLayoutIdentity is everything a block's rows depend on. A layout is
+// transcriptLayoutIdentity is everything a block's rows depend on: a layout is
 // reused only while every input is identical, which is what makes a cached row
-// never a stale row: the block revision, terminal width, theme and the
-// tool/thinking expansion flags all invalidate it.
+// never a stale row.
 type transcriptLayoutIdentity struct {
 	revision uint64
 	width    int
 	theme    string
 	tools    bool
 	thinking bool
-	// gap is this block's leading blank-row count. A layout is reused only
-	// while its gap matches, so a neighbor that changes the gap invalidates
-	// the cached rows instead of serving a stale height.
+	// gap is this block's leading blank-row count; a neighbour that changes the
+	// gap invalidates the cached rows instead of serving a stale height.
 	gap int
 }
 
-// transcriptBlockLayout is one block's source-to-row mapping. `checks[k]` is
-// the number of content rows before source line k*transcriptLayoutStride, so
-// resolving a row never scans the whole block.
+// transcriptBlockLayout is one block's source-to-row mapping: `checks[k]` is the
+// content rows before source line k*transcriptLayoutStride, so resolving a row
+// never scans the whole block.
 type transcriptBlockLayout struct {
-	block    int
-	id       transcriptLayoutIdentity
+	block int
+	id    transcriptLayoutIdentity
 	// gap is the block's leading blank rows; leading, not trailing, so
 	// appending a block never re-lays-out its predecessor.
-	gap int
+	gap      int
 	lines    []string
 	lineRows []int32
 	ascii    []bool
 	checks   []int32
 	content  int32
-	// bytes is this layout's share of the cache budget: its source text, the
-	// line headers and the checkpoints, plus every materialized row page.
+	// bytes is this layout's share of the budget: source text, line headers,
+	// checkpoints and row pages.
 	bytes    int
 	pages    map[int][]string
 	cached   bool
 	oversize bool
-	// frame is the last mount that painted this layout. Trim uses it to keep
-	// the visible window without allocating a protection set every frame.
+	// frame is the last mount that painted this layout; trim uses it to keep the
+	// visible window without allocating a protection set.
 	frame uint64
 	prev  *transcriptBlockLayout
 	next  *transcriptBlockLayout
@@ -103,8 +94,6 @@ func newTranscriptBlockLayout(block int, id transcriptLayoutIdentity, text strin
 		checks:   make([]int32, 0, 1+len(lines)/transcriptLayoutStride),
 		pages:    nil,
 	}
-	// checks[k] is the number of content rows before source line
-	// k*transcriptLayoutStride, so checks[0] is always 0.
 	layout.checks = append(layout.checks, 0)
 	rows := int32(0)
 	for index, line := range lines {
@@ -125,9 +114,9 @@ func newTranscriptBlockLayout(block int, id transcriptLayoutIdentity, text strin
 	return layout
 }
 
-// Printable ASCII has a one-to-one byte/cell map. Keeping this classification
-// in the layout lets a window inside a megabyte of JSON/base64 slice only its
-// visible bytes; ANSI and grapheme-heavy lines keep ansi.Cut's exact semantics.
+// Printable ASCII maps one byte to one cell, so a window inside a megabyte of
+// JSON or base64 slices only its visible bytes; ANSI and grapheme-heavy lines keep
+// ansi.Cut's exact semantics.
 func printableASCIILine(line string) bool {
 	for i := 0; i < len(line); i++ {
 		if line[i] < 0x20 || line[i] > 0x7e {
@@ -137,20 +126,15 @@ func printableASCIILine(line string) bool {
 	return true
 }
 
-// height is the block's real document height: its leading gap rows plus
-// content rows.
 func (l *transcriptBlockLayout) height() int { return l.gap + int(l.content) }
 
-// transcriptLineRows is the number of terminal rows one source line occupies,
-// the same arithmetic wrapTranscriptBlock applies.
+// The same arithmetic wrapTranscriptBlock applies.
 func transcriptLineRows(line string, width int) int {
 	return max(1, (ansi.StringWidth(line)+max(1, width)-1)/max(1, width))
 }
 
-// wrapTranscriptLine splits one line into the cells the viewport paints. It
-// mirrors bubbles' SoftWrap (cell-accurate ansi.Cut chunks) exactly like
-// wrapTranscriptBlock, but for a single line so a row range never splits the
-// whole block.
+// Mirrors bubbles' SoftWrap (cell-accurate ansi.Cut chunks) for a single line, so
+// a row range never splits the whole block.
 func wrapTranscriptLine(line string, width int) []string {
 	width = max(1, width)
 	cells := ansi.StringWidth(line)
@@ -164,8 +148,7 @@ func wrapTranscriptLine(line string, width int) []string {
 	return rows
 }
 
-// lineAt resolves the source line and the row offset inside it. The checkpoint
-// search bounds the scan to transcriptLayoutStride lines.
+// The checkpoint search bounds the scan to transcriptLayoutStride lines.
 func (l *transcriptBlockLayout) lineAt(row int) (int, int) {
 	row = clampInt(row, 0, max(0, int(l.content)-1))
 	low, high := 0, len(l.checks)-1
@@ -190,9 +173,8 @@ func (l *transcriptBlockLayout) lineAt(row int) (int, int) {
 	return line, offset
 }
 
-// rowsInto appends the block's display rows [from, to) — content rows first,
-// then the spacer rows — padded to the transcript width. Only that range is
-// ever laid out.
+// Content rows first, then the spacer rows, all padded to the transcript width;
+// only that range is ever laid out.
 func (l *transcriptBlockLayout) rowsInto(dst []string, from, to int) []string {
 	width := max(1, l.id.width)
 	height := l.height()
@@ -219,9 +201,8 @@ func (l *transcriptBlockLayout) rowsInto(dst []string, from, to int) []string {
 		} else if l.lineRows[line] == 1 {
 			piece = source
 		} else {
-			// Cut just this requested row, not every row in the physical
-			// line. Complex ANSI still costs a source scan per visible row;
-			// no whole-line row array is ever allocated for a window.
+			// Cut just the requested row: complex ANSI costs a source scan per
+			// visible row, but no whole-line row array is ever allocated.
 			piece = ansi.Cut(source, start, start+width)
 		}
 		dst = append(dst, padTranscriptRow(piece, width))
@@ -234,10 +215,8 @@ func (l *transcriptBlockLayout) rowsInto(dst []string, from, to int) []string {
 	return dst
 }
 
-// transcriptRowCache is a byte-bounded LRU of block layouts and their
-// materialized row pages. An entry is dropped once its block is no longer near
-// the viewport, so an oversized block is never retained just because it was
-// once painted.
+// transcriptRowCache is a byte-bounded LRU of block layouts and their row pages.
+// An entry is dropped once its block is no longer near the viewport.
 type transcriptRowCache struct {
 	budget     int
 	used       int
@@ -245,12 +224,12 @@ type transcriptRowCache struct {
 	byBlock    map[int]*transcriptBlockLayout
 	oversized  []*transcriptBlockLayout
 	// builds counts layouts derived from source, pages counts row pages
-	// materialized; both stay flat on a warm frame, which is what makes a
-	// scroll measurable instead of guessed.
+	// materialized; both stay flat on a warm frame, which makes a scroll
+	// measurable.
 	builds    int
 	pages     int
 	evictions int
-	// frame is the current mount. A layout painted by it is never evicted.
+	// frame is the current mount; a layout it painted is never evicted.
 	frame uint64
 }
 
@@ -258,8 +237,8 @@ func newTranscriptRowCache(budget int) *transcriptRowCache {
 	return &transcriptRowCache{budget: max(0, budget), byBlock: make(map[int]*transcriptBlockLayout)}
 }
 
-// beginFrame starts a mount: everything read or written from now on belongs to
-// the window being painted and survives this frame's trim.
+// Everything read or written from now on belongs to the window being painted and
+// survives this frame's trim.
 func (c *transcriptRowCache) beginFrame() {
 	c.frame++
 }
@@ -270,7 +249,7 @@ func (c *transcriptRowCache) lookup(block int, id transcriptLayoutIdentity) *tra
 		return nil
 	}
 	if layout.id != id {
-		// The block changed: its rows are not merely stale, they are wrong.
+		// The block changed: its rows are wrong, not merely stale.
 		c.drop(layout)
 		return nil
 	}
@@ -345,7 +324,6 @@ func (c *transcriptRowCache) touch(layout *transcriptBlockLayout) {
 	c.head = layout
 }
 
-// page materializes (and accounts) one page of a block's rows.
 func (c *transcriptRowCache) page(layout *transcriptBlockLayout, index int) []string {
 	if rows, ok := layout.pages[index]; ok {
 		return rows
@@ -368,8 +346,7 @@ func (c *transcriptRowCache) page(layout *transcriptBlockLayout, index int) []st
 	return rows
 }
 
-// appendRows appends the padded display rows [from, to) of one block to dst,
-// reading whole pages so a small scroll never re-splits a row. The caller owns
+// Whole pages are read so a small scroll never re-splits a row. The caller owns
 // dst, so a painted row can never mutate a cached page.
 func (c *transcriptRowCache) appendRows(dst []string, layout *transcriptBlockLayout, from, to int) []string {
 	height := layout.height()
@@ -392,8 +369,7 @@ func (c *transcriptRowCache) appendRows(dst []string, layout *transcriptBlockLay
 	return dst
 }
 
-// rows returns the padded display rows [from, to) of one cached block. It is
-// the seam the mount path and the selection/copy path share.
+// The seam the mount path and the selection/copy path share.
 func (c *transcriptRowCache) rows(layout *transcriptBlockLayout, from, to int) []string {
 	height := layout.height()
 	from = clampInt(from, 0, height)
@@ -401,9 +377,8 @@ func (c *transcriptRowCache) rows(layout *transcriptBlockLayout, from, to int) [
 	return c.appendRows(make([]string, 0, to-from), layout, from, to)
 }
 
-// transcriptRowCacheStats is the observable state of the cache. A warm frame
-// must leave every counter unchanged, so tests can assert reuse instead of
-// inferring it from timings.
+// A warm frame must leave every counter unchanged, so tests can assert reuse
+// instead of inferring it from timings.
 type transcriptRowCacheStats struct {
 	builds       int
 	materialized int
@@ -422,10 +397,10 @@ func (c *transcriptRowCache) stats() transcriptRowCacheStats {
 	}
 }
 
-// trim runs after the window's rows have been handed to the frame. Prefer
-// retaining the current window, but never let that preference bypass the byte
-// or entry budget. Eviction drops cache ownership, not the frame-owned strings.
-// A layout larger than the budget may consequently be derived again on revisit.
+// Runs after the window's rows are handed to the frame: the current window is
+// preferred, but never at the cost of the byte or entry budget. Eviction drops
+// cache ownership rather than frame-owned strings, so an oversized layout may be
+// derived again on revisit.
 func (c *transcriptRowCache) trim() {
 	for i := 0; i < len(c.oversized); i++ {
 		layout := c.oversized[i]

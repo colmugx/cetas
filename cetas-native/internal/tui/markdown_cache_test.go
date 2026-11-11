@@ -110,10 +110,28 @@ func TestMarkdownCacheRekeysOnTranscriptEdits(t *testing.T) {
 			t.Fatalf("after shift block %d = %q (found=%v), want %q", probe.index, got, ok, probe.want)
 		}
 	}
-	// Retain a window: every render outside [1, 4) is dropped; the only block
-	// that exists inside the window is 1.
+	// Rotate the run [4, 6) down to 1: the run's entries follow their blocks,
+	// the passed-over entry shifts up, and nothing lingers at the old indexes.
+	c.rotate(1, 4, 2)
+	for _, probe := range []struct {
+		index int
+		want  string
+	}{
+		{0, "a"}, {1, "d"}, {2, "e"}, {3, "c"},
+	} {
+		if got, ok := c.get(probe.index); !ok || got != probe.want {
+			t.Fatalf("after rotate block %d = %q (found=%v), want %q", probe.index, got, ok, probe.want)
+		}
+	}
+	for _, index := range []int{4, 5} {
+		if _, ok := c.get(index); ok {
+			t.Fatalf("rotate left a stale entry at %d", index)
+		}
+	}
+	// Retain a window: every render outside [1, 4) is dropped; the rotated
+	// run is exactly what lives inside it.
 	c.retain(1, 4)
-	if got, ok := c.get(1); !ok || got != "c" {
+	if got, ok := c.get(1); !ok || got != "d" {
 		t.Fatalf("retain lost the in-window block: %q (found=%v)", got, ok)
 	}
 	for _, index := range []int{0, 4, 5} {

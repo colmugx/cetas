@@ -138,6 +138,20 @@ func (c *markdownCache) retain(from, to int) {
 	}
 }
 
+// rotate re-keys entries through a moveTailRun rotation of the document,
+// preserving LRU order (it ranks recency, not index).
+func (c *markdownCache) rotate(at, from, count int) {
+	if c == nil || len(c.entries) == 0 {
+		return
+	}
+	moved := make(map[int]*markdownCacheEntry, len(c.entries))
+	for index, entry := range c.entries {
+		entry.block = rotateIndex(index, at, from, count)
+		moved[entry.block] = entry
+	}
+	c.entries = moved
+}
+
 // insert re-keys every block at or after `at` by `count`, matching a
 // transcript insertion. LRU order is unchanged: it ranks recency, not index.
 func (c *markdownCache) insert(at, count int) {

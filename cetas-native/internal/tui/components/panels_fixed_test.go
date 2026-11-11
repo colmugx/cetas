@@ -8,9 +8,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// The /model picker stays legible while tabs and search change the list every
-// keystroke: its box must keep one height across list lengths, keep the
-// selection visible, and never show phantom rows for missing items.
 func TestPanelFixedKeepsGeometryAcrossListLengths(t *testing.T) {
 	theme := NewTheme(color.Gray{Y: 230}, color.Black)
 	heights := map[int]int{}
@@ -30,7 +27,6 @@ func TestPanelFixedKeepsGeometryAcrossListLengths(t *testing.T) {
 			}
 		}
 	}
-	// The empty list shows a hint, a short list pads, a long list windows.
 	empty := PanelFixed(theme, "Model", nil, 0, 40, 30, 9)
 	if !rowHas(empty, "(no matches)") {
 		t.Fatal("empty list lost its no-matches hint")

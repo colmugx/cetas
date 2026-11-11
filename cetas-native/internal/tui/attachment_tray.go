@@ -6,15 +6,11 @@ import (
 	"github.com/colmugx/cetas/cetas-native/internal/tui/components"
 )
 
-// The attachment tray: staged images docked directly above the composer.
-// On graphics terminals each chip shows a live thumbnail through the same
-// unicode-placeholder technique the transcript uses; everywhere else the
-// chip degrades to the text glyph line, and the paste path still works.
-
-// attachmentTrayLines renders the tray, or nothing when no attachment waits.
-// Layout: one muted header line, then a band of 8×3 thumbnails with the file
-// name and size captioned beside each. Chips flow left to right; the band
-// never wraps and never exceeds the width the editor has.
+// The tray docks staged images above the composer. On graphics terminals each
+// chip is a live thumbnail using the transcript's unicode-placeholder
+// technique; elsewhere it degrades to the text glyph line.
+//
+// One muted header, then a single 8×3 thumbnail band that never wraps.
 func (m *model) attachmentTrayLines(theme components.Theme, w int) []string {
 	if len(m.pendingImages) == 0 {
 		return nil
@@ -27,7 +23,6 @@ func (m *model) attachmentTrayLines(theme components.Theme, w int) []string {
 		}
 	}
 	if len(thumbs) != len(m.pendingImages) {
-		// Graphics unavailable (or a non-PNG chip in the set): the text tray.
 		summary := m.stagedImageSummary()
 		return []string{muted(components.Fit(" "+summary, w))}
 	}
@@ -54,7 +49,6 @@ func (m *model) attachmentTrayLines(theme components.Theme, w int) []string {
 	for _, line := range band {
 		rows = append(rows, components.Pad(line, w))
 	}
-	// Caption line: name and size beside each thumbnail column.
 	caption := ""
 	for i, attachment := range m.pendingImages {
 		if i > 0 {
@@ -87,4 +81,3 @@ func itoaInt(n int) string {
 	}
 	return string(digits)
 }
-

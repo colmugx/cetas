@@ -2,11 +2,11 @@ package tui
 
 import (
 	"fmt"
-	"time"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -73,8 +73,6 @@ func TestClearStagedImagesDeletesThumbnailImages(t *testing.T) {
 	})
 }
 
-// A paste whose whole body is an image file path becomes an attachment and
-// never reaches the composer; anything else falls through as text.
 func TestPasteImagePathStagesAttachment(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "pasted.png")
@@ -108,8 +106,6 @@ func TestPasteImagePathStagesAttachment(t *testing.T) {
 	}
 }
 
-// The completion debounce owns a UI wake: after typing settles with no other
-// animation running, the clock must still fire the staged request.
 func TestCompletionDebounceOwnsAWake(t *testing.T) {
 	m := trayModel(t)
 	m.host = &imageRecordingHost{}

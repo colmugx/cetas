@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// pagedTestHost emulates the console's bounded replay routes
+// Emulates the console's bounded replay routes
 // (cetas-console/console/native_replay.mbt) from an in-memory corpus and records
 // every request, so a test can assert what the TUI actually asked for.
 type pagedTestHost struct {
@@ -236,8 +236,6 @@ func (h *pagedTestHost) requestsNamed(command string) []pagedTestRequest {
 
 func (h *pagedTestHost) pageRequests() []pagedTestRequest { return h.requestsNamed("transcript_page") }
 
-// pagedResults resolves a command tree into the correlated replies it would send
-// back through Bubble Tea.
 func pagedResults(cmd tea.Cmd) []commandResult {
 	var results []commandResult
 	var walk func(tea.Cmd)
@@ -258,8 +256,8 @@ func pagedResults(cmd tea.Cmd) []commandResult {
 	return results
 }
 
-// pagedDrive applies every reply the adapter asks for, the way the runtime
-// would, so a test observes the real request/reply cycle.
+// Applies every reply the adapter asks for, so a test observes the real
+// request/reply cycle.
 func pagedDrive(t *testing.T, m *model, r *pagedReplay, cmd tea.Cmd) int {
 	t.Helper()
 	steps := 0
@@ -287,8 +285,7 @@ func pagedDrive(t *testing.T, m *model, r *pagedReplay, cmd tea.Cmd) int {
 	return steps
 }
 
-// pagedLoadAll materializes the whole corpus, the way a user scrolling through
-// the session would, so a test can compare a fully resident document.
+// Materializes the whole corpus the way a user scrolling the session would.
 func pagedLoadAll(t *testing.T, m *model, r *pagedReplay, host *pagedTestHost) {
 	t.Helper()
 	for first := 0; first < len(host.corpus); first += pagedPageLimit {
@@ -296,17 +293,16 @@ func pagedLoadAll(t *testing.T, m *model, r *pagedReplay, host *pagedTestHost) {
 	}
 }
 
-// pagedScanAll drives a paged source scan to completion, including a console
-// that splits replies with `next` and a scan that has to stream deferred
-// payloads through transcript_source.
+// Drives a paged source scan to completion, including `next`-split replies and
+// deferred payloads streamed through transcript_source.
 func pagedScanAll(t *testing.T, m *model, r *pagedReplay) {
 	t.Helper()
 	for steps := 0; r.scan != nil; steps++ {
 		if steps > 400 {
 			t.Fatal("the source scan did not terminate")
 		}
-		// The test drives replies synchronously, so nothing is really in flight:
-		// clearing the request state keeps the loop independent of dropped cmds.
+		// Nothing is really in flight here, so clearing the request state keeps the
+		// loop independent of dropped cmds.
 		r.releaseInflight()
 		cmd := r.ensure(m)
 		if cmd == nil {
@@ -359,15 +355,13 @@ func pagedTranscriptModel(t *testing.T, corpus []pagedItem) (model, *pagedReplay
 	return m, r, host
 }
 
-// pagedHostModel attaches a paged document to a host the test configured itself:
-// inline caps, a refusing console, or a journal that is rewritten mid-session.
+// Attaches a paged document to a host the test configured itself: inline caps, a
+// refusing console, or a journal rewritten mid-session.
 func pagedHostModel(t *testing.T, host *pagedTestHost) (model, *pagedReplay) {
 	t.Helper()
 	m := newModel()
-	// The transcript viewport must hold a fully mounted window: block heights
-	// settle from 2-row estimates to their true shapes (user panels carry
-	// frame rows, a previewed giant body wraps), and a viewport only a few
-	// rows tall would push the very block under test out of its own window.
+	// Heights settle from 2-row estimates to their true shapes, so a viewport only
+	// a few rows tall would push the block under test out of its own window.
 	m.width, m.height = 80, 48
 	m.resize()
 	m.session = host.session
@@ -377,8 +371,8 @@ func pagedHostModel(t *testing.T, host *pagedTestHost) (model, *pagedReplay) {
 	return m, r
 }
 
-// A paged replay of blocks the classic restore also projects unchanged must
-// present exactly the same document: sources, cells, collapsed entries, pixels.
+// Blocks the classic restore also projects unchanged must present exactly the
+// same document: sources, cells, collapsed entries, pixels.
 func TestPagedReplayMatchesClassicRestore(t *testing.T) {
 	payload := `{"items":[
 		{"kind":"user","text":"hello"},
@@ -423,8 +417,8 @@ func TestPagedReplayMatchesClassicRestore(t *testing.T) {
 	}
 }
 
-// The index is a bounded light window without first/next. The document must
-// still be sized by `total`, and only the mounted window may be fetched.
+// The index is a bounded light window without first/next, yet the document must be
+// sized by `total` and only the mounted window may be fetched.
 func TestPagedReplayIndexProbeSizesTheWholeDocument(t *testing.T) {
 	host := &pagedTestHost{session: "s-1", revision: "9:9:9", corpus: pagedUserCorpus(2000), indexWindow: 400}
 	m := newModel()
@@ -490,8 +484,8 @@ func TestPagedReplayIndexProbeSizesTheWholeDocument(t *testing.T) {
 	}
 }
 
-// A payload above REPLAY_INLINE_BYTES arrives as a preview plus a ref; the
-// adapter streams the ranges while the block is mounted.
+// A payload above REPLAY_INLINE_BYTES arrives as a preview plus a ref; the adapter
+// streams the ranges as the block mounts.
 func TestPagedReplayGiantBodyStreamsRanges(t *testing.T) {
 	body := strings.Repeat("0123456789", 60_000) // 600 KB: preview + several ranges
 	corpus := []pagedItem{
@@ -537,9 +531,8 @@ func TestPagedReplayGiantBodyStreamsRanges(t *testing.T) {
 	}
 }
 
-// pagedPreviewBlock drives a document to the point where one page is resident and
-// the payload of `block` is still only a preview: the frame-level ensure that
-// would stream it is deliberately not driven.
+// Drives the document to one resident page whose payload is still only a preview:
+// the frame-level ensure that would stream it is deliberately not driven.
 func pagedPreviewBlock(t *testing.T, host *pagedTestHost, block int) (model, *pagedReplay) {
 	t.Helper()
 	m := newModel()
@@ -560,17 +553,16 @@ func pagedPreviewBlock(t *testing.T, host *pagedTestHost, block int) (model, *pa
 	if _, held := r.resident[block]; !held {
 		t.Fatalf("fixture: block %d is not resident", block)
 	}
-	// The frame that stored the page also asked for the first range read; this
-	// fixture drops that command, so its request is retired the same way a lost
-	// reply is (the range is simply read again from the same offset).
+	// The frame that stored the page also asked for the first range read; dropping
+	// that command retires the request the way a lost reply is retired.
 	r.releaseInflight()
 	return m, r
 }
 
-// pagedResidentBytes is the accounting invariant behind the resident budget: r.bytes
-// must equal exactly what the document holds — the payload strings of the resident
-// blocks plus the range chunks accumulated for deferred payloads — and never a ref
-// length, a page estimate or a released buffer.
+// The accounting invariant behind the resident budget: r.bytes must equal exactly
+// what the document holds — resident payload strings plus the range chunks
+// accumulated for deferred payloads — never a ref length, a page estimate or a
+// released buffer.
 func pagedResidentBytes(r *pagedReplay) int {
 	total := 0
 	for _, item := range r.resident {
@@ -589,15 +581,11 @@ func pagedAssertAccounting(t *testing.T, r *pagedReplay, when string) {
 	}
 }
 
-// B2: `pagedItem.bytes` charged a payload its whole ref length the moment its page
-// arrived, while the body itself was still a REPLAY_PREVIEW_CHARS preview. A body
-// larger than the resident budget therefore pushed the document over the budget
-// before a single range read, wantedBody refused to start it, and the block stayed
-// a 512-character preview forever — silently, with no error and no way to read it.
-//
-// Only resident bytes may be charged. A painted payload larger than the whole
-// budget is the one documented oversize working-set exception: it completes in
-// place through bounded ranges, and it is released the moment it scrolls out.
+// Only resident bytes may be charged: a payload charged its whole ref length would
+// push the document over budget before a single range read, and the block would
+// stay a preview forever. A painted payload larger than the whole budget is the one
+// documented oversize working-set exception: it completes in place through bounded
+// ranges and is released the moment it scrolls out.
 func TestPagedReplayGiantVisibleBodyCompletesAsOneOversizeException(t *testing.T) {
 	body := strings.Repeat("0123456789abcdef", 589_824) // 9 MiB, above the 8 MiB budget
 	giant := 119
@@ -613,10 +601,8 @@ func TestPagedReplayGiantVisibleBodyCompletesAsOneOversizeException(t *testing.T
 	}
 	pagedAssertAccounting(t, r, "a preview is resident")
 
-	// Heights settle as the page mounts (a user panel carries frame rows, the
-	// previewed body wraps), so the jump is renewed once the truth is known:
-	// the block under test must sit squarely inside the window, not on its
-	// zero-margin edge where any estimate drift would push it out.
+	// Re-anchor after heights settle: the fixture viewport leaves no margin for
+	// estimate drift.
 	m.jumpToTranscriptBlock(giant)
 	pagedDrive(t, &m, r, r.ensure(&m))
 	held := r.resident[giant]
@@ -669,9 +655,9 @@ func TestPagedReplayGiantVisibleBodyCompletesAsOneOversizeException(t *testing.T
 	pagedAssertAccounting(t, r, "the giant body was re-read")
 }
 
-// The pin set is a request, not ownership: a pinned page may not keep the document
-// over budget on its own, and the pin goes with the page so the frame loop cannot
-// keep re-requesting what eviction drops.
+// The pin set is a request, not ownership: a pin may not keep the document over
+// budget on its own, and it goes with the page so the frame loop cannot keep
+// re-requesting what eviction drops.
 func TestPagedPinnedPageCannotOutliveTheBudget(t *testing.T) {
 	corpus := pagedUserCorpus(80)
 	corpus[0] = pagedItem{Index: 0, Kind: "assistant", Text: strings.Repeat("old answer body ", 200)}
@@ -733,7 +719,7 @@ func TestPagedPinnedPageCannotOutliveTheBudget(t *testing.T) {
 	}
 }
 
-// Bodies beyond the resident budget are released; live appends never are.// Bodies beyond the resident budget are released; live appends never are.
+// Bodies beyond the resident budget are released; live appends never are.
 func TestPagedReplayEvictsBeyondBudgetAndKeepsLiveBlocks(t *testing.T) {
 	corpus := pagedUserCorpus(80)
 	for index := range corpus {
@@ -807,10 +793,9 @@ func TestPagedReplaySearchScansTheWholeCorpus(t *testing.T) {
 	}
 }
 
-// A page beyond REPLAY_INLINE_BYTES carries a REPLAY_PREVIEW_CHARS preview plus a
-// self-describing ref. Searching that preview would silently miss every match
+// Searching only the REPLAY_PREVIEW_CHARS preview would silently miss every match
 // further into the payload, so the scan streams the deferred body through
-// transcript_source — in bounded ranges, without making it resident.
+// transcript_source in bounded ranges, without making it resident.
 func TestPagedSearchStreamsPayloadsBeyondThePreview(t *testing.T) {
 	filler := strings.Repeat("filler ", 1200) // 8.4 KB: far past a 512-char preview
 	corpus := pagedUserCorpus(400)
@@ -867,9 +852,8 @@ func TestPagedSearchStreamsPayloadsBeyondThePreview(t *testing.T) {
 	}
 }
 
-// A query can straddle two source ranges. The scan keeps only a needle-sized
-// overlap, so a split match is found exactly once instead of being dropped (or
-// counted twice).
+// A query can straddle two ranges; the needle-sized overlap finds a split match
+// exactly once.
 func TestPagedSearchFindsQueriesSpanningSourceChunks(t *testing.T) {
 	needle := "cross-chunk-needle"
 	filler := strings.Repeat("a", pagedSourceChunkBytes-5) // the first range ends inside the needle
@@ -892,9 +876,8 @@ func TestPagedSearchFindsQueriesSpanningSourceChunks(t *testing.T) {
 	}
 }
 
-// Beyond REPLAY_INLINE_BYTES the console sends `args:null` plus an argsRef. Those
-// arguments are block content (cetas-js ToolRow.getSearchText searches them), so
-// the scan streams them like any other deferred payload.
+// Deferred args are block content, so the scan streams them like any other
+// deferred payload.
 func TestPagedSearchCoversDeferredToolArguments(t *testing.T) {
 	args := `{"cmd":"` + strings.Repeat("noise ", 900) + `needle-in-args"}`
 	corpus := pagedUserCorpus(400)
@@ -930,8 +913,7 @@ func TestPagedSearchCoversDeferredToolArguments(t *testing.T) {
 	t.Fatal("the scan never asked for the args payload")
 }
 
-// A payload the console refuses must be visible in the result: /find must never
-// present a scan it could not finish as a complete one.
+// /find must never present a scan it could not finish as a complete one.
 func TestPagedSearchReportsUnreadablePayloads(t *testing.T) {
 	corpus := pagedUserCorpus(400)
 	corpus[4] = pagedItem{Index: 4, Kind: "assistant", Text: strings.Repeat("log ", 3000)}
@@ -949,10 +931,8 @@ func TestPagedSearchReportsUnreadablePayloads(t *testing.T) {
 	}
 }
 
-// A copy pin reads the block it asked for, not the session behind it: the console's
-// `next` continuation is only followed inside a span the frame asked for, so one
-// pinned block cannot start a walk through the whole corpus and then be evicted by
-// the pages that walk brought in.
+// A copy pin reads the block it asked for: `next` is only followed inside a span the
+// frame asked for, so one pinned block cannot walk the whole corpus.
 func TestPagedCopyPinDoesNotWalkTheCorpus(t *testing.T) {
 	m, r, host := pagedTranscriptModel(t, pagedUserCorpus(400))
 	before := len(host.pageRequests())
@@ -975,9 +955,8 @@ func TestPagedCopyPinDoesNotWalkTheCorpus(t *testing.T) {
 	}
 }
 
-// A copy cannot win the one oversize working-set slot from the block on screen. It
-// is reported instead of polling "not loaded yet" for as long as the session is
-// open, and a refused copy leaves no pins behind.
+// A copy cannot take the one oversize working-set slot from the block on screen: it
+// is reported instead of polling "not loaded yet", and leaves no pins behind.
 func TestPagedCopyReportsAGiantBlockThatCannotGetTheSlot(t *testing.T) {
 	corpus := pagedUserCorpus(120)
 	corpus[100] = pagedItem{
@@ -1019,9 +998,8 @@ func TestPagedCopyReportsAGiantBlockThatCannotGetTheSlot(t *testing.T) {
 	}
 }
 
-// A paged copy is synchronous: it needs the whole range resident at once, so the
-// pin set it asks for must be bounded. A drag over the whole session is refused
-// with a reason instead of pinning every block and loading the corpus.
+// A paged copy is synchronous and needs the whole range resident at once, so its pin
+// set must be bounded: a drag over the whole session is refused with a reason.
 func TestPagedCopyRefusesARangeItCannotPinWholesale(t *testing.T) {
 	m, r, _ := pagedTranscriptModel(t, pagedUserCorpus(400))
 	if _, err := r.copyHistory(&m, 1, 400); err == nil {
@@ -1090,8 +1068,8 @@ func mustPagedJSON(t *testing.T, value any) json.RawMessage {
 	return raw
 }
 
-// Scrolling the document is what moves the page window: the seam that keeps a
-// sparse document on demand instead of on session size.
+// Scrolling moves the page window: the seam that keeps a sparse document on demand
+// instead of on session size.
 func TestPagedReplayScrollRequestsTheVisiblePagesOnly(t *testing.T) {
 	m, r, host := pagedTranscriptModel(t, pagedUserCorpus(300))
 	host.requests = nil
@@ -1119,8 +1097,8 @@ func TestPagedReplayScrollRequestsTheVisiblePagesOnly(t *testing.T) {
 	}
 }
 
-// Startup diagnostics are live UI facts: the first paged replay carries them
-// after the history, a later replay retires them, like the classic path.
+// Startup diagnostics are live UI facts: the first paged replay carries them after
+// the history, a later replay retires them.
 func TestPagedReplayKeepsStartupNoticesForTheInitialReplay(t *testing.T) {
 	host := &pagedTestHost{session: "s-1", revision: "3:3:3", corpus: pagedUserCorpus(3)}
 	m := newModel()
@@ -1152,8 +1130,8 @@ func TestPagedReplayKeepsStartupNoticesForTheInitialReplay(t *testing.T) {
 	}
 }
 
-// A console may trim a page by bytes and not send `next` at all. The window must
-// still converge instead of re-requesting the same chunk forever.
+// A page trimmed by bytes may carry no `next` at all: the window must still
+// converge instead of re-requesting the same chunk forever.
 func TestPagedReplayConvergesOnTrimmedReplies(t *testing.T) {
 	host := &pagedTestHost{session: "s-1", revision: "60:1:1", corpus: pagedUserCorpus(60), pageCap: 2, noNext: true}
 	m := newModel()
@@ -1177,9 +1155,9 @@ func TestPagedReplayConvergesOnTrimmedReplies(t *testing.T) {
 	}
 }
 
-// A non-native host refuses the replay routes. The document must stop asking and
-// hand the parent an explicit reason, so a fallback to the classic replay can be
-// announced instead of silently swapping the source under the user.
+// A refusing host must stop the document asking and hand the parent an explicit
+// reason, so a fallback to the classic replay can be announced rather than the
+// source swapping silently under the user.
 func TestPagedReplayReportsUnavailableRoutesForExplicitFallback(t *testing.T) {
 	host := &pagedRefusingHost{}
 	m := newModel()
@@ -1215,9 +1193,8 @@ func (*pagedRefusingHost) Request(context.Context, string, any) (json.RawMessage
 	return json.RawMessage(`{"error":"transcript_index is native-only (native_ui projection)"}`), nil
 }
 
-// The console patches a tool item when its ToolMessage appears on a later
-// journal line, and that line can land in a later page: a re-delivered block
-// with newer state must upgrade the resident copy instead of being skipped.
+// A patched tool item can land in a later page: a re-delivered block with newer
+// state must upgrade the resident copy instead of being skipped.
 func TestPagedReplayAppliesToolResultPatchAcrossPages(t *testing.T) {
 	corpus := []pagedItem{
 		{Index: 0, Kind: "user", Text: "run the tests"},
@@ -1285,9 +1262,8 @@ func TestPagedReplayEmptySession(t *testing.T) {
 	}
 }
 
-// A range read can fail for a legitimate reason (a tool result that has not been
-// written yet). That must not stall pagination: the preview stays, the deferred
-// payload is retired, and later pages keep loading.
+// A range read can fail legitimately (a tool result not yet written) without
+// stalling pagination: the preview stays and later pages keep loading.
 func TestPagedReplaySourceFailureKeepsPreviewAndPaging(t *testing.T) {
 	body := strings.Repeat("pending ", 2000)
 	corpus := []pagedItem{
@@ -1329,10 +1305,9 @@ func TestPagedReplaySourceFailureKeepsPreviewAndPaging(t *testing.T) {
 	}
 }
 
-// A revision is "<size>:<mtime>:<ns>": it proves the journal changed, never that
-// it only grew. A rewrite (compaction, rewind, metadata refresh) can keep the
-// block total while changing bodies, so a resident body of the retired
-// generation must never stay on screen.
+// A revision ("<size>:<mtime>:<ns>") proves the journal changed, never that it only
+// grew: a rewrite can keep the block total while changing bodies, so no body of the
+// retired generation may stay on screen.
 func TestPagedReplayRewriteDropsStaleBodies(t *testing.T) {
 	corpus := pagedUserCorpus(4)
 	corpus[2].Kind = "assistant"
@@ -1366,9 +1341,8 @@ func TestPagedReplayRewriteDropsStaleBodies(t *testing.T) {
 	}
 }
 
-// pagedFrame drives host replies through the real Model.Update reducer, the way
-// the Bubble Tea runtime does: only correlated replies are fed back, because UI
-// timers are irrelevant to corpus delivery.
+// Drives host replies through the real Model.Update reducer: only correlated
+// replies are fed back, because UI timers are irrelevant to corpus delivery.
 func pagedFrame(t *testing.T, m *model, cmd tea.Cmd, rounds int) int {
 	t.Helper()
 	pending := pagedResults(cmd)
@@ -1388,8 +1362,8 @@ func pagedFrame(t *testing.T, m *model, cmd tea.Cmd, rounds int) int {
 	return steps
 }
 
-// pagedWiredModel attaches a paged session through the production reducer, so the
-// seams below exercise model.go's routing and the frame-level ensure.
+// Attaches a paged session through the production reducer, so the seams below
+// exercise model.go's routing and the frame-level ensure.
 func pagedWiredModel(t *testing.T, host *pagedTestHost) model {
 	t.Helper()
 	m := newModel()
@@ -1400,7 +1374,7 @@ func pagedWiredModel(t *testing.T, host *pagedTestHost) model {
 	next, attach := m.Update(commandResult{name: "runtime_state", payload: json.RawMessage(`{"session_id":"s-1","status":"ready"}`)})
 	m = next.(model)
 	// The attach returns the index probe; feeding it back runs the same reducer the
-	// runtime does, including the frame-level ensure.
+	// runtime does, frame-level ensure included.
 	pagedFrame(t, &m, attach, 60)
 	if m.replay == nil || !m.replay.active() {
 		t.Fatal("production attach did not start a paged replay")

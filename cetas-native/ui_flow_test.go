@@ -38,8 +38,8 @@ func (m observedShell) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// Real compatible provider -> MoonBit observer -> C queue -> harness -> public
-// Bubble Tea Update/View. PTY smokes separately verify real terminal key bytes.
+// Real provider -> MoonBit observer -> C queue -> harness -> public Bubble Tea
+// Update/View. PTY smokes separately verify real terminal key bytes.
 func TestRealRuntimeMessagesReachShellPresentation(t *testing.T) {
 	home, workspace := t.TempDir(), t.TempDir()
 	t.Chdir(workspace)
@@ -147,13 +147,13 @@ func TestRealRuntimeMessagesReachShellPresentation(t *testing.T) {
 			warning = warning || strings.Contains(last, "Configuration warning: runtime")
 			thinking = thinking || strings.Contains(last, "thinking...") && strings.Contains(last, "Inspect evidence.")
 			markdown = markdown || strings.Contains(last, "Bold answer") && !strings.Contains(last, "**Bold answer**")
-			// JS readSpec has no title override: the wire name is lowercase.
+			// readSpec overrides no title, so the row shows the lowercase wire name.
 			tool = tool || strings.Contains(last, "● read sample.txt")
 			if strings.Contains(last, "bad EventHub frame") {
 				t.Fatalf("valid tool args were rejected by the harness: %s", last)
 			}
-			// The user panel carries the surface background; the prompt
-			// glyph is gone, so the surface assert keys on the text.
+			// The user panel carries the surface background and no prompt glyph, so
+			// the assert keys on the text.
 			userSurface = userSurface || strings.Contains(frame, "\x1b[48;2;") && strings.Contains(last, "visual prompt") && !strings.Contains(last, "> visual prompt")
 			if strings.Contains(last, "Final fixture answer.") {
 				if !thinking || !markdown || !tool || !userSurface || !warning {

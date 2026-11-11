@@ -27,7 +27,6 @@ func TestFormatProgramStatusMatchesProtocol(t *testing.T) {
 	if clear != "\x1b]7501;state=clear:app=cetas\x1b\\" {
 		t.Fatalf("clear report: %q", clear)
 	}
-	// kind never rides non-blocked reports.
 	if strings.Contains(idle, "kind=") || strings.Contains(working, "kind=") {
 		t.Fatal("kind leaked onto a non-blocked report")
 	}
@@ -37,8 +36,8 @@ func TestStatusMessageBudget(t *testing.T) {
 	if got := truncateStatusMessage("  plain  "); got != "plain" {
 		t.Fatalf("trim: %q", got)
 	}
-	// Control characters become spaces; the printable remainder of a stray
-	// escape sequence survives as text, exactly as pi-tui's filter behaves.
+	// Control characters become spaces; a stray escape's printable remainder
+	// survives as text.
 	if got := truncateStatusMessage("a\x00\x1b[2Jb"); got != "a  [2Jb" {
 		t.Fatalf("control stripping: %q", got)
 	}
@@ -50,11 +49,9 @@ func TestStatusMessageBudget(t *testing.T) {
 
 func TestProjectProgramStatusPriority(t *testing.T) {
 	m := newModel()
-	// Before first attach: starting.
 	if got := m.projectProgramStatus(); got.state != "working" || got.msg != "Starting" {
 		t.Fatalf("boot projection: %#v", got)
 	}
-	// Attached and idle.
 	m.session = "s-1"
 	if got := m.projectProgramStatus(); got.state != "idle" {
 		t.Fatalf("idle projection: %#v", got)
@@ -64,7 +61,7 @@ func TestProjectProgramStatusPriority(t *testing.T) {
 	if got := m.projectProgramStatus(); got.state != "working" || got.msg != "Working" {
 		t.Fatalf("working projection: %#v", got)
 	}
-	// Setup outranks idle work.
+	// Setup outranks idle.
 	m.running = false
 	m.needsSetup = true
 	if got := m.projectProgramStatus(); got.state != "blocked" || got.kind != "auth" {
@@ -80,7 +77,6 @@ func TestProjectProgramStatusPriority(t *testing.T) {
 	if got := m.projectProgramStatus(); got.state != "blocked" || got.kind != "auth" {
 		t.Fatalf("auth projection: %#v", got)
 	}
-	// Shutdown clears everything.
 	m.status = "MoonBit host stopped"
 	if got := m.projectProgramStatus(); got.state != "clear" {
 		t.Fatalf("clear projection: %#v", got)
@@ -103,8 +99,7 @@ func TestEmitProgramStatusDedupes(t *testing.T) {
 	}
 }
 
-// cmdMsgs flattens nested tea.Batch trees so tests can drive every real
-// command beside the terminal status report.
+// Flattens nested tea.Batch trees so a test can drive every real command.
 func cmdMsgs(t *testing.T, cmd tea.Cmd) []tea.Msg {
 	t.Helper()
 	var msgs []tea.Msg
@@ -232,9 +227,8 @@ func TestCompletionRepliesAreMatchedByID(t *testing.T) {
 	}
 }
 
-
-// Revision 0.4 of the protocol: every report carries the record's title, and
-// finished turns report done/error so the tab bar can show they ended.
+// Every report carries the record's title, and finished turns report done/error
+// so the tab bar can show they ended.
 func TestProgramStatusCarriesTitleAndTurnOutcomes(t *testing.T) {
 	m := newModel()
 	m.session = "s-1"

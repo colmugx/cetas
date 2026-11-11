@@ -10,9 +10,8 @@ import (
 )
 
 // virtualTranscript is the source-independent row index behind the Bubble Tea
-// viewport. A Fenwick tree resolves a logical row in O(log messages). Only
-// blocks intersecting the viewport and a small overscan window are mounted.
-// Nothing here stores rendered text from offscreen messages.
+// viewport: a Fenwick tree resolves a logical row in O(log messages), and only
+// blocks intersecting the viewport plus a small overscan are mounted.
 type virtualTranscript struct {
 	width, height  int
 	top            int
@@ -22,30 +21,26 @@ type virtualTranscript struct {
 	first, end     int
 	mountedRows    int
 	renderedBlocks int
-	// revisions bump whenever a block's source changes, so the row cache can
-	// key a layout on identity instead of on rendered text.
+	// revisions bump when a block's source changes, so the row cache keys a
+	// layout on identity instead of on rendered text.
 	revisions []uint64
-	// rows is the byte-bounded cache of formatted/wrapped rows behind the
-	// mounted window. Scrolling inside one long block reuses it instead of
-	// re-splitting, re-padding and re-scanning ANSI on every event.
+	// rows is the byte-bounded cache of wrapped rows: scrolling inside one long
+	// block reuses them instead of re-splitting and re-scanning ANSI.
 	rows *transcriptRowCache
-	// history is the document's background renderer for cold settled blocks
-	// too large to lay out on the frame that mounts them. It starts lazily on
-	// the first giant block, serves exactly one goroutine, and stops with the
-	// document.
+	// history renders cold settled blocks too large to lay out on the frame that
+	// mounts them. It starts lazily, serves exactly one goroutine, and stops with
+	// the document.
 	history *historyMarkdownWorker
-	// epoch identifies the current block layout. A structural edit (a paged
-	// insertion or a shorter session) moves block indices, so a cold render
-	// queued against the previous layout must never be applied to the new one.
+	// epoch identifies the block layout: a structural edit moves block indices,
+	// so a cold render queued against the previous layout never lands on the new
+	// one.
 	epoch uint64
-	// jumpBlock is the block a jump pinned to the viewport, -1 when the
-	// position is ordinary scrolling. The mount pass re-anchors on it so
-	// estimate-to-truth growth in the blocks above cannot eject the very
-	// block the user jumped to.
+	// jumpBlock is the block a jump pinned to the viewport, -1 for ordinary
+	// scrolling. The mount pass re-anchors on it so growth in the blocks above
+	// cannot eject the block the user jumped to.
 	jumpBlock int
-	// refreshes counts mounted frames. The parent reducer can compare it across
-	// one Update to prove a single presentation pass, without guessing from the
-	// viewport contents.
+	// refreshes counts mounted frames, so the reducer can prove a single
+	// presentation pass per Update without reading the viewport contents.
 	refreshes uint64
 }
 
@@ -54,7 +49,7 @@ const virtualOverscanRows = 8
 func newVirtualTranscript(width, height int) *virtualTranscript {
 	return &virtualTranscript{
 		jumpBlock: -1,
-		width: max(1, width), height: max(1, height), followEnd: true, bit: []int{0},
+		width:     max(1, width), height: max(1, height), followEnd: true, bit: []int{0},
 		rows: newTranscriptRowCache(transcriptRowCacheBudget),
 	}
 }
@@ -68,8 +63,8 @@ func (v *virtualTranscript) reset() {
 	v.mountedRows = 0
 	v.renderedBlocks = 0
 	v.revisions = nil
-	// A reset is a new document: block indices and their sources no longer mean
-	// what a queued or completed cold render was dispatched against.
+	// A reset is a new document: no cold render dispatched against the old one
+	// can apply.
 	v.epoch++
 	if v.history != nil {
 		v.history.stop()
@@ -82,8 +77,7 @@ func (v *virtualTranscript) reset() {
 	}
 }
 
-// historyMarkdown returns the document's cold settled-block worker, starting it
-// on first use. One worker serves one document, like the streaming pipeline.
+// One worker serves one document, like the streaming pipeline.
 func (v *virtualTranscript) historyMarkdown() *historyMarkdownWorker {
 	if v.history == nil {
 		v.history = newHistoryMarkdownWorker(historyMarkdownQueueDepth)
@@ -91,8 +85,7 @@ func (v *virtualTranscript) historyMarkdown() *historyMarkdownWorker {
 	return v.history
 }
 
-// revisionAt is the source revision of one block. A missing entry is 0, which
-// is the revision of a block that has never been edited.
+// A missing entry reads as 0: the revision of a block never edited.
 func (v *virtualTranscript) revisionAt(index int) uint64 {
 	if index < 0 || index >= len(v.revisions) {
 		return 0
@@ -100,8 +93,6 @@ func (v *virtualTranscript) revisionAt(index int) uint64 {
 	return v.revisions[index]
 }
 
-// bumpRevision invalidates the cached rows of one block after its source or
-// render inputs changed.
 func (v *virtualTranscript) bumpRevision(index int) {
 	if index < 0 {
 		return
@@ -146,14 +137,13 @@ func (v *virtualTranscript) appendHeight(height int) {
 	height = max(1, height)
 	i := len(v.heights) + 1
 	lowbit := i & -i
-	// The new Fenwick entry covers [i-lowbit+1, i]; previous entries
-	// already contain all but the just-appended height.
+	// The new entry covers [i-lowbit+1, i]; earlier entries hold all but the
+	// height just appended.
 	prior := v.prefix(i-1) - v.prefix(i-lowbit)
 	v.heights = append(v.heights, height)
 	v.bit = append(v.bit, prior+height)
 }
 
-// indexAt resolves the block containing the given logical row in O(log N).
 func (v *virtualTranscript) indexAt(row int) int {
 	n := len(v.heights)
 	if n == 0 {
@@ -178,8 +168,8 @@ func bitsForIndex(n int) int {
 	return bits
 }
 
-// Estimates require only raw text, not a Markdown render. They are corrected
-// as each block is mounted and measured in the terminal's actual width.
+// Raw text only, no Markdown render; the estimate is corrected once the block is
+// mounted and measured at the terminal's real width.
 func estimateTranscriptHeight(raw string, width int) int {
 	width = max(1, width)
 	rows := 1 // inter-message gap; corrected when the block is mounted
@@ -189,10 +179,9 @@ func estimateTranscriptHeight(raw string, width int) int {
 	return max(3, rows)
 }
 
-// estimateUserBlockHeight mirrors the user panel's exact document shape: the
-// blank frame rows above and below plus content wrapped at the padded inner
-// width. Estimating a user block with the generic routine undershoots, and a
-// mounted block that grows pushes the window's tail out from under the user.
+// The user panel's exact shape: frame rows plus content wrapped at the padded
+// inner width. The generic routine undershoots, and a block that grows on mount
+// pushes the window's tail out from under the user.
 func estimateUserBlockHeight(raw string, width int) int {
 	inner := max(10, max(1, width)-4)
 	rows := 2 // the panel's blank frame rows; the gap is zero
@@ -202,8 +191,6 @@ func estimateUserBlockHeight(raw string, width int) int {
 	return max(3, rows)
 }
 
-// estimateBlockHeight is the kind-aware estimator: user blocks carry their
-// frame, everything else uses the generic shape.
 func (m *model) estimateBlockHeight(index int, raw string, width int) int {
 	if m.blockKindAt(index) == "user" {
 		return estimateUserBlockHeight(raw, width)
@@ -211,21 +198,18 @@ func (m *model) estimateBlockHeight(index int, raw string, width int) int {
 	return estimateTranscriptHeight(raw, width)
 }
 
-// sync extends incrementally on append. Width changes and wholesale session
-// replacements rebuild the index once, not every token or keypress.
+// sync extends incrementally on append; a width change or a shorter session
+// rebuilds once, not on every token.
 func (v *virtualTranscript) sync(count, width, height int, rawAt func(int) string, estimateAt func(int, string) int) {
 	width = max(1, width)
 	height = max(1, height)
-	// A structural edit outside the append path (a paged replay insertion)
-	// grows the Fenwick tree without growing the revision vector: block indices
-	// moved, so no cached row can survive it. A *longer* vector is the ordinary
-	// "a just-appended block was edited" case (append then invalidate, before
-	// the next sync) and must not flush the window the user is reading.
+	// A structural edit (a paged replay insertion) grows the Fenwick tree
+	// without growing the revision vector: block indices moved, so no cached row
+	// survives it. A *longer* vector is the ordinary append-then-invalidate case
+	// and must not flush the window the user is reading.
 	if v.rows == nil {
 		v.rows = newTranscriptRowCache(transcriptRowCacheBudget)
 	} else if len(v.revisions) < len(v.heights) {
-		// A structural edit moved block indices, so a cold render queued against
-		// the old positions can no longer be trusted for the new ones.
 		v.epoch++
 		v.rows.reset()
 	}
@@ -240,14 +224,11 @@ func (v *virtualTranscript) sync(count, width, height int, rawAt func(int) strin
 	}
 	if widthChanged || count < len(v.heights) {
 		if count < len(v.heights) {
-			// A shorter session is a different document: indices below it now
-			// name different blocks.
 			v.epoch++
 		}
 		v.heights = nil
 		v.bit = []int{0}
-		// Wrapping and padding are width-dependent, and a shorter session is a
-		// different document: neither cache may outlive that.
+		// Wrapping and padding are width-dependent; neither cache may outlive it.
 		v.rows.reset()
 	}
 	v.width = width
@@ -275,6 +256,51 @@ func (v *virtualTranscript) clamp() {
 		v.top = min(max(0, v.top), bottom)
 	}
 }
+
+// rotateVirtualWindow moves `count` heights from `from` down to `at` (at <
+// from) inside the Fenwick row index, remapping the viewport's anchor block so
+// the reader stays on the same content. A structural move re-keys every block,
+// so the row cache resets under a fresh epoch, exactly like a paged insertion;
+// the revision vector rotates with the blocks when it is long enough, and is
+// shortened otherwise so sync() sees the structural edit.
+func rotateVirtualWindow(v *virtualTranscript, at, from, count int) {
+	if v == nil || at < 0 || from <= at || from+count > len(v.heights) {
+		return
+	}
+	anchor, offset := 0, 0
+	if !v.followEnd && len(v.heights) > 0 {
+		anchor = v.indexAt(v.top)
+		offset = v.top - v.prefix(anchor)
+	}
+	run := append([]int(nil), v.heights[from:from+count]...)
+	mid := append([]int(nil), v.heights[at:from]...)
+	copy(v.heights[at:], run)
+	copy(v.heights[at+count:], mid)
+	if len(v.revisions) >= from+count {
+		revRun := append([]uint64(nil), v.revisions[from:from+count]...)
+		revMid := append([]uint64(nil), v.revisions[at:from]...)
+		copy(v.revisions[at:], revRun)
+		copy(v.revisions[at+count:], revMid)
+	} else {
+		v.revisions = v.revisions[:at]
+	}
+	prefix := make([]int, len(v.heights)+1)
+	for i, h := range v.heights {
+		prefix[i+1] = prefix[i] + h
+	}
+	v.bit = make([]int, len(v.heights)+1)
+	for i := 1; i <= len(v.heights); i++ {
+		v.bit[i] = prefix[i] - prefix[i-(i&-i)]
+	}
+	v.epoch++
+	if v.rows != nil {
+		v.rows.reset()
+	}
+	if !v.followEnd {
+		v.top = v.prefix(rotateIndex(anchor, at, from, count)) + offset
+		v.clamp()
+	}
+}
 func (v *virtualTranscript) scroll(delta int) {
 	if delta == 0 {
 		return
@@ -286,19 +312,17 @@ func (v *virtualTranscript) jumpToBlock(index int) {
 	if index < 0 || index >= len(v.heights) {
 		return
 	}
-	// Center the target block in the viewport instead of pinning it to the
-	// top edge: heights are estimates here and settle as pages mount, and a
-	// top-pinned block at a zero-margin edge slips out of its own window the
-	// moment a neighbour above it grows. Centering keeps the block visible
-	// across that drift for every viewport taller than the block itself.
+	// Centre rather than pin to the top edge: heights are estimates that settle as
+	// pages mount, and a top-pinned block at a zero-margin edge slips out of its
+	// own window the moment a neighbour above it grows.
 	span := v.heightAt(index)
 	v.top = clampInt(v.prefix(index)-max(0, (v.height-span)/2), 0, max(0, v.totalRows()-v.height))
 	v.jumpBlock = index
 	v.followEnd = false
 }
 
-// rawTranscriptBlock uses the original source, including the transient
-// streaming and reasoning blocks which have not yet settled into history.
+// The original source, including the transient streaming and reasoning blocks
+// that have not yet settled into history.
 func (m *model) rawTranscriptBlock(index int) string {
 	if index < len(m.transcript) {
 		return m.transcript[index]
@@ -326,7 +350,6 @@ func (m *model) transcriptBlockCount() int {
 	return count
 }
 
-// wrapTranscriptBlock splits a block into the rows the viewport will paint.
 // It mirrors bubbles' SoftWrap (cell-accurate ansi.Cut chunks), so measured
 // heights, painted rows and selection coordinates all agree.
 func wrapTranscriptBlock(text string, width int) []string {
@@ -348,12 +371,9 @@ func wrapTranscriptBlock(text string, width int) []string {
 	return rows
 }
 
-// padTranscriptRow fills one row to the transcript width, the way pi-tui pads
-// every Markdown/Text line: content keeps its single-cell left margin and each
-// row is exactly `width` cells. Full-width rows are what let a user surface, a
-// selection inversion and the auto scrollbar column cover the whole document
-// instead of stopping at the last glyph. Rows are never truncated here — the
-// caller already wrapped them.
+// Full-width rows are what let a user surface, a selection inversion and the
+// scrollbar column cover the whole document instead of stopping at the last
+// glyph. Rows are never truncated here: the caller already wrapped them.
 func padTranscriptRow(line string, width int) string {
 	if width <= 0 {
 		return line
@@ -364,7 +384,6 @@ func padTranscriptRow(line string, width int) string {
 	return line
 }
 
-// padTranscriptBlock pads every row of one block to the transcript width.
 func padTranscriptBlock(text string, width int) string {
 	if width <= 0 || text == "" {
 		return text
@@ -376,21 +395,16 @@ func padTranscriptBlock(text string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-// mountedTranscriptRows is the exact row set a block contributes to the
-// document: its leading gap rows plus its wrapped content. Rows
-// are padded to the transcript width, including the spacers, so the document
-// has no ragged right edge. It is the whole-block view of the same layout the
-// mount path paints by range, so a copy or a selection can never disagree with
-// the screen.
+// The whole-block view of the same layout the mount path paints by range, so a
+// copy or a selection can never disagree with the screen.
 func (m *model) mountedTranscriptRows(index int) []string {
 	width := max(1, m.viewport.Width())
 	layout := newTranscriptBlockLayout(index, transcriptLayoutIdentity{width: width, gap: m.transcriptGap(index)}, m.transcriptBlockText(index))
 	return layout.rowsInto(make([]string, 0, layout.height()), 0, layout.height())
 }
 
-// mountedTranscriptBlock is one block's display text before the caller wraps it
-// into rows. It is padded to the transcript width so live, replayed, reasoned
-// and tool rows share exactly one presentation.
+// Padded to the transcript width so live, replayed, reasoned and tool rows share
+// exactly one presentation.
 func (m *model) mountedTranscriptBlock(index int) string {
 	return padTranscriptBlock(m.transcriptBlockText(index), m.viewport.Width())
 }
@@ -411,17 +425,16 @@ func (m *model) transcriptBlockText(index int) string {
 		return raw
 	}
 	if index >= len(m.transcript) {
-		// Streaming answers are re-mounted on every UI frame; the last
-		// source+width render is reused until a delta arrives.
+		// Streaming answers re-mount every frame; the last source+width render is
+		// reused until a delta arrives.
 		return m.renderLiveMarkdown(index, raw)
 	}
 	if rendered, ok := m.markdownCache.get(index); ok {
 		return m.decorateAssistant(index, rendered)
 	}
 	if len(raw) > historyMarkdownSyncLimit && m.dispatchHistoryMarkdown(index, raw) {
-		// A giant settled block must not lay out glamour on the update path.
-		// Until the background render lands, the block shows its truthful plain
-		// source; the pump replaces these rows with the finished layout.
+		// A giant settled block must not lay out glamour on the update path: it
+		// shows its truthful plain source until the background render lands.
 		return m.decorateAssistant(index, raw)
 	}
 	rendered, err := renderMarkdown(m.markdownRenderer, raw)
@@ -433,9 +446,8 @@ func (m *model) transcriptBlockText(index int) string {
 	return m.decorateAssistant(index, rendered)
 }
 
-// liveThinkingIndex is the document position of the transient reasoning block,
-// or -1 while no reasoning has streamed. It sits directly above the streaming
-// answer, which is the order the settled transcript keeps.
+// It sits directly above the streaming answer, which is the order the settled
+// transcript keeps.
 func (m *model) liveThinkingIndex() int {
 	if m.reasoning == "" {
 		return -1
@@ -443,12 +455,9 @@ func (m *model) liveThinkingIndex() int {
 	return len(m.transcript)
 }
 
-// liveThinkingPreview is pi-tui's ThinkingComponent in live mode: a braille
-// spinner with "thinking..." and only the trailing three lines of reasoning that
-// have arrived so far. The layout itself belongs to the transcript block
-// renderer (the JS oracle), so the model supplies only the source and the shell
-// clock's animation frame; the finalized block keeps the collapsed header and
-// its leading lines instead.
+// pi-tui's ThinkingComponent in live mode: a braille spinner and the trailing
+// three lines. The layout belongs to the transcript block renderer, so the model
+// supplies only the source and the clock's frame.
 func (m *model) liveThinkingPreview() string {
 	theme := m.theme()
 	return transcriptui.Block{Kind: "thinking", Text: m.reasoning}.Render(transcriptui.Options{
@@ -464,9 +473,9 @@ func (m *model) resetVirtualTranscript() {
 		m.virtualScroll.reset()
 	}
 	m.markdownCache.reset()
-	// A session switch is a new document: selection, scrollbar, the live
-	// Markdown render and the background renderer all belong to the previous
-	// one, so an in-flight result can never reach the new transcript.
+	m.replayLiveFrom, m.replayLiveSession = 0, ""
+	// A session switch is a new document: an in-flight render for the previous
+	// one can never reach the new transcript.
 	if m.document.markdown != nil {
 		m.document.markdown.stop()
 	}
@@ -476,14 +485,12 @@ func (m *model) invalidateTranscriptBlock(index int) {
 	m.markdownCache.delete(index)
 	if m.document.live.valid && m.document.live.index == index {
 		m.document.live.valid = false
-		// Supersede any render already queued for the previous content.
+		// Supersede any render queued for the previous content.
 		m.document.live.revision++
 	}
 	if v := m.virtualScroll; v != nil {
-		// The block's source changed: its cached rows describe the old one.
 		v.bumpRevision(index)
 		if v.history != nil {
-			// A queued or completed cold render for the old source is dead work.
 			v.history.drop(index)
 		}
 		if index >= 0 && index < len(v.heights) {
@@ -499,14 +506,12 @@ func (m *model) scrollTranscript(delta int) {
 	wasTop, wasFollow := m.virtualScroll.top, m.virtualScroll.followEnd
 	selection := m.document.selection
 	m.virtualScroll.scroll(delta)
-	// A wheel or key scroll reveals the auto scrollbar for one second.
 	m.touchTranscriptScrollbar()
 	if m.virtualScroll.top == wasTop && m.virtualScroll.followEnd == wasFollow && !selection.active {
-		// Clamped at an edge with no selection: no row moved, so a full
-		// window mount would rebuild the identical frame.
+		// Clamped at an edge with no selection: no row moved, so a mount would
+		// rebuild the identical frame.
 		return
 	}
-	// Character selection is tied to rows that just moved.
 	m.document.selection = transcriptSelection{}
 	m.refreshTranscript()
 }
@@ -518,9 +523,8 @@ func (m *model) jumpToTranscriptBlock(index int) {
 	m.refreshTranscript()
 }
 
-// transcriptMount is the display configuration that decides how a block lays
-// out. Every field is part of the row-cache identity, so flipping ctrl+o or
-// ctrl+t, resizing or a palette change can never paint the previous shape.
+// Every field is part of the row-cache identity, so flipping ctrl+o or ctrl+t,
+// resizing or a palette change can never paint the previous shape.
 type transcriptMount struct {
 	width    int
 	theme    string
@@ -528,25 +532,22 @@ type transcriptMount struct {
 	thinking bool
 }
 
-// settledToolState reports a terminal tool row: its label no longer animates.
-// Unknown wire phases settle too — an unrecognized phase must not animate
-// forever.
+// Unknown wire phases settle too: an unrecognized phase must not animate forever.
 func settledToolState(state string) bool {
 	return transcriptui.ParseToolPhase(state).Terminal()
 }
 
-// blockLayoutIdentity decides whether a block's rows may be cached. Animated
-// blocks — the live reasoning spinner and a running tool's elapsed label — are
-// rebuilt on every frame because their text is a function of the clock, not of
-// their source.
+// Animated blocks — the live reasoning spinner, a running tool's elapsed label —
+// are rebuilt on every frame: their text is a function of the clock, not of their
+// source.
 func (m *model) blockLayoutIdentity(v *virtualTranscript, index int, mount transcriptMount) (transcriptLayoutIdentity, bool) {
 	id := transcriptLayoutIdentity{width: mount.width, theme: mount.theme, tools: mount.tools, thinking: mount.thinking, gap: m.transcriptGap(index)}
 	if index >= len(m.transcript) {
 		if index == m.liveThinkingIndex() {
 			return id, false
 		}
-		// The streaming answer keeps the identity of its last completed
-		// background render, so a frame without a delta reuses its rows.
+		// The streaming answer keeps the identity of its last completed render, so
+		// a frame without a delta reuses its rows.
 		live := m.document.live
 		if !live.valid || live.index != index || live.width != mount.width || live.themeKey != mount.theme {
 			return id, false
@@ -561,12 +562,9 @@ func (m *model) blockLayoutIdentity(v *virtualTranscript, index int, mount trans
 	return id, true
 }
 
-// transcriptGap is the blank-row count block `index` contributes above its
-// content. The first document row belongs to the first block; after that a
-// run of consecutive tool calls stacks densely (mainstream coding-agent
-// rhythm) while every other adjacency keeps the one-blank-line message gap.
-// The gap is leading and keyed on the predecessor only, so appending a block
-// lays out the new block alone and never invalidates its neighbor.
+// The blank-row count block `index` contributes above its content. The gap is
+// leading and keyed on the predecessor only, so appending a block lays out the
+// new block alone and never invalidates its neighbour.
 func (m *model) transcriptGap(index int) int {
 	if index <= 0 {
 		return 0
@@ -575,18 +573,16 @@ func (m *model) transcriptGap(index int) int {
 	case m.blockKindAt(index) == "tool" && m.blockKindAt(index-1) == "tool":
 		return transcriptGapToolRun
 	case m.blockKindAt(index) == "user":
-		// The user panel owns blank bg rows above and below its content;
-		// the plain gap would only add a third separator row and drift the
-		// mounted height away from the index estimate.
+		// The panel's frame rows are the separation; a plain gap would only add a
+		// third separator row and drift the mounted height.
 		return 0
 	default:
 		return transcriptGapDefault
 	}
 }
 
-// blockKindAt is the settled display kind of a block, "" for plain
-// user/assistant text. A replayed page without block metadata reports "",
-// which degrades to the default gap instead of guessing.
+// A replayed page without block metadata reports "", which degrades to the
+// default gap instead of guessing.
 func (m *model) blockKindAt(index int) string {
 	if b, ok := m.blocks[index]; ok {
 		return b.Kind
@@ -594,13 +590,12 @@ func (m *model) blockKindAt(index int) string {
 	return ""
 }
 
-// blockLayout returns the row mapping of one block, from the cache when its
-// identity is unchanged and freshly derived otherwise. Only the requested row
-// range is ever laid out; a giant block costs the same as a short one.
+// Only the requested row range is ever laid out, so a giant block costs the same
+// as a short one.
 func (m *model) blockLayout(v *virtualTranscript, index int, mount transcriptMount) *transcriptBlockLayout {
 	id, cacheable := m.blockLayoutIdentity(v, index, mount)
-	// The streaming answer changes source without a block revision, so its
-	// cache lookup has to follow the text prefix, not precede it.
+	// The streaming answer changes source without a block revision, so its cache
+	// lookup has to follow the text lookup, not precede it.
 	live := index >= len(m.transcript) && index != m.liveThinkingIndex()
 	if cacheable && !live {
 		if cached := v.rows.lookup(index, id); cached != nil {
@@ -609,9 +604,8 @@ func (m *model) blockLayout(v *virtualTranscript, index int, mount transcriptMou
 	}
 	text := m.transcriptBlockText(index)
 	if cacheable && live {
-		// A streaming answer's source can advance without a block revision: its
-		// identity is the last completed render, which asking for the text may
-		// have just dispatched. Re-check before laying out the new source.
+		// Asking for the text may have just dispatched a render, so re-check the
+		// identity before laying out the new source.
 		if id, cacheable = m.blockLayoutIdentity(v, index, mount); cacheable {
 			if cached := v.rows.lookup(index, id); cached != nil {
 				return cached
@@ -625,18 +619,16 @@ func (m *model) blockLayout(v *virtualTranscript, index int, mount transcriptMou
 	return layout
 }
 
-// transcriptWindow is the row range a frame paints: the viewport plus the same
-// overscan above and below it. Blocks are clipped to this range, so a block
-// taller than the terminal is never mounted whole.
+// The viewport plus its overscan above and below; blocks are clipped to that
+// range, so a block taller than the terminal is never mounted whole.
 func (v *virtualTranscript) transcriptWindow() (top, bottom int) {
 	top = max(0, v.top-virtualOverscanRows)
 	bottom = min(v.top+v.height+virtualOverscanRows, v.totalRows())
 	return top, max(top, bottom)
 }
 
-// measureMountedBlocks replaces the row estimate of every block intersecting
-// [top, bottom) with its exact height. This is the only frame that may lay out
-// cold source; every later frame reads the cache.
+// Replaces the estimate of every block intersecting [top, bottom) with its exact
+// height. This is the only pass that may lay out cold source.
 func (m *model) measureMountedBlocks(v *virtualTranscript, mount transcriptMount, top, bottom int) {
 	for i := v.indexAt(top); i < len(v.heights); i++ {
 		if v.prefix(i) >= bottom {
@@ -646,11 +638,9 @@ func (m *model) measureMountedBlocks(v *virtualTranscript, mount transcriptMount
 	}
 }
 
-// mountTranscriptWindow assembles the padded rows of [top, bottom) and returns
-// the painted lines together with the row their first entry represents. A
-// partially mounted block starts at `top`, not at its first row, so base is
-// always the window row: a block taller than the terminal would otherwise
-// return a document offset the viewport cannot address.
+// A partially mounted block starts at `top`, not at its first row, so base is
+// always the window row: otherwise a block taller than the terminal returns a
+// document offset the viewport cannot address.
 func (m *model) mountTranscriptWindow(v *virtualTranscript, count int, mount transcriptMount, top, bottom int) ([]string, int, int, int) {
 	start := v.indexAt(top)
 	base := top
@@ -676,7 +666,6 @@ func (m *model) mountTranscriptWindow(v *virtualTranscript, count int, mount tra
 		if to > from {
 			lines = v.rows.appendRows(lines, layout, from, to)
 			if hits := hitsAt(m.searchHits, i); len(hits) > 0 {
-				// Highlighting rewrites only the rows of this window slice.
 				copy(lines[begin:], highlightLiteralRows(lines[begin:], m.transcriptSourceAt(i), hits, v.width))
 			}
 			for offset := begin; offset < len(lines); offset++ {
@@ -690,20 +679,16 @@ func (m *model) mountTranscriptWindow(v *virtualTranscript, count int, mount tra
 	return lines, base, start, end
 }
 
-// refreshTranscript now makes a bounded mounted window. All movement and
-// redraw paths use this method, but never join the complete conversation.
-// Search highlights, character selection and the auto scrollbar are painted
-// onto the mounted rows only; nothing here renders offscreen history.
+// A bounded mounted window: search highlights, character selection and the
+// scrollbar are painted onto the mounted rows only, so nothing here renders
+// offscreen history.
 func (m *model) refreshTranscript() {
 	m.presentation.snapshot = nil
-	// A reducer may request several refreshes (a scroll, then reflow). The
-	// parent's frame guard defers all but the final layout pass of one Update,
-	// so one input cannot mount the document twice.
+	// A reducer may request several refreshes (a scroll, then reflow); the frame
+	// guard defers all but the final layout pass of one Update.
 	if !m.beginTranscriptMount() {
 		return
 	}
-	// A background Markdown render that already finished is applied on this
-	// frame, before the block is mounted.
 	m.pumpLiveMarkdown()
 	if m.virtualScroll == nil {
 		m.virtualScroll = newVirtualTranscript(m.viewport.Width(), m.viewport.Height())
@@ -714,8 +699,7 @@ func (m *model) refreshTranscript() {
 	v.sync(count, width, m.viewport.Height(), m.rawTranscriptBlock, func(index int, raw string) int {
 		return m.estimateBlockHeight(index, raw, width)
 	})
-	// A cold settled block that finished in the background is applied before
-	// this frame measures and mounts it, so its rows and height describe the
+	// Applied before this frame measures the block, so its height describes the
 	// render rather than the plain fallback.
 	m.pumpHistoryMarkdown()
 	v.refreshes++
@@ -734,24 +718,24 @@ func (m *model) refreshTranscript() {
 		tools:    m.showTools,
 		thinking: m.showThinking,
 	}
-	// Everything this mount reads or materializes belongs to the frame and must
-	// survive the cache trim at its end.
+	// Everything read or materialized here belongs to the frame and must survive
+	// its trim.
 	v.rows.beginFrame()
-	// The row under the user's eye is kept while estimates above it settle into
-	// exact heights, so a cold mount never jumps the scroll position.
+	// The row under the user's eye is kept, so a cold mount never jumps the
+	// scroll position.
 	anchor := v.indexAt(v.top)
 	if v.jumpBlock >= 0 && v.jumpBlock < len(v.heights) {
-		// A jump's target outranks the raw row under the top: neighbours
-		// settling from estimates to true heights move rows under a fixed
-		// anchor, and the target is the one row set that must not slip out.
+		// A jump's target outranks the row under the top: neighbours settling from
+		// estimates to true heights move rows under a fixed anchor, and the target
+		// is the one row that must not slip out.
 		anchor = v.jumpBlock
 	}
 	intra := clampInt(v.top-v.prefix(anchor), 0, max(0, v.heightAt(anchor)-1))
 	top, bottom := v.transcriptWindow()
 	for pass := 0; ; pass++ {
 		m.measureMountedBlocks(v, mount, top, bottom)
-		// Exact heights change the document length, so the scroll anchor is
-		// resolved after them and before a single row is painted.
+		// Exact heights change the document length, so the anchor is resolved after
+		// them and before any row is painted.
 		if v.followEnd {
 			v.top = max(0, v.totalRows()-v.height)
 		} else {
@@ -768,21 +752,17 @@ func (m *model) refreshTranscript() {
 	v.first = start
 	v.end = end
 	v.mountedRows = len(lines)
-	// Keep the formatted-text cache proportional to the window, not the
-	// session. On resize it is discarded by reflow.
+	// Proportional to the window, not the session; reflow discards it on resize.
 	m.markdownCache.retain(start, end)
 	m.paintTranscriptScrollbar(lines, v.top-base)
 	m.viewport.SetContentLines(lines)
-	// A wheel notch inside one block keeps the window offset at the overscan
-	// row, so setting it again would only re-walk the mounted rows to recompute
-	// the same scroll limits.
+	// A wheel notch inside one block keeps the offset at the overscan row, so
+	// setting it again would only rebuild the same scroll limits.
 	if offset := v.top - base; m.viewport.YOffset() != offset {
 		m.viewport.SetYOffset(offset)
 	}
 }
 
-// transcriptSelectionBlocks resolves the block range covered by the current
-// character selection, or -1 when there is nothing selected.
 func (m *model) transcriptSelectionBlocks() (int, int) {
 	v := m.virtualScroll
 	selection := m.document.selection

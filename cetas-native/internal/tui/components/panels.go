@@ -20,8 +20,7 @@ const (
 	PlanReviewTitlePrefix         = "Plan awaiting approval:"
 )
 
-// Ask panel geometry, mirroring ASK_PREVIEW_LINES and MAX_VISIBLE_OPTIONS in
-// cetas-js/ui/extension-ui.ts.
+// Geometry kept in step with cetas-js/ui/extension-ui.ts.
 const (
 	askPreviewLines  = 15
 	askMaxOptions    = 8
@@ -36,19 +35,15 @@ type AskRequest struct {
 	DefaultIndex               int
 }
 
-// Ask renders the inline ask panel above the editor. The layout follows the
-// JS AskPanel: the first title line is the bold question, the remaining lines
-// are the body (Markdown for selects, muted plain text otherwise), a select
-// body longer than askPreviewLines collapses to a preview that ctrl+o expands,
-// and options become either one button row or an askMaxOptions-row viewport.
+// Renders the inline ask panel above the editor. The first title line is the
+// bold question, the rest is the body (Markdown for selects, muted plain text
+// otherwise); a select body longer than askPreviewLines collapses to a preview
+// that ctrl+o expands, and options become either one button row or an
+// askMaxOptions window.
 //
-// Every rendered line is sanitized: ANSI escapes and control characters in a
-// prompt, an option or a typed value never reach the terminal, so a tool
-// argument cannot move the cursor and a secret cannot smuggle a newline. The
-// JS oracle passes those bytes through instead.
-//
-// An out-of-range selected renders no highlight; the JS oracle rejects such a
-// request at construction, which a pure renderer cannot do.
+// Every rendered line is sanitized, so a tool argument cannot move the cursor
+// and a secret cannot smuggle a newline. An out-of-range selection renders no
+// highlight.
 func Ask(t Theme, r AskRequest, width, selected int, value string, expanded bool) []string {
 	if width <= 0 {
 		return nil
@@ -58,8 +53,7 @@ func Ask(t Theme, r AskRequest, width, selected int, value string, expanded bool
 		title = r.Prompt
 	}
 	head, rest, _ := strings.Cut(title, "\n")
-	// Plan review is selector-only: the transcript already printed the whole
-	// plan, and the panel's preview could not scroll anyway.
+	// Plan review is selector-only: the transcript already printed the plan.
 	if r.Kind == AskSelect && strings.HasPrefix(title, PlanReviewTitlePrefix) {
 		rest = ""
 	}
@@ -125,8 +119,8 @@ func Ask(t Theme, r AskRequest, width, selected int, value string, expanded bool
 		start, end := askVisibleRange(len(labels), sel)
 		for i := start; i < end; i++ {
 			if i == sel {
-				// Truncate before padding: a label that already fills the
-				// width would otherwise leak past the block's leading space.
+				// Truncate before padding, or a full-width label leaks past the
+				// leading space.
 				out = append(out, askSelectionStyle().Render(Pad(askClip(" "+labels[i], width), width)))
 				continue
 			}
@@ -156,8 +150,7 @@ func askSelectionStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Bold(true).Background(lipgloss.Color("6")).Foreground(lipgloss.Color("0"))
 }
 
-// askVisibleRange returns the askMaxOptions-wide window that keeps the
-// selection centred and never scrolls past either end.
+// Keeps the selection centred without scrolling past either end.
 func askVisibleRange(count, selected int) (int, int) {
 	if count <= askMaxOptions {
 		return 0, count
@@ -168,13 +161,12 @@ func askVisibleRange(count, selected int) (int, int) {
 	return start, end
 }
 
-// askClip truncates with the JS truncateToWidth default ellipsis.
+// truncateToWidth with the default ellipsis.
 func askClip(s string, width int) string { return ansi.Truncate(s, width, "...") }
 
-// askCut truncates without an ellipsis, like truncateToWidth(s, width, "").
+// truncateToWidth with no ellipsis.
 func askCut(s string, width int) string { return ansi.Truncate(s, width, "") }
 
-// askLineKind selects the styling of one rendered body line.
 type askLineKind uint8
 
 const (
@@ -186,8 +178,8 @@ const (
 	askMuted
 )
 
-// askLine is one wrapped, sanitized but unstyled body line. Padding and theme
-// roles are applied per render, so a cached body stays theme independent.
+// Unstyled: padding and theme roles are applied per render, so a cached body
+// stays theme independent.
 type askLine struct {
 	text string
 	kind askLineKind
@@ -201,8 +193,7 @@ const (
 	askHeadBody
 )
 
-// askBodyKey orders the cheap fields first: comparing the text is a memcmp of
-// the whole body, which only runs once width and mode already match.
+// Cheap fields first: comparing the text is a memcmp of the whole body.
 type askBodyKey struct {
 	width int
 	mode  askBodyMode
@@ -214,19 +205,16 @@ type askBodyEntry struct {
 	lines []askLine
 }
 
-// askBodies memoizes the last few rendered bodies. Wrapping and block parsing
-// a long prompt is linear in its size while the panel renders every frame, so
-// the cache keeps that work off the render path. It is deliberately tiny: it
-// only ever holds the most recent asks, and it caches the unstyled lines so a
-// theme change cannot read a stale entry.
+// Wrapping a long prompt is linear in its size and the panel renders every
+// frame. Deliberately tiny, and it caches unstyled lines so a theme change
+// cannot read a stale entry.
 var askBodies struct {
 	sync.Mutex
 	entries []askBodyEntry
 	renders int
 }
 
-// askBody returns the wrapped body for text at width. The returned slice is
-// shared with the cache and must not be mutated.
+// The returned slice is shared with the cache and must not be mutated.
 func askBody(text string, width int, mode askBodyMode) []askLine {
 	key := askBodyKey{width: width, mode: mode, text: text}
 	askBodies.Lock()
@@ -263,8 +251,8 @@ func askBody(text string, width int, mode askBodyMode) []askLine {
 			askBodies.entries[len(askBodies.entries)-1] = askBodyEntry{}
 			askBodies.entries = askBodies.entries[:len(askBodies.entries)-1]
 		}
-		// A tiny heading can be a substring of a multi-megabyte prompt.
-		// Detach it so the byte budget also bounds backing-string retention.
+		// Detach from the source string so the byte budget also bounds what it
+		// retains.
 		entry.key.text = strings.Clone(entry.key.text)
 		askBodies.entries = append(askBodies.entries, entry)
 	}
@@ -272,8 +260,8 @@ func askBody(text string, width int, mode askBodyMode) []askLine {
 	return lines
 }
 
-// askSanitize applies Clean line by line: Clean folds every control character,
-// including the newlines that give a body its structure, into a space.
+// Clean per line: Clean folds control characters, the body's own newlines
+// included, into spaces.
 func askSanitize(s string) string {
 	lines := strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n")
 	for i, line := range lines {
@@ -282,12 +270,10 @@ func askSanitize(s string) string {
 	return strings.Join(lines, "\n")
 }
 
-// renderAskBodyText lays out a sanitized body. Markdown mode renders the block
-// subset an ask body uses (paragraphs, headings, rules, bullet and ordered
-// lists, fenced code); anything else (tables, quotes, links) stays visible as
-// its own text, so a body is never silently dropped. The plain and head modes
-// keep the source line breaks, like the Text components the JS panel uses for
-// the question line and for confirm and input details.
+// Markdown mode renders the block subset an ask body uses (paragraphs,
+// headings, rules, lists, fenced code); anything else — tables, quotes, links —
+// stays visible as its own text, so a body is never silently dropped. The plain
+// and head modes keep the source line breaks.
 func renderAskBodyText(src string, width int, mode askBodyMode) []askLine {
 	src = strings.ReplaceAll(strings.ReplaceAll(src, "\r\n", "\n"), "\r", "\n")
 	lines := strings.Split(src, "\n")
@@ -304,8 +290,8 @@ func renderAskBodyText(src string, width int, mode askBodyMode) []askLine {
 		}
 		return out
 	}
-	// Markdown separates block elements (headings, code fences) with a blank
-	// line; a source blank line already does that.
+	// Block elements are separated by a blank line; a source blank line already
+	// does that.
 	separate := false
 	add := func(kind askLineKind, marker, text string) {
 		if separate && len(out) > 0 && out[len(out)-1].kind != askBlank {
@@ -323,8 +309,8 @@ func renderAskBodyText(src string, width int, mode askBodyMode) []askLine {
 		}
 	}
 	fence := ""
-	// Markdown nests a list four spaces per depth, whatever the source
-	// indent was; the stack tracks the open item indents.
+	// Markdown nests a list four spaces per depth, whatever the source indent
+	// was; the stack tracks the open item indents.
 	indents := []int{}
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
@@ -392,7 +378,6 @@ func renderAskBodyText(src string, width int, mode askBodyMode) []askLine {
 	return out
 }
 
-// askRule reports a thematic break: three or more of the same -, * or _.
 func askRule(line string) bool {
 	if len(line) < 3 {
 		return false
@@ -409,7 +394,6 @@ func askRule(line string) bool {
 	return true
 }
 
-// askHeading strips the ATX marker from a heading line.
 func askHeading(line string) (string, bool) {
 	depth := 0
 	for depth < len(line) && depth < 6 && line[depth] == '#' {
@@ -421,9 +405,8 @@ func askHeading(line string) (string, bool) {
 	return strings.TrimSpace(strings.TrimRight(strings.TrimSpace(line[depth:]), "#")), true
 }
 
-// askListItem splits a bullet or ordered list item into its leading indent,
-// its marker and its text. Bullets normalise to "- " like the JS markdown
-// renderer; ordered markers keep their source number instead of renumbering.
+// Splits an item into indent, marker and text. Ordered markers keep their
+// source number instead of renumbering.
 func askListItem(line string) (indent, marker, text string, ok bool) {
 	i := 0
 	for i < len(line) && line[i] == ' ' {
@@ -443,9 +426,8 @@ func askListItem(line string) (indent, marker, text string, ok bool) {
 	return "", "", "", false
 }
 
-// askInline drops the inline emphasis and code markers the JS markdown theme
-// styles away, so a body reads the same in both renderers. Unmatched markers
-// stay literal, and an underscore inside a word is never emphasis.
+// Drops emphasis and code markers. Unmatched markers stay literal, and an
+// underscore inside a word is never emphasis.
 func askInline(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); {
@@ -485,7 +467,6 @@ func isWordByte(b byte) bool {
 	return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || b >= 0x80
 }
 
-// renderAskBody styles and pads cached body lines.
 func renderAskBody(t Theme, lines []askLine, width int) []string {
 	out := make([]string, len(lines))
 	for i, line := range lines {
@@ -505,7 +486,6 @@ func renderAskBody(t Theme, lines []askLine, width int) []string {
 	return out
 }
 
-// askBulletMarker tints only the list marker, like the JS markdown theme.
 func askBulletMarker(t Theme, line string) string {
 	start := 0
 	for start < len(line) && line[start] == ' ' {
@@ -530,9 +510,8 @@ func askBulletMarker(t Theme, line string) string {
 	return t.Role("accent", line[:end]) + line[end:]
 }
 
-// wrapAsk word-wraps sanitized text the way the JS panel does: CJK graphemes
-// are break opportunities of their own, whitespace never starts a line, and a
-// token wider than the panel is broken by grapheme.
+// CJK graphemes are break opportunities of their own, whitespace never starts a
+// line, and a token wider than the panel breaks by grapheme.
 func wrapAsk(s string, width int) []string {
 	width = max(1, width)
 	out := []string{}
@@ -599,8 +578,8 @@ func wrapAskLine(line string, width int) []string {
 	return out
 }
 
-// askTokens splits a line into whitespace runs, single CJK graphemes and
-// everything else, mirroring pi-tui's token split for wrapping.
+// Mirrors pi-tui's token split: whitespace runs, single CJK graphemes,
+// everything else.
 func askTokens(line string) []string {
 	tokens := []string{}
 	var word strings.Builder
@@ -630,8 +609,7 @@ func askTokens(line string) []string {
 	return tokens
 }
 
-// askClusters splits text into grapheme clusters so wide characters and emoji
-// count as one unit.
+// Grapheme clusters, so a wide character or emoji counts as one unit.
 func askClusters(s string) []string {
 	out := make([]string, 0, len(s))
 	for len(s) > 0 {
@@ -646,7 +624,7 @@ func askClusters(s string) []string {
 	return out
 }
 
-// askBreakCluster reports the scripts pi-tui treats as their own wrap token.
+// Scripts pi-tui treats as their own wrap token.
 func askBreakCluster(cluster string) bool {
 	for _, r := range cluster {
 		return unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul, unicode.Bopomofo)
@@ -654,8 +632,8 @@ func askBreakCluster(cluster string) bool {
 	return false
 }
 
-// ComposeOverlay dims the base and composites a centered bounded modal using
-// display-column slicing. ANSI from the base cannot cancel the veil midway.
+// Dims the base and composites a centred bounded modal by display columns, so
+// ANSI from the base cannot cancel the veil midway.
 func ComposeOverlay(t Theme, base, panel []string, width, height int) []string {
 	out := make([]string, max(0, height))
 	for i := range out {
@@ -681,11 +659,9 @@ func ComposeOverlay(t Theme, base, panel []string, width, height int) []string {
 	}
 	return out
 }
-// PanelFixed is Panel with a geometry promise: the item pane is exactly
-// `rows` lines — windowed around the selection, blank-padded when the list
-// is shorter, with a muted hint when there is nothing to show. The box never
-// resizes or recenters while the list changes under tabs or search, which is
-// what keeps a picker legible mid-interaction.
+
+// The item pane is exactly `rows` lines, so the box never resizes or recentres
+// while the list changes under tabs or search.
 func PanelFixed(t Theme, title string, items []string, selected, width, height, rows int) []string {
 	width = max(1, width)
 	height = max(1, height)

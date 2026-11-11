@@ -7,8 +7,8 @@ import (
 	transcriptui "github.com/colmugx/cetas/cetas-native/internal/tui/transcript"
 )
 
-// Keep err as a diagnostic for command callers, but never render it beside the
-// draft. A state redraw must not append the same failure repeatedly.
+// err stays a diagnostic for command callers and is never rendered beside the
+// draft: a state redraw must not append the same failure repeatedly.
 func (m *model) presentErrorNotice() bool {
 	if m.err == "" {
 		m.presentedError = ""
@@ -21,8 +21,8 @@ func (m *model) presentErrorNotice() bool {
 	if m.blocks == nil {
 		m.blocks = map[int]transcriptui.Block{}
 	}
-	// Runtime diagnostics flow into the terminal verbatim: the same SGR
-	// allowlist as tool results keeps hostile sequences out of the screen.
+	// err arrives verbatim: the same SGR allowlist as tool results keeps
+	// hostile sequences off the screen.
 	safe := ui.SanitizeSGR(m.err)
 	at := len(m.transcript)
 	m.transcript = append(m.transcript, "● "+safe)
@@ -36,7 +36,7 @@ func (m *model) appendUser(text string) {
 		m.blocks = map[int]transcriptui.Block{}
 	}
 	at := len(m.transcript)
-	// Source remains compatible with copy/search; display comes from the block.
+	// The raw line serves copy/search; display comes from the block.
 	m.transcript = append(m.transcript, "> "+text)
 	m.blocks[at] = transcriptui.Block{Kind: "user", Text: text}
 }

@@ -14,8 +14,7 @@ import (
 
 func TestIdleUIStopsSchedulingFrames(t *testing.T) {
 	m := newModel()
-	// Seed the terminal status report: the assertion is about scheduling,
-	// not about the first OSC 7501 frame.
+	// Seeded so the assertion measures scheduling, not the first OSC 7501 frame.
 	m.lastProgramStatus = formatProgramStatus(m.projectProgramStatus())
 	next, cmd := m.Update(clockTick(time.Now()))
 	if cmd != nil {
@@ -113,8 +112,6 @@ func TestSubmittedUserMessageUsesPaddedFullWidthSurface(t *testing.T) {
 		t.Fatal("user block has no background styling")
 	}
 	lines := strings.Split(rendered, "\n")
-	// The panel is a framed box: blank bg row, padded content row, blank bg
-	// row, every one exactly the transcript width.
 	if len(lines) != 3 {
 		t.Fatalf("user panel is not framed: %d lines", len(lines))
 	}

@@ -12,12 +12,10 @@ import (
 	"strings"
 )
 
-// Image attachment input, mirroring the JS host's image-attachments.ts: an
-// `@path` mention that resolves to a workspace image file rides the turn as
-// an inline base64 Image block while the text mention stays in the prompt.
-// Pasted images (an empty bracketed paste with an image on the system
-// clipboard) stage the same way. Guardrails: one attachment per path, a
-// decoded-size cap, and warnings rendered as notices instead of exceptions.
+// A workspace `@path` image mention rides the turn as an inline base64 Image
+// block while the text mention stays in the prompt; an empty paste with an
+// image on the system clipboard stages the same way. Oversize or unresolvable
+// attachments become warnings, never exceptions.
 
 const maxImageBytes = 5 * 1024 * 1024
 
@@ -32,16 +30,15 @@ var imageMentionExts = map[string]string{
 type imageAttachment struct {
 	MediaType string `json:"media_type"`
 	Data      string `json:"data"`
-	// Label is display-only: the file name or "clipboard".
+	// Label is display-only: file name or "clipboard".
 	Label string `json:"-"`
 	Bytes int    `json:"-"`
 }
 
 var imageMentionPattern = regexp.MustCompile(`(?:^|\s)@([^\s@]+)`)
 
-// findImageMentions returns `@`-tokens whose extension looks like an image,
-// with the JS host's trim rules (surrounding quotes/brackets and trailing
-// punctuation are not part of the path).
+// `@`-tokens with an image extension; surrounding quotes/brackets and trailing
+// punctuation are not part of the path.
 func findImageMentions(prompt string) []string {
 	var tokens []string
 	for _, match := range imageMentionPattern.FindAllStringSubmatch(prompt, -1) {
@@ -54,8 +51,7 @@ func findImageMentions(prompt string) []string {
 	return tokens
 }
 
-// resolveImageMentions reads every image mention that resolves against the
-// workspace directory. Failures are warnings, never exceptions: the prompt
+// A mention that does not resolve under the workspace only warns: the prompt
 // still goes out with its text mentions.
 func resolveImageMentions(prompt, cwd string) (attachments []imageAttachment, warnings []string) {
 	seen := map[string]bool{}
@@ -92,9 +88,8 @@ func formatImageBytes(size int) string {
 	return fmt.Sprintf("%d KB", max(1, size/1024))
 }
 
-// readClipboardImage is the platform clipboard probe; tests replace it. An
-// empty paste with an image on the clipboard is how terminals deliver "the
-// user pasted an image" — no bytes cross stdin.
+// Tests replace this probe. Terminals deliver a pasted image as an empty paste,
+// so no bytes cross stdin.
 var readClipboardImage = func() (imageAttachment, bool) {
 	if !clipboardImageSupported() {
 		return imageAttachment{}, false
@@ -136,15 +131,13 @@ func decodeAppleScriptPNG(out string) []byte {
 	if err != nil {
 		return nil
 	}
-	// AppleScript hex is a PNG file image; the magic is the cheapest truth.
+	// The PNG magic is the cheapest validity check.
 	if len(data) < 8 || string(data[:4]) != "\x89PNG" {
 		return nil
 	}
 	return data
 }
 
-// stageImageAttachments merges newly resolved attachments into the staged
-// set, deduped by label.
 func (m *model) stageImageAttachments(attachments []imageAttachment) {
 	for _, attachment := range attachments {
 		duplicate := false
@@ -164,8 +157,7 @@ func (m *model) stageImageAttachments(attachments []imageAttachment) {
 	}
 }
 
-// clearStagedImages empties the tray, deleting thumbnail images so a cleared
-// chip leaves no ghost behind on graphics terminals.
+// The thumbnails are deleted too, so a cleared chip leaves no ghost behind.
 func (m *model) clearStagedImages() {
 	for _, thumb := range m.kittyThumbs {
 		m.pendingKitty = append(m.pendingKitty, kittyDeleteImage(thumb.id))
@@ -174,10 +166,8 @@ func (m *model) clearStagedImages() {
 	m.pendingImages = nil
 }
 
-// pasteImagePath recognizes a paste whose entire content is one line that
-// names an existing image file — how several terminals (Ghostty among them)
-// deliver a pasted image. It returns the workspace-relative token when the
-// file is attachable.
+// Some terminals (Ghostty among them) deliver a pasted image as one line naming
+// a file; returns the workspace-relative token when the file is attachable.
 func pasteImagePath(content, cwd string) (string, bool) {
 	line := strings.TrimSpace(content)
 	if line == "" || strings.ContainsAny(line, " \t\n\r\"'") || strings.HasPrefix(line, "@") {
@@ -201,8 +191,6 @@ func pasteImagePath(content, cwd string) (string, bool) {
 	return line, true
 }
 
-// stagedImageSummary renders the chip line the status area shows while
-// attachments wait for the next submit.
 func (m *model) stagedImageSummary() string {
 	if len(m.pendingImages) == 0 {
 		return ""

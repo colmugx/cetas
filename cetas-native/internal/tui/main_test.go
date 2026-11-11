@@ -35,7 +35,7 @@ func TestEditorResizesForSmallTerminal(t *testing.T) {
 	m.width = 18
 	m.height = 6
 	m.resize()
-	// JS parity uses actual terminal columns, not the former 20-column minimum.
+	// No minimum width: the viewport takes the terminal's actual columns.
 	if m.viewport.Height() < 1 || m.viewport.Width() != 18 {
 		t.Fatalf("bad dimensions: %d x %d", m.viewport.Width(), m.viewport.Height())
 	}
@@ -109,9 +109,9 @@ func TestToolCompletionMatchesCallID(t *testing.T) {
 func TestHostileToolResultIsSanitizedAtIngest(t *testing.T) {
 	m := newModel()
 	m.showTools = true
-	// A hostile tool body carrying OSC 8 link spoofing, a clipboard write and
-	// a screen clear, beside a legitimate SGR color: everything but the SGR
-	// must die before the text reaches any transcript surface.
+	// OSC 8 spoofing, a clipboard write and a screen clear beside a legitimate
+	// SGR color: everything but the SGR must die before the text reaches any
+	// transcript surface.
 	body, err := json.Marshal("\x1b]8;;http://evil.example\x1b\\click\x1b]8;;\x1b\\ \x1b]52;c;AAAA\x07 \x1b[2J \x1b[31mred\x1b[0m")
 	if err != nil {
 		t.Fatal(err)
@@ -142,8 +142,6 @@ func TestSlashTabOpensPickerAndInsertKeepsDraft(t *testing.T) {
 	m.textarea.SetValue("/mo")
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	state := next.(model)
-	// Bottom-up stacking: the best match ("/model" for "/mo") is the last
-	// row and the cursor starts on it.
 	if state.modal != "slash" || len(state.modalValues) == 0 || state.modalValues[state.modalIndex] != "/model" {
 		t.Fatalf("slash completion picker: %#v at %d", state.modalValues, state.modalIndex)
 	}
@@ -284,8 +282,7 @@ func TestStructuredAuthResultDoesNotBreakEventProjection(t *testing.T) {
 	if m.session != "s1" || m.status != "signed in to openai" {
 		t.Fatalf("structured EventHub result was discarded: session=%q status=%q", m.session, m.status)
 	}
-	// Tool output is still a text wire field, including content that resembles
-	// JSON; changing auth result decoding must not break tool completion.
+	// Tool output stays a text wire field, even when it resembles JSON.
 	m.showTools = true
 	m.applyEvent(event(`{"type":"tool.started","session_id":"s1","tool_call_id":"t1","tool_name":"read"}`))
 	m.applyEvent(event(`{"type":"tool.completed","session_id":"s1","tool_call_id":"t1","tool_name":"read","result":"plain result"}`))

@@ -28,14 +28,10 @@ func (m model) dimensions() (int, int) {
 }
 func (m model) theme() ui.Theme { return ui.NewTheme(m.surface.fg, m.surface.bg) }
 
-// completionMenuRows is the popup's fixed height. The menu sits directly above
-// the editor, so a pane that grew with its result count would shift the input
+// Fixed height: a pane that grew with its result count would shift the input
 // line on every keystroke.
 const completionMenuRows = 6
 
-// completionMenu renders the inline completion popup: the completionMenuRows
-// window of items around the cursor, padded with blank rows so one result and
-// forty results occupy the same six lines. No items means no pane at all.
 func completionMenu(theme ui.Theme, items []string, index, width int) []string {
 	if len(items) == 0 {
 		return nil
@@ -50,8 +46,7 @@ func completionMenu(theme ui.Theme, items []string, index, width int) []string {
 		}
 		rows = append(rows, ui.Pad(line, width))
 	}
-	// Max height, not fixed: one candidate opens a one-row hint beside the
-	// composer instead of a six-row pane of blanks.
+	// Max height, not fixed: one candidate opens a one-row hint, not six blank rows.
 	return rows
 }
 func (m model) regions() regions {
@@ -76,8 +71,6 @@ func (m model) regions() regions {
 		label = frames[m.surface.frame] + " " + label
 	}
 	if m.switchInFlight != "" {
-		// The switch has no transcript of its own yet: the skeleton stands in
-		// for the rows the target session is about to paint.
 		r.status = switchSkeletonLines(theme, w)
 	} else if label != "" {
 		r.status = []string{theme.Role("muted", " "+label)}
@@ -116,8 +109,8 @@ func (m model) regions() regions {
 		}
 		entries = append(entries, ui.DashboardEntry{Key: "model", Value: value})
 	}
-	// The runtime snapshot supplies the actual selected slot; the statusbar
-	// extension's model field may contain only model:effort (as in JS).
+	// The runtime snapshot owns model_slot; the statusbar's model field may
+	// carry only model:effort.
 	if !has("model_slot") && m.surface.model != "" {
 		entries = append(entries, ui.DashboardEntry{Key: "model_slot", Value: m.surface.model})
 	}
@@ -164,8 +157,7 @@ func (m model) regions() regions {
 	}
 	if reserved() >= h {
 		r.menu = nil
-		// Only physically tiny screens may lose dashboard detail. A long
-		// question must shrink its preview before taking away status rows.
+		// A long question shrinks its preview before the dashboard loses rows.
 		available := max(0, h-1-len(r.status)-len(r.ask)-len(r.editor))
 		r.dashboard = r.dashboard[:min(len(r.dashboard), available)]
 		r.editor = r.editor[:min(len(r.editor), max(0, h-1-len(r.status)-len(r.ask)-len(r.dashboard)))]
@@ -206,13 +198,10 @@ func (m model) View() tea.View {
 	return m.renderView()
 }
 
-// overlayPanelSize is the centred panel box a modal/picker overlay asks for:
-// 76% of the width and 70% of the height, never below the smallest usable box.
 func overlayPanelSize(width, height int) (int, int) {
 	return min(width-2, max(4, width*88/100)), min(height-1, max(4, height*82/100))
 }
 
-// overlayTitle is the dialog heading for the legacy (non-ask) pickers.
 func (m model) overlayTitle() string {
 	title := m.modalPrompt
 	if title == "" {
@@ -224,11 +213,9 @@ func (m model) overlayTitle() string {
 	return title
 }
 
-// pickerPanelKey is every input the session picker's panel render reads, by
-// value: the picker's own fields, the palette identity, the panel box and the
-// minute bucket of the relative-time ladder. Within one bucket the render is
-// a pure function of this key, so an unchanged key means the memoized panel
-// and its rect are exactly what a fresh render would produce.
+// Every input the picker render reads. Within one minute bucket the render is
+// pure, so an unchanged key means the memoized panel is what a fresh render
+// would produce.
 type pickerPanelKey struct {
 	open        bool
 	bucket      string
@@ -245,10 +232,8 @@ type pickerPanelKey struct {
 	width, tall int
 }
 
-// pickerPanelMemo caches one picker panel render with its composited rect.
 // The wheel path hit-tests and the paint path compose the same panel, so a
-// frame over the picker renders it once instead of twice; the value key
-// guarantees a memo hit can never serve a stale panel.
+// frame over the picker renders it once instead of twice.
 type pickerPanelMemo struct {
 	key                      pickerPanelKey
 	panel                    []string
@@ -276,20 +261,16 @@ func (m model) pickerPanelKey(width, tall int, now time.Time) pickerPanelKey {
 	}
 }
 
-// overlayPanel renders the centred overlay the renderer composes and reports
-// exactly where it lands, so painting and pointer routing can never disagree:
-// the compositor centres the panel's *measured* lines, which is narrower than
-// the requested box when the content does not fill it. The picker panel is
-// memoized on its full render-input key; legacy modals render directly (they
-// are not wheeled, so they never pay the double render the memo removes).
+// Reports exactly where the panel lands so painting and pointer routing can
+// never disagree: the compositor centres the panel's *measured* lines, which is
+// narrower than the requested box when the content does not fill it.
 func (m model) overlayPanel() (panel []string, left, top, width, height int) {
 	w, h := m.dimensions()
 	pw, ph := overlayPanelSize(w, h)
 	if m.modal != "" {
 		if m.modal == "models" {
-			// Fixed pane: switching tabs or narrowing the search changes the
-			// list length every keystroke; a box that resized with it would
-			// jump and recenter until nothing is legible.
+			// Fixed pane: the list length changes every keystroke, and a box
+			// that resized with it would jump and recentre.
 			panel = ui.PanelFixed(m.theme(), m.overlayTitle(), m.modalItems, m.modalIndex, pw, ph, 9)
 		} else {
 			panel = ui.Panel(m.theme(), m.overlayTitle(), m.modalItems, m.modalIndex, pw, ph)
@@ -324,18 +305,14 @@ func (m model) overlayPanel() (panel []string, left, top, width, height int) {
 	return panel, max(0, (w-width)/2), max(0, (h-height)/2), width, height
 }
 
-// overlayActive reports whether a centred panel covers the dashboard. A UiPort
-// ask never reaches here: it owns its own layout region and is always the first
-// focus owner.
+// A UiPort ask never reaches here: it owns its own layout region.
 func (m model) overlayActive() bool {
 	return (m.modal != "" || m.sessionPicker.open) && m.modalRequestID == "" && !m.completing()
 }
 
-// wheelRoute sends one coalesced wheel displacement to the surface under the
-// pointer. The typed picker scrolls only when the pointer is over the panel it
-// painted; a pointer outside it moves nothing, because the transcript the panel
-// covers must not scroll as a fallback. With no overlay at all the transcript
-// keeps its one-row-per-notch contract.
+// The typed picker scrolls only while the pointer is over the panel it painted;
+// a pointer outside it moves nothing, since the covered transcript must not
+// scroll as a fallback.
 func (m *model) wheelRoute(x, y, delta int) tea.Cmd {
 	if delta == 0 {
 		return nil
@@ -347,9 +324,7 @@ func (m *model) wheelRoute(x, y, delta int) tea.Cmd {
 		}
 		return nil
 	}
-	// An ask (question, plan approval, auth) renders in its own region; the
-	// transcript above it stays readable, so the wheel keeps scrolling it.
-	// Legacy centred modals still swallow the wheel.
+	// An ask owns its own region; the transcript above stays scrollable.
 	if m.modal == "" || m.modalRequestID != "" {
 		m.scrollTranscript(delta)
 	}
@@ -407,6 +382,5 @@ func (m model) renderView() tea.View {
 			}
 		}
 	}
-	// Every displayed line obeys the terminal's display-column boundary.
 	return view
 }

@@ -11,8 +11,8 @@ type scheduledUITick struct {
 	generation uint64
 }
 
-// Only work whose displayed value can change with time earns a wakeup. TTLs
-// get one exact deadline; they do not keep a polling animation alive.
+// Only work whose displayed value can change with time earns a wakeup; a TTL
+// gets one exact deadline, never a polling loop.
 func (m model) nextUIWake(now time.Time) time.Time {
 	var due time.Time
 	consider := func(t time.Time) {
@@ -21,12 +21,10 @@ func (m model) nextUIWake(now time.Time) time.Time {
 		}
 	}
 	consider(m.replayRetryAt)
-	// A staged completion request owns a wake: once typing settles nothing
-	// else animates, and without this deadline the debounced request would
-	// wait for an unrelated message to pump it.
+	// Without this deadline the debounced completion request would wait for an
+	// unrelated message to pump it.
 	consider(m.completionDueAt)
-	// A lost cold transcript index reply must wake even on an idle screen;
-	// the timeout handler releases the latch and retries with a fresh deadline.
+	// A lost transcript index reply must wake even on an idle screen to retry.
 	if m.replayIndexPending && !m.replayIndexSince.IsZero() {
 		consider(m.replayIndexSince.Add(replayIndexTimeout + time.Millisecond))
 	}
@@ -71,8 +69,8 @@ func (m *model) scheduleUIClock(now time.Time) tea.Cmd {
 		}
 		return nil
 	}
-	// A pending earlier timer also services this deadline, and will re-evaluate
-	// demand. Never launch a second animation chain for each incoming token.
+	// An earlier pending timer will re-evaluate demand; never launch a second
+	// animation chain for each incoming token.
 	if !m.clockDue.IsZero() && !due.Before(m.clockDue) {
 		return nil
 	}

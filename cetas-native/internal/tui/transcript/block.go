@@ -1,15 +1,14 @@
 // Package transcript owns source-backed transcript blocks, independent of cgo.
 //
-// A block renders the way the JavaScript host renders the same row: the
-// layout, indentation, bullets, summaries and expansion rules below are ported
-// from cetas-js/src/tool-renderers/* (registry.ts + specs.ts + the hook
-// renderers), transcript/components.ts (ToolRow, UserMessage) and
-// transcript/thinking.ts, which stay the oracle for this package.
+// A block renders the way the JavaScript host renders the same row: the layout,
+// indentation, bullets, summaries and expansion rules follow
+// cetas-js/src/tool-renderers/*, transcript/components.ts (ToolRow,
+// UserMessage) and transcript/thinking.ts, which stay the oracle.
 package transcript
 
 import (
-	"charm.land/lipgloss/v2"
 	"bytes"
+	"charm.land/lipgloss/v2"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -28,11 +27,11 @@ type Attachment struct {
 }
 
 type Block struct {
-	Attachments         []Attachment
-	Finished            time.Time
-	Kind                string
-	// ImageID > 0 marks an inline-image block whose rows are kitty
-	// placeholder text; 0 renders the plain fallback line.
+	Attachments []Attachment
+	Finished    time.Time
+	Kind        string
+	// ImageID > 0 marks rows that are kitty placeholder text; 0 renders the
+	// plain fallback line.
 	ImageID             int
 	ImageRows           int
 	CallID, Name, State string
@@ -42,18 +41,15 @@ type Block struct {
 	Started             time.Time
 }
 
-// Styles renders the semantic roles of a row. Every field is optional: a nil
-// function means "no styling", which keeps unknown terminal colours safe
-// instead of guessing them. The bullet carries the row state (traffic light)
-// while the tool title keeps its own style, mirroring JS statusBullet versus
-// theme.toolTitle.
+// Every field is optional: a nil function means "no styling", which keeps
+// unknown terminal colours safe instead of guessing them. The bullet carries the
+// row state while the tool title keeps its own style.
 type Styles struct {
 	Muted, Pending, Success, Error, User func(string) string
-	// Dim renders secondary metadata (JS theme.dim, e.g. elapsed seconds and
-	// the ask type hint). Nil falls back to Muted.
+	// Dim renders secondary metadata. Nil falls back to Muted.
 	Dim func(string) string
-	// ToolTitle renders the tool name inside a row title (JS theme.toolTitle:
-	// bold warning). Nil falls back to Pending. It is never the state colour.
+	// ToolTitle renders the tool name inside a row title. Nil falls back to
+	// Pending; it is never the state colour.
 	ToolTitle func(string) string
 }
 
@@ -61,12 +57,11 @@ type Options struct {
 	Width                           int
 	ToolsExpanded, ThinkingExpanded bool
 	// ThinkingLive renders a streaming reasoning block: braille spinner header
-	// plus the trailing three lines (JS ThinkingComponent live mode). The zero
-	// value keeps the finalized rendering, so callers that know nothing about
-	// live reasoning are unaffected.
+	// plus the trailing three lines. The zero value keeps the finalized
+	// rendering, so callers that know nothing about live reasoning are unaffected.
 	ThinkingLive bool
-	// Frame selects the braille spinner frame for ThinkingLive; see
-	// ThinkingFrame. It is ignored by the finalized rendering.
+	// Frame selects the braille spinner frame for ThinkingLive; the finalized
+	// rendering ignores it.
 	Frame  int
 	Styles Styles
 	Now    time.Time
@@ -75,31 +70,30 @@ type Options struct {
 const (
 	// previewLinesCount is the collapsed body of a fallback result row.
 	previewLinesCount = 3
-	// expandedLines is the ctrl+o cap (JS EXPANDED_MAX): never flood a screen.
+	// expandedLines is the ctrl+o cap: never flood a screen.
 	expandedLines = 50
-	// previewChars is the collapsed one-line squeeze (JS truncateForPreview).
+	// previewChars is the collapsed one-line squeeze.
 	previewChars = 200
-	// readSummaryChars is the read summary width (JS readSpec truncateLine).
+	// readSummaryChars is the read summary width.
 	readSummaryChars = 120
 	// subagentTaskChars bounds the collapsed spawn task preview.
 	subagentTaskChars = 120
 	// subagentTaskExpandedChars bounds the ctrl+o task dump.
 	subagentTaskExpandedChars = 2000
-	// thinkingLiveLines is the trailing window of a live thinking block, and
-	// also the collapsed preview depth of a finalized one.
+	// thinkingLiveLines is the trailing window of a live block and the collapsed
+	// preview depth of a finalized one.
 	thinkingLiveLines = 3
-	// zebraDetailLines is the shortest expanded body that earns the zebra
-	// gutter; a handful of lines reads fine evenly indented.
+	// zebraDetailLines is the shortest expanded body that earns the zebra gutter;
+	// a handful of lines reads fine evenly indented.
 	zebraDetailLines = 6
 	spinnerInterval  = 80 * time.Millisecond
 )
 
-// brailleFrames is the live thinking spinner (JS BRAILLE_FRAMES).
+// brailleFrames is the live thinking spinner.
 var brailleFrames = [...]string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-// ThinkingFrame returns the braille spinner frame active at a wall-clock time.
-// Callers that already track an animation tick can pass their own index in
-// Options.Frame instead.
+// ThinkingFrame returns the frame active at a wall-clock time; callers that track
+// their own animation tick pass Options.Frame instead.
 func ThinkingFrame(at time.Time) int {
 	if at.IsZero() {
 		return 0
@@ -111,19 +105,16 @@ func ThinkingFrame(at time.Time) int {
 	return int(ms/int64(spinnerInterval/time.Millisecond)) % len(brailleFrames)
 }
 
-// Render draws the block at the terminal width. The returned string is one
-// complete block: the caller owns inter-block spacing and hard wrapping.
+// Render draws the block at the terminal width. The caller owns inter-block
+// spacing and hard wrapping.
 func (b Block) Render(o Options) string {
 	width := max(1, o.Width)
 	switch b.Kind {
 	case "thinking":
 		return strings.Join(textLines(b.thinkingText(o), width), "\n")
 	case "user":
-		// JS: Box(1, 0, userMessageBg) { Text("> " + prompt, 0, 0) }.
-		// The native parent deepens the box: one blank padded row above and
-		// below, padded margins each side, all carrying the user surface
-		// background so the block reads as one findable panel. The margin
-		// shrinks with the terminal so a row can never overflow its width.
+		// One findable panel: the padded margins carry the user surface
+		// background, and they shrink with the terminal so a row never overflows.
 		padX := min(2, max(0, width/4))
 		inner := max(2, width-2*padX)
 		lines := bubbleLines(clean(b.Text), inner)
@@ -161,8 +152,6 @@ func clean(s string) string { return strings.ReplaceAll(ansi.Strip(s), "\r", "")
 
 func (s Styles) muted(text string) string { return styled(s.Muted, text) }
 
-// dim renders secondary metadata; it degrades to the muted style when the
-// caller has no faint style, so no information is lost.
 func (s Styles) dim(text string) string {
 	if s.Dim != nil {
 		return s.Dim(text)
@@ -177,8 +166,7 @@ func (s Styles) title(text string) string {
 	return styled(s.Pending, text)
 }
 
-// bullet renders the traffic-light glyph for a tool state: amber while the
-// call is in flight, green when it succeeded, red when it did not.
+// bullet is amber in flight, green on success, red on failure.
 func (s Styles) bullet(state string) string {
 	switch state {
 	case "succeeded":
@@ -227,12 +215,11 @@ func frameIndex(frame int) int {
 
 // -- tool rows --------------------------------------------------------------
 
-// ToolPhase is the closed behavioral vocabulary for a tool row's lifecycle.
-// The wire sends phase strings (console protocol) and the replayed journal
-// sends its own historical status words; both normalize here so "is this row
-// settled / failed / animating" has exactly one source of truth. A wire value
-// outside the known sets is deliberately terminal: an unrecognized phase must
-// settle the row instead of animating and mutating forever.
+// ToolPhase is the closed behavioral vocabulary for a tool row's lifecycle. The
+// console protocol's phase strings and the replayed journal's status words both
+// normalize here, so "settled / failed / animating" has one source of truth. An
+// unrecognized phase is deliberately terminal: it must settle rather than
+// animate forever.
 type ToolPhase uint8
 
 const (
@@ -261,16 +248,15 @@ func ParseToolPhase(state string) ToolPhase {
 	}
 }
 
-// Terminal reports a settled row: it renders the result view from now on and
-// never falls back to the call view, even when the result body is empty.
+// Terminal reports a settled row: it renders the result view from now on, never
+// the call view, even when the result body is empty.
 func (p ToolPhase) Terminal() bool { return p != PhaseActive }
 
 func (p ToolPhase) Failed() bool {
 	return p == PhaseFailed || p == PhaseRejected || p == PhaseAbandoned
 }
 
-// Label is the canonical state string of a known phase; callers keep the raw
-// wire word for PhaseUnknown.
+// PhaseUnknown has no canonical label; callers keep the raw wire word.
 func (p ToolPhase) Label() string {
 	switch p {
 	case PhaseSucceeded:
@@ -317,7 +303,6 @@ func (b Block) toolText(o Options) string {
 	return text
 }
 
-// callText renders the pre-result view (JS renderCall).
 func (b Block) callText(o Options, args map[string]any) string {
 	s := o.Styles
 	bullet := s.bullet(b.State)
@@ -331,8 +316,8 @@ func (b Block) callText(o Options, args map[string]any) string {
 		path := argString(args, "path")
 		content := argString(args, "content")
 		if b.State == "streaming" {
-			// JS write.ts live-args view: content arrives in fragments, so show
-			// the line count and the last three lines while it streams.
+			// Content arrives in fragments, so show the line count and the last
+			// three lines while it streams.
 			if path != "" {
 				head += " " + clean(path)
 			} else {
@@ -389,14 +374,12 @@ func (b Block) callText(o Options, args map[string]any) string {
 		return bullet + " " + s.title("answer") + " " + s.dim("· "+argText(args, "(no question id)", "question_id"))
 	case "exit_plan_mode":
 		head := bullet + " " + s.title("plan") + " " + argText(args, "(unnamed)", "name")
-		// JS renders the plan body as Markdown; the native row keeps the text
-		// verbatim because this package has no Markdown renderer.
+		// Kept verbatim: this package has no Markdown renderer.
 		if plan := argString(args, "plan"); plan != "" {
 			return head + "\n" + clean(plan)
 		}
 		return head
 	}
-	// Unknown tools fall back to the JSON argument dump (JS fallback.ts).
 	raw := oneLine(string(b.Arguments))
 	if raw == "" {
 		raw = "{}"
@@ -404,9 +387,8 @@ func (b Block) callText(o Options, args map[string]any) string {
 	return bullet + " " + s.title(b.Name) + " " + s.muted(raw)
 }
 
-// resultText renders the settled view (JS renderResult): line one is the
-// bullet, the tool title and the primary argument; the body is summarized per
-// tool and indented by six columns.
+// Line one is the bullet, the tool title and the primary argument; the body is
+// summarized per tool and indented by six columns.
 func (b Block) resultText(o Options, args map[string]any) string {
 	s := o.Styles
 	expanded := o.ToolsExpanded
@@ -448,8 +430,7 @@ func (b Block) resultText(o Options, args map[string]any) string {
 		if body == "" {
 			return head
 		}
-		// JS keeps the whole body in one muted Text; the expanded preview is
-		// where the native row adds the zebra gutter.
+		// The zebra gutter only appears in the expanded preview.
 		return head + "\n      " + s.muted(body)
 	case "subagent", "zcode":
 		return plainResultBlock(s, b.State, "subagent", b.specBody(content, expanded))
@@ -486,11 +467,9 @@ func (b Block) notifyResult(s Styles, args map[string]any, content string, faile
 	return head + "\n      " + s.muted(note)
 }
 
-// answerResult is the durable record of the parent agent's reply. A live
-// receipt answers with the parked question and the submitted word (derived from
-// the call args, exactly like JS answer.ts answerWord); a replay receipt
-// rebuilds the pair from its `question:`/`answer:` lines. Legacy or failed
-// receipts delegate to the fallback renderer, whose title is the wire name.
+// A live receipt answers with the parked question and the submitted word; a
+// replay receipt rebuilds the pair from its `question:`/`answer:` lines. Legacy
+// or failed receipts fall back to the wire name.
 func (b Block) answerResult(o Options, args map[string]any, content string) string {
 	s := o.Styles
 	if !b.failed() {
@@ -527,8 +506,7 @@ func (b Block) planResult(o Options, args map[string]any) string {
 		return head + "\n      " + strings.Join(details, "\n      ")
 	}
 	if o.ToolsExpanded {
-		// JS re-renders the approved plan body behind ctrl+o; the native row
-		// keeps the text verbatim.
+		// ctrl+o re-renders the approved plan body verbatim.
 		body := head
 		if len(details) > 0 {
 			body += "\n      " + strings.Join(details, "\n      ")
@@ -539,9 +517,8 @@ func (b Block) planResult(o Options, args map[string]any) string {
 	return head + "\n      " + strings.Join(details, "\n      ")
 }
 
-// specSummary is the JS result body chain: tool-specific summarize →
-// structured.summary → truncated content. Errors always show their content,
-// and ctrl+o widens any of them to the 50-line cap.
+// The body chain: tool-specific summarize → structured.summary → truncated
+// content. Errors always show their content.
 func (b Block) specSummary(content string, expanded, failed bool, summarize func(string) string) string {
 	if expanded {
 		return zebraDetail(previewLines(content, expandedLines))
@@ -560,11 +537,9 @@ func (b Block) specSummary(content string, expanded, failed bool, summarize func
 	return truncateForPreview(content, previewChars)
 }
 
-// zebraDetail steps every other line of a long expanded body out by one column.
 // Over dozens of argument or result lines the alternating gutter is what keeps
-// the eye on a single row; short bodies keep the even indent (a gutter over
-// three lines is noise), and the collapsed view never reaches here. Rendering
-// only: the block's raw text, which the copy path reads, is untouched.
+// the eye on a single row; short bodies keep the even indent. Rendering only: the
+// raw text the copy path reads is untouched.
 func zebraDetail(body string) string {
 	lines := strings.Split(body, "\n")
 	if len(lines) < zebraDetailLines {
@@ -576,8 +551,7 @@ func zebraDetail(body string) string {
 	return strings.Join(lines, "\n")
 }
 
-// specBody is the fallback result body: the structured summary wins over the
-// content preview (JS fallback.ts).
+// The structured summary wins over the content preview.
 func (b Block) specBody(content string, expanded bool) string {
 	if summary := summaryOf(b.Structured); summary != "" {
 		return summary
@@ -628,9 +602,9 @@ func (b Block) grepSummary(content string) string {
 	return truncateForPreview(content, previewChars)
 }
 
-// answeredPair rebuilds the question→answer pair from the live structured
-// payload, or from the persisted receipt lines on replay (the session disk
-// format carries no structured payloads).
+// The question→answer pair comes from the live structured payload, or from the
+// persisted `question:`/`answer:` lines on replay: the session disk format
+// carries no structured payloads.
 func (b Block) answeredPair(args map[string]any, content string) (question, answer, child string, ok bool) {
 	if b.Structured["answered"] == true {
 		kind := structuredString(b.Structured, "type")
@@ -664,8 +638,6 @@ func (b Block) answeredPair(args map[string]any, content string) (question, answ
 	return clean(question), clean(answer), "", true
 }
 
-// answerWord renders the reply the model submitted, from the call args
-// (JS answer.ts answerWord).
 func answerWord(args map[string]any, kind string, options []string) string {
 	switch kind {
 	case "confirm":
@@ -677,7 +649,7 @@ func answerWord(args map[string]any, kind string, options []string) string {
 		}
 		return ""
 	case "select":
-		// JS reads `args.index` as a JSON number only; a string is not an index.
+		// Only a JSON number is an index; a string is not.
 		index := -1
 		if n, isNumber := args["index"].(float64); isNumber && n == float64(int(n)) {
 			index = int(n)
@@ -711,8 +683,6 @@ func patternPrimary(s Styles, args map[string]any) string {
 	return "(no pattern)"
 }
 
-// resultBlock renders the shared spec-result layout: `● title primary` and an
-// optional summary whose lines are each muted and indented by six columns.
 func resultBlock(s Styles, state, title, primary, summary string) string {
 	line := s.bullet(state) + " " + s.title(title)
 	if primary != "" {
@@ -728,9 +698,8 @@ func resultBlock(s Styles, state, title, primary, summary string) string {
 	return line + "\n      " + strings.Join(lines, "\n      ")
 }
 
-// plainResultBlock is the JS fallback layout: the body sits at the Text
-// component's single-column indent, not the six-column summary indent, and it
-// keeps the terminal's default foreground (JS fallback.ts) instead of muted.
+// The fallback layout: single-column indent rather than the six-column summary
+// indent, and the terminal's default foreground instead of muted.
 func plainResultBlock(s Styles, state, title, body string) string {
 	line := s.bullet(state) + " " + s.title(title)
 	if body == "" {
@@ -763,9 +732,8 @@ func askCallText(s Styles, state string, args map[string]any, title string) stri
 	return head + "  " + s.dim("["+kind+"]")
 }
 
-// spawnParamsLine is the JS subagent params line: every present spawn field,
-// joined by " · ". Live child badges are appended by the parent
-// (decorateAgentCall), so the fields the live header shows are still listed.
+// Every present spawn field, joined by " · ". Live child badges are appended by
+// the parent (decorateAgentCall), so these fields stay listed alongside them.
 func spawnParamsLine(args map[string]any) string {
 	var segments []string
 	if kind := argString(args, "kind"); kind != "" {
@@ -804,7 +772,6 @@ func spawnParamsLine(args map[string]any) string {
 	return strings.Join(segments, " · ")
 }
 
-// formatTimeout renders a compact spawn timeout: seconds, minutes, hours.
 func formatTimeout(ms float64) string {
 	switch {
 	case ms < 60_000:
@@ -822,8 +789,8 @@ func round(v float64) float64 {
 	return float64(int64(v + .5))
 }
 
-// editMode mirrors ext-edit: replace_all is omitted for single edits, so a
-// missing (or false) value reads as "(single)".
+// replace_all is omitted for single edits, so a missing or false value reads as
+// "(single)".
 func editMode(args map[string]any) string {
 	switch v := args["replace_all"].(type) {
 	case bool:
@@ -902,11 +869,11 @@ func stringList(args map[string]any, key string) []string {
 	return out
 }
 
-// summaryOf extracts the reserved `summary : String` field of a payload.
+// summaryOf extracts the reserved `summary` field of a payload.
 func summaryOf(structured map[string]any) string {
 	if s, ok := structured["summary"].(string); ok && s != "" {
-		// Summaries are runtime text rendered on the plain-result path;
-		// the SGR allowlist is applied here so every caller inherits it.
+		// Runtime text: the SGR allowlist is applied here so every caller inherits
+		// it.
 		return ui.SanitizeSGR(s)
 	}
 	return ""
@@ -987,14 +954,10 @@ func truncateRunes(s string, limit int) string {
 
 func runeLen(s string) int { return len([]rune(s)) }
 
-// truncateForPreview squeezes content onto one truncated line
-// (JS truncateForPreview).
 func truncateForPreview(s string, limit int) string {
 	return truncateRunes(strings.ReplaceAll(s, "\n", " "), limit)
 }
 
-// previewLines pretty-prints a JSON payload and keeps the first `limit` lines
-// with a `… (+N lines)` tail, exactly like the JS registry helper.
 func previewLines(s string, limit int) string {
 	text := prettyIfJSON(s)
 	lines := strings.Split(text, "\n")
@@ -1022,9 +985,8 @@ func prettyIfJSON(s string) string {
 
 // -- pi-tui Text emulation --------------------------------------------------
 
-// textLines renders what the JS host builds with `new Text(text, 1, 0)`:
-// pi-tui word-wraps every physical line at width-2 and indents each rendered
-// line by one column.
+// pi-tui Text: every physical line is word-wrapped at width-2 and indented by
+// one column.
 func textLines(text string, width int) []string {
 	text = strings.ReplaceAll(text, "\t", "   ")
 	if strings.TrimSpace(ansi.Strip(text)) == "" {
@@ -1042,9 +1004,8 @@ func textLines(text string, width int) []string {
 	return out
 }
 
-// bubbleLines renders the JS user bubble: `Box(1, 0, bg)` around
-// `Text(prompt, 0, 0)`, so lines are padded to the full terminal width and the
-// surface colour spans every cell.
+// Lines are padded to the full terminal width so the surface colour spans every
+// cell.
 func bubbleLines(text string, width int) []string {
 	text = strings.ReplaceAll(text, "\t", "   ")
 	inner := max(1, width-2)
@@ -1070,9 +1031,8 @@ type token struct {
 	space bool
 }
 
-// wrapAnsiLine mirrors pi-tui's Text wrapping: greedy word wrap at the cell
-// width, whole words kept together, over-long tokens hard-broken by grapheme,
-// and trailing whitespace removed from every produced line.
+// Greedy word wrap at the cell width: whole words stay together, an over-long
+// token hard-breaks by grapheme, and trailing whitespace is dropped.
 func wrapAnsiLine(line string, limit int) []string {
 	if limit < 1 || ansi.StringWidth(line) <= limit {
 		return []string{line}
@@ -1120,8 +1080,8 @@ func wrapAnsiLine(line string, limit int) []string {
 	return out
 }
 
-// ansiTokens splits a line into whitespace runs and word tokens while keeping
-// escape sequences attached to the token they belong to.
+// Whitespace runs and word tokens, with escape sequences attached to the token
+// they belong to.
 func ansiTokens(line string) []token {
 	var (
 		tokens   []token
@@ -1144,8 +1104,8 @@ func ansiTokens(line string) []token {
 		}
 		state, rest = next, rest[n:]
 		if width == 0 {
-			// Escape sequences and controls are zero-width; they stay with the
-			// token they precede so a wrap never splits them from their text.
+			// Zero-width escapes stay with the token they precede, so a wrap never
+			// splits them from their text.
 			if !open {
 				start(false)
 			}
@@ -1154,9 +1114,8 @@ func ansiTokens(line string) []token {
 			continue
 		}
 		space := strings.TrimSpace(seq) == ""
-		// Scripts without spaces (CJK, emoji) are segmented per grapheme so
-		// they fill a line greedily instead of hard-breaking from column one,
-		// which is how the JS word segmenter wraps them.
+		// Space-less scripts (CJK, emoji) segment per grapheme, so they fill a
+		// line greedily instead of hard-breaking from column one.
 		wide := width > 1
 		if !open || space != current().space || wide || prevWide {
 			start(space)
@@ -1177,9 +1136,8 @@ func tokensWidth(tokens []token) int {
 	return width
 }
 
-// joinTokens concatenates a rendered line and drops the trailing whitespace
-// pi-tui trims from every wrapped line. Escape sequences survive the trim so a
-// style can never bleed into the next row.
+// Drops trailing whitespace but keeps escape sequences, so a style can never
+// bleed into the next row.
 func joinTokens(tokens []token) string {
 	var atoms []atom
 	for _, t := range tokens {
@@ -1201,7 +1159,6 @@ func joinTokens(tokens []token) string {
 	return b.String()
 }
 
-// breakToken hard-breaks an over-long token into chunks of at most limit cells.
 func breakToken(t token, limit int) [][]token {
 	var chunks [][]token
 	var cur []token

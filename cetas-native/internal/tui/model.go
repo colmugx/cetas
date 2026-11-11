@@ -41,8 +41,8 @@ type commandResult struct {
 	requestRevision  string
 	replayGeneration uint64
 	// Typed `/sessions` tags: the picker identity a session_catalog reply was
-	// asked for. They are carried on the result so staleness is decided from
-	// the reply itself, never from the model state it happens to land on.
+	// asked for, so staleness is decided from the reply, not the state it lands
+	// on.
 	pickerEpoch      uint64
 	pickerGeneration int
 	pickerScope      overlays.SessionsScope
@@ -72,8 +72,8 @@ type bootResult struct {
 	err        error
 }
 
-// Event-driven queue caps: without them a host that out-produces the user
-// grows memory without bound (audit finding).
+// Event-driven queue caps: without them a host that out-produces the user grows
+// memory without bound.
 const (
 	pendingUICap       = 32
 	deferredDialogsCap = 64
@@ -90,19 +90,26 @@ const (
 )
 
 type model struct {
-	start               Startup
-	version             string
-	fragments           map[int]toolFragment
-	surface             surfaceState
-	host                runtimeHost
-	feed                <-chan wire.Event
-	textarea            composer.Model
-	blocks              map[int]transcriptui.Block
-	viewport            viewport.Model
-	virtualScroll       *virtualTranscript
-	document            documentState
-	presentation        presentationFrame
-	replay              *pagedReplay
+	start         Startup
+	version       string
+	fragments     map[int]toolFragment
+	surface       surfaceState
+	host          runtimeHost
+	feed          <-chan wire.Event
+	textarea      composer.Model
+	blocks        map[int]transcriptui.Block
+	viewport      viewport.Model
+	virtualScroll *virtualTranscript
+	document      documentState
+	presentation  presentationFrame
+	replay        *pagedReplay
+	// replayLiveFrom is the document's live-tail watermark: the journal
+	// boundary the last successful index/install left behind, for the session
+	// the document was built for. Only blocks past it may be adopted into the
+	// paged document; a replay reset (session switch, rewind) cannot be fooled
+	// into adopting history that a previous generation already owns.
+	replayLiveFrom      int
+	replayLiveSession   string
 	replayGeneration    uint64
 	replayIndexPending  bool
 	replayIndexSince    time.Time
@@ -125,8 +132,8 @@ type model struct {
 	streaming           string
 	reasoning           string
 	running             bool
-	// aborting marks a turn_abort in flight: Esc re-presses are ignored
-	// until a snapshot or a terminal turn event settles the posture.
+	// aborting marks a turn_abort in flight, so Esc re-presses are ignored until a
+	// snapshot or a terminal turn event settles the posture.
 	aborting            bool
 	needsSetup          bool
 	welcomeHidden       bool
@@ -143,35 +150,33 @@ type model struct {
 	followups           []string
 	completionPrefix    string
 	completionToken     string
-	// completionDueAt stages the debounced completion request (see
-	// autocomplete.go); the update pump fires it when typing settles.
+	// completionDueAt stages the debounced completion request; the update pump
+	// fires it when typing settles.
 	completionDueAt time.Time
-	// completionInFlight is the request id of the outstanding completion;
-	// replies carrying any other id are stale and dropped.
+	// completionInFlight is the request id of the outstanding completion; replies
+	// carrying any other id are stale and dropped.
 	completionInFlight string
 	nextCompletionID   int
-	// turnOutcome latches the last finished turn (turnDone/turnFailed) so
-	// the OSC 7501 record reports done/error — the tab-bar signal that work
-	// finished while the user was elsewhere. Any user input resets it.
+	// turnOutcome latches the last finished turn so the OSC 7501 record reports
+	// done/error while the user is elsewhere. Any user input resets it.
 	turnOutcome        string
 	turnOutcomeDetail  string
 	modelSlots         []overlays.ModelSlot
 	modelPicker        overlays.Models
 	sessionPicker      sessionPickerState
 	sessionPickerEpoch uint64
-	// pickerPanel memoizes the typed picker's rendered panel and its
-	// composited rect, keyed on every render input (see pickerPanelKey).
+	// pickerPanel memoizes the typed picker's panel and composited rect, keyed on
+	// every render input.
 	pickerPanel *pickerPanelMemo
-	// switchInFlight holds the target id of a session switch whose ack
-	// arrived but whose `session.switched` event has not: a second choose
-	// in that window must not issue a second switch.
+	// switchInFlight holds the target id of a session switch whose ack arrived but
+	// whose `session.switched` event has not: a second choose in that window must
+	// not issue a second switch.
 	switchInFlight string
-	// pendingSessionCmd carries ask-cancellation commands produced while
-	// reducing a `session.switched` event (applyEvent cannot return them);
-	// the event pump batches it with the replay restart.
+	// pendingSessionCmd carries ask-cancellation commands produced while reducing
+	// a `session.switched` event: applyEvent cannot return them.
 	pendingSessionCmd tea.Cmd
-	// pendingAskReject settles an unsupported ui.request with a typed
-	// cancellation once the event pump can issue commands.
+	// pendingAskReject settles an unsupported ui.request with a typed cancellation
+	// once the event pump can issue commands.
 	pendingAskReject   string
 	nextPicker         string
 	lastEscape         time.Time
@@ -181,8 +186,8 @@ type model struct {
 	dynamicCommands    map[string]registeredCommand
 	commandSession     string
 	nextCommandRequest int
-	// commandRequestInFlight is the request_id of the outstanding dynamic
-	// command; completions that do not match it are stale and dropped.
+	// commandRequestInFlight is the request_id of the outstanding dynamic command;
+	// completions that do not match it are stale and dropped.
 	commandRequestInFlight string
 	session                string
 	status                 string
@@ -202,17 +207,16 @@ type model struct {
 	pendingTitle  string
 	lastTitle     string
 	pendingNotice string
-	// pendingImages are staged image attachments (pasted from the clipboard)
-	// waiting for the next submit.
+	// pendingImages are staged attachments waiting for the next submit.
 	pendingImages []imageAttachment
-	// kittyThumbs registers attachment-tray thumbnails, separate from the
-	// transcript registry so one image can be chip now and block later.
+	// kittyThumbs registers tray thumbnails separately, so one image can be a chip
+	// now and a transcript block later.
 	kittyThumbs map[string]kittyImageLayout
-	// kittyImages registers inline-displayed images (base64 → layout); the
-	// block renderer materializes them as unicode-placeholder rows.
+	// kittyImages registers inline-displayed images (base64 → layout), which the
+	// block renderer materializes as unicode-placeholder rows.
 	kittyImages map[string]kittyImageLayout
-	// pendingKitty carries transmit+virtual-placement sequences that must
-	// reach the terminal before the first frame that displays placeholders.
+	// pendingKitty carries transmit+virtual-placement sequences that must reach
+	// the terminal before the first frame that displays placeholders.
 	pendingKitty []string
 	nextKittyID  int
 }
@@ -228,8 +232,8 @@ func newModel() model {
 	vp := viewport.New(viewport.WithWidth(80), viewport.WithHeight(18))
 	vp.SetWidth(80)
 	vp.SetHeight(18)
-	// The document supplies cell-wrapped row pages already. Rewrapping those
-	// rows in viewport.View repeats ANSI/grapheme work for every scroll.
+	// The document supplies cell-wrapped rows already; viewport.View would repeat
+	// the ANSI/grapheme work on every scroll.
 	vp.SoftWrap = false
 	m := model{textarea: ta, viewport: vp, markdownRenderer: renderer, markdownCache: newMarkdownCache(markdownCacheBudget), pickerPanel: &pickerPanelMemo{}, status: "connecting to Posoco…", searchActive: -1, surface: initialSurface(), version: "0.11.0", focused: true}
 	if renderErr != nil {
@@ -258,8 +262,8 @@ func receive(events <-chan wire.Event) tea.Cmd {
 			return eventBatchResult{closed: true}
 		}
 		result := eventBatchResult{events: []wire.Event{first}}
-		// One native command drains a bounded burst, respecting EventHub order.
-		// A single Bubble Tea render then covers many rapid token deltas.
+		// One native command drains a bounded burst in EventHub order, so a single
+		// render covers many rapid token deltas.
 		for len(result.events) < 64 {
 			select {
 			case e, ok := <-events:
@@ -282,12 +286,9 @@ func request(host runtimeHost, command string, args any) tea.Cmd {
 	return requestAs(host, command, command, args)
 }
 
-// requestAs preserves the wire command while distinguishing independent UI
-// intents that otherwise race on the same asynchronous reply.
-// installCompletion stacks candidates bottom-up: the best match sits on the
-// row nearest the composer and the cursor starts there — up walks away into
-// the alternatives, the way shell completion behaves. An empty candidate set
-// opens nothing.
+// installCompletion stacks candidates bottom-up: the best match sits on the row
+// nearest the composer and the cursor starts there, so up walks away into the
+// alternatives.
 func (m *model) installCompletion(kind string, items, values []string) {
 	if len(items) == 0 {
 		return
@@ -303,6 +304,8 @@ func (m *model) installCompletion(kind string, items, values []string) {
 	m.modalIndex = count - 1
 }
 
+// requestAs preserves the wire command while distinguishing independent UI
+// intents that otherwise race on the same asynchronous reply.
 func requestAs(host runtimeHost, name, command string, args any) tea.Cmd {
 	var session, revision string
 	if fields, ok := args.(map[string]any); ok {
@@ -317,8 +320,8 @@ func requestAs(host runtimeHost, name, command string, args any) tea.Cmd {
 	}
 }
 
-// Close releases presentation workers after Program.Run returns, including
-// direct QuitMsg/context-cancellation paths that bypass Model.Update.
+// Close releases presentation workers after Program.Run returns, including the
+// QuitMsg and context-cancellation paths that bypass Model.Update.
 func (m model) Close() {
 	m.cancelPagedCopy()
 	m.closeHistoryMarkdown()
@@ -454,6 +457,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		var next string
 		ready := false
 		switched := false
+		turnSettled := false
 		for _, e := range msg.events {
 			var meta struct {
 				Type      string `json:"type"`
@@ -467,6 +471,9 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if meta.Type == "session.switched" || meta.Type == "session.redirect" {
 				switched = true
+			}
+			if meta.Type == "turn.completed" || meta.Type == "turn.failed" {
+				turnSettled = true
 			}
 			if meta.Type == "session.snapshot" && !meta.Busy && meta.SessionID == m.session && len(m.followups) > 0 && next == "" {
 				next = m.followups[0]
@@ -485,17 +492,16 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.document.markdown = nil
 			m.document.live = liveMarkdown{}
 			m.status = "MoonBit host stopped"
-			// Terminal-owned status ends with the host: report clear once so
-			// a supporting terminal drops the state before the exit restore.
+			// Report clear once so a supporting terminal drops the status before
+			// the exit restore.
 			return m, tea.Raw(formatProgramStatus(programStatus{state: "clear"}))
 		}
 		if ready {
 			return m, tea.Batch(receive(m.feed), m.startPagedReplay(), request(m.host, "commands", map[string]any{}))
 		}
 		if switched {
-			// applyEvent already moved the model onto the target session;
-			// settle the departed session's abandoned asks beside the fresh
-			// paged replay and the registered-command catalog.
+			// applyEvent already moved onto the target session; settle the departed
+			// session's abandoned asks beside the fresh replay and command catalog.
 			retired := m.pendingSessionCmd
 			m.pendingSessionCmd = nil
 			m.status = "ready"
@@ -504,6 +510,14 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if reject := m.pendingAskReject; reject != "" {
 			m.pendingAskReject = ""
 			return m, tea.Batch(receive(m.feed), request(m.host, "ui_response", map[string]any{"request_id": reject, "cancelled": true, "reason": "unsupported ask kind"}))
+		}
+		if turnSettled {
+			// A settled turn closed the journal for the blocks the live path
+			// appended; a heavy enough tail is re-indexed so adoption can hand
+			// it to the resident budget (see pagedReplay.adoptLiveTail).
+			if growth := m.replay.refreshForTailGrowth(&m); growth != nil {
+				return m, tea.Batch(receive(m.feed), growth)
+			}
 		}
 		if next != "" {
 			return m, tea.Batch(receive(m.feed), request(m.host, "turn_start", map[string]any{"prompt": next, "session_id": m.session}))
@@ -514,20 +528,17 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, follow
 		}
 		if strings.HasPrefix(msg.name, "complete:") {
-			// Reply identity is the request id minted at dispatch, not a
-			// value snapshot: every staged token gets a fresh id, so a
-			// reply that no longer matches the outstanding request is
-			// stale regardless of what the editor holds now.
-			// Format is "complete:<request-id>:<wire command>".
+			// Identity is the request id minted at dispatch, not a value snapshot, so
+			// a reply that no longer matches the outstanding request is stale whatever
+			// the editor holds now. Format: "complete:<request-id>:<wire command>".
 			parts := strings.SplitN(msg.name, ":", 3)
 			if len(parts) != 3 || parts[1] != m.completionInFlight {
 				return m, nil
 			}
 			msg.name = parts[2]
 		}
-		// A catalog reply is matched against the picker request it answers
-		// before any generic error handling: a stale failure must be dropped
-		// silently, and an ask keeps FIFO priority over installing its page.
+		// A catalog reply is matched against the picker request it answers before
+		// generic error handling, so a stale failure is dropped silently.
 		if msg.name == "session_catalog" {
 			return m, m.applySessionCatalogReply(msg)
 		}
@@ -539,17 +550,16 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.followups = nil
 			}
 			if msg.name == "switch_session" {
-				// The async switch never started server-side: release the
-				// choose latch instead of waiting for a session.switched that
-				// cannot come.
+				// The switch never started server-side: release the choose latch
+				// instead of waiting for a session.switched that cannot come.
 				m.switchInFlight = ""
 				m.status = "ready"
 			}
 			return m, nil
 		}
-		// Harness can return a protocol-level error inside an otherwise valid
-		// correlated response. It is not a transport failure; still render it and
-		// do not accidentally treat it as successful rewind/login/turn dispatch.
+		// A protocol-level error inside an otherwise valid correlated response is
+		// not a transport failure: render it, and never treat it as a successful
+		// rewind/login/turn dispatch.
 		var failure struct {
 			Error string `json:"error"`
 		}
@@ -562,9 +572,8 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.modalRequestID != "" && opensDialog(msg.name) {
 			if len(m.deferredDialogs) >= deferredDialogsCap {
-				// The oldest deferred reply is by construction the stalest;
-				// dropping it keeps the queue bounded without losing the
-				// freshest dialog the user is about to see.
+				// The oldest deferred reply is the stalest; dropping it keeps the
+				// queue bounded without losing the freshest dialog.
 				m.deferredDialogs = m.deferredDialogs[1:]
 			}
 			m.deferredDialogs = append(m.deferredDialogs, msg)
@@ -773,9 +782,8 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				Status string `json:"status"`
 			}
 			if json.Unmarshal(msg.payload, &ack) == nil && ack.Status == "switching" {
-				// The runtime composes the target's agent in the background;
-				// the picker's job is done and `session.switched` completes
-				// the switch (retirement, snapshot, paged replay) as an event.
+				// The runtime composes the target in the background; the picker's job
+				// is done and `session.switched` completes the switch as an event.
 				m.closeSessionPicker()
 				m.status = "loading session…"
 				return m, nil
@@ -784,9 +792,8 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				SessionID string `json:"session_id"`
 			}
 			if json.Unmarshal(msg.payload, &payload) == nil && payload.SessionID != "" {
-				// A synchronous host reply (whole-switch completion): retire
-				// the picker (and its epoch) so the window cannot be chosen
-				// from twice, and restart the replay for the attached session.
+				// A synchronous host reply: retire the picker and its epoch so the
+				// window cannot be chosen from twice, then restart the replay.
 				m.switchInFlight = ""
 				m.closeSessionPicker()
 				retired := m.retireSessionPresentation()
@@ -809,8 +816,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if msg.name == "switch_workspace" {
-			// The picker browses one workspace's catalog: a successful
-			// workspace switch retires the window it was asked for.
+			// A successful workspace switch retires the picker that asked for it.
 			m.closeSessionPicker()
 		}
 		if msg.name == "session_transcript" {
@@ -854,9 +860,8 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, msg.FlushCmd()
 	case tea.MouseWheelMsg:
-		// Embedded adapters may call Update directly without the root filter.
-		// Keep the same one-row/notch contract as the production aggregate path,
-		// including the pointer routing.
+		// Embedded adapters call Update directly without the root filter, so keep
+		// the production one-row-per-notch contract, pointer routing included.
 		switch msg.Button {
 		case tea.MouseWheelUp:
 			return m, m.wheelRoute(msg.X, msg.Y, -1)
@@ -866,8 +871,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.PasteMsg:
 		if m.sessionPickerFocused() {
-			// The overlay owns input, so a paste cannot edit the composer it
-			// covers — the same contract the legacy dialogs have.
+			// The overlay owns input, so a paste cannot edit the composer it covers.
 			return m, nil
 		}
 		if m.modalRequestID != "" && (m.modal == "secret" || m.modal == "input") {
@@ -875,15 +879,13 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.modal != "" {
-			// No other dialog accepts a paste; letting it fall through would
-			// mutate the composer (and its completion popup) behind the
-			// dialog the user is looking at.
+			// No other dialog accepts a paste: falling through would mutate the
+			// composer and its completion popup behind the dialog.
 			return m, nil
 		}
 		if msg.Content == "" {
-			// An empty bracketed paste is how a terminal reports an image on
-			// the clipboard: no bytes cross stdin, so the system clipboard is
-			// the only channel.
+			// An empty bracketed paste is how a terminal reports an image on the
+			// clipboard: no bytes cross stdin.
 			if attachment, ok := readClipboardImage(); ok {
 				m.stageImageAttachments([]imageAttachment{attachment})
 				m.status = m.stagedImageSummary()
@@ -891,10 +893,9 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-		// Some terminals (Ghostty among them) deliver a pasted image as its
-		// file path. A paste whose whole body is one attachable image path
-		// becomes an attachment instead of text the user then has to clean
-		// out of the composer; anything else falls through untouched.
+		// Some terminals (Ghostty among them) deliver a pasted image as its file
+		// path; a paste whose whole body is one attachable path becomes an
+		// attachment instead of composer text.
 		if token, ok := pasteImagePath(msg.Content, m.surface.cwd); ok {
 			resolved, warnings := resolveImageMentions("@"+token, m.surface.cwd)
 			if len(resolved) == 1 {
@@ -910,8 +911,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		key := msg.String()
 		if m.turnOutcome != "" {
-			// The done/error record has served its purpose once the user is
-			// typing here again; the next report replaces it with reality.
+			// Typing resets the done/error record; the next report replaces it.
 			m.turnOutcome, m.turnOutcomeDetail = "", ""
 		}
 		if key == "ctrl+c" {
@@ -937,9 +937,8 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if m.modalRequestID != "" {
 				switch key {
 				case "pgup", "pageup", "pgdown", "pagedown":
-					// Page keys scroll the transcript out from under an ask:
-					// the plan or log the question is about is still readable
-					// while the answer waits.
+					// Page keys scroll the transcript under an ask, so the plan or log
+					// the question is about stays readable while the answer waits.
 					if key == "pgup" || key == "pageup" {
 						m.scrollTranscript(-max(1, m.viewport.Height()/2))
 					} else {
@@ -1068,9 +1067,8 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 						m.textarea.Focus()
 						m.closeCompletion()
 						m.completionToken = ""
-						// pi-tui submits slash completions on Enter, but Tab
-						// only applies them. Keep the physical key distinct
-						// from the list's shared confirm navigation above.
+						// Tab only applies a slash completion, Enter submits: the physical
+						// key stays distinct from the list's shared confirm navigation.
 						if msg.String() == "tab" {
 							return m, nil
 						}
@@ -1104,9 +1102,9 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.sessionPickerFocused() {
-			// The typed picker is the focus owner until it closes, an ask
-			// arrives or a successful switch retires it. It consumes every
-			// key, so the composer underneath never receives them.
+			// The picker is the focus owner until it closes, an ask arrives or a
+			// switch retires it; it consumes every key, so the composer never sees
+			// them.
 			return m, m.sessionPickerKey(key)
 		}
 		switch key {
@@ -1146,8 +1144,8 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			if m.host != nil && m.running {
 				if m.aborting {
-					// One abort is already in flight; re-issuing per press
-					// only floods the dispatcher without a second effect.
+					// One abort is already in flight; re-issuing per press only floods
+					// the dispatcher.
 					return m, nil
 				}
 				m.lastEscape = time.Time{}
@@ -1194,8 +1192,8 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// submitEditor is shared by ordinary Enter and confirmed slash completion.
-// File/skill completion deliberately never enters this submission path.
+// Shared by ordinary Enter and confirmed slash completion; file/skill completion
+// deliberately never enters this path.
 func (m *model) submitEditor() tea.Cmd {
 	value := strings.TrimSpace(m.textarea.Submission())
 	if value == "" {
@@ -1211,9 +1209,9 @@ func (m *model) submitEditor() tea.Cmd {
 		return m.command(value)
 	}
 	m.appendUser(value)
-	// Image attachments: @mentions resolve against the workspace, pasted
-	// images ride the staged set. Warnings surface as notices; the prompt's
-	// text mentions stay for provenance, exactly like the JS host.
+	// @mentions resolve against the workspace and ride the staged set with pasted
+	// images; warnings surface as notices and the text mentions stay in the prompt
+	// for provenance.
 	attachments, warnings := resolveImageMentions(value, m.surface.cwd)
 	attachments = append(append([]imageAttachment{}, m.pendingImages...), attachments...)
 	for _, warning := range warnings {
@@ -1223,9 +1221,8 @@ func (m *model) submitEditor() tea.Cmd {
 		if echo := m.transcript[len(m.transcript)-1]; !strings.Contains(echo, "🖼") {
 			m.transcript[len(m.transcript)-1] = echo + "  " + strings.TrimSuffix(m.stagedImageSummary(), " — Enter sends, Esc clears")
 		}
-		// Each attachment also becomes its own block: on Ghostty/kitty it
-		// renders as inline unicode-placeholder image rows; elsewhere it
-		// stays the fallback chip line.
+		// Each attachment also becomes its own block: inline placeholder rows on
+		// Ghostty/kitty, the fallback chip line elsewhere.
 		for _, attachment := range attachments {
 			at := len(m.transcript)
 			block := transcriptui.Block{Kind: "image", Text: fmt.Sprintf("🖼 %s (%s)", attachment.Label, formatImageBytes(attachment.Bytes))}
@@ -1240,8 +1237,8 @@ func (m *model) submitEditor() tea.Cmd {
 		}
 	}
 	m.pendingImages = nil
-	// The tray thumbnails are superseded by the transcript image blocks
-	// staged above; delete them so the same pixels do not show twice.
+	// The transcript blocks supersede the tray thumbnails; delete them so the same
+	// pixels do not show twice.
 	for _, thumb := range m.kittyThumbs {
 		m.pendingKitty = append(m.pendingKitty, kittyDeleteImage(thumb.id))
 	}
@@ -1269,13 +1266,8 @@ func (m *model) submitEditor() tea.Cmd {
 	return request(m.host, "turn_start", args)
 }
 
-// dismissUI consumes a completion/cancellation event only for the indicated
-// request. The native runtime can finish a UiPort coroutine independently of
-// the focused Bubble Tea picker, so stale dismissals must not close the next
-// question (or an unrelated model/command selector).
-// clearModalBuffer wipes the typed ask input before dropping the slice: a
-// kind=="secret" answer would otherwise linger in the unreachable backing
-// array until the collector happens to reclaim it.
+// clearModalBuffer wipes the typed input before dropping the slice: a
+// kind=="secret" answer would otherwise linger in the unreachable backing array.
 func (m *model) clearModalBuffer() {
 	for i := range m.modalBuffer {
 		m.modalBuffer[i] = 0
@@ -1283,6 +1275,9 @@ func (m *model) clearModalBuffer() {
 	m.modalBuffer = nil
 }
 
+// dismissUI consumes a completion/cancellation event only for the indicated
+// request: the runtime can finish a UiPort coroutine independently of the
+// focused picker, so a stale dismissal must not close the next question.
 func (m *model) dismissUI(id string) {
 	if id == "" {
 		return
@@ -1386,8 +1381,8 @@ func (m *model) command(value string) tea.Cmd {
 		m.nextPicker = "efforts"
 		return request(m.host, "models", map[string]any{})
 	case "/new":
-		// The backend shares switch_session, but a fresh draft must not be
-		// mistaken for resuming an existing conversation in the UI.
+		// The backend shares switch_session, but a fresh draft must not read as
+		// resuming a conversation.
 		return requestAs(m.host, "new_session", "switch_session", map[string]any{})
 	case "/login":
 		if len(parts) > 1 {
@@ -1403,9 +1398,8 @@ func (m *model) command(value string) tea.Cmd {
 			return request(m.host, "logout", map[string]any{"provider": parts[1]})
 		}
 	case "/sessions":
-		// The typed picker asks for one bounded page of session_catalog
-		// metadata; the legacy whole-list `sessions` reply stays supported for
-		// hosts that still answer it.
+		// One bounded page of session_catalog metadata; the whole-list `sessions`
+		// reply stays supported for hosts that still answer it.
 		return m.openSessionPicker()
 	case "/rewind":
 		return request(m.host, "rewind_points", map[string]any{})
@@ -1447,9 +1441,8 @@ func (m *model) command(value string) tea.Cmd {
 	return m.invokeDynamicCommand(value)
 }
 
-// The EventHub carries tool results as text and auth.login outcomes as
-// structured JSON. Decoding the entire event through a string "result" field
-// rejected valid auth outcomes before the type switch even ran.
+// The EventHub carries tool results as text and auth.login outcomes as structured
+// JSON, so decode the payload as either.
 func toolResultText(raw json.RawMessage) string {
 	if len(raw) == 0 || string(raw) == "null" {
 		return ""
@@ -1462,8 +1455,8 @@ func toolResultText(raw json.RawMessage) string {
 }
 
 func (m *model) applyEvent(e wire.Event) {
-	// Direct/embedded event injection is also a presentation mutation; it
-	// cannot reuse chrome from a previous Update's completed layout.
+	// Injected events mutate the presentation too, so they cannot reuse chrome
+	// from a previous Update's completed layout.
 	m.presentation.layout = nil
 	var frame struct {
 		Type       string          `json:"type"`
@@ -1500,9 +1493,9 @@ func (m *model) applyEvent(e wire.Event) {
 		if m.session == "" {
 			m.session = frame.SessionID
 		}
-		// Do not let another running session mutate the visible transcript.
-		// Host-level lifecycle facts (async switch completion) are exempt:
-		// they are emitted scoped to the *target* session on purpose.
+		// Another running session must not mutate the visible transcript;
+		// host-level lifecycle facts are exempt, being scoped to the target on
+		// purpose.
 		if frame.SessionID != m.session && frame.Type != "auth.login" && frame.Type != "auth.cancelled" && frame.Type != "session.switched" && frame.Type != "session.switch_failed" {
 			return
 		}
@@ -1548,8 +1541,8 @@ func (m *model) applyEvent(e wire.Event) {
 			m.modalValues = nil
 		}
 	case "infra.boot.progress":
-		// Live startup feedback while the runtime composes in the background;
-		// the terminal paints the phase instead of a static connecting line.
+		// The terminal paints the composition phase instead of a static connecting
+		// line.
 		var data struct {
 			Phase string `json:"phase"`
 			MS    int64  `json:"ms"`
@@ -1616,13 +1609,23 @@ func (m *model) applyEvent(e wire.Event) {
 		m.requestNotice("Cetas: turn completed")
 	case "turn.failed":
 		m.flushAssistant()
-		m.transcript = append(m.transcript, "Error: "+ui.SanitizeSGR(frame.Message))
+		// The failed-turn row is a UI fact, not a journal projection (the
+		// journal never persists it), so it carries an error block like every
+		// other diagnostic: live-tail adoption then classifies it correctly
+		// and the presentation matches presentError's styled row.
+		message := ui.SanitizeSGR(frame.Message)
+		at := len(m.transcript)
+		m.transcript = append(m.transcript, "Error: "+message)
+		if m.blocks == nil {
+			m.blocks = map[int]transcriptui.Block{}
+		}
+		m.blocks[at] = transcriptui.Block{Kind: "error", Text: message}
 		m.streaming = ""
 		m.reasoning = ""
 		m.running = false
 		m.aborting = false
-		// Queued follow-ups waited for an idle snapshot that a failed turn
-		// never produces; keeping them strands prompts forever.
+		// A failed turn never produces the idle snapshot follow-ups wait for, so
+		// keeping them strands prompts forever.
 		if len(m.followups) > 0 {
 			m.followups = nil
 		}
@@ -1635,14 +1638,11 @@ func (m *model) applyEvent(e wire.Event) {
 		m.requestNotice("Cetas: turn failed")
 	case "session.redirect":
 		if frame.From == m.session && frame.To != "" {
-			// The picker browses one session's catalog with at most one switch
-			// in flight; a redirect retires the window it was asked from.
+			// A redirect retires the picker that asked for it.
 			m.closeSessionPicker()
-			// A rewritten journal (compaction redirect) is a new document:
-			// adopt the id AND retire the old presentation, exactly like a
-			// switch. Skipping the retirement left the in-flight index reply
-			// stale-dropped before it could clear replayIndexPending,
-			// latching pagination dead until the next switch.
+			// A rewritten journal is a new document: adopt the id and retire the old
+			// presentation like a switch, or the in-flight index reply is dropped as
+			// stale before it can clear replayIndexPending and pagination latches dead.
 			m.pendingSessionCmd = m.retireSessionPresentation()
 			m.session = frame.To
 			m.dynamicCommands = nil
@@ -1662,10 +1662,8 @@ func (m *model) applyEvent(e wire.Event) {
 		m.switchInFlight = ""
 		m.status = "session redirected"
 	case "session.switched":
-		// Completion of the async `switch_session` ack: the runtime has
-		// composed and attached the target session. applyEvent cannot return
-		// commands, so the ask-cancellation batch rides pendingSessionCmd and
-		// the event pump restarts the paged replay beside it.
+		// applyEvent cannot return commands, so the ask-cancellation batch rides
+		// pendingSessionCmd and the event pump restarts the paged replay beside it.
 		var data struct {
 			SessionID string          `json:"session_id"`
 			Fresh     bool            `json:"fresh"`
@@ -1680,8 +1678,8 @@ func (m *model) applyEvent(e wire.Event) {
 		m.pendingSessionCmd = m.retireSessionPresentation()
 		m.session = data.SessionID
 		m.requestTitle()
-		// A brand-new session shows the empty-start welcome; resuming a
-		// journal keeps working content on screen.
+		// A brand-new session shows the welcome; resuming a journal keeps working
+		// content on screen.
 		m.welcomeHidden = !data.Fresh
 		m.dynamicCommands = nil
 		m.commandSession = ""
@@ -1713,8 +1711,8 @@ func (m *model) applyEvent(e wire.Event) {
 		}
 	case "session.snapshot":
 		m.running = frame.Busy
-		// The runtime's busy flag is authoritative: a snapshot settles any
-		// outstanding abort posture either way.
+		// The runtime's busy flag is authoritative: a snapshot settles the abort
+		// posture either way.
 		m.aborting = m.aborting && frame.Busy
 	case "ui.request":
 		if frame.RequestID == "" {
@@ -1724,12 +1722,9 @@ func (m *model) applyEvent(e wire.Event) {
 		switch frame.Kind {
 		case "input", "secret", "select", "confirm":
 		default:
-			// An unknown kind used to produce a modal no key branch could
-			// answer, parking the runtime coroutine forever; the empty kind
-			// variant was worse — a modalRequestID with no modal, which the
-			// key router does not route to the ask branch at all. Reject at
-			// ingest: settle the request with a typed cancellation and keep
-			// the composer usable.
+			// An unknown or empty kind would park the runtime coroutine on a modal no
+			// key branch can answer. Reject at ingest: settle the request with a typed
+			// cancellation and keep the composer usable.
 			m.err = "unsupported ui.request kind: " + strconv.Quote(frame.Kind)
 			m.pendingAskReject = frame.RequestID
 			return
@@ -1737,8 +1732,8 @@ func (m *model) applyEvent(e wire.Event) {
 		prompt := uiPrompt{id: frame.RequestID, kind: frame.Kind, prompt: frame.Prompt, options: frame.Options, defaultValue: frame.Default}
 		if m.modalRequestID != "" {
 			if len(m.pendingUI) >= pendingUICap {
-				// An event-driven queue must not grow without bound: settle
-				// the overflow ask immediately instead of stacking it.
+				// An event-driven queue must not grow without bound: settle the
+				// overflow ask instead of stacking it.
 				m.err = "ask queue full; request cancelled"
 				m.pendingAskReject = frame.RequestID
 				return
@@ -1760,8 +1755,8 @@ func (m *model) applyEvent(e wire.Event) {
 			m.status = "authentication cancelled"
 		}
 	case "auth.login":
-		// Login outcomes are provider-neutral and intentionally contain no
-		// credentials. Never dump the raw result into the transcript or errors.
+		// Login outcomes are provider-neutral and contain no credentials: never dump
+		// the raw result into the transcript or an error.
 		var result struct {
 			Type     string `json:"type"`
 			Feedback string `json:"feedback"`
@@ -1792,8 +1787,8 @@ func (m *model) applyEvent(e wire.Event) {
 			}
 		} else {
 			m.status = "authentication failed"
-			// Do not echo arbitrary provider diagnostics: a provider may include the
-			// submitted API key in its error detail.
+			// A provider may echo the submitted API key in its error detail, so keep
+			// it out of the UI.
 			m.err = "login failed for " + payload.Provider
 		}
 

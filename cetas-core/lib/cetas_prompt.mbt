@@ -24,8 +24,8 @@ fn cetas_base_system_prompt(project_name~ : String) -> String {
     $|- Errors Never Pass Silently.
     $|- Don't Paper Over Bugs.
     $|- Design for Traceability.
-    $|- When writing code, keep these rules in mind regarding comments: Comments have only one legitimate purpose: explaining intent when the code cannot reasonably speak for itself.
-    $|  What to avoid:
+    $|- (CRITICAL) When writing code, keep these rules in mind regarding comments: Comments have only one legitimate purpose: explaining intent when the code cannot reasonably speak for itself.
+    $|  (CRITICAL) What to avoid:
     $|    - Storytelling: Skip the narrative and internal monologue.
     $|    - Changelogs or historical baggage: Don’t leave comments explaining what the code used to look like or why deleted code was removed. Version control handles history; treat deleted code as if it never existed.
     $|    - Stating the glaringly obvious: Don’t spend lines explaining why there are eggs in egg fried rice.
