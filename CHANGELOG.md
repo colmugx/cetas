@@ -2,6 +2,36 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.11.2 (2026-11-11)
+
+## General(Include Native Ver)
+
+### Feats
+
+- The native terminal now runs on Windows: `cetas.exe` is a cgo-free build that loads the Cetas core from a companion `cetas_moon.dll`, and the Windows download ships `cetas-acp.exe` and `cetas-run.exe` in the same folder, so `cetas acp` and `cetas run` work out of the box.
+- You can now send images with a prompt. Mention an image file with `@` (PNG, JPEG, GIF, WebP, up to 5 MB) or paste an image from the clipboard on macOS, and it travels with your message; the mention stays in the prompt text for reference, and a file that does not resolve is reported as a warning instead of silently dropped.
+- PNG attachments are drawn inline in the transcript on Ghostty and kitty (kitty graphics protocol), so you see the picture you sent; other formats and terminals fall back to a labelled attachment chip. `Esc` clears staged attachments before it does anything else.
+- `@` file completion now covers far more of your project: 20,000 entries across 32 directory levels, using the same ignore rules as the read and glob tools, so the list matches the tree your tools actually see.
+- `@` completion results are now ranked by real name match (exact, prefix, contains, path contains) instead of a fuzzy score, and entries that do not match at all are dropped — no more near-miss noise burying the file you meant.
+- A one-command installer is available for the native trio (`cetas`, `cetas-acp`, `cetas-run`): it resolves the latest Cetas release, verifies every asset against `SHA256SUMS`, supports `--version` and `--dir`, installs all three side by side, and warns you when an npm-installed `cetas` would shadow the native one on `PATH`.
+
+### Fixes
+
+- Release executables for macOS and Windows are now code-signed before packaging: ad-hoc signing on macOS (per artifact, with the JIT entitlements the compiled Bun runtime needs) and a CI certificate signature on Windows. This is an integrity signature, not a trusted publisher identity, so Windows SmartScreen may still warn.
+- Long sessions stay lean: rendered Markdown is held in an 8 MiB budgeted cache that evicts least-recently-used blocks and re-renders them from source on demand, instead of keeping every rendered message for the life of the session.
+- Browsing sessions no longer stalls the conversation: the session catalog gets its own worker, so opening the picker on a machine with many session buckets does not delay paging the transcript you are reading, and vice versa.
+- A slow transcript index no longer wedges a session: the UI wakes when the index deadline passes, retries within a bounded budget, and then gives up with a visible error instead of sitting on "loading transcript…" or silently restarting the probe on every redraw.
+- A late result from a custom slash command can no longer overwrite your status line, transcript or composer — only the invocation you actually started can settle it.
+- On Windows, the terminal's bridge to the agent core no longer allocates on every poll, so large or busy sessions stop paying for heap churn just to stay responsive.
+- Transcript search hits are marked with a styled undercurl instead of a plain underline, so they stand out at a glance; terminals without styled underlines degrade to the old look.
+- Native executables ship without Go debug symbols, so the downloads are smaller.
+
+## Bun Ver.（cetas-bun）
+
+### Fixes
+
+- The macOS build is signed with the JIT entitlements its compiled Bun runtime requires, so `cetas-bun` starts on Apple silicon instead of being stopped at launch by the system.
+
 ## 0.11.1 (2026-11-10)
 
 ## General
