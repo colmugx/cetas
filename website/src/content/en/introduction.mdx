@@ -56,16 +56,16 @@ choice that shows you who still has quota and what is actually cheaper before
 you pick. Each has its own page under [Features](/en/features/) and
 [Configuration](/en/configuration/); they are not re-sold here.
 
-## The three surfaces
+## Three surfaces, two terminal implementations
 
 | Surface | Best for | Entry point |
 | --- | --- | --- |
-| **Terminal** | Day-to-day work: streaming turns, model and login pickers, sessions, rewind | `cetas` from npm, or the `cetas-bun` binary |
+| **Terminal · JS (recommended)** | Day-to-day work, sessions, rewind, JS-only integrations | `cetas` from npm |
+| **Terminal · Native (alternative)** | Go/Bubble Tea host without Node.js; different feature coverage | Homebrew, Scoop or direct release |
 | **Editor** | Working where the code already is, over ACP | `cetas-acp` |
 | **Automation** | One task per invocation, from a script or CI | `cetas-run` |
 
-These are not separate agents. Each one composes the same core, uses the same
-home directory, and answers to the same identity. See
+These are not separate agent cores. Each host composes Cetas/Posoco, but supports its own UI and capabilities; the JS and Native terminals are alternatives, not guaranteed drop-in equivalents. See
 [Surfaces](/en/concepts/surfaces/).
 
 Start with [Installation & First Run](/en/getting-started/installation/).

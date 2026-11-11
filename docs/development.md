@@ -15,7 +15,7 @@ git pull --ff-only
 git submodule update --init --recursive
 ```
 
-Install the [MoonBit toolchain](https://docs.moonbitlang.com), Python 3, and [Bun](https://bun.sh) for the JS host. The native terminal additionally needs Rust/Cargo. Stay in the **Cetas repository root** for workspace-wide Moon commands: `moon.work` assembles the Cetas modules and extensions.
+Install the [MoonBit toolchain](https://docs.moonbitlang.com), Python 3, and [Bun](https://bun.sh) for the JS host. The optional native terminal needs the Go version specified in `cetas-native/go.mod` and a compatible C toolchain (MSVC for Windows DLL builds); it does not use Rust/Cargo. Stay in the **Cetas repository root** for workspace-wide Moon commands: `moon.work` assembles the Cetas modules and extensions.
 
 Public recipes are tracked MoonBit sources, so no preparation step is required:
 
@@ -56,10 +56,12 @@ moon build cetas-run/main --target native --release
 
 Native artifacts are under `_build/native/release/build/`. See [ACP setup](configuration.md#editor--acp) and the [runner guide](../cetas-run/README.mbt.md).
 
-For the native terminal and web host, use their dedicated guides:
+For the alternative native terminal and web host, use their dedicated guides:
 
-- [Native terminal](../cetas-native/README.md)
+- [Native terminal (Go/Bubble Tea + MoonBit)](../cetas-native/README.md)
 - [Web development](../cetas-web/README.md)
+
+The default interactive client for end users remains the JS npm package. Native is a separately released alternative with different host-specific capabilities; [Homebrew/Scoop](native-package-managers.md) and the direct installers support its distribution.
 
 ## Checks
 

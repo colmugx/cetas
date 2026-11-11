@@ -47,9 +47,9 @@ Cetas hosts use the following layout under the platform user home:
 | `~/.cetas/mcp.json` | User-level MCP server configuration |
 | `~/.cetas/sessions/` | Project-bucketed session transcripts and companions |
 
-The native, ACP, and runner entry points honor `CETAS_HOME` as an override for the **parent home**, not the `.cetas` directory. For example, `CETAS_HOME=/tmp/cetas-user` puts state in `/tmp/cetas-user/.cetas/`. The JS host currently uses the platform home through its host configuration.
+The Native, ACP, and runner entry points honor `CETAS_HOME` as an override for the **parent home**, not the `.cetas` directory. For example, `CETAS_HOME=/tmp/cetas-user` puts state in `/tmp/cetas-user/.cetas/`. The JS host currently uses the platform home through its host configuration.
 
-Sharing settings and storage does not guarantee identical command flows or conversation-resume support in every host. See each host's guide for its current capabilities. [Memoh](../cetas-memoh/README.mbt.md) is a separate runtime with its own version and `~/.cetas-memoh/` state.
+JS and Native can both install an executable named `cetas`; check `PATH` if they coexist. Sharing settings and storage does not guarantee identical command flows or conversation-resume support in every host. See each host's guide for its current capabilities. [Memoh](../cetas-memoh/README.mbt.md) is a separate runtime with its own version and `~/.cetas-memoh/` state.
 
 ## MCP
 
@@ -59,8 +59,8 @@ In ACP, local configured servers connect lazily on the first turn by default. Se
 
 ## Editor — ACP
 
-1. Download and extract `cetas-acp` from the [Cetas release](https://github.com/colmugx/cetas/releases/tag/cetas-v0.8.0), or [build it](development.md#editor-and-runner).
-2. Configure a provider first, for example using `/login` and `/model` in `cetas-bun`. ACP needs a configured model to serve prompts.
+1. Download the independent `cetas-acp-{platform}` asset from a [Cetas-tagged release](https://github.com/colmugx/cetas/releases), install it with the Native bundle, or [build it](development.md#editor-and-runner). ACP does not require installing the full terminal.
+2. Configure a provider first, for example using `/login` and `/model` in the recommended npm JS terminal (`cetas`) or Native. ACP needs a configured model to serve prompts.
 3. Register the executable as a custom agent in your editor.
 
 For current Zed versions, add a top-level `agent_servers` entry to settings:

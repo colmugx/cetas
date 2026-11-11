@@ -1,40 +1,61 @@
 ---
 title: 安装与首次运行
-description: 一条 npm 命令装好 Cetas，然后走到你的第一条消息。
+description: 选择推荐的 Cetas JS 或第二选择 Cetas Native，再配置模型完成首次对话。
 sidebar:
   order: 20
   label: 安装与首次运行
 ---
 
 <Aside type="note">
-整个 Cetas 都是用 Cetas 开发的，具体说是 npm 那份。
+默认推荐 Cetas JS。Native 是另一种 Go/Bubble Tea 终端，使用相同的 MoonBit Agent 内核，但两者的功能并不完全一致。
 </Aside>
 
-## 用 npm 安装（推荐）
+## 方案一：通过 npm 安装 Cetas JS（推荐）
 
 ```bash
 npm install -g @posoco/cetas
-```
-
-需要 Node.js 24 或更高版本，没装过去 [nodejs.org](https://nodejs.org/) 拿 LTS 版本（`npm` 随 Node 自带；名词见[词汇表](/getting-started/glossary/#nodejs)）。装完验证：
-
-```bash
 cetas --version
 ```
 
-不想装 Node？直接用发布制品。
+需要 Node.js 24 或更高版本（[nodejs.org](https://nodejs.org/)）。这是默认推荐的交互式终端，包含 Board 等 JS 专属集成。当前稳定 Cetas 发布版通过 npm 分发 JS 终端，不再把 `cetas-bun` 直接下载包作为首选入口。
 
-## 或者：下载发布制品
+## 方案二：Cetas Native（无需 Node.js）
 
-三个入口都有编译好的归档（macOS · Apple Silicon / Linux · x64 / Windows · x64），解压即用，不需要装 Node：
+Native 使用 Go/Bubble Tea v2 实现终端，底层同样运行 MoonBit Cetas/Posoco。它是第二种实现，不承诺与 JS 完全相同的功能。
 
-| 入口 | macOS · Apple Silicon | Linux · x64 | Windows · x64 |
-| --- | --- | --- | --- |
-| **终端**（`cetas-bun`） | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-bun-darwin-arm64.tar.gz) | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-bun-linux-x64.tar.gz) | [zip](https://github.com/colmugx/cetas/releases/latest/download/cetas-bun-windows-x64.zip) |
-| **编辑器 · ACP**（`cetas-acp`） | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-acp-darwin-arm64.tar.gz) | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-acp-linux-x64.tar.gz) | [zip](https://github.com/colmugx/cetas/releases/latest/download/cetas-acp-windows-x64.zip) |
-| **自动化**（`cetas-run`） | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-run-darwin-arm64.tar.gz) | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-run-linux-x64.tar.gz) | [zip](https://github.com/colmugx/cetas/releases/latest/download/cetas-run-windows-x64.zip) |
+### Homebrew：macOS Apple Silicon / Linux x64
 
-每个归档的校验和在 [SHA256SUMS](https://github.com/colmugx/cetas/releases/latest/download/SHA256SUMS)；二进制的升级方式就是下载新归档。
+```bash
+brew install colmugx/tap/cetas
+```
+
+### Scoop：Windows x64
+
+```powershell
+scoop bucket add cetas https://github.com/colmugx/scoop-bucket
+scoop install cetas/cetas
+```
+
+### 直接安装或下载
+
+也可以使用仓库中的 [Unix 安装脚本](https://github.com/colmugx/cetas/blob/main/install.sh) 或 [PowerShell 安装脚本](https://github.com/colmugx/cetas/blob/main/install.ps1)。它们会先显示检测到的系统、版本、目标目录和文件清单，得到终端确认后才下载二进制。非交互场景需明确指定 `--yes`（Unix）或 `-Yes`（PowerShell）。
+
+手工下载请在 [GitHub Releases](https://github.com/colmugx/cetas/releases) 选择 `cetas-v*` 版本（Memoh 使用独立版本系列）。当前 Native 支持 macOS ARM64、Linux x64 和 Windows x64。Windows 的 `cetas-windows-x64.zip` 含三个 EXE 和 `cetas_moon.dll`；**DLL 必须与 `cetas.exe` 放在一起**。
+
+## 只需要编辑器 ACP 或一次性 Runner？
+
+每个 Cetas Release 都继续保留**可独立下载**的资产：
+
+| 用途 | 独立发布文件 |
+| --- | --- |
+| Lody、Zed 等 ACP 客户端 | `cetas-acp-darwin-arm64.tar.gz`、`cetas-acp-linux-x64.tar.gz`、`cetas-acp-windows-x64.zip` |
+| 脚本/CI 的一次性任务 | `cetas-run-darwin-arm64.tar.gz`、`cetas-run-linux-x64.tar.gz`、`cetas-run-windows-x64.zip` |
+
+这两种用途不必下载整个 Native 终端。校验文件使用同一个 Release 的 `SHA256SUMS`。
+
+## JS 与 Native 同时安装
+
+两者都可能提供 `cetas` 命令，Shell 会运行 `PATH` 中排在前面的那一份。Unix 用 `command -v cetas`，PowerShell 用 `Get-Command cetas` 检查。配置共享 [Cetas Home](/configuration/cetas-home/)，但功能、确认界面和会话流程不保证一致。
 
 ## 从装好到第一条消息
 

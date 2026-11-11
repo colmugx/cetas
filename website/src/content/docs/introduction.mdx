@@ -24,15 +24,16 @@ Cetas 是跑在你自己机器上的编码 agent。你用自然语言说话，�
 
 基础能力也都齐备：权限有五档姿态，会话每轮落盘、`/rewind` 精确回退，全部状态在一个 home 目录，选模型之前先看见哪家有额度、哪个更划算。这些在[特色功能](/features/)与[配置](/configuration/)里各有其页，这里不再展开。
 
-## 三个入口
+## 三种入口、两种终端实现
 
 | 入口 | 适合什么 | 怎么装 |
 | --- | --- | --- |
-| **终端** | 日常干活：流式回合、模型与登录选择器、会话、回退 | npm 的 `cetas`，或 `cetas-bun` 二进制 |
+| **终端 · JS（首选）** | 日常交互、会话回退、JS 专属功能 | npm 的 `cetas` |
+| **终端 · Native（第二选择）** | 不需要 Node.js 的 Go/Bubble Tea 终端，功能范围有所不同 | Homebrew、Scoop 或发布文件 |
 | **编辑器** | 在代码已经在的地方工作，走 ACP | `cetas-acp` |
 | **自动化** | 一次调用一个任务，脚本或 CI | `cetas-run` |
 
-它们不是三个 agent。每一个都组合同一个内核、用同一个 home 目录、回应同一个身份。详见[入口（Surfaces）](/concepts/surfaces/)。
+这些入口不是分叉的 Agent 内核：它们组合同一个 Cetas/Posoco，但 UI 和宿主能力不同，JS 与 Native 终端不保证完全互换。详见[入口（Surfaces）](/concepts/surfaces/)。
 
 从[安装与首次运行](/getting-started/installation/)开始。
 

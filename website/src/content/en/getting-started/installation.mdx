@@ -1,46 +1,61 @@
 ---
 title: Installation & First Run
-description: Install Cetas with one npm command (or grab a released binary), then walk to your first message.
+description: Choose Cetas JS (recommended) or the Native terminal, then connect your first model.
 sidebar:
   order: 20
   label: Install & First Run
 ---
 
 <Aside type="note">
-All of Cetas is developed with Cetas — the npm build, specifically.
+Cetas JS is the recommended interactive client. Native is an optional Go/Bubble Tea implementation of the same MoonBit agent core; host-specific features differ.
 </Aside>
 
-## Install from npm (recommended)
+## Option 1: Cetas JS via npm (recommended)
 
 ```bash
 npm install -g @posoco/cetas
-```
-
-Requires Node.js 24 or newer — grab the LTS build from
-[nodejs.org](https://nodejs.org/) if you have never installed it (`npm` comes
-with Node; terms in the [glossary](/en/getting-started/glossary/#nodejs)).
-Then check it works:
-
-```bash
 cetas --version
 ```
 
-Rather not install Node? Use the released binaries below.
+Requires Node.js 24 or newer ([nodejs.org](https://nodejs.org/)). This is the primary interactive terminal, including JS-specific integrations such as Board workflows. The current stable Cetas release publishes the JS distribution through npm rather than a `cetas-bun` executable ZIP.
 
-## Or: download a released binary
+## Option 2: Cetas Native (no Node.js required)
 
-All three surfaces ship as compiled archives (macOS · Apple Silicon /
-Linux · x64 / Windows · x64). Extract and run — no Node needed:
+Native runs a Go/Bubble Tea v2 terminal backed by the same MoonBit Cetas/Posoco runtime. It is a second choice if you prefer a native CLI, not a promise of full feature parity with the npm build.
 
-| Surface | macOS · Apple Silicon | Linux · x64 | Windows · x64 |
-| --- | --- | --- | --- |
-| **Terminal** (`cetas-bun`) | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-bun-darwin-arm64.tar.gz) | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-bun-linux-x64.tar.gz) | [zip](https://github.com/colmugx/cetas/releases/latest/download/cetas-bun-windows-x64.zip) |
-| **Editor · ACP** (`cetas-acp`) | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-acp-darwin-arm64.tar.gz) | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-acp-linux-x64.tar.gz) | [zip](https://github.com/colmugx/cetas/releases/latest/download/cetas-acp-windows-x64.zip) |
-| **Automation** (`cetas-run`) | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-run-darwin-arm64.tar.gz) | [tar.gz](https://github.com/colmugx/cetas/releases/latest/download/cetas-run-linux-x64.tar.gz) | [zip](https://github.com/colmugx/cetas/releases/latest/download/cetas-run-windows-x64.zip) |
+### Homebrew — macOS Apple Silicon or Linux x64
 
-Checksums for every archive are in
-[SHA256SUMS](https://github.com/colmugx/cetas/releases/latest/download/SHA256SUMS);
-upgrading a binary means downloading a newer archive.
+```bash
+brew install colmugx/tap/cetas
+```
+
+### Scoop — Windows x64
+
+```powershell
+scoop bucket add cetas https://github.com/colmugx/scoop-bucket
+scoop install cetas/cetas
+```
+
+### Direct installation / download
+
+You can also use the repository's interactive [Unix installer](https://github.com/colmugx/cetas/blob/main/install.sh) or [PowerShell installer](https://github.com/colmugx/cetas/blob/main/install.ps1). Both show the detected OS, selected version, destination and install files, then ask for confirmation before downloading binaries. Noninteractive installation needs explicit `--yes` (Unix) or `-Yes` (PowerShell).
+
+Alternatively, choose a `cetas-v*` tag on the [GitHub Releases page](https://github.com/colmugx/cetas/releases); Memoh has its own release series. The Native archives currently cover macOS ARM64, Linux x64, and Windows x64. On Windows, `cetas-windows-x64.zip` includes `cetas.exe`, `cetas-acp.exe`, `cetas-run.exe` and `cetas_moon.dll`; **keep the DLL next to the executable**.
+
+## Only need an editor agent or a one-off runner?
+
+These are still available as **independent** downloads in each Cetas release:
+
+| Use case | Release assets |
+| --- | --- |
+| Lody, Zed, or another ACP client | `cetas-acp-darwin-arm64.tar.gz`, `cetas-acp-linux-x64.tar.gz`, `cetas-acp-windows-x64.zip` |
+| One task from a script or CI | `cetas-run-darwin-arm64.tar.gz`, `cetas-run-linux-x64.tar.gz`, `cetas-run-windows-x64.zip` |
+
+You do not need to download the entire Native terminal for these use cases. Verify the selected archive using the `SHA256SUMS` file from the same release.
+
+## When JS and Native are both installed
+
+Both may install a `cetas` command. Your shell launches whichever is first on `PATH` — check `command -v cetas` on Unix or `Get-Command cetas` in PowerShell. Configuration lives in the shared [Cetas home](/en/configuration/cetas-home/), but features, approval UI, and session flows can differ between hosts.
 
 ## From install to your first message
 
