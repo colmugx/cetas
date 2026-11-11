@@ -1,0 +1,118 @@
+# Update both Homebrew and Scoop from an EXISTING Cetas Release.
+# No platform matrix, binary rebuilding, or modification of release assets.
+# Requires public colmugx/homebrew-tap and colmugx/scoop-bucket repositories
+# (each with main) and PACKAGE_REPOS_TOKEN with Contents:write on both.
+name: cetas package managers publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing stable release tag (e.g. cetas-v0.11.2)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cetas-package-managers-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: update Homebrew Tap + Scoop Bucket
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout current publish tooling
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Validate release and fetch its checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^cetas-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Expected cetas-vX.Y.Z, got '$RELEASE_TAG'"
+            exit 1
+          fi
+          mkdir -p staging
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets,isDraft,isPrerelease > staging/release.json
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir staging
+          python3 -m unittest scripts/test_package_managers.py
+
+      - name: Check external repositories and credentials
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::error::Set PACKAGE_REPOS_TOKEN (contents:write on both homebrew-tap and scoop-bucket)"
+            exit 1
+          fi
+          for repository in colmugx/homebrew-tap colmugx/scoop-bucket; do
+            if ! gh api "repos/$repository" --jq '.default_branch' | grep -qx main; then
+              echo "::error::Create $repository with default branch main and grant the PAT access"
+              exit 1
+            fi
+          done
+
+      - name: Checkout Homebrew Tap
+        uses: actions/checkout@v4
+        with:
+          repository: colmugx/homebrew-tap
+          ref: main
+          path: external/homebrew-tap
+          token: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+
+      - name: Checkout Scoop Bucket
+        uses: actions/checkout@v4
+        with:
+          repository: colmugx/scoop-bucket
+          ref: main
+          path: external/scoop-bucket
+          token: ${{ secrets.PACKAGE_REPOS_TOKEN }}
+
+      - name: Generate and validate manifests
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          python3 scripts/package_managers.py \
+            --tag "$RELEASE_TAG" \
+            --checksums staging/SHA256SUMS \
+            --metadata staging/release.json \
+            --homebrew external/homebrew-tap/Formula/cetas.rb \
+            --scoop external/scoop-bucket/bucket/cetas.json
+          ruby -c external/homebrew-tap/Formula/cetas.rb
+          python3 -m json.tool external/scoop-bucket/bucket/cetas.json >/dev/null
+          git -C external/homebrew-tap diff -- Formula/cetas.rb
+          git -C external/scoop-bucket diff -- bucket/cetas.json
+
+      - name: Commit and push both repositories
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          for target in "homebrew-tap:Formula/cetas.rb" "scoop-bucket:bucket/cetas.json"; do
+            repo="${target%%:*}"
+            path="${target#*:}"
+            dir="external/$repo"
+            git -C "$dir" config user.name "github-actions[bot]"
+            git -C "$dir" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git -C "$dir" add "$path"
+            if git -C "$dir" diff --cached --quiet; then
+              echo "$repo: already at $RELEASE_TAG"
+            else
+              git -C "$dir" commit -m "chore(cetas): update to $RELEASE_TAG"
+            fi
+          done
+          # Both renders and commits succeeded. Cross-repo pushes are not atomic;
+          # an interrupted run can safely be rerun for the same release.
+          git -C external/homebrew-tap push origin HEAD:main
+          git -C external/scoop-bucket push origin HEAD:main
