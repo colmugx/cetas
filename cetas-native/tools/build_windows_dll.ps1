@@ -19,10 +19,10 @@ try {
     $implib = Join-Path $dest "cetas_moon_import.lib"
     $def = Join-Path $root "cetas-native/tools/cetas_moon.def"
     $hostSrc = Join-Path $root "cetas-native/go_bridge/host.c"
-    & cl.exe /nologo /c /O2 /MD /W3 "/Fo$obj" "$hostSrc"
+    & cl.exe /nologo /c /O1 /Gy /Gw /GL /MD /W3 "/Fo$obj" "$hostSrc"
     if ($LASTEXITCODE -ne 0) { throw "MSVC host.c compilation failed ($LASTEXITCODE)" }
     & link.exe /nologo /DLL /INCREMENTAL:NO "/OUT:$dll" "/IMPLIB:$implib" `
-        "/DEF:$def" "/WHOLEARCHIVE:$archive" "$obj" `
+        "/DEF:$def" /LTCG /OPT:REF /OPT:ICF "/WHOLEARCHIVE:$archive" "$obj" `
         ws2_32.lib bcrypt.lib dbghelp.lib pathcch.lib ntdll.lib `
         iphlpapi.lib secur32.lib crypt32.lib
     if ($LASTEXITCODE -ne 0) { throw "MSVC DLL link failed ($LASTEXITCODE)" }

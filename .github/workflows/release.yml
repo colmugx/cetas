@@ -203,6 +203,32 @@ jobs:
       # One workspace build produces the ACP and Run native executables. The
       # native Go host is built from that same tree afterwards, so the bridge
       # archive reuses the dependency compilation instead of redoing it.
+      - name: Setup Go for native optimizer and host
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: cetas-native/go.mod
+          cache: false
+
+      - name: Configure optimized MoonBit compiler (unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        working-directory: cetas-native
+        run: |
+          go test ./tools/moon-cc-wrapper -count=1
+          go build -o "$RUNNER_TEMP/moon-cc-wrapper" ./tools/moon-cc-wrapper
+          echo "MOON_CC_WRAPPER=$RUNNER_TEMP/moon-cc-wrapper" >> "$GITHUB_ENV"
+          echo "MOONBIT_ALLOCATOR=system" >> "$GITHUB_ENV"
+
+      - name: Configure optimized MoonBit compiler (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        working-directory: cetas-native
+        run: |
+          go test ./tools/moon-cc-wrapper -count=1
+          go build -o "$env:RUNNER_TEMP\moon-cc-wrapper.exe" ./tools/moon-cc-wrapper
+          "MOON_CC_WRAPPER=$env:RUNNER_TEMP\moon-cc-wrapper.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "MOONBIT_ALLOCATOR=system" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       - name: moon update (native workspace)
         run: moon update
 
@@ -289,13 +315,7 @@ jobs:
             }
           }
 
-      # Unix continues to statically link the native MoonBit bridge.
-      - name: setup go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.26.x'
-          cache: false
-
+      # Unix continues to statically link the size-optimized MoonBit bridge.
       - name: compile MoonBit bridge archive (unix)
         if: matrix.os != 'windows-latest'
         shell: bash
@@ -310,7 +330,12 @@ jobs:
         working-directory: cetas-native
         env:
           CGO_ENABLED: '1'
-        run: go build -trimpath -ldflags="-s -w" -o ../stage/cetas .
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            go build -trimpath -ldflags="-s -w -linkmode=external -extldflags=-Wl,--gc-sections" -o ../stage/cetas .
+          else
+            go build -trimpath -ldflags="-s -w -linkmode=external -extldflags=-Wl,-dead_strip" -o ../stage/cetas .
+          fi
 
       - name: version smoke cetas (unix)
         if: matrix.os != 'windows-latest'
@@ -392,8 +417,16 @@ jobs:
           "$HOME\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26.x'
+          go-version-file: cetas-native/go.mod
           cache: false
+      - name: Configure optimized MoonBit compiler
+        working-directory: cetas-native
+        shell: pwsh
+        run: |
+          go test ./tools/moon-cc-wrapper -count=1
+          go build -o "$env:RUNNER_TEMP\moon-cc-wrapper.exe" ./tools/moon-cc-wrapper
+          "MOON_CC_WRAPPER=$env:RUNNER_TEMP\moon-cc-wrapper.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "MOONBIT_ALLOCATOR=system" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Build MoonBit runtime
         run: |
           moon update

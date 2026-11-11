@@ -77,3 +77,22 @@ A public/self-service Alpha requires a passing clean-home setup smoke,
 a clean-machine binary installation test, and live provider/session
 acceptance. We will prioritize these release blockers over JS parity,
 cosmetic enhancements, or platform expansion.
+
+## Native release size profile
+
+All `cetas-native` release and native CI jobs compile MoonBit's generated C,
+dependency stubs, and runtime through `tools/moon-cc-wrapper` using
+`MOON_CC_WRAPPER`. The wrapper preserves the compiler chosen by Moon and all
+of Moon's required flags, appending `-Os -ffunction-sections -fdata-sections`
+on Linux/macOS and `/O1 /Gw /GL` with MSVC on Windows. Both use
+`MOONBIT_ALLOCATOR=system`; the Windows DLL linker uses
+`/LTCG /OPT:REF /OPT:ICF`. Standard-library imports are retained because
+the native application requires the MoonBit core runtime and modules.
+Windows keeps the complete archive in the DLL to preserve callback and
+initialization symbols. Go Release builds use `-trimpath -ldflags="-s -w"`;
+CI Go tests keep symbols.
+
+This setting prioritizes native footprint; `-Os` and `/O1` can alter
+hot-path performance compared with `-O2`, so changes should be checked
+against real interactive workloads before release. No compression postprocessor
+or unsafe compiler flags are used.
