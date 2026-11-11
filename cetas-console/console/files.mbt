@@ -206,17 +206,16 @@ pub async fn ConsoleRuntime::file_suggestions_json(
 ///|
 test "rank_file_entries drops noise and ranks like the JS host" {
   let entries = [
-    "src/runtime/main.mbt",
-    "README.md",
-    "server/",
-    "web/src/routes/+page.svelte",
-    ".github/workflows/ci.yml",
-    "docs/readme-zh.md",
+    "src/runtime/main.mbt", "README.md", "server/", "web/src/routes/+page.svelte",
+    ".github/workflows/ci.yml", "docs/readme-zh.md",
   ]
   let ranked = rank_file_entries(entries, "readme", 10)
   inspect(ranked.length(), content="2")
   json_inspect(ranked[0], content={ "path": "README.md", "isDir": false })
-  json_inspect(ranked[1], content={ "path": "docs/readme-zh.md", "isDir": false })
+  json_inspect(ranked[1], content={
+    "path": "docs/readme-zh.md",
+    "isDir": false,
+  })
   let none = rank_file_entries(entries, "zzz-no-match", 10)
   inspect(none.length(), content="0")
   let broad = rank_file_entries(entries, "", 3)
@@ -258,10 +257,7 @@ async test "workspace_index_walk ignores segments and stays deterministic" {
   )
   // MoonBit's String ordering is length-before-code-units (the JS walk's
   // documented behavior), so this deterministic order is not alphabetical.
-  assert_eq(
-    out,
-    ["beta/", "beta/inner/", "beta/inner/deep.txt", "alpha.txt"],
-  )
+  assert_eq(out, ["beta/", "beta/inner/", "beta/inner/deep.txt", "alpha.txt"])
   @fs.rmdir(root, recursive=true) catch {
     _ => ()
   }
