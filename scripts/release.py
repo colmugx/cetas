@@ -28,6 +28,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import threading
 from datetime import date
 from pathlib import Path
 
@@ -47,7 +48,7 @@ FIX = re.compile(r"^fix(\(|!|:)")
 BREAKING = re.compile(r"(?m)^BREAKING[-_ ]CHANGE|^[a-z]+(\([^)]*\))?!:")
 RELEASE_SKIP = re.compile(r"^chore\(release\):")
 RUN_BIN = Path("_build/native/release/build/colmugx/cetas-run/main/main.exe")
-RUN_TIMEOUT = 600  # seconds, one LLM turn
+RUN_TIMEOUT = 1200  # seconds, one LLM turn
 EXT_LOG_LIMIT = 30
 COMPONENTS = frozenset(
     ("cetas-js", "cetas-acp", "cetas-core", "cetas-run", "cetas-native", "cetas-ext-forme", "extension")
@@ -249,7 +250,7 @@ def ai_prompt(commits, ext_lines):
         "背景：cetas 一次发版同时带出三个端侧应用；因 cetas 会集成来自 extension 子仓库的扩展，"
         "所以需要分析 extension 在这段提交历史中为 cetas 供应的功能，并作为功能点列出。禁止为 extension 单独设节。"
         "要求：1. 只输出 markdown 正文，不要代码围栏和任何解释。 2. 确认功能真实落实到某个端，才可列出。 3. 必须读提交，至少读个大概。禁止只看标题就总结。 4. 以“帮用户实现了什么功能/解决了什么问题”为导向",
-        "固定四个小节，标题原样：## General、## Bun Ver.（cetas-bun）、## ACP Ver.（cetas-acp）、## Run Ver.（cetas-run）；"
+        "固定五个小节，标题原样：## General、## Native Ver.（cetas-native）、## NPM Ver.（cetas-js）、## ACP Ver.（cetas-acp）、## Run Ver.（cetas-run）；"
         "无内容的小节保留空标题。只整理跟这三个端侧相关的更新信息：",
         "小节内按需使用 ### Feats / ### Fixes 子节，条目为 \"- \" 列表，"
         "请使用 English、面向用户、不含 hash；chore/internal/refactor/文档等非用户可见变更省略。",
@@ -266,28 +267,55 @@ def ai_prompt(commits, ext_lines):
     return "\n".join(out)
 
 
+def run_streaming(root, cmd, timeout):
+    """Run cmd with live output; returns (returncode, output) or None on timeout."""
+    proc = subprocess.Popen(
+        cmd, cwd=str(root), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8", errors="replace", bufsize=1,
+    )
+    chunks = []
+
+    def pump():
+        for line in proc.stdout:
+            chunks.append(line)
+            sys.stdout.write(line)
+            sys.stdout.flush()
+
+    t = threading.Thread(target=pump, daemon=True)
+    t.start()
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        t.join()
+        return None
+    t.join()
+    return proc.returncode, "".join(chunks)
+
+
 def ai_draft_notes(root, base, commits, binary=None):
     binary = binary or root / RUN_BIN
     if not binary.exists():
         print("提示: 未找到 cetas-run 二进制，改用机械分组草稿")
         return None
-    print("调用 cetas-run 总结提交（可能需要几分钟）...")
+    print("调用 cetas-run 总结提交（可能需要几分钟，实时输出如下）...")
     prompt = ai_prompt(commits, extension_recent(root, base))
-    try:
-        # --yolo: piped summarizer run — approvals must never block on a tty.
-        r = subprocess.run(
-            [str(binary), "--model", "zai-coding-plan/glm-5.3-flash", "--effort", "high", "--jsonl", "--yolo", "--", prompt],
-            cwd=str(root), capture_output=True, text=True,
-            timeout=RUN_TIMEOUT,
-        )
-    except subprocess.TimeoutExpired:
+    # --yolo: piped summarizer run — approvals must never block on a tty.
+    r = run_streaming(
+        root,
+        [str(binary), "--model", "opencode-go/deepseek-v4.1-flash", "--effort", "low", "--jsonl", "--yolo", "--", prompt],
+        RUN_TIMEOUT,
+    )
+    if r is None:
         print(f"警告: cetas-run 超时（>{RUN_TIMEOUT}s），改用机械分组草稿")
         return None
-    if r.returncode != 0:
-        tail = (r.stderr.strip().splitlines() or [""])[-1]
-        print(f"警告: cetas-run 退出码 {r.returncode}（{tail[:200]}），改用机械分组草稿")
+    code, out = r
+    if code != 0:
+        tail = (out.strip().splitlines() or [""])[-1]
+        print(f"警告: cetas-run 退出码 {code}（{tail[:200]}），改用机械分组草稿")
         return None
-    for line in reversed(r.stdout.splitlines()):
+    for line in reversed(out.splitlines()):
         if '"turn_completed"' not in line and '"turn_failed"' not in line:
             continue
         try:
