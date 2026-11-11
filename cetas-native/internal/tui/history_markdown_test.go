@@ -196,6 +196,9 @@ func TestGiantColdMarkdownRendersOffTheUpdatePath(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > time.Second || gate.expired() {
 		t.Fatalf("cold mount waited %v for a Markdown layout", elapsed)
 	}
+	// The mount only enqueues the render; let the background worker start
+	// before asserting its dispatch count.
+	gate.nextEntered(t)
 	if gate.calls() != 1 {
 		t.Fatalf("cold block dispatched %d renders, want one", gate.calls())
 	}
