@@ -1,17 +1,17 @@
 # Release pipeline for the cetas submodule (repo github.com/colmugx/cetas).
-# Tag builds publish cetas-acp, cetas-run, the native cetas binary, the
-# cetas-bun single-file JS host, and the platform-independent cetas-js node
-# bundle (cetas-js-dist.tar.gz) plus a GitHub release. npm publishing
-# (@posoco/cetas, a single JS-only package staged from cetas-js-dist) is
-# manual: dispatch .github/workflows/npm-publish.yml on the release tag.
+# Tag builds publish cetas-acp, cetas-run, the native cetas binary, and the
+# platform-independent cetas-js node bundle (cetas-js-dist.tar.gz) plus a
+# GitHub release. npm publishing (@posoco/cetas, a single JS-only package
+# staged from cetas-js-dist) is manual: dispatch
+# .github/workflows/npm-publish.yml on the release tag.
 #
 # Full release checks and dependency preparation run concurrently. Once the
 # dependency artifacts are ready, platform builds can start without waiting
 # for the native/JS test suites. Publishing still requires passing preflight.
 #
 # Dependency downloads (mooncakes registry, bun install cache) happen once per
-# run: the deps job uploads them as run-scoped artifacts for the matrix and
-# the platform-independent npm bundle job.
+# run: the deps job uploads them as run-scoped artifacts for the matrix (moon)
+# and the platform-independent npm bundle job (moon and bun).
 #
 # Each job checks out cetas itself and its own extension/ submodule.
 # posoco is a versioned MoonBit dependency, not a required parent checkout.
@@ -192,22 +192,13 @@ jobs:
           name: moon-registry
           path: ${{ runner.temp }}/moon-registry
 
-      - name: download bun install cache
-        uses: actions/download-artifact@v7
-        with:
-          name: bun-cache
-          path: ${{ runner.temp }}/bun-cache
-
-      - name: restore dependency caches
+      - name: restore moon registry cache
         shell: pwsh
         run: |
-          foreach ($cache in @(
-            @{ source = (Join-Path $env:RUNNER_TEMP 'moon-registry'); target = (Join-Path $HOME '.moon/registry') },
-            @{ source = (Join-Path $env:RUNNER_TEMP 'bun-cache'); target = (Join-Path $HOME '.bun/install/cache') }
-          )) {
-            New-Item -ItemType Directory -Force -Path $cache.target | Out-Null
-            Copy-Item -Path (Join-Path $cache.source '*') -Destination $cache.target -Recurse -Force
-          }
+          $source = Join-Path $env:RUNNER_TEMP 'moon-registry'
+          $target = Join-Path $HOME '.moon/registry'
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          Copy-Item -Path (Join-Path $source '*') -Destination $target -Recurse -Force
 
       # One workspace build produces the ACP and Run native executables. The
       # native Go host is built from that same tree afterwards, so the bridge
@@ -336,90 +327,16 @@ jobs:
           ./cetas acp --version
           ./cetas run --version
 
-      # cetas-js (bun-compiled single-file) — the GitHub-Release channel of
-      # the JS host, alongside cetas-acp/cetas-run. The npm channel ships the
-      # platform-independent node bundle instead (cetas-js-dist job below).
-      - name: setup bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: bun install
-        working-directory: cetas-js
-        run: bun install
-
-      - name: moon update (cetas-js)
-        working-directory: cetas-js
-        run: moon update
-
-      - name: build cetas-bun
-        working-directory: cetas-js
-        run: bun build.ts ${{ matrix.target }}
-
-      - name: collect cetas-bun + pi-tui native prebuilds (unix)
-        if: matrix.os != 'windows-latest'
-        working-directory: cetas-js
-        run: |
-          cp "dist/cetas-bun-${{ matrix.target }}" "../stage/cetas-bun"
-          # pi-tui's standalone-binary fallback resolves `native/` next to the
-          # executable: ship the prebuilds so win32-console-mode / darwin
-          # modifiers work from the extracted archive too.
-          cp -R node_modules/@earendil-works/pi-tui/native "../stage/native"
-
-      - name: collect cetas-bun + pi-tui native prebuilds (Windows)
-        if: matrix.os == 'windows-latest'
-        working-directory: cetas-js
-        shell: pwsh
-        run: |
-          Copy-Item "dist\cetas-bun-${{ matrix.target }}.exe" -Destination "..\stage\cetas-bun.exe"
-          Copy-Item -Recurse -Force "node_modules\@earendil-works\pi-tui\native" -Destination "..\stage\native"
-
-      # These free signatures do not establish a trusted publisher identity.
-      # Sign the final bytes before packaging, then smoke-test signed binaries.
-      - name: ad-hoc sign macOS release executables
+      # Only the native cetas executable is ad-hoc signed on macOS.
+      # ACP and Run ship unsigned; Windows cetas signing happens in native-windows.
+      - name: ad-hoc sign macOS cetas executable
         if: matrix.os == 'macos-latest'
         shell: bash
         run: |
           set -euo pipefail
-          for bin in cetas-acp cetas-run cetas cetas-bun; do
-            if [[ "$bin" == "cetas-bun" ]]; then
-              # Compiled Bun's embedded JS runtime requires JIT entitlements.
-              codesign --force --sign - \
-                --entitlements .github/macos-bun-entitlements.plist \
-                "stage/$bin"
-            else
-              codesign --force --sign - "stage/$bin"
-            fi
-            codesign --verify --strict --verbose=2 "stage/$bin"
-            "stage/$bin" --version
-          done
-
-      - name: self-sign Windows release executables (untrusted)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          # An ephemeral CI-only cert; SmartScreen will not trust it.
-          $cert = New-SelfSignedCertificate -Type CodeSigningCert `
-            -Subject "CN=Cetas CI Self-Signed (Untrusted)" `
-            -CertStoreLocation "Cert:\CurrentUser\My" `
-            -HashAlgorithm SHA256 -KeyAlgorithm RSA -KeyLength 3072
-          foreach ($file in @("stage\cetas.exe", "stage\cetas-acp.exe", "stage\cetas-run.exe", "stage\cetas-bun.exe")) {
-            $signed = Set-AuthenticodeSignature -FilePath $file `
-              -Certificate $cert -HashAlgorithm SHA256
-            if ($signed.SignatureType -ne 'Authenticode' -or $null -eq $signed.SignerCertificate) {
-              throw "Signing failed for ${file}: $($signed.StatusMessage)"
-            }
-            $sig = Get-AuthenticodeSignature -FilePath $file
-            if ($sig.SignatureType -ne 'Authenticode' -or
-                $null -eq $sig.SignerCertificate -or
-                $sig.SignerCertificate.Thumbprint -ne $cert.Thumbprint) {
-              throw "Missing or unexpected signature on $file"
-            }
-            Write-Host "$file : signature present; trust status=$($sig.Status)"
-            & (Resolve-Path $file).Path --version
-            if ($LASTEXITCODE -ne 0) {
-              throw "Signed executable failed --version smoke test: $file"
-            }
-          }
+          codesign --force --sign - stage/cetas
+          codesign --verify --strict --verbose=2 stage/cetas
+          stage/cetas --version
 
       # Release body = the CHANGELOG section for this version. Section end is
       # the next VERSION heading (`## X.Y.Z (` or `## Unreleased`) — notes
@@ -438,7 +355,6 @@ jobs:
           tar -czf "cetas-acp-${{ matrix.target }}.tar.gz" cetas-acp
           tar -czf "cetas-run-${{ matrix.target }}.tar.gz" cetas-run
           tar -czf "cetas-${{ matrix.target }}.tar.gz" cetas
-          tar -czf "cetas-bun-${{ matrix.target }}.tar.gz" cetas-bun native
 
       - name: package (Windows)
         if: matrix.os == 'windows-latest'
@@ -447,7 +363,6 @@ jobs:
         run: |
           Compress-Archive -Path "cetas-acp.exe" -DestinationPath "cetas-acp-windows-x64.zip" -Force
           Compress-Archive -Path "cetas-run.exe" -DestinationPath "cetas-run-windows-x64.zip" -Force
-          Compress-Archive -Path "cetas-bun.exe", "native" -DestinationPath "cetas-bun-windows-x64.zip" -Force
 
       - name: upload binaries
         uses: actions/upload-artifact@v6
@@ -515,13 +430,25 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "cetas acp dispatch failed" }
           & ./stage/cetas.exe run --version
           if ($LASTEXITCODE -ne 0) { throw "cetas run dispatch failed" }
-      - name: Self-sign Windows native DLL and EXE (untrusted)
+      # This job owns cetas.exe and cetas_moon.dll; ACP and Run remain unsigned.
+      - name: Self-sign Windows cetas EXE and native DLL (untrusted)
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          # Ephemeral CI-only certificate; not a trusted publisher signature.
           $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Cetas CI Self-Signed (Untrusted)" -CertStoreLocation "Cert:\CurrentUser\My" -HashAlgorithm SHA256 -KeyAlgorithm RSA -KeyLength 3072
-          foreach ($file in @("stage\cetas.exe", "stage\cetas-acp.exe", "stage\cetas-run.exe", "stage\cetas_moon.dll")) {
+          foreach ($file in @("stage\cetas.exe", "stage\cetas_moon.dll")) {
             $signed = Set-AuthenticodeSignature -FilePath $file -Certificate $cert -HashAlgorithm SHA256
-            if ($signed.SignatureType -ne 'Authenticode') { throw "Signing failed: $file" }
+            if ($signed.SignatureType -ne 'Authenticode' -or $null -eq $signed.SignerCertificate) {
+              throw "Signing failed for ${file}: $($signed.StatusMessage)"
+            }
+            $sig = Get-AuthenticodeSignature -FilePath $file
+            if ($sig.SignatureType -ne 'Authenticode' -or
+                $null -eq $sig.SignerCertificate -or
+                $sig.SignerCertificate.Thumbprint -ne $cert.Thumbprint) {
+              throw "Missing or unexpected signature on $file"
+            }
+            Write-Host "$file : signature present; trust status=$($sig.Status)"
           }
           & ./stage/cetas.exe --version
           if ($LASTEXITCODE -ne 0) { throw "Signed executable failed" }
