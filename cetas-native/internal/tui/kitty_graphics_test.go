@@ -43,7 +43,7 @@ func TestKittyPlaceholderLinesMatchSpecShape(t *testing.T) {
 	}
 	// Two-digit rows use decimal digit diacritics, most significant first.
 	lines := strings.Split(kittyPlaceholderLines(7, 1, 12), "\n")
-	if !strings.Contains(lines[10], "\u0305\u030d") { // row 10 = digits '1','0'
+	if !strings.Contains(lines[10], "\u030d\u0305") { // row 10 = digits '1','0', most significant first
 		t.Fatalf("row 10 diacritics missing: %q", lines[10])
 	}
 }
