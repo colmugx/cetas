@@ -38,6 +38,11 @@ jobs:
       - name: Version-sync gate
         run: python3 scripts/release.py check --scope core
 
+      - name: Shell installer syntax
+        run: |
+          bash -n install.sh
+          bash install.sh --help >/dev/null
+
       - name: npm staging tests
         run: python3 -m unittest scripts/test_npm_stage.py
 
@@ -224,6 +229,19 @@ jobs:
         with:
           go-version-file: cetas-native/go.mod
           cache: false
+      - name: PowerShell installer syntax
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $PWD "install.ps1"),
+            [ref]$tokens, [ref]$parseErrors
+          ) | Out-Null
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_ }
+            exit 1
+          }
       - name: Build MoonBit archive
         run: |
           moon update
