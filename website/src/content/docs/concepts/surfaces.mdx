@@ -1,31 +1,29 @@
 ---
 title: 入口（Surfaces）
-description: 终端、编辑器、自动化，是触达同一个 agent 的三种方式——这一页讲它们共享什么，又各自在哪里分岔。
+description: JS 和 Native 两种终端实现，以及独立的 ACP/Run 入口。
 sidebar:
   order: 145
 ---
 
-| 入口 | 包 | 交互模型 | 安装 |
-| --- | --- | --- | --- |
-| 终端 | `cetas-js` | 交互式终端 UI，形态是 `cetas`（npm）或 `cetas-bun`（二进制） | [优先 npm](/getting-started/installation/) |
-| 编辑器 | `cetas-acp` | 基于 stdio 的 Agent Client Protocol 宿主 | [发布归档](/getting-started/installation/)或源码 |
-| 自动化 | `cetas-run` | 一次进程一个用户回合 | [发布归档](/getting-started/installation/)或 Mooncakes |
+Cetas 有三种**使用场景**——终端、编辑器和自动化；其中终端有 **JS 和 Native 两种实现**。默认推荐 npm 发布的 Cetas JS，Native 则是 Go/Bubble Tea 终端的第二选择，两者共享 MoonBit Cetas/Posoco 内核。
 
-每个入口都组合同一个内核，并且遵循同一套身份、配置和持久状态约定。
+| 实现 / 入口 | 交互方式 | 安装或分发 |
+| --- | --- | --- |
+| **终端 · JS（首选）** `cetas-js` | 功能完整的交互式终端，包括 Board 等 JS 专属功能 | `npm install -g @posoco/cetas` |
+| **终端 · Native（第二选择）** `cetas-native` | Go/Bubble Tea v2，功能依宿主实现而不同 | Homebrew（macOS/Linux）、Scoop（Windows）或[发布文件](/getting-started/installation/) |
+| **编辑器 · ACP** `cetas-acp` | stdio ACP 服务，适配 Lody、Zed | 单独下载 `cetas-acp-*` |
+| **自动化 · Run** `cetas-run` | 每进程一个任务 | 单独下载 `cetas-run-*` |
 
 ## 共享的部分
 
-供应商配置、凭据、模型与档位选择、MCP 配置、缓存、会话存储，全都在共享的 [Cetas home](/configuration/cetas-home/) 里。配一次，下一个入口就从同一个地方开始。
+各入口基于相同的内核，通常共享 [Cetas Home](/configuration/cetas-home/) 下的供应商设置、凭据和会话文件，但**不代表** UI 或跨入口会话操作完全一致。
 
 ## 不同的部分
 
-| | 终端 | 编辑器 | 自动化 |
-| --- | --- | --- | --- |
-| 选择项 | `/model`、`/decision`、`/effort` 持久化 | ACP 配置项持久化 | `--model`、`--effort` 只对本次运行生效 |
-| 权限姿态 | `/permission` | 配置项或 `CETAS_PERMISSION_MODE` | `--permission` / `--yolo` |
-| 会话 | 浏览、续接、回退 | 客户端拥有记录，Cetas 保留记录文件 | `--session <id>` 续接 |
-| 界面 | TUI、选择器、审批 | 编辑器 UI、ACP 审批 | stdout 给答案、stderr 给诊断、退出码 |
+- JS 是功能覆盖最完整的终端；Pi/Node/Bun 集成及 Board 工作流目前不在 Native 中。
+- Native 使用 Go 终端和 MoonBit Runtime（Unix 静态桥接，Windows 相邻 DLL），不需要 Node.js。
+- ACP 单独服务于编辑器，由编辑器负责交互和审批 UI；无需安装完整 Native 就能使用。
+- Run 专为脚本/一次性任务设计，也能单独下载。
+- JS 和 Native 都可能注册名为 `cetas` 的命令，取决于 `PATH` 的先后顺序。
 
-## 不做承诺的部分
-
-共享持久状态，不等于一个对话能在不同入口之间搬。每个入口只在自己内部续接；跨入口续接不是受支持的契约，写自动化时把它当不存在。
+跨入口续接会话并不是受支持的契约。各平台安装方式见[安装与首次运行](/getting-started/installation/)。

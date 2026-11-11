@@ -12,7 +12,7 @@ Cetas is a product built on Posoco's protocol-first agent framework. Product sem
 | `cetas-js/` | Bun host, application boundary, and pi-tui interactive terminal |
 | `cetas-acp/` | Agent Client Protocol host for editors |
 | `cetas-run/` | One-turn native/Wasm host for automation and MoonX |
-| `cetas-native/` | Native terminal host; MoonBit application state, Rust terminal mechanics |
+| `cetas-native/` | Alternative native terminal: Go/Bubble Tea v2 UI and Harness, MoonBit Cetas/Posoco bridge; Unix static cgo, Windows MSVC DLL |
 | `cetas-web/` | Browser host and web presentation |
 | `cetas-ext-forme/` | Cetas identity/help extension |
 | `composition/` | Human-edited capability roster and composition documentation |
@@ -20,7 +20,7 @@ Cetas is a product built on Posoco's protocol-first agent framework. Product sem
 | `extension/` | Posoco extension submodule |
 | `cetas-memoh/` | Separately versioned Memoh runtime, with its own product semantics and state |
 
-The Cetas hosts assemble `cetas-core` and Posoco's `Agent` rather than implementing their own agent loop. Memoh is a separate integration and does not depend on `cetas-core`.
+The JS npm terminal is the recommended user-facing entry point; the distributed Native terminal is an optional second implementation, not a drop-in promise of JS-only features. The Cetas hosts assemble `cetas-core` and Posoco's `Agent` rather than implementing their own agent loop. Memoh is a separate integration and does not depend on `cetas-core`.
 
 ## Capabilities
 

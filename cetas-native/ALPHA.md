@@ -1,86 +1,28 @@
-# cetas-native Alpha candidate
+# Native test checklist (historical Alpha guidance)
 
-This is an **opt-in, experimental** native terminal frontend built with Go,
-Bubble Tea v2 and the MoonBit/Posoco runtime. It is **not** an upgrade of
-`cetas-js` and does not implement Pi or Node/Bun-only extensions. Features
-can differ in both directions.
+`cetas-native` now ships in public Cetas releases for macOS Apple Silicon, Linux x64 and Windows x64. The earlier Actions-artifact-only alpha distribution process is retired. For current installation, see [Native README](README.md); the recommended first-choice terminal remains `cetas-js` from npm.
 
-## Supported platforms and distribution
+This checklist remains useful for testing a new Native version before trusting it with real work. Shared Cetas/Posoco internals do not mean UI parity, equivalent permissions, or cross-host conversation-resume support.
 
-The dedicated native workflow currently validates Linux and macOS on its
-GitHub-hosted runner architectures. Windows is not part of this Alpha.
+## Keep test state separate
 
-To make a candidate without publishing a release:
-
-1. In GitHub Actions, choose **cetas-native Go/Bubble Tea validation**.
-2. Select the intended branch/commit and choose **Run workflow**.
-3. Wait for both platform jobs to pass. Download the
-   `cetas-native-alpha-<OS>-<architecture>` artifacts from that run.
-4. Extract the archive matching your OS and CPU. Verify the adjacent
-   `.sha256` file using `shasum -a 256 -c <file>.sha256` from the
-   directory containing the archive, then run `./cetas-native --version`.
-
-These are short-lived **GitHub Actions artifacts**, not signed public release
-assets. The artifacts contain the native executable and this document.
-Recipients do **not** need Go, MoonBit, Bun or Node to execute the binary;
-they may still need platform system libraries normally required by cgo.
-
-## Protect existing JS sessions and credentials
-
-Both frontends normally use the same `~/.cetas` directory for durable state.
-For this Alpha, **do not run Native against your existing production
-`cetas-js` state**, especially when testing rewind or cancellation.
-
-Use a new isolated parent-home directory:
+By default JS, Native, ACP and Run may share `~/.cetas`. When investigating a new Native release or regressions, point Native at an isolated **parent home**:
 
 ```sh
-mkdir -p "$HOME/cetas-native-alpha-home"
-export CETAS_HOME="$HOME/cetas-native-alpha-home"
-cd /path/to/a/disposable-git-project
-/path/to/cetas-native
+mkdir -p "$HOME/cetas-native-test-home"
+export CETAS_HOME="$HOME/cetas-native-test-home"
+cd /path/to/disposable-git-project
+cetas
 ```
 
-State will be stored beneath
-`$HOME/cetas-native-alpha-home/.cetas/`, **not** directly in
-`$CETAS_HOME`. Configure a test provider/account inside the isolated state.
-Do not copy live credential files or production session JSONL files into it.
-**First-run onboarding:** starting with a completely empty `CETAS_HOME`
-now offers a provider picker before the Agent is composed. The secret-input
-flow uses the registered Posoco provider factory and writes to the isolated
-credential store. Once the provider exposes a usable model catalog, the
-runtime starts normally without requiring a second process. If login succeeds
-but the provider has no runnable model, the terminal reports the missing model
-instead of treating setup as complete. The empty-home PTY smoke is part of
-CI, but actual authentication with a live provider still needs manual
-acceptance before external Alpha distribution.
+State is under `$CETAS_HOME/.cetas/`, not directly under `$CETAS_HOME`. Do not copy live credentials or session transcripts into the test home; start with a disposable workspace and read-only/interactive permissions.
 
-Do not copy the real production home.
+## Test before relying on it
 
-Use a clean Git worktree for permission and tool-write testing. Start with
-interactive or read-only permissions; do not use `/permission yolo` in Alpha.
+- Fresh install on a clean machine on each advertised OS/architecture. Check `cetas --version`, terminal restoration, ACP/Run sibling dispatch and Windows DLL adjacency.
+- Complete a real provider login and model selection, a streamed answer, a read-only tool call and an approved write tool.
+- Test session save/reopen, cancellation and recovery using **disposable** sessions; preserve backups of original transcripts.
+- Confirm errors are surfaced without exposing credentials in logs or terminal output.
+- If a release fails these checks, stop recommending that version until a fix is published.
 
-## Must-pass checks before inviting external testers
-
-- Fresh install on a **clean machine** for every advertised OS/architecture,
-  not just an Actions build runner. Check executable startup, exit and terminal
-  restoration.
-- Real provider credential flow (API key and/or OAuth), model/effort choice,
-  one streamed answer, one read-only tool call and one approved write tool.
-- Persist and reopen a conversation across process restart; test session
-  switching and rewind against **disposable data**, with the original JSONL
-  backed up and compared. Verify Ctrl+C and Esc cancellation do not hang.
-- Confirm errors are displayed and no credentials or secret-input values
-  appear in terminal output/logs.
-- Make an explicit decision on crash-report/log handling, incident triage,
-  and ability to stop distributing a bad build.
-
-If a check fails, hold external distribution. The current automated PTY tests
-exercise terminal ownership and scripted UI input; they do not establish
-end-to-end correctness with a real provider.
-
-## Feedback
-
-Include OS and architecture, build commit, terminal emulator, reproducible
-steps, and redacted output. Never include API keys, OAuth tokens, or complete
-session histories in public issues. The stable `cetas-js` installation remains
-the fallback.
+CI covers build, Bridge and scripted UI/PTY paths but cannot prove end-to-end operation with every live provider. Report host, version, OS, terminal emulator and redacted reproduction details. Never attach tokens or complete session histories.

@@ -1,37 +1,29 @@
 ---
 title: Surfaces
-description: The three ways to reach the same agent, and what they share.
+description: Cetas JS and Native terminal implementations, plus independent ACP and Run entry points.
 sidebar:
   order: 145
 ---
 
-| Surface | Package | Interaction model | Install |
-| --- | --- | --- | --- |
-| Terminal | `cetas-js` | Interactive terminal UI, as `cetas` (npm) or `cetas-bun` (binary) | [npm first](/en/getting-started/installation/) |
-| Editor | `cetas-acp` | Agent Client Protocol host over stdio | [Release archive](/en/getting-started/installation/) or source |
-| Automation | `cetas-run` | One user turn per process | [Release archive](/en/getting-started/installation/) or Mooncakes |
+Cetas has three *usage surfaces* — terminal, editor, and automation — with **two terminal implementations**. Cetas JS from npm is the default recommendation; Cetas Native is an optional Go/Bubble Tea terminal over the same MoonBit Cetas/Posoco core.
 
-Every surface composes the same core and participates in the same identity,
-configuration, and durable-state conventions.
+| Host | Interface | Install / distribution |
+| --- | --- | --- |
+| **Terminal · JS (recommended)** `cetas-js` | Full interactive terminal, JS-only integrations including Board | `npm install -g @posoco/cetas` |
+| **Terminal · Native (alternative)** `cetas-native` | Go/Bubble Tea v2 terminal, separate host capabilities | Homebrew (macOS/Linux), Scoop (Windows), or [Cetas Release](/en/getting-started/installation/) |
+| **Editor · ACP** `cetas-acp` | ACP server via stdio; usable with Lody and Zed | Separate `cetas-acp-*` Release asset |
+| **Automation · Run** `cetas-run` | One task per process | Separate `cetas-run-*` Release asset |
 
 ## What is shared
 
-Provider configuration, credentials, model selection and effort, MCP
-configuration, caches, and session storage all live under the shared
-[Cetas home](/en/configuration/cetas-home/). Configure once, and the next surface
-starts from the same place.
+The hosts compose the same core and generally reuse provider settings, credentials and session storage under [Cetas home](/en/configuration/cetas-home/). This does **not** imply UI parity or portable conversations between hosts.
 
 ## What differs
 
-| | Terminal | Editor | Automation |
-| --- | --- | --- | --- |
-| Selections | `/model`, `/decision`, `/effort` persist | ACP config options persist | `--model`, `--effort` are run-scoped only |
-| Permission posture | `/permission` | Config option or `CETAS_PERMISSION_MODE` | `--permission` / `--yolo` |
-| Sessions | Browse, resume, rewind | Client owns the record; Cetas keeps the transcript | `--session <id>` to continue |
-| Interface | TUI, pickers, approvals | Editor UI, ACP approvals | stdout answer, stderr diagnostics, exit codes |
+- JS is the primary feature-rich TUI, with Pi/Node/Bun integrations and Board workflows not available in Native.
+- Native uses a Go terminal and a MoonBit runtime (Unix static bridge, Windows adjacent DLL), and can run without Node.js.
+- ACP is a standalone editor integration; clients own presentation and approval UI. You can download it without installing Native.
+- Run produces stdout/stderr-friendly one-shot results, and can also be downloaded independently.
+- JS and Native may both expose a command named `cetas`; the first match on `PATH` wins.
 
-## What is not claimed
-
-Sharing durable state is not the same as moving one conversation between
-surfaces. Each surface resumes within itself; cross-surface resume is not a
-supported contract — write automation as if it does not exist.
+Cross-host conversation resume is not a supported contract. See [Installation](/en/getting-started/installation/) for exact platform options.

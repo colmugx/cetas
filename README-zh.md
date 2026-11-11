@@ -11,12 +11,12 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-256C63" alt="Apache 2.0"></a>
     <a href="https://www.moonbitlang.com"><img src="https://img.shields.io/badge/built%20with-MoonBit-256C63" alt="Built with MoonBit"></a>
   </p>
-  <p><a href="https://github.com/colmugx/cetas/releases/tag/cetas-v0.8.0">下载</a> · <a href="https://colmugx.github.io/cetas/">文档站</a> · <a href="#快速开始">快速开始</a> · <a href="#文档">文档</a> · <a href="README.md">English</a></p>
+  <p><a href="https://github.com/colmugx/cetas/releases">下载</a> · <a href="https://colmugx.github.io/cetas/">文档站</a> · <a href="#快速开始">快速开始</a> · <a href="#文档">文档</a> · <a href="README.md">English</a></p>
 </div>
 
 ![Cetas 交互式终端开屏](docs/assets/cetas-terminal.png)
 
-<p align="center"><sub>图示为 main 分支的 <code>cetas-js</code> 开屏，已发布的二进制版本可能使用较早的界面。</sub></p>
+<p align="center"><sub>图示为 <code>cetas-js</code> 开屏；Native 使用不同的 Go/Bubble Tea 界面。</sub></p>
 
 Cetas 能阅读代码、修改文件、执行命令，并实时展示工作过程。你可以在终端中对话，通过 ACP 把它接入编辑器，也可以从脚本中交给它一个任务。
 
@@ -32,32 +32,33 @@ Cetas 能阅读代码、修改文件、执行命令，并实时展示工作过�
 
 ## 快速开始
 
-### 1. 下载交互式终端
+### 1. 选择终端实现
 
-已发布的 **Cetas v0.8.0** 终端程序名为 `cetas-bun`，内置 Bun 运行时。使用二进制程序不需要安装 Bun 或 MoonBit。
-
-| 平台 | 下载 |
-| --- | --- |
-| macOS · Apple Silicon | [cetas-bun-darwin-arm64.tar.gz](https://github.com/colmugx/cetas/releases/download/cetas-v0.8.0/cetas-bun-darwin-arm64.tar.gz) |
-| Linux · x64 | [cetas-bun-linux-x64.tar.gz](https://github.com/colmugx/cetas/releases/download/cetas-v0.8.0/cetas-bun-linux-x64.tar.gz) |
-| Windows · x64 | [cetas-bun-windows-x64.zip](https://github.com/colmugx/cetas/releases/download/cetas-v0.8.0/cetas-bun-windows-x64.zip) |
-
-解压后，**从需要处理的项目目录**启动程序。例如：
-
-```bash
-cd /path/to/your/project
-/path/to/extracted/cetas-bun
-```
-
-Windows 使用解压后的 `cetas-bun.exe`。[发布页](https://github.com/colmugx/cetas/releases/tag/cetas-v0.8.0)还提供 ACP、runner 程序和校验文件。Memoh 使用独立的版本系列；这些入口请下载带 Cetas 标签的版本。
-
-如果已安装 Node.js 24 或更高版本，也可以通过 npm 安装交互式终端：
+**首选：Cetas JS。** npm 发行版是目前默认推荐的交互式终端，功能覆盖最完整，包括 Board 等 JS 专属集成。需要 Node.js 24 或更高版本：
 
 ```bash
 npm install -g @posoco/cetas
+cetas --version
 ```
 
-安装后会提供 `cetas` 命令，运行相同的交互式终端。上面的 `cetas-bun` 二进制内置 Bun，无需安装 Node.js。
+**第二选择：Cetas Native。** 基于 Go/Bubble Tea v2 的终端，使用相同的 MoonBit Cetas/Posoco 内核，不需要安装 Node.js 或 Bun；但不承诺与 JS 完全一致的功能。
+
+| 平台 | 包管理器 | 直接安装 |
+| --- | --- | --- |
+| macOS · Apple Silicon | `brew install colmugx/tap/cetas` | [install.sh](install.sh) 或 [Cetas Releases](https://github.com/colmugx/cetas/releases) |
+| Linux · x64 | `brew install colmugx/tap/cetas` | [install.sh](install.sh) 或 [Cetas Releases](https://github.com/colmugx/cetas/releases) |
+| Windows · x64 | [Scoop Bucket](https://github.com/colmugx/scoop-bucket) | [install.ps1](install.ps1) 或 [Cetas Releases](https://github.com/colmugx/cetas/releases) |
+
+```powershell
+scoop bucket add cetas https://github.com/colmugx/scoop-bucket
+scoop install cetas/cetas
+```
+
+直接安装脚本会先展示系统、版本、目标目录和文件清单，再请求确认。Windows Native 的 `cetas_moon.dll` 必须与 `cetas.exe` 放在同一目录；官方 ZIP 和 Scoop 已按此布局打包。Native 完整安装也包含 `cetas-acp` 与 `cetas-run`。
+
+**只需要 ACP 或 Run？** 可从带 `cetas-v*` 标签的[发布页](https://github.com/colmugx/cetas/releases)单独下载 `cetas-acp-{platform}` 或 `cetas-run-{platform}`（例如搭配 Lody 使用 ACP），不必安装完整 Native 终端。
+
+JS 和 Native 都可能提供 `cetas` 命令，实际执行哪一份由 `PATH` 顺序决定。安装两种实现后，可用 `command -v cetas`（PowerShell 用 `Get-Command cetas`）检查。更多差异见 [Native 指南](cetas-native/README.md) 与[包管理器指南](docs/native-package-managers.md)。
 
 ### 2. 连接模型
 
@@ -86,10 +87,10 @@ npm install -g @posoco/cetas
 
 | 入口 | 适用场景 | 使用方式 |
 | --- | --- | --- |
-| **交互式终端** · `cetas-js` | 流式对话、模型与登录选择器、会话管理和回退 | `cetas-bun` · [从源码构建](docs/development.md#interactive-terminal) |
+| **交互式终端（首选）** · `cetas-js` | 完整 JS 终端、会话回退及 JS 专属功能 | `npm install -g @posoco/cetas` · [从源码构建](docs/development.md#interactive-terminal) |
 | **编辑器** · `cetas-acp` | 支持 Agent Client Protocol 的编辑器 | `cetas-acp` · [接入说明](docs/configuration.md#editor--acp) |
 | **自动化** · `cetas-run` | 每次执行一个任务、脚本和 JSONL 输出 | `cetas-run` · [使用指南](cetas-run/README.mbt.md) |
-| **原生终端** · `cetas-native` | 正在开发的 MoonBit + Rust 终端入口 | [当前状态与构建说明](cetas-native/README.md) |
+| **原生终端（第二选择）** · `cetas-native` | Go/Bubble Tea v2 + MoonBit，无需 Node.js | `brew install colmugx/tap/cetas` / [Scoop](https://github.com/colmugx/scoop-bucket) · [指南](cetas-native/README.md) |
 | **Web** · `cetas-web` | 正在开发的浏览器入口 | [本地开发](cetas-web/README.md) |
 
 各入口的能力有所不同，[composition roster](composition/recipes.csv) 是功能组合的准确信息源。共享 Cetas 主目录不代表所有入口具有相同的界面，或都支持跨入口继续同一段会话。
@@ -129,6 +130,8 @@ Posoco 提供 Agent 基础和扩展端口，Cetas 定义产品行为，各入口
 | --- | --- |
 | [配置](docs/configuration.md) | Provider、权限、共享状态、MCP 与 ACP 接入 |
 | [开发](docs/development.md) | 工作区检出、依赖、构建与检查 |
+| [Native 安装](cetas-native/README.md) | 第二种终端实现、平台、安装器和 DLL 布局 |
+| [Homebrew / Scoop](docs/native-package-managers.md) | Native 包管理器安装与发布 |
 | [架构](docs/architecture.md) | 产品职责、仓库结构与扩展组合 |
 | [Composition](composition/README.md) | Recipe 定义与生成流程 |
 | [更新日志](CHANGELOG.md) | Cetas 核心版本历史 |

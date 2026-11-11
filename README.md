@@ -11,7 +11,7 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-256C63" alt="Apache 2.0"></a>
     <a href="https://www.moonbitlang.com"><img src="https://img.shields.io/badge/built%20with-MoonBit-B92482" alt="Built with MoonBit"></a>
   </p>
-  <p><a href="https://github.com/colmugx/cetas/releases/tag/cetas-v0.8.0">Download</a> · <a href="https://colmugx.github.io/cetas/">Docs</a> · <a href="#quick-start">Quick start</a> · <a href="#documentation">Documentation</a> · <a href="README-zh.md">简体中文</a></p>
+  <p><a href="https://github.com/colmugx/cetas/releases">Download</a> · <a href="https://colmugx.github.io/cetas/">Docs</a> · <a href="#quick-start">Quick start</a> · <a href="#documentation">Documentation</a> · <a href="README-zh.md">简体中文</a></p>
 </div>
 
 ![Cetas interactive terminal welcome screen](docs/assets/cetas-terminal.png)
@@ -32,32 +32,33 @@ The product lives in **`cetas-core`**. Its hosts compose the same agent identity
 
 ## Quick start
 
-### 1. Download the interactive terminal
+### 1. Choose a terminal host
 
-The published **Cetas v0.8.0** terminal executable is named `cetas-bun`. It includes the Bun runtime; you do not need to install Bun or MoonBit to use the binary.
-
-| Platform | Download |
-| --- | --- |
-| macOS · Apple Silicon | [cetas-bun-darwin-arm64.tar.gz](https://github.com/colmugx/cetas/releases/download/cetas-v0.8.0/cetas-bun-darwin-arm64.tar.gz) |
-| Linux · x64 | [cetas-bun-linux-x64.tar.gz](https://github.com/colmugx/cetas/releases/download/cetas-v0.8.0/cetas-bun-linux-x64.tar.gz) |
-| Windows · x64 | [cetas-bun-windows-x64.zip](https://github.com/colmugx/cetas/releases/download/cetas-v0.8.0/cetas-bun-windows-x64.zip) |
-
-Extract the archive, then launch the executable **from the project you want to work on**. For example:
-
-```bash
-cd /path/to/your/project
-/path/to/extracted/cetas-bun
-```
-
-On Windows, use the extracted `cetas-bun.exe`. The [release page](https://github.com/colmugx/cetas/releases/tag/cetas-v0.8.0) also includes ACP and runner binaries, plus checksums. Memoh has its own release series; use the Cetas-tagged release for these hosts.
-
-If you already have Node.js 24 or newer, you can install the interactive terminal from npm instead:
+**Recommended — Cetas JS.** The npm distribution is the primary interactive terminal, with the broadest current feature set (including JS-only integrations such as Board workflows). Requires Node.js 24+:
 
 ```bash
 npm install -g @posoco/cetas
+cetas --version
 ```
 
-This provides a `cetas` command that runs the same interactive terminal. The `cetas-bun` binary above bundles Bun, so it needs no Node.js install.
+**Alternative — Cetas Native.** A separately distributed Go/Bubble Tea v2 terminal running the same MoonBit Cetas/Posoco core. It does not require Node.js or Bun, and it is not guaranteed to have every JS feature.
+
+| Platform | Package manager | Direct installation |
+| --- | --- | --- |
+| macOS · Apple Silicon | `brew install colmugx/tap/cetas` | [install.sh](install.sh) or [Cetas releases](https://github.com/colmugx/cetas/releases) |
+| Linux · x64 | `brew install colmugx/tap/cetas` | [install.sh](install.sh) or [Cetas releases](https://github.com/colmugx/cetas/releases) |
+| Windows · x64 | [Scoop bucket](https://github.com/colmugx/scoop-bucket) | [install.ps1](install.ps1) or [Cetas releases](https://github.com/colmugx/cetas/releases) |
+
+```powershell
+scoop bucket add cetas https://github.com/colmugx/scoop-bucket
+scoop install cetas/cetas
+```
+
+The direct installers show the system, version, destination, and files before asking for confirmation. Windows Native requires `cetas_moon.dll` **beside** `cetas.exe`; the official ZIP and Scoop retain this layout. Native installation also supplies `cetas-acp` and `cetas-run`.
+
+**Only need ACP or Run?** Download the separate `cetas-acp-{platform}` or `cetas-run-{platform}` archives from a [Cetas-tagged release](https://github.com/colmugx/cetas/releases) (for example, to run ACP with Lody). You do **not** need the whole Native terminal.
+
+Both JS and Native use the command `cetas`; the first match on `PATH` wins. Check `command -v cetas` (or `Get-Command cetas` in PowerShell) after installing both. For a detailed comparison, see [Native terminal](cetas-native/README.md) and [installation options](docs/native-package-managers.md).
 
 ### 2. Connect a model
 
@@ -86,10 +87,10 @@ Use `@path` to include a file reference. `/help` lists commands and keyboard sho
 
 | Surface | Best for | Entry point |
 | --- | --- | --- |
-| **Interactive terminal** · `cetas-js` | Streaming conversations, model/login pickers, sessions and rewind | `cetas-bun` · [Build from source](docs/development.md#interactive-terminal) |
+| **Interactive terminal (recommended)** · `cetas-js` | Full JS terminal, model/login pickers, sessions, rewind and JS-only integrations | `npm install -g @posoco/cetas` · [Build from source](docs/development.md#interactive-terminal) |
 | **Editor** · `cetas-acp` | Editors with Agent Client Protocol support | `cetas-acp` · [Setup](docs/configuration.md#editor--acp) |
 | **Automation** · `cetas-run` | One task per invocation, scripts and JSONL output | `cetas-run` · [Guide](cetas-run/README.mbt.md) |
-| **Native terminal** · `cetas-native` | MoonBit + Rust terminal host under development | [Status and build instructions](cetas-native/README.md) |
+| **Native terminal (alternative)** · `cetas-native` | Go/Bubble Tea v2 UI backed by MoonBit; no Node.js required | `brew install colmugx/tap/cetas` / [Scoop](https://github.com/colmugx/scoop-bucket) · [Guide](cetas-native/README.md) |
 | **Web** · `cetas-web` | Browser host under development | [Local development](cetas-web/README.md) |
 
 Host capabilities differ; the [composition roster](composition/recipes.csv) is the source of truth. Sharing the Cetas home does not imply every host has the same UI or cross-host conversation-resume support.
@@ -129,6 +130,8 @@ The documentation site is published at **[colmugx.github.io/cetas](https://colmu
 | --- | --- |
 | [Configuration](docs/configuration.md) | Providers, permissions, shared state, MCP and ACP setup |
 | [Development](docs/development.md) | Workspace checkout, dependencies, builds and checks |
+| [Native installation](cetas-native/README.md) | Alternative terminal, platform support, installers and DLL layout |
+| [Homebrew / Scoop](docs/native-package-managers.md) | Native package manager setup and publishing |
 | [Architecture](docs/architecture.md) | Product ownership, repository layout and extension composition |
 | [Composition](composition/README.md) | Recipe vocabulary and generator workflow |
 | [Changelog](CHANGELOG.md) | Cetas core release history |

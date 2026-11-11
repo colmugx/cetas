@@ -1,24 +1,42 @@
-# Cetas Native — Go/Bubble Tea migration
+# Cetas Native — Go/Bubble Tea terminal
 
-This directory is being rebuilt as a single-process Go Bubble Tea v2 terminal host for the existing MoonBit Cetas/Posoco application.
+**Cetas JS is the recommended terminal. Cetas Native is the optional second implementation.** Native uses Go/Bubble Tea v2 for terminal rendering and MoonBit Cetas/Posoco for the agent runtime. It is released for macOS Apple Silicon, Linux x64 and Windows x64, but does not promise feature parity with JS; Pi/Node/Bun-only integrations and Board workflows remain JS-only.
 
-## Design
+## Install the Native terminal
 
-```
-Bubble Tea v2 (Go, owns terminal input, layout and rendering)
-     │ commands and event reducer
-Go Harness (correlated JSON commands, lifecycle, error propagation)
-     │ Unix: cgo + static archive / Windows: pure Go + MSVC DLL
+| Platform | Package manager | Alternative |
+| --- | --- | --- |
+| macOS Apple Silicon / Linux x64 | `brew install colmugx/tap/cetas` | [Interactive `install.sh`](../install.sh) / [GitHub Releases](https://github.com/colmugx/cetas/releases) |
+| Windows x64 | `scoop bucket add cetas https://github.com/colmugx/scoop-bucket` then `scoop install cetas/cetas` | [Interactive `install.ps1`](../install.ps1) / [GitHub Releases](https://github.com/colmugx/cetas/releases) |
+
+Use the `cetas-v*` release series (Memoh has separate releases). The direct installers display version, system, target location, and file names and ask for confirmation before binary downloads; use `--yes` or PowerShell `-Yes` only for unattended automation. Installer defaults to `~/.local/bin`; package managers use their own managed locations.
+
+Native distributes `cetas`, `cetas-acp`, and `cetas-run`. If you only want ACP for Lody/Zed or Run for one-off tasks, download the independent `cetas-acp-*` or `cetas-run-*` archive instead of the full terminal. Those files remain separate GitHub Release assets.
+
+Windows `cetas-windows-x64.zip` additionally contains `cetas_moon.dll`. **Keep the DLL beside `cetas.exe`.** Scoop installs the whole ZIP and exposes the three EXEs via shims while leaving the DLL in the same physical version directory.
+
+Both the npm JS host and Native can put a `cetas` command on `PATH`. The first one on `PATH` wins. Check `command -v cetas` on Unix or `Get-Command cetas` in PowerShell before reporting problems. Homebrew and Scoop update their own managed installation; do not point the interactive install scripts at package-manager directories.
+
+## Architecture
+
+```text
+Go / Bubble Tea v2 (terminal input, layout, rendering)
+     | events / JSON commands
+Go Harness (queueing, lifecycle, errors)
+     | Unix: cgo + MoonBit static .a
+     | Windows: CGO_ENABLED=0 + MSVC cetas_moon.dll
 MoonBit ConsoleRuntime (single locked OS-thread owner)
-     │
+     |
 Cetas Core / Posoco (providers, tools, permissions, sessions, turns)
 ```
 
-The architecture follows [Scena](https://github.com/colmugx/scena)'s native C bridge, **not** the retired Rust Ratatui/Crossterm terminal ABI.
+The native runtime shares the core and provider configuration with other Cetas entry points, but UI commands and support for session flows can differ. All hosts normally use `~/.cetas/`; for isolated testing set `CETAS_HOME` to an alternate **parent-home directory** (state lives under `$CETAS_HOME/.cetas/`). For careful validation before using live data, see [Alpha-era validation checklist](ALPHA.md).
 
-## Development
+## Build from source
 
-Prerequisites: MoonBit toolchain, Go 1.26+, Clang, Python 3 (for PTY smoke scripts), and a C compiler toolchain. Start in the repository root so `moon.work` resolves the local packages:
+Requirements: MoonBit CLI, Go version declared by [`go.mod`](go.mod) (currently 1.27.4), and a compatible native C toolchain; on Windows use the MSVC developer environment. Run Moon commands at the repository root so `moon.work` resolves packages.
+
+macOS / Linux:
 
 ```sh
 moon update
@@ -26,57 +44,24 @@ moon build cetas-native/native_bridge --target native --release
 mkdir -p cetas-native/go_bridge/lib
 cp _build/native/release/build/colmugx/cetas-native/native_bridge/native_bridge.a cetas-native/go_bridge/lib/libcetas_moon.a
 cd cetas-native
-CGO_ENABLED=1 go mod tidy
 CGO_ENABLED=1 go test ./...
-CGO_ENABLED=1 go run .
+CGO_ENABLED=1 go build -trimpath -o ../bin/cetas .
 ```
 
-On Unix, the bridge archive is generated in `go_bridge/lib/` and must not be committed.
-
-Windows uses a separate MSVC DLL workflow. From a VS developer shell in the repository root:
+Windows (PowerShell in an MSVC developer shell, from repository root):
 
 ```powershell
 moon update
 moon build cetas-native/native_bridge --target native --release
 ./cetas-native/tools/build_windows_dll.ps1 -OutputDir bin
 $env:CETAS_NATIVE_DLL = (Resolve-Path ./bin/cetas_moon.dll).Path
-$env:CGO_ENABLED = "0"
+$env:CGO_ENABLED = '0'
 cd cetas-native
 go test ./... -count=1
-go build -o ../bin/cetas.exe .
+go build -trimpath -o ../bin/cetas.exe .
 ```
 
-`build_windows_dll.ps1` consumes the fixed MoonBit archive at
-`_build/native/release/build/colmugx/cetas-native/native_bridge/native_bridge.a`
-(with `.lib` fallback) and links `host.c` and the MoonBit runtime through
-MSVC into `bin/cetas_moon.dll`. Shipping Windows binaries must include
-`cetas.exe` and `cetas_moon.dll` in the **same directory**. The Go
-binary uses `CGO_ENABLED=0` and dynamically resolves the DLL's C ABI.
-`CETAS_NATIVE_DLL` is only needed for tests whose Go executable lives in
-a temporary Go test directory.
-
-## Product scope and Alpha
-
-`cetas-native` is a separate product frontend for the shared Cetas/Posoco
-Agent. It does **not** aim for feature parity with `cetas-js`. Pi and other
-Node/Bun-only integrations remain JS-exclusive; Native may have its own
-exclusive capabilities later.
-
-**Current status:** Alpha candidate / internal evaluation. The Go/Bubble Tea
-build, MoonBit bridge, command system, virtualized transcript and PTY
-interaction suite are integrated. Automated tests alone do not prove safe
-real-provider operation. First-run onboarding has a dedicated empty-home
-PTY test in CI.
-
-Use [ALPHA.md](ALPHA.md) for supported platforms, opt-in downloadable Actions
-artifacts, isolated-state instructions, and external Alpha release gates.
-Release builds produce the native `cetas` binary on Unix and an adjacent
-DLL-backed native Windows bundle. These do not replace the JS frontend.
-
-A public/self-service Alpha requires a passing clean-home setup smoke,
-a clean-machine binary installation test, and live provider/session
-acceptance. We will prioritize these release blockers over JS parity,
-cosmetic enhancements, or platform expansion.
+The DLL builder consumes the fixed MoonBit archive `_build/native/release/build/colmugx/cetas-native/native_bridge/native_bridge.a` (or a `.lib` fallback), linking `host.c` and the MoonBit runtime into `cetas_moon.dll`. `CETAS_NATIVE_DLL` is only needed for `go test` when the executable runs outside the install directory. For production, place DLL and EXE together.
 
 ## Native release size profile
 
