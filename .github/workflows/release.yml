@@ -482,7 +482,7 @@ jobs:
       - name: Build MoonBit runtime
         run: |
           moon update
-          moon build cetas-native/native_bridge --target native --release
+          moon build --target native --release
       - name: Build MSVC DLL
         shell: pwsh
         run: ./cetas-native/tools/build_windows_dll.ps1 -OutputDir stage
@@ -497,6 +497,11 @@ jobs:
         env:
           CGO_ENABLED: '0'
         run: go build -trimpath -o ../stage/cetas.exe .
+      - name: Collect ACP and Run siblings
+        shell: pwsh
+        run: |
+          Copy-Item "_build/native/release/build/colmugx/cetas-acp/main/main.exe" -Destination "stage/cetas-acp.exe"
+          Copy-Item "_build/native/release/build/colmugx/cetas-run/main/main.exe" -Destination "stage/cetas-run.exe"
       - name: Version smoke
         shell: pwsh
         run: |
@@ -506,11 +511,15 @@ jobs:
           if ($env:RELEASE_TAG -and $actual.Trim() -ne ("cetas " + ($env:RELEASE_TAG -replace '^cetas-v', ''))) {
             throw "version mismatch: $actual"
           }
+          & ./stage/cetas.exe acp --version
+          if ($LASTEXITCODE -ne 0) { throw "cetas acp dispatch failed" }
+          & ./stage/cetas.exe run --version
+          if ($LASTEXITCODE -ne 0) { throw "cetas run dispatch failed" }
       - name: Self-sign Windows native DLL and EXE (untrusted)
         shell: pwsh
         run: |
           $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Cetas CI Self-Signed (Untrusted)" -CertStoreLocation "Cert:\CurrentUser\My" -HashAlgorithm SHA256 -KeyAlgorithm RSA -KeyLength 3072
-          foreach ($file in @("stage\cetas.exe", "stage\cetas_moon.dll")) {
+          foreach ($file in @("stage\cetas.exe", "stage\cetas-acp.exe", "stage\cetas-run.exe", "stage\cetas_moon.dll")) {
             $signed = Set-AuthenticodeSignature -FilePath $file -Certificate $cert -HashAlgorithm SHA256
             if ($signed.SignatureType -ne 'Authenticode') { throw "Signing failed: $file" }
           }
@@ -519,7 +528,7 @@ jobs:
       - name: Package executable and adjacent DLL
         shell: pwsh
         working-directory: stage
-        run: Compress-Archive -Path "cetas.exe", "cetas_moon.dll" -DestinationPath "cetas-windows-x64.zip" -Force
+        run: Compress-Archive -Path "cetas.exe", "cetas-acp.exe", "cetas-run.exe", "cetas_moon.dll" -DestinationPath "cetas-windows-x64.zip" -Force
       - uses: actions/upload-artifact@v6
         with:
           name: binary-native-windows-x64
