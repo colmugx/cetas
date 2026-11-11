@@ -130,8 +130,8 @@ func TestWarmFramesReuseRowsWithoutGrowth(t *testing.T) {
 		t.Fatalf("row cache %d exceeds the %d byte budget", v.rows.used, transcriptRowCacheBudget)
 	}
 	// The Markdown / formatted-text cache stays window-sized too.
-	if len(m.markdownCache) > 1 {
-		t.Fatalf("warm frames retained %d formatted blocks", len(m.markdownCache))
+	if m.markdownCache.stats().entries > 1 {
+		t.Fatalf("warm frames retained %d formatted blocks", m.markdownCache.stats().entries)
 	}
 }
 

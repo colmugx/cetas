@@ -4,6 +4,7 @@ package "colmugx/cetas-console/console"
 import {
   "colmugx/posoco-ext-permission",
   "colmugx/posoco-ext-workspace",
+  "colmugx/posoco/kernel",
   "colmugx/posoco/types",
   "moonbitlang/core/json",
 }
@@ -95,7 +96,7 @@ pub fn ConsoleRuntime::set_permission(Self, String) -> Result[Unit, String]
 pub async fn ConsoleRuntime::shutdown_all(Self) -> Unit
 pub async fn ConsoleRuntime::skills_json(Self) -> @json.Json
 pub fn ConsoleRuntime::spawn_background(Self, async () -> Unit) -> Unit
-pub async fn ConsoleRuntime::start_turn(Self, String, String?) -> Result[String, String] noraise
+pub async fn ConsoleRuntime::start_turn(Self, String, String?, images? : Array[@kernel.Content]) -> Result[String, String] noraise
 pub async fn ConsoleRuntime::switch_model(Self, String, String?) -> Result[Unit, String] noraise
 pub async fn ConsoleRuntime::switch_session(Self, String) -> Result[String, String] noraise
 pub async fn ConsoleRuntime::switch_workspace(Self, String) -> Result[String, String] noraise

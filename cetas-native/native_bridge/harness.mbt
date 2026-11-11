@@ -355,12 +355,43 @@ async fn harness_dispatch(
     }
     "turn_start" =>
       match harness_required(args, "prompt") {
-        Ok(prompt) =>
-          if prompt.trim().is_empty() {
+        Ok(prompt) => {
+          // Optional inline images: [{media_type, data(base64)}], the same
+          // wire form the JS host's images_json carries.
+          let images : Array[@posoco.Content] = []
+          match args {
+            Json::Object(fields) =>
+              match fields.get("images") {
+                Some(Json::Array(items)) =>
+                  for item in items {
+                    match item {
+                      Json::Object(entry) =>
+                        match (entry.get("media_type"), entry.get("data")) {
+                          (
+                            Some(Json::String(media_type)),
+                            Some(Json::String(data)),
+                          ) =>
+                            images.push(
+                              @posoco.Content::Image(media_type~, data~),
+                            )
+                          _ => ()
+                        }
+                      _ => ()
+                    }
+                  }
+                _ => ()
+              }
+            _ => ()
+          }
+          if prompt.trim().is_empty() && images.is_empty() {
             harness_error("prompt must not be empty")
           } else {
             match
-              runtime.start_turn(prompt, harness_string(args, "session_id")) {
+              runtime.start_turn(
+                prompt,
+                harness_string(args, "session_id"),
+                images~,
+              ) {
               Ok(turn_id) =>
                 Json::object(
                   Map::from_array([("turn_id", Json::string(turn_id))]),
@@ -368,6 +399,7 @@ async fn harness_dispatch(
               Err(e) => harness_error(e)
             }
           }
+        }
         Err(e) => harness_error(e)
       }
     "turn_abort" => {
@@ -416,6 +448,7 @@ async fn harness_handle_frame(
   runtime : @console.ConsoleRuntime,
   auth_tasks : NativeAuthTasks,
   replay_tasks : NativeReplayTasks,
+  catalog_tasks : NativeReplayTasks,
   group : @async.TaskGroup[Unit],
   raw : String,
 ) -> Unit {
@@ -440,6 +473,8 @@ async fn harness_handle_frame(
         emit(harness_reply(id, harness_error("invalid request envelope")))
       } else if native_replay_command(command) {
         replay_tasks.submit(runtime, auth_tasks, group, id, command, args)
+      } else if native_catalog_command(command) {
+        catalog_tasks.submit(runtime, auth_tasks, group, id, command, args)
       } else {
         let result : Json = harness_dispatch(
           runtime, auth_tasks, group, command, args,

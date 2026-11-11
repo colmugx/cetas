@@ -180,6 +180,13 @@ func (m *model) renderBlock(index int) (string, bool) {
 	if b.Kind == "notice" || b.Kind == "error" {
 		return m.renderNotice(b), true
 	}
+	if b.Kind == "image" && b.ImageID > 0 {
+		for _, layout := range m.kittyImages {
+			if layout.id == b.ImageID {
+				return kittyPlaceholderLines(layout.id, layout.cols, layout.rows), true
+			}
+		}
+	}
 	theme := m.theme()
 	role := func(name string) func(string) string { return func(s string) string { return theme.Role(name, s) } }
 	muted := role("muted")

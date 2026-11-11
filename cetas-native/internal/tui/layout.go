@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	ui "github.com/colmugx/cetas/cetas-native/internal/tui/components"
+	"github.com/colmugx/cetas/cetas-native/internal/tui/overlays"
 )
 
 type regions struct {
@@ -165,7 +166,7 @@ func (m *model) reflow() {
 			m.err = "Markdown renderer initialization failed: " + err.Error()
 		} else {
 			m.markdownRenderer = renderer
-			m.markdownCache = nil
+			m.markdownCache.reset()
 			m.markdownThemeKey = themeKey
 			m.document.live.valid = false
 		}
@@ -200,17 +201,90 @@ func (m model) overlayTitle() string {
 	return title
 }
 
+// pickerPanelKey is every input the session picker's panel render reads, by
+// value: the picker's own fields, the palette identity, the panel box and the
+// minute bucket of the relative-time ladder. Within one bucket the render is
+// a pure function of this key, so an unchanged key means the memoized panel
+// and its rect are exactly what a fresh render would produce.
+type pickerPanelKey struct {
+	open        bool
+	bucket      string
+	scope       overlays.SessionsScope
+	generation  int
+	content     uint64
+	index       int
+	entries     int
+	loading     bool
+	err         string
+	more        bool
+	minute      int64
+	fg, bg      string
+	width, tall int
+}
+
+// pickerPanelMemo caches one picker panel render with its composited rect.
+// The wheel path hit-tests and the paint path compose the same panel, so a
+// frame over the picker renders it once instead of twice; the value key
+// guarantees a memo hit can never serve a stale panel.
+type pickerPanelMemo struct {
+	key                      pickerPanelKey
+	panel                    []string
+	left, top, width, height int
+}
+
+func (m model) pickerPanelKey(width, tall int, now time.Time) pickerPanelKey {
+	panel := m.sessionPicker.panel
+	return pickerPanelKey{
+		open:       m.sessionPicker.open,
+		bucket:     panel.Bucket,
+		scope:      panel.Scope,
+		generation: panel.Generation,
+		content:    m.sessionPicker.content,
+		index:      panel.Index,
+		entries:    len(panel.Entries),
+		loading:    panel.Loading,
+		err:        panel.Err,
+		more:       panel.More,
+		minute:     now.Truncate(time.Minute).UnixMilli(),
+		fg:         fmt.Sprintf("%v", m.surface.fg),
+		bg:         fmt.Sprintf("%v", m.surface.bg),
+		width:      width,
+		tall:       tall,
+	}
+}
+
 // overlayPanel renders the centred overlay the renderer composes and reports
 // exactly where it lands, so painting and pointer routing can never disagree:
 // the compositor centres the panel's *measured* lines, which is narrower than
-// the requested box when the content does not fill it.
+// the requested box when the content does not fill it. The picker panel is
+// memoized on its full render-input key; legacy modals render directly (they
+// are not wheeled, so they never pay the double render the memo removes).
 func (m model) overlayPanel() (panel []string, left, top, width, height int) {
 	w, h := m.dimensions()
 	pw, ph := overlayPanelSize(w, h)
 	if m.modal != "" {
 		panel = ui.Panel(m.theme(), m.overlayTitle(), m.modalItems, m.modalIndex, pw, ph)
 	} else {
-		panel = m.sessionPicker.panel.Render(m.theme(), pw, ph, time.Now())
+		now := time.Now()
+		key := m.pickerPanelKey(pw, ph, now)
+		if m.pickerPanel != nil && m.pickerPanel.key == key {
+			memo := m.pickerPanel
+			return memo.panel, memo.left, memo.top, memo.width, memo.height
+		}
+		panel = m.sessionPicker.panel.Render(m.theme(), pw, ph, now)
+		measured := 0
+		for _, line := range panel {
+			measured = max(measured, ansi.StringWidth(line))
+		}
+		width, height = min(w, measured), min(h, len(panel))
+		if m.pickerPanel == nil {
+			m.pickerPanel = &pickerPanelMemo{}
+		}
+		m.pickerPanel.key = key
+		m.pickerPanel.panel = panel
+		m.pickerPanel.width, m.pickerPanel.height = width, height
+		m.pickerPanel.left, m.pickerPanel.top = max(0, (w-width)/2), max(0, (h-height)/2)
+		return panel, m.pickerPanel.left, m.pickerPanel.top, width, height
 	}
 	measured := 0
 	for _, line := range panel {

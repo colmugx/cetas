@@ -1,6 +1,5 @@
 import {
   "colmugx/posoco",
-  "colmugx/posoco/types" @posoco_types,
   "colmugx/posoco-ext-bunraku" @bunraku,
   "colmugx/posoco/error",
   "colmugx/posoco/port",
@@ -61,6 +60,7 @@ import {
 
 import {
   "colmugx/posoco/kernel",
+  "colmugx/posoco/types" @posoco_types,
   "colmugx/posoco-ext-board/testkit/node_fs" @board_fixtures,
   "colmugx/posoco-ext-board/domain" @board_domain,
   "colmugx/posoco-ext-board/execution" @board_execution,
@@ -69,8 +69,6 @@ import {
   "moonbitlang/async/aqueue",
   "posoco/devkit/testkit" @tk,
 } for "wbtest"
-
-warnings = "-unused_package"
 
 // The session-lifetime (recovery) task group is a core-async one: posoco's
 // quota guard and fuwaroid run on that stack.

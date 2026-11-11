@@ -380,7 +380,7 @@ func (m *model) transcriptBlockText(index int) string {
 		// source+width render is reused until a delta arrives.
 		return m.renderLiveMarkdown(index, raw)
 	}
-	if rendered, ok := m.markdownCache[index]; ok {
+	if rendered, ok := m.markdownCache.get(index); ok {
 		return m.decorateAssistant(index, rendered)
 	}
 	if len(raw) > historyMarkdownSyncLimit && m.dispatchHistoryMarkdown(index, raw) {
@@ -394,10 +394,7 @@ func (m *model) transcriptBlockText(index int) string {
 		m.err = "Markdown render failed: " + err.Error()
 		rendered = raw
 	}
-	if m.markdownCache == nil {
-		m.markdownCache = make(map[int]string)
-	}
-	m.markdownCache[index] = rendered
+	m.markdownCache.put(index, rendered)
 	return m.decorateAssistant(index, rendered)
 }
 
@@ -431,7 +428,7 @@ func (m *model) resetVirtualTranscript() {
 	if m.virtualScroll != nil {
 		m.virtualScroll.reset()
 	}
-	m.markdownCache = nil
+	m.markdownCache.reset()
 	// A session switch is a new document: selection, scrollbar, the live
 	// Markdown render and the background renderer all belong to the previous
 	// one, so an in-flight result can never reach the new transcript.
@@ -441,9 +438,7 @@ func (m *model) resetVirtualTranscript() {
 	m.document = documentState{}
 }
 func (m *model) invalidateTranscriptBlock(index int) {
-	if m.markdownCache != nil {
-		delete(m.markdownCache, index)
-	}
+	m.markdownCache.delete(index)
 	if m.document.live.valid && m.document.live.index == index {
 		m.document.live.valid = false
 		// Supersede any render already queued for the previous content.
@@ -697,11 +692,7 @@ func (m *model) refreshTranscript() {
 	v.mountedRows = len(lines)
 	// Keep the formatted-text cache proportional to the window, not the
 	// session. On resize it is discarded by reflow.
-	for i := range m.markdownCache {
-		if i < start || i >= end {
-			delete(m.markdownCache, i)
-		}
-	}
+	m.markdownCache.retain(start, end)
 	m.paintTranscriptScrollbar(lines, v.top-base)
 	m.viewport.SetContentLines(lines)
 	// A wheel notch inside one block keeps the window offset at the overscan

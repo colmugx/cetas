@@ -53,7 +53,7 @@ func (m *model) removeNoticeBlock(at int) {
 	}
 	m.blocks = shiftBlockMap(m.blocks, at)
 	m.markdownRaw = shiftBlockMap(m.markdownRaw, at)
-	m.markdownCache = shiftBlockMap(m.markdownCache, at)
+	m.markdownCache.shift(at)
 	for key, index := range m.toolIndex {
 		if index == at {
 			delete(m.toolIndex, key)

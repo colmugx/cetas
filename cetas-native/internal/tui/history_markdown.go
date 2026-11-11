@@ -439,10 +439,7 @@ func (m *model) pumpHistoryMarkdown() {
 			// rather than retrying a failing render every 50 ms forever.
 			result.rendered = m.rawTranscriptBlock(index)
 		}
-		if m.markdownCache == nil {
-			m.markdownCache = make(map[int]string)
-		}
-		m.markdownCache[index] = result.rendered
+		m.markdownCache.put(index, result.rendered)
 		// The mounted rows and height were laid out from the plain fallback:
 		// both describe the old source and must be derived again.
 		v.bumpRevision(index)

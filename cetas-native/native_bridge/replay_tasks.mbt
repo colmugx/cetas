@@ -2,6 +2,8 @@
 /// Replay reads share the one MoonBit domain but never monopolize its command
 /// dispatcher. A single worker serializes file/index access; at most sixteen
 /// requests wait behind it. No goroutine owns or touches a MoonBit object.
+/// `label` names the worker in queue/refusal errors so a host can tell which
+/// surface rejected a request.
 priv struct NativeReplayJob {
   id : Int32
   command : String
@@ -10,6 +12,7 @@ priv struct NativeReplayJob {
 
 ///|
 priv struct NativeReplayTasks {
+  label : String
   mut queue : Array[NativeReplayJob]
   mut worker : @async.Task[Unit]?
   mut active : Int32?
@@ -17,15 +20,22 @@ priv struct NativeReplayTasks {
 }
 
 ///|
-fn NativeReplayTasks::new() -> NativeReplayTasks {
-  { queue: [], worker: None, active: None, stopped: false, }
+fn NativeReplayTasks::new(label : String) -> NativeReplayTasks {
+  { label, queue: [], worker: None, active: None, stopped: false, }
 }
 
 ///|
 fn native_replay_command(command : String) -> Bool {
   command == "transcript_index" ||
   command == "transcript_page" ||
-  command == "transcript_source" ||
+  command == "transcript_source"
+}
+
+///|
+/// The session catalog walks every bucket on disk, so it never shares the
+/// replay FIFO: a picker refresh over a giant session farm must not delay
+/// transcript paging, and vice versa.
+fn native_catalog_command(command : String) -> Bool {
   command == "session_catalog"
 }
 
@@ -40,14 +50,14 @@ fn NativeReplayTasks::submit(
   args : Json,
 ) -> Unit {
   if self.stopped {
-    emit(harness_reply(id, harness_error("native replay worker has stopped")))
+    emit(harness_reply(id, harness_error(self.label + " worker has stopped")))
     return
   }
   if self.queue.length() >= 16 {
     emit(
       harness_reply(
         id,
-        harness_error("native replay request queue is full (16 pending)"),
+        harness_error(self.label + " request queue is full (16 pending)"),
       ),
     )
     return
@@ -102,7 +112,7 @@ fn NativeReplayTasks::cancel_all(self : NativeReplayTasks) -> Unit {
     emit(
       harness_reply(
         job.id,
-        harness_error("native replay cancelled during shutdown"),
+        harness_error(self.label + " cancelled during shutdown"),
       ),
     )
   }
@@ -112,7 +122,7 @@ fn NativeReplayTasks::cancel_all(self : NativeReplayTasks) -> Unit {
       emit(
         harness_reply(
           id,
-          harness_error("native replay cancelled during shutdown"),
+          harness_error(self.label + " cancelled during shutdown"),
         ),
       )
     None => ()

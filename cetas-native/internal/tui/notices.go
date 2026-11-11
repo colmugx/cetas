@@ -3,8 +3,8 @@ package tui
 import (
 	"strings"
 
-	transcriptui "github.com/colmugx/cetas/cetas-native/internal/tui/transcript"
 	ui "github.com/colmugx/cetas/cetas-native/internal/tui/components"
+	transcriptui "github.com/colmugx/cetas/cetas-native/internal/tui/transcript"
 )
 
 // Keep err as a diagnostic for command callers, but never render it beside the

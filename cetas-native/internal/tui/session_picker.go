@@ -60,6 +60,10 @@ type sessionPickerState struct {
 	requested string
 	// direction is how that page will be installed once it is accepted.
 	direction sessionPickerDirection
+	// content versions the *rendered* panel content. Generation identifies
+	// the request, so installing an equally sized page replacement keeps it;
+	// this counter is what the panel memo keys on instead.
+	content uint64
 	// prefetched remembers the rows this window already warmed, so cursor
 	// motion issues at most one prefetch per session id per picker.
 	prefetched map[string]bool
@@ -114,6 +118,7 @@ func (m *model) sessionPickerFetch(after string, direction sessionPickerDirectio
 	p.panel.Entries = nil
 	p.panel.Index = 0
 	p.panel.More = false
+	p.content++
 	p.next = ""
 	p.requested = after
 	p.direction = direction
@@ -219,6 +224,10 @@ func (m *model) installSessionCatalogPage(page sessionCatalogPage) tea.Cmd {
 		// reported why; nothing was installed, so nothing moves.
 		return nil
 	}
+	// A page replacement can keep the request generation and the row count:
+	// version the content so the panel memo cannot reuse the previous page's
+	// render for this one.
+	p.content++
 	switch p.direction {
 	case sessionPickerForward:
 		p.stack = append(p.stack, p.cursor)

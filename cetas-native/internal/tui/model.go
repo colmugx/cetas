@@ -110,7 +110,7 @@ type model struct {
 	hiddenSearchSources []hiddenTranscriptSource
 	markdownRaw         map[int]string
 	toolIndex           map[string]int
-	markdownCache       map[int]string
+	markdownCache       *markdownCache
 	markdownRenderer    *glamour.TermRenderer
 	markdownThemeKey    string
 	streaming           string
@@ -136,11 +136,14 @@ type model struct {
 	completionToken     string
 	// completionDueAt stages the debounced completion request (see
 	// autocomplete.go); the update pump fires it when typing settles.
-	completionDueAt time.Time
-	modelSlots          []overlays.ModelSlot
-	modelPicker         overlays.Models
-	sessionPicker       sessionPickerState
-	sessionPickerEpoch  uint64
+	completionDueAt    time.Time
+	modelSlots         []overlays.ModelSlot
+	modelPicker        overlays.Models
+	sessionPicker      sessionPickerState
+	sessionPickerEpoch uint64
+	// pickerPanel memoizes the typed picker's rendered panel and its
+	// composited rect, keyed on every render input (see pickerPanelKey).
+	pickerPanel *pickerPanelMemo
 	// switchInFlight holds the target id of a session switch whose ack
 	// arrived but whose `session.switched` event has not: a second choose
 	// in that window must not issue a second switch.
@@ -151,26 +154,26 @@ type model struct {
 	pendingSessionCmd tea.Cmd
 	// pendingAskReject settles an unsupported ui.request with a typed
 	// cancellation once the event pump can issue commands.
-	pendingAskReject string
-	nextPicker        string
-	lastEscape          time.Time
-	pendingProvider     string
-	authID              string
-	providerMethods     map[string][]string
-	dynamicCommands     map[string]registeredCommand
-	commandSession      string
-	nextCommandRequest  int
+	pendingAskReject   string
+	nextPicker         string
+	lastEscape         time.Time
+	pendingProvider    string
+	authID             string
+	providerMethods    map[string][]string
+	dynamicCommands    map[string]registeredCommand
+	commandSession     string
+	nextCommandRequest int
 	// commandRequestInFlight is the request_id of the outstanding dynamic
 	// command; completions that do not match it are stale and dropped.
 	commandRequestInFlight string
-	session             string
-	status              string
-	err                 string
-	presentedError      string
-	clockGeneration     uint64
-	clockDue            time.Time
-	showThinking        bool
-	showTools           bool
+	session                string
+	status                 string
+	err                    string
+	presentedError         string
+	clockGeneration        uint64
+	clockDue               time.Time
+	showThinking           bool
+	showTools              bool
 	// lastProgramStatus dedupes OSC 7501 reports: one frame per state change.
 	lastProgramStatus string
 	// focused tracks terminal focus reporting (Ghostty-class terminals):
@@ -181,6 +184,16 @@ type model struct {
 	pendingTitle  string
 	lastTitle     string
 	pendingNotice string
+	// pendingImages are staged image attachments (pasted from the clipboard)
+	// waiting for the next submit.
+	pendingImages []imageAttachment
+	// kittyImages registers inline-displayed images (base64 → layout); the
+	// block renderer materializes them as unicode-placeholder rows.
+	kittyImages map[string]kittyImageLayout
+	// pendingKitty carries transmit+virtual-placement sequences that must
+	// reach the terminal before the first frame that displays placeholders.
+	pendingKitty []string
+	nextKittyID  int
 }
 
 func newModel() model {
@@ -197,7 +210,7 @@ func newModel() model {
 	// The document supplies cell-wrapped row pages already. Rewrapping those
 	// rows in viewport.View repeats ANSI/grapheme work for every scroll.
 	vp.SoftWrap = false
-	m := model{textarea: ta, viewport: vp, markdownRenderer: renderer, status: "connecting to Posoco…", searchActive: -1, surface: initialSurface(), version: "0.11.0", focused: true}
+	m := model{textarea: ta, viewport: vp, markdownRenderer: renderer, markdownCache: newMarkdownCache(markdownCacheBudget), pickerPanel: &pickerPanelMemo{}, status: "connecting to Posoco…", searchActive: -1, surface: initialSurface(), version: "0.11.0", focused: true}
 	if renderErr != nil {
 		m.err = "Markdown renderer initialization failed: " + renderErr.Error()
 	}
@@ -303,6 +316,11 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	if chrome := state.emitTerminalChrome(); chrome != nil {
 		cmd = tea.Batch(cmd, chrome)
+	}
+	if len(state.pendingKitty) > 0 {
+		sequences := state.pendingKitty
+		state.pendingKitty = nil
+		cmd = tea.Batch(cmd, tea.Raw(strings.Join(sequences, "")))
 	}
 	if due := state.fireCompletion(); due != nil {
 		cmd = tea.Batch(cmd, due)
@@ -739,7 +757,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.resetVirtualTranscript()
 				m.transcript = nil
 				m.markdownRaw = nil
-				m.markdownCache = nil
+				m.markdownCache.reset()
 				m.toolIndex = nil
 				m.streaming = ""
 				m.reasoning = ""
@@ -819,6 +837,17 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			// mutate the composer (and its completion popup) behind the
 			// dialog the user is looking at.
 			return m, nil
+		}
+		if msg.Content == "" {
+			// An empty bracketed paste is how a terminal reports an image on
+			// the clipboard: no bytes cross stdin, so the system clipboard is
+			// the only channel.
+			if attachment, ok := readClipboardImage(); ok {
+				m.stageImageAttachments([]imageAttachment{attachment})
+				m.status = m.stagedImageSummary()
+				m.lastProgramStatus = formatProgramStatus(m.projectProgramStatus())
+				return m, nil
+			}
 		}
 	case tea.KeyPressMsg:
 		key := msg.String()
@@ -1061,6 +1090,12 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "cancelling authentication"
 				return m, request(m.host, "login_cancel", map[string]any{"auth_id": m.authID})
 			}
+			if len(m.pendingImages) > 0 {
+				// Staged attachments clear first; a second Esc arms rewind.
+				m.pendingImages = nil
+				m.status = "ready"
+				return m, nil
+			}
 			if m.host != nil && !m.lastEscape.IsZero() && time.Since(m.lastEscape) < 500*time.Millisecond {
 				m.lastEscape = time.Time{}
 				return m, request(m.host, "rewind_points", map[string]any{})
@@ -1107,6 +1142,35 @@ func (m *model) submitEditor() tea.Cmd {
 		return m.command(value)
 	}
 	m.appendUser(value)
+	// Image attachments: @mentions resolve against the workspace, pasted
+	// images ride the staged set. Warnings surface as notices; the prompt's
+	// text mentions stay for provenance, exactly like the JS host.
+	attachments, warnings := resolveImageMentions(value, m.surface.cwd)
+	attachments = append(append([]imageAttachment{}, m.pendingImages...), attachments...)
+	for _, warning := range warnings {
+		m.err = warning
+	}
+	if len(attachments) > 0 {
+		if echo := m.transcript[len(m.transcript)-1]; !strings.Contains(echo, "🖼") {
+			m.transcript[len(m.transcript)-1] = echo + "  " + strings.TrimSuffix(m.stagedImageSummary(), " — Enter sends, Esc clears")
+		}
+		// Each attachment also becomes its own block: on Ghostty/kitty it
+		// renders as inline unicode-placeholder image rows; elsewhere it
+		// stays the fallback chip line.
+		for _, attachment := range attachments {
+			at := len(m.transcript)
+			block := transcriptui.Block{Kind: "image", Text: fmt.Sprintf("🖼 %s (%s)", attachment.Label, formatImageBytes(attachment.Bytes))}
+			if layout, ok := m.stageKittyImage(attachment, m.viewport.Width()-2); ok {
+				block.ImageID = layout.id
+				block.ImageRows = layout.rows
+				m.pendingKitty = append(m.pendingKitty, layout.transmits)
+			}
+			m.transcript = append(m.transcript, block.Text)
+			m.blocks[at] = block
+			m.addHiddenSource(at, block.Text)
+		}
+	}
+	m.pendingImages = nil
 	if m.running {
 		if len(m.followups) >= followupsCap {
 			m.err = "follow-up queue full; prompt dropped"
@@ -1119,7 +1183,15 @@ func (m *model) submitEditor() tea.Cmd {
 	}
 	m.running = true
 	m.refreshTranscript()
-	return request(m.host, "turn_start", map[string]any{"prompt": value, "session_id": m.session})
+	args := map[string]any{"prompt": value, "session_id": m.session}
+	if len(attachments) > 0 {
+		wire := make([]map[string]string, 0, len(attachments))
+		for _, attachment := range attachments {
+			wire = append(wire, map[string]string{"media_type": attachment.MediaType, "data": attachment.Data})
+		}
+		args["images"] = wire
+	}
+	return request(m.host, "turn_start", args)
 }
 
 // dismissUI consumes a completion/cancellation event only for the indicated
@@ -1498,7 +1570,7 @@ func (m *model) applyEvent(e wire.Event) {
 			m.resetVirtualTranscript()
 			m.transcript = nil
 			m.markdownRaw = nil
-			m.markdownCache = nil
+			m.markdownCache.reset()
 			m.toolIndex = nil
 			m.streaming = ""
 			m.reasoning = ""
@@ -1536,7 +1608,7 @@ func (m *model) applyEvent(e wire.Event) {
 		m.resetVirtualTranscript()
 		m.transcript = nil
 		m.markdownRaw = nil
-		m.markdownCache = nil
+		m.markdownCache.reset()
 		m.toolIndex = nil
 		m.streaming = ""
 		m.reasoning = ""
@@ -1548,8 +1620,8 @@ func (m *model) applyEvent(e wire.Event) {
 		m.status = "loading transcript…"
 	case "session.switch_failed":
 		var data struct {
-			Target  string `json:"target"`
-			Detail  string `json:"detail"`
+			Target string `json:"target"`
+			Detail string `json:"detail"`
 		}
 		m.switchInFlight = ""
 		m.status = "ready"

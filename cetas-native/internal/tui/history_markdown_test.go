@@ -199,8 +199,8 @@ func TestGiantColdMarkdownRendersOffTheUpdatePath(t *testing.T) {
 	if gate.calls() != 1 {
 		t.Fatalf("cold block dispatched %d renders, want one", gate.calls())
 	}
-	if len(m.markdownCache) != 0 {
-		t.Fatalf("cold mount rendered %d blocks synchronously", len(m.markdownCache))
+	if m.markdownCache.stats().entries != 0 {
+		t.Fatalf("cold mount rendered %d blocks synchronously", m.markdownCache.stats().entries)
 	}
 	if !m.historyMarkdownPending() {
 		t.Fatal("cold render was not reported as pending")
@@ -228,8 +228,8 @@ func TestGiantColdMarkdownRendersOffTheUpdatePath(t *testing.T) {
 	}
 	settleHistoryMarkdown(t, m)
 
-	if got, want := m.markdownCache[0], historyRenderedMarker(len(source)); got != want {
-		t.Fatalf("applied render %q, want %q", got, want)
+	if got, ok := m.markdownCache.get(0); !ok || got != historyRenderedMarker(len(source)) {
+		t.Fatalf("applied render %q (found=%v), want %q", got, ok, historyRenderedMarker(len(source)))
 	}
 	plain = ansi.Strip(m.viewport.GetContent())
 	if !strings.Contains(plain, "cold-rendered") || strings.Contains(plain, "**bold**") {
@@ -279,7 +279,7 @@ func TestGiantColdMarkdownDiscardsResultFromSupersededWidth(t *testing.T) {
 		return historyResultCount(m.virtualScroll.history) == 1
 	})
 	m.refreshTranscript()
-	if len(m.markdownCache) != 0 {
+	if m.markdownCache.stats().entries != 0 {
 		t.Fatal("painted a render from the superseded width")
 	}
 	if strings.Contains(ansi.Strip(m.viewport.GetContent()), "cold-rendered") {
@@ -292,8 +292,8 @@ func TestGiantColdMarkdownDiscardsResultFromSupersededWidth(t *testing.T) {
 	gate.allow()
 	gate.nextFinished(t)
 	settleHistoryMarkdown(t, m)
-	if got, want := m.markdownCache[0], historyRenderedMarker(len(source)); got != want {
-		t.Fatalf("applied render %q, want %q", got, want)
+	if got, ok := m.markdownCache.get(0); !ok || got != historyRenderedMarker(len(source)) {
+		t.Fatalf("applied render %q (found=%v), want %q", got, ok, historyRenderedMarker(len(source)))
 	}
 	if _, runs, _ := m.virtualScroll.history.stats(); runs != 2 {
 		t.Fatalf("worker performed %d layouts, want one per width", runs)
@@ -401,8 +401,8 @@ func TestSmallSettledMarkdownStaysSynchronous(t *testing.T) {
 			m := interactionModel(t, 80, 24)
 			m.appendAssistant(tc.source)
 			m.refreshTranscript()
-			if len(m.markdownCache) != 1 {
-				t.Fatalf("small settled block was not rendered on its mount frame: %d", len(m.markdownCache))
+			if m.markdownCache.stats().entries != 1 {
+				t.Fatalf("small settled block was not rendered on its mount frame: %d", m.markdownCache.stats().entries)
 			}
 			if m.virtualScroll.history != nil {
 				t.Fatal("small settled block started the cold worker")

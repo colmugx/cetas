@@ -17,6 +17,22 @@ type WelcomeSource struct {
 
 var modularCut = []string{"  ▄█▀▄████▀ ", "▄█▀         ", "▀▄          ", "██          ", "▀█▄    ▄▄   ", "  ▀████▄▀█▄ "}
 
+// One square pixel per design unit: the scale where both cuts in the mark are a
+// full cell wide, at the cost of five more rows.
+var modularCutLarge = []string{
+	"    ▄███▀ ▄█████████▀ ",
+	"  ▄███▀ ▄█████████▀   ",
+	"▄███▀                 ",
+	"██▀                   ",
+	"▀ ▄█                  ",
+	"▄███                  ",
+	"████                  ",
+	"████                  ",
+	"▀███▄        ▄▄▄▄     ",
+	"  ▀█████████▄ ▀███▄   ",
+	"    ▀█████████▄ ▀███▄ ",
+}
+
 func Welcome(t Theme, s WelcomeSource, width int, compact bool) []string {
 	if width <= 0 {
 		return nil
@@ -55,10 +71,26 @@ func Welcome(t Theme, s WelcomeSource, width int, compact bool) []string {
 		title += muted(" " + s.Version.Version + " · " + s.Version.Channel)
 	}
 	context := []string{title, muted("One agent. Every surface."), "", muted("Workspace  ") + workspace, muted("Built on Posoco"), ""}
+	logo := modularCut
+	if width >= 64 && rows >= 34 {
+		logo = modularCutLarge
+	}
+	lines := context
+	if len(logo) > len(context) {
+		lead := (len(logo) - len(context)) / 2
+		lines = make([]string, 0, len(logo))
+		for range lead {
+			lines = append(lines, "")
+		}
+		lines = append(lines, context...)
+		for len(lines) < len(logo) {
+			lines = append(lines, "")
+		}
+	}
 	out := []string{"", border("╭", "╮"), row("")}
 	if width >= 64 {
-		for i, c := range context {
-			out = append(out, row(t.Role("brand", modularCut[i])+"   "+c))
+		for i, c := range lines {
+			out = append(out, row(t.Role("brand", logo[i])+"   "+c))
 		}
 	} else {
 		for _, i := range []int{0, 1, 3, 4} {

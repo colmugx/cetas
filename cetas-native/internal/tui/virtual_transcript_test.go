@@ -71,12 +71,12 @@ func TestVirtualTranscriptMarkdownCacheStaysWindowBounded(t *testing.T) {
 		m.appendAssistant(fmt.Sprintf("**message** %d", i))
 	}
 	m.refreshTranscript()
-	if len(m.markdownCache) > 100 {
-		t.Fatalf("rendered offscreen Markdown: %d", len(m.markdownCache))
+	if m.markdownCache.stats().entries > 100 {
+		t.Fatalf("rendered offscreen Markdown: %d", m.markdownCache.stats().entries)
 	}
 	m.scrollTranscript(-4000)
-	if len(m.markdownCache) > 100 {
-		t.Fatalf("offscreen Markdown retained after scroll: %d", len(m.markdownCache))
+	if m.markdownCache.stats().entries > 100 {
+		t.Fatalf("offscreen Markdown retained after scroll: %d", m.markdownCache.stats().entries)
 	}
 	if m.virtualScroll.renderedBlocks > 100 {
 		t.Fatalf("mounted too many blocks: %d", m.virtualScroll.renderedBlocks)

@@ -25,8 +25,8 @@ type childActivity struct {
 	started                                                  time.Time
 	// turnDoneAt timestamps the settled turn of a parked background child;
 	// live() uses it to expire the finishing phase.
-	turnDoneAt                                               time.Time
-	history                                                  []string
+	turnDoneAt time.Time
+	history    []string
 }
 
 func (a *childActivity) live() bool {

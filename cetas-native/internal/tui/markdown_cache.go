@@ -22,9 +22,9 @@ type markdownCache struct {
 }
 
 type markdownCacheEntry struct {
-	block          int
-	rendered       string
-	prev, next     *markdownCacheEntry
+	block      int
+	rendered   string
+	prev, next *markdownCacheEntry
 }
 
 func newMarkdownCache(budget int) *markdownCache {
@@ -123,6 +123,19 @@ func (c *markdownCache) reset() {
 	c.used = 0
 	c.head, c.tail = nil, nil
 	c.entries = make(map[int]*markdownCacheEntry)
+}
+
+// retain drops every block outside [from, to); the mount path uses it to keep
+// the cache proportional to the painted window.
+func (c *markdownCache) retain(from, to int) {
+	if c == nil || len(c.entries) == 0 {
+		return
+	}
+	for index := range c.entries {
+		if index < from || index >= to {
+			c.delete(index)
+		}
+	}
 }
 
 // insert re-keys every block at or after `at` by `count`, matching a

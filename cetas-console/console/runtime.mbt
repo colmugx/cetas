@@ -312,6 +312,7 @@ pub async fn ConsoleRuntime::start_turn(
   self : ConsoleRuntime,
   prompt : String,
   session_id : String?,
+  images~ : Array[@posoco.Content] = [],
 ) -> Result[String, String] noraise {
   let handle = match self.resolve_handle(session_id) {
     Ok(handle) => handle
@@ -321,7 +322,7 @@ pub async fn ConsoleRuntime::start_turn(
     return Err("a turn is already running in this session")
   }
   let prompt = prompt.trim().to_owned()
-  if prompt.is_empty() {
+  if prompt.is_empty() && images.is_empty() {
     return Err("prompt must not be empty")
   }
 
@@ -343,7 +344,7 @@ pub async fn ConsoleRuntime::start_turn(
       return
     }
     let outcome : Result[String, @posoco.AgentError] = Ok(
-      @cetas_core.run_prompt(agent, prompt, sid),
+      @cetas_core.run_prompt(agent, prompt, sid, images~),
     ) catch {
       error => Err(error)
     }

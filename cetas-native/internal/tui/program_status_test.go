@@ -103,24 +103,29 @@ func TestEmitProgramStatusDedupes(t *testing.T) {
 	}
 }
 
-// cmdMsgs flattens one level of tea.Batch so tests can drive every real
+// cmdMsgs flattens nested tea.Batch trees so tests can drive every real
 // command beside the terminal status report.
 func cmdMsgs(t *testing.T, cmd tea.Cmd) []tea.Msg {
 	t.Helper()
-	if cmd == nil {
-		return nil
-	}
-	msg := cmd()
-	if batch, ok := msg.(tea.BatchMsg); ok {
-		msgs := make([]tea.Msg, 0, len(batch))
-		for _, child := range batch {
-			if child != nil {
-				msgs = append(msgs, child())
+	var msgs []tea.Msg
+	var walk func(tea.Cmd)
+	walk = func(c tea.Cmd) {
+		if c == nil {
+			return
+		}
+		switch msg := c().(type) {
+		case tea.BatchMsg:
+			for _, child := range msg {
+				walk(child)
+			}
+		default:
+			if msg != nil {
+				msgs = append(msgs, msg)
 			}
 		}
-		return msgs
 	}
-	return []tea.Msg{msg}
+	walk(cmd)
+	return msgs
 }
 
 func TestTerminalChromeTitleAndUnfocusedNotice(t *testing.T) {

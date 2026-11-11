@@ -151,8 +151,8 @@ func TestSettledHistoryDoesNotStartMarkdownWorker(t *testing.T) {
 	if m.document.markdown != nil {
 		t.Fatal("settled history started the streaming Markdown worker")
 	}
-	if len(m.markdownCache) > 100 {
-		t.Fatalf("rendered offscreen history: %d", len(m.markdownCache))
+	if m.markdownCache.stats().entries > 100 {
+		t.Fatalf("rendered offscreen history: %d", m.markdownCache.stats().entries)
 	}
 }
 

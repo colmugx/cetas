@@ -135,8 +135,8 @@ func TestMouseSelectionAcrossUnmountedBlocksCopiesOriginalSource(t *testing.T) {
 	if !strings.Contains(copied, "**bold**") || !strings.Contains(copied, fmt.Sprintf("**bold** %d", last)) {
 		t.Fatalf("copy lost original Markdown source: %q", copied)
 	}
-	if len(m.markdownCache) > 100 || v.renderedBlocks > 100 {
-		t.Fatalf("copy rendered unmounted history: cache=%d blocks=%d", len(m.markdownCache), v.renderedBlocks)
+	if m.markdownCache.stats().entries > 100 || v.renderedBlocks > 100 {
+		t.Fatalf("copy rendered unmounted history: cache=%d blocks=%d", m.markdownCache.stats().entries, v.renderedBlocks)
 	}
 }
 

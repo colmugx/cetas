@@ -7,27 +7,17 @@
 const FILE_INDEX_TTL_MS : Int64 = 30_000
 
 ///|
-const FILE_INDEX_CAP : Int32 = 4000
+const FILE_INDEX_CAP : Int32 = 20_000
 
 ///|
-const FILE_INDEX_MAX_DEPTH : Int32 = 12
+const FILE_INDEX_MAX_DEPTH : Int32 = 32
 
 ///|
-fn index_skip_dir(name : String) -> Bool {
-  name
-  is ("node_modules"
-  | ".git"
-  | "_build"
-  | "target"
-  | "dist"
-  | "build"
-  | ".next"
-  | "venv"
-  | ".venv"
-  | "__pycache__"
-  | "coverage"
-  | ".mooncakes"
-  | ".repos")
+/// Ignore patterns for the `@`-mention file index, mirroring
+/// `WorkspacePolicy::checked` so completion offers the same tree the
+/// glob/read tools see (identical to the JS host's workspace_index.mbt).
+fn workspace_mention_ignore_patterns() -> Array[String] {
+  ["node_modules", ".git", ".hg", ".svn", "_build", "target"]
 }
 
 ///|
@@ -55,20 +45,55 @@ fn file_entry_basename(entry : String) -> String {
 }
 
 ///|
-async fn probe_dir(path : String) -> Bool {
-  try {
-    ignore(@fs.readdir(path))
-    true
-  } catch {
-    _ => false
+/// Depth-first walk over the WorkspaceFs, the JS host's workspace_index_walk:
+/// segment-wise ignore matching, non-following stat for the dir/file split,
+/// per-directory sort for deterministic order, bounded by max entries and
+/// depth. Unreadable or unstatable entries are skipped.
+async fn workspace_index_walk(
+  fs : &@workspace.WorkspaceFs,
+  dir : String,
+  rel_prefix : String,
+  ignore_patterns : Array[String],
+  max_entries : Int32,
+  out : Array[String],
+  depth : Int32,
+) -> Unit noraise {
+  if out.length() >= max_entries || depth > FILE_INDEX_MAX_DEPTH {
+    return
+  }
+  let entries = fs.readdir(dir, include_hidden=true) catch { _ => return }
+  let names = entries.copy()
+  names.sort()
+  for name in names {
+    if out.length() >= max_entries {
+      return
+    }
+    let rel = rel_prefix + name
+    if @workspace.matches_ignore(rel, ignore_patterns) {
+      continue
+    }
+    let child = if dir.has_suffix("/") { dir + name } else { dir + "/" + name }
+    let kind = fs.kind(child, follow_symlink=false) catch { _ => continue }
+    match kind {
+      Dir => {
+        out.push(rel + "/")
+        workspace_index_walk(
+          fs,
+          child,
+          rel + "/",
+          ignore_patterns,
+          max_entries,
+          out,
+          depth + 1,
+        )
+      }
+      _ => out.push(rel)
+    }
   }
 }
 
 ///|
-/// TTL-cached index build. The walk is an explicit-stack BFS: every entry
-/// is probed with `readdir` — success means directory (recorded with a
-/// trailing `/` and expanded), failure means file. Errors on single dirs
-/// are swallowed; the index stays best-effort by design.
+/// TTL-cached index build for the active workspace root.
 pub async fn ConsoleRuntime::workspace_file_index(
   self : ConsoleRuntime,
 ) -> Array[String] {
@@ -78,89 +103,56 @@ pub async fn ConsoleRuntime::workspace_file_index(
       return entries
     _ => ()
   }
-  let root = self.active_cwd
   let entries : Array[String] = []
-  let stack : Array[(String, Int32)] = [("", 0)]
-  while entries.length() < FILE_INDEX_CAP {
-    let (rel, depth) = match stack.pop() {
-      Some(top) => top
-      None => break
-    }
-    let abs = if rel is "" { root } else { root + "/" + rel }
-    let names = @fs.readdir(abs) catch { _ => continue }
-    for name in names {
-      if entries.length() >= FILE_INDEX_CAP || index_skip_dir(name) {
-        continue
-      }
-      let child = if rel is "" { name } else { rel + "/" + name }
-      let child_abs = root + "/" + child
-      if probe_dir(child_abs) {
-        entries.push(child + "/")
-        if depth + 1 < FILE_INDEX_MAX_DEPTH {
-          stack.push((child, depth + 1))
-        }
-      } else {
-        entries.push(child)
-      }
-    }
-  }
+  workspace_index_walk(
+    self.fs,
+    self.active_cwd,
+    "",
+    workspace_mention_ignore_patterns(),
+    FILE_INDEX_CAP,
+    entries,
+    0,
+  )
   self.file_index_cache = Some((now, entries))
   entries
 }
 
 ///|
-/// VS Code fuzzy-score ranking (bobzhang/fuzzyscore) over the index.
-/// The scorer's weak-first mode returns small positive scores even without
-/// a full match, so ranking is relative: everything is scored, then kept
-/// only within half of the best score. Basename attempts get a bonus over
-/// full-path attempts; the scorer is case-sensitive, so each entry is
-/// tried as-is (camel bonuses intact) and lowercased. An empty query falls
-/// back to the index's shallow-first walk order.
+/// Tiered `@`-mention ranking, identical in shape to the JS host's
+/// rankFileMentionItems: basename exact > basename prefix > basename contains
+/// > full-path contains; directories score +10 with a non-empty query; an
+/// empty query ranks by depth. Non-matching entries drop out entirely —
+/// fuzzy weak-first scoring flooded completions with noise.
 fn rank_file_entries(
   entries : Array[String],
   query : String,
   limit : Int32,
 ) -> Array[Json] {
+  let lowered = query.to_lower()
   let scored : Array[(Int32, Bool, String)] = []
-  if query is "" {
-    for entry in entries {
-      let depth = file_entry_clean(entry).split("/").count()
-      scored.push((100 - depth, file_entry_dir(entry), entry))
-    }
-  } else {
-    let lowered = query.to_lower()
-    for entry in entries {
-      let base = file_entry_basename(entry)
-      let (s1, _) = @fuzzyscore.vscode_fuzzy_score_simple(query, base, true)
-      let (s2, _) = @fuzzyscore.vscode_fuzzy_score_simple(
-        lowered,
-        base.to_lower(),
-        true,
-      )
-      let (s3, _) = @fuzzyscore.vscode_fuzzy_score_simple(query, entry, true)
-      let (s4, _) = @fuzzyscore.vscode_fuzzy_score_simple(
-        lowered,
-        entry.to_lower(),
-        true,
-      )
-      let base_score = if s1 > s2 { s1 } else { s2 }
-      let path_score = if s3 > s4 { s3 } else { s4 }
-      let score = if base_score > 0 { base_score + 20 } else { path_score }
-      scored.push((score, file_entry_dir(entry), entry))
-    }
-  }
-  // Relative floor: weak-first noise lands far below the best candidate,
-  // so half-of-best keeps the honest matches.
-  let best = scored.fold(init=0, (best, entry) => {
-    if entry.0 > best {
-      entry.0
+  for entry in entries {
+    let is_dir = file_entry_dir(entry)
+    let clean = file_entry_clean(entry)
+    let base = file_entry_basename(entry).to_lower()
+    let full = clean.to_lower()
+    let depth = clean.split("/").count() - 1
+    let score : Int32 = if lowered is "" {
+      (if is_dir { 120 } else { 100 }) - depth
+    } else if base == lowered {
+      100
+    } else if base.has_prefix(lowered) {
+      80
+    } else if base.contains(lowered) {
+      50
+    } else if full.contains(lowered) {
+      30
     } else {
-      best
+      continue
     }
-  })
-  let floor = best / 2
-  let kept = scored.filter(entry => entry.0 >= floor && entry.0 > 0)
-  kept.sort_by((a, b) => {
+    let score = if is_dir && !(lowered is "") { score + 10 } else { score }
+    scored.push((score, is_dir, entry))
+  }
+  scored.sort_by((a, b) => {
     let by_score = b.0 - a.0
     if by_score != 0 {
       by_score
@@ -177,7 +169,7 @@ fn rank_file_entries(
     }
   })
   let out : Array[Json] = []
-  for entry in kept {
+  for entry in scored {
     if out.length() >= limit {
       break
     }
@@ -212,21 +204,65 @@ pub async fn ConsoleRuntime::file_suggestions_json(
 }
 
 ///|
-test "rank_file_entries keeps relative-floor matches" {
+test "rank_file_entries drops noise and ranks like the JS host" {
   let entries = [
-    "src/runtime/main.mbt", "README.md", "server/", "web/src/routes/+page.svelte",
+    "src/runtime/main.mbt",
+    "README.md",
+    "server/",
+    "web/src/routes/+page.svelte",
+    ".github/workflows/ci.yml",
+    "docs/readme-zh.md",
   ]
-  // "readme" truly matches only README.md (168); weak-first noise lands at
-  // 45-82, below the half-of-best floor.
   let ranked = rank_file_entries(entries, "readme", 10)
-  inspect(ranked.length(), content="1")
+  inspect(ranked.length(), content="2")
   json_inspect(ranked[0], content={ "path": "README.md", "isDir": false })
-  // Empty query = shallow-first walk order, directories ahead.
-  let broad = rank_file_entries(entries, "", 10)
+  json_inspect(ranked[1], content={ "path": "docs/readme-zh.md", "isDir": false })
+  let none = rank_file_entries(entries, "zzz-no-match", 10)
+  inspect(none.length(), content="0")
+  let broad = rank_file_entries(entries, "", 3)
   json_inspect(broad[0], content={ "path": "server/", "isDir": true })
   let mbt = rank_file_entries(entries, "main.mbt", 10)
   json_inspect(mbt[0], content={
     "path": "src/runtime/main.mbt",
     "isDir": false,
   })
+  let dirs = rank_file_entries(["api/", "api.go"], "api", 10)
+  json_inspect(dirs[0], content={ "path": "api/", "isDir": true })
+}
+
+///|
+async test "workspace_index_walk ignores segments and stays deterministic" {
+  let root = @fs.tmpdir(prefix="cetas-idx-")
+  let fs = @workspace.NativeWorkspaceFs()
+  fs.mkdir(root + "/beta/inner", recursive=true) catch {
+    _ => ()
+  }
+  fs.mkdir(root + "/node_modules/pkg", recursive=true) catch {
+    _ => ()
+  }
+  fs.write_file(root + "/alpha.txt", "a") catch {
+    _ => ()
+  }
+  fs.write_file(root + "/beta/inner/deep.txt", "d") catch {
+    _ => ()
+  }
+  let out : Array[String] = []
+  workspace_index_walk(
+    fs,
+    root,
+    "",
+    workspace_mention_ignore_patterns(),
+    100,
+    out,
+    0,
+  )
+  // MoonBit's String ordering is length-before-code-units (the JS walk's
+  // documented behavior), so this deterministic order is not alphabetical.
+  assert_eq(
+    out,
+    ["beta/", "beta/inner/", "beta/inner/deep.txt", "alpha.txt"],
+  )
+  @fs.rmdir(root, recursive=true) catch {
+    _ => ()
+  }
 }

@@ -269,7 +269,8 @@ pub fn run_infra() -> Int32 {
         ),
       )
       let auth_tasks = NativeAuthTasks::new()
-      let replay_tasks = NativeReplayTasks::new()
+      let replay_tasks = NativeReplayTasks::new("native replay")
+      let catalog_tasks = NativeReplayTasks::new("native session catalog")
       let harness_buffer = Bytes::make(262144, 0)
       // Wait for the host's readiness byte instead of waking up on a fixed
       // 10ms interval. The owner thread parks inside the async scheduler, so
@@ -303,7 +304,7 @@ pub fn run_infra() -> Int32 {
                 match boot.val {
                   Ok(runtime) =>
                     harness_handle_frame(
-                      runtime, auth_tasks, replay_tasks, group, raw,
+                      runtime, auth_tasks, replay_tasks, catalog_tasks, group, raw,
                     )
                   Err(detail) =>
                     if needs_setup.val {
@@ -426,6 +427,7 @@ pub fn run_infra() -> Int32 {
         }
       }
       replay_tasks.cancel_all()
+      catalog_tasks.cancel_all()
       setup_tasks.cancel_all()
       setup.cancel_all()
       // A shutdown that won the composition race still waits for the

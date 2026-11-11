@@ -45,7 +45,7 @@ func (m *model) restoreTranscript(raw json.RawMessage) {
 	m.resetVirtualTranscript()
 	m.transcript = nil
 	m.markdownRaw = nil
-	m.markdownCache = nil
+	m.markdownCache.reset()
 	m.toolIndex = map[string]int{}
 	m.blocks = map[int]transcriptui.Block{}
 	pendingReasoning := ""

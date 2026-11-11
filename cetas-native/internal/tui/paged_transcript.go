@@ -772,7 +772,7 @@ func (r *pagedReplay) installBlocks(m *model, blocks int) {
 	m.resetVirtualTranscript()
 	m.transcript = make([]string, blocks)
 	m.markdownRaw = nil
-	m.markdownCache = nil
+	m.markdownCache.reset()
 	m.toolIndex = map[string]int{}
 	m.blocks = map[int]transcriptui.Block{}
 	r.total = blocks
@@ -980,7 +980,7 @@ func (r *pagedReplay) discardBlock(m *model, block int) {
 	}
 	delete(m.blocks, block)
 	delete(m.markdownRaw, block)
-	delete(m.markdownCache, block)
+	m.markdownCache.delete(block)
 	for key, at := range m.toolIndex {
 		if at == block {
 			delete(m.toolIndex, key)
@@ -2079,7 +2079,7 @@ func (m *model) insertPagedPlaceholders(at, count int) {
 	m.transcript = append(m.transcript, tail...)
 	m.blocks = insertBlockMap(m.blocks, at, count)
 	m.markdownRaw = insertBlockMap(m.markdownRaw, at, count)
-	m.markdownCache = insertBlockMap(m.markdownCache, at, count)
+	m.markdownCache.insert(at, count)
 	for key, index := range m.toolIndex {
 		if index >= at {
 			m.toolIndex[key] = index + count

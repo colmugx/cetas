@@ -30,6 +30,10 @@ type Block struct {
 	Attachments         []Attachment
 	Finished            time.Time
 	Kind                string
+	// ImageID > 0 marks an inline-image block whose rows are kitty
+	// placeholder text; 0 renders the plain fallback line.
+	ImageID             int
+	ImageRows           int
 	CallID, Name, State string
 	Arguments           json.RawMessage
 	Text, Reasoning     string
