@@ -50,9 +50,8 @@ func completionMenu(theme ui.Theme, items []string, index, width int) []string {
 		}
 		rows = append(rows, ui.Pad(line, width))
 	}
-	for len(rows) < completionMenuRows {
-		rows = append(rows, ui.Pad("", width))
-	}
+	// Max height, not fixed: one candidate opens a one-row hint beside the
+	// composer instead of a six-row pane of blanks.
 	return rows
 }
 func (m model) regions() regions {
@@ -210,7 +209,7 @@ func (m model) View() tea.View {
 // overlayPanelSize is the centred panel box a modal/picker overlay asks for:
 // 76% of the width and 70% of the height, never below the smallest usable box.
 func overlayPanelSize(width, height int) (int, int) {
-	return min(width, max(4, width*76/100)), min(height, max(4, height*70/100))
+	return min(width-2, max(4, width*88/100)), min(height-1, max(4, height*82/100))
 }
 
 // overlayTitle is the dialog heading for the legacy (non-ask) pickers.
@@ -348,7 +347,10 @@ func (m *model) wheelRoute(x, y, delta int) tea.Cmd {
 		}
 		return nil
 	}
-	if m.modal == "" {
+	// An ask (question, plan approval, auth) renders in its own region; the
+	// transcript above it stays readable, so the wheel keeps scrolling it.
+	// Legacy centred modals still swallow the wheel.
+	if m.modal == "" || m.modalRequestID != "" {
 		m.scrollTranscript(delta)
 	}
 	return nil

@@ -8,10 +8,10 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// The inline completion popup sits directly above the editor, so its height
-// must not follow the result count: one match and forty matches both paint the
-// same six-row pane and the input line never moves under the caret.
-func TestCompletionMenuKeepsAFixedSixRowPane(t *testing.T) {
+// The inline completion popup sits directly above the editor and grows with
+// the result count up to its cap: one match opens a one-row hint instead of a
+// pane of blanks, and forty matches never exceed the cap.
+func TestCompletionMenuGrowsToItsCapOnly(t *testing.T) {
 	const width = 48
 	m := newModel()
 	m.modal = "files"
@@ -26,8 +26,9 @@ func TestCompletionMenuKeepsAFixedSixRowPane(t *testing.T) {
 			}
 			m.modalIndex = 0
 			rows := completionMenu(m.theme(), m.modalItems, m.modalIndex, width)
-			if len(rows) != completionMenuRows {
-				t.Fatalf("%d results painted %d rows, want %d", count, len(rows), completionMenuRows)
+			want := min(count, completionMenuRows)
+			if len(rows) != want {
+				t.Fatalf("%d results painted %d rows, want %d", count, len(rows), want)
 			}
 			for i, row := range rows {
 				if got := ansi.StringWidth(row); got != width {
@@ -37,14 +38,30 @@ func TestCompletionMenuKeepsAFixedSixRowPane(t *testing.T) {
 			if !strings.Contains(ansi.Strip(rows[0]), "→ file-00.go") {
 				t.Fatalf("%d results lost the selected row: %q", count, ansi.Strip(rows[0]))
 			}
-			// Every row past the results is blank, which is what keeps the
-			// pane rectangular without inventing placeholder items.
-			for i := count; i < completionMenuRows; i++ {
-				if strings.TrimSpace(ansi.Strip(rows[i])) != "" {
-					t.Fatalf("pad row %d is not blank: %q", i, ansi.Strip(rows[i]))
-				}
-			}
 		})
+	}
+}
+
+// Candidates stack bottom-up: the best match sits on the row nearest the
+// composer and the cursor starts there, so up walks away into alternatives —
+// the shell-completion habit.
+func TestCompletionInstallsBestMatchAtTheBottom(t *testing.T) {
+	m := newModel()
+	m.installCompletion("files", []string{"best.go", "mid.go", "last.go"}, []string{"best.go", "mid.go", "last.go"})
+	if len(m.modalItems) != 3 || m.modalItems[0] != "last.go" || m.modalItems[2] != "best.go" {
+		t.Fatalf("candidates not reversed: %v", m.modalItems)
+	}
+	if m.modalIndex != 2 {
+		t.Fatalf("cursor starts at %d, want the bottom row 2", m.modalIndex)
+	}
+	if m.modalValues[m.modalIndex] != "best.go" {
+		t.Fatalf("the bottom row must insert the best match: %v", m.modalValues)
+	}
+	// An empty candidate set opens nothing.
+	before := m.modal
+	m.installCompletion("files", nil, nil)
+	if m.modal != before || m.modalItems == nil {
+		t.Fatal("an empty candidate set must not touch the completion state")
 	}
 }
 

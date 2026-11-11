@@ -142,8 +142,13 @@ func TestSlashTabOpensPickerAndInsertKeepsDraft(t *testing.T) {
 	m.textarea.SetValue("/mo")
 	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	state := next.(model)
-	if state.modal != "slash" || len(state.modalValues) == 0 || state.modalValues[0] != "/model" {
-		t.Fatalf("slash completion picker: %#v", state.modalValues)
+	// Bottom-up stacking: the best match ("/model" for "/mo") is the last
+	// row and the cursor starts on it.
+	if state.modal != "slash" || len(state.modalValues) == 0 || state.modalValues[state.modalIndex] != "/model" {
+		t.Fatalf("slash completion picker: %#v at %d", state.modalValues, state.modalIndex)
+	}
+	if state.modalIndex != len(state.modalValues)-1 {
+		t.Fatalf("cursor starts at %d, want the bottom row", state.modalIndex)
 	}
 	next, cmd := state.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	state = next.(model)

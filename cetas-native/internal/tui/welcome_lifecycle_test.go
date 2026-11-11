@@ -124,7 +124,7 @@ func TestWorkingConversationHasNoFixedWelcomeRegion(t *testing.T) {
 	if len(m.regions().header) != 0 || m.regions().transcriptY != 0 {
 		t.Fatalf("work still reserves a fixed welcome: %q", ansi.Strip(strings.Join(m.regions().header, "\n")))
 	}
-	if !strings.Contains(ansi.Strip(m.View().Content), "> start working") {
+	if !strings.Contains(ansi.Strip(m.View().Content), "start working") {
 		t.Fatal("hiding welcome also hid the submitted user block")
 	}
 	for _, size := range [][2]int{{40, 12}, {108, 36}, {18, 6}} {

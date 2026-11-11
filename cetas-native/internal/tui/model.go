@@ -284,6 +284,25 @@ func request(host runtimeHost, command string, args any) tea.Cmd {
 
 // requestAs preserves the wire command while distinguishing independent UI
 // intents that otherwise race on the same asynchronous reply.
+// installCompletion stacks candidates bottom-up: the best match sits on the
+// row nearest the composer and the cursor starts there — up walks away into
+// the alternatives, the way shell completion behaves. An empty candidate set
+// opens nothing.
+func (m *model) installCompletion(kind string, items, values []string) {
+	if len(items) == 0 {
+		return
+	}
+	count := len(items)
+	m.modal = kind
+	m.modalItems = make([]string, count)
+	m.modalValues = make([]string, count)
+	for i := range items {
+		m.modalItems[count-1-i] = items[i]
+		m.modalValues[count-1-i] = values[i]
+	}
+	m.modalIndex = count - 1
+}
+
 func requestAs(host runtimeHost, name, command string, args any) tea.Cmd {
 	var session, revision string
 	if fields, ok := args.(map[string]any); ok {
@@ -610,14 +629,12 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				} `json:"entries"`
 			}
 			if json.Unmarshal(msg.payload, &data) == nil && m.completionToken == "@"+data.Query && strings.HasSuffix(m.textarea.Value(), m.completionToken) {
-				m.modal = "files"
-				m.modalIndex = 0
-				m.modalItems = nil
-				m.modalValues = nil
+				var items, values []string
 				for _, v := range data.Entries {
-					m.modalItems = append(m.modalItems, v.Path)
-					m.modalValues = append(m.modalValues, v.Path)
+					items = append(items, v.Path)
+					values = append(values, v.Path)
 				}
+				m.installCompletion("files", items, values)
 			}
 		}
 		if msg.name == "skills" || msg.name == "skills_browse" {
@@ -636,20 +653,19 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				if msg.name == "skills" && (m.completionToken == "" || !strings.HasSuffix(m.textarea.Value(), m.completionToken)) {
 					return m, nil
 				}
-				m.modal = "skills"
+				kind := "skills"
 				if msg.name == "skills_browse" {
-					m.modal = "skills_browse"
+					kind = "skills_browse"
 				}
-				m.modalIndex = 0
-				m.modalItems = nil
-				m.modalValues = nil
+				var items, values []string
 				for _, v := range data.Skills {
 					if msg.name == "skills" && !strings.Contains(strings.ToLower(v.Name), strings.ToLower(strings.TrimPrefix(m.completionToken, "$"))) {
 						continue
 					}
-					m.modalItems = append(m.modalItems, v.Name+" "+v.Description)
-					m.modalValues = append(m.modalValues, v.Name)
+					items = append(items, v.Name+" "+v.Description)
+					values = append(values, v.Name)
 				}
+				m.installCompletion(kind, items, values)
 			}
 		}
 		if msg.name == "rewind_points" {
@@ -920,6 +936,16 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if m.modal != "" {
 			if m.modalRequestID != "" {
 				switch key {
+				case "pgup", "pageup", "pgdown", "pagedown":
+					// Page keys scroll the transcript out from under an ask:
+					// the plan or log the question is about is still readable
+					// while the answer waits.
+					if key == "pgup" || key == "pageup" {
+						m.scrollTranscript(-max(1, m.viewport.Height()/2))
+					} else {
+						m.scrollTranscript(max(1, m.viewport.Height()/2))
+					}
+					return m, nil
 				case "ctrl+o":
 					m.surface.askExpanded = !m.surface.askExpanded
 					return m, nil
@@ -1088,16 +1114,12 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			value := m.textarea.Value()
 			if strings.HasPrefix(value, "/") {
 				choices := m.commandSuggestions(value)
-				if len(choices) > 0 {
-					m.modal = "slash"
-					m.modalIndex = 0
-					m.modalItems = nil
-					m.modalValues = nil
-					for _, choice := range choices {
-						m.modalItems = append(m.modalItems, choice.label)
-						m.modalValues = append(m.modalValues, choice.insert)
-					}
+				var items, values []string
+				for _, choice := range choices {
+					items = append(items, choice.label)
+					values = append(values, choice.insert)
 				}
+				m.installCompletion("slash", items, values)
 				return m, nil
 			}
 			if m.host == nil {

@@ -152,7 +152,9 @@ func TestRealRuntimeMessagesReachShellPresentation(t *testing.T) {
 			if strings.Contains(last, "bad EventHub frame") {
 				t.Fatalf("valid tool args were rejected by the harness: %s", last)
 			}
-			userSurface = userSurface || strings.Contains(frame, "\x1b[48;2;") && strings.Contains(last, "> visual prompt")
+			// The user panel carries the surface background; the prompt
+			// glyph is gone, so the surface assert keys on the text.
+			userSurface = userSurface || strings.Contains(frame, "\x1b[48;2;") && strings.Contains(last, "visual prompt") && !strings.Contains(last, "> visual prompt")
 			if strings.Contains(last, "Final fixture answer.") {
 				if !thinking || !markdown || !tool || !userSurface || !warning {
 					t.Fatalf("screen projection incomplete: thinking=%v markdown=%v tool=%v user surface=%v warning=%v\n%s", thinking, markdown, tool, userSurface, warning, last)

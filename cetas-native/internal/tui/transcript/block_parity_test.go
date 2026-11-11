@@ -321,20 +321,43 @@ var toolParity = []toolParityCase{
 
 var textParity = []textParityCase{
 	{
+		// Native deviation, deliberate: the user block is a framed panel
+		// (blank padded rows above and below, two-column margins) — the JS
+		// oracle's bare "> " line is superseded by the native design that
+		// makes the user's own message findable at a glance. Content wraps
+		// at width-4; every row is exactly `width` cells.
 		id: "user/short", width: 40, kind: "user", text: "explain the build", live: false,
-		want: []string{" > explain the build                    "},
+		want: []string{
+			"                                        ",
+			"   explain the build                    ",
+			"                                        ",
+		},
 	},
 	{
 		id: "user/directive", width: 40, kind: "user", text: "/model", live: false,
-		want: []string{" > /model                               "},
+		want: []string{
+			"                                        ",
+			"   /model                               ",
+			"                                        ",
+		},
 	},
 	{
 		id: "user/chinese", width: 30, kind: "user", text: "把这个目录下的测试全部跑一遍，报告失败原因", live: false,
-		want: []string{" > 把这个目录下的测试全部跑一 ", " 遍，报告失败原因             "},
+		want: []string{
+			"                              ",
+			"   把这个目录下的测试全部跑   ",
+			"   一遍，报告失败原因         ",
+			"                              ",
+		},
 	},
 	{
 		id: "user/multiline", width: 40, kind: "user", text: "first line\nsecond line", live: false,
-		want: []string{" > first line                           ", " second line                            "},
+		want: []string{
+			"                                        ",
+			"   first line                           ",
+			"   second line                          ",
+			"                                        ",
+		},
 	},
 	{
 		id: "thinking/finalized", width: 80, kind: "thinking", text: "one\ntwo\nthree\nfour\nfive", live: false,
@@ -512,15 +535,15 @@ func TestUserBlockIsAFullWidthPaddedSurface(t *testing.T) {
 	block := Block{Kind: "user", Text: "explain the build"}
 	plain := block.Render(Options{Width: width})
 	lines := strings.Split(plain, "\n")
-	if len(lines) != 1 || !strings.HasPrefix(lines[0], " > explain the build") {
+	if len(lines) != 3 {
+		t.Fatalf("user panel lost its frame: %#v", lines)
+	}
+	if !strings.HasPrefix(lines[1], "   explain the build") {
 		t.Fatalf("user block lost its prompt prefix: %#v", lines)
 	}
 	for _, line := range lines {
 		if got := ansi.StringWidth(line); got != width {
 			t.Fatalf("user line width = %d, want %d: %q", got, width, line)
-		}
-		if line[0] != ' ' || line[1] != '>' {
-			t.Fatalf("user line is not padded before the prompt mark: %q", line)
 		}
 	}
 
@@ -530,8 +553,8 @@ func TestUserBlockIsAFullWidthPaddedSurface(t *testing.T) {
 		return "\x1b[48;5;236m" + s + probeReset
 	}
 	out := block.Render(Options{Width: width, Styles: Styles{User: surface}})
-	if len(styled) != 1 {
-		t.Fatalf("user surface styled %d fragments, want 1 per line", len(styled))
+	if len(styled) != 3 {
+		t.Fatalf("user surface styled %d fragments, want 3 (frame + content + frame)", len(styled))
 	}
 	if ansi.StringWidth(styled[0]) != width {
 		t.Fatalf("surface covered %d cells, want %d", ansi.StringWidth(styled[0]), width)
@@ -550,7 +573,7 @@ func TestUserBlockStaysSafeWithoutTerminalColours(t *testing.T) {
 		t.Fatalf("unknown terminal colours emitted escapes: %q", out)
 	}
 	lines := strings.Split(out, "\n")
-	if len(lines) < 2 || !strings.HasPrefix(lines[0], " > ") {
+	if len(lines) < 4 || strings.TrimSpace(lines[1]) == "" {
 		t.Fatalf("narrow user block lost its structure: %#v", lines)
 	}
 	for _, line := range lines {

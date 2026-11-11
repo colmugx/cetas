@@ -123,7 +123,7 @@ func TestSubmittedUserMessageUsesPaddedFullWidthSurface(t *testing.T) {
 			t.Fatalf("panel row %d is %d cells, want 40: %q", i, w, ansi.Strip(line))
 		}
 	}
-	if body := ansi.Strip(lines[1]); !strings.HasPrefix(body, "  ") || !strings.Contains(body, "> 你好 task") {
+	if body := ansi.Strip(lines[1]); !strings.HasPrefix(body, "  ") || !strings.Contains(body, "你好 task") || strings.Contains(body, ">") {
 		t.Fatalf("content row lost its prompt margins: %q", body)
 	}
 	if strings.TrimSpace(ansi.Strip(lines[0])) != "" || strings.TrimSpace(ansi.Strip(lines[2])) != "" {

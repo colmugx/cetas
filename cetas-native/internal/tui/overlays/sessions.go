@@ -540,12 +540,19 @@ func (p Sessions) Render(t ui.Theme, width, height int, now time.Time) []string 
 		return nil
 	}
 	lines := []string{ui.Fit(p.Title(t), width)}
-	// The title and the footer own a line each; the list gets the rest.
+	// The title and the footer own a line each; the list gets the rest. The
+	// body is padded to its full height so the panel's geometry — and the
+	// compositor's centring of it — never moves while pages stream in or the
+	// scope filter changes the row count.
 	if body := height - 2; body > 0 {
 		if status := p.Status(t); status != "" {
 			lines = append(lines, ui.Fit(status, width))
+			body--
 		} else {
 			lines = append(lines, p.Rows(t, width, body, now)...)
+		}
+		for len(lines)-1 < body {
+			lines = append(lines, ui.Pad("", width))
 		}
 	}
 	lines = append(lines, ui.Fit(p.Footer(t), width))

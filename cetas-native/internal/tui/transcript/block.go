@@ -121,11 +121,12 @@ func (b Block) Render(o Options) string {
 	case "user":
 		// JS: Box(1, 0, userMessageBg) { Text("> " + prompt, 0, 0) }.
 		// The native parent deepens the box: one blank padded row above and
-		// below, two columns of padded margin each side, all carrying the
-		// user surface background so the block reads as one findable panel.
-		const padX = 2
-		inner := max(10, width-2*padX)
-		lines := bubbleLines("> "+clean(b.Text), inner)
+		// below, padded margins each side, all carrying the user surface
+		// background so the block reads as one findable panel. The margin
+		// shrinks with the terminal so a row can never overflow its width.
+		padX := min(2, max(0, width/4))
+		inner := max(2, width-2*padX)
+		lines := bubbleLines(clean(b.Text), inner)
 		for i, line := range lines {
 			if n := inner - lipgloss.Width(line); n > 0 {
 				lines[i] = line + strings.Repeat(" ", n)
