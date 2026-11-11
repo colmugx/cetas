@@ -121,7 +121,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26.x'
+          go-version-file: cetas-native/go.mod
           cache: false
 
       - name: moon version
@@ -134,6 +134,16 @@ jobs:
       # expensive archive build hides it.
       - name: Check the bridge for this target
         run: moon check -p cetas-native/native_bridge --target native --deny-warn --output-json
+
+      # Optimize MoonBit-generated C, dependency stubs, and runtime together.
+      - name: Build size-optimized MoonBit compiler wrapper (unix)
+        working-directory: cetas-native
+        shell: bash
+        run: |
+          go test ./tools/moon-cc-wrapper -count=1
+          go build -o "$RUNNER_TEMP/moon-cc-wrapper" ./tools/moon-cc-wrapper
+          echo "MOON_CC_WRAPPER=$RUNNER_TEMP/moon-cc-wrapper" >> "$GITHUB_ENV"
+          echo "MOONBIT_ALLOCATOR=system" >> "$GITHUB_ENV"
 
       - name: Compile MoonBit bridge archive
         shell: bash
@@ -212,13 +222,22 @@ jobs:
           "$HOME\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26.x'
+          go-version-file: cetas-native/go.mod
           cache: false
       - name: Build MoonBit archive
         run: |
           moon update
           moon check -p cetas-native/native_bridge --target native --deny-warn --output-json
-          moon build cetas-native/native_bridge --target native --release
+      - name: Build size-optimized MoonBit compiler wrapper (Windows)
+        working-directory: cetas-native
+        shell: pwsh
+        run: |
+          go test ./tools/moon-cc-wrapper -count=1
+          go build -o "$env:RUNNER_TEMP\moon-cc-wrapper.exe" ./tools/moon-cc-wrapper
+          "MOON_CC_WRAPPER=$env:RUNNER_TEMP\moon-cc-wrapper.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "MOONBIT_ALLOCATOR=system" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Build MoonBit archive (optimized)
+        run: moon build cetas-native/native_bridge --target native --release
       - name: Link MSVC runtime DLL
         shell: pwsh
         run: ./cetas-native/tools/build_windows_dll.ps1 -OutputDir bin
