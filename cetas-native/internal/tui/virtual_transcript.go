@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	ui "github.com/colmugx/cetas/cetas-native/internal/tui/components"
 	transcriptui "github.com/colmugx/cetas/cetas-native/internal/tui/transcript"
 )
 
@@ -378,7 +379,8 @@ func padTranscriptRow(line string, width int) string {
 	if width <= 0 {
 		return line
 	}
-	if visible := ansi.StringWidth(line); visible < width {
+	visible := ui.CachedWidth(line)
+	if visible < width {
 		return line + strings.Repeat(" ", width-visible)
 	}
 	return line

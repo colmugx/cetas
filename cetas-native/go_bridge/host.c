@@ -654,3 +654,30 @@ int32_t cetas_bridge_read_command_wake(void) {
     return got == 1 ? 1 : 0;
 #endif
 }
+
+/* Return the allocator's free pages to the OS. The MoonBit runtime allocates
+ * through mimalloc, which keeps freed pages in its own arenas and returns them
+ * only on an explicit forced collect; the console's turn loop deep-copies and
+ * re-serializes the whole conversation every turn, so freed-but-held pages
+ * accumulate exactly like a leak. Callers decide policy; this is the
+ * primitive. */
+#include <stdbool.h>
+#include <stdio.h>
+extern void mi_collect(bool force);
+extern void mi_stats_print_out(void (*out)(const char *, void *), void *arg);
+extern void moonbit_collect_cycles(void);
+void cetas_heap_relief(void) {
+    moonbit_collect_cycles();
+    mi_collect(true);
+}
+static void cetas_stat_to_file(const char *msg, void *arg) {
+    fputs(msg, (FILE *)arg);
+}
+void cetas_heap_stats_file(const char *path) {
+    FILE *out = fopen(path, "w");
+    if (out == ((void *)0)) {
+        return;
+    }
+    mi_stats_print_out(cetas_stat_to_file, out);
+    fclose(out);
+}

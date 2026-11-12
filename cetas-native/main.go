@@ -129,6 +129,7 @@ func runTUI() {
 	// explicitly advertises truecolor is not rendered with a 256-color guess.
 	env := os.Environ()
 	profile := startupColorProfile(colorprofile.Detect(os.Stdout, env), env)
+	startProfileEndpoint()
 	final, err := tea.NewProgram(tui.New(startup, version), tea.WithFPS(60), tea.WithColorProfile(profile), tea.WithFilter(startupInputFilter(profile, env))).Run()
 	if presentation, ok := final.(interface{ Close() }); ok {
 		presentation.Close()

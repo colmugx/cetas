@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"math"
 	"strings"
+	"sync"
 	"unicode"
 
 	"charm.land/lipgloss/v2"
@@ -158,11 +159,78 @@ func Fit(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
+	if w, ok := fastWidth(s); ok && w <= width {
+		return s
+	}
+	if cachedWidth(s) <= width {
+		return s
+	}
 	return ansi.Truncate(s, width, "…")
 }
+
+// fastWidth measures plain printable ASCII without a grapheme walk or a map
+// probe; scrolling re-fits mostly ASCII transcript rows every frame.
+func fastWidth(s string) (int, bool) {
+	for i := 0; i < len(s); i++ {
+		if s[i] <= 0x1f || s[i] >= 0x7f {
+			return 0, false
+		}
+	}
+	return len(s), true
+}
+
+// widthMemo caches display widths of recently measured lines: a hash hit costs
+// roughly a tenth of a grapheme-cluster walk, and consecutive frames during a
+// scroll re-present largely identical chrome and cached rows. The budget is in
+// key bytes, not entries: a caller measuring a large string must not be able to
+// park unbounded text here.
+var widthMemo = struct {
+	sync.Mutex
+	entries map[string]int
+	bytes   int
+}{entries: map[string]int{}}
+
+const widthMemoBytes = 64 << 10
+
+func cachedWidth(s string) int { return CachedWidth(s) }
+
+// CachedWidth is the shared display-width probe: printable ASCII short-circuits
+// without a grapheme walk, everything else hits the bounded width memo.
+func CachedWidth(s string) int {
+	widthMemo.Lock()
+	if w, ok := widthMemo.entries[s]; ok {
+		widthMemo.Unlock()
+		return w
+	}
+	widthMemo.Unlock()
+	w := ansi.StringWidth(s)
+	widthMemo.Lock()
+	if widthMemo.bytes+len(s) > widthMemoBytes {
+		// Scroll keeps re-touching the hot set, so dropping entries until
+		// half the budget is free is enough to stay bounded.
+		for key := range widthMemo.entries {
+			if widthMemo.bytes <= widthMemoBytes/2 {
+				break
+			}
+			widthMemo.bytes -= len(key)
+			delete(widthMemo.entries, key)
+		}
+		if widthMemo.bytes+len(s) > widthMemoBytes {
+			// One string larger than the whole budget is measured but never
+			// retained.
+			widthMemo.Unlock()
+			return w
+		}
+	}
+	widthMemo.entries[s] = w
+	widthMemo.bytes += len(s)
+	widthMemo.Unlock()
+	return w
+}
+
 func Pad(s string, width int) string {
 	s = Fit(s, width)
-	return s + strings.Repeat(" ", max(0, width-ansi.StringWidth(s)))
+	return s + strings.Repeat(" ", max(0, width-cachedWidth(s)))
 }
 func Bound(lines []string, width, height int) []string {
 	if width <= 0 || height <= 0 {

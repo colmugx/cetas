@@ -698,19 +698,6 @@ func (r *pagedReplay) refresh(m *model) tea.Cmd {
 	return r.requestIndex(m)
 }
 
-// adoptTrace logs the live-tail adoption decision path when
-// CETAS_ADOPT_TRACE names a file; empty disables it. Diagnosis only.
-func adoptTrace(format string, args ...any) {
-	path := "/tmp/cetas-adopt-hardtrace.log" // TEMP diagnosis only
-	_ = path
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-	if err != nil {
-		return
-	}
-	defer file.Close()
-	fmt.Fprintf(file, format+"\n", args...)
-}
-
 // refreshForTailGrowth is the turn-end hook: once the raw live tail the
 // conversation appended since the last index is heavy enough to matter for
 // retention, re-index so the reply can adopt it (see adoptLiveTail). Below the
@@ -732,8 +719,6 @@ func (r *pagedReplay) refreshForTailGrowth(m *model) tea.Cmd {
 	if bytes < pagedAdoptTailBytes {
 		return nil
 	}
-	adoptTrace("refresh: indexed=%v total=%d doc=%d tailBytes=%d session=%q replaySession=%q watermark=%d/%q",
-		r.indexed, r.total, len(m.transcript), bytes, m.session, r.session, m.replayLiveFrom, m.replayLiveSession)
 	if !r.indexed {
 		return r.requestIndex(m)
 	}
@@ -745,22 +730,6 @@ func (r *pagedReplay) refreshForTailGrowth(m *model) tea.Cmd {
 func (m *model) uiLocalBlock(index int) bool {
 	b, ok := m.blocks[index]
 	return ok && (b.Kind == "notice" || b.Kind == "error")
-}
-
-// blockKindDebug renders the tail's block kinds for the adoption trace.
-func (m *model) blockKindDebug(from int) string {
-	kinds := "["
-	for i := from; i < len(m.transcript) && len(kinds) < 200; i++ {
-		if i > from {
-			kinds += " "
-		}
-		if b, ok := m.blocks[i]; ok {
-			kinds += b.Kind
-		} else {
-			kinds += "-"
-		}
-	}
-	return kinds + "]"
 }
 
 // markJournalBoundary records where the live tail begins after an index,
@@ -810,8 +779,6 @@ func (r *pagedReplay) adoptLiveTail(m *model, total int) bool {
 		count++
 	}
 	if count != delta || start < 0 {
-		adoptTrace("adopt: refused total=%d base=%d delta=%d count=%d start=%d doc=%d kinds=%v",
-			total, base, delta, count, start, len(m.transcript), m.blockKindDebug(base))
 		return false
 	}
 	if start != base {
@@ -857,7 +824,6 @@ func (r *pagedReplay) adoptLiveTail(m *model, total int) bool {
 	}
 	r.pages[page.first] = page
 	r.total = total
-	adoptTrace("adopt: ok first=%d blocks=%d bytes=%d", page.first, len(page.indices), r.bytes)
 	return true
 }
 

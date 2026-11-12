@@ -514,9 +514,10 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if turnSettled {
 			// A settled turn closed the journal for the blocks the live path
 			// appended; a heavy enough tail is re-indexed so adoption can hand
-			// it to the resident budget (see pagedReplay.adoptLiveTail).
+			// it to the resident budget. The reply must carry this document's
+			// replay generation or applyPagedReply retires it as stale.
 			if growth := m.replay.refreshForTailGrowth(&m); growth != nil {
-				return m, tea.Batch(receive(m.feed), growth)
+				return m, tea.Batch(receive(m.feed), replayCommand(growth, m.replayGeneration))
 			}
 		}
 		if next != "" {

@@ -60,6 +60,76 @@ type liveMarkdown struct {
 	// first frame of a block; tests assert that unchanged frames do not
 	// repeat a full render.
 	renders int
+
+	// Frozen-prefix state for streams past liveFreezeBytes: the bytes before
+	// frozenAt display as plain text (width- and theme-independent, zero
+	// layout cost) and only the tail after the newest safe paragraph cut is
+	// laid out as Markdown. scanUpTo/scanFenceOpen track code-fence parity
+	// incrementally so a cut never lands inside an open fence.
+	frozenAt  int
+	scanUpTo  int
+	scanFence bool
+}
+
+const (
+	// liveFreezeBytes is the stream size past which the settled prefix stops
+	// being re-laid-out on every delta: past it, only a liveTailBytes tail is
+	// rendered until the block settles and takes the full-history path.
+	liveFreezeBytes = 24 << 10
+	// liveTailBytes bounds the Markdown source the live pipeline ever renders.
+	liveTailBytes = 16 << 10
+)
+
+// advanceScan folds code-fence parity over the lines the stream added.
+func (l *liveMarkdown) advanceScan(raw string) {
+	rest := raw[l.scanUpTo:]
+	for len(rest) > 0 {
+		line := rest
+		if idx := strings.IndexByte(rest, '\n'); idx >= 0 {
+			line = rest[:idx+1]
+		}
+		trimmed := strings.TrimLeft(line, " \t")
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			l.scanFence = !l.scanFence
+		}
+		l.scanUpTo += len(line)
+		rest = rest[len(line):]
+	}
+}
+
+// liveCut finds the newest paragraph boundary whose tail keeps fences
+// balanced: walking lines backward from the end, a boundary is safe when the
+// fence parity it would leave open below matches a closed cut. Without a safe
+// boundary the current frozenAt stands (an unclosed fence simply keeps the
+// tail growing until the giant-source cap takes over).
+func (l *liveMarkdown) liveCut(raw string) int {
+	floor := len(raw) - liveTailBytes
+	if floor < l.frozenAt {
+		floor = l.frozenAt
+	}
+	want := 0
+	if l.scanFence {
+		want = 1
+	}
+	fences := 0
+	end := len(raw)
+	for end > floor {
+		lineStart := strings.LastIndexByte(raw[:end], '\n') + 1
+		if lineStart < end {
+			trimmed := strings.TrimLeft(raw[lineStart:end], " \t")
+			if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+				fences++
+			}
+		}
+		if lineStart >= 2 && raw[lineStart-1] == '\n' && raw[lineStart-2] == '\n' &&
+			fences%2 == want && strings.TrimLeft(raw[lineStart:], " \t\n") != "" {
+			// A cut the stream has already grown past: the tail keeps the
+			// paragraph still streaming, so it stays rendered as Markdown.
+			return lineStart
+		}
+		end = lineStart - 1
+	}
+	return l.frozenAt
 }
 
 type transcriptSelection struct {
@@ -157,20 +227,13 @@ func (m *model) renderLiveMarkdown(index int, raw string) string {
 	width := max(1, m.viewport.Width())
 	themeKey := m.markdownThemeIdentity()
 	cache := &m.document.live
-	if len(raw) > maxWholeMarkdownSourceBytes {
-		// A stream can cross the safety bound after a smaller prefix rendered.
-		// Keep its complete newest source visible, not that obsolete prefix,
-		// and supersede older in-flight results without scheduling another AST.
-		if !cache.valid || cache.index != index || cache.width != width || cache.themeKey != themeKey || cache.source != raw {
-			revision := cache.revision + 1
-			*cache = liveMarkdown{valid: true, index: index, width: width, themeKey: themeKey,
-				source: raw, rendered: raw, revision: revision, renderedRevision: revision, renders: cache.renders}
-			m.err = "Markdown render deferred: " + wholeMarkdownBudgetError().Error()
-		}
-		return cache.rendered
-	}
 	if !cache.valid || cache.index != index || cache.width != width || cache.themeKey != themeKey {
-		rendered, err := renderMarkdown(m.markdownRenderer, raw)
+		// A new block starts unfrozen; a width or theme change of the same
+		// block keeps the cut (the plain prefix survives both).
+		if !(cache.valid && cache.index == index) {
+			cache.frozenAt, cache.scanUpTo, cache.scanFence = 0, 0, false
+		}
+		rendered, err := renderMarkdown(m.markdownRenderer, m.liveRenderSource(raw, cache))
 		if err != nil {
 			m.err = "Markdown render failed: " + err.Error()
 			rendered = raw
@@ -178,17 +241,32 @@ func (m *model) renderLiveMarkdown(index int, raw string) string {
 		// A new block, width or theme supersedes every render in flight.
 		revision := cache.revision + 1
 		renders := cache.renders + 1
+		composed := m.composeLiveRender(raw, cache, rendered)
 		*cache = liveMarkdown{
 			valid: true, index: index, width: width, themeKey: themeKey,
-			source: raw, rendered: rendered,
+			source: raw, rendered: composed,
 			revision: revision, renderedRevision: revision, renders: renders,
+			frozenAt: cache.frozenAt, scanUpTo: cache.scanUpTo, scanFence: cache.scanFence,
 		}
-		return rendered
+		return composed
 	}
 	if cache.source == raw {
 		return cache.rendered
 	}
 	cache.source = raw
+	tail := m.liveRenderSource(raw, cache)
+	if len(tail) > maxWholeMarkdownSourceBytes {
+		// No safe paragraph cut could keep the tail bounded (an unclosed
+		// fence, for example). Keep the complete newest source visible, not an
+		// obsolete prefix, and supersede in-flight results without scheduling
+		// another AST.
+		revision := cache.revision + 1
+		cache.rendered = raw
+		cache.renderedRevision = revision
+		cache.revision = revision
+		m.err = "Markdown render deferred: " + wholeMarkdownBudgetError().Error()
+		return cache.rendered
+	}
 	cache.revision++
 	cache.renders++
 	if m.document.markdown == nil {
@@ -199,9 +277,32 @@ func (m *model) renderLiveMarkdown(index int, raw string) string {
 		width:    width,
 		themeKey: themeKey,
 		theme:    m.theme(),
-		source:   raw,
+		source:   tail,
 	})
 	return cache.rendered
+}
+
+// liveRenderSource advances the frozen prefix and returns the Markdown source
+// the pipeline should lay out: the whole stream while it is small, and only
+// the tail after the newest fence-safe paragraph boundary once it is not. The
+// plain prefix costs no layout work and survives width and theme changes.
+func (m *model) liveRenderSource(raw string, cache *liveMarkdown) string {
+	if len(raw) <= liveFreezeBytes {
+		return raw
+	}
+	cache.advanceScan(raw)
+	if cut := cache.liveCut(raw); cut > cache.frozenAt {
+		cache.frozenAt = cut
+	}
+	return raw[cache.frozenAt:]
+}
+
+// composeLiveRender joins the plain frozen prefix with a rendered tail.
+func (m *model) composeLiveRender(raw string, cache *liveMarkdown, renderedTail string) string {
+	if cache.frozenAt == 0 {
+		return renderedTail
+	}
+	return raw[:cache.frozenAt] + renderedTail
 }
 
 // pumpLiveMarkdown applies completed background renders that still describe the
@@ -226,6 +327,14 @@ func (m *model) pumpLiveMarkdown() {
 		if result.err != nil {
 			m.err = "Markdown render failed: " + result.err.Error()
 			continue
+		}
+		if cache.frozenAt > 0 {
+			raw := m.rawTranscriptBlock(cache.index)
+			if len(raw) >= cache.frozenAt {
+				cache.rendered = m.composeLiveRender(raw, cache, result.rendered)
+				cache.renderedRevision = result.revision
+				continue
+			}
 		}
 		cache.rendered = result.rendered
 		cache.renderedRevision = result.revision

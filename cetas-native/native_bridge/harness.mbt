@@ -72,6 +72,13 @@ async fn harness_dispatch(
   args : Json,
 ) -> Json {
   match command {
+    // Cycle collection must run on the MoonBit owner thread at a safe point;
+    // a foreign-thread call through the C symbol is not one. Diagnostic for
+    // the per-turn retention investigation.
+    "heap_collect_cycles" => {
+      moonbit_collect_cycles()
+      Json::object(Map::from_array([("ok", Json::boolean(true))]))
+    }
     "health" =>
       Json::object(
         Map::from_array([
@@ -511,3 +518,6 @@ fn harness_reply(id : Int32, result : Json) -> String {
     ]),
   ).stringify()
 }
+
+///|
+extern "C" fn moonbit_collect_cycles() -> Unit = "moonbit_collect_cycles"
