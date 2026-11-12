@@ -212,20 +212,11 @@ async fn build_cetas_skills(
 ///|
 
 ///|
-fn build_compiled_zcode_ext(
-  env~ : (String) -> String?,
-  exists~ : async (String) -> Bool,
-) -> &@posoco.Extension? {
-  zcode_ext(env~, exists~)
-}
-
-///|
 async fn build_compiled_recipe_features(
   ctx~ : @cetas_core.HostContext,
   host_group~ : @async.TaskGroup[Unit]? = None,
   host_help_note~ : String? = None,
   host_version_note~ : String? = None,
-  obsidian_vault~ : String? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
   let exts : Array[&@posoco.Extension] = []
   let episodic : Array[&@posoco.Extension] = []
@@ -307,7 +298,11 @@ async fn build_compiled_recipe_features(
     }
   }
 
-  append_my_extensions(host_group, obsidian_vault, episodic)
+  // Locally provided tools, if any: the public build contributes none, so this
+  // is a no-op unless the local build swapped `cetas-extras`.
+  for ext in @extras.deferred_extensions(host_group) {
+    episodic.push(ext)
+  }
   match compiled_recipe_packages.get("lazytools") {
     Some(_) =>
       match @lazytools.LazyTools::defer_extensions(exts=episodic) {

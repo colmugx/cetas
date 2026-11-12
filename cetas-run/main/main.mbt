@@ -214,7 +214,7 @@ async fn main {
   }
   // Compose, announce the session, run the single turn, shut down, exit by
   // outcome. The task group is the composition's lifecycle scope; extensions
-  // that attached to it (nowledge-mem's flusher) stop with the scope.
+  // that attached to it stop with the scope.
   @core_async.with_task_group(async fn(lifetime_group) {
     @async.with_task_group(group => {
       let host = @lib.CetasRunHost(

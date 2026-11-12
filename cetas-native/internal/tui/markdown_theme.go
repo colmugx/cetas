@@ -8,6 +8,7 @@ import (
 
 	"charm.land/glamour/v2"
 	ga "charm.land/glamour/v2/ansi"
+	"github.com/charmbracelet/x/ansi"
 	ui "github.com/colmugx/cetas/cetas-native/internal/tui/components"
 )
 
@@ -65,8 +66,11 @@ func wholeMarkdownBudgetError() error {
 }
 
 // renderMarkdown runs one document through a renderer. Glamour terminates every
-// document with a newline; the transcript owns the inter-block spacing, so the
-// trailing blank line is dropped here exactly once for live and settled blocks.
+// document with a newline and pads the lines it emits to the wrap width, so the
+// trailing blank rows are trimmed here — not just the newline — exactly once for
+// live and settled blocks: the transcript owns the inter-block spacing, and a
+// render that kept its own trailing row would make every gutter depend on the
+// padding of the block before it.
 func renderMarkdown(renderer *glamour.TermRenderer, source string) (string, error) {
 	if len(source) > maxWholeMarkdownSourceBytes {
 		return "", wholeMarkdownBudgetError()
@@ -75,7 +79,11 @@ func renderMarkdown(renderer *glamour.TermRenderer, source string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimRight(result, "\n"), nil
+	lines := strings.Split(result, "\n")
+	for len(lines) > 0 && strings.TrimSpace(ansi.Strip(lines[len(lines)-1])) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 // markdownCoalesceDelay is the minimum gap between two whole-document renders

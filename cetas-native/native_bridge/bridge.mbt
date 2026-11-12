@@ -174,6 +174,9 @@ pub fn run_infra() -> Int32 {
         // shared default stays WorkspaceWrite; an explicit runtime `/permission`
         // still wins afterwards.
         permission_mode=@permission.PermissionMode::Yolo,
+        // The terminal owns its pane: report agent state to herdr like the JS
+        // and run hosts. Env-gated, so nothing registers outside a pane.
+        herdr_presence=true,
       )
       let boot : Ref[Result[@console.ConsoleRuntime, String]] = Ref(
         Err("connecting"),
@@ -440,7 +443,10 @@ pub fn run_infra() -> Int32 {
           runtime.detach_sink()
           runtime.shutdown_all()
         }
-        Err(_) => ()
+        // No agent ever owned a Lifecycle, so nobody else releases the pane:
+        // a composition that failed after detection registered herdr would
+        // leave the pane showing an agent for this dead process.
+        Err(_) => @console.release_herdr_presence()
       }
       emit("{\"type\":\"infra.stopped\",\"status\":\"clean\"}")
       result.val = 1

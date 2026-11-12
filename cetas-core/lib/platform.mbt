@@ -46,7 +46,7 @@ pub(all) struct CetasPlatform {
   session_store : @fs_session.JsonlSessionStore
   refreshables : Array[&@llm.RefreshableProviderFactory]
   refresh_snapshot : ProviderCredentialSnapshot
-  /// The host's process task group (nmem flusher, background monitors);
+  /// The host's process task group (extension background work, monitors);
   /// `None` in tests without a group.
   mcp_group : @async.TaskGroup[Unit]?
 }

@@ -1198,7 +1198,7 @@ priv struct Platform {
   credential_store : @credentials.FileProviderCredentialStore
   refreshables : Array[&@llm.RefreshableProviderFactory]
   refresh_snapshot : @cetas_core.ProviderCredentialSnapshot
-  /// The host's process task group (nmem flusher, MCP monitors);
+  /// The host's process task group (extension background work, MCP monitors);
   /// `None` in tests without a group.
   mcp_group : @async.TaskGroup[Unit]?
   /// Session-lifetime group on posoco's core-async stack: the quota guard's
@@ -1406,12 +1406,10 @@ async fn read_credential_snapshot(
 /// pieces compose here in product order exactly as every cetas host composes
 /// them, and this adapter wires only the ACP protocol surface around them —
 /// the session-lifetime bridge (approval source, UI port, context window),
-/// plan review, the fs-delegate shell, MCP discovery/union, the personal
-/// zcode opt-in, and the host profile prompt section. `session_store~` is
-/// the client-bucket JSONL store the session commits into; the per-call
-/// default stands in with the `acp` bucket for direct assembly callers.
-/// `env~` is the process-env seam behind the zcode detection; the default
-/// reads the real environment, tests inject a closed map.
+/// plan review, the fs-delegate shell, MCP discovery/union, and the host
+/// profile prompt section. `session_store~` is the client-bucket JSONL store
+/// the session commits into; the per-call default stands in with the `acp`
+/// bucket for direct assembly callers.
 async fn build_session_agent(
   platform~ : Platform,
   cwd~ : String,
@@ -1422,7 +1420,6 @@ async fn build_session_agent(
   ),
   mcp_servers~ : Array[@acp.McpServer] = [],
   host_kind~ : HostKind = HostKind::Generic,
-  env~ : (String) -> String? = read_env_var,
 ) -> SessionHandle raise @posoco.CompositionError {
   // Session-private event channel: every cross-extension protocol payload
   // (status ops, tool exemptions, model/selection facts) travels here, and
@@ -1538,16 +1535,6 @@ async fn build_session_agent(
     ) {
     exts.push(feature)
   }
-  match
-    build_compiled_zcode_ext(env~, exists=async fn(path : String) -> Bool {
-      session_fs.exists(path) catch {
-        _ => false
-      }
-    }) {
-    Some(ext) => exts.push(ext)
-    None => ()
-  }
-
   // Provider-owned tool planes join after the host's feature selection: they
   // are part of the provider's own surface, not of the compiled recipe.
   match platform.mcp_group {

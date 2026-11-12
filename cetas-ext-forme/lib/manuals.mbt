@@ -131,8 +131,6 @@ fn cetas_about_manual(version_note~ : String? = None) -> String {
     #|  /workflow, /board)
     #|- Connect MCP tool servers; attach workspace images to messages
     #|- Keep sessions: every turn is journaled and can be resumed or rewound
-    #|- Optionally persist memory across sessions (nowledge-mem, when
-    #|  enabled)
     #|
     #|## What cetas will not do
     #|- Touch files outside the workspace without explicit user action

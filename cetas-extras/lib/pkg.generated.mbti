@@ -1,0 +1,18 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "colmugx/cetas-extras/lib"
+
+import {
+  "colmugx/posoco/port",
+  "moonbitlang/async",
+}
+
+// Values
+pub fn deferred_extensions(@async.TaskGroup[Unit]?) -> Array[&@port.Extension]
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits

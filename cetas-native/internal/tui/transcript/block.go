@@ -115,6 +115,8 @@ func (b Block) Render(o Options) string {
 	case "user":
 		// One findable panel: the padded margins carry the user surface
 		// background, and they shrink with the terminal so a row never overflows.
+		// The plain margin row above it is the transcript's leading gap, not part
+		// of this surface.
 		padX := min(2, max(0, width/4))
 		inner := max(2, width-2*padX)
 		lines := bubbleLines(clean(b.Text), inner)

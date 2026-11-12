@@ -18,6 +18,12 @@ pub struct ConsoleConfig {
   /// resolves `Yolo`) states it here exactly once instead of the console
   /// hardcoding a second default per workspace.
   permission_mode : @permission.PermissionMode
+  /// Opt-in for herdr presence reporting. A host that occupies a terminal
+  /// pane (the native terminal) sets this; a server-style host (cetas-web)
+  /// leaves it off, because a pane's agent rollup entry describes the
+  /// foreground process, not a background server. Detection is still
+  /// environment-gated, so the cost inside a non-herdr pane is one probe.
+  herdr_presence : Bool
 }
 
 ///|
@@ -28,8 +34,9 @@ pub fn console_config(
   protocol : String,
   native_ui~ : Bool = false,
   permission_mode~ : @permission.PermissionMode = @permission.PermissionMode::WorkspaceWrite,
+  herdr_presence~ : Bool = false,
 ) -> ConsoleConfig {
-  { fs, home, label, protocol, native_ui, permission_mode, }
+  { fs, home, label, protocol, native_ui, permission_mode, herdr_presence, }
 }
 
 ///|
@@ -90,6 +97,10 @@ pub struct ConsoleRuntime {
   /// Immutable — an interactive `/permission` switch only moves the live
   /// workspace, never this host policy.
   startup_permission : @permission.PermissionMode
+  /// herdr presence opt-in, carried from `ConsoleConfig` to every workspace:
+  /// a pane's agent state belongs to the process, so a workspace switch must
+  /// not silently drop reporting.
+  herdr_presence : Bool
   /// Host I/O task group (MCP connections, provider tool planes).
   group : @async.TaskGroup[Unit]
   /// Session-lifetime task group on posoco's core-async stack: the quota
@@ -267,6 +278,7 @@ async fn ConsoleRuntime::compose_handle(
         self.label,
         self.protocol,
         self.native_ui,
+        self.herdr_presence,
         session_id,
       ),
     ) catch {
@@ -394,6 +406,7 @@ async fn compose_session_agent(
   label : String,
   protocol : String,
   native_ui : Bool,
+  herdr_presence : Bool,
   session_id : String,
 ) -> SessionHandle {
   let warn = async fn(text : String) noraise {
@@ -454,6 +467,14 @@ async fn compose_session_agent(
     speed_metrics,
     statusbar,
   ]
+  // herdr presence: this session's turn events drive the pane's agent state.
+  // Detection is environment-gated, so a non-herdr pane registers nothing.
+  if herdr_presence {
+    match @herdr.HerdrReporter::detect() {
+      Some(reporter) => tail_exts.push(reporter as &@posoco.Extension)
+      None => ()
+    }
+  }
   // Native only: the real delegation surface, with child events forwarded to
   // this session's sink. The default console never composes it.
   let mut children : NativeChildMeter? = None
@@ -653,6 +674,7 @@ pub async fn ConsoleRuntime::switch_workspace(
           self.label,
           self.protocol,
           self.native_ui,
+          self.herdr_presence,
         ),
       ) catch {
         error => Err(error.to_string())
@@ -727,6 +749,7 @@ pub async fn ConsoleRuntime::resume_workspace_session(
               self.label,
               self.protocol,
               self.native_ui,
+              self.herdr_presence,
             ),
           ) catch {
             error => Err(error.to_string())
@@ -1123,6 +1146,7 @@ async fn build_workspace(
   label : String,
   protocol : String,
   native_ui : Bool,
+  herdr_presence : Bool,
 ) -> WorkspaceRuntime {
   let warn = async fn(text : String) noraise {
     if native_ui {
@@ -1189,6 +1213,14 @@ async fn build_workspace(
     speed_metrics,
     statusbar,
   ]
+  // herdr presence: this session's turn events drive the pane's agent state.
+  // Detection is environment-gated, so a non-herdr pane registers nothing.
+  if herdr_presence {
+    match @herdr.HerdrReporter::detect() {
+      Some(reporter) => tail_exts.push(reporter as &@posoco.Extension)
+      None => ()
+    }
+  }
   match native_subagent_sink(hub, first_session_id, native_ui~) {
     Some(sink) => {
       let meter : NativeChildMeter = { live: Map::from_array([]), }
@@ -1270,6 +1302,7 @@ pub async fn compose_console_runtime(
     config.label,
     config.protocol,
     config.native_ui,
+    config.herdr_presence,
   )
   let workspaces : Map[String, WorkspaceRuntime] = Map::from_array([
     (cwd, first),
@@ -1285,6 +1318,7 @@ pub async fn compose_console_runtime(
     protocol: config.protocol,
     native_ui: config.native_ui,
     startup_permission: config.permission_mode,
+    herdr_presence: config.herdr_presence,
     group,
     lifetime_group,
     hub,
@@ -1295,6 +1329,19 @@ pub async fn compose_console_runtime(
     file_index_cache: None,
     replay_cache: NativeReplayCache::new(),
     stopping: false,
+  }
+}
+
+///|
+/// Drop this host's herdr pane authority. Needed by exits that never reach an
+/// Agent shutdown: a composition that failed after detection registered the
+/// pane leaves no Lifecycle behind to release it, and herdr would keep showing
+/// an agent for a process that is gone. Environment-gated like detection, so
+/// outside a managed pane this is a no-op.
+pub fn release_herdr_presence() -> Unit {
+  match @herdr.HerdrReporter::from_env() {
+    Some(reporter) => reporter.release()
+    None => ()
   }
 }
 

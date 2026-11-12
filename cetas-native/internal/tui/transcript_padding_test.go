@@ -55,6 +55,37 @@ func TestTranscriptRowsPadToTerminalWidth(t *testing.T) {
 	}
 }
 
+// A prompt echo gets one plain margin row on each side. The tinted panel must
+// never sit directly against the answer before it, and that gutter is the
+// transcript's own row — not a blank row the Markdown before it happened to
+// leave behind.
+func TestUserPanelKeepsPlainMargins(t *testing.T) {
+	m := interactionModel(t, 40, 16, "turn one answer")
+	m.surface.fg = color.RGBA{R: 240, G: 240, B: 240, A: 255}
+	m.surface.bg = color.RGBA{R: 10, G: 10, B: 10, A: 255}
+	m.appendUser("turn two question")
+	m.reflow()
+
+	answer := m.mountedTranscriptRows(0)
+	if last := answer[len(answer)-1]; strings.TrimSpace(ansi.Strip(last)) == "" {
+		t.Fatalf("answer block ends with a blank row of its own: %q", ansi.Strip(last))
+	}
+	if got := m.transcriptGap(1); got != transcriptGapDefault {
+		t.Fatalf("prompt gap = %d, want %d", got, transcriptGapDefault)
+	}
+	prompt := m.mountedTranscriptRows(1)
+	if len(prompt) < 2 {
+		t.Fatalf("prompt block lost its rows: %d", len(prompt))
+	}
+	width := m.viewport.Width()
+	if margin := prompt[0]; strings.Contains(margin, "\x1b[") || ansi.StringWidth(margin) != width {
+		t.Fatalf("prompt margin row is not a plain full-width row: %q", margin)
+	}
+	if !strings.Contains(prompt[1], "\x1b[") {
+		t.Fatalf("prompt surface does not start below its margin row: %q", ansi.Strip(prompt[1]))
+	}
+}
+
 // A replayed prompt is the same block as a typed one. Replay delegates to the
 // parent's appendUser, so the echo text, surface and padding cannot drift.
 func TestReplayedUserPromptMatchesSubmittedUser(t *testing.T) {

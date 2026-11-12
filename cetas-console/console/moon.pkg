@@ -6,6 +6,7 @@ import {
   "posoco/kit-events" @kit_events,
   // recipe-imports:begin
   "colmugx/cetas-ext-forme/lib" @forme,
+  "colmugx/cetas-extras/lib" @extras,
   "colmugx/posoco-ext-read" @read,
   "colmugx/posoco-ext-write" @write,
   "colmugx/posoco-ext-edit" @edit,
@@ -25,6 +26,7 @@ import {
   "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-statusbar" @statusbar,
   "colmugx/posoco-ext-stats" @stats,
+  "posoco/ext-herdr" @herdr,
   "colmugx/posoco-ext-workspace" @workspace,
   "colmugx/posoco/kernel",
   "colmugx/posoco/types" @posoco_types,

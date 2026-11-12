@@ -14,7 +14,9 @@ pub async fn compose_console_runtime(ConsoleConfig, String, @moonbitlang/async.T
 
 pub fn console_bootstrap(&@posoco-ext-workspace.WorkspaceFs, String, (String) -> Unit, native_ui? : Bool) -> ConsoleBootstrap
 
-pub fn console_config(&@posoco-ext-workspace.WorkspaceFs, String, String, String, native_ui? : Bool, permission_mode? : @posoco-ext-permission.PermissionMode) -> ConsoleConfig
+pub fn console_config(&@posoco-ext-workspace.WorkspaceFs, String, String, String, native_ui? : Bool, permission_mode? : @posoco-ext-permission.PermissionMode, herdr_presence? : Bool) -> ConsoleConfig
+
+pub fn release_herdr_presence() -> Unit
 
 pub fn transcript_empty_json() -> @json.Json
 
@@ -41,6 +43,7 @@ pub struct ConsoleConfig {
   protocol : String
   native_ui : Bool
   permission_mode : @posoco-ext-permission.PermissionMode
+  herdr_presence : Bool
 }
 
 pub struct ConsoleRuntime {
@@ -50,6 +53,7 @@ pub struct ConsoleRuntime {
   protocol : String
   native_ui : Bool
   startup_permission : @posoco-ext-permission.PermissionMode
+  herdr_presence : Bool
   group : @moonbitlang/async.TaskGroup[Unit]
   lifetime_group : @moonbitlang/core/async.TaskGroup?
   hub : EventHub

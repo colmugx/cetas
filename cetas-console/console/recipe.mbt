@@ -21,6 +21,7 @@ let compiled_recipe_packages : Map[String, String] = Map::from_array([
   ("askquestion", "colmugx/posoco-ext-askquestion"),
   ("handoff", "colmugx/posoco-ext-handoff"),
   ("lazytools", "colmugx/posoco-ext-lazytools"),
+  ("herdr", "posoco/ext-herdr"),
 ])
 
 ///|
@@ -198,10 +199,8 @@ async fn build_compiled_recipe_features(
   ctx~ : @cetas_core.HostContext,
   host_group~ : @async.TaskGroup[Unit]? = None,
   host_help_note~ : String? = None,
-  obsidian_vault~ : String? = None,
   askquestion~ : @askquestion.AskQuestionTools? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
-  let _ = obsidian_vault
   let exts : Array[&@posoco.Extension] = []
   let episodic : Array[&@posoco.Extension] = []
   let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
@@ -283,6 +282,11 @@ async fn build_compiled_recipe_features(
     }
   }
 
+  // Locally provided tools, if any: the public build contributes none, so this
+  // is a no-op unless the local build swapped `cetas-extras`.
+  for ext in @extras.deferred_extensions(host_group) {
+    episodic.push(ext)
+  }
   match compiled_recipe_packages.get("lazytools") {
     Some(_) =>
       match @lazytools.LazyTools::defer_extensions(exts=episodic) {

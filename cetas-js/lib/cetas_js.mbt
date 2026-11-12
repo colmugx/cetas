@@ -1932,7 +1932,7 @@ pub fn cetas_js_runtime_create_agent(
               mcp_bridge.start_probes()
             })
             // Subagents inherit only the reconstructable Cetas core face.
-            // Dynamic Pi/herdr/zcode providers remain parent-only; MCP is
+            // Dynamic Pi/herdr providers remain parent-only; MCP is
             // passed explicitly as a filtered Board face.
             let child_approval : &@permission.ApprovalSource? = match
               approval_source {
@@ -2056,18 +2056,6 @@ pub fn cetas_js_runtime_create_agent(
             // Env-gated — absent env → absent ext.
             match @herdr.HerdrReporter::detect() {
               Some(reporter) => exts.push(reporter as &@posoco.Extension)
-              None => ()
-            }
-            match
-              build_compiled_zcode_ext(
-                env=fn(key : String) { @env.get_env_var(key) },
-                exists=async fn(path : String) -> Bool {
-                  context_fs.exists(path) catch {
-                    _ => false
-                  }
-                },
-              ) {
-              Some(ext) => exts.push(ext)
               None => ()
             }
             let base_defs : Array[@posoco.ToolDef] = []
@@ -2834,9 +2822,9 @@ pub fn cetas_js_set_active_session(
 /// Promise and remain visible to the JS host.
 pub fn cetas_js_shutdown(handle : CetasJsAgent) -> @js_async.Promise[Unit] {
   @js_async.Promise::from_async() <| () => {
-    // acp retirement order: agent shutdown first — nmem's on_shutdown stops
-    // the flusher (engine.stop) and does the final drain — then the close
-    // signal wakes the parked serving scope, whose exit re-enters the
+    // acp retirement order: agent shutdown first — extensions' on_shutdown
+    // runs there, stopping flushers and doing the final drain — then the
+    // close signal wakes the parked serving scope, whose exit re-enters the
     // idempotent Agent shutdown and ends the lifetime group with its tasks.
     handle.agent.shutdown()
     handle.serve_close.put(())
@@ -3151,7 +3139,7 @@ pub fn cetas_js_list_commands(handle : CetasJsAgent) -> String {
 
 ///|
 /// The tool-name → extension-id catalog as a JSON object string, e.g.
-/// `{"memory_search":"posoco_ext_nowledge_mem", ...}`; `"{}"` when the
+/// `{"read_file":"posoco_ext_read", ...}`; `"{}"` when the
 /// composition contributes no tools. Synchronous: the catalog is a
 /// composition-time snapshot (see `cetas_js_runtime_create_agent`), so the
 /// TS host can render `ext:tool_name` titles without per-event attribution.

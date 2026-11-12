@@ -180,16 +180,17 @@ func estimateTranscriptHeight(raw string, width int) int {
 	return max(3, rows)
 }
 
-// The user panel's exact shape: frame rows plus content wrapped at the padded
-// inner width. The generic routine undershoots, and a block that grows on mount
-// pushes the window's tail out from under the user.
+// The user panel's exact shape: leading margin row plus the panel's frame rows
+// and content wrapped at the padded inner width. The generic routine undershoots,
+// and a block that grows on mount pushes the window's tail out from under the
+// user.
 func estimateUserBlockHeight(raw string, width int) int {
 	inner := max(10, max(1, width)-4)
-	rows := 2 // the panel's blank frame rows; the gap is zero
+	rows := 3 // the plain margin row plus the panel's two blank frame rows
 	for _, line := range strings.Split(raw, "\n") {
 		rows += max(1, int(math.Ceil(float64(lipgloss.Width(line))/float64(inner))))
 	}
-	return max(3, rows)
+	return max(4, rows)
 }
 
 func (m *model) estimateBlockHeight(index int, raw string, width int) int {
@@ -571,16 +572,14 @@ func (m *model) transcriptGap(index int) int {
 	if index <= 0 {
 		return 0
 	}
-	switch {
-	case m.blockKindAt(index) == "tool" && m.blockKindAt(index-1) == "tool":
+	// Dense stacking inside a run of tool calls. Every other boundary gets one
+	// plain row, the user panel included: its own frame rows are padding inside
+	// the surface, so without the gap the tint sits directly on the previous
+	// answer.
+	if m.blockKindAt(index) == "tool" && m.blockKindAt(index-1) == "tool" {
 		return transcriptGapToolRun
-	case m.blockKindAt(index) == "user":
-		// The panel's frame rows are the separation; a plain gap would only add a
-		// third separator row and drift the mounted height.
-		return 0
-	default:
-		return transcriptGapDefault
 	}
+	return transcriptGapDefault
 }
 
 // A replayed page without block metadata reports "", which degrades to the

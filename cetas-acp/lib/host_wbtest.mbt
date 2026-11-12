@@ -345,13 +345,6 @@ fn tk_spawn_session(
 }
 
 ///|
-/// Closed env for test compositions: no zcode detection, regardless of the
-/// host process's real environment.
-fn tk_no_env(_key : String) -> String? {
-  None
-}
-
-///|
 /// Host over a shared scripted model (steps consumed in call order); every
 /// session commits into its client bucket under one fixture-unique TMPDIR root
 /// (or the caller's shared root, for cross-host restart tests).
@@ -2091,7 +2084,7 @@ async test "the model cache seeds the native assembly's router slots" {
   ) catch {
     error => fail("platform assembly must succeed: " + error.to_string())
   }
-  let handle = build_session_agent(platform~, cwd="/", env=tk_no_env) catch {
+  let handle = build_session_agent(platform~, cwd="/") catch {
     error => fail("session assembly must succeed: " + error.to_string())
   }
   assert_eq(handle.router.list_slot_ids(), [
@@ -2114,7 +2107,7 @@ async test "an unreadable model cache degrades to the static single slot" {
   ) catch {
     error => fail("platform assembly must succeed: " + error.to_string())
   }
-  let handle = build_session_agent(platform~, cwd="/", env=tk_no_env) catch {
+  let handle = build_session_agent(platform~, cwd="/") catch {
     _ => fail("a corrupt cache must never fail composition")
   }
   assert_eq(handle.router.list_slot_ids(), ["opencode/claude-sonnet-5"])
@@ -2138,7 +2131,6 @@ async test "a session assembles over the platform task group and retires inside 
       platform~,
       cwd="/",
       session_id="scope-session",
-      env=tk_no_env,
     ) catch {
       error => fail("session assembly must succeed: " + error.to_string())
     }
@@ -2863,13 +2855,12 @@ async test "params MCP servers degrade per-server without failing the session" {
     platform~,
     cwd="/w2-a",
     mcp_servers=injected,
-    env=tk_no_env,
   ) catch {
     error =>
       fail("per-server failures must never fail assembly: " + error.to_string())
   }
   assert_eq(session.cwd, "/w2-a")
-  let fallback = build_session_agent(platform~, cwd="/w2-b", env=tk_no_env) catch {
+  let fallback = build_session_agent(platform~, cwd="/w2-b") catch {
     error => fail("discover fallback must compose: " + error.to_string())
   }
   assert_eq(fallback.cwd, "/w2-b")
@@ -2896,7 +2887,6 @@ async test "http servers with an unmappable header never fail the session" {
     platform~,
     cwd="/w2-c",
     mcp_servers=injected,
-    env=tk_no_env,
   ) catch {
     error =>
       fail(
@@ -2939,12 +2929,7 @@ async test "union keeps an injected server and a distinct local server" {
   let platform = tk_mcp_platform() catch {
     error => fail("platform assembly must succeed: " + error.to_string())
   }
-  let session = build_session_agent(
-    platform~,
-    cwd~,
-    mcp_servers=injected,
-    env=tk_no_env,
-  ) catch {
+  let session = build_session_agent(platform~, cwd~, mcp_servers=injected) catch {
     error => fail("union assembly must compose: " + error.to_string())
   }
   assert_eq(session.cwd, cwd)
@@ -2969,7 +2954,7 @@ async test "pure-Lazy sessions probe at composition on the process group" {
     ) catch {
       error => fail("platform assembly must succeed: " + error.to_string())
     }
-    let handle = build_session_agent(platform~, cwd~, env=tk_no_env) catch {
+    let handle = build_session_agent(platform~, cwd~) catch {
       error => fail("session assembly must succeed: " + error.to_string())
     }
     // Probed state through the handle's test seam: composition claimed the
@@ -3003,7 +2988,7 @@ async test "a groupless pure-Lazy session keeps the first-turn on_start fallback
   ) catch {
     error => fail("platform assembly must succeed: " + error.to_string())
   }
-  let handle = build_session_agent(platform~, cwd~, env=tk_no_env) catch {
+  let handle = build_session_agent(platform~, cwd~) catch {
     error => fail("session assembly must succeed: " + error.to_string())
   }
   // No group, no probes: the discovered server stays pending for the first
@@ -4331,12 +4316,7 @@ async test "session assembly wires the fs delegate by the resolved mode" {
   ) catch {
     error => fail("platform assembly must succeed: " + error.to_string())
   }
-  let plain = build_session_agent(
-    platform~,
-    cwd="/",
-    session_id="cetas-a",
-    env=tk_no_env,
-  ) catch {
+  let plain = build_session_agent(platform~, cwd="/", session_id="cetas-a") catch {
     error => fail("local assembly must succeed: " + error.to_string())
   }
   assert_true(plain.fs_delegate is None)
@@ -4354,7 +4334,6 @@ async test "session assembly wires the fs delegate by the resolved mode" {
     platform=delegated_platform,
     cwd="/",
     session_id="cetas-b",
-    env=tk_no_env,
   ) catch {
     error => fail("host assembly must succeed: " + error.to_string())
   }
@@ -4418,7 +4397,6 @@ async fn tk_spawn_with_host_kind(
     cwd~,
     mcp_servers=injected,
     host_kind=detect_host_kind(acp_mcp_server_names(injected)),
-    env=tk_no_env,
   )
 }
 
@@ -4489,7 +4467,7 @@ async test "no injection keeps the generic profile" {
   let platform = tk_mcp_platform() catch {
     error => fail("platform assembly must succeed: " + error.to_string())
   }
-  let _ = build_session_agent(platform~, cwd="/w4-plain", env=tk_no_env) catch {
+  let _ = build_session_agent(platform~, cwd="/w4-plain") catch {
     error => fail("plain session must assemble: " + error.to_string())
   }
   assert_true(detect_host_kind([]) is Generic)
@@ -4577,7 +4555,6 @@ async test "the catalog dump lands after an injected session assembly" {
     session_id="cetas-w21cat",
     mcp_servers=injected,
     host_kind=HostKind::Lody,
-    env=tk_no_env,
   ) catch {
     error =>
       fail("injected session assembly must succeed: " + error.to_string())
@@ -4611,7 +4588,6 @@ async test "the catalog dump covers the discover fallback" {
     platform~,
     cwd="/w21-b",
     session_id="cetas-w21disc",
-    env=tk_no_env,
   ) catch {
     error => fail("discover fallback must compose: " + error.to_string())
   }

@@ -24,6 +24,7 @@ import {
   "posoco/ext-oauth@0.1.0",
   "moonbitlang/async@0.22.7",
   "colmugx/cetas-ext-forme@0.2.0",
+  "colmugx/cetas-extras@0.1.0",
   "colmugx/posoco-ext-read@0.2.0",
   "colmugx/posoco-ext-write@0.2.0",
   "colmugx/posoco-ext-edit@0.2.0",
@@ -45,5 +46,6 @@ import {
   "colmugx/posoco-ext-fs-session@0.4.0",
   "colmugx/posoco-ext-statusbar@0.3.0",
   "colmugx/posoco-ext-stats@0.1.0",
+  "posoco/ext-herdr@0.1.0",
   "bobzhang/fuzzyscore@0.1.2",
 }
