@@ -54,13 +54,14 @@ func callSubmit(buf []byte) int32 {
 	return int32(C.cetas_host_submit_harness((*C.uint8_t)(unsafe.Pointer(&buf[0])), C.int32_t(len(buf))))
 }
 
-// HeapRelief returns the C-heap allocator's free pages to the OS (see
-// cetas_heap_relief in host.c). The turn loop's transient copies raise the
-// high-water mark; callers decide when relieving is worth the pass.
+// HeapRelief collects MoonBit cycles and (only when explicitly compiled
+// with CETAS_USE_MIMALLOC) releases free mimalloc pages. The system allocator
+// needs no mimalloc symbols.
 func HeapRelief() { C.cetas_heap_relief() }
 
-// HeapStats writes mimalloc's own statistics to the given file. The path
-// string is tiny and diagnostic-only; not freeing it is deliberate.
+// HeapStats writes the selected allocator's diagnostics. For a system
+// allocator it records an explicit unsupported marker instead of pretending
+// mimalloc statistics exist. The path is diagnostic-only.
 func HeapStats(path string) {
 	C.cetas_heap_stats_file(C.CString(path))
 }

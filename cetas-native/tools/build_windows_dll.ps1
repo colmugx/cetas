@@ -19,7 +19,13 @@ try {
     $implib = Join-Path $dest "cetas_moon_import.lib"
     $def = Join-Path $root "cetas-native/tools/cetas_moon.def"
     $hostSrc = Join-Path $root "cetas-native/go_bridge/host.c"
-    & cl.exe /nologo /c /O1 /Gy /Gw /GL /MD /W3 "/Fo$obj" "$hostSrc"
+    # The MoonBit archive's allocator and host.c must agree. The default
+    # (and all CI/release builds) is system; mimalloc is an explicit opt-in.
+    $allocatorDefine = @()
+    if ($env:MOONBIT_ALLOCATOR -eq 'mimalloc') {
+        $allocatorDefine = @('/DCETAS_USE_MIMALLOC=1')
+    }
+    & cl.exe /nologo /c /O1 /Gy /Gw /GL /MD /W3 @allocatorDefine "/Fo$obj" "$hostSrc"
     if ($LASTEXITCODE -ne 0) { throw "MSVC host.c compilation failed ($LASTEXITCODE)" }
     & link.exe /nologo /DLL /INCREMENTAL:NO "/OUT:$dll" "/IMPLIB:$implib" `
         "/DEF:$def" /LTCG /OPT:REF /OPT:ICF "/WHOLEARCHIVE:$archive" "$obj" `

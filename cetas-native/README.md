@@ -71,7 +71,13 @@ dependency stubs, and runtime through `tools/moon-cc-wrapper` using
 of Moon's required flags, appending `-Os -ffunction-sections -fdata-sections`
 on Linux/macOS and `/O1 /Gw /GL` with MSVC on Windows. Both use
 `MOONBIT_ALLOCATOR=system`; the Windows DLL linker uses
-`/LTCG /OPT:REF /OPT:ICF`. Standard-library imports are retained because
+`/LTCG /OPT:REF /OPT:ICF`. The C host's heap diagnostics are
+allocator-aware: system builds perform MoonBit cycle collection and report
+that mimalloc-specific statistics are unavailable. Only explicit mimalloc
+builds should enable `CETAS_USE_MIMALLOC=1` in the C host (via
+`CGO_CFLAGS=-DCETAS_USE_MIMALLOC=1` on Unix, or by setting
+`MOONBIT_ALLOCATOR=mimalloc` when invoking the Windows DLL link script).
+Never mix the system MoonBit archive with a mimalloc-enabled C host. Standard-library imports are retained because
 the native application requires the MoonBit core runtime and modules.
 Windows keeps the complete archive in the DLL to preserve callback and
 initialization symbols. Go Release builds use `-trimpath -ldflags="-s -w"`;

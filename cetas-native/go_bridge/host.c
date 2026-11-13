@@ -655,29 +655,44 @@ int32_t cetas_bridge_read_command_wake(void) {
 #endif
 }
 
-/* Return the allocator's free pages to the OS. The MoonBit runtime allocates
- * through mimalloc, which keeps freed pages in its own arenas and returns them
- * only on an explicit forced collect; the console's turn loop deep-copies and
- * re-serializes the whole conversation every turn, so freed-but-held pages
- * accumulate exactly like a leak. Callers decide policy; this is the
- * primitive. */
-#include <stdbool.h>
+/* The native host must use the same allocator contract as its MoonBit
+ * archive. CI and release builds set MOONBIT_ALLOCATOR=system, where mi_* is
+ * deliberately absent. Mimalloc collection/statistics are opt-in ONLY when
+ * host.c and the MoonBit archive were both built for mimalloc, using
+ * -DCETAS_USE_MIMALLOC=1 (or MSVC /DCETAS_USE_MIMALLOC=1).
+ *
+ * Cycle collection remains available with either allocator. System malloc
+ * handles freed pages itself; it does not expose mimalloc's collect/stats
+ * interface. Never emit unresolved references to mi_* in a system build. */
 #include <stdio.h>
+extern void moonbit_collect_cycles(void);
+
+#ifdef CETAS_USE_MIMALLOC
+#include <stdbool.h>
 extern void mi_collect(bool force);
 extern void mi_stats_print_out(void (*out)(const char *, void *), void *arg);
-extern void moonbit_collect_cycles(void);
-void cetas_heap_relief(void) {
-    moonbit_collect_cycles();
-    mi_collect(true);
-}
+
 static void cetas_stat_to_file(const char *msg, void *arg) {
     fputs(msg, (FILE *)arg);
 }
+#endif
+
+void cetas_heap_relief(void) {
+    moonbit_collect_cycles();
+#ifdef CETAS_USE_MIMALLOC
+    mi_collect(true);
+#endif
+}
+
 void cetas_heap_stats_file(const char *path) {
     FILE *out = fopen(path, "w");
-    if (out == ((void *)0)) {
+    if (out == NULL) {
         return;
     }
+#ifdef CETAS_USE_MIMALLOC
     mi_stats_print_out(cetas_stat_to_file, out);
+#else
+    fputs("allocator: system (mimalloc statistics unavailable)\n", out);
+#endif
     fclose(out);
 }
