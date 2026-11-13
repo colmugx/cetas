@@ -35,7 +35,7 @@ priv struct SessionHandle {
   /// Outbound context, refreshed each prompt, so refresh can push config_option_update.
   mut context : @acp.AgentContext?
   /// In-flight turn task, so `session/cancel` can interrupt it.
-  mut in_flight : @async.Task[@posoco.TurnResult]?
+  mut in_flight : @core_async.Task[@posoco.TurnResult]?
   /// Held from before bridge attach until the whole turn lifecycle settles,
   /// so a queued prompt runs strictly after instead of interleaving turns.
   turn_lock : @async.Mutex
@@ -568,43 +568,49 @@ pub async fn CetasAcpHost::handle_prompt(
     }
     None => ()
   }
-  let outcome : Result[@acp.PromptResult, @acp.HandlerError] = @async.with_task_group(group => {
-      handle.bridge.spawn_pump(group)
-      // Pre-turn liveness: one placeholder thought chunk so the editor sees
-      // life before the model's first stream chunk; slash commands early-
-      // return above and never reach this.
-      handle.bridge.push_agent_thought_chunk(
-        session_id=params.session_id,
-        text="…",
-      )
-      // allow_failure: the turn's AgentError is reported through task.wait()
-      // below, so the pump and this handler still settle in order.
-      let task = group.spawn(
-        () => {
-          handle.agent.run_turn(
-            acp_prompt_to_message(params.prompt),
-            params.session_id,
-          )
-        },
-        allow_failure=true,
-      )
-      handle.in_flight = Some(task)
-      let failure : Error? = try {
-        let _ = task.wait()
-        None
-      } catch {
-        error => Some(error)
-      }
-      handle.in_flight = None
-      ignore(handle.bridge.flush())
-      // The turn may have moved the mode on its own — sync before the pump closes.
-      push_mode_update(params.session_id, handle)
-      // A settled turn gives an unnamed session its first-user-text title;
-      // named sessions already pushed at rename time.
-      if failure is None {
-        push_session_title(params.session_id, handle, only_unnamed=true)
-      }
-      handle.bridge.close()
+  // The pump, the ACP bridge and posoco's turn all run on the core-async stack,
+  // so the turn's scope is that group — the host's moonbitlang/async I/O group
+  // cannot own them (their TaskGroups are distinct types since async 0.22).
+  // `with_task_group` there is Unit-valued, so the verdict crosses in a cell.
+  let settled : Ref[Result[@acp.PromptResult, @acp.HandlerError]?] = Ref(None)
+  @core_async.with_task_group(async fn(group) {
+    handle.bridge.spawn_pump(group)
+    // Pre-turn liveness: one placeholder thought chunk so the editor sees
+    // life before the model's first stream chunk; slash commands early-
+    // return above and never reach this.
+    handle.bridge.push_agent_thought_chunk(
+      session_id=params.session_id,
+      text="…",
+    )
+    // allow_failure: the turn's AgentError is reported through task.wait()
+    // below, so the pump and this handler still settle in order.
+    let task = group.spawn(
+      () => {
+        handle.agent.run_turn(
+          acp_prompt_to_message(params.prompt),
+          params.session_id,
+        )
+      },
+      allow_failure=true,
+    )
+    handle.in_flight = Some(task)
+    let failure : Error? = try {
+      let _ = task.wait()
+      None
+    } catch {
+      error => Some(error)
+    }
+    handle.in_flight = None
+    ignore(handle.bridge.flush())
+    // The turn may have moved the mode on its own — sync before the pump closes.
+    push_mode_update(params.session_id, handle)
+    // A settled turn gives an unnamed session its first-user-text title;
+    // named sessions already pushed at rename time.
+    if failure is None {
+      push_session_title(params.session_id, handle, only_unnamed=true)
+    }
+    handle.bridge.close()
+    settled.val = Some(
       match failure {
         None => Ok({ stop_reason: handle.bridge.stop_reason(), meta: Omitted, })
         Some(error) => {
@@ -616,11 +622,16 @@ pub async fn CetasAcpHost::handle_prompt(
           )
           Err(@acp.HandlerError::Application(message="cetas-acp: \{detail}"))
         }
-      }
-    },
-  ) catch {
+      },
+    )
+  }) catch {
     // Only an unexpected pump defect reaches this arm (allow_failure above).
-    _ =>
+    _ => ()
+  }
+  let outcome : Result[@acp.PromptResult, @acp.HandlerError] = match
+    settled.val {
+    Some(result) => result
+    None =>
       Err(
         @acp.HandlerError::Application(
           message="cetas-acp: internal task-group failure",

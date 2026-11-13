@@ -3,8 +3,10 @@ package "colmugx/cetas-console/console"
 
 import {
   "colmugx/posoco-ext-permission",
+  "colmugx/posoco-ext-plan",
   "colmugx/posoco-ext-workspace",
   "colmugx/posoco/kernel",
+  "colmugx/posoco/port",
   "colmugx/posoco/types",
   "moonbitlang/core/json",
 }
@@ -46,6 +48,13 @@ pub struct ConsoleConfig {
   herdr_presence : Bool
 }
 
+pub(all) struct ConsolePlanReview {
+  ui : &@port.UiPort
+}
+pub fn ConsolePlanReview::ConsolePlanReview(&@port.UiPort) -> Self
+pub async fn ConsolePlanReview::review(Self, @posoco-ext-plan.PlanReviewRequest) -> @posoco-ext-plan.PlanReviewDecision
+pub impl @posoco-ext-plan.PlanReviewSource for ConsolePlanReview
+
 pub struct ConsoleRuntime {
   fs : &@posoco-ext-workspace.WorkspaceFs
   home : String
@@ -80,6 +89,7 @@ pub async fn ConsoleRuntime::file_suggestions_json(Self, String, Int32) -> @json
 pub async fn ConsoleRuntime::invoke_registered_command(Self, String, String, @json.Json) -> @json.Json
 pub async fn ConsoleRuntime::login(Self, String, String) -> String
 pub async fn ConsoleRuntime::logout(Self, String) -> String
+pub async fn ConsoleRuntime::mcp_login_outcome(Self, String, String, @json.Json) -> @port.CommandOutcome? noraise
 pub async fn ConsoleRuntime::model_slots_json(Self, String?) -> @json.Json noraise
 pub async fn ConsoleRuntime::new_session(Self) -> Result[String, String] noraise
 pub async fn ConsoleRuntime::prefetch_session(Self, String) -> Result[String, String] noraise

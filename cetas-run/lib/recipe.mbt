@@ -1,28 +1,12 @@
 ///|
-/// Public run composition. Maintained as MoonBit source; no recipe preparation.
-let compiled_recipe : Array[String] = [
-  "forme", "read", "write", "edit", "glob", "grep", "astgrep", "webfetch", "shell",
-  "skills", "askquestion", "handoff", "lazytools",
-]
+/// Public run composition. Keys and packages come from the Cetas roster in
+/// cetas-core, so this surface cannot drift from the other hosts' inventory.
+let compiled_recipe : Array[String] = @cetas_core.cetas_recipe_keys("run")
 
 ///|
-let compiled_recipe_packages : Map[String, String] = Map::from_array([
-  ("forme", "colmugx/cetas-ext-forme/lib"),
-  ("read", "colmugx/posoco-ext-read"),
-  ("write", "colmugx/posoco-ext-write"),
-  ("edit", "colmugx/posoco-ext-edit"),
-  ("glob", "colmugx/posoco-ext-glob"),
-  ("grep", "colmugx/posoco-ext-grep"),
-  ("astgrep", "colmugx/posoco-ext-astgrep"),
-  ("webfetch", "colmugx/posoco-ext-webfetch"),
-  ("bash", "colmugx/posoco-ext-bash"),
-  ("ps1", "colmugx/posoco-ext-ps1"),
-  ("skills", "colmugx/posoco-ext-skills"),
-  ("askquestion", "colmugx/posoco-ext-askquestion"),
-  ("handoff", "colmugx/posoco-ext-handoff"),
-  ("lazytools", "colmugx/posoco-ext-lazytools"),
-  ("herdr", "posoco/ext-herdr"),
-])
+let compiled_recipe_packages : Map[String, String] = @cetas_core.cetas_capability_packages(
+  "run",
+)
 
 ///|
 #cfg(platform="windows")

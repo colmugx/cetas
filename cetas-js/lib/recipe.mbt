@@ -1,36 +1,12 @@
 ///|
-/// Public js composition. Maintained as MoonBit source; no recipe preparation.
-let compiled_recipe : Array[String] = [
-  "forme", "read", "write", "edit", "glob", "grep", "astgrep", "webfetch", "shell",
-  "skills", "askquestion", "handoff", "lazytools",
-]
+/// Public js composition. Keys and packages come from the Cetas roster in
+/// cetas-core, so this surface cannot drift from the other hosts' inventory.
+let compiled_recipe : Array[String] = @cetas_core.cetas_recipe_keys("js")
 
 ///|
-let compiled_recipe_packages : Map[String, String] = Map::from_array([
-  ("forme", "colmugx/cetas-ext-forme/lib"),
-  ("read", "colmugx/posoco-ext-read"),
-  ("write", "colmugx/posoco-ext-write"),
-  ("edit", "colmugx/posoco-ext-edit"),
-  ("glob", "colmugx/posoco-ext-glob"),
-  ("grep", "colmugx/posoco-ext-grep"),
-  ("astgrep", "colmugx/posoco-ext-astgrep"),
-  ("webfetch", "colmugx/posoco-ext-webfetch"),
-  ("bash", "colmugx/posoco-ext-bash"),
-  ("ps1", "colmugx/posoco-ext-ps1"),
-  ("skills", "colmugx/posoco-ext-skills"),
-  ("askquestion", "colmugx/posoco-ext-askquestion"),
-  ("handoff", "colmugx/posoco-ext-handoff"),
-  ("lazytools", "colmugx/posoco-ext-lazytools"),
-  ("herdr", "posoco/ext-herdr"),
-  ("mcp", "colmugx/posoco-ext-mcp"),
-  ("plan", "colmugx/posoco-ext-plan"),
-  ("pi_adaptor", "colmugx/posoco-ext-pi-adaptor"),
-  ("stats", "colmugx/posoco-ext-stats"),
-  ("statusbar", "colmugx/posoco-ext-statusbar"),
-  ("subagent", "colmugx/posoco-ext-subagent"),
-  ("kind", "colmugx/posoco-ext-kind"),
-  ("subagent_kit", "colmugx/posoco-kit-subagent"),
-])
+let compiled_recipe_packages : Map[String, String] = @cetas_core.cetas_capability_packages(
+  "js",
+)
 
 ///|
 extern "js" fn js_process_platform_is_windows() -> Bool =

@@ -19,7 +19,6 @@ import {
   "moonbitlang/async/stdio",
   "moonbitlang/core/env",
   "moonbitlang/core/async" @core_async,
-  // recipe-imports:begin
   "colmugx/cetas-ext-forme/lib" @forme,
   "colmugx/posoco-ext-read" @read,
   "colmugx/posoco-ext-write" @write,
@@ -39,7 +38,6 @@ import {
   "colmugx/posoco-ext-plan" @plan,
   "colmugx/posoco-kit-lody" @lody_kit,
   "colmugx/posoco-kit-paseo" @paseo_kit,
-  // recipe-imports:end
 }
 
 import {

@@ -1,12 +1,12 @@
 ///|
-// js-only end-to-end for the host-side OAuth orchestration in mcp_login.mbt.
-// Spawns the shared OAuth fixture from posoco-ext-mcp (one process playing
-// resource server + authorization server; cwd is the cetas-js module root,
-// so the fixture rides a relative path), then drives the same functions the
-// host drives: discover/attach/activate captures the 401 challenge,
-// mcp_login_flow lands a device-flow token with the refresh endpoints
-// persisted, and an expired stored credential proves mcp_inject_stored_tokens
-// refreshes and re-injects before the reconnecting call.
+// End-to-end for the MCP OAuth flow every host shares (posoco-ext-mcp's
+// in cetas-core's `mcp_host` package). Spawns the shared OAuth fixture from posoco-ext-mcp
+// (one process playing resource server + authorization server; cwd is the
+// cetas-js module root, so the fixture rides a relative path), then drives the
+// same functions the host drives: discover/attach/activate captures the 401
+// challenge, login lands a device-flow token with the refresh endpoints
+// persisted, and an expired stored credential proves the startup pass refreshes
+// and re-injects before the reconnecting call.
 
 ///|
 // node:fs / node:os / node:child_process members bound with `#module` and
@@ -180,8 +180,13 @@ async test "js mcp login flow and startup token injection" {
       let transport = @oauth.DefaultOAuthHttpTransport::DefaultOAuthHttpTransport()
       let interaction = @oauth.NoopAuthInteraction::NoopAuthInteraction()
       let now = (@async.now() / 1000L).to_int()
-      let login = mcp_login_flow(
-        bridge, "oa", store, transport, interaction, now,
+      let login = @mcp_host.mcp_login(
+        bridge,
+        "oa",
+        store,
+        transport,
+        interaction,
+        client_name="cetas",
       )
       match login {
         Ok(feedback) =>
@@ -224,7 +229,7 @@ async test "js mcp login flow and startup token injection" {
       store.write("mcp.oa", @oauth.ProviderCredential::OAuth(expired)) catch {
         _ => fail("expiring the stored credential failed")
       }
-      mcp_inject_stored_tokens(bridge, store, transport, now)
+      @mcp_host.mcp_inject_stored_tokens(bridge, store, transport, now)
       let reconnected : Result[Unit, String] = bridge.reconnect_server("oa") catch {
         _ => Err("reconnect aborted")
       }

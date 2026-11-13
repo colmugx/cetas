@@ -47,5 +47,7 @@ import {
   "colmugx/posoco-ext-statusbar@0.3.0",
   "colmugx/posoco-ext-stats@0.1.0",
   "posoco/ext-herdr@0.1.0",
+  "colmugx/posoco-ext-mcp@0.6.0",
+  "colmugx/posoco-ext-plan@0.5.0",
   "bobzhang/fuzzyscore@0.1.2",
 }

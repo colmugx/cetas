@@ -150,6 +150,12 @@ pub async fn ConsoleRuntime::invoke_registered_command(
       ),
     )
   }
+  // `/mcp login <server>` never reaches the ports loop: the bridge's own `mcp`
+  // command is read-only and would reject the action.
+  match self.mcp_login_outcome(session_id, id, args) {
+    Some(outcome) => return console_command_outcome_json(outcome)
+    None => ()
+  }
   let ports = self.active().active().agent.commands()
   for port in ports {
     if port.commands().iter().any(fn(def) { def.id == id }) {

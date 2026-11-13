@@ -22,7 +22,7 @@ import {
   "posoco/devkit@0.4.1",
   "colmugx/posoco-ext-acp@0.3.0",
   "colmugx/posoco-ext-memoh@0.1.0",
-  "colmugx/posoco-ext-mcp@0.5.1",
+  "colmugx/posoco-ext-mcp@0.6.0",
   "posoco/ext-llm@0.2.0",
   "colmugx/posoco-ext-credentials@0.1.0",
   "posoco/ext-oauth@0.1.0",

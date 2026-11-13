@@ -54,7 +54,7 @@ import {
   "colmugx/posoco-ext-handoff@0.1.0",
   "colmugx/posoco-ext-lazytools@0.1.0",
   "colmugx/posoco-ext-acp@0.3.0",
-  "colmugx/posoco-ext-mcp@0.5.1",
+  "colmugx/posoco-ext-mcp@0.6.0",
   "colmugx/posoco-ext-plan@0.5.0",
   "colmugx/posoco-kit-lody@0.1.0",
   "colmugx/posoco-kit-paseo@0.1.0",

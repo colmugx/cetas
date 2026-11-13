@@ -7,7 +7,7 @@ priv struct MemohSession {
   memoh : @memoh.Memoh
   router : @llm.RouterModelPort
   agent : @posoco.Agent
-  mut in_flight : @async.Task[@posoco.TurnResult]?
+  mut in_flight : @core_async.Task[@posoco.TurnResult]?
   turn_lock : @async.Mutex
 }
 
@@ -526,22 +526,29 @@ pub async fn MemohHost::handle_prompt(
   let message = session.memoh.prepare_turn(decoded)
   defer session.memoh.clear_turn_context()
 
-  let outcome : Result[@acp.PromptResult, @acp.HandlerError] = @async.with_task_group(group => {
-      session.bridge.spawn_pump(group)
-      let task = group.spawn(
-        () => session.agent.run_turn(message, params.session_id),
-        allow_failure=true,
-      )
-      session.in_flight = Some(task)
-      let failure : Error? = try {
-        let _ = task.wait()
-        None
-      } catch {
-        error => Some(error)
-      }
-      session.in_flight = None
-      ignore(session.bridge.flush())
-      session.bridge.close()
+  // The pump, the ACP bridge and posoco's turn all run on the core-async stack,
+  // so the turn's scope is that group — the host's moonbitlang/async I/O group
+  // cannot own them (their TaskGroups are distinct types since async 0.22).
+  // `with_task_group` on the core-async stack is Unit-valued, so the verdict
+  // crosses in a cell.
+  let settled : Ref[Result[@acp.PromptResult, @acp.HandlerError]?] = Ref(None)
+  @core_async.with_task_group(async fn(group) {
+    session.bridge.spawn_pump(group)
+    let task = group.spawn(
+      () => session.agent.run_turn(message, params.session_id),
+      allow_failure=true,
+    )
+    session.in_flight = Some(task)
+    let failure : Error? = try {
+      let _ = task.wait()
+      None
+    } catch {
+      error => Some(error)
+    }
+    session.in_flight = None
+    ignore(session.bridge.flush())
+    session.bridge.close()
+    settled.val = Some(
       match failure {
         None =>
           Ok({ stop_reason: session.bridge.stop_reason(), meta: Omitted, })
@@ -561,10 +568,15 @@ pub async fn MemohHost::handle_prompt(
               @acp.HandlerError::Application(message="cetas-memoh: " + detail),
             )
           }
-      }
-    },
-  ) catch {
-    _ =>
+      },
+    )
+  }) catch {
+    _ => ()
+  }
+  let outcome : Result[@acp.PromptResult, @acp.HandlerError] = match
+    settled.val {
+    Some(result) => result
+    None =>
       Err(
         @acp.HandlerError::Application(
           message="cetas-memoh: internal task-group failure",

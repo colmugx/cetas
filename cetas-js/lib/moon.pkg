@@ -36,6 +36,7 @@ import {
   "colmugx/posoco-ext-handoff" @handoff,
   "colmugx/posoco-ext-lazytools" @lazytools,
   "posoco/ext-herdr" @herdr,
+  "colmugx/cetas-core/mcp_host",
   "colmugx/posoco-ext-magpie" @magpie,
   "colmugx/posoco-ext-mcp" @mcp,
   "colmugx/posoco-ext-plan" @plan,

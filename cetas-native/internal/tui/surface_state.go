@@ -153,6 +153,27 @@ func (m *model) surfaceEvent(kind string, raw json.RawMessage) bool {
 			m.err = "UI response rejected (" + r.Kind + "): " + r.Reason
 		}
 		return true
+	case "mcp.login":
+		// The MCP OAuth flow's device-code/URL notice. The flow polls on its
+		// own; this line is what tells the user where to authorize.
+		var r struct {
+			VerificationURI string `json:"verification_uri"`
+			UserCode        string `json:"user_code"`
+			Hint            string `json:"hint"`
+			URL             string `json:"url"`
+			Message         string `json:"message"`
+		}
+		if json.Unmarshal(raw, &r) == nil {
+			switch {
+			case r.VerificationURI != "" && r.UserCode != "":
+				m.protocolNotice("MCP login: open " + r.VerificationURI + " and enter code " + r.UserCode)
+			case r.URL != "":
+				m.protocolNotice("MCP login: open " + r.URL)
+			case r.Message != "":
+				m.protocolNotice("MCP login: " + r.Message)
+			}
+		}
+		return true
 	case "config.warning":
 		var r struct{ Field, Reason string }
 		if json.Unmarshal(raw, &r) == nil {

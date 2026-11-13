@@ -59,6 +59,9 @@ priv struct SessionHandle {
   /// through the existing `resolve_ui` command, keyed by `question_id`) can
   /// reach the registry that parked it. `None` for the default console.
   questions : @askquestion.AskQuestionTools?
+  /// This session's MCP bridge, held so `/mcp login` can drive the OAuth flow
+  /// against the same connection set the agent runs on.
+  mcp : @mcp.MCPToolBridge?
   /// Live background children of this session, fed by the subagent event
   /// stream. `None` when the delegation surface was never composed. A turn
   /// finishing does not finish its detached children, so `busy` alone cannot
@@ -435,6 +438,7 @@ async fn compose_session_agent(
     host_group=Some(group),
     askquestion=questions,
   )
+  let plan_review = ConsolePlanReview::ConsolePlanReview(ui_port)
   let session = @cetas_core.build_cetas_session(
     platform~,
     cwd~,
@@ -442,6 +446,11 @@ async fn compose_session_agent(
     ui=Some(ui_port),
     approval=Some(approval),
     tool_plane_group=Some(group),
+    // Plan mode publishes its tool exemptions at construction, so it must be
+    // built after the permission gate subscribes.
+    events_exts=Some(fn(events) {
+      [compose_plan_mode(events, plan_review, fs, cwd) as &@posoco.Extension]
+    }),
     label~,
     warn~,
   )
@@ -498,9 +507,20 @@ async fn compose_session_agent(
     }
     None => ()
   }
+  // MCP joins as a tail extension: its live tools arrive after the session's
+  // routing capture, so the static catalog stays free of duplicates.
+  let mcp_bridge = compose_mcp_bridge(
+    fs, home, cwd, group, lifetime_group, label,
+  )
+  tail_exts.push(mcp_bridge as &@posoco.Extension)
+  reserve_mcp_tool_names(mcp_bridge, session.base_defs)
   let agent = @cetas_core.compose_cetas_agent(
     session~,
     tail_exts~,
+    runtime=Some(
+      compose_mcp_runtime(mcp_bridge, router as &@posoco.ModelPort)
+      as &@runtime.Runtime,
+    ),
     runtime_group=lifetime_group,
   )
   let close = native_session_scope(group, agent, native_ui~, label)
@@ -516,6 +536,7 @@ async fn compose_session_agent(
     busy: false,
     turn_no: 0,
     questions,
+    mcp: Some(mcp_bridge),
     children,
     close,
   }
@@ -1183,6 +1204,7 @@ async fn build_workspace(
     host_group=Some(group),
     askquestion=questions,
   )
+  let plan_review = ConsolePlanReview::ConsolePlanReview(ui_port)
   let session = @cetas_core.build_cetas_session(
     platform~,
     cwd~,
@@ -1190,6 +1212,11 @@ async fn build_workspace(
     ui=Some(ui_port),
     approval=Some(approval),
     tool_plane_group=Some(group),
+    // Plan mode publishes its tool exemptions at construction, so it must be
+    // built after the permission gate subscribes.
+    events_exts=Some(fn(events) {
+      [compose_plan_mode(events, plan_review, fs, cwd) as &@posoco.Extension]
+    }),
     label~,
     warn~,
   )
@@ -1241,9 +1268,20 @@ async fn build_workspace(
     }
     None => ()
   }
+  // MCP joins as a tail extension: its live tools arrive after the session's
+  // routing capture, so the static catalog stays free of duplicates.
+  let mcp_bridge = compose_mcp_bridge(
+    fs, home, cwd, group, lifetime_group, label,
+  )
+  tail_exts.push(mcp_bridge as &@posoco.Extension)
+  reserve_mcp_tool_names(mcp_bridge, session.base_defs)
   let agent = @cetas_core.compose_cetas_agent(
     session~,
     tail_exts~,
+    runtime=Some(
+      compose_mcp_runtime(mcp_bridge, router as &@posoco.ModelPort)
+      as &@runtime.Runtime,
+    ),
     runtime_group=lifetime_group,
   )
   let close = native_session_scope(group, agent, native_ui~, label)
@@ -1259,6 +1297,7 @@ async fn build_workspace(
     busy: false,
     turn_no: 0,
     questions,
+    mcp: Some(mcp_bridge),
     children: first_children,
     close,
   }

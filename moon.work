@@ -8,6 +8,7 @@ members = [
   "./cetas-js",
   "./cetas-native",
   "./cetas-ext-forme",
+  "./cetas-extras",
   "./extension/posoco-devkit",
   "./extension/posoco-ext-acp",
   "./extension/posoco-ext-askquestion",

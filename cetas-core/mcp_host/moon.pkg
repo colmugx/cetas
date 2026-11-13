@@ -1,0 +1,13 @@
+import {
+  "colmugx/posoco",
+  "posoco/devkit",
+  "colmugx/posoco-ext-mcp" @mcp,
+  "colmugx/posoco-ext-credentials" @credentials,
+  "colmugx/posoco-ext-workspace" @workspace,
+  "posoco/ext-oauth" @oauth,
+}
+
+// MCP OAuth is a native/js concern: the wasm runner (MoonX) composes no MCP
+// servers, and the extension is not published for that target.
+
+supported_targets = "+native +js"

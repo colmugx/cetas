@@ -1,26 +1,23 @@
 ///|
-/// mcp_login.mbt — host-side OAuth orchestration for MCP servers.
+/// Cetas-side MCP host glue, shared by every host so a login or a token refresh
+/// behaves identically everywhere: the Cetas-owned facts (where a server
+/// credential lives, which client name registers) and the OAuth flow itself —
+/// metadata discovery, dynamic registration, device flow, persistence and the
+/// reconnecting call.
 ///
-/// `mcp_login_flow` is the interactive chain behind `/mcp login`: from a
-/// captured 401 challenge, RFC 9728/8414 metadata discovery, RFC 7591 dynamic
-/// registration, RFC 8628 device flow, then persist the credential (with the
-/// endpoints a later refresh needs) and reconnect the server with the fresh
-/// access token. `mcp_inject_stored_tokens` is the composition-time pass:
-/// inject stored tokens, refreshing expired ones first. Both are plain
-/// functions over the bridge + store + transport seams so the e2e test drives
-/// exactly what the host drives.
+/// The flow sits here rather than next to the bridge because the extension's
+/// module graph currently resolves `moonbitlang/async` to a version whose
+/// `TaskGroup` no longer unifies with the core-async group it passes to the MCP
+/// SDK; one shared implementation here still beats a copy per host. Moving it
+/// upstream only needs that dependency alignment.
+///
+/// The credential root is deliberately separate from the provider credentials:
+/// MCP server tokens are their own seam and can be revoked wholesale by
+/// deleting the directory.
 
 ///|
-/// Provider id convention for one MCP server's stored credential.
-fn mcp_provider_id(server : String) -> String {
-  "mcp." + server
-}
-
-///|
-/// The MCP login credential store below the cetas home. A separate root from
-/// the provider credentials (`~/.cetas/credentials`): MCP server tokens are
-/// their own seam and can be revoked wholesale by deleting the directory.
-fn mcp_credential_store(
+/// Credential store for MCP server OAuth tokens under the Cetas home.
+pub fn cetas_mcp_credential_store(
   fs : &@workspace.WorkspaceFs,
   home : String,
 ) -> @credentials.FileProviderCredentialStore {
@@ -28,49 +25,68 @@ fn mcp_credential_store(
 }
 
 ///|
-/// Copy of `credential` whose metadata carries the two keys a later
-/// non-interactive refresh needs (`token_endpoint`, `client_id`). Other
-/// metadata keys survive.
-fn with_refresh_endpoints(
-  credential : @oauth.Credential,
-  token_endpoint~ : String,
-  client_id~ : String,
-) -> @oauth.Credential {
-  let metadata = credential.metadata.copy()
-  metadata["token_endpoint"] = token_endpoint
-  metadata["client_id"] = client_id
-  { ..credential, metadata, }
+/// The client name Cetas registers with an authorization server. Shared by every
+/// host so a login performed in one terminal is the same client in another.
+pub fn cetas_mcp_oauth_client_name() -> String {
+  "cetas"
 }
 
 ///|
-/// Caller-facing text for an OAuth error. The oauth package's Show impl is
-/// not public, and Debug reprs leak constructor noise — an explicit variant
-/// map keeps messages bounded and sanitizes any inner detail.
-fn oauth_error_text(err : @oauth.OAuthError) -> String {
-  match err {
-    AuthPending => "authorization pending"
-    SlowDown => "polling too fast (slow_down)"
-    AccessDenied => "access denied"
-    ExpiredToken => "device code expired"
-    InvalidGrant => "invalid grant"
-    HttpError(detail) => "http error: " + @devkit.sanitize_label(detail)
-    ParseError(detail) => "parse error: " + @devkit.sanitize_label(detail)
-    Cancelled => "cancelled"
-  }
+/// Interactive OAuth login for one MCP server, with the Cetas store and client
+/// name filled in. `interaction` is the host's UI port for the device code.
+pub async fn cetas_mcp_login(
+  bridge : @mcp.MCPToolBridge,
+  server : String,
+  fs : &@workspace.WorkspaceFs,
+  home : String,
+  transport : &@oauth.OAuthHttpTransport,
+  interaction : &@oauth.AuthInteraction,
+) -> Result[String, String] noraise {
+  mcp_login(
+    bridge,
+    server,
+    cetas_mcp_credential_store(fs, home),
+    transport,
+    interaction,
+    client_name=cetas_mcp_oauth_client_name(),
+  )
 }
 
 ///|
-/// Interactive login for one MCP server, end to end. Every failure folds
-/// into a sanitized `Err` naming the server (never a token); on success the
-/// access token is injected and the server reconnected, so its tools are
-/// available in the same command.
-async fn mcp_login_flow(
+/// Composition-time credential pass over every OAuth-declared server, with the
+/// Cetas store filled in. `now_secs` is epoch seconds.
+pub async fn cetas_mcp_inject_stored_tokens(
+  bridge : @mcp.MCPToolBridge,
+  fs : &@workspace.WorkspaceFs,
+  home : String,
+  transport : &@oauth.OAuthHttpTransport,
+  now_secs : Int32,
+) -> Unit noraise {
+  mcp_inject_stored_tokens(
+    bridge,
+    cetas_mcp_credential_store(fs, home),
+    transport,
+    now_secs,
+  )
+}
+
+///|
+/// Interactive OAuth login for one MCP server: RFC 9728/8414 metadata
+/// discovery, RFC 7591 dynamic registration, RFC 8628 device flow, credential
+/// persistence and the reconnecting call.
+///
+/// Lives here rather than in the extension because the extension's own module
+/// graph resolves `moonbitlang/async` to a version whose `TaskGroup` no longer
+/// unifies with the core-async group the bridge passes to the MCP SDK
+/// (`MCPClient::connect_stdio`). Moving this glue upstream needs that alignment
+/// first; until then one shared implementation here beats a copy per host.
+pub async fn mcp_login(
   bridge : @mcp.MCPToolBridge,
   server : String,
   store : &@oauth.ProviderCredentialStore,
   transport : &@oauth.OAuthHttpTransport,
   interaction : &@oauth.AuthInteraction,
-  now_secs : Int32,
+  client_name~ : String,
 ) -> Result[String, String] noraise {
   let label = @devkit.sanitize_label(server)
   // A 401 challenge is only recorded once a connection attempt ate it. With
@@ -124,7 +140,7 @@ async fn mcp_login_flow(
       )
   }
   let client_id = @oauth.register_client(
-    registration_endpoint, "cetas-js", transport,
+    registration_endpoint, client_name, transport,
   ) catch {
     err =>
       return Err("dynamic client registration failed: " + oauth_error_text(err))
@@ -145,14 +161,11 @@ async fn mcp_login_flow(
     client_id~,
   )
   store.write(
-    mcp_provider_id(server),
+    mcp_credential_id(server),
     @oauth.ProviderCredential::OAuth(credential),
   ) catch {
     _ => return Err("credential store write failed for server '" + label + "'")
   }
-  // The device flow stamps expires_at from its own clock; the host's
-  // now_secs is only the caller's reference time, not used for the decision.
-  ignore(now_secs)
   bridge.set_server_token(server, credential.access_token)
   let reconnected : Result[Unit, String] = bridge.reconnect_server(server) catch {
     _ => Err("reconnect aborted unexpectedly")
@@ -191,36 +204,34 @@ async fn mcp_login_flow(
 /// Composition-time token injection for every OAuth-declared server: read the
 /// stored credential, refresh it first when expired (persisting the rotated
 /// one), and hand the access token to the bridge before lazy activation
-/// connects. Any per-server failure just skips that server — activation then
-/// records the 401 for `/mcp` and the user re-runs login; composition must
-/// never fail here.
-async fn mcp_inject_stored_tokens(
+/// connects. Any per-server failure just skips that server — activation records
+/// the 401 and the user re-runs login; composition must never fail here.
+pub async fn mcp_inject_stored_tokens(
   bridge : @mcp.MCPToolBridge,
   store : &@oauth.ProviderCredentialStore,
   transport : &@oauth.OAuthHttpTransport,
   now_secs : Int32,
 ) -> Unit noraise {
   for server in bridge.servers_by_auth(@mcp.ServerAuth::OAuth) {
-    inject_stored_token_one(bridge, store, transport, server, now_secs) catch {
+    mcp_inject_stored_token_one(bridge, store, transport, server, now_secs) catch {
       _ => ()
     }
   }
 }
 
 ///|
-async fn inject_stored_token_one(
+async fn mcp_inject_stored_token_one(
   bridge : @mcp.MCPToolBridge,
   store : &@oauth.ProviderCredentialStore,
   transport : &@oauth.OAuthHttpTransport,
   server : String,
   now_secs : Int32,
 ) -> Unit {
-  let credential = match store.read(mcp_provider_id(server)) {
+  let credential = match store.read(mcp_credential_id(server)) {
     Some(@oauth.ProviderCredential::OAuth(credential)) => credential
-    // No record, or an ApiKey record (not this seam's credential kind).
     _ => return
   }
-  let token : String = if !credential.is_expired(now_secs) {
+  let token = if !credential.is_expired(now_secs) {
     credential.access_token
   } else {
     match
@@ -235,8 +246,6 @@ async fn inject_stored_token_one(
           refresh_token=credential.refresh_token,
           transport~,
         ) catch {
-          // Refresh failed: leave the server anonymous for this session.
-          // The 401 surfaces in `/mcp`; the user re-runs login.
           _ => return
         }
         let updated = with_refresh_endpoints(
@@ -245,21 +254,54 @@ async fn inject_stored_token_one(
           client_id~,
         )
         store.write(
-          mcp_provider_id(server),
+          mcp_credential_id(server),
           @oauth.ProviderCredential::OAuth(updated),
         ) catch {
-          // Persisting the rotated credential failed; the in-memory token is
-          // still injected — worst case the next start refreshes again.
           _ => ()
         }
         updated.access_token
       }
-      // Expired with no refresh endpoints on record (the record predates
-      // login storing them): inject the stale token and let the server rule
-      // on it — skipping would lock out a session we cannot replace without
-      // interaction anyway.
+      // Expired with no refresh endpoints on record: inject the stale token and
+      // let the server rule on it.
       _ => credential.access_token
     }
   }
   bridge.set_server_token(server, token)
+}
+
+///|
+/// Namespace for one MCP server's stored credential.
+pub fn mcp_credential_id(server : String) -> String {
+  "mcp." + server
+}
+
+///|
+/// Copy of `credential` carrying the two keys a later non-interactive refresh
+/// needs (`token_endpoint`, `client_id`); other metadata keys survive.
+fn with_refresh_endpoints(
+  credential : @oauth.Credential,
+  token_endpoint~ : String,
+  client_id~ : String,
+) -> @oauth.Credential {
+  let metadata = credential.metadata.copy()
+  metadata["token_endpoint"] = token_endpoint
+  metadata["client_id"] = client_id
+  { ..credential, metadata, }
+}
+
+///|
+/// Caller-facing text for an OAuth error. The oauth package's Show impl is not
+/// public, and Debug reprs leak constructor noise — an explicit variant map
+/// keeps messages bounded and sanitizes any inner detail.
+fn oauth_error_text(err : @oauth.OAuthError) -> String {
+  match err {
+    AuthPending => "authorization pending"
+    SlowDown => "polling too fast (slow_down)"
+    AccessDenied => "access denied"
+    ExpiredToken => "device code expired"
+    InvalidGrant => "invalid grant"
+    HttpError(detail) => "http error: " + @devkit.sanitize_label(detail)
+    ParseError(detail) => "parse error: " + @devkit.sanitize_label(detail)
+    Cancelled => "cancelled"
+  }
 }

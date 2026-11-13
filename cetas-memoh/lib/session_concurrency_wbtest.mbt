@@ -28,8 +28,10 @@ pub impl @posoco.ModelPort for GateModelPort with fn chat(
   if self.entered > self.peak {
     self.peak = self.entered
   }
+  // `chat` runs on the turn's core-async stack; parking here with the host
+  // stack's sleep deadlocks the concurrent-session gate.
   while !self.released {
-    @async.sleep(1)
+    @core_async.sleep(1)
   }
   self.entered -= 1
   @tk.tk_stop_response("done")

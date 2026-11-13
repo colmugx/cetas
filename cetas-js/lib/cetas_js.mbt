@@ -1922,9 +1922,10 @@ pub fn cetas_js_runtime_create_agent(
             }
             mcp_bridge.attach(group, lifetime~)
             group.spawn_bg(() => {
-              mcp_inject_stored_tokens(
+              @mcp_host.cetas_mcp_inject_stored_tokens(
                 mcp_bridge,
-                mcp_credential_store(context_fs, runtime.config.home),
+                context_fs,
+                runtime.config.home,
                 @oauth.DefaultOAuthHttpTransport::DefaultOAuthHttpTransport(),
                 // @async.now() is epoch milliseconds; OAuth wants epoch seconds.
                 (@async.now() / 1000L).to_int(),
@@ -3254,14 +3255,13 @@ async fn mcp_login_command_outcome(
   }
   // Login is one-shot: the store, transport, and UI adapter are built here,
   // not retained on the handle.
-  let outcome = mcp_login_flow(
+  let outcome = @mcp_host.cetas_mcp_login(
     handle.mcp,
     server,
-    mcp_credential_store(handle.mcp_fs, handle.home),
+    handle.mcp_fs,
+    handle.home,
     @oauth.DefaultOAuthHttpTransport::DefaultOAuthHttpTransport(),
     JsMcpAuthInteraction(handle.observer),
-    // @async.now() is epoch milliseconds; OAuth wants epoch seconds.
-    (@async.now() / 1000L).to_int(),
   )
   Some(
     match outcome {
