@@ -161,6 +161,24 @@ jobs:
           mkdir -p cetas-native/go_bridge/lib
           cp "$src" cetas-native/go_bridge/lib/libcetas_moon.a
 
+      # Download modules before vet/test so transient Go proxy HTTP/2
+      # failures can be retried without restarting the expensive MoonBit build.
+      # This is shared native CI infrastructure, not a package-specific gate.
+      - name: Resolve native Go modules (retry transient proxy failures)
+        working-directory: cetas-native
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if go mod download; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Go module download failed after 3 attempts" >&2
+              exit 1
+            fi
+            sleep $((attempt * 3))
+          done
+
       - name: go vet
         working-directory: cetas-native
         env:
