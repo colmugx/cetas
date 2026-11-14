@@ -40,6 +40,7 @@ type EventBridge struct {
 	text           string
 	toolResults    []any
 	runMessages    []any
+	lastAssistant  map[string]any
 }
 
 // PiEvent is the original Pi observer's (event, context) payload; the type
@@ -69,6 +70,7 @@ func (b *EventBridge) Translate(raw []byte) ([]PiEvent, error) {
 		}
 		b.messageStarted = false
 		b.text = ""
+		b.lastAssistant = nil
 		b.toolResults = nil
 		return append(out, emit("turn_start", PiEvent{
 			"turnIndex": b.turnIndex,
@@ -76,6 +78,8 @@ func (b *EventBridge) Translate(raw []byte) ([]PiEvent, error) {
 	case "assistant.text_delta":
 		var out []PiEvent
 		if !b.messageStarted {
+			// A new model message after a tool wave begins a new response.
+			b.lastAssistant = nil
 			b.messageStarted = true
 			out = append(out, emit("message_start", PiEvent{
 				"message": b.message("pending"),
@@ -95,9 +99,21 @@ func (b *EventBridge) Translate(raw []byte) ([]PiEvent, error) {
 				return nil, fmt.Errorf("Pi tool arguments: %w", err)
 			}
 		}
-		return []PiEvent{emit("tool_execution_start", PiEvent{
+		var out []PiEvent
+		if b.lastAssistant == nil {
+			// Posoco reports the tool once the assistant model response has
+			// completed. Match JS Pi's message_end-before-tool_start order.
+			b.lastAssistant = b.message("toolUse")
+			b.runMessages = append(b.runMessages, b.lastAssistant)
+			out = append(out, emit("message_end", PiEvent{
+				"message": b.lastAssistant,
+			}))
+			b.messageStarted = false
+			b.text = ""
+		}
+		return append(out, emit("tool_execution_start", PiEvent{
 			"toolCallId": frame.ToolCallID, "toolName": frame.ToolName, "args": args,
-		})}, nil
+		})), nil
 	case "tool.completed":
 		toolResult := map[string]any{
 			"role": "toolResult",
@@ -114,11 +130,15 @@ func (b *EventBridge) Translate(raw []byte) ([]PiEvent, error) {
 		})}, nil
 	case "turn.completed":
 		var out []PiEvent
-		message := b.message("stop")
-		if b.messageStarted {
+		message := b.lastAssistant
+		if b.messageStarted || message == nil {
+			if !b.messageStarted && b.text == "" {
+				b.text = frame.Text
+			}
+			message = b.message("stop")
 			out = append(out, emit("message_end", PiEvent{"message": message}))
+			b.runMessages = append(b.runMessages, message)
 		}
-		b.runMessages = append(b.runMessages, message)
 		out = append(out, emit("turn_end", PiEvent{
 			"turnIndex": b.turnIndex, "message": message,
 			"toolResults": append([]any{}, b.toolResults...),
@@ -127,6 +147,7 @@ func (b *EventBridge) Translate(raw []byte) ([]PiEvent, error) {
 		b.messageStarted = false
 		b.text = ""
 		b.toolResults = nil
+		b.lastAssistant = nil
 		// Cetas marks the end of an admitted operation as its Agent
 		// boundary. This does not claim parity with Pi's queued follow-ups.
 		if b.runActive {
@@ -143,6 +164,7 @@ func (b *EventBridge) Translate(raw []byte) ([]PiEvent, error) {
 		b.messageStarted = false
 		b.text = ""
 		b.toolResults = nil
+		b.lastAssistant = nil
 		b.runMessages = nil
 		return []PiEvent{emit("agent_end", PiEvent{"messages": []any{}})}, nil
 	default:
