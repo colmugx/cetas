@@ -40,6 +40,7 @@ type Guest struct {
 	names   map[string]*registered
 	active  map[string]bool
 	version uint64
+	events EventBridge
 }
 
 type registered struct {
@@ -49,9 +50,10 @@ type registered struct {
 }
 
 type entry struct {
-	runtime *moejs.Runtime
-	loop    *eventloop.Loop
-	guest   *Guest
+	runtime  *moejs.Runtime
+	loop     *eventloop.Loop
+	guest    *Guest
+	handlers map[string][]moejs.Value
 }
 
 // Open reads the same deny-by-default allowlist used by cetas-js. Missing or
@@ -164,7 +166,7 @@ func (g *Guest) loadEntry(root, spec string) error {
 	rt := moejs.NewRuntime(moejs.Options{MemoryLimit: 64 << 20})
 	loop, err := eventloop.New(rt, eventloop.Options{})
 	if err != nil { return err }
-	e := &entry{runtime: rt, loop: loop, guest: g}
+	e := &entry{runtime: rt, loop: loop, guest: g, handlers: make(map[string][]moejs.Value)}
 	api, err := e.makeAPI()
 	if err != nil { return err }
 	if err := loop.Run(func(rt *moejs.Runtime) error {
@@ -236,9 +238,19 @@ func (e *entry) makeAPI() (moejs.Value, error) {
 		e.guest.version++
 		return moejs.Undefined(),nil
 	})
-	on := moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, _ []moejs.Value) (moejs.Value,error) {
-		// Passive event registration is intentionally not advertised yet.
-		return moejs.Undefined(),errors.New("Pi event callbacks are not supported by Native Guest")
+	on := moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, args []moejs.Value) (moejs.Value, error) {
+		eventName := moejs.Arg(args, 0).String()
+		if !supportedPiEvent(eventName) {
+			// Request-transforming Pi hooks have no equivalent in Posoco's
+			// current public APIs. Never accept them and silently do nothing.
+			return moejs.Undefined(), fmt.Errorf("Pi event %q is unsupported by cetas-go", eventName)
+		}
+		handler := moejs.Arg(args, 1)
+		if !handler.IsObject() {
+			return moejs.Undefined(), errors.New("Pi event handler must be callable")
+		}
+		e.handlers[eventName] = append(e.handlers[eventName], handler)
+		return moejs.Undefined(), nil
 	})
 	return rt.FromGo(map[string]any{
 		"registerTool":register,"getAllTools":getAll,"getActiveTools":getActive,

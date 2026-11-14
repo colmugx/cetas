@@ -370,7 +370,8 @@ func (h *Host) pump() {
 			}
 			continue
 		}
-		if tag.Type == "pi.guest.ready" || tag.Type == "pi.guest.execute" {
+		if tag.Type == "pi.guest.ready" || tag.Type == "pi.guest.execute" ||
+			tag.Type == "pi.guest.retired" || isPiObserverFrame(tag.Type) {
 			h.pi.handle(tag.Type, append(json.RawMessage(nil), payload...))
 		}
 		evt := Event{Type: tag.Type, Raw: append(json.RawMessage(nil), payload...)}
