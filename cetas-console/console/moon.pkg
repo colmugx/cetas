@@ -49,6 +49,11 @@ import {
   "moonbitlang/async/stdio",
 }
 
+import {
+  "colmugx/posoco-ext-custom" @custom,
+  "moonbitlang/core/async/http",
+} for "wbtest"
+
 supported_targets = "native"
 
 // The quota guard's recovery runtime (posoco/fuwaroid) runs on the
@@ -56,5 +61,8 @@ supported_targets = "native"
 // `moonbitlang/core/async` task group for the session lifetime.
 
 options(
-  "allow-experimental-packages": [ "moonbitlang/core/async" ],
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/http",
+  ],
 )
