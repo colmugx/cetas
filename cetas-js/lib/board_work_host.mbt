@@ -5,7 +5,7 @@ priv struct BoardWorkHost {
   parent_mode : () -> @permission.PermissionMode
   approval : &@permission.ApprovalSource?
   ctx : @cetas_core.HostContext
-  group : @async.TaskGroup[Unit]
+  group : @async.TaskGroup
   questions : @work.TicketQuestions
   runs : @work.WorkRunStore
   progress : @work.WorkProgressLog
@@ -30,7 +30,7 @@ fn BoardWorkHost::BoardWorkHost(
   parent_mode~ : () -> @permission.PermissionMode,
   approval~ : &@permission.ApprovalSource?,
   ctx~ : @cetas_core.HostContext,
-  group~ : @async.TaskGroup[Unit],
+  group~ : @async.TaskGroup,
   session_root~ : String? = None,
   mcp~ : BoardMcp? = None,
   skills~ : Array[BoardSkill] = [],

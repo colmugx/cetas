@@ -7,7 +7,7 @@ priv struct CetasWorkflowAgents {
   ctx : @cetas_core.HostContext
   selections : Map[String, (String, String?)]
   /// Host-owned serving group for workflow agents' background shells.
-  host_group : @async.TaskGroup[Unit]?
+  host_group : @async.TaskGroup?
 }
 
 ///|
@@ -122,8 +122,8 @@ async fn build_cetas_workflows(
   parent_mode~ : () -> @permission.PermissionMode,
   approval~ : &@permission.ApprovalSource?,
   ctx~ : @cetas_core.HostContext,
-  group~ : @async.TaskGroup[Unit],
-  lifetime~ : @core_async.TaskGroup,
+  group~ : @async.TaskGroup,
+  lifetime~ : @async.TaskGroup,
   mcp_bridge~ : @mcp.MCPToolBridge,
 ) -> &@posoco.Extension? raise @posoco.CompositionError {
   let text = match

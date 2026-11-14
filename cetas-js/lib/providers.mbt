@@ -356,7 +356,7 @@ async fn build_provider_router(
   observer : &@posoco.Observer,
   events~ : @posoco.Events? = None,
   extra_quota_sources~ : Map[String, &@devkit.QuotaSource] = Map::from_array([]),
-  background~ : @async.TaskGroup[Unit]? = None,
+  background~ : @async.TaskGroup? = None,
 ) -> @llm.RouterModelPort raise @posoco.CompositionError {
   let catalogs = cached_provider_catalogs(runtime)
   if catalogs.is_empty() {

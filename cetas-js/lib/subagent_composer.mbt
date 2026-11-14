@@ -255,7 +255,7 @@ priv struct CetasChildComposer {
   home : String
   /// Host-owned serving group: child background shells join the same
   /// scope the parent runtime lives in.
-  host_group : @async.TaskGroup[Unit]?
+  host_group : @async.TaskGroup?
 }
 
 ///|
@@ -273,7 +273,7 @@ fn CetasChildComposer::CetasChildComposer(
   feature_fs~ : &@workspace.WorkspaceFs,
   cwd~ : String,
   home~ : String,
-  host_group~ : @async.TaskGroup[Unit]? = None,
+  host_group~ : @async.TaskGroup? = None,
 ) -> CetasChildComposer {
   {
     parent_manager,
@@ -446,7 +446,7 @@ async fn build_cetas_subagents(
   feature_fs~ : &@workspace.WorkspaceFs,
   cwd~ : String,
   home~ : String,
-  host_group~ : @async.TaskGroup[Unit]? = None,
+  host_group~ : @async.TaskGroup? = None,
 ) -> &@posoco.Extension raise @posoco.CompositionError {
   let (config, extra_kinds) = load_cetas_subagent_settings(home~)
   // One broker serves both sides of the question round trip: the parent's

@@ -17,9 +17,8 @@ import {
   "colmugx/posoco-ext-ratelimit" @ratelimit,
   "colmugx/posoco-ext-workspace" @workspace,
   "moonbitlang/core/debug",
-  "moonbitlang/async",
-  "moonbitlang/async/aqueue",
-  "moonbitlang/async/js_async",
+  "moonbitlang/core/async/aqueue",
+  "moonbitlang/core/async/js_async",
   "moonbitlang/core/json",
   "colmugx/cetas-ext-forme/lib" @forme,
   "colmugx/cetas-extras/lib" @extras,
@@ -48,7 +47,7 @@ import {
   "colmugx/posoco-ext-kind" @kind,
   "colmugx/posoco-kit-subagent" @subagent_kit,
   "posoco/kit-events" @kit_events,
-  "moonbitlang/core/async" @core_async,
+  "moonbitlang/core/async",
   "colmugx/posoco-kit-model-management" @modelmgmt,
   "colmugx/posoco-ext-board" @board,
   "colmugx/posoco-ext-board/domain" @board_domain,
@@ -64,8 +63,7 @@ import {
   "colmugx/posoco-ext-board/domain" @board_domain,
   "colmugx/posoco-ext-board/execution" @board_execution,
   "colmugx/posoco-ext-board/workflow" @board_workflow,
-  "moonbitlang/async",
-  "moonbitlang/async/aqueue",
+  "moonbitlang/core/async/aqueue",
   "posoco/devkit/testkit" @tk,
 } for "wbtest"
 
@@ -73,7 +71,11 @@ import {
 // quota guard and fuwaroid run on that stack.
 
 options(
-  "allow-experimental-packages": [ "moonbitlang/core/async" ],
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/aqueue",
+    "moonbitlang/core/async/js_async",
+  ],
   supported_targets: "+js",
   link: {
     "js": {

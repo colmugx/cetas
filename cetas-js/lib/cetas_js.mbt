@@ -1331,7 +1331,8 @@ async fn warn_legacy_project_cetas(
 /// handled inside `serve` itself — the create promise is already resolved
 /// and an unobserved JS promise must never reject.
 ///
-/// Two groups, two stacks: `group` is the moonbitlang/async I/O scope (MCP
+/// Two groups: `group` is the core-async I/O scope (probes, model refresh;
+/// stdio MCP children ride the bridge's internal old-async group
 /// connections, provider tool planes, catalog refresh), `lifetime` is the
 /// posoco `moonbitlang/core/async` scope the quota guard's recovery runtime
 /// (fuwaroid) attaches to. Both end when the scope body returns, so both are
@@ -1339,7 +1340,7 @@ async fn warn_legacy_project_cetas(
 async fn[X] run_agent_group_session(
   ready~ : @aqueue.Queue[Result[X, Error]],
   close~ : @aqueue.Queue[Unit],
-  compose~ : async (@async.TaskGroup[Unit], @core_async.TaskGroup) -> X,
+  compose~ : async (@async.TaskGroup, @async.TaskGroup) -> X,
   serve~ : async (X) -> Result[Unit, Error],
 ) -> Unit {
   close |> ignore
@@ -1348,7 +1349,7 @@ async fn[X] run_agent_group_session(
     // is carried out of it and re-raised in the async scope below: the
     // create promise must still see a pre-publication failure.
     let outcome : Ref[Result[Unit, Error]] = Ref::{ val: Ok(()), }
-    @core_async.with_task_group(async fn(lifetime) {
+    @async.with_task_group(async fn(lifetime) {
       let handle = compose(group, lifetime)
       outcome.val = serve(handle)
     })
@@ -2506,7 +2507,7 @@ pub fn cetas_js_runtime_finish_magpie_credential(
 /// machine that the JS host can't drive — calling `await cetas_js_run_turn()`
 /// won't actually run the coroutine, and any internal `coroutine.suspend()`
 /// (e.g. `Promise::wait`) panics with "no current coroutine". The official
-/// bridge is `@js_async.Promise::from_async` (moonbitlang/async/src/js_async/
+/// bridge is `@js_async.Promise::from_async` (moonbitlang/core/async/src/js_async/
 /// js_async.mbt:200, comment: "should only be used for exporting MoonBit code
 /// to JavaScript"). It spawns a coroutine, drives it to completion, and
 /// surfaces resolve/reject to JS.
@@ -2522,7 +2523,7 @@ pub fn cetas_js_runtime_finish_magpie_credential(
 
 ///|
 /// Fire `cb` once when the JS AbortSignal aborts. Mirrors the package-private
-/// `AbortSignal::on_abort` of moonbitlang/async (MoonBit closures compile to
+/// `AbortSignal::on_abort` of moonbitlang/core/async (MoonBit closures compile to
 /// JS functions on this backend).
 extern "js" fn js_signal_on_abort(
   signal : @js_async.AbortSignal,

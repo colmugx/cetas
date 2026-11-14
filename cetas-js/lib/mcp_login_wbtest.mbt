@@ -169,7 +169,7 @@ async test "js mcp login flow and startup token injection" {
   // Activation eats the 401; the challenge is captured for the login flow.
   // Both host groups: the core-async lifetime one every connection actor
   // (fuwaroid 0.4) spawns on, and the I/O one its transport runs on.
-  @core_async.with_task_group(async fn(lifetime) {
+  @async.with_task_group(async fn(lifetime) {
     @async.with_task_group(async fn(group) {
       bridge.attach(group, lifetime~)
       defer @async.protect_from_cancel(() => bridge.close())
