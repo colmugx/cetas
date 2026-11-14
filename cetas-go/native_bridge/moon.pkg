@@ -5,7 +5,8 @@ import {
   "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-workspace" @workspace,
   "moonbitlang/async",
-  "moonbitlang/async/raw_fd",
+  "moonbitlang/core/async" @core_async,
+  "moonbitlang/core/async/raw_fd",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
   "moonbitlang/core/encoding/utf8",
@@ -17,4 +18,8 @@ pkgtype(kind: "foreign_library")
 
 options(
   "native-stub": [ "test_symbols.c" ],
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/raw_fd",
+  ],
 )

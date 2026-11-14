@@ -67,7 +67,7 @@ fn harness_console_json(text : String) -> Json {
 async fn harness_dispatch(
   runtime : @console.ConsoleRuntime,
   auth_tasks : NativeAuthTasks,
-  group : @async.TaskGroup[Unit],
+  group : @core_async.TaskGroup,
   command : String,
   args : Json,
 ) -> Json {
@@ -490,7 +490,7 @@ async fn harness_handle_frame(
   auth_tasks : NativeAuthTasks,
   replay_tasks : NativeReplayTasks,
   catalog_tasks : NativeReplayTasks,
-  group : @async.TaskGroup[Unit],
+  group : @core_async.TaskGroup,
   raw : String,
 ) -> Unit {
   let request : Json = @json.parse(raw) catch {

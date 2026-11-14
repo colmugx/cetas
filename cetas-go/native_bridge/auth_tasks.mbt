@@ -4,7 +4,7 @@
 /// ui_response must remain serviceable while OAuth polls.
 priv struct NativeAuthTasks {
   mut next_id : Int32
-  pending : Map[String, @async.Task[Unit]]
+  pending : Map[String, @core_async.Task[Unit]]
   cancelled : Map[String, Bool]
 }
 
@@ -27,7 +27,7 @@ fn NativeAuthTasks::busy(self : NativeAuthTasks) -> Bool {
 fn NativeAuthTasks::start(
   self : NativeAuthTasks,
   runtime : @console.ConsoleRuntime,
-  group : @async.TaskGroup[Unit],
+  group : @core_async.TaskGroup,
   provider : String,
   auth_method : String,
 ) -> Json {
@@ -71,7 +71,7 @@ fn NativeAuthTasks::start(
 ///|
 /// Explicit cancellation never waits on the child task in the command loop:
 /// that task may still be suspending in a provider's OAuth poll. It is owned
-/// by the enclosing TaskGroup, which drains it on host shutdown.
+/// by the enclosing TaskGroup[Unit], which drains it on host shutdown.
 fn NativeAuthTasks::cancel(
   self : NativeAuthTasks,
   runtime : @console.ConsoleRuntime,

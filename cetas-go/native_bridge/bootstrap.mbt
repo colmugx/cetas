@@ -3,7 +3,7 @@
 /// until an authenticated provider has produced an offline model catalog.
 priv struct NativeBootstrapTasks {
   mut next_id : Int32
-  pending : Map[String, @async.Task[Unit]]
+  pending : Map[String, @core_async.Task[Unit]]
   cancelled : Map[String, Bool]
 }
 
@@ -19,7 +19,7 @@ fn NativeBootstrapTasks::start(
   boot : Ref[Result[@console.ConsoleRuntime, String]],
   config : @console.ConsoleConfig,
   cwd : String,
-  group : @async.TaskGroup[Unit],
+  group : @core_async.TaskGroup,
   provider : String,
   auth_method : String,
 ) -> Json {
@@ -95,7 +95,7 @@ fn NativeBootstrapTasks::cancel(
   self : NativeBootstrapTasks,
   setup : @console.ConsoleBootstrap,
   id : String,
-  group : @async.TaskGroup[Unit],
+  group : @core_async.TaskGroup,
 ) -> Bool {
   match self.pending.get(id) {
     Some(task) => {
@@ -138,7 +138,7 @@ async fn bootstrap_dispatch(
   boot : Ref[Result[@console.ConsoleRuntime, String]],
   config : @console.ConsoleConfig,
   cwd : String,
-  group : @async.TaskGroup[Unit],
+  group : @core_async.TaskGroup,
   command : String,
   args : Json,
 ) -> Json {
@@ -191,7 +191,7 @@ async fn bootstrap_handle_frame(
   boot : Ref[Result[@console.ConsoleRuntime, String]],
   config : @console.ConsoleConfig,
   cwd : String,
-  group : @async.TaskGroup[Unit],
+  group : @core_async.TaskGroup,
   raw : String,
 ) -> Unit {
   let parsed : Json = @json.parse(raw) catch {

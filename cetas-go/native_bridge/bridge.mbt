@@ -155,7 +155,7 @@ fn reject_while_composing(raw : String) -> Unit {
 pub fn run_infra() -> Int32 {
   let result = Ref(0)
   @async.run_async_main(async fn() {
-    @async.with_task_group(group => {
+    @core_async.with_task_group(async fn(group) {
       let fs_impl = @workspace.NativeWorkspaceFs()
       let fs : &@workspace.WorkspaceFs = fs_impl
       let cwd = @env.current_dir().unwrap_or(".")
@@ -207,14 +207,14 @@ pub fn run_infra() -> Int32 {
             defer {
               composing.val = false
             }
-            let started = @async.now()
+            let started = @core_async.now()
             emit_boot_progress("composing", 0)
             // Protected: cancelling the boot mid-build would strand a half-built
             // workspace whose session scopes parked on close signals nobody would
             // send, and the runtime's deadlock detector aborts the process at group
             // exit. Composition always runs to its install-or-error decision;
             // shutdown waits for it below.
-            let composed : Result[@console.ConsoleRuntime, String] = @async.protect_from_cancel(async fn() {
+            let composed : Result[@console.ConsoleRuntime, String] = @core_async.protect_from_cancel(async fn() {
                 Ok(@console.compose_console_runtime(config, cwd, group)) catch {
                   error => Err(error.to_string())
                 }
@@ -226,7 +226,7 @@ pub fn run_infra() -> Int32 {
               Ok(_) => false
             }
             boot.val = composed
-            emit_boot_progress("composed", @async.now() - started)
+            emit_boot_progress("composed", @core_async.now() - started)
             match composed {
               Ok(runtime) => {
                 runtime.attach_sink(fn(frame : String) { emit(frame) })
@@ -362,7 +362,7 @@ pub fn run_infra() -> Int32 {
                     command_wake = None
                   }
                 }
-                None => @async.sleep(10)
+                None => @core_async.sleep(10)
               }
             }
           }
@@ -431,7 +431,7 @@ pub fn run_infra() -> Int32 {
       // handle, and an early break would leave a freshly composed runtime's
       // scopes parked.
       while composing.val {
-        @async.pause()
+        @core_async.pause()
       }
       match boot.val {
         Ok(runtime) => {

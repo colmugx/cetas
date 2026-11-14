@@ -14,7 +14,7 @@ priv struct NativeReplayJob {
 priv struct NativeReplayTasks {
   label : String
   mut queue : Array[NativeReplayJob]
-  mut worker : @async.Task[Unit]?
+  mut worker : @core_async.Task[Unit]?
   mut active : Int32?
   mut stopped : Bool
 }
@@ -44,7 +44,7 @@ fn NativeReplayTasks::submit(
   self : NativeReplayTasks,
   runtime : @console.ConsoleRuntime,
   auth_tasks : NativeAuthTasks,
-  group : @async.TaskGroup[Unit],
+  group : @core_async.TaskGroup,
   id : Int32,
   command : String,
   args : Json,
@@ -152,7 +152,7 @@ fn NativeReplayTasks::supersede(
 
 ///|
 /// Settle queued/in-flight request ids before detaching the sink. Cancellation
-/// belongs to the host TaskGroup, which drains the worker and its async files.
+/// belongs to the host TaskGroup[Unit], which drains the worker and its async files.
 fn NativeReplayTasks::cancel_all(self : NativeReplayTasks) -> Unit {
   self.stopped = true
   for job in self.queue {
