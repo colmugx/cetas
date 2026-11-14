@@ -6,7 +6,6 @@ import {
   "colmugx/posoco/port",
   "posoco/devkit",
   "posoco/kit-events" @kit_events,
-  // recipe-imports:begin
   "colmugx/cetas-ext-forme/lib" @forme,
   "colmugx/cetas-extras/lib" @extras,
   "colmugx/posoco-ext-read" @read,
@@ -34,7 +33,6 @@ import {
   "colmugx/posoco-ext-plan" @plan,
   "colmugx/posoco/runtime",
   "colmugx/posoco-ext-workspace" @workspace,
-  "colmugx/posoco/kernel",
   "colmugx/posoco/types" @posoco_types,
   "posoco/ext-llm" @ext_llm,
   "colmugx/posoco-ext-fs-session" @fs_session,
@@ -43,11 +41,10 @@ import {
   "moonbitlang/core/debug",
   "moonbitlang/core/json",
   "moonbitlang/core/encoding/utf8",
-  "moonbitlang/core/async" @core_async,
-  "moonbitlang/async",
-  "moonbitlang/async/aqueue",
-  "moonbitlang/async/fs",
-  "moonbitlang/async/stdio",
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/aqueue",
+  "moonbitlang/core/async/fs",
+  "moonbitlang/core/async/stdio",
 }
 
 import {
@@ -65,5 +62,8 @@ options(
   "allow-experimental-packages": [
     "moonbitlang/core/async",
     "moonbitlang/core/async/http",
+    "moonbitlang/core/async/aqueue",
+    "moonbitlang/core/async/fs",
+    "moonbitlang/core/async/stdio",
   ],
 )

@@ -168,15 +168,15 @@ async fn cat_test_write_session(
     None => ()
   }
   let path = dir + "/" + id + ".jsonl"
-  @fs.write_file(path, content) catch {
+  @fs.write_text(path, content) catch {
     error => abort("write session " + path + " failed: " + error.to_string())
   }
   path
 }
 
 ///|
-fn cat_test_modified_ms(mtime : (Int64, Int32)) -> Int64 {
-  mtime.0 * 1000L + mtime.1.to_int64() / 1_000_000L
+fn cat_test_modified_ms(mtime : @fs.Timestamp) -> Int64 {
+  mtime.msec()
 }
 
 ///|
@@ -215,13 +215,13 @@ async test "native session catalog current scope lists the active bucket from di
   )
   // Non-bucket directories and non-jsonl files are not rows.
   cat_test_mkdir(@fs_session.project_sessions_root(home) + "/notes")
-  @fs.write_file(
+  @fs.write_text(
     @fs_session.project_sessions_root(home) + "/notes/ignored.jsonl",
     "{}",
   ) catch {
     error => abort("notes fixture failed: " + error.to_string())
   }
-  @fs.write_file(
+  @fs.write_text(
     @fs_session.project_sessions_root(home) + "/" + bucket_a + "/ignored.txt",
     "not a session",
   ) catch {
@@ -247,7 +247,9 @@ async test "native session catalog current scope lists the active bucket from di
   assert_eq(cat_test_field(row, "reason"), Json::null())
   // Disk truth, not a registry projection.
   let expected_size : Int64 = @fs.file_size(path_a) catch { _ => -1L }
-  let expected_mtime = @fs.mtime(path_a) catch { _ => (0L, 0) }
+  let expected_mtime = @fs.mtime(path_a) catch {
+    _ => fail("test file vanished")
+  }
   assert_eq(cat_test_int64(row, "sizeBytes"), expected_size)
   assert_eq(
     cat_test_int64(row, "modifiedAt"),
@@ -469,7 +471,7 @@ async test "native session catalog surfaces corruption, skips, bad scopes and ro
   let corrupt_id = "2026-10-04T10-00-00-000Z_corrupt1"
   let dir = @fs_session.project_sessions_root(home) + "/" + bucket
   cat_test_mkdir(dir)
-  @fs.write_file(dir + "/" + corrupt_id + ".jsonl", "{not json}\n") catch {
+  @fs.write_text(dir + "/" + corrupt_id + ".jsonl", "{not json}\n") catch {
     error => abort("corrupt fixture failed: " + error.to_string())
   }
   // A `.jsonl` name that is not a regular file is skipped with a warning, not
@@ -553,7 +555,7 @@ async test "native session catalog surfaces corruption, skips, bad scopes and ro
   // Root exists but is a file: explicit I/O/shape error, not "no sessions".
   let bad_home = cat_test_home("file-root")
   cat_test_mkdir(bad_home + "/.cetas")
-  @fs.write_file(@fs_session.project_sessions_root(bad_home), "not a directory") catch {
+  @fs.write_text(@fs_session.project_sessions_root(bad_home), "not a directory") catch {
     error => abort("file root fixture failed: " + error.to_string())
   }
   let broken = native_session_catalog_json(
@@ -651,7 +653,7 @@ async test "native session catalog degrades a failed legacy title scan without c
   // Metadata line parses and records the project directory; the legacy
   // first-user scan then hits a malformed terminated line. Only the title may
   // degrade — the row is still resumable.
-  @fs.write_file(
+  @fs.write_text(
     dir + "/" + id + ".jsonl",
     Json::object(cat_test_metadata(None, Some(cwd))).stringify() +
     "\n{not json}\n",

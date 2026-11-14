@@ -9,12 +9,13 @@ import {
   "colmugx/posoco/kernel",
   "colmugx/posoco/port",
   "colmugx/posoco/types",
-  "moonbitlang/async/aqueue",
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/aqueue",
   "moonbitlang/core/json",
 }
 
 // Values
-pub async fn compose_console_runtime(ConsoleConfig, String, @moonbitlang/async.TaskGroup[Unit], lifetime_group? : @moonbitlang/core/async.TaskGroup?) -> ConsoleRuntime
+pub async fn compose_console_runtime(ConsoleConfig, String, @async.TaskGroup, lifetime_group? : @async.TaskGroup?) -> ConsoleRuntime
 
 pub fn console_bootstrap(&@posoco-ext-workspace.WorkspaceFs, String, (String) -> Unit, native_ui? : Bool) -> ConsoleBootstrap
 
@@ -65,8 +66,8 @@ pub struct ConsoleRuntime {
   native_ui : Bool
   startup_permission : @posoco-ext-permission.PermissionMode
   herdr_presence : Bool
-  group : @moonbitlang/async.TaskGroup[Unit]
-  lifetime_group : @moonbitlang/core/async.TaskGroup?
+  group : @async.TaskGroup
+  lifetime_group : @async.TaskGroup?
   hub : EventHub
   ui_registry : UiRegistry
   workspaces : Map[String, WorkspaceRuntime]

@@ -23,7 +23,6 @@ import {
   "colmugx/posoco-ext-workspace@0.1.0",
   "colmugx/posoco-ext-credentials@0.1.0",
   "posoco/ext-oauth@0.1.0",
-  "moonbitlang/async@0.22.7",
   "colmugx/cetas-ext-forme@0.2.0",
   "colmugx/cetas-extras@0.1.0",
   "colmugx/posoco-ext-read@0.2.0",

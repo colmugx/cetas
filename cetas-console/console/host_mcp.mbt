@@ -13,8 +13,8 @@ async fn compose_mcp_bridge(
   fs : &@workspace.WorkspaceFs,
   home : String,
   cwd : String,
-  group : @async.TaskGroup[Unit],
-  lifetime_group : @core_async.TaskGroup?,
+  group : @async.TaskGroup,
+  lifetime_group : @async.TaskGroup?,
   label : String,
 ) -> @mcp.MCPToolBridge raise @posoco.CompositionError {
   let bridge = match

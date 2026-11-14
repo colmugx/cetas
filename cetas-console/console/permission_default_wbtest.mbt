@@ -100,7 +100,7 @@ fn permission_snapshot_now(
 async fn permission_mount(
   permission_mode : @permission.PermissionMode,
   cwd : String,
-  group : @async.TaskGroup[Unit],
+  group : @async.TaskGroup,
   native_ui~ : Bool = false,
 ) -> (ConsoleRuntime, Array[String], String) {
   let home = permission_fixture("mount")

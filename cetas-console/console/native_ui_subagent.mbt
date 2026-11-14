@@ -404,7 +404,7 @@ fn native_question_tools(
 /// with the extension's own explicit refusal instead of taking the whole
 /// session down.
 async fn native_scope_owner(
-  group : @async.TaskGroup[Unit],
+  group : @async.TaskGroup,
   native_ui~ : Bool,
   label : String,
   body : async (() -> Unit, @aqueue.Queue[Unit]) -> Unit,
@@ -432,7 +432,9 @@ async fn native_scope_owner(
   match activated.get() {
     Ok(_) => Some(close)
     Err(message) => {
-      @stdio.stderr.write(label + ": native task scope unavailable: " + message) catch {
+      @stdio.stderr.write(
+        @utf8.encode(label + ": native task scope unavailable: " + message)[:],
+      ) catch {
         _ => ()
       }
       None
@@ -444,7 +446,7 @@ async fn native_scope_owner(
 /// The session's scope body: one `Agent::run_scoped` held for the session
 /// lifetime, released by the close signal at shutdown.
 async fn native_session_scope(
-  group : @async.TaskGroup[Unit],
+  group : @async.TaskGroup,
   agent : @posoco.Agent,
   native_ui~ : Bool,
   label : String,
@@ -695,7 +697,7 @@ priv struct NativeChildComposer {
   /// Parent-agent question channel: a child face that includes `ask_question`
   /// gets `ask_question_child`, answered by the spawning parent.
   question : @subagent.ParentQuestionChannel
-  host_group : @async.TaskGroup[Unit]?
+  host_group : @async.TaskGroup?
 }
 
 ///|
@@ -868,7 +870,7 @@ async fn compose_native_subagents(
   fs : &@workspace.WorkspaceFs,
   home : String,
   cwd : String,
-  group : @async.TaskGroup[Unit],
+  group : @async.TaskGroup,
   ui : &@posoco.UiPort,
   approval : &@permission.ApprovalSource,
   router : @ext_llm.RouterModelPort,

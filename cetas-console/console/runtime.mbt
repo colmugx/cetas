@@ -107,11 +107,11 @@ pub struct ConsoleRuntime {
   /// not silently drop reporting.
   herdr_presence : Bool
   /// Host I/O task group (MCP connections, provider tool planes).
-  group : @async.TaskGroup[Unit]
+  group : @async.TaskGroup
   /// Session-lifetime task group on posoco's core-async stack: the quota
   /// guard's recovery runtime (fuwaroid) runs here. `None` composes sessions
   /// without starting recovery.
-  lifetime_group : @core_async.TaskGroup?
+  lifetime_group : @async.TaskGroup?
   hub : EventHub
   ui_registry : UiRegistry
   workspaces : Map[String, WorkspaceRuntime]
@@ -411,8 +411,8 @@ async fn compose_session_agent(
   fs : &@workspace.WorkspaceFs,
   home : String,
   cwd : String,
-  group : @async.TaskGroup[Unit],
-  lifetime_group : @core_async.TaskGroup?,
+  group : @async.TaskGroup,
+  lifetime_group : @async.TaskGroup?,
   platform : @cetas_core.CetasPlatform,
   hub : EventHub,
   ui_registry : UiRegistry,
@@ -427,7 +427,7 @@ async fn compose_session_agent(
     if native_ui {
       hub.native_warning(session_id, text)
     } else {
-      @stdio.stderr.write(label + ": " + text) catch {
+      @stdio.stderr.write(@utf8.encode(label + ": " + text)[:]) catch {
         _ => ()
       }
     }
@@ -872,7 +872,9 @@ async fn ConsoleRuntime::sync_registry(self : ConsoleRuntime) -> Unit noraise {
       if self.native_ui {
         self.hub.native_warning("", "registry write failed: \{error}")
       } else {
-        @stdio.stderr.write(self.label + ": registry write failed: \{error}") catch {
+        @stdio.stderr.write(
+          @utf8.encode(self.label + ": registry write failed: \{error}")[:],
+        ) catch {
           _ => ()
         }
       }
@@ -943,7 +945,9 @@ async fn ConsoleRuntime::persist_model_selection(
         )
       } else {
         @stdio.stderr.write(
-          self.label + ": persist model selection failed: \{error}",
+          @utf8.encode(
+            self.label + ": persist model selection failed: \{error}",
+          )[:],
         ) catch {
           _ => ()
         }
@@ -1186,8 +1190,8 @@ async fn build_workspace(
   fs : &@workspace.WorkspaceFs,
   home : String,
   cwd : String,
-  group : @async.TaskGroup[Unit],
-  lifetime_group : @core_async.TaskGroup?,
+  group : @async.TaskGroup,
+  lifetime_group : @async.TaskGroup?,
   hub : EventHub,
   ui_registry : UiRegistry,
   permission_mode : @permission.PermissionMode,
@@ -1200,7 +1204,7 @@ async fn build_workspace(
     if native_ui {
       hub.native_warning("", text)
     } else {
-      @stdio.stderr.write(label + ": " + text) catch {
+      @stdio.stderr.write(@utf8.encode(label + ": " + text)[:]) catch {
         _ => ()
       }
     }
@@ -1356,8 +1360,8 @@ async fn build_workspace(
 pub async fn compose_console_runtime(
   config : ConsoleConfig,
   cwd : String,
-  group : @async.TaskGroup[Unit],
-  lifetime_group~ : @core_async.TaskGroup? = None,
+  group : @async.TaskGroup,
+  lifetime_group~ : @async.TaskGroup? = None,
 ) -> ConsoleRuntime {
   let hub = EventHub::new()
   if config.native_ui {

@@ -28,8 +28,8 @@ fn parse_registry(data : String) -> Array[String] {
 
 ///|
 async fn load_registry(home : String) -> Array[String] {
-  let data = @fs.read_file(registry_path(home))
-  parse_registry(data.text())
+  let data = @fs.read_text(registry_path(home))
+  parse_registry(data)
 }
 
 ///|
@@ -39,8 +39,8 @@ async fn load_registry_with_legacy(home : String) -> Array[String] {
   } catch {
     _ => ()
   }
-  let data = @fs.read_file(legacy_registry_path(home))
-  parse_registry(data.text())
+  let data = @fs.read_text(legacy_registry_path(home))
+  parse_registry(data)
 }
 
 ///|
@@ -49,7 +49,7 @@ async fn save_registry(home : String, cwds : Array[String]) -> Unit {
   for cwd in cwds {
     items.push(Json::string(cwd))
   }
-  @fs.write_file(
+  @fs.write_text(
     registry_path(home),
     Json::array(items).stringify(),
     create_mode=OpenOrCreate,

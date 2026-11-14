@@ -378,7 +378,7 @@ async test "replay tolerates a torn tail but reports explicit corruption" {
   let root = @fs.tmpdir(prefix="cetas-replay-torn-")
   let (session, path) = replay_test_oracle(root)
   let oracle_items = replay_test_items(transcript_json(session))
-  @fs.write_file(
+  @fs.write_text(
     path,
     "{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"part",
     append=true,
@@ -399,7 +399,7 @@ async test "replay tolerates a torn tail but reports explicit corruption" {
     )
   }
   // A complete but malformed line is corruption, not a torn tail.
-  let lines = @fs.read_file(path).text()
+  let lines = @fs.read_text(path)
   let broken = lines.split("\n").to_array()
   let corrupted = StringBuilder()
   for index in 0..<broken.length() {
@@ -410,7 +410,7 @@ async test "replay tolerates a torn tail but reports explicit corruption" {
     }
     corrupted.write_char('\n')
   }
-  @fs.write_file(
+  @fs.write_text(
     path,
     corrupted.to_string(),
     create_mode=@fs.CreateMode::CreateOrTruncate,
@@ -605,7 +605,7 @@ async test "native session summaries stream metadata and first-user title" {
   assert_eq(@fs_session.display_title(oracle), legacy_summary.title)
   // Corruption is explicit, never normalized into an id-shaped title.
   let bad_path = @fs_session.jsonl_session_path(root, "s-bad")
-  @fs.write_file(bad_path, "{not json}\n") catch {
+  @fs.write_text(bad_path, "{not json}\n") catch {
     error => abort("bad summary fixture failed: " + error.to_string())
   }
   match native_replay_summary("s-bad", bad_path) {
@@ -618,7 +618,7 @@ async test "native session summaries stream metadata and first-user title" {
   // the classic summary over the same bytes resolves it.
   let torn_id = "s-torn-tail"
   let torn_path = @fs_session.jsonl_session_path(root, torn_id)
-  @fs.write_file(
+  @fs.write_text(
     torn_path, "{}\n{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"gone",
   ) catch {
     error => abort("torn summary fixture failed: " + error.to_string())
@@ -663,7 +663,7 @@ async test "replay commands are native-only and leave the shared transcript unch
     @fs.mkdir(home + "/.cetas", recursive=true) catch {
       error => abort("runtime home setup failed: " + error.to_string())
     }
-    @fs.write_file(
+    @fs.write_text(
       home + "/.cetas/settings.json",
       "{\"providers\":{\"opencode\":{\"api_key\":\"sk-fixture\"}}}",
     ) catch {
@@ -925,7 +925,7 @@ async test "replay extends append-only journals without a full rebuild" {
   }
   assert_false(first.incremental)
   assert_eq(first.total, 7)
-  @fs.write_file(
+  @fs.write_text(
     path,
     "{\"role\":\"assistant\",\"content\":[],\"tool_calls\":[{\"id\":\"c-new\",\"name\":\"read\",\"arguments\":{}}]}\n" +
     "{\"role\":\"tool\",\"content\":[{\"type\":\"text\",\"text\":\"new body\"}],\"tool_call_id\":\"c-new\",\"name\":\"read\"}\n" +
@@ -1061,7 +1061,7 @@ async test "replay ignores torn zero-block tail lines" {
     let session = replay_test_session()
     let path = replay_test_save(root, id, session)
     let oracle_items = replay_test_items(transcript_json(session))
-    @fs.write_file(
+    @fs.write_text(
       path,
       "{\"role\":\"" +
       roles[which] +
@@ -1112,7 +1112,7 @@ async test "replay treats a torn metadata line as an empty journal" {
   let root = @fs.tmpdir(prefix="cetas-replay-torn-meta-")
   let torn_id = "s-torn-meta"
   let torn_path = @fs_session.jsonl_session_path(root, torn_id)
-  @fs.write_file(torn_path, "{\"name\":\"Torn") catch {
+  @fs.write_text(torn_path, "{\"name\":\"Torn") catch {
     error => abort("torn metadata fixture failed: " + error.to_string())
   }
   let cache = NativeReplayCache::new()
@@ -1134,7 +1134,7 @@ async test "replay treats a torn metadata line as an empty journal" {
   // session, and the summary of an empty session is its id.
   let empty_id = "s-empty-journal"
   let empty_path = @fs_session.jsonl_session_path(root, empty_id)
-  @fs.write_file(empty_path, "") catch {
+  @fs.write_text(empty_path, "") catch {
     error => abort("empty journal fixture failed: " + error.to_string())
   }
   let empty_summary = match native_replay_summary(empty_id, empty_path) {
@@ -1152,7 +1152,7 @@ async test "replay treats a torn metadata line as an empty journal" {
   assert_eq(replay_test_error(empty_index), "")
   assert_eq(replay_test_int(empty_index, "total"), 0)
   // Terminated corruption is still reported, never silently dropped.
-  @fs.write_file(
+  @fs.write_text(
     torn_path,
     "{\"name\":\"Torn\n",
     create_mode=@fs.CreateMode::CreateOrTruncate,
@@ -1199,7 +1199,7 @@ async test "replay extension ignores a torn tail and settles it once complete" {
     "\"tool_calls\":[{\"id\":\"c-tail\",\"name\":\"read\",\"arguments\":{}}]," +
     "\"finish_reason\":\"tool_calls\"}\n"
   let result_prefix = "{\"role\":\"tool\",\"content\":[{\"type\":\"text\",\"text\":\""
-  @fs.write_file(
+  @fs.write_text(
     path,
     call_line + result_prefix + body,
     append=true,
@@ -1230,7 +1230,7 @@ async test "replay extension ignores a torn tail and settles it once complete" {
   // into the exact persisted transcript.
   let tail = "end-of-body\"}]," +
     "\"tool_call_id\":\"c-tail\",\"name\":\"read\"}\n"
-  @fs.write_file(
+  @fs.write_text(
     path,
     tail,
     append=true,
@@ -1268,7 +1268,7 @@ async test "replay role detection ignores nested role keys in arguments" {
     "{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"go\"}]}\n" +
     "{\"reasoning_raw\":{\"role\":\"tool\"},\"content\":[],\"tool_calls\":[{\"id\":\"c\",\"name\":\"x\",\"arguments\":{}}],\"role\":\"assistant\"}\n" +
     "{\"role\":\"tool\",\"content\":[{\"type\":\"text\",\"text\":\"done\"}],\"tool_call_id\":\"c\",\"name\":\"x\"}\n"
-  @fs.write_file(path, jsonl) catch {
+  @fs.write_text(path, jsonl) catch {
     error => abort("nested role fixture failed: " + error.to_string())
   }
   // The classic reader accepts the same journal, so it is the oracle here.

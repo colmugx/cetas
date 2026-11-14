@@ -690,13 +690,7 @@ async fn native_session_catalog_scan_bucket(
         continue
       }
     }
-    entries.push({
-      bucket,
-      id,
-      path,
-      size_bytes,
-      modified_ms: mtime.0 * 1000L + mtime.1.to_int64() / 1_000_000L,
-    })
+    entries.push({ bucket, id, path, size_bytes, modified_ms: mtime.msec(), })
   }
   Ok(entries)
 }

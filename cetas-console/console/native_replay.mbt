@@ -737,8 +737,11 @@ async fn native_replay_revision(path : String) -> String {
     return "missing"
   }
   let size = @fs.file_size(path) catch { _ => -1L }
-  let mtime = @fs.mtime(path) catch { _ => (0L, 0) }
-  size.to_string() + ":" + mtime.0.to_string() + ":" + mtime.1.to_string()
+  let mtime_text = match (Some(@fs.mtime(path)) catch { _ => None }) {
+    Some(t) => "\{t.sec()}:\{t.nsec()}"
+    None => "0:0"
+  }
+  size.to_string() + ":" + mtime_text
 }
 
 ///|

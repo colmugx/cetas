@@ -17,10 +17,10 @@ pub async fn ConsoleRuntime::rewind_points_json(self : ConsoleRuntime) -> Json {
     workspace.platform.session_store.root_dir,
     handle.session_id,
   )
-  let data = @fs.read_file(path) catch {
+  let data = @fs.read_text(path) catch {
     _ => return Json::object(Map::from_array([("points", Json::array([]))]))
   }
-  let jsonl = data.text()
+  let jsonl = data
   let points : Array[Json] = []
   for point in @cetas_core.list_persisted_rewind_points(jsonl) {
     points.push(
@@ -52,11 +52,10 @@ pub async fn ConsoleRuntime::rewind_active_session(
     workspace.platform.session_store.root_dir,
     handle.session_id,
   )
-  let data = @fs.read_file(path) catch {
+  let data = @fs.read_text(path) catch {
     error => return rewind_error("cannot read JSONL: " + error.to_string())
   }
-  let text = match
-    @cetas_core.read_persisted_rewind_user_message(data.text(), index) {
+  let text = match @cetas_core.read_persisted_rewind_user_message(data, index) {
     Some(value) => value
     None => return rewind_error("invalid rewind address")
   }

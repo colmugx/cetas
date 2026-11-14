@@ -16,7 +16,7 @@
 ///    no composition. Together with the standalone example in ../posoco
 ///    (the same loop under core/async's own driver, measured flat), this
 ///    pins the carrier to core/async HTTP running under the
-///    moonbitlang/async external-loop bridge.
+///    moonbitlang/core/async external-loop bridge.
 ///
 /// These are diagnostics, not pass/fail memory assertions: they assert only
 /// that the turns complete, and print MARK lines so an external RSS sampler
