@@ -55,6 +55,7 @@ func TestMarkdownThemeTracksTerminalColorsAndKeepsText(t *testing.T) {
 	m := newModel()
 	m.width, m.height = 80, 30
 	m.resize()
+	m.warmMarkdown()
 	m.appendAssistant("# Heading\n\nSome **strong** and `code`.\n\n- first\n- second")
 	m.reflow()
 	before := m.markdownRenderer

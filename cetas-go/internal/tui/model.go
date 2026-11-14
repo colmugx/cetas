@@ -128,6 +128,7 @@ type model struct {
 	toolIndex           map[string]int
 	markdownCache       *markdownCache
 	markdownRenderer    *glamour.TermRenderer
+	markdownWarming     bool
 	markdownThemeKey    string
 	streaming           string
 	reasoning           string
@@ -228,18 +229,39 @@ func newModel() model {
 	ta.SetWidth(78)
 	ta.SetHeight(1)
 	ta.Focus()
-	renderer, renderErr := newMarkdownRenderer(80, ui.Theme{})
+	// The Markdown renderer warms lazily (see warmMarkdown): an idle load —
+	// fresh boot, resumed history nobody reads, a DLL host mounting the TUI —
+	// never pays for the styling pipeline's tables and code pages.
 	vp := viewport.New(viewport.WithWidth(80), viewport.WithHeight(18))
 	vp.SetWidth(80)
 	vp.SetHeight(18)
 	// The document supplies cell-wrapped rows already; viewport.View would repeat
 	// the ANSI/grapheme work on every scroll.
 	vp.SoftWrap = false
-	m := model{textarea: ta, viewport: vp, markdownRenderer: renderer, markdownCache: newMarkdownCache(markdownCacheBudget), pickerPanel: &pickerPanelMemo{}, status: "connecting to Posoco…", searchActive: -1, surface: initialSurface(), version: "0.11.0", focused: true}
-	if renderErr != nil {
-		m.err = "Markdown renderer initialization failed: " + renderErr.Error()
+	return model{textarea: ta, viewport: vp, markdownCache: newMarkdownCache(markdownCacheBudget), pickerPanel: &pickerPanelMemo{}, status: "connecting to Posoco…", searchActive: -1, surface: initialSurface(), version: "0.11.0", focused: true}
+}
+
+// warmMarkdown creates the styling renderer on first presence (user input,
+// wheel, or a live turn starting) — never at boot. Idempotent and safe from
+// Update and the feed path alike. Every render site already degrades to the
+// truthful plain source while the renderer is nil, so an idle process carries
+// no styling pages at all.
+func (m *model) warmMarkdown() {
+	if m.markdownRenderer != nil || m.markdownWarming {
+		return
 	}
-	return m
+	// One attempt: a deterministic styling failure must not retry on every
+	// event; the transcript stays plain, which is always truthful.
+	m.markdownWarming = true
+	renderer, err := newMarkdownRenderer(max(1, m.viewport.Width()), m.theme())
+	if err != nil {
+		return
+	}
+	m.markdownRenderer = renderer
+	m.markdownCache.reset()
+	m.document.live.valid = false
+	// No explicit repaint: Update's own reflow/refresh cycle later in this
+	// same message rebuilds the presentation with the warm renderer.
 }
 
 func New(start Startup, version string) tea.Model {
@@ -343,6 +365,15 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	m.presentation.deferMount = true
 	m.presentation.layout = nil
+	// First presence warms the styling pipeline: a key or wheel event means a
+	// human is driving, so the one-time renderer build happens here and an
+	// idle (loaded-but-unused) process never touches it.
+	if m.markdownRenderer == nil {
+		switch message.(type) {
+		case tea.KeyMsg, tea.MouseMsg:
+			m.warmMarkdown()
+		}
+	}
 	next, cmd := m.update(message)
 	state := next.(model)
 	state.presentation.deferMount = false

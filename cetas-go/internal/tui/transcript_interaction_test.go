@@ -14,6 +14,9 @@ func interactionModel(t *testing.T, width, height int, blocks ...string) *model 
 	m := newModel()
 	m.width, m.height = width, height
 	m.resize()
+	// These cases model interactive sessions, so presence has been signaled
+	// and the lazy styling pipeline is warm (see warmMarkdown).
+	m.warmMarkdown()
 	m.transcript = append([]string(nil), blocks...)
 	m.refreshTranscript()
 	// Streaming Markdown starts a background worker; Close it with the test so

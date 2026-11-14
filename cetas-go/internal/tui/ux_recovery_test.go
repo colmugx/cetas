@@ -14,6 +14,7 @@ import (
 
 func TestIdleUIStopsSchedulingFrames(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
 	// Seeded so the assertion measures scheduling, not the first OSC 7501 frame.
 	m.lastProgramStatus = formatProgramStatus(m.projectProgramStatus())
 	next, cmd := m.Update(clockTick(time.Now()))
@@ -27,6 +28,7 @@ func TestIdleUIStopsSchedulingFrames(t *testing.T) {
 
 func TestRuntimeErrorBecomesTranscriptNoticeNotEditorStatus(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
 	m.textarea.SetValue("keep my draft")
 	next, _ := m.Update(commandResult{name: "status_refresh", err: errors.New("offline test failure")})
 	m = next.(model)
@@ -48,6 +50,7 @@ func TestRuntimeErrorBecomesTranscriptNoticeNotEditorStatus(t *testing.T) {
 
 func TestHostStopFinalizesStreamAndStopsIdleClock(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
 	m.host = &testHost{}
 	m.running = true
 	m.streaming = "**partial** answer"
@@ -82,6 +85,7 @@ func TestHostStopFinalizesStreamAndStopsIdleClock(t *testing.T) {
 
 func TestNativeTransportDegradationIsVisibleInTranscript(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
 	m.textarea.SetValue("keep this draft")
 	next, _ := m.Update(eventResult{ok: true, event: event(`{"type":"infra.error","detail":"command notification channel unavailable; falling back to 10 ms command polling","degraded":"command_poll_10ms"}`)})
 	m = next.(model)
@@ -95,6 +99,7 @@ func TestNativeTransportDegradationIsVisibleInTranscript(t *testing.T) {
 
 func TestSubmittedUserMessageUsesPaddedFullWidthSurface(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
 	m.host = &testHost{}
 	m.session = "s1"
 	m.surface.fg = color.RGBA{R: 240, G: 240, B: 240, A: 255}

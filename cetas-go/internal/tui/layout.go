@@ -176,15 +176,19 @@ func (m *model) reflow() {
 	m.presentation.layout = &r
 	themeKey := fmt.Sprintf("%v/%v", m.surface.fg, m.surface.bg)
 	if m.viewport.Width() != w || m.markdownThemeKey != themeKey {
-		renderer, err := newMarkdownRenderer(w, m.theme())
-		if err != nil {
-			m.err = "Markdown renderer initialization failed: " + err.Error()
-		} else {
-			m.markdownRenderer = renderer
-			m.markdownCache.reset()
-			m.markdownThemeKey = themeKey
-			m.document.live.valid = false
+		// Recreate only an already-warm renderer: a cold (idle) model must
+		// stay cold; warmMarkdown builds it at first presence instead.
+		if m.markdownRenderer != nil {
+			renderer, err := newMarkdownRenderer(w, m.theme())
+			if err != nil {
+				m.err = "Markdown renderer initialization failed: " + err.Error()
+			} else {
+				m.markdownRenderer = renderer
+				m.markdownCache.reset()
+				m.document.live.valid = false
+			}
 		}
+		m.markdownThemeKey = themeKey
 		m.viewport.SetWidth(w)
 	}
 	m.viewport.SetHeight(r.transcriptHeight)

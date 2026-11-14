@@ -15,6 +15,7 @@ import (
 // The spinner is the shell clock's frame, so no animation is scheduled here.
 func TestLiveThinkingPreviewShowsSpinnerAndLastThreeLines(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
 	// A tall terminal so the whole live preview fits the transcript window: the
 	// assertions below are about the block's own presentation.
 	m.width, m.height = 80, 40
@@ -59,6 +60,7 @@ func TestThinkingBlockKeepsItsPlaceAboveTheAnswer(t *testing.T) {
 	reasoning := "one\ntwo\nthree\nREASONING_TAIL"
 
 	live := newModel()
+	live.warmMarkdown()
 	live.width, live.height = 80, 24
 	live.resize()
 	live.applyEvent(event(`{"type":"turn.started"}`))
@@ -68,6 +70,7 @@ func TestThinkingBlockKeepsItsPlaceAboveTheAnswer(t *testing.T) {
 	live.reflow()
 
 	replay := newModel()
+	replay.warmMarkdown()
 	replay.width, replay.height = 80, 24
 	replay.resize()
 	payload := fmt.Sprintf(`{"items":[{"kind":"reasoning","text":%q},{"kind":"assistant","text":"**answer**"}]}`, reasoning)
@@ -97,6 +100,7 @@ func TestThinkingBlockKeepsItsPlaceAboveTheAnswer(t *testing.T) {
 // order instead of collapsing into an empty answer.
 func TestReplayKeepsReasoningOnlyMessageBlock(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
 	m.width, m.height = 80, 24
 	m.resize()
 	payload := `{"items":[{"kind":"reasoning","text":"only a thought"},{"kind":"assistant","text":""},{"kind":"assistant","text":"later answer"}]}`

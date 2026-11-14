@@ -98,11 +98,14 @@ def one_run(home, *, setup):
             os.write(master, DUMMY_KEY.encode() + b"\r")
         read_until(
             proc, master, output,
-            # Bubble Tea can redraw only the changed session ID via a cursor
-            # move rather than painting the full "session: ID" line again.
-            # Both Linux and macOS update the status line in place, but
-            # the exact ANSI edit sequence differs between terminals.
-            lambda b: re.search(rb"cetas-[0-9]{8,}.*ready", b, re.DOTALL) is not None,
+            # The JS-parity welcome header no longer prints the session ID.
+            # Require actual runtime readiness AND the selected model and
+            # permission in the dashboard; credentials/restart are verified
+            # independently below. Do not depend on ANSI redraw ordering.
+            # Idle ready has no permanent loader/status row, like JS.
+            # A real selected model plus runtime-owned yolo demonstrates the
+            # successful native composition (the approved product default).
+            lambda b: (b"openai/gpt-4o" in b and b"yolo" in b),
             timeout=45,
         )
         if DUMMY_KEY.encode() in output:

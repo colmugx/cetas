@@ -31,6 +31,8 @@ func freezeWindowSize() tea.WindowSizeMsg {
 // code fences balanced.
 func TestLiveMarkdownFreezesSettledPrefix(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
+	m.warmMarkdown()
 	defer m.Close()
 	next, _ := m.Update(freezeWindowSize())
 	m = next.(model)
@@ -77,6 +79,8 @@ func TestLiveMarkdownFreezesSettledPrefix(t *testing.T) {
 // fence: the frozen prefix never advances into it.
 func TestLiveMarkdownFreezeRespectsOpenFences(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
+	m.warmMarkdown()
 	defer m.Close()
 	next, _ := m.Update(freezeWindowSize())
 	m = next.(model)
@@ -100,6 +104,8 @@ func TestLiveMarkdownFreezeRespectsOpenFences(t *testing.T) {
 // intact for the full-history layout.
 func TestLiveMarkdownSettleRendersFullyAfterFreeze(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
+	m.warmMarkdown()
 	defer m.Close()
 	next, _ := m.Update(freezeWindowSize())
 	m = next.(model)

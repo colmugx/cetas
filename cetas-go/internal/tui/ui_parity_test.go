@@ -10,6 +10,7 @@ import (
 
 func TestInlineQuestionUsesWireDefaultAndHasMaskedCursor(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
 	m.width = 80
 	m.height = 24
 	m.resize()
@@ -35,6 +36,7 @@ func TestInlineQuestionUsesWireDefaultAndHasMaskedCursor(t *testing.T) {
 
 func TestStreamedToolArgumentsAdoptSingleAuthoritativeCall(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
 	m.width = 80
 	m.height = 24
 	m.resize()
@@ -58,6 +60,7 @@ func TestStreamedToolArgumentsAdoptSingleAuthoritativeCall(t *testing.T) {
 
 func TestInlineAskKeepsConversationAndEditorVisible(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
 	m.width = 80
 	m.height = 30
 	m.resize()
@@ -94,6 +97,7 @@ func TestReplayedToolPreservesLiveArgumentsAndPresentation(t *testing.T) {
 
 func TestSlashCompletionAppearsWhileTypingAndDoesNotEatQuery(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
 	for _, r := range "/mo" {
 		next, _ := m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 		m = next.(model)
@@ -113,6 +117,7 @@ func TestSlashCompletionAppearsWhileTypingAndDoesNotEatQuery(t *testing.T) {
 
 func TestCompletedThinkingRetainsExpandableSource(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
 	m.width = 80
 	m.height = 30
 	m.resize()
@@ -135,6 +140,7 @@ func TestCompletedThinkingRetainsExpandableSource(t *testing.T) {
 
 func TestCompletedToolCanBeExpandedAndCollapsedAfterCompletion(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
 	m.width = 80
 	m.height = 24
 	m.resize()
@@ -158,6 +164,7 @@ func TestCompletedToolCanBeExpandedAndCollapsedAfterCompletion(t *testing.T) {
 
 func TestReplayedHistoryCannotBeOverwrittenByOldNoticeIndex(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
 	m.session = "one"
 	m.host = &testHost{}
 	m.applyEvent(event(`{"type":"ui.render","session_id":"one","render":{"slot":"notice","key":"n","body":{"type":"text","text":"old notice"}}}`))

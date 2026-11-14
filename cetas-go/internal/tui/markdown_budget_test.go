@@ -18,6 +18,7 @@ func TestWholeMarkdownBudgetIsCheckedBeforeRendererEntry(t *testing.T) {
 
 func TestOversizedLiveMarkdownKeepsEveryDeltaAsPlainSource(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
 	defer m.Close()
 	raw := strings.Repeat("x", maxWholeMarkdownSourceBytes+1)
 	if got := m.renderLiveMarkdown(0, raw); got != raw {
@@ -37,6 +38,7 @@ func TestOversizedLiveMarkdownKeepsEveryDeltaAsPlainSource(t *testing.T) {
 
 func TestOversizedHistoryLayoutFallsBackOnceWithoutLosingSource(t *testing.T) {
 	m := newModel()
+	m.warmMarkdown()
 	defer m.Close()
 	raw := strings.Repeat("paragraph\n", maxWholeMarkdownSourceBytes/10+1)
 	m.appendAssistant(raw)

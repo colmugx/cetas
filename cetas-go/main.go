@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"sync/atomic"
 	"time"
 
@@ -33,6 +34,12 @@ Usage:
 Inside the UI: /help`
 
 func main() {
+	// Soft Go-side ceiling: the GC paces harder as the heap approaches it
+	// instead of doubling freely, which keeps the resident set tight under
+	// long sessions without any startup cost. Live heap is single-digit MiB at
+	// boot and tens of MiB under load; 64 MiB leaves full transcript headroom
+	// while bounding the growth the default GOGC pacing would allow.
+	debug.SetMemoryLimit(64 << 20)
 	// `cetas tui` is the spelled-out form of the default; strip it so the flags
 	// below keep working (`cetas tui --version`).
 	args := os.Args[1:]
