@@ -6,7 +6,7 @@
 /// default implementation contributes nothing. A local build may swap this
 /// package for its own wiring; the seam, not the wiring, is public.
 pub fn deferred_extensions(
-  host_group : @async.TaskGroup[Unit]?,
+  host_group : @async.TaskGroup?,
 ) -> Array[&@posoco.Extension] {
   let _ = host_group
   let none : Array[&@posoco.Extension] = []
