@@ -24,7 +24,7 @@ pub async fn provider_tool_extensions(
   fs : &@workspace.WorkspaceFs,
   home~ : String,
   label~ : String = "cetas-acp",
-  group~ : @async.TaskGroup[Unit],
+  group~ : @async.TaskGroup,
   initial_slot_id~ : String,
 ) -> Array[&@posoco.Extension] noraise {
   let exts : Array[&@posoco.Extension] = []

@@ -6,7 +6,7 @@
 /// reconnecting call.
 ///
 /// The flow sits here rather than next to the bridge because the extension's
-/// module graph currently resolves `moonbitlang/async` to a version whose
+/// colmugx/mcp still pins `moonbitlang/async`; until that upstream
 /// `TaskGroup` no longer unifies with the core-async group it passes to the MCP
 /// SDK; one shared implementation here still beats a copy per host. Moving it
 /// upstream only needs that dependency alignment.
@@ -76,7 +76,7 @@ pub async fn cetas_mcp_inject_stored_tokens(
 /// persistence and the reconnecting call.
 ///
 /// Lives here rather than in the extension because the extension's own module
-/// graph resolves `moonbitlang/async` to a version whose `TaskGroup` no longer
+/// SDK migrates, `TaskGroup` does not unify with
 /// unifies with the core-async group the bridge passes to the MCP SDK
 /// (`MCPClient::connect_stdio`). Moving this glue upstream needs that alignment
 /// first; until then one shared implementation here beats a copy per host.

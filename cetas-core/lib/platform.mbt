@@ -48,7 +48,7 @@ pub(all) struct CetasPlatform {
   refresh_snapshot : ProviderCredentialSnapshot
   /// The host's process task group (extension background work, monitors);
   /// `None` in tests without a group.
-  mcp_group : @async.TaskGroup[Unit]?
+  mcp_group : @async.TaskGroup?
 }
 
 ///|
@@ -83,7 +83,7 @@ pub async fn build_cetas_platform(
   cwd~ : String,
   fs : &@workspace.WorkspaceFs,
   permission_mode~ : @permission.PermissionMode,
-  mcp_group~ : @async.TaskGroup[Unit]? = None,
+  mcp_group~ : @async.TaskGroup? = None,
   label~ : String = "cetas-acp",
   warn~ : async (String) -> Unit noraise = fn(_ : String) { () },
 ) -> CetasPlatform raise @posoco.CompositionError {

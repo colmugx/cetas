@@ -40,5 +40,4 @@ import {
   // MCP host glue lives in the `mcp_host` package (native/js only); the import
   // is module-level so the wasm lib stays free of it.
   "colmugx/posoco-ext-mcp@0.6.0",
-  "moonbitlang/async@0.22.7",
 }

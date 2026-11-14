@@ -117,7 +117,7 @@ pub async fn build_cetas_session(
   /// Host task group for provider-owned tool planes (remote MCP connections).
   /// `None` composes no provider tools: a host without a long-lived group must
   /// not get connections whose lifetime nobody owns.
-  tool_plane_group~ : @async.TaskGroup[Unit]? = None,
+  tool_plane_group~ : @async.TaskGroup? = None,
   prompt_suffix~ : String? = None,
   session_fs~ : &@workspace.WorkspaceFs? = None,
   label~ : String = "cetas-acp",
@@ -291,15 +291,15 @@ pub async fn build_cetas_session(
 /// groups now — the retired `catalog_source~` seam is gone. `runtime_group~`
 /// attaches the quota guard to the composed agent and starts its rate-limit
 /// runtime on the host lifetime; production hosts should always provide it.
-/// The group is the core-async one (`@core_async.TaskGroup`): the guard, the
+/// The group is the core-async one (`@async.TaskGroup`): the guard, the
 /// recovery runtime and fuwaroid all run on posoco's `moonbitlang/core/async`
-/// stack, which shares its scheduler with `moonbitlang/async`, so the host's
+/// stack, which shares its scheduler with `moonbitlang/core/async`, so the host's
 /// I/O group and this lifetime group are independent values.
 pub fn compose_cetas_agent(
   session~ : CetasSession,
   tail_exts~ : Array[&@posoco.Extension] = [],
   runtime~ : &@runtime.Runtime? = None,
-  runtime_group~ : @core_async.TaskGroup? = None,
+  runtime_group~ : @async.TaskGroup? = None,
 ) -> @posoco.Agent raise @posoco.CompositionError {
   for ext in tail_exts {
     session.exts.push(ext)

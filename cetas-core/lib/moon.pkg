@@ -23,12 +23,10 @@ import {
   "colmugx/posoco/runtime",
   "moonbitlang/core/json",
   "moonbitlang/core/env",
-  "moonbitlang/core/async" @core_async,
-  "moonbitlang/async",
+  "moonbitlang/core/async",
 }
 
 import {
-  "moonbitlang/async",
   "colmugx/posoco-ext-fs-session" @fs_session,
   "colmugx/posoco-ext-workspace" @workspace,
   "posoco/devkit/testkit" @tk,
