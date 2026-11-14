@@ -13,7 +13,7 @@ async fn create_minimal_settings(dir : String, path : String) -> Bool {
 ///|
 async fn create_minimal_settings_protected(dir : String, path : String) -> Bool {
   try @fs.kind(path, follow_symlink=false) catch {
-    @os_error.OSError(_) as err if err.is_ENOENT() => ()
+    @os_error.OsError(@os_error.Kind::NotFound, ..) => ()
     err => raise err
   } noraise {
     _ => return false
@@ -24,7 +24,7 @@ async fn create_minimal_settings_protected(dir : String, path : String) -> Bool 
     try
       @fs.open(staging, mode=WriteOnly, create_mode=CreateNew, permission=0o600)
     catch {
-      @os_error.OSError(_) as err if err.is_EEXIST() => continue
+      @os_error.OsError(@os_error.Kind::AlreadyExists, ..) => continue
       err => raise err
     } noraise {
       file => break (staging, file)
@@ -34,11 +34,11 @@ async fn create_minimal_settings_protected(dir : String, path : String) -> Bool 
   defer (if !published { @fs.remove(staging) })
   {
     defer file.close()
-    file.write("{\"providers\":{}}\n")
+    file.write(b"{\"providers\":{}}\n"[:])
     file.sync()
   }
   try @fs.rename(staging, path, replace=false) catch {
-    @os_error.OSError(_) as err if err.is_EEXIST() => false
+    @os_error.OsError(@os_error.Kind::AlreadyExists, ..) => false
     err => raise err
   } noraise {
     _ => {

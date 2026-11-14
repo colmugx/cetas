@@ -22,11 +22,17 @@ pub async fn open_tty_channel() -> TtyChannel? noraise {
     _ => return None
   }
   Some({
-    read_line: async fn() noraise { file.read_until("\n") catch { _ => None } },
+    read_line: async fn() noraise {
+      let line = file.read_until(b"\n") catch { _ => None }
+      match line {
+        Some(bytes) => Some(@utf8.decode_lossy(bytes))
+        None => None
+      }
+    },
     write: async fn(text : String) noraise {
       // A failing tty write (terminal vanished mid-session) is swallowed:
       // the task protocol must stay alive even when the bypass is dead.
-      file.write(text) catch {
+      file.write(@utf8.encode(text)[:]) catch {
         _ => ()
       }
     },

@@ -15,8 +15,8 @@ async test "bootstrap leaves existing symlinks including dangling links untouche
   assert_false(create_minimal_settings(dir, path))
   assert_false(@fs.exists(target))
   assert_true(@fs.kind(path, follow_symlink=false) is @fs.SymLink)
-  @fs.write_file(target, "user settings")
+  @fs.write_text(target, "user settings")
   assert_false(create_minimal_settings(dir, path))
-  assert_eq(@fs.read_file(target).text(), "user settings")
+  assert_eq(@fs.read_text(target), "user settings")
   assert_true(@fs.kind(path, follow_symlink=false) is @fs.SymLink)
 }

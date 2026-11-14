@@ -24,8 +24,6 @@ import {
   "colmugx/posoco-ext-workspace@0.1.0",
   "posoco/ext-oauth@0.1.0",
   "colmugx/posoco-ext-credentials@0.1.0",
-  "moonbitlang/async@0.22.7",
-  // recipe-deps:begin
   "colmugx/cetas-ext-forme@0.2.0",
   "colmugx/posoco-ext-read@0.2.0",
   "colmugx/posoco-ext-write@0.2.0",
@@ -41,5 +39,4 @@ import {
   "colmugx/posoco-ext-handoff@0.1.0",
   "colmugx/posoco-ext-lazytools@0.1.0",
   "posoco/ext-herdr@0.1.0",
-  // recipe-deps:end
 }

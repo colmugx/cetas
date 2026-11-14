@@ -51,8 +51,14 @@ async fn open_terminal_auth_input() -> TerminalAuthInput {
   }
   handed_off = true
   {
-    read_line: async fn() { file.read_until("\n") },
-    write: async fn(text) { output.write(text) },
+    read_line: async fn() {
+      let line = file.read_until(b"\n") catch { _ => None }
+      match line {
+        Some(bytes) => Some(@utf8.decode_lossy(bytes))
+        None => None
+      }
+    },
+    write: async fn(text) { output.write(@utf8.encode(text)[:]) },
     begin_secret: fn() raise {
       if !terminal_auth_mode_enter(mode) {
         fail("cannot securely disable terminal echo; login input refused")

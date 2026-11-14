@@ -161,6 +161,7 @@ pub async fn run_one_turn(
   write_out~ : async (String) -> Unit noraise,
   write_err~ : async (String) -> Unit noraise = (_text : String) => (),
 ) -> Bool noraise {
+  let mut failed = false
   @async.with_task_group(async fn(group) {
     let queues : Array[@aqueue.Queue[String]] = []
     let mut out_queue : @aqueue.Queue[String]? = None
@@ -259,7 +260,7 @@ pub async fn run_one_turn(
     ) catch {
       error => Err(error)
     }
-    let failed = match outcome {
+    failed = match outcome {
       Ok(text) => {
         match jsonl {
           Some(observer) =>
@@ -342,10 +343,10 @@ pub async fn run_one_turn(
     for queue in queues {
       queue.close()
     }
-    failed
   }) catch {
     // The group body is raise-free by construction (run_prompt's raise is
     // captured above; writers are noraise); this is the safety net.
-    _ => true
+    _ => failed = true
   }
+  failed
 }

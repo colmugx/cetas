@@ -47,10 +47,12 @@ fn native_login_available() -> Bool {
 
 ///|
 async fn startup_failure(message : String, usage~ : Bool = false) -> Unit {
-  @stdio.stderr.write(@lib.turn_failed_line("startup: " + message) + "\n")
-  @stdio.stderr.write("cetas-run: \{message}\n")
+  @stdio.stderr.write(
+    @utf8.encode(@lib.turn_failed_line("startup: " + message) + "\n")[:],
+  )
+  @stdio.stderr.write(@utf8.encode("cetas-run: \{message}\n")[:])
   if usage {
-    @stdio.stderr.write(@lib.run_usage())
+    @stdio.stderr.write(@utf8.encode(@lib.run_usage())[:])
   }
   exit(2)
   abort("cetas-run: unreachable after exit")
@@ -65,7 +67,7 @@ async fn main {
   }
   let home = @cetas_core.cetas_home()
   let stderr_note = async fn(text : String) noraise {
-    @stdio.stderr.write(text) catch {
+    @stdio.stderr.write(@utf8.encode(text)[:]) catch {
       _ => ()
     }
   }
@@ -82,7 +84,7 @@ async fn main {
   }
   let cli = match action {
     Ok(@lib.Help) => {
-      @stdio.stdout.write(@lib.invocation_help())
+      @stdio.stdout.write(@utf8.encode(@lib.invocation_help())[:])
       return
     }
     Ok(@lib.Version) => {
@@ -142,34 +144,40 @@ async fn main {
   // or an empty task is a usage error — there is no line loop to wait in.
   let argv_task : String? = if cli.task == "" { None } else { Some(cli.task) }
   let read_line = async fn() noraise {
-    @stdio.stdin.read_until("\n") catch {
-      _ => None
+    let line = @stdio.stdin.read_until(b"\n") catch { _ => None }
+    match line {
+      Some(bytes) => Some(@utf8.decode_lossy(bytes))
+      None => None
     }
   }
   let task = match @lib.resolve_task(argv_task, read_line~) {
     Some(task) => task
     None => {
       @stdio.stderr.write(
-        @lib.turn_failed_line(
-          "startup: no task given — pass -- \"<task>\" or pipe one line on stdin",
-        ) +
-        "\n",
+        @utf8.encode(
+          @lib.turn_failed_line(
+            "startup: no task given — pass -- \"<task>\" or pipe one line on stdin",
+          ) +
+          "\n",
+        )[:],
       )
       @stdio.stderr.write(
-        "cetas-run: no task given — pass -- \"<task>\" or pipe one line on stdin\n",
+        @utf8.encode(
+          "cetas-run: no task given — pass -- \"<task>\" or pipe one line on stdin\n",
+        )[:],
       )
-      @stdio.stderr.write(@lib.run_usage())
+      @stdio.stderr.write(@utf8.encode(@lib.run_usage())[:])
       exit(2)
       abort("cetas-run: unreachable after exit")
     }
   }
   let write_out = async fn(text : String) noraise {
-    @stdio.stdout.write(text) catch {
+    @stdio.stdout.write(@utf8.encode(text)[:]) catch {
       _ => ()
     }
   }
   let write_err = async fn(text : String) noraise {
-    @stdio.stderr.write(text) catch {
+    @stdio.stderr.write(@utf8.encode(text)[:]) catch {
       _ => ()
     }
   }
@@ -215,7 +223,7 @@ async fn main {
   // Compose, announce the session, run the single turn, shut down, exit by
   // outcome. The task group is the composition's lifecycle scope; extensions
   // that attached to it stop with the scope.
-  @core_async.with_task_group(async fn(lifetime_group) {
+  @async.with_task_group(async fn(lifetime_group) {
     @async.with_task_group(group => {
       let host = @lib.CetasRunHost(
         version=CETAS_RUN_VERSION,
@@ -238,21 +246,25 @@ async fn main {
             ".model_override",
           ) => {
           @stdio.stderr.write(
-            @lib.turn_failed_line("startup: " + detail) + "\n",
+            @utf8.encode(@lib.turn_failed_line("startup: " + detail) + "\n")[:],
           )
-          @stdio.stderr.write("cetas-run: \{detail}\n")
+          @stdio.stderr.write(@utf8.encode("cetas-run: \{detail}\n")[:])
           exit(2)
           abort("cetas-run: unreachable after exit")
         }
         error => {
           @stdio.stderr.write(
-            @lib.turn_failed_line(
-              "startup: agent composition failed: " + error.to_string(),
-            ) +
-            "\n",
+            @utf8.encode(
+              @lib.turn_failed_line(
+                "startup: agent composition failed: " + error.to_string(),
+              ) +
+              "\n",
+            )[:],
           )
           @stdio.stderr.write(
-            "cetas-run: agent composition failed: \{error.to_string()}\n",
+            @utf8.encode(
+              "cetas-run: agent composition failed: \{error.to_string()}\n",
+            )[:],
           )
           exit(2)
           abort("cetas-run: unreachable after exit")

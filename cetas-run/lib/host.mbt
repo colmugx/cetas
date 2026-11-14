@@ -51,16 +51,16 @@ pub async fn CetasRunHost::CetasRunHost(
   session_id~ : String = "",
   tail_exts~ : Array[&@posoco.Extension] = [],
   fs~ : &@workspace.WorkspaceFs? = None,
-  mcp_group~ : @async.TaskGroup[Unit]? = None,
+  mcp_group~ : @async.TaskGroup? = None,
   /// Session-lifetime group on posoco's core-async stack: the quota guard's
   /// recovery runtime runs here. `None` (tests) composes without recovery.
-  lifetime_group~ : @core_async.TaskGroup? = None,
+  lifetime_group~ : @async.TaskGroup? = None,
   label~ : String = "cetas-run",
   /// Test-safety knob only (tests pass false so composition never shells
   /// out to the real herdr CLI); production keeps the default.
   detect_herdr~ : Bool = true,
   warn~ : async (String) -> Unit noraise = async fn(text : String) noraise {
-    @stdio.stderr.write(text) catch {
+    @stdio.stderr.write(@utf8.encode(text)[:]) catch {
       _ => ()
     }
   },

@@ -144,14 +144,14 @@ async test "bootstrap creates complete settings once and preserves existing byte
   let dir = @cetas_core.cetas_dir(home)
   let path = @cetas_core.settings_path(home)
   assert_true(create_minimal_settings(dir, path))
-  assert_eq(@fs.read_file(path).text(), "{\"providers\":{}}\n")
+  assert_eq(@fs.read_text(path), "{\"providers\":{}}\n")
   let modified = @fs.mtime(path)
   assert_false(create_minimal_settings(dir, path))
   assert_eq(@fs.mtime(path), modified)
-  @fs.write_file(path, "malformed user config\n")
+  @fs.write_text(path, "malformed user config\n")
   let modified = @fs.mtime(path)
   assert_false(create_minimal_settings(dir, path))
-  assert_eq(@fs.read_file(path).text(), "malformed user config\n")
+  assert_eq(@fs.read_text(path), "malformed user config\n")
   assert_eq(@fs.mtime(path), modified)
   assert_eq(@fs.readdir(dir, include_hidden=true), ["settings.json"])
 }
@@ -169,7 +169,7 @@ async test "bootstrap concurrent starters publish once with no partial file or l
     }
   })
   assert_eq(results.filter(x => x).length(), 1)
-  assert_eq(@fs.read_file(path).text(), "{\"providers\":{}}\n")
+  assert_eq(@fs.read_text(path), "{\"providers\":{}}\n")
   assert_eq(@fs.readdir(dir, include_hidden=true), ["settings.json"])
 }
 
@@ -185,11 +185,11 @@ async test "bootstrap existing directory entries are untouched; real FS errors p
   assert_true(@fs.kind(path) is @fs.Directory)
   @fs.rmdir(path)
   @fs.rmdir(dir)
-  @fs.write_file(dir, "not a directory")
+  @fs.write_text(dir, "not a directory")
   try create_minimal_settings(dir, path) catch {
     _ => ()
   } noraise {
     _ => fail("ENOTDIR must not be treated as missing settings")
   }
-  assert_eq(@fs.read_file(dir).text(), "not a directory")
+  assert_eq(@fs.read_text(dir), "not a directory")
 }

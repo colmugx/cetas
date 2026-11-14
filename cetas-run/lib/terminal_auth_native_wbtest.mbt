@@ -269,7 +269,7 @@ async test "terminal auth: isolated PTY mode restoration" {
   let failed = try {
     with_terminal_auth(
       note=async fn(text) noraise {
-        @stdio.stderr.write(text) catch {
+        @stdio.stderr.write(@utf8.encode(text)[:]) catch {
           _ => ()
         }
       },
@@ -309,5 +309,5 @@ async test "terminal auth: native guard refuses a non-terminal and closes idempo
   terminal_auth_mode_close(mode)
   assert_false(terminal_auth_mode_enter(mode))
   // The guard owns only its duplicate, not the runtime's original handle.
-  file.write("still open")
+  file.write(b"still open"[:])
 }

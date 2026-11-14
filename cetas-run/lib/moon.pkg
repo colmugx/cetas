@@ -10,13 +10,13 @@ import {
   "posoco/ext-oauth" @oauth,
   "colmugx/posoco-ext-credentials" @credentials,
   "moonbitlang/core/env",
-  "moonbitlang/core/async" @core_async,
-  "moonbitlang/async",
-  "moonbitlang/async/aqueue",
-  "moonbitlang/async/fs",
-  "moonbitlang/async/os_error",
-  "moonbitlang/async/stdio",
-  "moonbitlang/async/types",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/aqueue",
+  "moonbitlang/core/async/fs",
+  "moonbitlang/core/async/os_error",
+  "moonbitlang/core/async/stdio",
+  "moonbitlang/core/async/types",
   // recipe-imports:begin
   "colmugx/cetas-ext-forme/lib" @forme,
   "colmugx/posoco-ext-read" @read,
@@ -37,7 +37,6 @@ import {
 }
 
 import {
-  "moonbitlang/async",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
   "posoco/devkit/testkit" @tk,
@@ -49,7 +48,14 @@ supported_targets = "+native +wasm"
 // quota guard and fuwaroid run on that stack.
 
 options(
-  "allow-experimental-packages": [ "moonbitlang/core/async" ],
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/aqueue",
+    "moonbitlang/core/async/fs",
+    "moonbitlang/core/async/os_error",
+    "moonbitlang/core/async/stdio",
+    "moonbitlang/core/async/types",
+  ],
   "native-stub": [ "terminal_auth_stub.c" ],
   targets: {
     "terminal_auth.native.mbt": [ "native" ],
