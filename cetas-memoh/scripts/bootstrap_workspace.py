@@ -46,6 +46,7 @@ MEMBERS = (
     "posoco-kit-compact-evict",
     "posoco-kit-compact-summary",
     "posoco-kit-deepseek",
+    "posoco-kit-events",
     "posoco-kit-messages",
     "posoco-kit-model-management",
     "posoco-kit-provider",

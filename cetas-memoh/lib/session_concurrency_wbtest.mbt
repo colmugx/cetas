@@ -34,7 +34,16 @@ pub impl @posoco.ModelPort for GateModelPort with fn chat(
     @core_async.sleep(1)
   }
   self.entered -= 1
-  @tk.tk_stop_response("done")
+  {
+    completion: @posoco.Completion(
+      content=[@posoco.Content::Text("done")],
+      tool_calls=[],
+      reasoning=None,
+      finish_reason=@posoco.FinishReason::Stop,
+      usage=None,
+    ),
+    processed_messages: [],
+  }
 }
 
 ///|
@@ -158,23 +167,53 @@ async test "two sessions in one process turn concurrently and cancel alone" {
     assert_true(first != second)
 
     let prompt = gate_prompt()
+    let first_state : Ref[String] = Ref("not completed")
+    let second_state : Ref[String] = Ref("not completed")
     let run_first = group.spawn(
       () => {
-        host.handle_prompt(context, {
-          session_id: first,
-          prompt,
-          meta: Omitted,
-        })
+        let result : Result[@acp.PromptResult, Error] = Ok(
+          host.handle_prompt(context, {
+            session_id: first,
+            prompt,
+            meta: Omitted,
+          }),
+        ) catch {
+          error => Err(error)
+        }
+        match result {
+          Ok(value) => {
+            first_state.val = "completed"
+            value
+          }
+          Err(error) => {
+            first_state.val = error.to_string()
+            raise error
+          }
+        }
       },
       allow_failure=true,
     )
     let run_second = group.spawn(
       () => {
-        host.handle_prompt(context, {
-          session_id: second,
-          prompt,
-          meta: Omitted,
-        })
+        let result : Result[@acp.PromptResult, Error] = Ok(
+          host.handle_prompt(context, {
+            session_id: second,
+            prompt,
+            meta: Omitted,
+          }),
+        ) catch {
+          error => Err(error)
+        }
+        match result {
+          Ok(value) => {
+            second_state.val = "completed"
+            value
+          }
+          Err(error) => {
+            second_state.val = error.to_string()
+            raise error
+          }
+        }
       },
       allow_failure=true,
     )
@@ -182,11 +221,19 @@ async test "two sessions in one process turn concurrently and cancel alone" {
     // Both turns must reach the model at the same time; a shared lock would
     // leave the second one parked outside `chat` forever.
     let mut waited = 0
+    // The prompt/model tasks execute on core-async, not the I/O task-group
+    // scheduler. Yielding only to @async here can starve both model turns
+    // under the native test driver even though each prompt is admitted.
+    // Drive the same core-async scheduler as GateModelPort::chat.
     while port.entered < 2 && waited < 5000 {
-      @async.sleep(1)
+      @core_async.sleep(1)
       waited += 1
     }
-    assert_eq(port.entered, 2)
+    if port.entered != 2 {
+      fail(
+        "expected concurrent model entry, got \{port.entered}; first=\{first_state.val}, second=\{second_state.val}",
+      )
+    }
     assert_eq(port.peak, 2)
 
     // Cancelling one session's turn must not touch the other.
