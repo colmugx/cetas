@@ -3,6 +3,7 @@ module github.com/colmugx/cetas/cetas-native
 go 1.27.4
 
 require (
+	github.com/MoeForge/moejs v0.1.0
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.1.1
 	charm.land/glamour/v2 v2.0.1
@@ -13,6 +14,8 @@ require (
 )
 
 require (
+	github.com/MoeForge/moego v0.1.0-alpha.1 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	github.com/alecthomas/chroma/v2 v2.27.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect

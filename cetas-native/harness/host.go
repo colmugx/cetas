@@ -83,6 +83,8 @@ type Host struct {
 	events     chan Event
 	problems   chan error
 	boot       chan Event
+	started    chan struct{}
+	pi         *piSupervisor
 	done       chan struct{}
 	exited     chan struct{}
 	exitCode   int
@@ -98,15 +100,18 @@ type Host struct {
 }
 
 func newHost(infra transport) *Host {
-	return &Host{
+	h := &Host{
 		infra:    infra,
 		pending:  make(map[uint64]chan json.RawMessage),
 		events:   make(chan Event, 256),
 		problems: make(chan error, 1),
 		boot:     make(chan Event, 1),
+		started:  make(chan struct{}),
 		done:     make(chan struct{}),
 		exited:   make(chan struct{}),
 	}
+	h.pi = newPiSupervisor(h)
+	return h
 }
 
 // launch starts the runtime owner and the event pump; it is the only place
@@ -184,12 +189,14 @@ func (h *Host) awaitBoot(ctx context.Context) (*Host, error) {
 		}
 		if setup {
 			h.needsSetup = true
+			close(h.started)
 			return h, nil
 		}
 		if v.Status != "ready" {
 			_ = h.Close(ctx)
 			return nil, fmt.Errorf("Cetas startup: %s: %s", v.Status, v.Detail)
 		}
+		close(h.started)
 		return h, nil
 	case <-ctx.Done():
 		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -363,6 +370,9 @@ func (h *Host) pump() {
 			}
 			continue
 		}
+		if tag.Type == "pi.guest.ready" || tag.Type == "pi.guest.execute" {
+			h.pi.handle(tag.Type, append(json.RawMessage(nil), payload...))
+		}
 		evt := Event{Type: tag.Type, Raw: append(json.RawMessage(nil), payload...)}
 		if tag.Type == "infra.boot" {
 			select {
@@ -408,6 +418,7 @@ func (h *Host) Close(ctx context.Context) error {
 	select {
 	case <-h.exited:
 		<-h.done
+		h.pi.close()
 		if h.exitCode != 1 {
 			return fmt.Errorf("MoonBit Harness exited with code %d", h.exitCode)
 		}
