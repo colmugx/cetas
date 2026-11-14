@@ -62,6 +62,8 @@ priv struct SessionHandle {
   /// This session's MCP bridge, held so `/mcp login` can drive the OAuth flow
   /// against the same connection set the agent runs on.
   mcp : @mcp.MCPToolBridge?
+  /// Per-session native Pi tool bridge; never shared across Agent handles.
+  pi_guest : NativePiGuest?
   /// Live background children of this session, fed by the subagent event
   /// stream. `None` when the delegation surface was never composed. A turn
   /// finishing does not finish its detached children, so `busy` alone cannot
@@ -240,6 +242,15 @@ async fn ConsoleRuntime::resolve_handle(
 /// does: the close signal retires the parked `run_scoped` owner, or a
 /// scope-less agent shuts down directly.
 async fn release_handle_scope(handle : SessionHandle) -> Unit {
+  // One explicit guest-lifetime boundary per SessionHandle. The JS VM must
+  // not outlive retired Agent sessions (the handle cache is bounded).
+  match handle.pi_guest {
+    Some(guest) => {
+      guest.retire()
+      guest.hub.emit_out_of_band(handle.session_id, "pi.guest.retired")
+    }
+    None => ()
+  }
   match handle.close {
     Some(close) => ignore(close.try_put(()) catch { _ => false })
     None => handle.agent.shutdown()
@@ -514,6 +525,13 @@ async fn compose_session_agent(
   )
   tail_exts.push(mcp_bridge as &@posoco.Extension)
   reserve_mcp_tool_names(mcp_bridge, session.base_defs)
+  let pi_guest = if native_ui {
+    let guest = NativePiGuest::new(session_id, hub)
+    tail_exts.push(guest as &@posoco.Extension)
+    Some(guest)
+  } else {
+    None
+  }
   let agent = @cetas_core.compose_cetas_agent(
     session~,
     tail_exts~,
@@ -524,6 +542,14 @@ async fn compose_session_agent(
     runtime_group=lifetime_group,
   )
   let close = native_session_scope(group, agent, native_ui~, label)
+  match pi_guest {
+    Some(_) =>
+      hub.emit_out_of_band(session_id, "pi.guest.ready", extra=[
+        ("cwd", Json::string(cwd)),
+        ("home", Json::string(home)),
+      ])
+    None => ()
+  }
   {
     agent,
     session_id,
@@ -537,6 +563,7 @@ async fn compose_session_agent(
     turn_no: 0,
     questions,
     mcp: Some(mcp_bridge),
+    pi_guest,
     children,
     close,
   }
@@ -1275,6 +1302,13 @@ async fn build_workspace(
   )
   tail_exts.push(mcp_bridge as &@posoco.Extension)
   reserve_mcp_tool_names(mcp_bridge, session.base_defs)
+  let pi_guest = if native_ui {
+    let guest = NativePiGuest::new(first_session_id, hub)
+    tail_exts.push(guest as &@posoco.Extension)
+    Some(guest)
+  } else {
+    None
+  }
   let agent = @cetas_core.compose_cetas_agent(
     session~,
     tail_exts~,
@@ -1298,6 +1332,7 @@ async fn build_workspace(
     turn_no: 0,
     questions,
     mcp: Some(mcp_bridge),
+    pi_guest,
     children: first_children,
     close,
   }
@@ -1614,6 +1649,72 @@ pub fn ConsoleRuntime::attach_sink(
   sink : (String) -> Unit,
 ) -> Unit {
   self.hub.attach(sink)
+  // Initial workspace composition occurs before any Go EventHub consumer is
+  // attached; only now is it safe to ask that consumer to load Pi modules.
+  for _, workspace in self.workspaces {
+    for _, handle in workspace.handles {
+      match handle.pi_guest {
+        Some(_) =>
+          self.emit_host_event(handle.session_id, "pi.guest.ready", extra=[
+            ("home", Json::string(self.home)),
+            ("cwd", Json::string(handle.cwd)),
+          ])
+        None => ()
+      }
+    }
+  }
+}
+
+///|
+/// Install a guest catalog through Posoco's owner-bound ToolContributions.
+/// Every entry is validated by the Kernel; the Go VM cannot bypass the
+/// Agent's permission gate or replace a bound tool in an active operation.
+pub async fn ConsoleRuntime::pi_guest_install(
+  self : ConsoleRuntime,
+  session_id : String,
+  tools : Json,
+) -> Result[Unit, String] {
+  for _, workspace in self.workspaces {
+    match workspace.handles.get(session_id) {
+      Some(handle) =>
+        match handle.pi_guest {
+          Some(guest) => {
+            let outcome = guest.install(tools)
+            if outcome is Ok(_) {
+              self.emit_host_event(session_id, "pi.guest.installed", extra=[
+                ("tool_count", Json::number(guest.defs.length().to_double())),
+              ])
+            }
+            return outcome
+          }
+          None => return Err("session has no native Pi guest")
+        }
+      None => ()
+    }
+  }
+  Err("unknown native Pi session: " + session_id)
+}
+
+///|
+/// Resolve only the correlated foreign-tool request. Unknown/duplicate
+/// replies never touch the Agent.
+pub fn ConsoleRuntime::pi_guest_result(
+  self : ConsoleRuntime,
+  session_id : String,
+  request_id : String,
+  result : Json,
+) -> Bool {
+  for _, workspace in self.workspaces {
+    match workspace.handles.get(session_id) {
+      Some(handle) =>
+        match handle.pi_guest {
+          Some(guest) => return guest.resolve(request_id, result)
+          None => return false
+        }
+      None => ()
+    }
+  }
+  false
 }
 
 ///|
