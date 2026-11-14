@@ -51,7 +51,7 @@ RUN_BIN = Path("_build/native/release/build/colmugx/cetas-run/main/main.exe")
 RUN_TIMEOUT = 1200  # seconds, one LLM turn
 EXT_LOG_LIMIT = 30
 COMPONENTS = frozenset(
-    ("cetas-js", "cetas-acp", "cetas-core", "cetas-run", "cetas-native", "cetas-ext-forme", "extension")
+    ("cetas-js", "cetas-acp", "cetas-core", "cetas-run", "cetas-go", "cetas-ext-forme", "extension")
 )
 GROUP_OF = {"feat": "Added", "fix": "Fixed", "refactor": "Changed", "perf": "Changed"}
 SYNC = [
@@ -61,8 +61,8 @@ SYNC = [
     ("cetas-acp/main/main.mbt", ACP_READ, ACP_SUB),
     ("cetas-run/moon.mod", MOON_READ, MOON_SUB),
     ("cetas-run/main/main.mbt", RUN_READ, RUN_SUB),
-    ("cetas-native/moon.mod", MOON_READ, MOON_SUB),
-    ("cetas-native/main.go", NATIVE_READ, NATIVE_SUB),
+    ("cetas-go/moon.mod", MOON_READ, MOON_SUB),
+    ("cetas-go/main.go", NATIVE_READ, NATIVE_SUB),
 ]
 NOTES_HEADER = (
     "<!-- 此文件内容将作为发布说明（写入 CHANGELOG.md 小节）。"
@@ -250,7 +250,7 @@ def ai_prompt(commits, ext_lines):
         "背景：cetas 一次发版同时带出三个端侧应用；因 cetas 会集成来自 extension 子仓库的扩展，"
         "所以需要分析 extension 在这段提交历史中为 cetas 供应的功能，并作为功能点列出。禁止为 extension 单独设节。"
         "要求：1. 只输出 markdown 正文，不要代码围栏和任何解释。 2. 确认功能真实落实到某个端，才可列出。 3. 必须读提交，至少读个大概。禁止只看标题就总结。 4. 以“帮用户实现了什么功能/解决了什么问题”为导向",
-        "固定五个小节，标题原样：## General、## Native Ver.（cetas-native）、## NPM Ver.（cetas-js）、## ACP Ver.（cetas-acp）、## Run Ver.（cetas-run）；"
+        "固定五个小节，标题原样：## General、## Native Ver.（cetas-go）、## NPM Ver.（cetas-js）、## ACP Ver.（cetas-acp）、## Run Ver.（cetas-run）；"
         "无内容的小节保留空标题。只整理跟这三个端侧相关的更新信息：",
         "小节内按需使用 ### Feats / ### Fixes 子节，条目为 \"- \" 列表，"
         "请使用 English、面向用户、不含 hash；chore/internal/refactor/文档等非用户可见变更省略。",

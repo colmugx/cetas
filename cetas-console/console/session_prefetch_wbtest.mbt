@@ -11,7 +11,7 @@ async test "prefetch_session cache hit keeps the active session and emits nothin
     let home = permission_fixture("prefetch-hit")
     let fs_impl = @workspace.NativeWorkspaceFs()
     let fs : &@workspace.WorkspaceFs = fs_impl
-    let config = console_config(fs, home, "cetas-native", "cetas-native/0.1")
+    let config = console_config(fs, home, "cetas-go", "cetas-go/0.1")
     let runtime = compose_console_runtime(config, cwd, group)
     let frames : Array[String] = []
     runtime.attach_sink(fn(frame) { frames.push(frame) })
@@ -35,7 +35,7 @@ async test "prefetch_session warms an inactive handle and rejects malformed ids"
     let home = permission_fixture("prefetch-miss")
     let fs_impl = @workspace.NativeWorkspaceFs()
     let fs : &@workspace.WorkspaceFs = fs_impl
-    let config = console_config(fs, home, "cetas-native", "cetas-native/0.1")
+    let config = console_config(fs, home, "cetas-go", "cetas-go/0.1")
     let runtime = compose_console_runtime(config, cwd, group)
     let frames : Array[String] = []
     runtime.attach_sink(fn(frame) { frames.push(frame) })
@@ -75,7 +75,7 @@ async test "composition after the shutdown sweep is refused without installing" 
     let home = permission_fixture("prefetch-stop")
     let fs_impl = @workspace.NativeWorkspaceFs()
     let fs : &@workspace.WorkspaceFs = fs_impl
-    let config = console_config(fs, home, "cetas-native", "cetas-native/0.1")
+    let config = console_config(fs, home, "cetas-go", "cetas-go/0.1")
     let runtime = compose_console_runtime(config, cwd, group)
     let frames : Array[String] = []
     runtime.attach_sink(fn(frame) { frames.push(frame) })
@@ -106,7 +106,7 @@ async test "emit_host_event reaches the sink but not the wire log" {
     let home = permission_fixture("prefetch-oob")
     let fs_impl = @workspace.NativeWorkspaceFs()
     let fs : &@workspace.WorkspaceFs = fs_impl
-    let config = console_config(fs, home, "cetas-native", "cetas-native/0.1")
+    let config = console_config(fs, home, "cetas-go", "cetas-go/0.1")
     let runtime = compose_console_runtime(config, cwd, group)
     let frames : Array[String] = []
     runtime.attach_sink(fn(frame) { frames.push(frame) })

@@ -1,4 +1,4 @@
-# Cetas Native installation and package-manager publishing
+# Cetas Go installation and package-manager publishing
 
 **Cetas JS via npm remains the recommended terminal.** Native is an optional Go/Bubble Tea alternative; Homebrew and Scoop install the full Native bundle with its ACP and Run siblings. Standalone `cetas-acp-*` and `cetas-run-*` downloads remain available for editor integration and one-off scripts.
 

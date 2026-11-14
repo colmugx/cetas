@@ -12,7 +12,7 @@ async test "mcp login interception routes only the interactive login action" {
     let home = permission_fixture("mcp-login")
     let fs_impl = @workspace.NativeWorkspaceFs()
     let fs : &@workspace.WorkspaceFs = fs_impl
-    let config = console_config(fs, home, "cetas-native", "cetas-native/0.1")
+    let config = console_config(fs, home, "cetas-go", "cetas-go/0.1")
     let runtime = compose_console_runtime(config, cwd, group)
     let session_id = runtime.active_session_id()
     // A login without a server name is refused before the bridge is touched.

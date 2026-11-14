@@ -34,7 +34,7 @@ pub async fn ConsoleBootstrap::providers_json(self : ConsoleBootstrap) -> Json {
   let settings = @cetas_core.load_provider_settings(
     self.fs,
     home=self.home,
-    label="cetas-native.bootstrap",
+    label="cetas-go.bootstrap",
   ) catch {
     _ => return Json::object({ "providers": Json::array([]) })
   }
@@ -71,7 +71,7 @@ pub async fn ConsoleBootstrap::login(
   let settings = @cetas_core.load_provider_settings(
     self.fs,
     home=self.home,
-    label="cetas-native.bootstrap",
+    label="cetas-go.bootstrap",
   ) catch {
     _ =>
       return login_failure_json(

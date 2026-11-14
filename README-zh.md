@@ -41,7 +41,7 @@ npm install -g @posoco/cetas
 cetas --version
 ```
 
-**第二选择：Cetas Native。** 基于 Go/Bubble Tea v2 的终端，使用相同的 MoonBit Cetas/Posoco 内核，不需要安装 Node.js 或 Bun；但不承诺与 JS 完全一致的功能。
+**第二选择：Cetas Go。** 基于 Go/Bubble Tea v2 的终端，使用相同的 MoonBit Cetas/Posoco 内核，不需要安装 Node.js 或 Bun；但不承诺与 JS 完全一致的功能。
 
 | 平台 | 包管理器 | 直接安装 |
 | --- | --- | --- |
@@ -58,7 +58,7 @@ scoop install cetas/cetas
 
 **只需要 ACP 或 Run？** 可从带 `cetas-v*` 标签的[发布页](https://github.com/colmugx/cetas/releases)单独下载 `cetas-acp-{platform}` 或 `cetas-run-{platform}`（例如搭配 Lody 使用 ACP），不必安装完整 Native 终端。
 
-JS 和 Native 都可能提供 `cetas` 命令，实际执行哪一份由 `PATH` 顺序决定。安装两种实现后，可用 `command -v cetas`（PowerShell 用 `Get-Command cetas`）检查。更多差异见 [Native 指南](cetas-native/README.md) 与[包管理器指南](docs/native-package-managers.md)。
+JS 和 Native 都可能提供 `cetas` 命令，实际执行哪一份由 `PATH` 顺序决定。安装两种实现后，可用 `command -v cetas`（PowerShell 用 `Get-Command cetas`）检查。更多差异见 [Native 指南](cetas-go/README.md) 与[包管理器指南](docs/native-package-managers.md)。
 
 ### 2. 连接模型
 
@@ -90,7 +90,7 @@ JS 和 Native 都可能提供 `cetas` 命令，实际执行哪一份由 `PATH` �
 | **交互式终端（首选）** · `cetas-js` | 完整 JS 终端、会话回退及 JS 专属功能 | `npm install -g @posoco/cetas` · [从源码构建](docs/development.md#interactive-terminal) |
 | **编辑器** · `cetas-acp` | 支持 Agent Client Protocol 的编辑器 | `cetas-acp` · [接入说明](docs/configuration.md#editor--acp) |
 | **自动化** · `cetas-run` | 每次执行一个任务、脚本和 JSONL 输出 | `cetas-run` · [使用指南](cetas-run/README.mbt.md) |
-| **原生终端（第二选择）** · `cetas-native` | Go/Bubble Tea v2 + MoonBit，无需 Node.js | `brew install colmugx/tap/cetas` / [Scoop](https://github.com/colmugx/scoop-bucket) · [指南](cetas-native/README.md) |
+| **原生终端（第二选择）** · `cetas-go` | Go/Bubble Tea v2 + MoonBit，无需 Node.js | `brew install colmugx/tap/cetas` / [Scoop](https://github.com/colmugx/scoop-bucket) · [指南](cetas-go/README.md) |
 | **Web** · `cetas-web` | 正在开发的浏览器入口 | [本地开发](cetas-web/README.md) |
 
 各入口的能力有所不同，[composition roster](composition/recipes.csv) 是功能组合的准确信息源。共享 Cetas 主目录不代表所有入口具有相同的界面，或都支持跨入口继续同一段会话。
@@ -130,7 +130,7 @@ Posoco 提供 Agent 基础和扩展端口，Cetas 定义产品行为，各入口
 | --- | --- |
 | [配置](docs/configuration.md) | Provider、权限、共享状态、MCP 与 ACP 接入 |
 | [开发](docs/development.md) | 工作区检出、依赖、构建与检查 |
-| [Native 安装](cetas-native/README.md) | 第二种终端实现、平台、安装器和 DLL 布局 |
+| [Native 安装](cetas-go/README.md) | 第二种终端实现、平台、安装器和 DLL 布局 |
 | [Homebrew / Scoop](docs/native-package-managers.md) | Native 包管理器安装与发布 |
 | [架构](docs/architecture.md) | 产品职责、仓库结构与扩展组合 |
 | [Composition](composition/README.md) | Recipe 定义与生成流程 |

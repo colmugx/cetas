@@ -42,7 +42,7 @@ async test "composed console wires every capability its roster row claims" {
     let home = permission_fixture("roster")
     let fs_impl = @workspace.NativeWorkspaceFs()
     let fs : &@workspace.WorkspaceFs = fs_impl
-    let config = console_config(fs, home, "cetas-native", "cetas-native/0.1")
+    let config = console_config(fs, home, "cetas-go", "cetas-go/0.1")
     let runtime = compose_console_runtime(config, cwd, group)
     let ids = roster_ext_ids(runtime.zoo_json())
     for id in roster_host_ext_ids() {

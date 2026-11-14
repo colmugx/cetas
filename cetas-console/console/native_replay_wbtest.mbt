@@ -704,13 +704,7 @@ async test "replay commands are native-only and leave the shared transcript unch
     let shared_sessions = shared.sessions_json()
     shared.shutdown_all()
     let native = compose_console_runtime(
-      console_config(
-        fs,
-        home,
-        "cetas-native",
-        "cetas-native/0.1",
-        native_ui=true,
-      ),
+      console_config(fs, home, "cetas-go", "cetas-go/0.1", native_ui=true),
       cwd,
       group,
     )

@@ -129,7 +129,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: cetas-native/go.mod
+          go-version-file: cetas-go/go.mod
           cache: false
 
       - name: moon version
@@ -141,11 +141,11 @@ jobs:
       # Catches a Windows-only interface break in the bridge before the
       # expensive archive build hides it.
       - name: Check the bridge for this target
-        run: moon check -p cetas-native/native_bridge --target native --deny-warn --output-json
+        run: moon check -p cetas-go/native_bridge --target native --deny-warn --output-json
 
       # Optimize MoonBit-generated C, dependency stubs, and runtime together.
       - name: Build size-optimized MoonBit compiler wrapper (unix)
-        working-directory: cetas-native
+        working-directory: cetas-go
         shell: bash
         run: |
           go test ./tools/moon-cc-wrapper -count=1
@@ -156,16 +156,16 @@ jobs:
       - name: Compile MoonBit bridge archive
         shell: bash
         run: |
-          moon build cetas-native/native_bridge --target native --release
-          src="_build/native/release/build/colmugx/cetas-native/native_bridge/native_bridge.a"
-          mkdir -p cetas-native/go_bridge/lib
-          cp "$src" cetas-native/go_bridge/lib/libcetas_moon.a
+          moon build cetas-go/native_bridge --target native --release
+          src="_build/native/release/build/colmugx/cetas-go/native_bridge/native_bridge.a"
+          mkdir -p cetas-go/go_bridge/lib
+          cp "$src" cetas-go/go_bridge/lib/libcetas_moon.a
 
       # Download modules before vet/test so transient Go proxy HTTP/2
       # failures can be retried without restarting the expensive MoonBit build.
       # This is shared native CI infrastructure, not a package-specific gate.
       - name: Resolve native Go modules (retry transient proxy failures)
-        working-directory: cetas-native
+        working-directory: cetas-go
         shell: bash
         run: |
           for attempt in 1 2 3; do
@@ -180,13 +180,13 @@ jobs:
           done
 
       - name: go vet
-        working-directory: cetas-native
+        working-directory: cetas-go
         env:
           CGO_ENABLED: '1'
         run: go vet ./...
 
       - name: go test
-        working-directory: cetas-native
+        working-directory: cetas-go
         env:
           CGO_ENABLED: '1'
         run: go test ./... -count=1
@@ -194,7 +194,7 @@ jobs:
       # The cgo boundary is shared-memory by design; the race detector is the
       # tool-level guard for the Go side of that contract.
       - name: go test (race)
-        working-directory: cetas-native
+        working-directory: cetas-go
         env:
           CGO_ENABLED: '1'
         run: go test -race ./go_bridge/ ./harness/ ./internal/... -count=1
@@ -202,7 +202,7 @@ jobs:
       # Fault-injection builds carry the transport failure probes; ordinary
       # builds must stay without them (see go_bridge/faults.go).
       - name: go test (fault injection tag)
-        working-directory: cetas-native
+        working-directory: cetas-go
         env:
           CGO_ENABLED: '1'
         run: go test -tags cetas_native_faults ./go_bridge/ -count=1
@@ -212,7 +212,7 @@ jobs:
         run: mkdir -p bin
 
       - name: Build the cetas binary
-        working-directory: cetas-native
+        working-directory: cetas-go
         env:
           CGO_ENABLED: '1'
         run: go build -trimpath -o ../bin/cetas .
@@ -248,7 +248,7 @@ jobs:
           "$HOME\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
       - uses: actions/setup-go@v5
         with:
-          go-version-file: cetas-native/go.mod
+          go-version-file: cetas-go/go.mod
           cache: false
       - name: PowerShell installer syntax
         shell: pwsh
@@ -266,9 +266,9 @@ jobs:
       - name: Build MoonBit archive
         run: |
           moon update
-          moon check -p cetas-native/native_bridge --target native --deny-warn --output-json
+          moon check -p cetas-go/native_bridge --target native --deny-warn --output-json
       - name: Build size-optimized MoonBit compiler wrapper (Windows)
-        working-directory: cetas-native
+        working-directory: cetas-go
         shell: pwsh
         run: |
           go test ./tools/moon-cc-wrapper -count=1
@@ -276,24 +276,24 @@ jobs:
           "MOON_CC_WRAPPER=$env:RUNNER_TEMP\moon-cc-wrapper.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
           "MOONBIT_ALLOCATOR=system" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Build MoonBit archive (optimized)
-        run: moon build cetas-native/native_bridge --target native --release
+        run: moon build cetas-go/native_bridge --target native --release
       - name: Link MSVC runtime DLL
         shell: pwsh
-        run: ./cetas-native/tools/build_windows_dll.ps1 -OutputDir bin
+        run: ./cetas-go/tools/build_windows_dll.ps1 -OutputDir bin
       - name: Go vet (no cgo)
-        working-directory: cetas-native
+        working-directory: cetas-go
         env:
           CGO_ENABLED: '0'
           CETAS_NATIVE_DLL: ${{ github.workspace }}\bin\cetas_moon.dll
         run: go vet ./...
       - name: Go tests through MSVC DLL (no cgo)
-        working-directory: cetas-native
+        working-directory: cetas-go
         env:
           CGO_ENABLED: '0'
           CETAS_NATIVE_DLL: ${{ github.workspace }}\bin\cetas_moon.dll
         run: go test ./... -count=1
       - name: Build pure Go cetas.exe
-        working-directory: cetas-native
+        working-directory: cetas-go
         env:
           CGO_ENABLED: '0'
         run: go build -trimpath -o ../bin/cetas.exe .
@@ -308,7 +308,7 @@ jobs:
           ./bin/cetas.exe run --version
       - uses: actions/upload-artifact@v6
         with:
-          name: cetas-native-windows-ci
+          name: cetas-go-windows-ci
           path: |
             bin/cetas.exe
             bin/cetas_moon.dll

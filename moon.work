@@ -6,7 +6,7 @@ members = [
   "./cetas-run",
   "./cetas-memoh",
   "./cetas-js",
-  "./cetas-native",
+  "./cetas-go",
   "./cetas-ext-forme",
   "./cetas-extras",
   "./extension/posoco-devkit",

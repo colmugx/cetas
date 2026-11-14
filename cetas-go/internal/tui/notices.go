@@ -1,0 +1,59 @@
+package tui
+
+import (
+	"strings"
+
+	ui "github.com/colmugx/cetas/cetas-go/internal/tui/components"
+	transcriptui "github.com/colmugx/cetas/cetas-go/internal/tui/transcript"
+)
+
+// err stays a diagnostic for command callers and is never rendered beside the
+// draft: a state redraw must not append the same failure repeatedly.
+func (m *model) presentErrorNotice() bool {
+	if m.err == "" {
+		m.presentedError = ""
+		return false
+	}
+	if m.err == m.presentedError {
+		return false
+	}
+	m.presentedError = m.err
+	if m.blocks == nil {
+		m.blocks = map[int]transcriptui.Block{}
+	}
+	// err arrives verbatim: the same SGR allowlist as tool results keeps
+	// hostile sequences off the screen.
+	safe := ui.SanitizeSGR(m.err)
+	at := len(m.transcript)
+	m.transcript = append(m.transcript, "● "+safe)
+	m.blocks[at] = transcriptui.Block{Kind: "error", Text: safe}
+	return true
+}
+
+func (m *model) appendUser(text string) {
+	m.welcomeHidden = true
+	if m.blocks == nil {
+		m.blocks = map[int]transcriptui.Block{}
+	}
+	at := len(m.transcript)
+	// The raw line serves copy/search; display comes from the block.
+	m.transcript = append(m.transcript, "> "+text)
+	m.blocks[at] = transcriptui.Block{Kind: "user", Text: text}
+}
+
+func (m model) renderNotice(b transcriptui.Block) string {
+	role := "muted"
+	prefix := ""
+	if b.Kind == "error" {
+		role = "error"
+		prefix = "● "
+	}
+	lines := strings.Split(b.Text, "\n")
+	for i, line := range lines {
+		if i == 0 {
+			line = prefix + line
+		}
+		lines[i] = " " + m.theme().Role(role, line)
+	}
+	return strings.Join(lines, "\n")
+}
