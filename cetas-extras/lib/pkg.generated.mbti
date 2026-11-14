@@ -3,11 +3,11 @@ package "colmugx/cetas-extras/lib"
 
 import {
   "colmugx/posoco/port",
-  "moonbitlang/async",
+  "moonbitlang/core/async",
 }
 
 // Values
-pub fn deferred_extensions(@async.TaskGroup[Unit]?) -> Array[&@port.Extension]
+pub fn deferred_extensions(@async.TaskGroup?) -> Array[&@port.Extension]
 
 // Errors
 
