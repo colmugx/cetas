@@ -68,7 +68,7 @@ async fn serve_websocket(
         ).stringify(),
       )
     Ok(runtime) =>
-      @async.with_task_group(connection_group => {
+      @core_async.with_task_group(connection_group => {
         let queue : @aqueue.Queue[String] = Queue(
           kind=Blocking(WEB_EVENT_QUEUE_CAPACITY),
         )
@@ -176,7 +176,7 @@ async fn main {
   // per-session quota-guard recovery runtimes, `group` (moonbitlang/async)
   // owns the I/O work — MCP connections, provider tool planes, probes.
   @core_async.with_task_group(async fn(lifetime_group) {
-    @async.with_task_group(group => {
+    @core_async.with_task_group(group => {
       let boot : Result[@console.ConsoleRuntime, String] = Ok(
         @console.compose_console_runtime(
           config,

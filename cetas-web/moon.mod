@@ -15,9 +15,9 @@ preferred_target = "native"
 supported_targets = "native"
 
 import {
+  "moonbitlang/async@0.22.7",
   "colmugx/cetas-console@0.1.0",
   "colmugx/cetas-core@0.2.0",
   "colmugx/posoco-ext-workspace@0.1.0",
-  "moonbitlang/async@0.22.7",
   "moonbitlang/moonback@0.8.5",
 }
