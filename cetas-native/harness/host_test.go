@@ -50,13 +50,16 @@ func TestNativeHarnessHost(t *testing.T) {
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		hasResult, hasDelegationResult := false, false
+		hasResult, hasDelegationResult, hasPiResult := false, false, false
 		for _, message := range request.Messages {
 			if message.Role == "tool" && message.CallID == "native-ui-read" {
 				hasResult = true
 			}
 			if message.Role == "tool" && message.CallID == "native-ui-agent" {
 				hasDelegationResult = true
+			}
+			if message.Role == "tool" && message.CallID == "native-pi-echo" {
+				hasPiResult = true
 			}
 		}
 		chunks := []string{
@@ -80,6 +83,13 @@ func TestNativeHarnessHost(t *testing.T) {
 				`[DONE]`,
 			}
 		}
+		if strings.Contains(string(body), "native-ui-pi-fixture") && !hasPiResult {
+			chunks = []string{
+				`{"id":"mock","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"native-pi-echo","type":"function","function":{"name":"pi_native_echo","arguments":"{\"text\":\"native\"}"}}]},"finish_reason":null}]}`,
+				`{"id":"mock","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
+				`[DONE]`,
+			}
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		for _, chunk := range chunks {
 			_, _ = io.WriteString(w, "data: "+chunk+"\n\n")
@@ -92,6 +102,28 @@ func TestNativeHarnessHost(t *testing.T) {
 	config := []byte(fmt.Sprintf(`{"providers":{"cetas-native-ci":{"base_url":%q,"model":"cetas-native-infra-test","api_key":"not-a-real-key"}}}`, llm.URL+"/v1"))
 	if err := os.WriteFile(filepath.Join(home, ".cetas", "settings.json"), config, 0600); err != nil {
 		t.Fatal(err)
+	}
+
+	// Allowlisted unmodified Pi module. It must be loaded by the *in-process*
+	// moejs VM and executed through the same MoonBit/Posoco Agent as base tools.
+	piDir := filepath.Join(home, ".cetas", "pi-packages", "pi-native-fixture")
+	if err := os.MkdirAll(piDir, 0700); err != nil { t.Fatal(err) }
+	for path, source := range map[string]string{
+		filepath.Join(home, ".cetas", "pi-packages.json"): `{"packages":["pi-native-fixture"]}`,
+		filepath.Join(piDir, "package.json"): `{"name":"pi-native-fixture","pi":{"extensions":["./index.mjs"]}}`,
+		filepath.Join(piDir, "index.mjs"): `export default function(pi) {
+			pi.registerTool({
+				name:"pi_native_echo",
+				description:"Echo without leaving the Posoco Agent",
+				parameters:{type:"object",properties:{text:{type:"string",minLength:1}},required:["text"]},
+				async execute(callId, params) {
+					const text = await Promise.resolve(params.text);
+					return {content:[{type:"text",text:"echo:"+text}]};
+				}
+			});
+		}`,
+	} {
+		if err := os.WriteFile(path, []byte(source), 0600); err != nil { t.Fatal(err) }
 	}
 	t.Setenv("CETAS_HOME", home)
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
@@ -121,6 +153,25 @@ func TestNativeHarnessHost(t *testing.T) {
 			}
 		}
 	}()
+
+	// The VM is initialized after the first Agent Session is composed. The
+	// readiness event is emitted only after the Kernel accepts the catalog.
+	select {
+	case <-time.After(15 * time.Second):
+		t.Fatal("allowlisted native Pi tools were never installed into Posoco")
+	case event := <-seen:
+		if event.Type != "pi.guest.installed" {
+			// Ordinary bootstrap events may precede the guest publication.
+			deadline := time.After(15 * time.Second)
+			for event.Type != "pi.guest.installed" {
+				select {
+				case event = <-seen:
+				case <-deadline:
+					t.Fatal("no Pi tool publication after Native guest startup")
+				}
+			}
+		}
+	}
 	commands := []struct {
 		name string
 		args any
@@ -363,6 +414,40 @@ answeredQuestion:
 		case <-deadline:
 			t.Fatal("typed question answer did not reach its extension registry")
 		}
+	}
+
+	// A real provider-generated tool call must cross the Posoco runtime,
+	// Go/moejs extension callback, and correlated result inbox. It is not a
+	// direct JS runner test.
+	if _, err := h.Request(ctx, "turn_start", map[string]any{"prompt": "native-ui-pi-fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	piExecuted, piSucceeded := false, false
+	piDeadline := time.After(15 * time.Second)
+piTurn:
+	for {
+		select {
+		case evt := <-seen:
+			if evt.Type == "pi.guest.execute" {
+				piExecuted = true
+			}
+			if evt.Type == "tool.completed" || evt.Type == "tool.succeeded" {
+				if strings.Contains(string(evt.Raw), "native-pi-echo") {
+					piSucceeded = true
+				}
+			}
+			if evt.Type == "turn.failed" {
+				t.Fatalf("native Pi Agent turn failed: %s", evt.Raw)
+			}
+			if evt.Type == "turn.completed" {
+				break piTurn
+			}
+		case <-piDeadline:
+			t.Fatal("Pi extension call never returned to the Posoco Agent")
+		}
+	}
+	if !piExecuted || !piSucceeded {
+		t.Fatalf("Pi guest did not complete the Agent effect: executed=%v succeeded=%v", piExecuted, piSucceeded)
 	}
 	checkSwitchSupersedesQueuedReplay(t, h, home)
 	checkSessionCatalogAnchorRoundTrip(t, h, home)
