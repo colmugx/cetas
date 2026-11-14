@@ -43,8 +43,14 @@ async fn open_setup_terminal() -> SetupTerminalInput {
   })
   handed_off = true
   {
-    read_line: async fn() { file.read_until("\n") },
-    write: async fn(text) { file.write(text) },
+    read_line: async fn() {
+      let line = file.read_until(b"\n") catch { _ => None }
+      match line {
+        Some(bytes) => Some(@utf8.decode_lossy(bytes))
+        None => None
+      }
+    },
+    write: async fn(text) { file.write(@utf8.encode(text)[:]) },
     begin_secret: fn() raise {
       if !memoh_terminal_mode_enter(mode) {
         fail("cannot securely disable terminal echo; credential input refused")

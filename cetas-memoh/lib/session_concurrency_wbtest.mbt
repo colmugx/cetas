@@ -31,7 +31,7 @@ pub impl @posoco.ModelPort for GateModelPort with fn chat(
   // `chat` runs on the turn's core-async stack; parking here with the host
   // stack's sleep deadlocks the concurrent-session gate.
   while !self.released {
-    @core_async.sleep(1)
+    @async.sleep(1)
   }
   self.entered -= 1
   {
@@ -95,7 +95,7 @@ fn gate_catalog(port : &@posoco.ModelPort) -> @llm.ProviderModelCatalog {
 /// The host never touches credentials on this path; the store exists only
 /// because the router wants one, and the directory is never created.
 fn gate_host(
-  group : @async.TaskGroup[Unit],
+  group : @async.TaskGroup,
   catalog : @llm.ProviderModelCatalog,
 ) -> MemohHost {
   let fs : &@workspace.WorkspaceFs = @workspace.NativeWorkspaceFs()
@@ -226,7 +226,7 @@ async test "two sessions in one process turn concurrently and cancel alone" {
     // under the native test driver even though each prompt is admitted.
     // Drive the same core-async scheduler as GateModelPort::chat.
     while port.entered < 2 && waited < 5000 {
-      @core_async.sleep(1)
+      @async.sleep(1)
       waited += 1
     }
     if port.entered != 2 {

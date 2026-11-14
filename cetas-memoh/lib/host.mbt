@@ -7,7 +7,7 @@ priv struct MemohSession {
   memoh : @memoh.Memoh
   router : @llm.RouterModelPort
   agent : @posoco.Agent
-  mut in_flight : @core_async.Task[@posoco.TurnResult]?
+  mut in_flight : @async.Task[@posoco.TurnResult]?
   turn_lock : @async.Mutex
 }
 
@@ -106,7 +106,7 @@ pub struct MemohHost {
   catalogs : Array[@llm.ProviderModelCatalog]
   model_metadata : @llm.ModelMetadata
   credential_store : @credentials.FileProviderCredentialStore
-  mcp_group : @async.TaskGroup[Unit]
+  mcp_group : @async.TaskGroup
   priv sessions : Map[String, MemohSession]
 }
 
@@ -114,7 +114,7 @@ pub struct MemohHost {
 pub async fn MemohHost::MemohHost(
   home~ : String,
   cwd~ : String,
-  mcp_group~ : @async.TaskGroup[Unit],
+  mcp_group~ : @async.TaskGroup,
   version~ : String = "0.1.0",
 ) -> MemohHost raise @posoco.CompositionError {
   let fs = @workspace.NativeWorkspaceFs()
@@ -527,12 +527,12 @@ pub async fn MemohHost::handle_prompt(
   defer session.memoh.clear_turn_context()
 
   // The pump, the ACP bridge and posoco's turn all run on the core-async stack,
-  // so the turn's scope is that group — the host's moonbitlang/async I/O group
+  // so the turn's scope is that group — the host's moonbitlang/core/async I/O group
   // cannot own them (their TaskGroups are distinct types since async 0.22).
   // `with_task_group` on the core-async stack is Unit-valued, so the verdict
   // crosses in a cell.
   let settled : Ref[Result[@acp.PromptResult, @acp.HandlerError]?] = Ref(None)
-  @core_async.with_task_group(async fn(group) {
+  @async.with_task_group(async fn(group) {
     session.bridge.spawn_pump(group)
     let task = group.spawn(
       () => session.agent.run_turn(message, params.session_id),

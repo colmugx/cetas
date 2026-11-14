@@ -7,7 +7,7 @@ let memoh_stderr_lock : @async.Mutex = @async.Mutex::Mutex()
 pub async fn memoh_warn(message : String) -> Unit noraise {
   memoh_stderr_lock.acquire()
   defer memoh_stderr_lock.release()
-  @stdio.stderr.write(message) catch {
+  @stdio.stderr.write(@utf8.encode(message)[:]) catch {
     _ => ()
   }
 }

@@ -20,12 +20,12 @@ import {
   "colmugx/posoco-ext-openrouter" @openrouter,
   "colmugx/posoco-ext-zai" @zai,
   "colmugx/posoco-ext-zai-coding-plan" @zai_coding_plan,
-  "moonbitlang/async",
-  "moonbitlang/core/async" @core_async,
-  "moonbitlang/async/fs",
-  "moonbitlang/async/types",
-  "moonbitlang/async/stdio",
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/fs",
+  "moonbitlang/core/async/types",
+  "moonbitlang/core/async/stdio",
   "moonbitlang/core/env",
+  "moonbitlang/core/encoding/utf8",
   "moonbitlang/core/json",
 }
 
@@ -34,7 +34,12 @@ supported_targets = "+native"
 options(
   "native-stub": [ "terminal_setup_stub.c" ],
   // The ACP prompt pump runs on posoco's core-async stack.
-  "allow-experimental-packages": [ "moonbitlang/core/async" ],
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/fs",
+    "moonbitlang/core/async/stdio",
+    "moonbitlang/core/async/types",
+  ],
   targets: {
     "terminal_setup.native.mbt": [ "native" ],
     "setup.native.mbt": [ "native" ],

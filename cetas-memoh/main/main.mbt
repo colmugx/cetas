@@ -23,7 +23,9 @@ async fn main {
   if !argv.is_empty() && argv[0] == "setup" {
     if argv.length() > 2 {
       @stdio.stderr.write(
-        "usage: cetas-memoh setup [openai|kimi|opencode|zai|zai-coding-plan]\n",
+        @utf8.encode(
+          "usage: cetas-memoh setup [openai|kimi|opencode|zai|zai-coding-plan]\n",
+        )[:],
       )
       return
     }
@@ -31,7 +33,7 @@ async fn main {
     let result = @lib.run_setup(home~, provider~) catch {
       error => {
         @stdio.stderr.write(
-          "cetas-memoh: setup failed: " + error.to_string() + "\n",
+          @utf8.encode("cetas-memoh: setup failed: " + error.to_string() + "\n")[:],
         )
         return
       }
@@ -52,7 +54,7 @@ async fn main {
     ) catch {
       error => {
         @stdio.stderr.write(
-          "cetas-memoh: startup failed: \{error.to_string()}\n",
+          @utf8.encode("cetas-memoh: startup failed: \{error.to_string()}\n")[:],
         )
         return
       }
@@ -60,7 +62,9 @@ async fn main {
     let spec = match host.agent_spec() {
       Ok(value) => value
       Err(_) => {
-        @stdio.stderr.write("cetas-memoh: ACP endpoint composition failed\n")
+        @stdio.stderr.write(
+          @utf8.encode("cetas-memoh: ACP endpoint composition failed\n")[:],
+        )
         return
       }
     }

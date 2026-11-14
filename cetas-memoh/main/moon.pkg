@@ -1,11 +1,19 @@
 import {
   "colmugx/cetas-memoh/lib",
   "colmugx/acp",
-  "moonbitlang/async",
-  "moonbitlang/async/stdio",
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/stdio",
   "moonbitlang/core/env",
+  "moonbitlang/core/encoding/utf8",
 }
 
 supported_targets = "+native"
 
 pkgtype(kind: "executable")
+
+options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/stdio",
+  ],
+)
