@@ -12,7 +12,7 @@ Cetas is a product built on Posoco's protocol-first agent framework. Product sem
 | `cetas-js/` | Bun host, application boundary, and pi-tui interactive terminal |
 | `cetas-acp/` | Agent Client Protocol host for editors |
 | `cetas-run/` | One-turn native/Wasm host for automation and MoonX |
-| `cetas-native/` | Alternative native terminal: Go/Bubble Tea v2 UI and Harness, MoonBit Cetas/Posoco bridge; Unix static cgo, Windows MSVC DLL |
+| `cetas-go/` | Alternative native terminal: Go/Bubble Tea v2 UI and Harness, MoonBit Cetas/Posoco bridge; Unix static cgo, Windows MSVC DLL |
 | `cetas-web/` | Browser host and web presentation |
 | `cetas-ext-forme/` | Cetas identity/help extension |
 | `composition/` | Human-edited capability roster and composition documentation |

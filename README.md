@@ -41,7 +41,7 @@ npm install -g @posoco/cetas
 cetas --version
 ```
 
-**Alternative — Cetas Native.** A separately distributed Go/Bubble Tea v2 terminal running the same MoonBit Cetas/Posoco core. It does not require Node.js or Bun, and it is not guaranteed to have every JS feature.
+**Alternative — Cetas Go.** A separately distributed Go/Bubble Tea v2 terminal running the same MoonBit Cetas/Posoco core. It does not require Node.js or Bun, and it is not guaranteed to have every JS feature.
 
 | Platform | Package manager | Direct installation |
 | --- | --- | --- |
@@ -58,7 +58,7 @@ The direct installers show the system, version, destination, and files before as
 
 **Only need ACP or Run?** Download the separate `cetas-acp-{platform}` or `cetas-run-{platform}` archives from a [Cetas-tagged release](https://github.com/colmugx/cetas/releases) (for example, to run ACP with Lody). You do **not** need the whole Native terminal.
 
-Both JS and Native use the command `cetas`; the first match on `PATH` wins. Check `command -v cetas` (or `Get-Command cetas` in PowerShell) after installing both. For a detailed comparison, see [Native terminal](cetas-native/README.md) and [installation options](docs/native-package-managers.md).
+Both JS and Native use the command `cetas`; the first match on `PATH` wins. Check `command -v cetas` (or `Get-Command cetas` in PowerShell) after installing both. For a detailed comparison, see [Native terminal](cetas-go/README.md) and [installation options](docs/native-package-managers.md).
 
 ### 2. Connect a model
 
@@ -90,7 +90,7 @@ Use `@path` to include a file reference. `/help` lists commands and keyboard sho
 | **Interactive terminal (recommended)** · `cetas-js` | Full JS terminal, model/login pickers, sessions, rewind and JS-only integrations | `npm install -g @posoco/cetas` · [Build from source](docs/development.md#interactive-terminal) |
 | **Editor** · `cetas-acp` | Editors with Agent Client Protocol support | `cetas-acp` · [Setup](docs/configuration.md#editor--acp) |
 | **Automation** · `cetas-run` | One task per invocation, scripts and JSONL output | `cetas-run` · [Guide](cetas-run/README.mbt.md) |
-| **Native terminal (alternative)** · `cetas-native` | Go/Bubble Tea v2 UI backed by MoonBit; no Node.js required | `brew install colmugx/tap/cetas` / [Scoop](https://github.com/colmugx/scoop-bucket) · [Guide](cetas-native/README.md) |
+| **Native terminal (alternative)** · `cetas-go` | Go/Bubble Tea v2 UI backed by MoonBit; no Node.js required | `brew install colmugx/tap/cetas` / [Scoop](https://github.com/colmugx/scoop-bucket) · [Guide](cetas-go/README.md) |
 | **Web** · `cetas-web` | Browser host under development | [Local development](cetas-web/README.md) |
 
 Host capabilities differ; the [composition roster](composition/recipes.csv) is the source of truth. Sharing the Cetas home does not imply every host has the same UI or cross-host conversation-resume support.
@@ -130,7 +130,7 @@ The documentation site is published at **[colmugx.github.io/cetas](https://colmu
 | --- | --- |
 | [Configuration](docs/configuration.md) | Providers, permissions, shared state, MCP and ACP setup |
 | [Development](docs/development.md) | Workspace checkout, dependencies, builds and checks |
-| [Native installation](cetas-native/README.md) | Alternative terminal, platform support, installers and DLL layout |
+| [Native installation](cetas-go/README.md) | Alternative terminal, platform support, installers and DLL layout |
 | [Homebrew / Scoop](docs/native-package-managers.md) | Native package manager setup and publishing |
 | [Architecture](docs/architecture.md) | Product ownership, repository layout and extension composition |
 | [Composition](composition/README.md) | Recipe vocabulary and generator workflow |

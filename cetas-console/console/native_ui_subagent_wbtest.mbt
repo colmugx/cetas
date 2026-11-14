@@ -375,10 +375,10 @@ async test "native session scope activates, retires and degrades" {
       ignore(close.get())
     }
     assert_true(
-      native_scope_owner(group, native_ui=false, "cetas-native", body) is None,
+      native_scope_owner(group, native_ui=false, "cetas-go", body) is None,
     )
     let close = match
-      native_scope_owner(group, native_ui=true, "cetas-native", body) {
+      native_scope_owner(group, native_ui=true, "cetas-go", body) {
       Some(close) => close
       None => fail("the native projection must own one session task scope")
     }
@@ -394,7 +394,7 @@ async test "native session scope activates, retires and degrades" {
       )
     }
     assert_true(
-      native_scope_owner(group, native_ui=true, "cetas-native", failing) is None,
+      native_scope_owner(group, native_ui=true, "cetas-go", failing) is None,
     )
   })
 }
@@ -469,8 +469,8 @@ async test "native composition provides the real delegation surface" {
     let received : Array[String] = []
     let ext = compose_native_subagents(
       fs,
-      "/tmp/cetas-native-subagent-home",
-      "/tmp/cetas-native-subagent-cwd",
+      "/tmp/cetas-go-subagent-home",
+      "/tmp/cetas-go-subagent-cwd",
       group,
       ui_port,
       approval,

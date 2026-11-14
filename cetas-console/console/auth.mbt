@@ -111,7 +111,7 @@ fn logout_failure_json(provider : String, message : String) -> String {
 
 ///|
 /// Provider-auth presentation over the console's UI port. Structurally the
-/// same adapter as cetas-native's `NativeAuthUi`, so both hosts emit the same
+/// same adapter as cetas-go's `NativeAuthUi`, so both hosts emit the same
 /// shapes: notices are `Notice` renders (authorize URL, device code), progress
 /// is a `Status` render, and prompts are blocking `ui.request`s resolved by
 /// `ui_response`.

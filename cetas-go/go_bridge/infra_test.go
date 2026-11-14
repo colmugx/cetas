@@ -1,0 +1,270 @@
+package bridge
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"testing"
+	"time"
+)
+
+// TestInfraLifecycle insists on a REAL ConsoleRuntime ready state.
+// Provider metadata is static and local, and the endpoint is deliberately
+// unreachable: the infrastructure boot must not require a model request.
+func TestInfraLifecycle(t *testing.T) {
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".cetas"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	fixture := []byte(`{"providers":{"cetas-go-ci":{"base_url":"http://127.0.0.1:1/v1","model":"cetas-go-infra-test","api_key":"ci-not-a-secret"}}}`)
+	if err := os.WriteFile(filepath.Join(home, ".cetas", "settings.json"), fixture, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CETAS_HOME", home)
+
+	h := NewInfra()
+	dropsBefore := h.DroppedEvents()
+	finished := make(chan int, 1)
+	go func() { finished <- h.Run() }()
+	sawBootProgress := false
+	// Frames are evidence, not progress: keep only a bounded tail and print it
+	// when the test actually fails. A successful run stays silent.
+	var recent []string
+	record := func(frame []byte) {
+		recent = append(recent, string(frame))
+		if len(recent) > 8 {
+			recent = recent[1:]
+		}
+	}
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		for _, frame := range recent {
+			t.Logf("infra frame (tail): %s", frame)
+		}
+	})
+	wait := func(want string) map[string]any {
+		deadline := time.Now().Add(35 * time.Second)
+		for time.Now().Before(deadline) {
+			frame, err := h.Poll()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(frame) == 0 {
+				time.Sleep(5 * time.Millisecond)
+				continue
+			}
+			var event map[string]any
+			if err := json.Unmarshal(frame, &event); err != nil {
+				t.Fatalf("invalid event %q: %v", frame, err)
+			}
+			record(frame)
+			if event["type"] == "infra.boot.progress" {
+				sawBootProgress = true
+			}
+			if event["type"] == want {
+				return event
+			}
+		}
+		t.Fatalf("timed out waiting for %s", want)
+		return nil
+	}
+	boot := wait("infra.boot")
+	// Composition runs beside the dispatcher loop, so its progress frames
+	// stream to the host before the terminal boot frame — the ordering the
+	// startup status line depends on.
+	if !sawBootProgress {
+		t.Fatal("composition finished without streaming infra.boot.progress before infra.boot")
+	}
+	if boot["status"] != "ready" {
+		t.Fatalf("real ConsoleRuntime failed to compose: %#v", boot)
+	}
+	snapshot, ok := boot["snapshot"].(map[string]any)
+	if !ok || snapshot["status"] != "ready" {
+		t.Fatalf("invalid runtime snapshot: %#v", boot)
+	}
+	// The native terminal defaults to yolo, exactly like the JS shell. This is
+	// the runtime's own policy mode, not a statusbar label: a host that forgot
+	// to pass it would report workspace_write here.
+	if snapshot["permission"] != "yolo" {
+		t.Fatalf("native default permission is %v, want yolo", snapshot["permission"])
+	}
+	if err := h.Send(CommandState); err != nil {
+		t.Fatal(err)
+	}
+	state := wait("infra.state")
+	if state["snapshot"] == nil {
+		t.Fatalf("state response lacks runtime data: %#v", state)
+	}
+	if err := h.Send(CommandPing); err != nil {
+		t.Fatal(err)
+	}
+	ping := wait("infra.ping")
+	if ping["source"] != "moonbit" || ping["event_id"] == nil || ping["seq"] == nil {
+		t.Fatalf("EventHub frame lacks event metadata: %#v", ping)
+	}
+	workspaces := wait("infra.workspaces")
+	if workspaces["snapshot"] == nil {
+		t.Fatalf("missing workspace result: %#v", workspaces)
+	}
+	// Multiple goroutines may enqueue concurrently, but MoonBit reads
+	// every command on its single dispatcher OS thread.
+	const burst = 48
+	failures := make(chan error, burst)
+	for i := 0; i < burst; i++ {
+		go func() { failures <- h.Send(CommandState) }()
+	}
+	for i := 0; i < burst; i++ {
+		if err := <-failures; err != nil {
+			t.Fatalf("burst enqueue: %v", err)
+		}
+	}
+	for i := 0; i < burst; i++ {
+		next := wait("infra.state")
+		if next["snapshot"] == nil {
+			t.Fatalf("burst response has no state: %#v", next)
+		}
+	}
+	// Cross the *real* Go -> C -> MoonBit -> C -> Go command boundary.
+	harnessCases := []struct {
+		id      int
+		command string
+		args    string
+		wantKey string
+	}{
+		{101, "health", "{}", "status"},
+		{102, "versions", "{}", "cetas"},
+		{103, "runtime_state", "{}", "status"},
+		{104, "sessions", "{}", "sessions"},
+		{105, "models", "{}", "slots"},
+		{106, "workspaces", "{}", "active"},
+		{107, "extensions", "{}", "extensions"},
+		{108, "attach", "{}", "session_id"},
+		{109, "set_permission", `{"mode":"readonly"}`, "permission"},
+		{110, "turn_start", `{"prompt":"   "}`, "error"},
+		{111, "session_transcript", "{}", "error"},
+		{112, "invalid_command", "{}", "error"},
+	}
+	for _, tc := range harnessCases {
+		payload := []byte(fmt.Sprintf(`{"id":%d,"command":%q,"args":%s}`, tc.id, tc.command, tc.args))
+		if err := h.Submit(payload); err != nil {
+			t.Fatalf("%s submit: %v", tc.command, err)
+		}
+		resp := wait("harness.response")
+		if int(resp["id"].(float64)) != tc.id {
+			t.Fatalf("response id mismatch: %#v", resp)
+		}
+		result, ok := resp["result"].(map[string]any)
+		if !ok {
+			t.Fatalf("missing result for %s: %#v", tc.command, resp)
+		}
+		if _, ok := result[tc.wantKey]; !ok {
+			t.Fatalf("%s missing %s: %#v", tc.command, tc.wantKey, result)
+		}
+	}
+
+	// The explicit switch still wins over the host default, an unknown value is
+	// rejected instead of silently elevating, and the runtime (not just a
+	// statusbar label) carries the mode.
+	setPermission := func(id int, mode string) map[string]any {
+		payload := []byte(fmt.Sprintf(`{"id":%d,"command":"set_permission","args":{"mode":%q}}`, id, mode))
+		if err := h.Submit(payload); err != nil {
+			t.Fatalf("set_permission %q submit: %v", mode, err)
+		}
+		resp := wait("harness.response")
+		if int(resp["id"].(float64)) != id {
+			t.Fatalf("set_permission %q response id mismatch: %#v", mode, resp)
+		}
+		result, _ := resp["result"].(map[string]any)
+		return result
+	}
+	if got := setPermission(120, "workspace_write"); got["permission"] != "workspace_write" {
+		t.Fatalf("explicit workspace_write not applied: %#v", got)
+	}
+	if got := setPermission(121, "yolo"); got["permission"] != "yolo" {
+		t.Fatalf("explicit yolo not applied: %#v", got)
+	}
+	if got := setPermission(122, "escalate"); got["error"] == nil {
+		t.Fatalf("unknown permission mode was accepted: %#v", got)
+	}
+	if got := setPermission(123, "yolo"); got["permission"] != "yolo" {
+		t.Fatalf("permission did not return to yolo: %#v", got)
+	}
+
+	// Exercise a real background agent turn against an intentionally offline
+	// provider. The agent must accept the turn and report failure over the
+	// same EventHub stream, not synthesize it in the Go adapter.
+	if err := h.Submit([]byte(`{"id":201,"command":"turn_start","args":{"prompt":"Say hello"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	gotAccepted, gotResponse, gotTerminal := false, false, false
+	for time.Now().Before(deadline) && !(gotAccepted && gotResponse) {
+		frame, err := h.Poll()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(frame) == 0 {
+			time.Sleep(5 * time.Millisecond)
+			continue
+		}
+		var event map[string]any
+		if err := json.Unmarshal(frame, &event); err != nil {
+			t.Fatal(err)
+		}
+		switch event["type"] {
+		case "turn.accepted":
+			gotAccepted = true
+		case "harness.response":
+			if event["id"] == float64(201) {
+				res, ok := event["result"].(map[string]any)
+				if !ok || res["turn_id"] == nil {
+					t.Fatalf("turn_start response: %#v", event)
+				}
+				gotResponse = true
+			}
+		case "turn.failed", "turn.completed":
+			gotTerminal = true
+		}
+	}
+	if !gotAccepted || !gotResponse {
+		t.Fatalf("real turn acceptance accepted=%v response=%v terminal=%v", gotAccepted, gotResponse, gotTerminal)
+	}
+	if err := h.Submit([]byte(`{"id":202,"command":"turn_abort","args":{}}`)); err != nil {
+		t.Fatal(err)
+	}
+	aborted := wait("harness.response")
+	if aborted["id"] != float64(202) {
+		t.Fatalf("abort response id: %#v", aborted)
+	}
+	if err := h.Submit([]byte(`{"id":203,"command":"ui_response","args":{"request_id":"unknown","cancelled":true}}`)); err != nil {
+		t.Fatal(err)
+	}
+	uiResponse := wait("harness.response")
+	if uiResponse["id"] != float64(203) {
+		t.Fatalf("ui response id: %#v", uiResponse)
+	}
+	if err := h.Send(CommandStop); err != nil {
+		t.Fatal(err)
+	}
+	wait("infra.stopped")
+	select {
+	case ret := <-finished:
+		if ret != 1 {
+			t.Fatalf("MoonBit async returned %d", ret)
+		}
+	case <-time.After(15 * time.Second):
+		// The dispatcher is stuck inside the native call, where a plain test
+		// failure says nothing. Dump every goroutine so the next run names the
+		// blocked side instead of asking for another guess.
+		stack := make([]byte, 1<<20)
+		frames := runtime.Stack(stack, true)
+		t.Fatalf("MoonBit dispatcher did not exit after infra.stopped\n%s", stack[:frames])
+	}
+	if drops := h.DroppedEvents() - dropsBefore; drops != 0 {
+		t.Fatalf("lost %d events", drops)
+	}
+}

@@ -126,7 +126,7 @@ test "manuals: about lists only product hosts and never PoCs" {
   for host in ["cetas-js", "cetas-acp", "cetas-run"] {
     assert_true(body.contains(host))
   }
-  for poc in ["cetas-native", "cetas-web", "cetas-console", "cetas-headless"] {
+  for poc in ["cetas-go", "cetas-web", "cetas-console", "cetas-headless"] {
     assert_false(body.contains(poc))
   }
   assert_true(body.contains("@posoco/cetas"))

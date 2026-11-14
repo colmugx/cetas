@@ -122,7 +122,7 @@ async fn cat_test_mkdir(path : String) -> Unit {
 
 ///|
 async fn cat_test_home(tag : String) -> String {
-  @fs.tmpdir(prefix="cetas-native-catalog-" + tag + "-")
+  @fs.tmpdir(prefix="cetas-go-catalog-" + tag + "-")
 }
 
 ///|

@@ -6,14 +6,14 @@ test "console config keeps the native UI projection opt-in" {
   let fs_impl = @workspace.NativeWorkspaceFs()
   let fs : &@workspace.WorkspaceFs = fs_impl
   let shared = console_config(
-    fs, "/tmp/cetas-native-ui", "cetas-web", "cetas-web/0.1",
+    fs, "/tmp/cetas-go-ui", "cetas-web", "cetas-web/0.1",
   )
   assert_false(shared.native_ui)
   let native = console_config(
     fs,
-    "/tmp/cetas-native-ui",
-    "cetas-native",
-    "cetas-native/0.1",
+    "/tmp/cetas-go-ui",
+    "cetas-go",
+    "cetas-go/0.1",
     native_ui=true,
   )
   assert_true(native.native_ui)
@@ -46,7 +46,7 @@ fn console_sink_frames(
     hub,
     (None : @posoco.Events?),
     "session-a",
-    "cetas-native/0.1",
+    "cetas-go/0.1",
     native_ui~,
   )
   observer.begin_turn("t-1")

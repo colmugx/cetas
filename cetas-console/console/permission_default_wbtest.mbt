@@ -109,8 +109,8 @@ async fn permission_mount(
   let config = console_config(
     fs,
     home,
-    "cetas-native",
-    "cetas-native/0.1",
+    "cetas-go",
+    "cetas-go/0.1",
     native_ui~,
     permission_mode~,
   )
@@ -133,8 +133,8 @@ test "console config defaults to workspace_write and keeps an explicit host poli
   let native = console_config(
     fs,
     "/tmp/cetas-permission",
-    "cetas-native",
-    "cetas-native/0.1",
+    "cetas-go",
+    "cetas-go/0.1",
     permission_mode=@permission.Yolo,
   )
   assert_true(native.permission_mode is @permission.Yolo)
