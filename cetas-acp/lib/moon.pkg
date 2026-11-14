@@ -14,12 +14,12 @@ import {
   "colmugx/posoco-ext-ratelimit" @ratelimit,
   "colmugx/posoco-ext-workspace" @workspace,
   "colmugx/posoco/runtime",
-  "moonbitlang/async",
-  "moonbitlang/async/aqueue",
-  "moonbitlang/async/fs",
-  "moonbitlang/async/stdio",
+  "moonbitlang/core/async/aqueue",
+  "moonbitlang/core/async/fs",
+  "moonbitlang/core/async/stdio",
   "moonbitlang/core/env",
-  "moonbitlang/core/async" @core_async,
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/async" @async,
   "colmugx/cetas-ext-forme/lib" @forme,
   "colmugx/posoco-ext-read" @read,
   "colmugx/posoco-ext-write" @write,
@@ -42,7 +42,6 @@ import {
 }
 
 import {
-  "moonbitlang/async",
   "colmugx/posoco-ext-mcp" @mcp,
   "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-ratelimit" @ratelimit,
@@ -56,5 +55,10 @@ supported_targets = "+native"
 // quota guard and fuwaroid run on that stack.
 
 options(
-  "allow-experimental-packages": [ "moonbitlang/core/async" ],
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/aqueue",
+    "moonbitlang/core/async/fs",
+    "moonbitlang/core/async/stdio",
+  ],
 )

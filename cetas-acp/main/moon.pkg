@@ -3,10 +3,10 @@ import {
   "colmugx/cetas-acp/lib",
   "colmugx/cetas-core/lib" @cetas_core,
   "colmugx/posoco-ext-mcp" @mcp,
-  "moonbitlang/async",
-  "moonbitlang/async/stdio",
+  "moonbitlang/core/async/stdio",
   "moonbitlang/core/env",
-  "moonbitlang/core/async" @core_async,
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/async",
 }
 
 supported_targets = "native"
@@ -15,7 +15,10 @@ supported_targets = "native"
 // quota guard and fuwaroid run on that stack.
 
 options(
-  "allow-experimental-packages": [ "moonbitlang/core/async" ],
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/stdio",
+  ],
 )
 
 pkgtype(kind: "executable")

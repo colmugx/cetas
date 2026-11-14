@@ -35,7 +35,7 @@ priv struct SessionHandle {
   /// Outbound context, refreshed each prompt, so refresh can push config_option_update.
   mut context : @acp.AgentContext?
   /// In-flight turn task, so `session/cancel` can interrupt it.
-  mut in_flight : @core_async.Task[@posoco.TurnResult]?
+  mut in_flight : @async.Task[@posoco.TurnResult]?
   /// Held from before bridge attach until the whole turn lifecycle settles,
   /// so a queued prompt runs strictly after instead of interleaving turns.
   turn_lock : @async.Mutex
@@ -55,7 +55,7 @@ priv struct SessionHandle {
 /// managed work. After publication, late scope failures are diagnostics.
 async fn start_session_agent_scope(
   agent : @posoco.Agent,
-  group : @async.TaskGroup[Unit],
+  group : @async.TaskGroup,
 ) -> @aqueue.Queue[Unit] {
   let ready : @aqueue.Queue[Result[Unit, Error]] = @aqueue.Queue(kind=Unbounded)
   let close : @aqueue.Queue[Unit] = @aqueue.Queue(kind=Unbounded)
@@ -170,8 +170,8 @@ pub async fn CetasAcpHost::CetasAcpHost(
   home~ : String,
   cwd~ : String,
   agent_version~ : String = "0.1.0",
-  mcp_group? : @async.TaskGroup[Unit],
-  lifetime_group? : @core_async.TaskGroup,
+  mcp_group? : @async.TaskGroup,
+  lifetime_group? : @async.TaskGroup,
   mcp_mode~ : @mcp.LoadMode = @mcp.LoadMode::Lazy,
 ) -> CetasAcpHost raise @posoco.CompositionError {
   let fs = @workspace.NativeWorkspaceFs()
@@ -569,11 +569,11 @@ pub async fn CetasAcpHost::handle_prompt(
     None => ()
   }
   // The pump, the ACP bridge and posoco's turn all run on the core-async stack,
-  // so the turn's scope is that group — the host's moonbitlang/async I/O group
+  // so the turn's scope is that group — the host's moonbitlang/core/async I/O group
   // cannot own them (their TaskGroups are distinct types since async 0.22).
   // `with_task_group` there is Unit-valued, so the verdict crosses in a cell.
   let settled : Ref[Result[@acp.PromptResult, @acp.HandlerError]?] = Ref(None)
-  @core_async.with_task_group(async fn(group) {
+  @async.with_task_group(async fn(group) {
     handle.bridge.spawn_pump(group)
     // Pre-turn liveness: one placeholder thought chunk so the editor sees
     // life before the model's first stream chunk; slash commands early-
@@ -1211,11 +1211,11 @@ priv struct Platform {
   refresh_snapshot : @cetas_core.ProviderCredentialSnapshot
   /// The host's process task group (extension background work, MCP monitors);
   /// `None` in tests without a group.
-  mcp_group : @async.TaskGroup[Unit]?
+  mcp_group : @async.TaskGroup?
   /// Session-lifetime group on posoco's core-async stack: the quota guard's
   /// recovery runtime (fuwaroid) runs here. `None` composes sessions without
   /// starting recovery.
-  lifetime_group : @core_async.TaskGroup?
+  lifetime_group : @async.TaskGroup?
   /// The MCP discovery load mode every session's bridge discovers under.
   mcp_mode : @mcp.LoadMode
   /// The `CETAS_DELEGATE_FS` resolution stamped at assembly.
@@ -1255,8 +1255,8 @@ async fn build_platform(
   home~ : String,
   cwd~ : String,
   fs : &@workspace.WorkspaceFs,
-  mcp_group~ : @async.TaskGroup[Unit]?,
-  lifetime_group~ : @core_async.TaskGroup? = None,
+  mcp_group~ : @async.TaskGroup?,
+  lifetime_group~ : @async.TaskGroup? = None,
   mcp_mode~ : @mcp.LoadMode,
   delegation~ : DelegateFsMode = DelegateFsMode::Local,
   debug~ : DebugTaps = { catalog: false, wire: false, },

@@ -1325,9 +1325,9 @@ async test "plan review without an attached bridge falls back to planning" {
 async test "cancel interrupts the session's in-flight turn" {
   let (host, _) = tk_host([])
   let session_id = tk_open_session(host, FakeAcpClient::FakeAcpClient())
-  @core_async.with_task_group(group => {
+  @async.with_task_group(group => {
     let sleeper = group.spawn(() => {
-      @core_async.sleep(10_000)
+      @async.sleep(10_000)
       let placeholder : @posoco.TurnResult = {
         message: @tk.tk_user_msg(""),
         tool_results: [],
@@ -1344,7 +1344,7 @@ async test "cancel interrupts the session's in-flight turn" {
       let _ = sleeper.wait()
       false
     } catch {
-      error => error is @core_async.WaitedTaskAlreadyCancelled
+      error => error is @async.WaitedTaskAlreadyCancelled
     }
     assert_true(cancelled)
   })
@@ -2310,9 +2310,9 @@ async test "cancel one session leaves the other's turn running" {
   let client_b = FakeAcpClient::FakeAcpClient()
   let a = tk_open_session(host, client_a)
   let b = tk_open_session(host, client_b)
-  @core_async.with_task_group(group => {
+  @async.with_task_group(group => {
     let placeholder = async fn(id : String) -> @posoco.TurnResult {
-      @core_async.sleep(10_000)
+      @async.sleep(10_000)
       { message: @tk.tk_user_msg(""), tool_results: [], final_session_id: id, }
     }
     let task_a = group.spawn(() => placeholder(a))
@@ -2327,7 +2327,7 @@ async test "cancel one session leaves the other's turn running" {
       let _ = task_a.wait()
       false
     } catch {
-      error => error is @core_async.WaitedTaskAlreadyCancelled
+      error => error is @async.WaitedTaskAlreadyCancelled
     }
     assert_true(cancelled_a)
     host.handle_cancel(fake_acp_context(client_b), {
@@ -2338,7 +2338,7 @@ async test "cancel one session leaves the other's turn running" {
       let _ = task_b.wait()
       false
     } catch {
-      error => error is @core_async.WaitedTaskAlreadyCancelled
+      error => error is @async.WaitedTaskAlreadyCancelled
     }
     assert_true(cancelled_b)
   })
@@ -2682,7 +2682,7 @@ async fn tk_mcp_platform() -> Platform raise @posoco.CompositionError {
 /// FakeFs seam, so union tests need a genuine file. Returns the discover cwd.
 async fn tk_mcp_project_dir(label~ : String, entries~ : String) -> String {
   let dir = @fs.tmpdir(prefix="cetas-acp-w1-" + label + "-")
-  @fs.write_file(
+  @fs.write_text(
     dir + "/.mcp.json",
     "{\"mcpServers\":{\{entries}}}",
     create_mode=@fs.CreateMode::CreateOrTruncate,
@@ -4937,7 +4937,7 @@ async test "a failed native append falls back to the workspace fs" {
   // append both fail, so the record must land through the fs seam instead.
   let base = @fs.tmpdir(prefix="cetas-acp-w22f-")
   let blocker = base + "/blocker"
-  @fs.write_file(blocker, "x", create_mode=@fs.CreateMode::OpenOrCreate)
+  @fs.write_text(blocker, "x", create_mode=@fs.CreateMode::OpenOrCreate)
   let dir = blocker + "/debug"
   debug_append_line(
     fs,

@@ -24,7 +24,7 @@ let acp_persist_mutex : @async.Mutex = @async.Mutex::Mutex()
 async fn acp_warn(message : String) -> Unit noraise {
   acp_stderr_mutex.acquire()
   defer acp_stderr_mutex.release()
-  @stdio.stderr.write(message) catch {
+  @stdio.stderr.write(@utf8.encode(message)[:]) catch {
     _ => ()
   }
 }

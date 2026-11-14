@@ -27,11 +27,11 @@ async fn main {
     Some("eager") => @mcp.LoadMode::Eager
     _ => @mcp.LoadMode::Lazy
   }
-  // Two lifetimes, two stacks: `lifetime` (posoco's core-async one) owns the
-  // per-session quota-guard recovery runtimes, `group` (moonbitlang/async)
-  // owns the I/O work — stdio MCP child processes, probes, the lazy model
-  // refresh. Both end at stdin EOF.
-  @core_async.with_task_group(async fn(lifetime) {
+  // Two lifetimes: `lifetime` (posoco's core-async one) owns the per-session
+  // quota-guard recovery runtimes, `group` owns the I/O work — probes, the
+  // lazy model refresh; stdio MCP children ride the bridge's internal
+  // old-async I/O group until colmugx/mcp migrates. Both end at stdin EOF.
+  @async.with_task_group(async fn(lifetime) {
     @async.with_task_group(group => {
       let host = @lib.CetasAcpHost(
         home~,
@@ -43,7 +43,9 @@ async fn main {
       ) catch {
         error => {
           @stdio.stderr.write(
-            "cetas-acp: agent composition failed: \{error.to_string()}\n",
+            @utf8.encode(
+              "cetas-acp: agent composition failed: \{error.to_string()}\n",
+            )[:],
           )
           return
         }
@@ -51,7 +53,7 @@ async fn main {
       let spec = match host.agent_spec() {
         Ok(spec) => spec
         Err(_) => {
-          @stdio.stderr.write("cetas-acp: endpoint composition failed\n")
+          @stdio.stderr.write(b"cetas-acp: endpoint composition failed\n"[:])
           return
         }
       }

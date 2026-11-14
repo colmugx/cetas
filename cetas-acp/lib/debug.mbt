@@ -106,7 +106,7 @@ async fn debug_native_append_line(
     debug_dirs_ensured[dir] = true
   }
   try {
-    @fs.write_file(
+    @fs.write_text(
       path,
       line + "\n",
       create_mode=@fs.CreateMode::OpenOrCreate,

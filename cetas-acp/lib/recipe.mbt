@@ -38,7 +38,7 @@ fn canonical_cetas_tool_name(name : String) -> String {
 fn build_cetas_tools(
   ctx~ : @cetas_core.HostContext,
   names : Array[String],
-  host_group~ : @async.TaskGroup[Unit]? = None,
+  host_group~ : @async.TaskGroup? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
   let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
   let freshness = @devkit.FreshnessGuard::FreshnessGuard()
@@ -168,7 +168,7 @@ async fn build_cetas_skills(
 ///|
 async fn build_compiled_recipe_features(
   ctx~ : @cetas_core.HostContext,
-  host_group~ : @async.TaskGroup[Unit]? = None,
+  host_group~ : @async.TaskGroup? = None,
   profile_activation_sink~ : &@profiles.ProfileActivationSink? = None,
   host_help_note~ : String? = None,
   host_version_note~ : String? = None,
