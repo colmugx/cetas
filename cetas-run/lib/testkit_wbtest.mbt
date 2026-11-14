@@ -108,12 +108,22 @@ impl @workspace.WorkspaceFs for FakeFs with fn realpath(_self, path) {
 
 ///|
 impl @workspace.WorkspaceFs for FakeFs with fn readdir(
-  _self,
-  _path,
+  self,
+  path,
   include_hidden~,
 ) {
-  let _ = include_hidden
-  []
+  let prefix = path + "/"
+  let names : Array[String] = []
+  for file, _ in self.files {
+    if file.has_prefix(prefix) {
+      let name = file[prefix.length():].to_owned()
+      if !name.contains("/") && (include_hidden || !name.has_prefix(".")) {
+        names.push(name)
+      }
+    }
+  }
+  names.sort()
+  names
 }
 
 ///|

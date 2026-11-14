@@ -14,6 +14,7 @@ const {
   cetas_js_compact_session,
   cetas_js_runtime_create_agent,
   cetas_js_invoke_command,
+  cetas_js_list_commands,
   cetas_js_run_turn,
   cetas_js_sessions_dir,
   cetas_js_shutdown,
@@ -167,6 +168,16 @@ describe("long-lived cetas-js bridge", () => {
     );
 
     try {
+      // A fresh installation has no profile manifests: the actual JS bridge
+      // must nonetheless expose both commands and execute /profile save
+      // through CommandPort rather than returning "unknown command".
+      const profileCommands = JSON.parse(cetas_js_list_commands(agent)) as Array<{ id: string }>;
+      expect(profileCommands.some((item) => item.id === "profiles")).toBe(true);
+      expect(profileCommands.some((item) => item.id === "profile")).toBe(true);
+      const firstSave = await cetas_js_invoke_command(
+        agent, "profile", JSON.stringify({ action: "save" }),
+      );
+      expect(firstSave).toContain("no tool usage recorded");
       // Resident segments announce their initial state at composition:
       // the model segment renders during create_agent, before any turn —
       // the startup bar is no longer empty (user ruling 2026-09-04).

@@ -7,6 +7,7 @@ import {
   "colmugx/posoco-ext-custom",
   "colmugx/posoco-ext-fs-session",
   "colmugx/posoco-ext-permission",
+  "colmugx/posoco-ext-profiles",
   "colmugx/posoco-ext-ratelimit",
   "colmugx/posoco-ext-workspace",
   "colmugx/posoco-kit-provider",
@@ -81,6 +82,8 @@ pub fn debug_wire_path(String, String) -> String
 pub fn default_agent_config(max_tool_rounds? : Int32?, max_tool_depth? : Int32?, system_prompt? : String?) -> @posoco.AgentConfig
 
 pub fn list_persisted_rewind_points(String) -> Array[PersistedRewindPoint]
+
+pub async fn load_cetas_profiles(&@posoco-ext-workspace.WorkspaceFs, home~ : String, cwd~ : String) -> Array[@posoco-ext-profiles.ProfileManifest]
 
 pub async fn load_provider_settings(&@posoco-ext-workspace.WorkspaceFs, home~ : String, label? : String) -> Map[String, @json.Json] raise @error.CompositionError
 
@@ -242,6 +245,24 @@ pub(all) struct CetasPlatform {
   refresh_snapshot : ProviderCredentialSnapshot
   mcp_group : @moonbitlang/async.TaskGroup[Unit]?
 }
+
+pub struct CetasProfileActivationSink {
+  mut agent : @posoco.Agent?
+}
+pub fn CetasProfileActivationSink::CetasProfileActivationSink() -> Self
+pub fn CetasProfileActivationSink::bind(Self, @posoco.Agent) -> Unit
+pub async fn CetasProfileActivationSink::submit(Self, String, @kernel.Message) -> Result[Unit, String]
+pub impl @posoco-ext-profiles.ProfileActivationSink for CetasProfileActivationSink
+
+pub struct CetasProfileStore {
+  fs : &@posoco-ext-workspace.WorkspaceFs
+  home : String
+  cwd : String
+}
+pub fn CetasProfileStore::CetasProfileStore(&@posoco-ext-workspace.WorkspaceFs, home~ : String, cwd~ : String) -> Self
+pub async fn CetasProfileStore::read_all(Self) -> Result[Array[(String, String)], String]
+pub async fn CetasProfileStore::write(Self, String, @posoco-ext-profiles.ProfileManifest) -> Result[Unit, String]
+pub impl @posoco-ext-profiles.ProfileStore for CetasProfileStore
 
 pub(all) struct CetasSession {
   router : @ext-llm.RouterModelPort

@@ -27,6 +27,7 @@ import {
   "colmugx/posoco@0.24.2",
   "colmugx/acp@0.3.0",
   "colmugx/cetas-core@0.2.0",
+  "colmugx/posoco-ext-profiles@0.1.0",
   "colmugx/mcp@0.18.2",
   "posoco/devkit@0.4.1",
   "colmugx/posoco-ext-context@0.2.0",

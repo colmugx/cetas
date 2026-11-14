@@ -17,6 +17,7 @@ description = "Cetas core — host-agnostic application/domain logic shared by e
 
 import {
   "colmugx/posoco@0.24.2",
+  "colmugx/posoco-ext-profiles@0.1.0",
   "posoco/devkit@0.4.1",
   "posoco/ext-llm@0.2.0",
   "posoco/ext-oauth@0.1.0",
