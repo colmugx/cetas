@@ -2,6 +2,41 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.11.4 (2026-11-14)
+
+## General
+
+### Feats
+- Save and activate reusable profiles that bundle tools and instructions, including through direct commands without an interactive menu.
+- Connect MCP servers lazily, discover their tools per session, and sign in to OAuth-protected servers without blocking startup or the first turn.
+
+## Native Ver.（cetas-native）
+
+### Feats
+- Attach images to messages and display them in terminals that support Kitty graphics.
+- Scan long tool outputs more easily with clearer expanded transcript formatting, denser consecutive tool-call output, and improved session-jump positioning.
+
+### Fixes
+- Keep heap diagnostics compatible with MoonBit’s allocator.
+- Prevent session switches from leaving stale transcript reads queued ahead of the new session’s data.
+
+## NPM Ver.（cetas-js）
+
+### Feats
+- Save and activate reusable profiles containing tools and instructions.
+- Connect MCP servers lazily and log in to OAuth-protected servers.
+
+## ACP Ver.（cetas-acp）
+
+### Feats
+- Save and activate reusable profiles containing tools and instructions.
+- Connect MCP servers lazily and log in to OAuth-protected servers.
+
+## Run Ver.（cetas-run）
+
+### Feats
+- Save and activate reusable profiles containing tools and instructions.
+
 ## 0.11.3 (2026-11-11)
 
 ## General
