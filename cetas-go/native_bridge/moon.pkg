@@ -4,7 +4,6 @@ import {
   "colmugx/posoco",
   "colmugx/posoco-ext-permission" @permission,
   "colmugx/posoco-ext-workspace" @workspace,
-  "moonbitlang/async",
   "moonbitlang/core/async" @core_async,
   "moonbitlang/core/async/raw_fd",
   "moonbitlang/core/env",

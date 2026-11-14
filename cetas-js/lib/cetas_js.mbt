@@ -1331,12 +1331,10 @@ async fn warn_legacy_project_cetas(
 /// handled inside `serve` itself — the create promise is already resolved
 /// and an unobserved JS promise must never reject.
 ///
-/// Two groups: `group` is the core-async I/O scope (probes, model refresh;
-/// stdio MCP children ride the bridge's internal old-async group
-/// connections, provider tool planes, catalog refresh), `lifetime` is the
-/// posoco `moonbitlang/core/async` scope the quota guard's recovery runtime
-/// (fuwaroid) attaches to. Both end when the scope body returns, so both are
-/// held open for the handle's serving lifetime.
+/// Two groups: `group` is the I/O scope (MCP connections, provider tool
+/// planes, catalog refresh), `lifetime` is the scope the quota guard's
+/// recovery runtime (fuwaroid) attaches to. Both end when the scope body
+/// returns, so both are held open for the handle's serving lifetime.
 async fn[X] run_agent_group_session(
   ready~ : @aqueue.Queue[Result[X, Error]],
   close~ : @aqueue.Queue[Unit],

@@ -27,10 +27,9 @@ async fn main {
     Some("eager") => @mcp.LoadMode::Eager
     _ => @mcp.LoadMode::Lazy
   }
-  // Two lifetimes: `lifetime` (posoco's core-async one) owns the per-session
-  // quota-guard recovery runtimes, `group` owns the I/O work — probes, the
-  // lazy model refresh; stdio MCP children ride the bridge's internal
-  // old-async I/O group until colmugx/mcp migrates. Both end at stdin EOF.
+  // Two lifetimes: `lifetime` owns the per-session quota-guard recovery
+  // runtimes, `group` owns the I/O work — stdio MCP children, probes, the
+  // lazy model refresh. Both end at stdin EOF.
   @async.with_task_group(async fn(lifetime) {
     @async.with_task_group(group => {
       let host = @lib.CetasAcpHost(

@@ -13,10 +13,7 @@
 ///    only POSTs a conversation-sized body and reads the whole response
 ///    back; no SSE parsing. Splits the transport from the SSE decode path.
 /// 4. "raw http no agent" — the same POST loop with no session, no agent,
-///    no composition. Together with the standalone example in ../posoco
-///    (the same loop under core/async's own driver, measured flat), this
-///    pins the carrier to core/async HTTP running under the
-///    moonbitlang/core/async external-loop bridge.
+///    no composition: the bare HTTP transport, no session lifetime.
 ///
 /// These are diagnostics, not pass/fail memory assertions: they assert only
 /// that the turns complete, and print MARK lines so an external RSS sampler

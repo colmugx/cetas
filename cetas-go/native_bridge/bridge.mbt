@@ -154,7 +154,7 @@ fn reject_while_composing(raw : String) -> Unit {
 #export_name("cetas_infra_run")
 pub fn run_infra() -> Int32 {
   let result = Ref(0)
-  @async.run_async_main(async fn() {
+  @core_async.run_async_main(async fn() {
     @core_async.with_task_group(async fn(group) {
       let fs_impl = @workspace.NativeWorkspaceFs()
       let fs : &@workspace.WorkspaceFs = fs_impl

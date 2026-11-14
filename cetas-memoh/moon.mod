@@ -38,5 +38,5 @@ import {
   "colmugx/posoco-ext-openrouter@0.1.0",
   "colmugx/posoco-ext-zai@0.1.0",
   "colmugx/posoco-ext-zai-coding-plan@0.1.0",
-  "colmugx/mcp@0.18.2",
+  "colmugx/mcp@0.18.4",
 }

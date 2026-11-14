@@ -1598,8 +1598,8 @@ async fn build_session_agent(
   }
   match platform.mcp_group {
     Some(group) =>
-      // The connection actors (fuwaroid 0.4) spawn on the session-lifetime
-      // core-async group; the stdio children stay on the I/O group above.
+      // The connection actors spawn on the session-lifetime group; the
+      // stdio children spawn on the I/O group.
       match platform.lifetime_group {
         Some(lifetime) => mcp_bridge.attach(group, lifetime~)
         None => mcp_bridge.attach(group)

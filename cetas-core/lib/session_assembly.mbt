@@ -291,10 +291,8 @@ pub async fn build_cetas_session(
 /// groups now — the retired `catalog_source~` seam is gone. `runtime_group~`
 /// attaches the quota guard to the composed agent and starts its rate-limit
 /// runtime on the host lifetime; production hosts should always provide it.
-/// The group is the core-async one (`@async.TaskGroup`): the guard, the
-/// recovery runtime and fuwaroid all run on posoco's `moonbitlang/core/async`
-/// stack, which shares its scheduler with `moonbitlang/core/async`, so the host's
-/// I/O group and this lifetime group are independent values.
+/// The group is the core-async one: the guard, the recovery runtime and
+/// fuwaroid all run on it, independent of the host's I/O group.
 pub fn compose_cetas_agent(
   session~ : CetasSession,
   tail_exts~ : Array[&@posoco.Extension] = [],
