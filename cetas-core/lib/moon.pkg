@@ -1,5 +1,6 @@
 import {
   "colmugx/posoco",
+  "colmugx/posoco-ext-profiles" @profiles,
   "posoco/devkit",
   "posoco/ext-llm" @llm,
   "posoco/ext-oauth" @oauth,

@@ -1244,6 +1244,9 @@ pub struct CetasJsAgent {
   /// Last session id that received a pi session_start, so the event fires
   /// once per session rather than once per turn.
   mut pi_session : String?
+  /// Host-activated profile submission uses an Agent-owned turn, never store writes.
+  profile_sink : @cetas_core.CetasProfileActivationSink
+  mut profile_session_id : String
   /// Session whose recorded model selection this process already applied or
   /// attempted, so a later turn on the same session never force-switches over
   /// a user's explicit post-resume `/model` choice.
@@ -1879,6 +1882,7 @@ pub fn cetas_js_runtime_create_agent(
               },
             )
             exts.push(ratelimit as &@posoco.Extension)
+            let profile_sink = @cetas_core.CetasProfileActivationSink()
             // Concrete capabilities are selected by the host-owned compiled
             // recipe; cetas-core still owns the agent/session semantics.
             for
@@ -1889,6 +1893,7 @@ pub fn cetas_js_runtime_create_agent(
                   home: runtime.config.home,
                 },
                 host_group=Some(group),
+                profile_activation_sink=Some(profile_sink),
                 host_help_note=if runtime.config.host_help_note == "" {
                   None
                 } else {
@@ -2156,6 +2161,7 @@ pub fn cetas_js_runtime_create_agent(
               events~,
               runtime=pi_runtime as &@runtime.Runtime,
             )
+            profile_sink.bind(agent)
             pi_runtime.attach_control(agent.control())
             // pi custom session entries: every appendEntry projects as an observer
             // Custom event (source "pi", label = customType) at emission time.
@@ -2224,6 +2230,8 @@ pub fn cetas_js_runtime_create_agent(
               store,
               pi,
               pi_session: None,
+              profile_sink,
+              profile_session_id: "",
               model_restored_for: None,
               serve_close: close,
             }
@@ -2816,6 +2824,7 @@ pub fn cetas_js_set_active_session(
   // The non-blocking ask extension addresses its turn-end wakeup request at
   // one session; keep it in step with the Agent's bound window.
   handle.askquestion.set_session(session=session_id)
+  handle.profile_session_id = session_id
 }
 
 ///|
@@ -3292,6 +3301,18 @@ pub fn cetas_js_invoke_command(
         raise @posoco.CommandError::InvalidArgs(
           reason="command arguments must be valid JSON",
         )
+    }
+    // Profile commands are session-scoped. Inject the host-bound current
+    // session id, never ask the user to supply an internal identifier.
+    let args = if id == "profiles" || id == "profile" {
+      let fields : Map[String, Json] = match args {
+        Json::Object(fields) => fields
+        _ => Map::from_array([])
+      }
+      fields["session_id"] = Json::string(handle.profile_session_id)
+      Json::object(fields)
+    } else {
+      args
     }
     // `/mcp login <server>` never reaches the ports loop: the bridge's own
     // `mcp` command is read-only and would reject the action.

@@ -191,6 +191,7 @@ async fn build_cetas_skills(
 async fn build_compiled_recipe_features(
   ctx~ : @cetas_core.HostContext,
   host_group~ : @async.TaskGroup[Unit]? = None,
+  profile_activation_sink~ : &@profiles.ProfileActivationSink? = None,
   host_help_note~ : String? = None,
   host_version_note~ : String? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
@@ -279,6 +280,41 @@ async fn build_compiled_recipe_features(
   for ext in @extras.deferred_extensions(host_group) {
     episodic.push(ext)
   }
+  // Profiles must be present even with no manifests: /profile save is how a
+  // user creates their first profile, and must never be an inert command.
+  // Keep LazyTools in charge of deferred tools in both cases.
+  let manifests = @cetas_core.load_cetas_profiles(
+    ctx.fs,
+    home=ctx.home,
+    cwd=ctx.cwd,
+  ) catch {
+    _ => []
+  }
+  if compiled_recipe_packages.get("lazytools") is Some(_) {
+    match
+      @profiles.compose_profiles(
+        resident=exts,
+        deferred=episodic,
+        manifests~,
+        activation_sink=profile_activation_sink,
+        store=Some(
+          @cetas_core.CetasProfileStore(ctx.fs, home=ctx.home, cwd=ctx.cwd),
+        ),
+      ) {
+      Ok(composition) => return composition.exts
+      Err(message) =>
+        raise @posoco.CompositionError::ManifestSchemaError(
+          manifest_id="cetas.profiles",
+          detail=message,
+        )
+    }
+  } else if !manifests.is_empty() {
+    raise @posoco.CompositionError::ManifestSchemaError(
+      manifest_id="cetas.recipe",
+      detail="profile composition requires lazytools",
+    )
+  }
+
   match compiled_recipe_packages.get("lazytools") {
     Some(_) =>
       match @lazytools.LazyTools::defer_extensions(exts=episodic) {

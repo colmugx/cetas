@@ -9,7 +9,7 @@ async test "public run recipe assembles the standard Cetas capabilities" {
     cwd: "/repo",
     home: "/home/u",
   })
-  assert_eq(exts.length(), 13)
+  assert_eq(exts.length(), 14)
   let ids : Array[String] = []
   for ext in exts {
     ids.push(ext.extension_id())
@@ -18,6 +18,9 @@ async test "public run recipe assembles the standard Cetas capabilities" {
   assert_true(ids.contains("posoco_ext_skills"))
   assert_true(ids.contains("posoco_ext_webfetch"))
   assert_true(ids.contains("posoco_ext_lazytools"))
+  // Profiles must be registered even without an authored manifest, so the
+  // first /profile save command is not silently absent on a clean install.
+  assert_true(ids.contains("posoco_ext_profiles"))
   assert_false(ids.contains("posoco_ext_nowledge_mem"))
   assert_false(ids.contains("posoco_ext_obsidian"))
 }

@@ -153,6 +153,8 @@ pub struct CetasJsAgent {
   store : @posoco-ext-fs-session.JsonlSessionStore
   pi : @posoco-ext-pi-adaptor.PiAdaptor
   mut pi_session : String?
+  profile_sink : @colmugx/cetas-core/lib.CetasProfileActivationSink
+  mut profile_session_id : String
   mut model_restored_for : String?
   serve_close : @aqueue.Queue[Unit]
 }
