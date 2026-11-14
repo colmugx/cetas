@@ -5,9 +5,11 @@ import {
   "colmugx/posoco-ext-permission",
   "colmugx/posoco-ext-plan",
   "colmugx/posoco-ext-workspace",
+  "colmugx/posoco/error",
   "colmugx/posoco/kernel",
   "colmugx/posoco/port",
   "colmugx/posoco/types",
+  "moonbitlang/async/aqueue",
   "moonbitlang/core/json",
 }
 
@@ -92,6 +94,8 @@ pub async fn ConsoleRuntime::logout(Self, String) -> String
 pub async fn ConsoleRuntime::mcp_login_outcome(Self, String, String, @json.Json) -> @port.CommandOutcome? noraise
 pub async fn ConsoleRuntime::model_slots_json(Self, String?) -> @json.Json noraise
 pub async fn ConsoleRuntime::new_session(Self) -> Result[String, String] noraise
+pub async fn ConsoleRuntime::pi_guest_install(Self, String, @json.Json) -> Result[Unit, String]
+pub fn ConsoleRuntime::pi_guest_result(Self, String, String, @json.Json) -> Bool
 pub async fn ConsoleRuntime::prefetch_session(Self, String) -> Result[String, String] noraise
 pub async fn ConsoleRuntime::providers_json(Self) -> @json.Json
 pub async fn ConsoleRuntime::quota_all_json(Self) -> @json.Json
@@ -124,6 +128,28 @@ pub fn ConsoleRuntime::workspaces_json(Self) -> @json.Json
 pub fn ConsoleRuntime::zoo_json(Self) -> @json.Json
 
 type EventHub
+
+pub struct NativePiGuest {
+  session_id : String
+  hub : EventHub
+  mut contributions : @port.ToolContributions?
+  mut next_id : Int32
+  pending : Map[String, @aqueue.Queue[@json.Json]]
+  mut defs : Array[@kernel.ToolDef]
+}
+pub async fn NativePiGuest::execute(Self, @port.ToolCallContext) -> @kernel.ToolOutcome raise @error.RuntimeError
+pub fn NativePiGuest::extension_id(Self) -> String
+pub async fn NativePiGuest::install(Self, @json.Json) -> Result[Unit, String]
+pub fn NativePiGuest::list_tools(Self) -> Array[@kernel.ToolDef]
+pub fn NativePiGuest::manifest(Self) -> @port.ExtensionManifest
+pub fn NativePiGuest::new(String, EventHub) -> Self
+pub fn NativePiGuest::on_compose(Self, @port.CompositionView) -> Unit raise @error.CompositionError
+pub async fn NativePiGuest::on_shutdown(Self) -> Unit
+pub async fn NativePiGuest::on_start(Self) -> Unit
+pub async fn NativePiGuest::retire(Self) -> Unit
+pub impl @port.Extension for NativePiGuest
+pub impl @port.Lifecycle for NativePiGuest
+pub impl @port.ToolProvider for NativePiGuest
 
 pub struct NativeReplayCache {
   // private fields
