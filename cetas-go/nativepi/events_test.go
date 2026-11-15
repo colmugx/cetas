@@ -104,8 +104,12 @@ func TestPiUnsupportedMutatingHookIsRejected(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "index.mjs"), []byte(code), 0600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Open(home, home)
-	if err == nil || !strings.Contains(err.Error(), "before_agent_start") {
-		t.Fatalf("must reject unsupported Pi hook, got %v", err)
+	g, err := Open(home, home)
+	if err != nil {t.Fatal(err)}
+	defer g.Close()
+	defs, _ := g.Catalog()
+	if len(defs)!=0 {t.Fatal("unsupported hook registered tools")}
+	if diagnostics:=strings.Join(g.Diagnostics(), "\n");!strings.Contains(diagnostics,"before_agent_start") {
+		t.Fatalf("must report unsupported Pi hook, got %s",diagnostics)
 	}
 }
