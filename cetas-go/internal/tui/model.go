@@ -341,6 +341,14 @@ func requestAs(host runtimeHost, name, command string, args any) tea.Cmd {
 				timeout = 4 * time.Minute
 			}
 		}
+		if command == "pi_packages" {
+			if fields, ok := args.(map[string]any); ok {
+				if action, valid := fields["args"].(string); valid &&
+					(strings.HasPrefix(action, "install ") || strings.HasPrefix(action, "remove ")) {
+					timeout = 10 * time.Minute
+				}
+			}
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		result, err := host.Request(ctx, command, args)
