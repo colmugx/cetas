@@ -104,6 +104,24 @@ fn EventHub::deliver(self : EventHub, frame : String) -> Unit {
 }
 
 ///|
+/// Send a transport control event to one client only. This deliberately does
+/// not add the response to the broadcast trace or per-turn transcript.
+fn EventHub::emit_to(
+  self : EventHub,
+  subscription_id : String,
+  session_id : String,
+  event_type : String,
+  extra~ : Array[(String, Json)] = [],
+) -> Unit {
+  match self.subscribers.get(subscription_id) {
+    Some(sink) => sink(
+      self.next_frame(session_id, "", event_type, extra).stringify(),
+    )
+    None => ()
+  }
+}
+
+///|
 /// Stamp one frame with the global sequence, attribution and timestamp. Every
 /// wire fact — recorded or out-of-band — goes through this so consumers keep
 /// one monotonic ordering.
