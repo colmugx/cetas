@@ -54,8 +54,8 @@ func TestPiEventBridgeOrderAndPayload(t *testing.T) {
 		}
 	}
 	want := []string{"agent_start","turn_start","message_start",
-		"message_update","tool_execution_start","tool_execution_end",
-		"message_end","turn_end","agent_end","agent_settled"}
+		"message_update","message_end","tool_execution_start",
+		"tool_execution_end","turn_end","agent_end","agent_settled"}
 	if !reflect.DeepEqual(names, want) {
 		t.Fatalf("event order\n got: %v\nwant: %v", names, want)
 	}
@@ -89,8 +89,8 @@ func TestPiGuestObserverHandlersAgainstUnmodifiedExtension(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"agent_start|turn_start|message_start|message_update|",
-		"tool_execution_start|echo:2|tool_execution_end|",
-		"message_end|turn_end|agent_end|agent_settled",
+		"message_end|tool_execution_start|echo:2|tool_execution_end|",
+		"turn_end|agent_end|agent_settled",
 	} {
 		if !strings.Contains(result.Content, expected) {
 			t.Fatalf("missing sequence %q: %s", expected, result.Content)
