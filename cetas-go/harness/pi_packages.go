@@ -44,7 +44,7 @@ func readPiSnapshot(path string)(piSnapshot,error){
   if manager=="" {
    var choices []string
    if json.Unmarshal(v,&choices)==nil {
-    for _,item:=range choices {if strings.TrimSpace(item)!="" {cfg.Manager=strings.TrimSpace(item);cfg.ManagerPinned=true;break}}
+    for _,item:=range choices {if strings.TrimSpace(item)!="" {cfg.Manager=strings.TrimSpace(item);break}}
    }
   }
  }
