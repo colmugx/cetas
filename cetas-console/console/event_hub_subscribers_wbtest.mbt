@@ -108,3 +108,39 @@ test "subscription callback can unsubscribe during dispatch" {
   assert_eq(second.length(), 2)
   hub.unsubscribe(b)
 }
+
+
+///|
+/// Connection-level protocol messages belong only to their sender, not to
+/// every window attached to the runtime.
+test "connection-scoped event never leaks to other subscribers" {
+  let hub = EventHub::new()
+  let first : Array[String] = []
+  let second : Array[String] = []
+  let native : Array[String] = []
+  hub.attach(fn(frame) { native.push(frame) })
+
+  let a = hub.subscribe(fn(frame) { first.push(frame) })
+  let b = hub.subscribe(fn(frame) { second.push(frame) })
+
+  hub.emit_to(b, "", "connection.ready", extra=[
+    ("protocol", Json::string("cetas-web/0.1")),
+  ])
+  assert_eq(first.length(), 0)
+  assert_eq(second.length(), 1)
+  assert_eq(native.length(), 0)
+  assert_true(second[0].contains("\"connection.ready\""))
+
+  hub.unsubscribe(b)
+  hub.emit_to(b, "", "protocol.error", extra=[
+    ("message", Json::string("bad request")),
+  ])
+  assert_eq(first.length(), 0)
+  assert_eq(second.length(), 1)
+
+  hub.emit("s", "t", "turn.accepted")
+  assert_eq(first.length(), 1)
+  assert_eq(second.length(), 1)
+  assert_eq(native.length(), 1)
+  hub.unsubscribe(a)
+}
