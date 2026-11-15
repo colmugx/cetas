@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/colmugx/cetas/cetas-go/internal/i18n"
 	"sort"
 	"strings"
 )
@@ -34,6 +35,7 @@ var nativeSlashCommands = []nativeSlashCommand{
 	{"/find-prev", "Jump to previous transcript match", false},
 	{"/copyhistory", "Copy source transcript entry range", true},
 	{"/help", "Show available commands", false},
+	{"/language", "Change interface language", true},
 }
 
 type slashSuggestion struct {
@@ -97,7 +99,7 @@ func slashSuggestions(text string) []slashSuggestion {
 			score = 1
 		}
 		found = append(found, ranked{
-			value: slashSuggestion{label: command.name + " — " + command.description, insert: command.name},
+			value: slashSuggestion{label: command.name + " — " + i18n.Or("command."+strings.TrimPrefix(command.name, "/"), command.description), insert: command.name},
 			score: score, order: order,
 		})
 	}
@@ -137,7 +139,7 @@ func slashInsertion(choice string) string {
 func nativeSlashHelp() string {
 	var lines []string
 	for _, command := range nativeSlashCommands {
-		lines = append(lines, command.name+" — "+command.description)
+		lines = append(lines, command.name+" — "+i18n.Or("command."+strings.TrimPrefix(command.name, "/"), command.description))
 	}
 	return strings.Join(lines, "\n")
 }

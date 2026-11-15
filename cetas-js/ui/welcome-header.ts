@@ -5,6 +5,7 @@ import {
   visibleWidth,
   type Component,
 } from "@earendil-works/pi-tui";
+import { t } from "../src/i18n/index.ts";
 import type { AppState } from "../src/app/types.ts";
 import type { Channel } from "../src/app/version.ts";
 import { MODULAR_CUT } from "./brand-mark.ts";
@@ -57,7 +58,7 @@ export function renderWelcomeHeader(
   if (compact || columns < 40 || (source.rows ?? 24) < 22) {
     const lines = [fit(` ${title} ${theme.muted("· " + workspace)}`)];
     if (!compact && needsSetup && columns >= 24) {
-      lines.push(fit(" " + theme.muted("/login to connect a provider")));
+      lines.push(fit(" " + theme.muted(t("welcome.login_hint"))));
     }
     return lines;
   }
@@ -73,10 +74,10 @@ export function renderWelcomeHeader(
   };
   const context = [
     cardTitle,
-    theme.muted("One agent. Every surface."),
+    theme.muted(t("welcome.tagline")),
     "",
-    theme.muted("Workspace  ") + workspace,
-    theme.muted("Built on Posoco"),
+    theme.muted(t("welcome.workspace")) + workspace,
+    theme.muted(t("welcome.built_on")),
     "",
   ];
   const body = columns >= 64
@@ -84,13 +85,13 @@ export function renderWelcomeHeader(
     : [context[0], context[1], context[3], context[4]].map(row);
   const narrow = columns < 64;
   const guidance = starting
-    ? theme.muted("Starting your workspace…")
+    ? theme.muted(t("welcome.starting"))
     : needsSetup
-      ? theme.brand("/login") + theme.muted(narrow ? " connect  ·  " : " connect a provider  ·  ") + theme.brand("/model") + theme.muted(narrow ? " choose" : " choose a model")
-      : theme.muted(narrow ? "Describe a task. " : "Describe a task to begin. ") + theme.brand("/help") + theme.muted(" for commands.");
+      ? theme.brand("/login") + theme.muted(narrow ? t("welcome.connect_short") : t("welcome.connect")) + theme.brand("/model") + theme.muted(narrow ? t("welcome.choose_short") : t("welcome.choose"))
+      : theme.muted(narrow ? t("welcome.describe_short") : t("welcome.describe")) + theme.brand("/help") + theme.muted(t("welcome.for_commands"));
   const shortcuts = needsSetup || starting
-    ? theme.muted(narrow ? "Shared settings · ~/.cetas/" : "Your credentials and model choice are shared across Cetas.")
-    : theme.brand("@path") + theme.muted(narrow ? " files  ·  " : " add a file  ·  ") + theme.brand("/sessions") + theme.muted(narrow ? " history" : " resume work");
+    ? theme.muted(narrow ? t("welcome.shared_short") : t("welcome.shared"))
+    : theme.brand("@path") + theme.muted(narrow ? t("welcome.files_short") : t("welcome.files")) + theme.brand("/sessions") + theme.muted(narrow ? t("welcome.history_short") : t("welcome.history"));
   return ["", border("╭", "╮"), row(""), ...body, row(""),
     border("╰", "╯"), fit(" " + guidance), fit(" " + shortcuts), ""];
 }

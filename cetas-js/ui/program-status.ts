@@ -3,6 +3,7 @@
  * not a multi-agent status dashboard. Keep status wording constant and
  * free of prompts, secrets, paths, model names and extension identifiers.
  */
+import { t } from "../src/i18n/index.ts";
 import type { ProgramStatus } from "@earendil-works/pi-tui";
 import type { AppState } from "../src/app/types.ts";
 
@@ -27,10 +28,10 @@ export function projectProgramStatus(source: ProgramStatusSource): ProgramStatus
     return { state: "clear" };
   }
   if (source.pendingAuth > 0) {
-    return { state: "blocked", app: "cetas", kind: "auth", message: "Waiting for authentication" };
+    return { state: "blocked", app: "cetas", kind: "auth", message: t("status.waiting_auth") };
   }
   if (source.pendingQuestions > 0) {
-    return { state: "blocked", app: "cetas", kind: "question", message: "Waiting for your response" };
+    return { state: "blocked", app: "cetas", kind: "question", message: t("status.waiting_response") };
   }
   if (source.boardPresence?.state === "blocked") {
     return {
@@ -41,10 +42,10 @@ export function projectProgramStatus(source: ProgramStatusSource): ProgramStatus
     };
   }
   if (source.appState === "needs_setup") {
-    return { state: "blocked", app: "cetas", kind: "auth", message: "Connect a model provider" };
+    return { state: "blocked", app: "cetas", kind: "auth", message: t("status.connect_provider") };
   }
   if (source.commandBusy || source.operationBusy || source.turnActive || source.appState === "running") {
-    return { state: "working", app: "cetas", message: "Working" };
+    return { state: "working", app: "cetas", message: t("status.working") };
   }
   if (source.boardPresence?.state === "working") {
     return {
@@ -55,7 +56,7 @@ export function projectProgramStatus(source: ProgramStatusSource): ProgramStatus
     };
   }
   if (source.appState === "ready") return { state: "idle", app: "cetas" };
-  return { state: "working", app: "cetas", message: "Starting" };
+  return { state: "working", app: "cetas", message: t("status.starting") };
 }
 
 /** Only use the protocol discriminator. Never forward the payload. */

@@ -38,6 +38,9 @@ jobs:
       - name: Version-sync gate
         run: python3 scripts/release.py check --scope core
 
+      - name: Shared CLI locale catalog drift check
+        run: go run i18n/generate.go -check
+
       - name: Shell installer syntax
         run: |
           bash -n install.sh

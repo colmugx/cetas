@@ -3,7 +3,9 @@
 package tui
 
 import (
+	"github.com/colmugx/cetas/cetas-go/internal/i18n"
 	"context"
+	"os"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -224,7 +226,7 @@ type model struct {
 
 func newModel() model {
 	ta := composer.New()
-	ta.Placeholder = "Ask Cetas or type /help"
+	ta.Placeholder = i18n.T("status.ask_placeholder")
 	ta.Prompt = "> "
 	ta.SetWidth(78)
 	ta.SetHeight(1)
@@ -238,7 +240,7 @@ func newModel() model {
 	// The document supplies cell-wrapped rows already; viewport.View would repeat
 	// the ANSI/grapheme work on every scroll.
 	vp.SoftWrap = false
-	return model{textarea: ta, viewport: vp, markdownCache: newMarkdownCache(markdownCacheBudget), pickerPanel: &pickerPanelMemo{}, status: "connecting to Posoco…", searchActive: -1, surface: initialSurface(), version: "0.11.0", focused: true}
+	return model{textarea: ta, viewport: vp, markdownCache: newMarkdownCache(markdownCacheBudget), pickerPanel: &pickerPanelMemo{}, status: i18n.T("status.connecting"), searchActive: -1, surface: initialSurface(), version: "0.11.0", focused: true}
 }
 
 // warmMarkdown creates the styling renderer on first presence (user input,
@@ -341,6 +343,8 @@ func requestAs(host runtimeHost, name, command string, args any) tea.Cmd {
 				timeout = 4 * time.Minute
 			}
 		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
 		if command == "pi_packages" {
 			if fields, ok := args.(map[string]any); ok {
 				if action, valid := fields["args"].(string); valid &&
@@ -349,8 +353,6 @@ func requestAs(host runtimeHost, name, command string, args any) tea.Cmd {
 				}
 			}
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
 		result, err := host.Request(ctx, command, args)
 		return commandResult{name: name, payload: result, err: err, requestSession: session, requestRevision: revision}
 	}
@@ -476,22 +478,22 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case bootResult:
 		if msg.err != nil {
-			m.status = "startup failed"
+			m.status = i18n.T("status.startup_failed")
 			m.err = msg.err.Error()
 			return m, nil
 		}
 		m.host = msg.host
 		m.feed = msg.host.Events()
 		if m.nativePiUnavailable() {
-			m.protocolNotice(nativePiHint)
+			m.protocolNotice(i18n.T("notice.native_pi_en"))
 			m.refreshTranscript()
 		}
 		if msg.needsSetup {
 			m.needsSetup = true
-			m.status = "Choose a provider to set up Cetas Go"
+			m.status = i18n.T("status.setup_choose_provider")
 			return m, tea.Batch(receive(m.feed), receiveErrors(m.host.Errors()), request(m.host, "providers", map[string]any{}))
 		}
-		m.status = "ready"
+		m.status = i18n.T("status.ready")
 		return m, tea.Batch(receive(m.feed), receiveErrors(m.host.Errors()), request(m.host, "runtime_state", map[string]string{}))
 	case errorResult:
 		if !msg.ok {
@@ -499,7 +501,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.err != nil {
 			m.err = msg.err.Error()
-			m.status = "runtime problem"
+			m.status = i18n.T("status.runtime_problem")
 		}
 		return m, receiveErrors(m.host.Errors())
 	case eventBatchResult:
@@ -553,7 +555,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			// session's abandoned asks beside the fresh replay and command catalog.
 			retired := m.pendingSessionCmd
 			m.pendingSessionCmd = nil
-			m.status = "ready"
+			m.status = i18n.T("status.ready")
 			return m, tea.Batch(receive(m.feed), retired, m.startPagedReplay(), request(m.host, "commands", map[string]any{}))
 		}
 		if reject := m.pendingAskReject; reject != "" {
@@ -603,7 +605,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				// The switch never started server-side: release the choose latch
 				// instead of waiting for a session.switched that cannot come.
 				m.switchInFlight = ""
-				m.status = "ready"
+				m.status = i18n.T("status.ready")
 			}
 			return m, nil
 		}
@@ -637,7 +639,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if json.Unmarshal(msg.payload, &started) == nil && started.Status == "started" && started.AuthID != "" {
 				m.authID = started.AuthID
-				m.status = "authenticating " + started.Provider + " (Esc cancels)"
+				m.status = i18n.Format("status.authenticating", map[string]any{"provider": started.Provider})
 			}
 		}
 		if msg.name == "login_cancel" {
@@ -646,7 +648,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				AuthID    string `json:"auth_id"`
 			}
 			if json.Unmarshal(msg.payload, &outcome) == nil && outcome.AuthID == m.authID && !outcome.Cancelled {
-				m.status = "authentication already settled"
+				m.status = i18n.T("status.auth_settled")
 				m.authID = ""
 			}
 		}
@@ -745,7 +747,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if len(m.modalItems) == 0 {
 					m.modal = ""
-					m.status = "no rewind points"
+					m.status = i18n.T("status.no_rewind")
 				}
 			}
 		}
@@ -835,7 +837,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				// The runtime composes the target in the background; the picker's job
 				// is done and `session.switched` completes the switch as an event.
 				m.closeSessionPicker()
-				m.status = "loading session…"
+				m.status = i18n.T("status.loading_session")
 				return m, nil
 			}
 			var payload struct {
@@ -1246,17 +1248,17 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.lastEscape = time.Time{}
 				m.aborting = true
-				m.status = "aborting"
+				m.status = i18n.T("status.aborting")
 				return m, request(m.host, "turn_abort", map[string]any{})
 			}
 			if m.host != nil && m.authID != "" {
-				m.status = "cancelling authentication"
+				m.status = i18n.T("status.cancel_auth")
 				return m, request(m.host, "login_cancel", map[string]any{"auth_id": m.authID})
 			}
 			if len(m.pendingImages) > 0 {
 				// Staged attachments clear first; a second Esc arms rewind.
 				m.clearStagedImages()
-				m.status = "ready"
+				m.status = i18n.T("status.ready")
 				return m, nil
 			}
 			if m.host != nil && !m.lastEscape.IsZero() && time.Since(m.lastEscape) < 500*time.Millisecond {
@@ -1345,7 +1347,7 @@ func (m *model) submitEditor() tea.Cmd {
 			return nil
 		}
 		m.followups = append(m.followups, value)
-		m.status = fmt.Sprintf("queued %d follow-up(s)", len(m.followups))
+		m.status = i18n.Format("status.queued_followups", map[string]any{"count": len(m.followups)})
 		m.refreshTranscript()
 		return nil
 	}
@@ -1388,9 +1390,9 @@ func (m *model) dismissUI(id string) {
 		m.modalIndex = 0
 		if len(m.pendingUI) > 0 {
 			m.activateUI(m.takePendingUI())
-			m.status = "waiting for user input"
+			m.status = i18n.T("status.waiting_input")
 		} else {
-			m.status = "ready"
+			m.status = i18n.T("status.ready")
 		}
 		return
 	}
@@ -1505,7 +1507,7 @@ func (m *model) command(value string) tea.Cmd {
 		return request(m.host, "session_compact", map[string]any{})
 	case "/pi":
 		if m.nativePiUnavailable() {
-			m.protocolNotice(nativePiHint)
+			m.protocolNotice(i18n.T("notice.native_pi_en"))
 			m.refreshTranscript()
 		}
 		return request(m.host, "pi_packages", map[string]any{"args": strings.TrimSpace(strings.TrimPrefix(value, "/pi"))})
@@ -1539,6 +1541,14 @@ func (m *model) command(value string) tea.Cmd {
 		if len(parts) > 1 {
 			return request(m.host, "set_permission", map[string]any{"mode": parts[1]})
 		}
+	case "/language":
+		if len(parts) == 1 { m.protocolNotice(i18n.Format("notice.language_current", map[string]any{"locale": i18n.Current()})); return nil }
+		locale := i18n.Normalize(parts[1])
+		if locale == "" || len(parts) != 2 { m.protocolNotice(i18n.T("notice.language_invalid")); return nil }
+		home, err := os.UserHomeDir()
+		if err == nil { err = i18n.Save(home, locale) }
+		if err != nil { m.protocolNotice(i18n.Format("notice.language_save_failed", map[string]any{"error": err.Error()})); return nil }
+		m.protocolNotice(i18n.T("notice.language_saved")); return nil
 	case "/help":
 		return func() tea.Msg { return commandResult{name: "help", payload: json.RawMessage(`{"ok":true}`)} }
 	}
@@ -1638,7 +1648,7 @@ func (m *model) applyEvent(e wire.Event) {
 			m.needsSetup = false
 			m.session = data.Snapshot.SessionID
 			m.requestTitle()
-			m.status = "ready"
+			m.status = i18n.T("status.ready")
 			m.err = ""
 			m.modal = ""
 			m.modalPrompt = ""
@@ -1660,7 +1670,7 @@ func (m *model) applyEvent(e wire.Event) {
 		}
 	case "infra.setup_failed":
 		m.needsSetup = true
-		m.status = "Provider setup incomplete"
+		m.status = i18n.T("status.setup_incomplete")
 		m.err = "Authentication saved, but no usable model is configured. Choose another provider or configure a model, then restart."
 	case "command.completed":
 		m.handleCommandCompletion(e.Raw)
@@ -1668,7 +1678,7 @@ func (m *model) applyEvent(e wire.Event) {
 		m.welcomeHidden = true
 		m.fragments = nil
 		m.running = true
-		m.status = "working"
+		m.status = i18n.T("status.working")
 	case "assistant.text_delta":
 		delta := frame.Delta
 		if delta == "" {
@@ -1708,9 +1718,9 @@ func (m *model) applyEvent(e wire.Event) {
 		m.reasoning = ""
 		m.running = false
 		m.aborting = false
-		m.status = "ready"
+		m.status = i18n.T("status.ready")
 		m.turnOutcome, m.turnOutcomeDetail = turnDone, "Finished"
-		m.requestNotice("Cetas: turn completed")
+		m.requestNotice(i18n.T("status.turn_completed_notice"))
 	case "turn.failed":
 		m.flushAssistant()
 		// The failed-turn row is a UI fact, not a journal projection (the
@@ -1739,7 +1749,7 @@ func (m *model) applyEvent(e wire.Event) {
 		if m.turnOutcomeDetail == "" {
 			m.turnOutcomeDetail = "Turn failed"
 		}
-		m.requestNotice("Cetas: turn failed")
+		m.requestNotice(i18n.T("status.turn_failed_notice"))
 	case "session.redirect":
 		if frame.From == m.session && frame.To != "" {
 			// A redirect retires the picker that asked for it.
@@ -1764,7 +1774,7 @@ func (m *model) applyEvent(e wire.Event) {
 			m.requestTitle()
 		}
 		m.switchInFlight = ""
-		m.status = "session redirected"
+		m.status = i18n.T("status.session_redirected")
 	case "session.switched":
 		// applyEvent cannot return commands, so the ask-cancellation batch rides
 		// pendingSessionCmd and the event pump restarts the paged replay beside it.
@@ -1800,14 +1810,14 @@ func (m *model) applyEvent(e wire.Event) {
 		if len(data.Snapshot) > 0 {
 			m.snapshotSurface(data.Snapshot)
 		}
-		m.status = "loading transcript…"
+		m.status = i18n.T("status.loading_transcript")
 	case "session.switch_failed":
 		var data struct {
 			Target string `json:"target"`
 			Detail string `json:"detail"`
 		}
 		m.switchInFlight = ""
-		m.status = "ready"
+		m.status = i18n.T("status.ready")
 		if json.Unmarshal(e.Raw, &data) == nil && data.Detail != "" {
 			m.err = "switch_session: " + data.Detail
 		} else {
@@ -1846,7 +1856,7 @@ func (m *model) applyEvent(e wire.Event) {
 		} else {
 			m.activateUI(prompt)
 		}
-		m.status = "waiting for user input"
+		m.status = i18n.T("status.waiting_input")
 	case "ui.dismiss":
 		m.dismissUI(frame.RequestID)
 	case "auth.cancelled":
@@ -1856,7 +1866,7 @@ func (m *model) applyEvent(e wire.Event) {
 		if json.Unmarshal(e.Raw, &payload) == nil && payload.AuthID != "" && payload.AuthID == m.authID {
 			m.authID = ""
 			m.err = ""
-			m.status = "authentication cancelled"
+			m.status = i18n.T("status.auth_cancelled")
 		}
 	case "auth.login":
 		// Login outcomes are provider-neutral and contain no credentials: never dump
@@ -1881,16 +1891,16 @@ func (m *model) applyEvent(e wire.Event) {
 		m.authID = ""
 		if json.Unmarshal(payload.Result, &result) != nil {
 			m.err = "authentication returned an invalid result"
-			m.status = "authentication failed"
+			m.status = i18n.T("status.auth_failed")
 		} else if result.Type == "success" {
 			m.err = ""
 			if m.needsSetup {
-				m.status = "signed in to " + payload.Provider + "; initializing Agent…"
+				m.status = i18n.Format("status.signed_in_initializing", map[string]any{"provider": payload.Provider})
 			} else {
-				m.status = "signed in to " + payload.Provider
+				m.status = i18n.Format("status.signed_in", map[string]any{"provider": payload.Provider})
 			}
 		} else {
-			m.status = "authentication failed"
+			m.status = i18n.T("status.auth_failed")
 			// A provider may echo the submitted API key in its error detail, so keep
 			// it out of the UI.
 			m.err = "login failed for " + payload.Provider

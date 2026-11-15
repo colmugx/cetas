@@ -17,6 +17,7 @@ import {
   type SelectItem,
   type SelectListTheme,
 } from "@earendil-works/pi-tui";
+import { t } from "../src/i18n/index.ts";
 import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import chalk from "chalk";
 
@@ -173,7 +174,7 @@ class TabbedPickerPanel implements Component {
   ) {
     this.onSelect = onSelect;
     this.onCancel = onCancel;
-    this.title = new Text(theme.brandBold("Select model and effort"), 1, 1);
+    this.title = new Text(theme.brandBold(t("model.select_title")), 1, 1);
     if (this.mode === "quota") {
       const readingsByProvider = new Map<string, ProviderQuotaReading[]>();
       for (const entry of entries) {
@@ -505,7 +506,7 @@ class TabbedPickerPanel implements Component {
   private makeList(tab: string, rows: readonly ModelRow[], selected: number): SelectList {
     const items: SelectItem[] = rows.map((row) => {
       const effort = row.entry.efforts[row.effortIndex];
-      const effortText = effort === undefined ? "" : ` · effort: ${effort}`;
+      const effortText = effort === undefined ? "" : ` · ${t("model.effort")}${effort}`;
       // Provider-owned labels usually embed the model id already ("DeepSeek /
       // deepseek-v4-pro"); repeat it only when the label does not, so the
       // effort suffix stays inside the primary column instead of duplicating.
