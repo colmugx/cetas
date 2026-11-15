@@ -116,6 +116,7 @@ pub async fn ConsoleRuntime::shutdown_all(Self) -> Unit
 pub async fn ConsoleRuntime::skills_json(Self) -> @json.Json
 pub fn ConsoleRuntime::spawn_background(Self, async () -> Unit) -> Unit
 pub async fn ConsoleRuntime::start_turn(Self, String, String?, images? : Array[@kernel.Content]) -> Result[String, String] noraise
+pub fn ConsoleRuntime::subscribe_events(Self, (String) -> Unit) -> String
 pub async fn ConsoleRuntime::switch_model(Self, String, String?) -> Result[Unit, String] noraise
 pub async fn ConsoleRuntime::switch_session(Self, String) -> Result[String, String] noraise
 pub async fn ConsoleRuntime::switch_workspace(Self, String) -> Result[String, String] noraise
@@ -124,6 +125,7 @@ pub async fn ConsoleRuntime::transcript_index_json(Self, String, first? : Int32,
 pub async fn ConsoleRuntime::transcript_json(Self, String) -> @json.Json
 pub async fn ConsoleRuntime::transcript_page_json(Self, String, String, Int32, Int32, Int32) -> @json.Json
 pub async fn ConsoleRuntime::transcript_source_json(Self, String, String, Int32, field? : String, offset? : Int32, length? : Int32) -> @json.Json
+pub fn ConsoleRuntime::unsubscribe_events(Self, String) -> Unit
 pub async fn ConsoleRuntime::workspace_file_index(Self) -> Array[String]
 pub fn ConsoleRuntime::workspaces_json(Self) -> @json.Json
 pub fn ConsoleRuntime::zoo_json(Self) -> @json.Json
