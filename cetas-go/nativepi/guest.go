@@ -193,9 +193,9 @@ func (g *Guest) loadEntry(root, spec string) error {
 	if !strings.HasPrefix(spec, "./") {
 		return fmt.Errorf("Pi entry must be package-relative: %q", spec)
 	}
-	entry, err := resolvePiEntry(filepath.Join(root, spec))
+	entryFile, err := resolvePiEntry(filepath.Join(root, spec))
 	if err != nil { return err }
-	path, err := allowedModule(root, entry)
+	path, err := allowedModule(root, entryFile)
 	if err != nil { return err }
 	mods := map[string]*moejs.Module{}
 	var compileFile func(string) (*moejs.Module, error)
