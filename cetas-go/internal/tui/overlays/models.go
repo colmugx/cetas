@@ -2,6 +2,7 @@
 package overlays
 
 import (
+	"github.com/colmugx/cetas/cetas-go/internal/i18n"
 	"strings"
 	"unicode/utf8"
 )
@@ -145,9 +146,9 @@ func (p Models) Title() string {
 	tabs := append([]string(nil), p.tabs()...)
 	at := p.tabIndex()
 	tabs[at] = "[" + tabs[at] + "]"
-	title := "Model · " + strings.Join(tabs, "  ")
+	title := i18n.T("model.title") + strings.Join(tabs, "  ")
 	if p.Query != "" {
-		title = "Model · Search: " + p.Query
+		title = i18n.T("model.search_title") + p.Query
 	}
 	return title
 }

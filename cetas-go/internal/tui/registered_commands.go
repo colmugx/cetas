@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/colmugx/cetas/cetas-go/internal/i18n"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -119,7 +120,7 @@ func (m *model) commandSuggestions(value string) []slashSuggestion {
 			if !strings.HasPrefix(low, prefix) && !slashSubsequence(low, prefix) {
 				continue
 			}
-			description := command.Description
+			description := i18n.Or("command."+command.ID, command.Description)
 			if description == "" {
 				description = command.Label
 			}

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/colmugx/cetas/cetas-go/internal/i18n"
 	"encoding/base64"
 	"path/filepath"
 	"strings"
@@ -40,13 +41,13 @@ func (m model) projectProgramStatus() programStatus {
 		// Clear carries no record keys; the terminal drops the record whole.
 		return programStatus{state: "clear"}
 	case m.authID != "":
-		return report("blocked", "auth", "Waiting for authentication")
+		return report("blocked", "auth", i18n.T("status.waiting_auth"))
 	case pendingQuestions > 0:
-		return report("blocked", "question", "Waiting for your response")
+		return report("blocked", "question", i18n.T("status.waiting_response"))
 	case m.needsSetup:
-		return report("blocked", "auth", "Connect a model provider")
+		return report("blocked", "auth", i18n.T("status.connect_provider"))
 	case m.running || m.switchInFlight != "":
-		return report("working", "", "Working")
+		return report("working", "", i18n.T("status.working"))
 	case m.turnOutcome == turnFailed:
 		// error survives until the user looks; the next activity replaces it.
 		return report("error", "", m.turnOutcomeDetail)
@@ -55,7 +56,7 @@ func (m model) projectProgramStatus() programStatus {
 	case m.session != "":
 		return report("idle", "", "")
 	default:
-		return report("working", "", "Starting")
+		return report("working", "", i18n.T("status.starting"))
 	}
 }
 

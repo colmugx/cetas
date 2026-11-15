@@ -8,6 +8,7 @@
  */
 
 import chalk from "chalk";
+import { getLocale, normalizeLocale, saveLocalePreference, t, tOr, tf } from "../src/i18n/index.ts";
 import type { Channel, PackageManager } from "../src/app/version.ts";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
@@ -151,18 +152,21 @@ const identity = (value: string): string => value;
  * extension's /help command. Lives here because only the shell knows its own
  * keys; the host passes it into the agent config as the help note.
  */
-export const CETAS_TUI_HELP_NOTE = [
-  "During a turn:",
-  "  ESC — interrupt the running turn (denies a pending approval first)",
-  "  double-ESC while idle — first press clears the input, second opens /rewind",
-  "  Typing while a turn runs stays live; Enter queues it as a follow-up",
-  "  @path — autocomplete a workspace file (Tab/Enter applies it; the agent reads it)",
-  "  /permission <mode> works mid-turn (readonly | workspace_write | interactive | yolo)",
-  "  If the agent asks you a question (? line above), just type the reply",
-  "  /questions — pick a pending question and answer it; /answer @q3 <reply> answers inline",
-  "  ctrl+t — collapse/expand thinking blocks",
-  "  ctrl+o — collapse/expand tool output",
+export function localizedCetasTuiHelpNote(): string {
+  return [
+  t("help.turn"),
+  t("help.esc"),
+  t("help.double_esc"),
+  t("help.followup"),
+  t("help.path"),
+  t("help.permission"),
+  t("help.question"),
+  t("help.questions"),
+  t("help.thinking"),
+  t("help.tool"),
 ].join("\n");
+}
+export const CETAS_TUI_HELP_NOTE = localizedCetasTuiHelpNote();
 
 const selectListTheme: SelectListTheme = {
   selectedPrefix: identity,
@@ -1151,10 +1155,10 @@ export class TerminalShell {
     return {
       branch: this.cachedGitBranch,
       contextValue: this.sessionContext.get(this.sessionId),
-      status: this.pendingAuthRequests > 0 ? "Waiting for auth"
-        : this.pendingUiRequests > 0 ? "Waiting for reply"
-          : this.operationBusy || this.commandBusy || this.renderedAppState === "running" ? "Working"
-            : this.renderedAppState === "needs_setup" ? "Setup required" : "Ready",
+      status: this.pendingAuthRequests > 0 ? t("status.waiting_auth_short")
+        : this.pendingUiRequests > 0 ? t("status.waiting_reply")
+          : this.operationBusy || this.commandBusy || this.renderedAppState === "running" ? t("status.working")
+            : this.renderedAppState === "needs_setup" ? t("status.setup_required") : t("status.ready"),
       activeAgents: running.length,
       awaitingReplies: running.filter((agent) => agent.question !== undefined).length + this.pendingUiRequests,
       pendingUserQuestions: this.questions.pendingFor(this.sessionId).length,
@@ -1184,7 +1188,7 @@ export class TerminalShell {
     if (!this.setupNoticeShown) {
       this.addTranscriptChild(
         systemNotice(
-          "No model provider configured. Use /model to inspect available slots or /login [provider] [method] to authenticate.",
+          t("notice.no_provider"),
         ),
       );
       this.setupNoticeShown = true;
@@ -1981,6 +1985,14 @@ export class TerminalShell {
     const command = spaceIndex === -1 ? input : input.slice(0, spaceIndex);
     const rawArgs = spaceIndex === -1 ? "" : input.slice(spaceIndex + 1).trim();
 
+    if (command === "/language") {
+      if (!rawArgs) { this.addTranscriptChild(systemNotice(tf("notice.language_current", { locale: getLocale() }))); return; }
+      const locale = normalizeLocale(rawArgs);
+      if (locale === undefined || rawArgs.split(/\s+/).length !== 1) { this.addTranscriptChild(errorNotice(t("notice.language_invalid"))); return; }
+      try { saveLocalePreference(this.home, locale); this.addTranscriptChild(systemNotice(t("notice.language_saved"))); }
+      catch (error) { this.addTranscriptChild(errorNotice(tf("notice.language_save_failed", { error: errorMessage(error) }))); }
+      return;
+    }
     const route = matchLocalSlash(command);
     if (route === undefined) {
       await this.invokeCommand(command, rawArgs);
@@ -2134,7 +2146,7 @@ export class TerminalShell {
       const text = transcriptTextRange(this.transcript.children, first, last);
       const result = await copyTextToClipboard(text);
       if (result === "unavailable") {
-        this.addTranscriptChild(errorNotice("Clipboard copy is unavailable in this terminal"));
+        this.addTranscriptChild(errorNotice(t("ui.clipboard_unavailable")));
         return;
       }
       const action = result === "terminal" ? "Sent to terminal clipboard" : "Copied";
@@ -2275,7 +2287,7 @@ export class TerminalShell {
   /** /pi — pi package surface management (install/remove/list) via PiCommands. */
   private async runPiCommand(rawArgs: string): Promise<void> {
     if (this.operationBusy || this.commandBusy) {
-      this.addTranscriptChild(errorNotice("/pi cannot run while an operation is active"));
+      this.addTranscriptChild(errorNotice(t("ui.pi_busy")));
       return;
     }
     this.commandLock.acquire("managing pi packages");
@@ -2292,7 +2304,7 @@ export class TerminalShell {
 
   private async startNewSession(): Promise<void> {
     if (this.operationBusy || this.commandBusy) {
-      this.addTranscriptChild(errorNotice("/new cannot run while an operation is active"));
+      this.addTranscriptChild(errorNotice(t("ui.new_busy")));
       return;
     }
     const nextSession = newSessionId();
@@ -2545,7 +2557,7 @@ export class TerminalShell {
 
   private async openModelPicker(mode: "tabs" | "quota" = "tabs"): Promise<void> {
     if (this.commandBusy) {
-      this.addTranscriptChild(errorNotice("/model cannot run while another command is active"));
+      this.addTranscriptChild(errorNotice(t("ui.model_busy")));
       return;
     }
     try {
@@ -2557,7 +2569,7 @@ export class TerminalShell {
         if (signal.aborted) return;
         if (outcome.type !== "success") { this.renderOutcome(outcome, "/model"); return; }
         if (outcome.entries.length === 0) {
-          this.addTranscriptChild(errorNotice("/model: provider returned an empty model catalog"));
+          this.addTranscriptChild(errorNotice(t("ui.model_empty")));
           return;
         }
         const selection = await this.modelPicker.choose(outcome.entries, signal, mode);
@@ -2631,7 +2643,7 @@ export class TerminalShell {
   /** Display-only skills browser: catalog metadata + discovery scope. */
   private async openSkillsPicker(): Promise<void> {
     if (this.commandBusy) {
-      this.addTranscriptChild(errorNotice("/skills cannot run while another command is active"));
+      this.addTranscriptChild(errorNotice(t("ui.skills_busy")));
       return;
     }
     this.commandLock.acquire("loading skills catalog");
@@ -2666,7 +2678,7 @@ export class TerminalShell {
    */
   private async openSessionsPicker(): Promise<void> {
     if (this.operationBusy || this.commandBusy) {
-      this.addTranscriptChild(errorNotice("/sessions cannot run while an operation is active"));
+      this.addTranscriptChild(errorNotice(t("ui.sessions_busy")));
       return;
     }
     this.commandLock.acquire("");
@@ -2849,7 +2861,7 @@ export class TerminalShell {
    */
   private openRewindPicker(): void {
     if (this.operationBusy || this.commandBusy) {
-      this.addTranscriptChild(errorNotice("/rewind cannot run while an operation is active"));
+      this.addTranscriptChild(errorNotice(t("ui.rewind_busy")));
       return;
     }
     const path = sessionFilePath(this.sessionsDir, this.sessionId);
@@ -3178,7 +3190,7 @@ export class TerminalShell {
   private async openLogin(rawProvider: string): Promise<void> {
     if (rawProvider.trim() === "magpie") return this.configureMagpieLogin();
     if (this.commandBusy) {
-      this.addTranscriptChild(errorNotice("/login cannot run while another command is active"));
+      this.addTranscriptChild(errorNotice(t("ui.login_busy")));
       return;
     }
     const tokens = rawProvider.trim().length === 0 ? [] : rawProvider.trim().split(/\s+/);
@@ -3570,6 +3582,7 @@ const LOCAL_SLASH_ROUTES: readonly SlashRoute[] = [
   { id: "quota", description: "Show available quota information for the active manager" },
   { id: "status", description: "Show Agent, session, model and manager status" },
   { id: "exit", description: "Quit cetas-js", aliases: ["quit"] },
+  { id: "language", description: "Change interface language" },
 ];
 
 export function localSlashAutocompleteItems(): Array<{
@@ -3579,7 +3592,7 @@ export function localSlashAutocompleteItems(): Array<{
 }> {
   return LOCAL_SLASH_ROUTES.map(({ id, description }) => ({
     label: `/${id}`,
-    detail: description,
+    detail: tOr("command.js." + id, description),
     insert_text: `/${id}`,
   }));
 }

@@ -1,6 +1,7 @@
 package components
 
 import (
+	"github.com/colmugx/cetas/cetas-go/internal/i18n"
 	"fmt"
 	"strings"
 	"sync"
@@ -76,7 +77,7 @@ func Ask(t Theme, r AskRequest, width, selected int, value string, expanded bool
 			}
 			out = append(out, renderAskBody(t, body[:shown], width)...)
 			if collapsible && !expanded {
-				label := fmt.Sprintf("… (+%d lines, ctrl+o to expand)", len(body)-askPreviewLines)
+				label := i18n.Format("dialog.expand", map[string]any{"count": len(body)-askPreviewLines})
 				out = append(out, t.Role("muted", askCut(label, width)))
 			}
 		} else {
@@ -90,12 +91,12 @@ func Ask(t Theme, r AskRequest, width, selected int, value string, expanded bool
 		if r.Kind == AskSecret {
 			value = strings.Repeat("•", len([]rune(value)))
 		}
-		out = append(out, Pad("> "+Clean(value), width), askCut(" ⏎ submit · esc cancel", width))
+		out = append(out, Pad("> "+Clean(value), width), askCut(i18n.T("dialog.submit_cancel"), width))
 		return out
 	}
 	options := r.Options
 	if r.Kind == AskConfirm {
-		options = []string{"Yes", "No"}
+		options = []string{i18n.T("dialog.yes"), i18n.T("dialog.no")}
 	}
 	labels := make([]string, len(options))
 	for i, option := range options {

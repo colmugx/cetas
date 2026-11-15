@@ -1,6 +1,7 @@
 package components
 
 import (
+	"github.com/colmugx/cetas/cetas-go/internal/i18n"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -58,7 +59,7 @@ func Welcome(t Theme, s WelcomeSource, width int, compact bool) []string {
 	if compact || width < 40 || rows < 22 {
 		out := []string{fit(" " + brand + " " + muted("· "+workspace))}
 		if !compact && setup && width >= 24 {
-			out = append(out, fit(" "+muted("/login to connect a provider")))
+			out = append(out, fit(" "+muted(i18n.T("welcome.login_hint"))))
 		}
 		return out
 	}
@@ -70,7 +71,7 @@ func Welcome(t Theme, s WelcomeSource, width int, compact bool) []string {
 	if s.Version != nil {
 		title += muted(" " + s.Version.Version + " · " + s.Version.Channel)
 	}
-	context := []string{title, muted("One agent. Every surface."), "", muted("Workspace  ") + workspace, muted("Built on Posoco"), ""}
+	context := []string{title, muted(i18n.T("welcome.tagline")), "", muted(i18n.T("welcome.workspace")) + workspace, muted(i18n.T("welcome.built_on")), ""}
 	logo := modularCut
 	if width >= 64 && rows >= 34 {
 		logo = modularCutLarge
@@ -100,31 +101,31 @@ func Welcome(t Theme, s WelcomeSource, width int, compact bool) []string {
 	out = append(out, row(""), border("╰", "╯"))
 	guidance, shortcuts := "", ""
 	if starting {
-		guidance = muted("Starting your workspace…")
+		guidance = muted(i18n.T("welcome.starting"))
 	} else if setup {
 		if width < 64 {
-			guidance = t.Role("brand", "/login") + muted(" connect  ·  ") + t.Role("brand", "/model") + muted(" choose")
+			guidance = t.Role("brand", "/login") + muted(i18n.T("welcome.connect_short")) + t.Role("brand", "/model") + muted(i18n.T("welcome.choose_short"))
 		} else {
-			guidance = t.Role("brand", "/login") + muted(" connect a provider  ·  ") + t.Role("brand", "/model") + muted(" choose a model")
+			guidance = t.Role("brand", "/login") + muted(i18n.T("welcome.connect")) + t.Role("brand", "/model") + muted(i18n.T("welcome.choose"))
 		}
 	} else {
 		if width < 64 {
-			guidance = muted("Describe a task. ") + t.Role("brand", "/help") + muted(" for commands.")
+			guidance = muted(i18n.T("welcome.describe_short")) + t.Role("brand", "/help") + muted(i18n.T("welcome.for_commands"))
 		} else {
-			guidance = muted("Describe a task to begin. ") + t.Role("brand", "/help") + muted(" for commands.")
+			guidance = muted(i18n.T("welcome.describe")) + t.Role("brand", "/help") + muted(i18n.T("welcome.for_commands"))
 		}
 	}
 	if setup || starting {
 		if width < 64 {
-			shortcuts = muted("Shared settings · ~/.cetas/")
+			shortcuts = muted(i18n.T("welcome.shared_short"))
 		} else {
-			shortcuts = muted("Your credentials and model choice are shared across Cetas.")
+			shortcuts = muted(i18n.T("welcome.shared"))
 		}
 	} else {
 		if width < 64 {
-			shortcuts = t.Role("brand", "@path") + muted(" files  ·  ") + t.Role("brand", "/sessions") + muted(" history")
+			shortcuts = t.Role("brand", "@path") + muted(i18n.T("welcome.files_short")) + t.Role("brand", "/sessions") + muted(i18n.T("welcome.history_short"))
 		} else {
-			shortcuts = t.Role("brand", "@path") + muted(" add a file  ·  ") + t.Role("brand", "/sessions") + muted(" resume work")
+			shortcuts = t.Role("brand", "@path") + muted(i18n.T("welcome.files")) + t.Role("brand", "/sessions") + muted(i18n.T("welcome.history"))
 		}
 	}
 	return append(out, fit(" "+guidance), fit(" "+shortcuts), "")

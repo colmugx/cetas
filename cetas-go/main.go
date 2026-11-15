@@ -3,6 +3,7 @@
 package main
 
 import (
+	"github.com/colmugx/cetas/cetas-go/internal/i18n"
 	"context"
 	"fmt"
 	"os"
@@ -43,6 +44,12 @@ func main() {
 	// `cetas tui` is the spelled-out form of the default; strip it so the flags
 	// below keep working (`cetas tui --version`).
 	args := os.Args[1:]
+	home, homeErr := os.UserHomeDir()
+	if homeErr != nil { fmt.Fprintln(os.Stderr,homeErr); os.Exit(2) }
+	locale, rest, localeErr := i18n.Resolve(args, os.Getenv, home)
+	if localeErr != nil { fmt.Fprintln(os.Stderr,localeErr); os.Exit(2) }
+	i18n.Set(locale)
+	args = rest
 	for len(args) > 0 && args[0] == "tui" {
 		args = args[1:]
 	}

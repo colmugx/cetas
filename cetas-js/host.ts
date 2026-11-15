@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ProcessTerminal } from "@earendil-works/pi-tui";
+import { resolveLocale, setLocale } from "./src/i18n/index.ts";
 import { TuiAltScreen } from "@earendil-works/pi-tui";
 import * as moonbit from "mbt:colmugx/cetas-js/lib";
 
@@ -29,7 +30,7 @@ import {
 } from "./src/app/moonbit-bridge.ts";
 import { newSessionId } from "./src/app/session-id.ts";
 import { disposeSharedPiModuleMirror } from "./src/app/pi-module-mirror.ts";
-import { TerminalShell, CETAS_TUI_HELP_NOTE } from "./ui/terminal-shell.ts";
+import { TerminalShell, localizedCetasTuiHelpNote } from "./ui/terminal-shell.ts";
 import { openInBrowser } from "./ui/workflow-board-server.ts";
 
 // Recoverable failures belong to the Agent/tool boundary. A fault escaping
@@ -83,6 +84,7 @@ process.on("uncaughtException", (error: unknown) => {
 });
 
 async function main(): Promise<void> {
+  setLocale(resolveLocale());
   const versionInfo = {
     version: cetasVersion(),
     channel: detectChannel(),
@@ -96,7 +98,7 @@ async function main(): Promise<void> {
   // channel calls itself a binary; npm/dev keep their own names.
   const versionNote = `${versionInfo.version} (${versionInfo.channel === "release" ? "binary" : versionInfo.channel})`;
   const config = buildCetasHostConfig({
-    hostHelpNote: CETAS_TUI_HELP_NOTE,
+    hostHelpNote: localizedCetasTuiHelpNote(),
     versionNote,
   });
   await bootstrapSettings(config.home);
