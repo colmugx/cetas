@@ -493,7 +493,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = i18n.T("status.setup_choose_provider")
 			return m, tea.Batch(receive(m.feed), receiveErrors(m.host.Errors()), request(m.host, "providers", map[string]any{}))
 		}
-		m.status = i18n.T("status.ready")
+		m.status = i18n.T("status.ready_lower")
 		return m, tea.Batch(receive(m.feed), receiveErrors(m.host.Errors()), request(m.host, "runtime_state", map[string]string{}))
 	case errorResult:
 		if !msg.ok {
@@ -555,7 +555,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			// session's abandoned asks beside the fresh replay and command catalog.
 			retired := m.pendingSessionCmd
 			m.pendingSessionCmd = nil
-			m.status = i18n.T("status.ready")
+			m.status = i18n.T("status.ready_lower")
 			return m, tea.Batch(receive(m.feed), retired, m.startPagedReplay(), request(m.host, "commands", map[string]any{}))
 		}
 		if reject := m.pendingAskReject; reject != "" {
@@ -605,7 +605,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				// The switch never started server-side: release the choose latch
 				// instead of waiting for a session.switched that cannot come.
 				m.switchInFlight = ""
-				m.status = i18n.T("status.ready")
+				m.status = i18n.T("status.ready_lower")
 			}
 			return m, nil
 		}
@@ -1258,7 +1258,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.pendingImages) > 0 {
 				// Staged attachments clear first; a second Esc arms rewind.
 				m.clearStagedImages()
-				m.status = i18n.T("status.ready")
+				m.status = i18n.T("status.ready_lower")
 				return m, nil
 			}
 			if m.host != nil && !m.lastEscape.IsZero() && time.Since(m.lastEscape) < 500*time.Millisecond {
@@ -1392,7 +1392,7 @@ func (m *model) dismissUI(id string) {
 			m.activateUI(m.takePendingUI())
 			m.status = i18n.T("status.waiting_input")
 		} else {
-			m.status = i18n.T("status.ready")
+			m.status = i18n.T("status.ready_lower")
 		}
 		return
 	}
@@ -1648,7 +1648,7 @@ func (m *model) applyEvent(e wire.Event) {
 			m.needsSetup = false
 			m.session = data.Snapshot.SessionID
 			m.requestTitle()
-			m.status = i18n.T("status.ready")
+			m.status = i18n.T("status.ready_lower")
 			m.err = ""
 			m.modal = ""
 			m.modalPrompt = ""
@@ -1678,7 +1678,7 @@ func (m *model) applyEvent(e wire.Event) {
 		m.welcomeHidden = true
 		m.fragments = nil
 		m.running = true
-		m.status = i18n.T("status.working")
+		m.status = i18n.T("status.working_lower")
 	case "assistant.text_delta":
 		delta := frame.Delta
 		if delta == "" {
@@ -1718,7 +1718,7 @@ func (m *model) applyEvent(e wire.Event) {
 		m.reasoning = ""
 		m.running = false
 		m.aborting = false
-		m.status = i18n.T("status.ready")
+		m.status = i18n.T("status.ready_lower")
 		m.turnOutcome, m.turnOutcomeDetail = turnDone, "Finished"
 		m.requestNotice(i18n.T("status.turn_completed_notice"))
 	case "turn.failed":
@@ -1817,7 +1817,7 @@ func (m *model) applyEvent(e wire.Event) {
 			Detail string `json:"detail"`
 		}
 		m.switchInFlight = ""
-		m.status = i18n.T("status.ready")
+		m.status = i18n.T("status.ready_lower")
 		if json.Unmarshal(e.Raw, &data) == nil && data.Detail != "" {
 			m.err = "switch_session: " + data.Detail
 		} else {
