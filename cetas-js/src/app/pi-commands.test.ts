@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { piCommandArgItems, PiCommands, type PiCommandRunner } from "./pi-commands.ts";
+import { PI_HOST_DEPENDENCIES, piCommandArgItems, PiCommands, type PiCommandRunner } from "./pi-commands.ts";
 
 function fakeHome(): string {
   return mkdtempSync(join(tmpdir(), "pi-cmds-home-"));
@@ -84,7 +84,7 @@ describe("PiCommands unit (injectable runner)", () => {
       name: "cetas-pi-packages",
       private: true,
       type: "module",
-      dependencies: { "@earendil-works/pi-tui": "^1.3.0" },
+      dependencies: PI_HOST_DEPENDENCIES,
     });
     const snapshot = JSON.parse(readFileSync(cmds.configPath, "utf8"));
     expect(snapshot.packages).toEqual(["pi-web-access"]);
@@ -108,7 +108,7 @@ describe("PiCommands unit (injectable runner)", () => {
     const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
     expect(manifest.dependencies).toEqual({
       "pi-web-access": "^0.48.0",
-      "@earendil-works/pi-tui": "^1.3.0",
+      ...PI_HOST_DEPENDENCIES,
     });
     expect(manifest.custom).toEqual({ retained: true });
     // Host libraries are not Pi extensions and must not enter the allowlist.
@@ -120,6 +120,13 @@ describe("PiCommands unit (injectable runner)", () => {
     expect((await cmds.install("pi-web-access")).ok).toBe(true);
     const preserved = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
     expect(preserved.dependencies["@earendil-works/pi-tui"]).toBe("1.3.0");
+    expect(preserved.dependencies["@earendil-works/pi-coding-agent"]).toBe(
+      PI_HOST_DEPENDENCIES["@earendil-works/pi-coding-agent"],
+    );
+    expect(preserved.dependencies["@earendil-works/pi-ai"]).toBe(
+      PI_HOST_DEPENDENCIES["@earendil-works/pi-ai"],
+    );
+    expect(preserved.dependencies["typebox"]).toBe(PI_HOST_DEPENDENCIES.typebox);
   });
 
   test("install without a snapshot file defaults the pm to npm", async () => {
