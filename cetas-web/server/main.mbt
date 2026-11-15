@@ -80,7 +80,7 @@ async fn serve_websocket(
 
         connection_group.spawn_bg(async fn() { drain_web_events(queue, ws) })
 
-        runtime.emit_event("", "", "connection.ready", extra=[
+        runtime.emit_to_subscriber(subscription_id, "", "connection.ready", extra=[
           ("protocol", Json::string("cetas-web/0.1")),
         ])
 
@@ -92,7 +92,7 @@ async fn serve_websocket(
                 let raw = msg.read_all().text()
                 match decode_web_client_message(raw) {
                   Err(message) =>
-                    runtime.emit_event("", "", "protocol.error", extra=[
+                    runtime.emit_to_subscriber(subscription_id, "", "protocol.error", extra=[
                       ("message", Json::string(message)),
                     ])
                   Ok(SessionAttach) => {
@@ -103,7 +103,7 @@ async fn serve_websocket(
                     match runtime.start_turn(prompt, session_id) {
                       Ok(_) => ()
                       Err(message) =>
-                        runtime.emit_event("", "", "protocol.error", extra=[
+                        runtime.emit_to_subscriber(subscription_id, "", "protocol.error", extra=[
                           ("message", Json::string(message)),
                         ])
                     }
@@ -135,7 +135,7 @@ async fn serve_websocket(
                 }
               }
               Binary =>
-                runtime.emit_event("", "", "protocol.error", extra=[
+                runtime.emit_to_subscriber(subscription_id, "", "protocol.error", extra=[
                   (
                     "message",
                     Json::string("binary websocket messages are not supported"),
