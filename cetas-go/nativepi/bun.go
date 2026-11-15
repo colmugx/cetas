@@ -2,8 +2,6 @@ package nativepi
 
 import (
  "bufio"
- "bytes"
- "context"
  _ "embed"
  "encoding/json"
  "errors"
@@ -54,6 +52,20 @@ type BunGuest struct {
  closeOnce sync.Once
 }
 
+// The Bun subprocess must not inherit provider tokens, SDK keys or Cetas
+// authentication variables from the native host's environment. These
+// platform runtime variables enable core Node/Bun functionality only.
+// Further extension capabilities require an explicit permission design.
+func bunGuestEnv(home string) []string {
+ keys:=[]string{"PATH","SYSTEMROOT","WINDIR","HOME","USERPROFILE",
+  "HOMEDRIVE","HOMEPATH","TMPDIR","TMP","TEMP","LANG","LC_ALL","TERM"}
+ env:=make([]string,0,len(keys)+1)
+ for _,key:=range keys {
+  if value,ok:=os.LookupEnv(key);ok {env=append(env,key+"="+value)}
+ }
+ return append(env,"CETAS_HOME="+home)
+}
+
 // OpenBun never downloads a runtime. The caller must explicitly prepare
 // a checked binary and opt into using it before starting this subprocess.
 func OpenBun(binary, home, cwd string) (*BunGuest,error) {
@@ -66,6 +78,7 @@ func OpenBun(binary, home, cwd string) (*BunGuest,error) {
  if err=file.Close();err!=nil {os.Remove(script);return nil,err}
  cmd:=exec.Command(binary,script,home,cwd)
  cmd.Dir=cwd
+ cmd.Env=bunGuestEnv(home)
  // Extension libraries expect platform stderr logging; stdout is RPC only.
  cmd.Stderr=os.Stderr
  input,err:=cmd.StdinPipe()
@@ -152,5 +165,3 @@ func(g *BunGuest) Close(){
 // Keep compiler checks for the guest contract in the package that owns it.
 var _ RuntimeGuest = (*Guest)(nil)
 var _ RuntimeGuest = (*BunGuest)(nil)
-var _ = bytes.MinRead
-var _ = context.Canceled
