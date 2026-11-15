@@ -22,6 +22,7 @@ type piSnapshot struct {
  Raw map[string]json.RawMessage
  Packages []string
  Manager string
+ ManagerPinned bool
 }
 
 func piHome(value string)(string,error){
@@ -40,11 +41,11 @@ func readPiSnapshot(path string)(piSnapshot,error){
  }
  if v,ok:=cfg.Raw["npmCommand"];ok {
   var manager string
-  if json.Unmarshal(v,&manager)==nil&&strings.TrimSpace(manager)!="" {cfg.Manager=strings.TrimSpace(manager)}
+  if json.Unmarshal(v,&manager)==nil&&strings.TrimSpace(manager)!="" {cfg.Manager=strings.TrimSpace(manager);cfg.ManagerPinned=true}
   if manager=="" {
    var choices []string
    if json.Unmarshal(v,&choices)==nil {
-    for _,item:=range choices {if strings.TrimSpace(item)!="" {cfg.Manager=strings.TrimSpace(item);break}}
+    for _,item:=range choices {if strings.TrimSpace(item)!="" {cfg.Manager=strings.TrimSpace(item);cfg.ManagerPinned=true;break}}
    }
   }
  }
@@ -146,6 +147,19 @@ func (s *piSupervisor) packageCommand(ctx context.Context,args any)(json.RawMess
   manifest:=filepath.Join(root,"package.json")
   if _,err:=os.Stat(manifest);os.IsNotExist(err){
    if err=os.WriteFile(manifest,[]byte(`{"name":"cetas-pi-packages","private":true,"type":"module"}`+"\n"),0600);err!=nil{return nil,err}
+  }
+ }
+ // A prepared, selected Bun guest can also manage npm packages without
+ // requiring a separately installed Node/npm distribution. User-specified
+ // npmCommand always takes precedence over this default.
+ if !snapshot.ManagerPinned {
+  enabled,e:=bunGuestEnabled(home)
+  if e!=nil{return nil,e}
+  if enabled {
+   executable,prepared,e:=bunPrepared(home)
+   if e!=nil{return nil,e}
+   if !prepared{return piLines("Bun guest selected but runtime not prepared; run /pi runtime prepare")}
+   snapshot.Manager=executable
   }
  }
  before:=piPackageDependencies(root)
