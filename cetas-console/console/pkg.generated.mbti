@@ -86,6 +86,7 @@ pub fn ConsoleRuntime::commands_json(Self) -> @json.Json
 pub async fn ConsoleRuntime::compact_active_session(Self) -> Unit
 pub fn ConsoleRuntime::detach_sink(Self) -> Unit
 pub fn ConsoleRuntime::emit_active_snapshot(Self) -> Unit
+pub fn ConsoleRuntime::emit_active_snapshot_to(Self, String) -> Unit
 pub fn ConsoleRuntime::emit_event(Self, String, String, String, extra? : Array[(String, @json.Json)]) -> Unit
 pub fn ConsoleRuntime::emit_host_event(Self, String, String, extra? : Array[(String, @json.Json)]) -> Unit
 pub fn ConsoleRuntime::emit_to_subscriber(Self, String, String, String, extra? : Array[(String, @json.Json)]) -> Unit
