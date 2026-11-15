@@ -128,7 +128,9 @@
     "ui.skills_busy": "/skills cannot run while another command is active",
     "ui.sessions_busy": "/sessions cannot run while an operation is active",
     "ui.rewind_busy": "/rewind cannot run while an operation is active",
-    "ui.login_busy": "/login cannot run while another command is active"
+    "ui.login_busy": "/login cannot run while another command is active",
+    "status.ready_lower": "ready",
+    "status.working_lower": "working"
   },
   "zh-CN": {
     "welcome.tagline": "一个智能体，贯穿每个界面。",
@@ -259,6 +261,8 @@
     "ui.skills_busy": "其他命令执行中无法使用 /skills",
     "ui.sessions_busy": "任务进行中无法使用 /sessions",
     "ui.rewind_busy": "任务进行中无法使用 /rewind",
-    "ui.login_busy": "其他命令执行中无法使用 /login"
+    "ui.login_busy": "其他命令执行中无法使用 /login",
+    "status.ready_lower": "就绪",
+    "status.working_lower": "处理中"
   }
 }
