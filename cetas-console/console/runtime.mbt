@@ -1745,6 +1745,19 @@ pub fn ConsoleRuntime::unsubscribe_events(
 }
 
 ///|
+/// Deliver one connection-scoped control event without broadcasting it to
+/// other clients observing the same session.
+pub fn ConsoleRuntime::emit_to_subscriber(
+  self : ConsoleRuntime,
+  subscription_id : String,
+  session_id : String,
+  event_type : String,
+  extra~ : Array[(String, Json)] = [],
+) -> Unit {
+  self.hub.emit_to(subscription_id, session_id, event_type, extra~)
+}
+
+///|
 /// Run one console action on the runtime's task group instead of the caller's
 /// loop.
 ///
