@@ -130,7 +130,7 @@ func (s *piSupervisor) packageCommand(ctx context.Context,args any)(json.RawMess
   if err=os.MkdirAll(root,0700);err!=nil{return nil,err}
   manifest:=filepath.Join(root,"package.json")
   if _,err:=os.Stat(manifest);os.IsNotExist(err){
-   if err=os.WriteFile(manifest,[]byte(`{"name":"cetas-pi-packages","private":true,"type":"module"}`+"\n",0600);err!=nil{return nil,err}
+   if err=os.WriteFile(manifest,[]byte(`{"name":"cetas-pi-packages","private":true,"type":"module"}`+"\n"),0600);err!=nil{return nil,err}
   }
  }
  before:=piPackageDependencies(root)
