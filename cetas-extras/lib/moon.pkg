@@ -4,5 +4,5 @@ import {
 }
 
 options(
-  "allow-experimental-packages": ["moonbitlang/core/async"],
+  "allow-experimental-packages": [ "moonbitlang/core/async" ],
 )
