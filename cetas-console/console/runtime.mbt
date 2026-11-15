@@ -203,6 +203,31 @@ pub fn ConsoleRuntime::emit_active_snapshot(self : ConsoleRuntime) -> Unit {
 }
 
 ///|
+/// Respond to a single attaching surface without changing the workspace's
+/// active Session or broadcasting a second snapshot to other surfaces.
+/// This is an in-process attachment step; cross-process ownership follows.
+pub fn ConsoleRuntime::emit_active_snapshot_to(
+  self : ConsoleRuntime,
+  subscription_id : String,
+) -> Unit {
+  let workspace = self.active()
+  let handle = workspace.active()
+  self.hub.emit_to(
+    subscription_id,
+    handle.session_id,
+    "session.snapshot",
+    extra=[
+      ("model", Json::string(handle.model)),
+      ("effort", Json::string(handle.effort)),
+      ("cwd", Json::string(workspace.cwd)),
+      ("busy", Json::boolean(handle.busy)),
+      ("permission", Json::string(permission_mode_name(handle.policy.mode))),
+      ("protocol", Json::string(handle.observer.protocol)),
+    ],
+  )
+}
+
+///|
 pub fn ConsoleRuntime::runtime_json(self : ConsoleRuntime) -> Json {
   let workspace = self.active()
   let handle = workspace.active()
