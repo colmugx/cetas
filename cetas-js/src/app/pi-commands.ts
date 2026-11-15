@@ -84,17 +84,24 @@ interface Snapshot {
   warnings: readonly string[];
 }
 
-// The runtime host provides pi-tui, not the extension's own manifest.
-// Compiled cetas-js mirrors modules outside their original node_modules tree;
-// a single physical host copy here gives the mirror a stable resolution root.
-// Keep this range aligned with cetas-js/package.json.
-const PI_TUI_HOST_PEER = "@earendil-works/pi-tui";
-const PI_TUI_HOST_VERSION = "^1.3.0";
+// Pi extensions declare these packages as *host-provided peers*. The JS
+// module mirror runs outside the project's own node_modules; every runtime
+// peer must exist in the shared umbrella or its bare imports fail. Maintain
+// the complete host dependency family in one place, not as package-specific
+// missing-module patches. The actual Agent remains MoonBit/Posoco; importing
+// SDK utilities does not instantiate a second Agent.
+export const PI_HOST_DEPENDENCIES = {
+  "@earendil-works/pi-tui": "^1.3.0",
+  "@earendil-works/pi-coding-agent": "^1.0.4",
+  "@earendil-works/pi-agent-core": "^1.0.4",
+  "@earendil-works/pi-ai": "^1.0.4",
+  "typebox": "^1.3.27",
+} as const;
 const UMBRELLA_PACKAGE_JSON = {
   name: "cetas-pi-packages",
   private: true,
   type: "module",
-  dependencies: { [PI_TUI_HOST_PEER]: PI_TUI_HOST_VERSION },
+  dependencies: PI_HOST_DEPENDENCIES,
 };
 
 const USAGE = [
@@ -292,10 +299,9 @@ export class PiCommands {
   }
 
   /**
-   * Keep Pi's host-supplied pi-tui peer resolvable from the shared umbrella.
-   * The package manager installs this manifest dependency during an explicit
-   * /pi install; no network access or package mutation happens at startup.
-   * Existing dependencies and user-selected pi-tui versions are preserved.
+   * Provide the complete Pi host peer set in the shared umbrella.
+   * Only an explicit /pi install invokes npmCommand; this method merely
+   * edits the manifest without overwriting user-selected versions.
    */
   private async ensurePackagesRoot(): Promise<string> {
     const root = this.packagesRoot;
@@ -315,8 +321,14 @@ export class PiCommands {
       throw new Error("invalid Pi umbrella dependencies");
     }
     const deps = (rawDeps ?? {}) as Record<string, unknown>;
-    if (!(PI_TUI_HOST_PEER in deps)) {
-      deps[PI_TUI_HOST_PEER] = PI_TUI_HOST_VERSION;
+    let changed = false;
+    for (const [name, version] of Object.entries(PI_HOST_DEPENDENCIES)) {
+      if (!(name in deps)) {
+        deps[name] = version;
+        changed = true;
+      }
+    }
+    if (changed) {
       manifest.dependencies = deps;
       await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     }

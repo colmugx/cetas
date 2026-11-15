@@ -20,9 +20,11 @@ func TestEnsurePiUmbrellaSuppliesHostPeer(t *testing.T) {
  }
  first:=check()
  deps:=first["dependencies"].(map[string]any)
- if deps[piTuiHostPeer]!=piTuiHostVersion{t.Fatalf("missing host peer: %#v",deps)}
+ for name,wanted:=range piHostDependencies {
+  if deps[name]!=wanted{t.Fatalf("missing Pi host peer %s: %#v",name,deps)}
+ }
  deps["pi-web-access"]="^0.48.0"
- deps[piTuiHostPeer]="1.3.0"
+ deps["@earendil-works/pi-tui"]="1.3.0"
  first["custom"]=map[string]any{"retained":true}
  encoded,err:=json.Marshal(first)
  if err!=nil{t.Fatal(err)}
@@ -30,8 +32,12 @@ func TestEnsurePiUmbrellaSuppliesHostPeer(t *testing.T) {
  if err=ensurePiUmbrella(root);err!=nil{t.Fatal(err)}
  preserved:=check()
  actual:=preserved["dependencies"].(map[string]any)
- if actual[piTuiHostPeer]!="1.3.0"||actual["pi-web-access"]!="^0.48.0"{
+ if actual["@earendil-works/pi-tui"]!="1.3.0"||actual["pi-web-access"]!="^0.48.0"{
   t.Fatalf("existing dependencies were overwritten: %#v",actual)
+ }
+ for name,wanted:=range piHostDependencies {
+  if name=="@earendil-works/pi-tui"{continue}
+  if actual[name]!=wanted{t.Fatalf("missing host module %s: %v",name,actual[name])}
  }
  if preserved["custom"].(map[string]any)["retained"]!=true{t.Fatal("lost custom fields")}
 }
