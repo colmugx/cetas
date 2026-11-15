@@ -84,7 +84,18 @@ interface Snapshot {
   warnings: readonly string[];
 }
 
-const UMBRELLA_PACKAGE_JSON = { name: "cetas-pi-packages", private: true, type: "module" };
+// The runtime host provides pi-tui, not the extension's own manifest.
+// Compiled cetas-js mirrors modules outside their original node_modules tree;
+// a single physical host copy here gives the mirror a stable resolution root.
+// Keep this range aligned with cetas-js/package.json.
+const PI_TUI_HOST_PEER = "@earendil-works/pi-tui";
+const PI_TUI_HOST_VERSION = "^1.3.0";
+const UMBRELLA_PACKAGE_JSON = {
+  name: "cetas-pi-packages",
+  private: true,
+  type: "module",
+  dependencies: { [PI_TUI_HOST_PEER]: PI_TUI_HOST_VERSION },
+};
 
 const USAGE = [
   "usage: /pi install <pkg> — install a pi package and add it to the allowlist",
@@ -280,13 +291,34 @@ export class PiCommands {
     await writeFile(this.configPath, `${JSON.stringify(next, null, 2)}\n`);
   }
 
-  /** Create the umbrella directory with its minimal manifest when absent. */
+  /**
+   * Keep Pi's host-supplied pi-tui peer resolvable from the shared umbrella.
+   * The package manager installs this manifest dependency during an explicit
+   * /pi install; no network access or package mutation happens at startup.
+   * Existing dependencies and user-selected pi-tui versions are preserved.
+   */
   private async ensurePackagesRoot(): Promise<string> {
     const root = this.packagesRoot;
     await mkdir(root, { recursive: true });
     const manifestPath = join(root, "package.json");
     if (!existsSync(manifestPath)) {
       await writeFile(manifestPath, `${JSON.stringify(UMBRELLA_PACKAGE_JSON)}\n`);
+      return root;
+    }
+    const parsed: unknown = JSON.parse(await readFile(manifestPath, "utf8"));
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("invalid Pi umbrella package.json");
+    }
+    const manifest = parsed as Record<string, unknown>;
+    const rawDeps = manifest.dependencies;
+    if (rawDeps !== undefined && (rawDeps === null || typeof rawDeps !== "object" || Array.isArray(rawDeps))) {
+      throw new Error("invalid Pi umbrella dependencies");
+    }
+    const deps = (rawDeps ?? {}) as Record<string, unknown>;
+    if (!(PI_TUI_HOST_PEER in deps)) {
+      deps[PI_TUI_HOST_PEER] = PI_TUI_HOST_VERSION;
+      manifest.dependencies = deps;
+      await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     }
     return root;
   }

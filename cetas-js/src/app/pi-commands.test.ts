@@ -80,10 +80,46 @@ describe("PiCommands unit (injectable runner)", () => {
     expect(reloads).toBe(1);
     // Umbrella bootstrap manifest exists for the package manager.
     const umbrella = JSON.parse(readFileSync(join(home, ".cetas", "pi-packages", "package.json"), "utf8"));
-    expect(umbrella).toEqual({ name: "cetas-pi-packages", private: true, type: "module" });
+    expect(umbrella).toEqual({
+      name: "cetas-pi-packages",
+      private: true,
+      type: "module",
+      dependencies: { "@earendil-works/pi-tui": "^1.3.0" },
+    });
     const snapshot = JSON.parse(readFileSync(cmds.configPath, "utf8"));
     expect(snapshot.packages).toEqual(["pi-web-access"]);
     expect(outcome.lines.join("\n")).toContain("new entries loaded: 2");
+  });
+
+  test("repairs existing umbrella host peer without disturbing extension dependencies", async () => {
+    const home = fakeHome();
+    const root = join(home, ".cetas", "pi-packages");
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, "package.json"), JSON.stringify({
+      name: "cetas-pi-packages",
+      private: true,
+      type: "module",
+      dependencies: { "pi-web-access": "^0.48.0" },
+      custom: { retained: true },
+    }));
+    const runner = stubRunner();
+    const cmds = new PiCommands({ home, reload: async () => undefined, runCommand: runner });
+    expect((await cmds.install("pi-web-access")).ok).toBe(true);
+    const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+    expect(manifest.dependencies).toEqual({
+      "pi-web-access": "^0.48.0",
+      "@earendil-works/pi-tui": "^1.3.0",
+    });
+    expect(manifest.custom).toEqual({ retained: true });
+    // Host libraries are not Pi extensions and must not enter the allowlist.
+    const config = JSON.parse(readFileSync(join(home, ".cetas", "pi-packages.json"), "utf8"));
+    expect(config.packages).toEqual(["pi-web-access"]);
+    // Existing explicit versions take precedence over Cetas defaults.
+    manifest.dependencies["@earendil-works/pi-tui"] = "1.3.0";
+    writeFileSync(join(root, "package.json"), JSON.stringify(manifest));
+    expect((await cmds.install("pi-web-access")).ok).toBe(true);
+    const preserved = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+    expect(preserved.dependencies["@earendil-works/pi-tui"]).toBe("1.3.0");
   });
 
   test("install without a snapshot file defaults the pm to npm", async () => {
