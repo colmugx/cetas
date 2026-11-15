@@ -2,6 +2,19 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.11.5 (2026-11-16)
+
+## General
+### Feats
+- The native app can now load allowlisted Pi extensions into a session-specific JavaScript guest and expose their tools through the agent. Tool parameters are validated by the agent, and extensions can update the available tool catalog for subsequent operations.
+
+## Native Ver.（cetas-go）
+### Feats
+- Manage Pi extension packages with `/pi install`, `/pi remove`, and `/pi list`. Installed packages are added to an allowlist and can be activated after restarting cetas-go.
+- Choose whether to enable the experimental Bun guest with `/experimental`; cetas-go verifies the downloaded runtime before using it and keeps the existing guest available when Bun is not enabled.
+- Use `/pi runtime status` and `/pi runtime prepare` to check or prepare the Bun runtime without enabling it.
+- The terminal now initializes Markdown rendering only when needed, reducing idle startup and layout work.
+
 ## 0.11.4 (2026-11-14)
 
 ## General
