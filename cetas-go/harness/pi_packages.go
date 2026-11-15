@@ -79,42 +79,13 @@ func (s *piSupervisor) packageCommand(ctx context.Context,args any)(json.RawMess
  words:=strings.Fields(req.Args)
  cmd:="list"
  if len(words)>0 {cmd=words[0]}
- if cmd=="help" {return piLines("usage: /pi install <package>","       /pi remove <package>","       /pi list","       /pi runtime status|prepare|enable|disable","Experimental Bun is downloaded only by /pi runtime prepare; activation requires /pi runtime enable and an app restart.","Packages are allowlisted via ~/.cetas/pi-packages.json; changes require a restart.")}
+ if cmd=="help" {return piLines("usage: /pi install <package>","       /pi remove <package>","       /pi list","Manage the shared cetas-js Pi package store.")}
  s.mu.Lock()
  home:=s.home
  s.mu.Unlock()
  home,err=piHome(home)
  if err!=nil{return nil,err}
- if cmd=="runtime" {
-  if len(words)>2 {return piLines("usage: /pi runtime status|prepare")}
-  action:="status"
-  if len(words)==2 {action=words[1]}
-  if action!="status"&&action!="prepare"&&action!="enable"&&action!="disable" {return piLines("usage: /pi runtime status|prepare|enable|disable")}
-  path,ready,err:=bunPrepared(home)
-  if err!=nil {return nil,err}
-  enabled,err:=bunGuestEnabled(home)
-  if err!=nil{return nil,err}
-  if action=="status" {
-   state:="disabled (moejs guest)"
-   if enabled {state="enabled (Bun guest on next session/restart)"}
-   if ready {return piLines("Bun "+experimentalBunVersion+" is cached at "+path,"Experimental Pi runtime: "+state)}
-   return piLines("Bun "+experimentalBunVersion+" is not downloaded","Experimental Pi runtime: "+state,"Run /pi runtime prepare to download and verify the official archive.")
-  }
-  if action=="prepare" {
-   path,err=prepareBun(ctx,home)
-   if err!=nil {return nil,err}
-   if err=verifyBunBinary(ctx,path);err!=nil{return nil,err}
-   return piLines("Bun "+experimentalBunVersion+" prepared at "+path,"Run /pi runtime enable to select the Bun guest for new sessions.")
-  }
-  if action=="disable" {
-   if err=setBunGuestEnabled(home,false);err!=nil{return nil,err}
-   return piLines("Experimental Bun guest disabled.","Restart cetas-go to retire the current guest.")
-  }
-  if !ready {return piLines("Bun is not prepared; run /pi runtime prepare first.")}
-  if err=verifyBunBinary(ctx,path);err!=nil{return nil,err}
-  if err=setBunGuestEnabled(home,true);err!=nil{return nil,err}
-  return piLines("Experimental Bun Pi guest enabled.","Restart cetas-go (or create a new session) to activate it.")
- }
+
  root:=filepath.Join(home,".cetas","pi-packages")
  configPath:=filepath.Join(home,".cetas","pi-packages.json")
  piInstallMu.Lock()
@@ -158,7 +129,7 @@ func (s *piSupervisor) packageCommand(ctx context.Context,args any)(json.RawMess
   if enabled {
    executable,prepared,e:=bunPrepared(home)
    if e!=nil{return nil,e}
-   if !prepared{return piLines("Bun guest selected but runtime not prepared; run /pi runtime prepare")}
+   if !prepared{return piLines("Bun guest selected but runtime not prepared; open /experimental and install Bun Runtime")}
    snapshot.Manager=executable
   }
  }
