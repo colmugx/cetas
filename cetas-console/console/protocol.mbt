@@ -74,10 +74,7 @@ fn EventHub::detach(self : EventHub) -> Unit {
 /// Subscribe independently of the native/desktop attach lifecycle.
 /// A subscription token owns exactly one client; disconnecting it cannot
 /// detach another WebSocket or the legacy native UI.
-fn EventHub::subscribe(
-  self : EventHub,
-  sink : (String) -> Unit,
-) -> String {
+fn EventHub::subscribe(self : EventHub, sink : (String) -> Unit) -> String {
   self.next_subscriber_id += 1
   let id = "sub-" + self.next_subscriber_id.to_string()
   self.subscribers[id] = sink
