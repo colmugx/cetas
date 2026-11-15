@@ -42,8 +42,12 @@ The native runtime shares the core and provider configuration with other Cetas e
 `/experimental` opens a picker like `/model`. Its **Bun Runtime**
 entry is optional and off by default. Users explicitly select **Install Bun
 Runtime** to download and verify Bun; then select **Enable Bun Runtime** to
-use it for new sessions. **Disable Bun Runtime** returns to moejs. No Bun
-binary is bundled in the native Cetas release and no download occurs on boot.
+use it for native Pi adaptor support after restarting Cetas.
+**Disable Bun Runtime** removes the native Pi adaptor on restart.
+Without verified, enabled Bun, the Posoco native Pi extension is not composed,
+and moejs is **not** initialized as a fallback. Its lightweight VM code stays
+available for future lazy-loaded bunraku use. No Bun binary is bundled in
+the native release and no download occurs on boot.
 
 The pinned Bun archive is SHA-256 verified and cached under
 `~/.cetas/runtimes/bun/<version>/`. Experimental preferences are saved in
