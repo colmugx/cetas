@@ -11,6 +11,7 @@ const cwd = process.argv[3];
 const root = join(home, ".cetas", "pi-packages");
 const allowlist = join(home, ".cetas", "pi-packages.json");
 const tools = new Map();
+const activeTools = new Set();
 const observers = new Map();
 let generation = 0;
 const warnings = [];
@@ -19,8 +20,29 @@ console.log = (...args) => console.error(...args);
 console.info = (...args) => console.error(...args);
 function send(message) { process.stdout.write(JSON.stringify(message) + "\n"); }
 function fail(reason) { return { ok: false, content: String(reason) }; }
-function catalog() { return [...tools.values()].map(({name,description,parameters}) => ({name,description,parameters})); }
-const passive = new Set(["agent_start","agent_end","agent_settled","turn_start","turn_end","message_start","message_update","message_end","tool_execution_start","tool_execution_end"]);
+function allTools() { return [...tools.values()].map(({name,description,parameters}) => ({name,description,parameters})); }
+function catalog() { return allTools().filter(def => activeTools.has(def.name)); }
+function context() {
+  return {cwd,hasUI:false,mode:"json",
+    sessionManager:{getBranch:()=>[]},
+    isIdle:()=>true,
+    ui:{
+      notify(message) { warnings.push("Pi UI notification (headless): "+String(message)); },
+      setWidget() { throw new Error("Pi setWidget requires a native UI bridge"); },
+    },
+  };
+}
+async function notify(name,payload={}) {
+  for (const listener of observers.get(name)??[]) {
+    try { await listener({type:name,...payload},context()); }
+    catch(e) { warnings.push("Pi event "+name+": "+String(e)); }
+  }
+}
+const passive = new Set(["agent_start","agent_end","agent_settled","turn_start","turn_end","message_start","message_update","message_end","tool_execution_start","tool_execution_end","session_start","session_shutdown"]);
+// These Pi hooks mutate Agent or TUI behavior, and cannot be faithfully
+// replayed from a passive observer. Accept registration to let other tools
+// load, but expose the limitation as diagnostics instead of fabricating it.
+const unsupported = new Set(["session_tree","model_select","tool_call","before_agent_start"]);
 function validName(n) {
   return typeof n === "string" && /^(?:@[a-zA-Z0-9._-]+\/)?[a-zA-Z0-9._-]+$/.test(n)
     && n.split("/").every(s => s !== "." && s !== "..");
@@ -62,19 +84,31 @@ function api(pkg) {
         throw new Error("Pi tool requires name and execute()");
       if(tools.has(def.name)) throw new Error("duplicate Pi tool " + def.name);
       tools.set(def.name, {name:def.name, description:def.description || "", parameters:def.parameters || {type:"object",properties:{}}, execute:def.execute});
+      activeTools.add(def.name);
       generation++;
     },
     on(name,handler) {
-      if(!passive.has(name)) throw new Error("unsupported Pi event " + name);
       if(typeof handler !== "function") throw new Error("Pi event handler must be callable");
+      if(unsupported.has(name)){
+        warnings.push("Pi hook "+name+" requires a Posoco kernel bridge; not enabled in headless Bun");
+        return () => {};
+      }
+      if(!passive.has(name)) throw new Error("unsupported Pi event " + name);
       if(!observers.has(name)) observers.set(name,[]);
       observers.get(name).push(handler);
+      return () => {
+        const handlers = observers.get(name)??[];
+        const index=handlers.indexOf(handler);
+        if(index>=0) handlers.splice(index,1);
+      };
     },
-    getAllTools() { return catalog(); },
-    getActiveTools() { return [...tools.keys()]; },
+    getAllTools() { return allTools(); },
+    getActiveTools() { return [...activeTools]; },
     setActiveTools(names) {
       if(!Array.isArray(names)) throw new Error("setActiveTools requires array");
-      for(const name of [...tools.keys()]) if(!names.includes(name)) tools.delete(name);
+      for(const name of names) if(!tools.has(name)) throw new Error("unknown Pi tool: "+name);
+      activeTools.clear();
+      for(const name of names) activeTools.add(name);
       generation++;
     },
     // Unsupported commands/shortcuts must not become fabricated kernel tools.
@@ -105,6 +139,9 @@ async function boot() {
       }
     } catch(e) {warnings.push("Pi package "+name+": "+String(e));}
   }
+  // Native scheduler owns model execution; allow Pi tools to bootstrap
+  // against the equivalent session-start notification, without a JS Agent.
+  await notify("session_start");
 }
 function textResult(result) {
   if(!result || typeof result !== "object") return fail("Pi tool returned no result");
@@ -115,7 +152,7 @@ async function dispatch(req) {
   if(req.kind==="execute") {
     const definition = tools.get(req.name);
     if(!definition) return {result:fail("unknown Pi tool: "+req.name)};
-    const ctx = {cwd,hasUI:false,mode:"json"};
+    const ctx = context();
     try {return {result:textResult(await definition.execute(req.callId,req.arguments ?? {},undefined,undefined,ctx))};}
     catch(e) {return {result:fail(e?.stack || String(e))};}
   }
@@ -124,7 +161,7 @@ async function dispatch(req) {
     // Event projection is owned by Go (same adapter as the moejs guest).
     for(const event of req.events ?? []) {
       for(const listener of observers.get(event.type)??[]) {
-        try {await listener(event,{cwd,hasUI:false,mode:"json"});}
+        try {await listener(event,context());}
         catch(e) {warnings.push("Pi event "+event.type+": "+String(e));}
       }
     }
@@ -132,6 +169,8 @@ async function dispatch(req) {
   }
   return {error:"unknown Pi guest RPC: "+String(req.kind)};
 }
+// Register host-owned module resolvers before dynamically importing packages.
+installPiHostCompat();
 await boot();
 send({kind:"ready",tools:catalog(),generation,warnings});
 const lines = createInterface({input:process.stdin,crlfDelay:Infinity});
@@ -144,3 +183,5 @@ for await (const line of lines) {
     send({error:String(e)});
   }
 }
+
+await notify("session_shutdown");

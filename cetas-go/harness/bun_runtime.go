@@ -81,6 +81,36 @@ func bunPrepared(home string) (string, bool, error) {
 // prepareBun explicitly downloads a pinned, verified official zip.
 // The cache path is versioned; a failed download cannot replace a working binary.
 func prepareBun(ctx context.Context, home string) (string, error) {
+	return prepareBunWithProgress(ctx, home, nil)
+}
+
+type bunProgress func(phase string, current, total int64)
+
+func reportBun(progress bunProgress, phase string, current, total int64) {
+	if progress != nil {
+		progress(phase, current, total)
+	}
+}
+
+type bunDownloadReader struct {
+	reader  io.Reader
+	total   int64
+	current int64
+	last    time.Time
+	report  bunProgress
+}
+
+func (m *bunDownloadReader) Read(p []byte) (int, error) {
+	n, err := m.reader.Read(p)
+	m.current += int64(n)
+	if time.Since(m.last) > 150*time.Millisecond || err == io.EOF {
+		reportBun(m.report, "Downloading", m.current, m.total)
+		m.last = time.Now()
+	}
+	return n, err
+}
+
+func prepareBunWithProgress(ctx context.Context, home string, progress bunProgress) (string, error) {
 	bunDownloadMu.Lock()
 	defer bunDownloadMu.Unlock()
 	path, ready, err := bunPrepared(home)
@@ -88,6 +118,7 @@ func prepareBun(ctx context.Context, home string) (string, error) {
 		return "", err
 	}
 	if ready {
+		reportBun(progress, "Already cached", 0, 0)
 		return path, nil
 	}
 	artifact, err := bunArtifactFor(runtime.GOOS, runtime.GOARCH)
@@ -99,6 +130,7 @@ func prepareBun(ctx context.Context, home string) (string, error) {
 		return "", fmt.Errorf("missing pinned Bun checksum for %s", artifact)
 	}
 	url := "https://github.com/oven-sh/bun/releases/download/bun-v" + experimentalBunVersion + "/" + artifact
+	reportBun(progress, "Connecting to GitHub Releases", 0, 0)
 	client := &http.Client{Timeout: 3 * time.Minute}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -112,13 +144,21 @@ func prepareBun(ctx context.Context, home string) (string, error) {
 	if response.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download Bun %s: %s", artifact, response.Status)
 	}
-	archive, err := io.ReadAll(io.LimitReader(response.Body, bunArchiveLimit+1))
+	total := response.ContentLength
+	if total < 0 {
+		total = 0
+	}
+	reportBun(progress, "Downloading", 0, total)
+	meter := &bunDownloadReader{reader: response.Body, total: total, report: progress}
+	archive, err := io.ReadAll(io.LimitReader(meter, bunArchiveLimit+1))
+	reportBun(progress, "Downloading", meter.current, total)
 	if err != nil {
 		return "", err
 	}
 	if int64(len(archive)) > bunArchiveLimit {
 		return "", errors.New("Bun archive exceeds size limit")
 	}
+	reportBun(progress, "Verifying SHA-256", 0, 0)
 	hash := sha256.Sum256(archive)
 	if hex.EncodeToString(hash[:]) != want {
 		return "", errors.New("Bun archive SHA-256 mismatch")
@@ -144,6 +184,7 @@ func prepareBun(ctx context.Context, home string) (string, error) {
 	if selected.UncompressedSize64 > uint64(bunExecutableLimit) {
 		return "", errors.New("Bun executable exceeds size limit")
 	}
+	reportBun(progress, "Extracting executable", 0, 0)
 	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return "", err
 	}
@@ -174,5 +215,6 @@ func prepareBun(ctx context.Context, home string) (string, error) {
 	if err = os.Rename(tmp, path); err != nil {
 		return "", err
 	}
+	reportBun(progress, "Ready", 0, 0)
 	return path, nil
 }

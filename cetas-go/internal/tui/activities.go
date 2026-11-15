@@ -79,7 +79,15 @@ type userQuestion struct {
 	Options  []string `json:"options"`
 	Deadline int64    `json:"deadline_at"`
 }
+type operationActivity struct {
+ ID, Label, State, Detail string
+ Current, Total int64
+ Started, Settled time.Time
+}
+
 type activityState struct {
+ host map[string]*operationActivity
+ hostOrder []string
 	records       map[string]*childActivity
 	order         []string
 	questions     map[string]userQuestion
@@ -88,6 +96,13 @@ type activityState struct {
 }
 
 func (s *activityState) expire(now time.Time) {
+ for _,id:=range append([]string(nil),s.hostOrder...){
+  item:=s.host[id]
+  if item!=nil && !item.Settled.IsZero() && now.Sub(item.Settled)>=15*time.Second {
+   delete(s.host,id)
+   for i,k:=range s.hostOrder {if k==id{s.hostOrder=append(s.hostOrder[:i],s.hostOrder[i+1:]...);break}}
+  }
+ }
 	for id, q := range s.questions {
 		if q.Deadline > 0 && now.UnixMilli() > q.Deadline {
 			delete(s.questions, id)
@@ -130,6 +145,35 @@ func preview(text string, limit int) string {
 func (m *model) activityEvent(kind string, raw json.RawMessage) bool {
 	s := &m.surface.activities
 	switch kind {
+ case "host.activity":
+  var event struct {
+   ID string `json:"id"`
+   Label string `json:"label"`
+   State string `json:"state"`
+   Detail string `json:"detail"`
+   Current int64 `json:"current"`
+   Total int64 `json:"total"`
+  }
+  if json.Unmarshal(raw,&event)!=nil || event.ID=="" {return true}
+  if event.State!="running"&&event.State!="succeeded"&&event.State!="failed" {return true}
+  if s.host==nil{s.host=map[string]*operationActivity{}}
+  item:=s.host[event.ID]
+  if item==nil {
+   item=&operationActivity{Started:time.Now()}
+   s.host[event.ID]=item
+   s.hostOrder=append(s.hostOrder,event.ID)
+   if len(s.hostOrder)>12 {
+    oldest:=s.hostOrder[0];s.hostOrder=s.hostOrder[1:];delete(s.host,oldest)
+   }
+  }
+  if event.State=="running" && !item.Settled.IsZero() {
+   item.Settled=time.Time{}
+   item.Started=time.Now()
+  }
+  item.ID,item.Label,item.State,item.Detail=event.ID,event.Label,event.State,event.Detail
+  item.Current,item.Total=event.Current,event.Total
+  if event.State!="running" && item.Settled.IsZero(){item.Settled=time.Now()}
+  return true
 	case "usage.delta":
 		var u struct {
 			Input  *int64 `json:"input_tokens"`
@@ -359,6 +403,23 @@ func (m model) activityLines(width, budget int) []string {
 	s := m.surface.activities
 	type row struct{ role, text string }
 	rows := []row{}
+ for i:=len(s.hostOrder)-1;i>=0;i-- {
+  item:=s.host[s.hostOrder[i]]
+  if item==nil{continue}
+  marker,role:="▸","accent"
+  if item.State=="succeeded"{marker,role="✓","muted"}
+  if item.State=="failed"{marker,role="✗","warning"}
+  detail:=oneLine(item.Detail)
+  if item.Total>0 && item.State=="running" {
+   pct:=min(100,100*item.Current/item.Total)
+   detail=fmt.Sprintf("%d%% · %.1f/%.1f MiB",pct,float64(item.Current)/(1<<20),float64(item.Total)/(1<<20))
+  }else if item.Current>0 && item.State=="running"{
+   detail=fmt.Sprintf("%.1f MiB",float64(item.Current)/(1<<20))
+  }
+  label:=marker+" "+item.Label
+  if detail!=""{label+=" · "+preview(detail,70)}
+  rows=append(rows,row{role,label})
+ }
 	for _, id := range s.questionOrder {
 		if q, ok := s.questions[id]; ok {
 			key := q.Short

@@ -76,3 +76,32 @@ export default function(pi: any) {
 		t.Fatalf("Node crypto not executed: %s", result.Content)
 	}
 }
+
+func TestBunGuestHostModuleBridge(t *testing.T) {
+ binary:=os.Getenv("CETAS_TEST_BUN")
+ if binary=="" {var err error;binary,err=exec.LookPath("bun");if err!=nil{t.Skip("Bun not available")}}
+ binary,err:=filepath.Abs(binary)
+ if err!=nil{t.Fatal(err)}
+ home:=t.TempDir()
+ dir:=filepath.Join(home,".cetas","pi-packages","node_modules","fixture")
+ for path,content:=range map[string]string{
+  filepath.Join(home,".cetas","pi-packages.json"):`{"packages":["fixture"]}`,
+  filepath.Join(dir,"package.json"):`{"name":"fixture","pi":{"extensions":["./index.ts"]}}`,
+  filepath.Join(dir,"index.ts"):`import { truncateToWidth } from "@earendil-works/pi-tui";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+export default function(pi: any) {
+ pi.registerTool({name:"pi_host_probe",description:"Cetas host modules",parameters:{type:"object",properties:{}},
+   execute: async () => ({content:[{type:"text",text:truncateToWidth("abcdef",3)+":"+getAgentDir().endsWith(".cetas")}]})});
+}`,
+ } {
+  if err=os.MkdirAll(filepath.Dir(path),0700);err!=nil{t.Fatal(err)}
+  if err=os.WriteFile(path,[]byte(content),0600);err!=nil{t.Fatal(err)}
+ }
+ g,err:=OpenBun(binary,home,home)
+ if err!=nil{t.Fatal(err)}
+ defer g.Close()
+ defs,_:=g.Catalog()
+ if len(defs)!=1||defs[0].Name!="pi_host_probe"{t.Fatalf("host module shim missing: %v, warnings: %v",defs,g.Diagnostics())}
+ out:=g.Execute("pi_host_probe","probe",json.RawMessage("{}"))
+ if !out.OK||!strings.Contains(out.Content,":true"){t.Fatalf("host module functionality unavailable: %#v",out)}
+}

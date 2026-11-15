@@ -82,6 +82,8 @@ type Host struct {
 	mu          sync.Mutex
 	pending     map[uint64]chan json.RawMessage
 	events      chan Event
+	activityMu  sync.RWMutex
+	activityClosed bool
 	problems    chan error
 	boot        chan Event
 	started     chan struct{}
@@ -317,7 +319,7 @@ func (h *Host) Request(ctx context.Context, command string, args any) (json.RawM
 
 func (h *Host) pump() {
 	defer close(h.done)
-	defer close(h.events)
+	defer h.closeActivityEvents()
 	defer close(h.problems)
 	// seen holds the rejection counts the pump already acted on; the native
 	// counters are cumulative, so only deltas are new information.
