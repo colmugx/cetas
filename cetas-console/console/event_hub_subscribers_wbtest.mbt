@@ -58,7 +58,6 @@ test "legacy sink detaches without disconnecting subscriptions" {
   hub.unsubscribe(web_id)
 }
 
-
 ///|
 /// Realtime-only (not persisted to the rolling trace) must also reach both
 /// clients. The new client must not implicitly replay any prior frame.
@@ -108,7 +107,6 @@ test "subscription callback can unsubscribe during dispatch" {
   assert_eq(second.length(), 2)
   hub.unsubscribe(b)
 }
-
 
 ///|
 /// Connection-level protocol messages belong only to their sender, not to
