@@ -50,11 +50,15 @@ func slashSuggestions(text string) []slashSuggestion {
 		return nil
 	}
 	if strings.HasPrefix(text, "/pi ") {
-		prefix:=strings.ToLower(strings.TrimPrefix(text,"/pi "))
-		if strings.Contains(prefix," "){return nil}
+		prefix := strings.ToLower(strings.TrimPrefix(text, "/pi "))
+		if strings.Contains(prefix, " ") {
+			return nil
+		}
 		var options []slashSuggestion
-		for _,sub:=range []string{"install","remove","list","help"} {
-			if strings.HasPrefix(sub,prefix){options=append(options,slashSuggestion{label:sub,insert:"/pi "+sub})}
+		for _, sub := range []string{"install", "remove", "list", "help"} {
+			if strings.HasPrefix(sub, prefix) {
+				options = append(options, slashSuggestion{label: sub, insert: "/pi " + sub})
+			}
 		}
 		return options
 	}

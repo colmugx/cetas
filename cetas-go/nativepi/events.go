@@ -104,7 +104,7 @@ func (b *EventBridge) Translate(raw []byte) ([]PiEvent, error) {
 			// A tool-only model reply has no text_delta. Pi still requires
 			// message_start before its message_end and tool callbacks.
 			if !b.messageStarted {
-				out = append(out,emit("message_start",PiEvent{"message":b.message("pending")}))
+				out = append(out, emit("message_start", PiEvent{"message": b.message("pending")}))
 			}
 			b.lastAssistant = b.message("toolUse")
 			b.runMessages = append(b.runMessages, b.lastAssistant)
@@ -119,11 +119,11 @@ func (b *EventBridge) Translate(raw []byte) ([]PiEvent, error) {
 		})), nil
 	case "tool.completed":
 		toolResult := map[string]any{
-			"role": "toolResult",
+			"role":       "toolResult",
 			"toolCallId": frame.ToolCallID,
-			"toolName": frame.ToolName,
-			"content": []any{map[string]any{"type": "text", "text": frame.Result}},
-			"isError": frame.IsError,
+			"toolName":   frame.ToolName,
+			"content":    []any{map[string]any{"type": "text", "text": frame.Result}},
+			"isError":    frame.IsError,
 		}
 		b.toolResults = append(b.toolResults, toolResult)
 		b.runMessages = append(b.runMessages, toolResult)
@@ -166,26 +166,28 @@ func (b *EventBridge) Translate(raw []byte) ([]PiEvent, error) {
 		// Failure is a terminal turn too: settle every passive observer
 		// in order so extension state cannot remain permanently active.
 		var out []PiEvent
-		message:=b.lastAssistant
+		message := b.lastAssistant
 		if b.messageStarted || message == nil {
-			if !b.messageStarted {out=append(out,emit("message_start",PiEvent{"message":b.message("pending")}))}
-			message=b.message("error")
-			out=append(out,emit("message_end",PiEvent{"message":message}))
-			b.runMessages=append(b.runMessages,message)
+			if !b.messageStarted {
+				out = append(out, emit("message_start", PiEvent{"message": b.message("pending")}))
+			}
+			message = b.message("error")
+			out = append(out, emit("message_end", PiEvent{"message": message}))
+			b.runMessages = append(b.runMessages, message)
 		}
-		out=append(out,emit("turn_end",PiEvent{
-			"turnIndex":b.turnIndex,"message":message,
-			"toolResults":append([]any{},b.toolResults...),
+		out = append(out, emit("turn_end", PiEvent{
+			"turnIndex": b.turnIndex, "message": message,
+			"toolResults": append([]any{}, b.toolResults...),
 		}))
-		out=append(out,emit("agent_end",PiEvent{"messages":append([]any{},b.runMessages...)}))
-		out=append(out,emit("agent_settled",nil))
-		b.runActive=false
-		b.messageStarted=false
-		b.text=""
-		b.toolResults=nil
-		b.lastAssistant=nil
-		b.runMessages=nil
-		return out,nil
+		out = append(out, emit("agent_end", PiEvent{"messages": append([]any{}, b.runMessages...)}))
+		out = append(out, emit("agent_settled", nil))
+		b.runActive = false
+		b.messageStarted = false
+		b.text = ""
+		b.toolResults = nil
+		b.lastAssistant = nil
+		b.runMessages = nil
+		return out, nil
 	default:
 		return nil, nil
 	}
@@ -193,8 +195,8 @@ func (b *EventBridge) Translate(raw []byte) ([]PiEvent, error) {
 
 func (b *EventBridge) message(reason string) map[string]any {
 	return map[string]any{
-		"role": "assistant",
-		"content": []any{map[string]any{"type": "text", "text": b.text}},
+		"role":       "assistant",
+		"content":    []any{map[string]any{"type": "text", "text": b.text}},
 		"stopReason": reason,
 	}
 }

@@ -335,11 +335,13 @@ func requestAs(host runtimeHost, name, command string, args any) tea.Cmd {
 		revision, _ = fields["revision"].(string)
 	}
 	return func() tea.Msg {
-		timeout:=30*time.Second
-		if command=="experimental" {
-			if fields,ok:=args.(map[string]any);ok && fields["action"]=="prepare"{timeout=4*time.Minute}
+		timeout := 30 * time.Second
+		if command == "experimental" {
+			if fields, ok := args.(map[string]any); ok && fields["action"] == "prepare" {
+				timeout = 4 * time.Minute
+			}
 		}
-		ctx, cancel := context.WithTimeout(context.Background(),timeout)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		result, err := host.Request(ctx, command, args)
 		return commandResult{name: name, payload: result, err: err, requestSession: session, requestRevision: revision}
@@ -866,38 +868,42 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.installCommandCatalog(msg.payload)
 		}
 		if msg.name == "pi_packages" {
-			var answer struct {Lines []string `json:"lines"`}
-			if json.Unmarshal(msg.payload,&answer)==nil {
-				m.transcript=append(m.transcript,ui.SanitizeSGR(strings.Join(answer.Lines,"\n")))
+			var answer struct {
+				Lines []string `json:"lines"`
+			}
+			if json.Unmarshal(msg.payload, &answer) == nil {
+				m.transcript = append(m.transcript, ui.SanitizeSGR(strings.Join(answer.Lines, "\n")))
 				m.refreshTranscript()
 			}
 		}
-		if msg.name=="experimental_status" {
-			var result struct{
-				Installed bool `json:"installed"`
-				Enabled bool `json:"enabled"`
-				Version string `json:"version"`
+		if msg.name == "experimental_status" {
+			var result struct {
+				Installed bool   `json:"installed"`
+				Enabled   bool   `json:"enabled"`
+				Version   string `json:"version"`
 			}
-			if json.Unmarshal(msg.payload,&result)==nil {
-				m.modal="experimental"
-				m.modalPrompt="Experimental features"
-				m.modalIndex=0
+			if json.Unmarshal(msg.payload, &result) == nil {
+				m.modal = "experimental"
+				m.modalPrompt = "Experimental features"
+				m.modalIndex = 0
 				if !result.Installed {
-					m.modalItems=[]string{"Bun Runtime — not installed · Install (download)"}
-					m.modalValues=[]string{"prepare"}
-				}else if result.Enabled {
-					m.modalItems=[]string{"Bun Runtime — enabled · Disable"}
-					m.modalValues=[]string{"disable"}
-				}else{
-					m.modalItems=[]string{"Bun Runtime — installed · Enable"}
-					m.modalValues=[]string{"enable"}
+					m.modalItems = []string{"Bun Runtime — not installed · Install (download)"}
+					m.modalValues = []string{"prepare"}
+				} else if result.Enabled {
+					m.modalItems = []string{"Bun Runtime — enabled · Disable"}
+					m.modalValues = []string{"disable"}
+				} else {
+					m.modalItems = []string{"Bun Runtime — installed · Enable"}
+					m.modalValues = []string{"enable"}
 				}
 			}
 		}
-		if msg.name=="experimental_action" {
-			var answer struct{Lines []string `json:"lines"`}
-			if json.Unmarshal(msg.payload,&answer)==nil{
-				m.transcript=append(m.transcript,ui.SanitizeSGR(strings.Join(answer.Lines,"\n")))
+		if msg.name == "experimental_action" {
+			var answer struct {
+				Lines []string `json:"lines"`
+			}
+			if json.Unmarshal(msg.payload, &answer) == nil {
+				m.transcript = append(m.transcript, ui.SanitizeSGR(strings.Join(answer.Lines, "\n")))
 				m.refreshTranscript()
 			}
 		}
@@ -1092,11 +1098,11 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 						m.openQuestion(chosen)
 						return m, nil
 					case "experimental":
-						m.modal=""
-						m.modalItems=nil
-						m.modalValues=nil
-						m.modalPrompt=""
-						return m, requestAs(m.host,"experimental_action","experimental",map[string]any{"action":chosen})
+						m.modal = ""
+						m.modalItems = nil
+						m.modalValues = nil
+						m.modalPrompt = ""
+						return m, requestAs(m.host, "experimental_action", "experimental", map[string]any{"action": chosen})
 					case "models":
 						cmd := m.chooseModel(chosen)
 						m.modal = ""
@@ -1488,15 +1494,15 @@ func (m *model) command(value string) tea.Cmd {
 	case "/skills":
 		return requestAs(m.host, "skills_browse", "skills", map[string]any{})
 	case "/compact":
-		return request(m.host,"session_compact",map[string]any{})
+		return request(m.host, "session_compact", map[string]any{})
 	case "/pi":
 		if m.nativePiUnavailable() {
 			m.protocolNotice(nativePiHint)
 			m.refreshTranscript()
 		}
-		return request(m.host,"pi_packages",map[string]any{"args":strings.TrimSpace(strings.TrimPrefix(value,"/pi"))})
+		return request(m.host, "pi_packages", map[string]any{"args": strings.TrimSpace(strings.TrimPrefix(value, "/pi"))})
 	case "/experimental":
-		return requestAs(m.host,"experimental_status","experimental",map[string]any{"action":"status"})
+		return requestAs(m.host, "experimental_status", "experimental", map[string]any{"action": "status"})
 	case "/find":
 		m.findTranscript(strings.TrimSpace(strings.TrimPrefix(value, "/find")))
 		return nil

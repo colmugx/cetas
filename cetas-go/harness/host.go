@@ -77,22 +77,22 @@ func rejectionsDelta(current, seen bridge.Rejections) bridge.Rejections {
 }
 
 type Host struct {
-	infra      transport
-	nextID     atomic.Uint64
-	mu         sync.Mutex
-	pending    map[uint64]chan json.RawMessage
-	events     chan Event
-	problems   chan error
-	boot       chan Event
-	started    chan struct{}
-	pi         *piSupervisor
+	infra       transport
+	nextID      atomic.Uint64
+	mu          sync.Mutex
+	pending     map[uint64]chan json.RawMessage
+	events      chan Event
+	problems    chan error
+	boot        chan Event
+	started     chan struct{}
+	pi          *piSupervisor
 	piAvailable bool
-	done       chan struct{}
-	exited     chan struct{}
-	exitCode   int
-	needsSetup bool
-	closeOnce  sync.Once
-	stopped    bool
+	done        chan struct{}
+	exited      chan struct{}
+	exitCode    int
+	needsSetup  bool
+	closeOnce   sync.Once
+	stopped     bool
 	// cause keeps the first fatal reason the runtime stopped answering.
 	// The problems channel is best-effort and closes with the pump, so a
 	// later Request must still be able to say why the harness died
@@ -169,12 +169,18 @@ func Start(ctx context.Context) (*Host, error) {
 	// Resolve Pi before the MoonBit Agent composes its extension manifests.
 	// Do not instantiate moejs or a Bun subprocess during this check.
 	available, err := nativePiAvailable(ctx)
-	if err != nil { h.report(fmt.Errorf("Pi runtime capability: %w",err)) }
+	if err != nil {
+		h.report(fmt.Errorf("Pi runtime capability: %w", err))
+	}
 	h.piAvailable = available
 	if available {
-		if err := os.Setenv("CETAS_NATIVE_PI_ENABLED","1");err!=nil{return nil,err}
+		if err := os.Setenv("CETAS_NATIVE_PI_ENABLED", "1"); err != nil {
+			return nil, err
+		}
 	} else {
-		if err := os.Setenv("CETAS_NATIVE_PI_ENABLED","0");err!=nil{return nil,err}
+		if err := os.Setenv("CETAS_NATIVE_PI_ENABLED", "0"); err != nil {
+			return nil, err
+		}
 	}
 	h.launch()
 	return h.awaitBoot(ctx)
@@ -246,8 +252,12 @@ func (h *Host) Request(ctx context.Context, command string, args any) (json.RawM
 	if command == "" {
 		return nil, errors.New("empty Harness command")
 	}
-	if command=="pi_packages" {return h.pi.packageCommand(ctx,args)}
-	if command=="experimental" {return h.pi.experimentalCommand(ctx,args)}
+	if command == "pi_packages" {
+		return h.pi.packageCommand(ctx, args)
+	}
+	if command == "experimental" {
+		return h.pi.experimentalCommand(ctx, args)
+	}
 	id := h.nextID.Add(1)
 	// The native dispatcher parses ids into Int32; minting beyond that range
 	// would wrap negative on the MoonBit side and be refused as an invalid

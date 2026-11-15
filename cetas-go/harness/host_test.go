@@ -126,10 +126,16 @@ func TestNativeHarnessHost(t *testing.T) {
 	}()
 
 	// Native without Bun must not compose or install any Pi adaptor.
-	if h.PiAvailable() { t.Fatal("unexpected Pi guest without Bun") }
-	catalog,err:=h.Request(ctx,"extensions",map[string]any{})
-	if err!=nil { t.Fatal(err) }
-	if strings.Contains(string(catalog),"cetas_native_pi_guest") { t.Fatal("Pi adaptor was composed without Bun") }
+	if h.PiAvailable() {
+		t.Fatal("unexpected Pi guest without Bun")
+	}
+	catalog, err := h.Request(ctx, "extensions", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(catalog), "cetas_native_pi_guest") {
+		t.Fatal("Pi adaptor was composed without Bun")
+	}
 	commands := []struct {
 		name string
 		args any

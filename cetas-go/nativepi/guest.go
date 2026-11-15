@@ -27,22 +27,22 @@ type Tool struct {
 }
 
 type Result struct {
-	OK      bool `json:"ok"`
+	OK      bool   `json:"ok"`
 	Content string `json:"content"`
-	Details any `json:"details,omitempty"`
+	Details any    `json:"details,omitempty"`
 }
 
 // Guest is one session's private JS VM. No other session shares callbacks.
 type Guest struct {
-	mu      sync.Mutex
-	cwd     string
-	entries []*entry
-	names   map[string]*registered
-	active  map[string]bool
-	version uint64
-	events EventBridge
+	mu          sync.Mutex
+	cwd         string
+	entries     []*entry
+	names       map[string]*registered
+	active      map[string]bool
+	version     uint64
+	events      EventBridge
 	diagnostics []string
-	loaded []string
+	loaded      []string
 }
 
 type registered struct {
@@ -73,7 +73,9 @@ func Open(home, cwd string) (*Guest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read Pi allowlist: %w", err)
 	}
-	var allow struct{ Packages []string `json:"packages"` }
+	var allow struct {
+		Packages []string `json:"packages"`
+	}
 	if err := json.Unmarshal(config, &allow); err != nil {
 		g.diagnostics = append(g.diagnostics, fmt.Sprintf("Pi allowlist is malformed (deny by default): %v", err))
 		return g, nil
@@ -84,7 +86,9 @@ func Open(home, cwd string) (*Guest, error) {
 			continue
 		}
 		dir, err := locatePiPackage(root, name)
-		if err == nil { err = g.loadPackage(dir, name) }
+		if err == nil {
+			err = g.loadPackage(dir, name)
+		}
 		if err != nil {
 			g.diagnostics = append(g.diagnostics, fmt.Sprintf("Pi package %q: %v", name, err))
 			continue // A failed package cannot prevent unrelated allowlisted packages from loading.
@@ -95,11 +99,17 @@ func Open(home, cwd string) (*Guest, error) {
 }
 
 func validPackageName(name string) bool {
-	if name == "" || strings.ContainsAny(name, "\\:\x00") { return false }
+	if name == "" || strings.ContainsAny(name, "\\:\x00") {
+		return false
+	}
 	segments := strings.Split(name, "/")
-	if len(segments) > 2 || (len(segments) == 2 && (!strings.HasPrefix(segments[0], "@") || len(segments[0]) < 2)) { return false }
+	if len(segments) > 2 || (len(segments) == 2 && (!strings.HasPrefix(segments[0], "@") || len(segments[0]) < 2)) {
+		return false
+	}
 	for _, seg := range segments {
-		if seg == "" || seg == "." || seg == ".." || strings.ContainsAny(seg, " \t\n") { return false }
+		if seg == "" || seg == "." || seg == ".." || strings.ContainsAny(seg, " \t\n") {
+			return false
+		}
 	}
 	return true
 }
@@ -108,17 +118,21 @@ func validPackageName(name string) bool {
 // still be direct children. All candidates remain beneath the package root.
 func locatePiPackage(root, name string) (string, error) {
 	for _, dir := range []string{filepath.Join(root, "node_modules", name), filepath.Join(root, name)} {
-		if _, err := os.Stat(filepath.Join(dir,"package.json")); err != nil { continue }
+		if _, err := os.Stat(filepath.Join(dir, "package.json")); err != nil {
+			continue
+		}
 		canonicalRoot, rerr := filepath.EvalSymlinks(root)
 		canonicalDir, derr := filepath.EvalSymlinks(dir)
-		if rerr != nil || derr != nil { return "", fmt.Errorf("resolve Pi package symlink: %v / %v",rerr,derr) }
-		rel, err := filepath.Rel(canonicalRoot,canonicalDir)
-		if err != nil || rel == ".." || strings.HasPrefix(rel,".."+string(os.PathSeparator)) {
-			return "",fmt.Errorf("Pi package escapes package root: %q",dir)
+		if rerr != nil || derr != nil {
+			return "", fmt.Errorf("resolve Pi package symlink: %v / %v", rerr, derr)
 		}
-		return dir,nil
+		rel, err := filepath.Rel(canonicalRoot, canonicalDir)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			return "", fmt.Errorf("Pi package escapes package root: %q", dir)
+		}
+		return dir, nil
 	}
-	return "",fmt.Errorf("package.json not found under %s/node_modules/%s or %s/%s",root,name,root,name)
+	return "", fmt.Errorf("package.json not found under %s/node_modules/%s or %s/%s", root, name, root, name)
 }
 
 func (g *Guest) loadPackage(dir, expected string) error {
@@ -128,7 +142,9 @@ func (g *Guest) loadPackage(dir, expected string) error {
 	}
 	var manifest struct {
 		Name string `json:"name"`
-		Pi struct { Extensions []string `json:"extensions"` } `json:"pi"`
+		Pi   struct {
+			Extensions []string `json:"extensions"`
+		} `json:"pi"`
 	}
 	if err := json.Unmarshal(manifestRaw, &manifest); err != nil {
 		return fmt.Errorf("Pi package %q manifest: %w", expected, err)
@@ -147,38 +163,54 @@ func (g *Guest) loadPackage(dir, expected string) error {
 // Pi 0.46+ declares entries such as ./dist. Resolve to a file before linking.
 func resolvePiEntry(path string) (string, error) {
 	info, err := os.Stat(path)
-	if err == nil && !info.IsDir() { return path,nil }
+	if err == nil && !info.IsDir() {
+		return path, nil
+	}
 	if err == nil && info.IsDir() {
-		if data,e:=os.ReadFile(filepath.Join(path,"package.json"));e==nil {
-			var manifest struct { Main string `json:"main"` }
-			if json.Unmarshal(data,&manifest)==nil && manifest.Main!="" && !filepath.IsAbs(manifest.Main) {
-				candidate:=filepath.Join(path,manifest.Main)
-				if candidate!=path {if resolved,e:=resolvePiEntry(candidate);e==nil {return resolved,nil}}
+		if data, e := os.ReadFile(filepath.Join(path, "package.json")); e == nil {
+			var manifest struct {
+				Main string `json:"main"`
+			}
+			if json.Unmarshal(data, &manifest) == nil && manifest.Main != "" && !filepath.IsAbs(manifest.Main) {
+				candidate := filepath.Join(path, manifest.Main)
+				if candidate != path {
+					if resolved, e := resolvePiEntry(candidate); e == nil {
+						return resolved, nil
+					}
+				}
 			}
 		}
 	}
-	for _, candidate := range []string{path+".js",path+".mjs",path+".ts",
-		filepath.Join(path,"index.js"),filepath.Join(path,"index.mjs"),filepath.Join(path,"index.ts")} {
-		if stat,e:=os.Stat(candidate);e==nil&&!stat.IsDir(){return candidate,nil}
+	for _, candidate := range []string{path + ".js", path + ".mjs", path + ".ts",
+		filepath.Join(path, "index.js"), filepath.Join(path, "index.mjs"), filepath.Join(path, "index.ts")} {
+		if stat, e := os.Stat(candidate); e == nil && !stat.IsDir() {
+			return candidate, nil
+		}
 	}
-	return "",fmt.Errorf("Pi entry %q resolved to no JavaScript file",path)
+	return "", fmt.Errorf("Pi entry %q resolved to no JavaScript file", path)
 }
 
 func (g *Guest) Diagnostics() []string {
-	g.mu.Lock();defer g.mu.Unlock()
-	return append([]string(nil),g.diagnostics...)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]string(nil), g.diagnostics...)
 }
 
 func (g *Guest) LoadedPackages() []string {
-	g.mu.Lock();defer g.mu.Unlock()
-	return append([]string(nil),g.loaded...)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]string(nil), g.loaded...)
 }
 
 func allowedModule(root, path string) (string, error) {
 	root, err := filepath.EvalSymlinks(root)
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	path, err = filepath.EvalSymlinks(path)
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	rel, err := filepath.Rel(root, path)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 		return "", fmt.Errorf("module escapes allowlisted Pi package: %q", path)
@@ -194,51 +226,79 @@ func (g *Guest) loadEntry(root, spec string) error {
 		return fmt.Errorf("Pi entry must be package-relative: %q", spec)
 	}
 	entryFile, err := resolvePiEntry(filepath.Join(root, spec))
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	path, err := allowedModule(root, entryFile)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	mods := map[string]*moejs.Module{}
 	var compileFile func(string) (*moejs.Module, error)
 	compileFile = func(path string) (*moejs.Module, error) {
-		if mod := mods[path]; mod != nil { return mod, nil }
+		if mod := mods[path]; mod != nil {
+			return mod, nil
+		}
 		src, err := os.ReadFile(path)
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		var mod *moejs.Module
 		if filepath.Ext(path) == ".ts" {
 			mod, err = moejs.CompileTS(path, string(src))
 		} else {
 			mod, err = moejs.Compile(path, string(src))
 		}
-		if err == nil { mods[path] = mod }
+		if err == nil {
+			mods[path] = mod
+		}
 		return mod, err
 	}
 	mod, err := compileFile(path)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	mod, err = moejs.Link(mod, func(from moejs.Referrer, specifier string) (*moejs.Module, error) {
 		if !strings.HasPrefix(specifier, "./") && !strings.HasPrefix(specifier, "../") {
 			return nil, fmt.Errorf("Pi guest import %q is not permitted", specifier)
 		}
 		entry, err := resolvePiEntry(filepath.Join(filepath.Dir(from.Name()), specifier))
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		target, err := allowedModule(root, entry)
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		return compileFile(target)
 	})
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 
 	rt := moejs.NewRuntime(moejs.Options{MemoryLimit: 64 << 20})
 	loop, err := eventloop.New(rt, eventloop.Options{})
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	e := &entry{runtime: rt, loop: loop, guest: g, handlers: make(map[string][]moejs.Value)}
 	api, err := e.makeAPI()
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	if err := loop.Run(func(rt *moejs.Runtime) error {
-		if err := rt.Load(mod); err != nil { return err }
+		if err := rt.Load(mod); err != nil {
+			return err
+		}
 		fn, ok := rt.Export("default")
-		if !ok { return errors.New("Pi entry has no default export") }
+		if !ok {
+			return errors.New("Pi entry has no default export")
+		}
 		_, err := rt.CallFunction(fn, moejs.Undefined(), api)
 		return err
-	}); err != nil { return err }
+	}); err != nil {
+		return err
+	}
 	g.entries = append(g.entries, e)
 	return nil
 }
@@ -248,16 +308,24 @@ func (e *entry) makeAPI() (moejs.Value, error) {
 	register := moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, args []moejs.Value) (moejs.Value, error) {
 		obj := moejs.Arg(args, 0)
 		nameV, err := rt.Get(obj, "name")
-		if err != nil { return moejs.Undefined(), err }
+		if err != nil {
+			return moejs.Undefined(), err
+		}
 		name := nameV.String()
-		if name == "" { return moejs.Undefined(), errors.New("Pi tool name must not be empty") }
+		if name == "" {
+			return moejs.Undefined(), errors.New("Pi tool name must not be empty")
+		}
 		if _, exists := e.guest.names[name]; exists {
 			return moejs.Undefined(), fmt.Errorf("duplicate Pi tool %q", name)
 		}
 		desc, err := rt.Get(obj, "description")
-		if err != nil { return moejs.Undefined(), err }
+		if err != nil {
+			return moejs.Undefined(), err
+		}
 		param, err := rt.Get(obj, "parameters")
-		if err != nil { return moejs.Undefined(), err }
+		if err != nil {
+			return moejs.Undefined(), err
+		}
 		var schema []byte
 		if param.IsUndefined() {
 			schema = []byte(`{"type":"object","properties":{}}`)
@@ -265,41 +333,57 @@ func (e *entry) makeAPI() (moejs.Value, error) {
 			return moejs.Undefined(), err
 		}
 		callback, err := rt.Get(obj, "execute")
-		if err != nil { return moejs.Undefined(), err }
+		if err != nil {
+			return moejs.Undefined(), err
+		}
 		if !callback.IsObject() {
 			return moejs.Undefined(), fmt.Errorf("Pi tool %q needs execute()", name)
 		}
 		e.guest.names[name] = &registered{
-			Tool: Tool{Name:name, Description:desc.String(), Parameters:append(json.RawMessage(nil),schema...)},
+			Tool:     Tool{Name: name, Description: desc.String(), Parameters: append(json.RawMessage(nil), schema...)},
 			callback: callback, owner: e,
 		}
 		// Pi's live registry appends newly registered tools to an explicit set.
-		if e.guest.active != nil { e.guest.active[name] = true }
+		if e.guest.active != nil {
+			e.guest.active[name] = true
+		}
 		e.guest.version++
 		return moejs.Undefined(), nil
 	})
 	getAll := moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, _ []moejs.Value) (moejs.Value, error) {
 		defs := e.guest.catalog(false)
 		out := make([]map[string]string, len(defs))
-		for i, def := range defs {out[i] = map[string]string{"name":def.Name,"description":def.Description}}
+		for i, def := range defs {
+			out[i] = map[string]string{"name": def.Name, "description": def.Description}
+		}
 		return rt.FromGo(out)
 	})
 	getActive := moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, _ []moejs.Value) (moejs.Value, error) {
 		defs := e.guest.catalog(true)
-		names := make([]string,0,len(defs))
-		for _, def := range defs { names=append(names,def.Name) }
+		names := make([]string, 0, len(defs))
+		for _, def := range defs {
+			names = append(names, def.Name)
+		}
 		return rt.FromGo(names)
 	})
 	setActive := moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, args []moejs.Value) (moejs.Value, error) {
 		raw, err := rt.ToGo(moejs.Arg(args, 0))
-		if err != nil { return moejs.Undefined(),err }
+		if err != nil {
+			return moejs.Undefined(), err
+		}
 		arr, ok := raw.([]any)
-		if !ok { return moejs.Undefined(), errors.New("setActiveTools expects an array") }
+		if !ok {
+			return moejs.Undefined(), errors.New("setActiveTools expects an array")
+		}
 		next := map[string]bool{}
-		for _, item := range arr { if n,ok:=item.(string);ok && e.guest.names[n]!=nil {next[n]=true} }
-		e.guest.active=next
+		for _, item := range arr {
+			if n, ok := item.(string); ok && e.guest.names[n] != nil {
+				next[n] = true
+			}
+		}
+		e.guest.active = next
 		e.guest.version++
-		return moejs.Undefined(),nil
+		return moejs.Undefined(), nil
 	})
 	on := moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, args []moejs.Value) (moejs.Value, error) {
 		eventName := moejs.Arg(args, 0).String()
@@ -316,66 +400,98 @@ func (e *entry) makeAPI() (moejs.Value, error) {
 		return moejs.Undefined(), nil
 	})
 	return rt.FromGo(map[string]any{
-		"registerTool":register,"getAllTools":getAll,"getActiveTools":getActive,
-		"setActiveTools":setActive,"on":on,
+		"registerTool": register, "getAllTools": getAll, "getActiveTools": getActive,
+		"setActiveTools": setActive, "on": on,
 	})
 }
 
 func (g *Guest) catalog(active bool) []Tool {
-	keys:=make([]string,0,len(g.names))
-	for k:=range g.names {keys=append(keys,k)}
+	keys := make([]string, 0, len(g.names))
+	for k := range g.names {
+		keys = append(keys, k)
+	}
 	sort.Strings(keys)
-	tools:=make([]Tool,0,len(keys))
-	for _,name:=range keys {
-		if active && g.active != nil && !g.active[name] { continue }
-		tools=append(tools,g.names[name].Tool)
+	tools := make([]Tool, 0, len(keys))
+	for _, name := range keys {
+		if active && g.active != nil && !g.active[name] {
+			continue
+		}
+		tools = append(tools, g.names[name].Tool)
 	}
 	return tools
 }
 
 func (g *Guest) Catalog() ([]Tool, uint64) {
-	g.mu.Lock();defer g.mu.Unlock()
-	return g.catalog(true),g.version
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.catalog(true), g.version
 }
 
 // Execute invokes the actual extension closure inside its own VM. A pending
 // Promise whose only completion requires an unprovided host API is reported as
 // unsupported instead of fabricating a successful tool execution.
-func (g *Guest) Execute(name,callID string,args json.RawMessage) (out Result) {
-	g.mu.Lock();defer g.mu.Unlock()
-	reg:=g.names[name]
-	if reg==nil { return Result{Content:"unknown Pi tool: "+name} }
+func (g *Guest) Execute(name, callID string, args json.RawMessage) (out Result) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	reg := g.names[name]
+	if reg == nil {
+		return Result{Content: "unknown Pi tool: " + name}
+	}
 	var value moejs.Value
-	err:=reg.owner.loop.Run(func(rt *moejs.Runtime) error {
-		argument,err:=rt.ParseJSON(args)
-		if err!=nil {return err}
-		ctx,err:=rt.FromGo(map[string]any{"cwd":g.cwd,"hasUI":false,"mode":"json"})
-		if err!=nil {return err}
-		value,err=rt.CallFunction(reg.callback,moejs.Undefined(),moejs.String(callID),argument,moejs.Undefined(),moejs.Undefined(),ctx)
+	err := reg.owner.loop.Run(func(rt *moejs.Runtime) error {
+		argument, err := rt.ParseJSON(args)
+		if err != nil {
+			return err
+		}
+		ctx, err := rt.FromGo(map[string]any{"cwd": g.cwd, "hasUI": false, "mode": "json"})
+		if err != nil {
+			return err
+		}
+		value, err = rt.CallFunction(reg.callback, moejs.Undefined(), moejs.String(callID), argument, moejs.Undefined(), moejs.Undefined(), ctx)
 		return err
 	})
-	if err!=nil { return Result{Content:err.Error()} }
-	if state,result,ok:=moejs.PromiseResult(value);ok {
-		if state==moejs.PromisePending {return Result{Content:"Pi tool promise never settled (unsupported guest host capability)"}}
-		if state==moejs.PromiseRejected {return Result{Content:"Pi tool rejected: "+result.String()}}
-		value=result
+	if err != nil {
+		return Result{Content: err.Error()}
 	}
-	raw,err:=reg.owner.runtime.AppendJSON(nil,value)
-	if err!=nil{return Result{Content:err.Error()}}
-	var parsed struct{
-		Content []struct{Type string `json:"type"`;Text string `json:"text"` } `json:"content"`
-		Details any `json:"details"`
+	if state, result, ok := moejs.PromiseResult(value); ok {
+		if state == moejs.PromisePending {
+			return Result{Content: "Pi tool promise never settled (unsupported guest host capability)"}
+		}
+		if state == moejs.PromiseRejected {
+			return Result{Content: "Pi tool rejected: " + result.String()}
+		}
+		value = result
+	}
+	raw, err := reg.owner.runtime.AppendJSON(nil, value)
+	if err != nil {
+		return Result{Content: err.Error()}
+	}
+	var parsed struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		Details any  `json:"details"`
 		IsError bool `json:"isError"`
 	}
-	if err:=json.Unmarshal(raw,&parsed);err!=nil{return Result{Content:err.Error()}}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return Result{Content: err.Error()}
+	}
 	var parts []string
-	for _,p:=range parsed.Content {if p.Type=="text"{parts=append(parts,p.Text)}}
-	return Result{OK:!parsed.IsError,Content:strings.Join(parts,"\n"),Details:parsed.Details}
+	for _, p := range parsed.Content {
+		if p.Type == "text" {
+			parts = append(parts, p.Text)
+		}
+	}
+	return Result{OK: !parsed.IsError, Content: strings.Join(parts, "\n"), Details: parsed.Details}
 }
 
 func (g *Guest) Close() {
-	g.mu.Lock();defer g.mu.Unlock()
-	for _,e:=range g.entries {e.loop.Terminate()}
-	g.entries=nil
-	g.names=nil
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for _, e := range g.entries {
+		e.loop.Terminate()
+	}
+	g.entries = nil
+	g.names = nil
 }
