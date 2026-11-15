@@ -98,11 +98,10 @@ async fn serve_websocket(
                       "protocol.error",
                       extra=[("message", Json::string(message))],
                     )
-                  Ok(SessionAttach) => {
+                  Ok(SessionAttach) =>
                     // An attaching surface gets its own snapshot. Existing
                     // clients must not be reset by another client's handshake.
                     runtime.emit_active_snapshot_to(subscription_id)
-                  }
                   Ok(TurnStart(prompt, session_id)) =>
                     match runtime.start_turn(prompt, session_id) {
                       Ok(_) => ()
