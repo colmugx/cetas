@@ -65,7 +65,7 @@ jobs:
 
       - name: moon test
         id: test
-        run: moon test --target native --output-json
+        run: moon test --output-json
 
       # Node 24 is Active LTS; pin it before all JS/Node distribution tests.
       - name: Setup Node LTS for cetas-js
