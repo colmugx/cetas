@@ -40,7 +40,16 @@ pub fn console_config(
   permission_mode~ : @permission.PermissionMode = @permission.PermissionMode::WorkspaceWrite,
   herdr_presence~ : Bool = false,
 ) -> ConsoleConfig {
-  { fs, home, label, protocol, native_ui, native_pi_enabled, permission_mode, herdr_presence, }
+  {
+    fs,
+    home,
+    label,
+    protocol,
+    native_ui,
+    native_pi_enabled,
+    permission_mode,
+    herdr_presence,
+  }
 }
 
 ///|
