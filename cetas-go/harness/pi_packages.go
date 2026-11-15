@@ -3,6 +3,7 @@ package harness
 // Pi package management belongs to the Go host: npm never executes on the
 // MoonBit scheduler thread, and the allowlist remains deny-by-default.
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,10 +14,55 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 var piPackageName = regexp.MustCompile(`^(@[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+(@[A-Za-z0-9._-]+)?$`)
 var piInstallMu sync.Mutex
+
+// Bounded npm output capture: progress is based on actual subprocess activity.
+// Do not display untrusted raw npm output in activities (registry URLs may
+// embed tokens). Failures keep only the trailing diagnostic output.
+type packageOutput struct {
+	mu sync.Mutex
+	buf bytes.Buffer
+	total int64
+	last time.Time
+	progress func(int64)
+}
+
+func (w *packageOutput) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.total += int64(len(p))
+	if len(p) >= 16<<10 {
+		w.buf.Reset()
+		_, _ = w.buf.Write(p[len(p)-(16<<10):])
+	} else {
+		if w.buf.Len()+len(p) > 16<<10 {
+			previous := append([]byte(nil), w.buf.Bytes()...)
+			keep := (16 << 10) - len(p)
+			if len(previous) > keep {
+				previous = previous[len(previous)-keep:]
+			}
+			w.buf.Reset()
+			_, _ = w.buf.Write(previous)
+		}
+		_, _ = w.buf.Write(p)
+	}
+	if w.progress != nil && time.Since(w.last) > 200*time.Millisecond {
+		w.last = time.Now()
+		w.progress(w.total)
+	}
+	return len(p), nil
+}
+
+func (w *packageOutput) Output() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
+}
+
 
 type piSnapshot struct {
 	Raw      map[string]json.RawMessage
@@ -191,8 +237,18 @@ func (s *piSupervisor) packageCommand(ctx context.Context, args any) (json.RawMe
 	runner := exec.CommandContext(ctx, snapshot.Manager, map[bool]string{true: "add", false: "remove"}[cmd == "install"], pkg)
 	runner.Dir = root
 	runner.Stdin = nil
-	output, err := runner.CombinedOutput()
+	activityID := "pi:" + pkg
+	activityLabel := fmt.Sprintf("Pi %s · %s", cmd, pkg)
+	s.host.activity(activityID, activityLabel, "running", snapshot.Manager+" "+map[bool]string{true: "add", false: "remove"}[cmd == "install"], 0, 0)
+	capture := &packageOutput{progress: func(written int64) {
+		s.host.activity(activityID, activityLabel, "running", fmt.Sprintf("Package manager running · %d KiB of output", written/1024), 0, 0)
+	}}
+	runner.Stdout = capture
+	runner.Stderr = capture
+	err = runner.Run()
+	output := capture.Output()
 	if err != nil {
+		s.host.activity(activityID, activityLabel, "failed", err.Error(), 0, 0)
 		msg := strings.TrimSpace(string(output))
 		if len(msg) > 1200 {
 			msg = msg[len(msg)-1200:]
@@ -200,6 +256,7 @@ func (s *piSupervisor) packageCommand(ctx context.Context, args any) (json.RawMe
 		return piLines(fmt.Sprintf("/pi %s %s failed: %v", cmd, pkg, err), msg)
 	}
 	if cmd == "install" {
+		s.host.activity(activityID, activityLabel, "running", "Updating package allowlist", 0, 0)
 		name := pkg
 		added := []string{}
 		for dep := range piPackageDependencies(root) {
@@ -222,8 +279,10 @@ func (s *piSupervisor) packageCommand(ctx context.Context, args any) (json.RawMe
 			snapshot.Packages = append(snapshot.Packages, name)
 		}
 		if err = writePiSnapshot(configPath, snapshot); err != nil {
+			s.host.activity(activityID, activityLabel, "failed", err.Error(), 0, 0)
 			return nil, err
 		}
+		s.host.activity(activityID, activityLabel, "succeeded", "Installed; restart to load", 0, 0)
 		return piLines("/pi install "+pkg+": added "+name+" to allowlist", "Restart cetas-go to activate the installed extension.")
 	}
 	kept := make([]string, 0, len(snapshot.Packages))
@@ -234,7 +293,9 @@ func (s *piSupervisor) packageCommand(ctx context.Context, args any) (json.RawMe
 	}
 	snapshot.Packages = kept
 	if err = writePiSnapshot(configPath, snapshot); err != nil {
+		s.host.activity(activityID, activityLabel, "failed", err.Error(), 0, 0)
 		return nil, err
 	}
+	s.host.activity(activityID, activityLabel, "succeeded", "Removed; restart to unload", 0, 0)
 	return piLines("/pi remove "+pkg+": removed from allowlist", "Restart cetas-go to release any already-loaded tools.")
 }

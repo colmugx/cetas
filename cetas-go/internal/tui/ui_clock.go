@@ -34,6 +34,10 @@ func (m model) nextUIWake(now time.Time) time.Time {
 	if m.markdownRenderPending() || m.historyMarkdownPending() {
 		consider(now.Add(50 * time.Millisecond))
 	}
+	for _,op:=range m.surface.activities.host{
+  if op.State=="running"{consider(now.Add(time.Second))}
+  if !op.Settled.IsZero(){consider(op.Settled.Add(15*time.Second))}
+ }
 	for _, a := range m.surface.activities.records {
 		if a.live() {
 			consider(now.Add(time.Second))

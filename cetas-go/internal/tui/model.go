@@ -887,13 +887,13 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.modalPrompt = "Experimental features"
 				m.modalIndex = 0
 				if !result.Installed {
-					m.modalItems = []string{"Bun Runtime — not installed · Install (download)"}
+					m.modalItems = []string{"Install Bun Runtime (Currently not installed)"}
 					m.modalValues = []string{"prepare"}
 				} else if result.Enabled {
-					m.modalItems = []string{"Bun Runtime — enabled · Disable"}
+					m.modalItems = []string{"Disable Bun Runtime (Currently ON)"}
 					m.modalValues = []string{"disable"}
 				} else {
-					m.modalItems = []string{"Bun Runtime — installed · Enable"}
+					m.modalItems = []string{"Enable Bun Runtime (Currently OFF)"}
 					m.modalValues = []string{"enable"}
 				}
 			}

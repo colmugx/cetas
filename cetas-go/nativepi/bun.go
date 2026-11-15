@@ -17,6 +17,9 @@ import (
 //go:embed bun_guest.mjs
 var bunWorkerScript []byte
 
+//go:embed pi_host_compat.mjs
+var piHostCompatScript []byte
+
 // RuntimeGuest is the shared kernel-facing contract for an in-process
 // lightweight guest and an opt-in, isolated Bun subprocess.
 type RuntimeGuest interface {
@@ -82,7 +85,7 @@ func OpenBun(binary, home, cwd string) (*BunGuest, error) {
 		return nil, err
 	}
 	script := file.Name()
-	if _, err = file.Write(bunWorkerScript); err != nil {
+	if _, err = file.Write(append(append([]byte(nil), piHostCompatScript...), bunWorkerScript...)); err != nil {
 		file.Close()
 		os.Remove(script)
 		return nil, err
