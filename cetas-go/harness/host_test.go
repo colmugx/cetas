@@ -50,7 +50,7 @@ func TestNativeHarnessHost(t *testing.T) {
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		hasResult, hasDelegationResult, hasPiResult := false, false, false
+		hasResult, hasDelegationResult, hasPiResult, hasPiEventResult := false, false, false, false
 		for _, message := range request.Messages {
 			if message.Role == "tool" && message.CallID == "native-ui-read" {
 				hasResult = true
@@ -60,6 +60,9 @@ func TestNativeHarnessHost(t *testing.T) {
 			}
 			if message.Role == "tool" && message.CallID == "native-pi-echo" {
 				hasPiResult = true
+			}
+			if message.Role == "tool" && message.CallID == "native-pi-events" {
+				hasPiEventResult = true
 			}
 		}
 		chunks := []string{
@@ -90,6 +93,13 @@ func TestNativeHarnessHost(t *testing.T) {
 				`[DONE]`,
 			}
 		}
+		if strings.Contains(string(body), "native-ui-pi-events-fixture") && !hasPiEventResult {
+			chunks = []string{
+				`{"id":"mock","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"native-pi-events","type":"function","function":{"name":"pi_native_events","arguments":"{}"}}]},"finish_reason":null}]}`,
+				`{"id":"mock","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
+				`[DONE]`,
+			}
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		for _, chunk := range chunks {
 			_, _ = io.WriteString(w, "data: "+chunk+"\n\n")
@@ -112,6 +122,20 @@ func TestNativeHarnessHost(t *testing.T) {
 		filepath.Join(home, ".cetas", "pi-packages.json"): `{"packages":["pi-native-fixture"]}`,
 		filepath.Join(piDir, "package.json"): `{"name":"pi-native-fixture","pi":{"extensions":["./index.mjs"]}}`,
 		filepath.Join(piDir, "index.mjs"): `export default function(pi) {
+			const events = [];
+			for (const name of ["agent_start", "agent_end", "agent_settled",
+				"turn_start", "turn_end", "message_start", "message_update",
+				"message_end", "tool_execution_start", "tool_execution_end"]) {
+				pi.on(name, (event) => events.push(event.type));
+			}
+			pi.registerTool({
+				name: "pi_native_events",
+				description: "Return the Pi lifecycle callbacks from real Agent runs",
+				parameters: {type: "object", properties: {}},
+				async execute() {
+					return {content: [{type: "text", text: events.join("|")}]};
+				}
+			});
 			pi.registerTool({
 				name:"pi_native_echo",
 				description:"Echo without leaving the Posoco Agent",
@@ -448,6 +472,59 @@ piTurn:
 	}
 	if !piExecuted || !piSucceeded {
 		t.Fatalf("Pi guest did not complete the Agent effect: executed=%v succeeded=%v", piExecuted, piSucceeded)
+	}
+	// Verify the Pi observer callbacks came from a real Posoco run, not a
+	// hand-crafted Go frame. The event_log tool executes in the same VM as the
+	// earlier pi_native_echo callback, so the log includes the prior turn's
+	// lifecycle and this turn's tool_execution_start.
+	if _, err := h.Request(ctx, "turn_start", map[string]any{"prompt": "native-ui-pi-events-fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	eventToolResult := ""
+	eventToolSeen := false
+	piDeadline = time.After(15 * time.Second)
+piEventsTurn:
+	for {
+		select {
+		case evt := <-seen:
+			if evt.Type == "tool.completed" {
+				var result struct {
+					ToolCallID string `json:"tool_call_id"`
+					Result string `json:"result"`
+					IsError bool `json:"is_error"`
+				}
+				if err := json.Unmarshal(evt.Raw, &result); err != nil {
+					t.Fatal(err)
+				}
+				if result.ToolCallID == "native-pi-events" {
+					eventToolSeen = true
+					if result.IsError {
+						t.Fatalf("Pi lifecycle tool failed: %s", evt.Raw)
+					}
+					eventToolResult = result.Result
+				}
+			}
+			if evt.Type == "turn.failed" {
+				t.Fatalf("Pi event turn failed: %s", evt.Raw)
+			}
+			if evt.Type == "turn.completed" {
+				break piEventsTurn
+			}
+		case <-piDeadline:
+			t.Fatal("Pi lifecycle observer tool never returned")
+		}
+	}
+	if !eventToolSeen {
+		t.Fatal("the real Agent never executed the Pi event log tool")
+	}
+	for _, sequence := range []string{
+		"agent_start|turn_start", "message_start|message_update",
+		"message_end|tool_execution_start|tool_execution_end",
+		"turn_end|agent_end|agent_settled",
+	} {
+		if !strings.Contains(eventToolResult, sequence) {
+			t.Fatalf("missing real Pi lifecycle sequence %q in %s", sequence, eventToolResult)
+		}
 	}
 	checkSwitchSupersedesQueuedReplay(t, h, home)
 	checkSessionCatalogAnchorRoundTrip(t, h, home)
