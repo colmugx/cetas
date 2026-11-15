@@ -114,9 +114,8 @@ fn EventHub::emit_to(
   extra~ : Array[(String, Json)] = [],
 ) -> Unit {
   match self.subscribers.get(subscription_id) {
-    Some(sink) => sink(
-      self.next_frame(session_id, "", event_type, extra).stringify(),
-    )
+    Some(sink) =>
+      sink(self.next_frame(session_id, "", event_type, extra).stringify())
     None => ()
   }
 }
