@@ -224,6 +224,10 @@ func (h *Host) awaitBoot(ctx context.Context) (*Host, error) {
 // composition errors remain fatal; setup never bypasses unrelated errors.
 func (h *Host) NeedsSetup() bool { return h.needsSetup }
 
+// PiAvailable describes the fixed, verified Pi capability of this native process.
+// Enabling or installing Bun during this run requires a restart.
+func (h *Host) PiAvailable() bool { return h.piAvailable }
+
 // Events contains all real EventHub payloads plus lifecycle frames.
 // The consuming MyGo adapter must feed them into Window.Update.
 func (h *Host) Events() <-chan Event { return h.events }

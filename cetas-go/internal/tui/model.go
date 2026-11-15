@@ -472,6 +472,9 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.host = msg.host
 		m.feed = msg.host.Events()
+		if m.nativePiUnavailable() {
+			m.protocolNotice(nativePiHint)
+		}
 		if msg.needsSetup {
 			m.needsSetup = true
 			m.status = "Choose a provider to set up Cetas Go"
@@ -1486,6 +1489,10 @@ func (m *model) command(value string) tea.Cmd {
 	case "/compact":
 		return request(m.host,"session_compact",map[string]any{})
 	case "/pi":
+		if m.nativePiUnavailable() {
+			m.protocolNotice(nativePiHint)
+			m.refreshTranscript()
+		}
 		return request(m.host,"pi_packages",map[string]any{"args":strings.TrimSpace(strings.TrimPrefix(value,"/pi"))})
 	case "/experimental":
 		return requestAs(m.host,"experimental_status","experimental",map[string]any{"action":"status"})
