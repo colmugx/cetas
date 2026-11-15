@@ -27,7 +27,8 @@ type piSupervisor struct {
 	workers map[string]chan piGuestFrame
 	generations map[string]uint64
 	closed bool
-}
+	home string
+
 
 func newPiSupervisor(host *Host) *piSupervisor {
 	return &piSupervisor{host: host, guests: make(map[string]*nativepi.Guest), workers: make(map[string]chan piGuestFrame), generations: make(map[string]uint64)}
@@ -42,7 +43,7 @@ func (s *piSupervisor) handle(kind string, frame json.RawMessage) {
 			Cwd string `json:"cwd"`
 		}
 		if err := json.Unmarshal(frame,&event);err!=nil {s.host.report(fmt.Errorf("Pi guest ready: %w",err));return}
-		go s.ready(event.SessionID,event.Home,event.Cwd)
+		s.beginReady(event.SessionID,event.Home,event.Cwd)
 	case "pi.guest.retired":
         var event struct { SessionID string `json:"session_id"` }
         if err := json.Unmarshal(frame,&event);err!=nil {s.host.report(fmt.Errorf("Pi guest retired: %w",err));return}
@@ -86,20 +87,41 @@ func (s *piSupervisor) enqueue(sessionID, kind string, raw json.RawMessage) {
 	queue := s.workers[sessionID]
 	if queue == nil || s.closed {
 		s.mu.Unlock()
-		return // No guest was installed for this session.
+		if kind=="pi.guest.execute" {go s.failExecution(raw,"Pi guest unavailable for session")}
+		return
 	}
 	select {
 	case queue <- piGuestFrame{kind: kind, frame: append(json.RawMessage(nil), raw...)}:
 	default:
 		s.host.report(fmt.Errorf("Pi guest session %s event queue full", sessionID))
+		if kind=="pi.guest.execute" {go s.failExecution(raw,"Pi guest event queue full")}
 	}
 	s.mu.Unlock()
 }
 
 // A single worker per Session owns observer/event ordering. It may call the
 // Harness without blocking its EventHub pump; unrelated sessions stay live.
+// Tool execution requests must be answered even on queue overflow or retirement.
+func (s *piSupervisor) failExecution(raw json.RawMessage, reason string) {
+	var e struct {SessionID string `json:"session_id"`;RequestID string `json:"request_id"`}
+	if json.Unmarshal(raw,&e)!=nil || e.SessionID=="" || e.RequestID=="" {return}
+	ctx,cancel:=context.WithTimeout(context.Background(),15*time.Second)
+	defer cancel()
+	_,err:=s.host.Request(ctx,"pi_guest_result",map[string]any{
+		"session_id":e.SessionID,"request_id":e.RequestID,
+		"result":nativepi.Result{OK:false,Content:reason},
+	})
+	if err!=nil{s.host.report(fmt.Errorf("Pi guest failed execution %s: %w",e.RequestID,err))}
+}
 func (s *piSupervisor) process(sessionID string, g *nativepi.Guest, queue <-chan piGuestFrame) {
 	for frame := range queue {
+		s.mu.Lock()
+		active:=s.guests[sessionID]==g
+		s.mu.Unlock()
+		if !active {
+			if frame.kind=="pi.guest.execute" {s.failExecution(frame.frame,"Pi guest session retired")}
+			continue
+		}
 		if frame.kind == "pi.guest.execute" {
 			var event struct {
 				RequestID string `json:"request_id"`
@@ -127,22 +149,24 @@ func (s *piSupervisor) process(sessionID string, g *nativepi.Guest, queue <-chan
 	}
 }
 
-func (s *piSupervisor) ready(sessionID,home,cwd string) {
+// Reserve a generation on the ordered EventHub pump before asynchronous IO.
+func (s *piSupervisor) beginReady(sessionID,home,cwd string) {
 	if sessionID==""||home=="" {s.host.report(fmt.Errorf("Pi guest ready missing session identity"));return}
+	s.mu.Lock()
+	if s.closed {s.mu.Unlock();return}
+	s.home=home
+	if _,exists:=s.guests[sessionID];exists {s.mu.Unlock();return}
+	s.generations[sessionID]++
+	gen:=s.generations[sessionID]
+	s.guests[sessionID]=nil
+	s.mu.Unlock()
+	go s.ready(sessionID,home,cwd,gen)
+}
+func (s *piSupervisor) ready(sessionID,home,cwd string,generation uint64) {
 	select {
 	case <-s.host.started:
 	case <-s.host.done: return
 	}
-	s.mu.Lock()
-	_, exists := s.guests[sessionID]
-	if s.closed || exists {s.mu.Unlock();return}
-	// The generation invalidates an in-flight loader when its SessionHandle
-	// retires. A resumed session with the same journal id gets a new VM.
-	s.generations[sessionID]++
-	generation := s.generations[sessionID]
-	s.guests[sessionID]=nil
-	s.mu.Unlock()
-
 	g,err:=nativepi.Open(home,cwd)
 	if err!=nil {
 		s.host.report(fmt.Errorf("Pi guest session %s: %w",sessionID,err))
@@ -151,6 +175,7 @@ func (s *piSupervisor) ready(sessionID,home,cwd string) {
         s.mu.Unlock()
 		return
 	}
+	for _, diagnostic:=range g.Diagnostics() {s.host.report(fmt.Errorf("Pi guest session %s: %s",sessionID,diagnostic))}
 	s.mu.Lock()
 	if s.closed || s.generations[sessionID]!=generation {s.mu.Unlock();g.Close();return}
 	s.guests[sessionID]=g

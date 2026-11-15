@@ -230,6 +230,7 @@ func (h *Host) Request(ctx context.Context, command string, args any) (json.RawM
 	if command == "" {
 		return nil, errors.New("empty Harness command")
 	}
+	if command=="pi_packages" {return h.pi.packageCommand(ctx,args)}
 	id := h.nextID.Add(1)
 	// The native dispatcher parses ids into Int32; minting beyond that range
 	// would wrap negative on the MoonBit side and be refused as an invalid

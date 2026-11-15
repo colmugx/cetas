@@ -857,6 +857,13 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.name == "commands" {
 			m.installCommandCatalog(msg.payload)
 		}
+		if msg.name == "pi_packages" {
+			var answer struct {Lines []string `json:"lines"`}
+			if json.Unmarshal(msg.payload,&answer)==nil {
+				m.transcript=append(m.transcript,ui.SanitizeSGR(strings.Join(answer.Lines,"\n")))
+				m.refreshTranscript()
+			}
+		}
 		if msg.name == "help" {
 			content := nativeSlashHelp()
 			if m.commandSession == m.session {
@@ -1438,7 +1445,9 @@ func (m *model) command(value string) tea.Cmd {
 	case "/skills":
 		return requestAs(m.host, "skills_browse", "skills", map[string]any{})
 	case "/compact":
-		return request(m.host, "session_compact", map[string]any{})
+		return request(m.host,"session_compact",map[string]any{})
+	case "/pi":
+		return request(m.host,"pi_packages",map[string]any{"args":strings.TrimSpace(strings.TrimPrefix(value,"/pi"))})
 	case "/find":
 		m.findTranscript(strings.TrimSpace(strings.TrimPrefix(value, "/find")))
 		return nil

@@ -27,6 +27,7 @@ var nativeSlashCommands = []nativeSlashCommand{
 	{"/permission", "Set the permission mode", true},
 	{"/skills", "Browse installed skills", false},
 	{"/compact", "Compact session context", false},
+	{"/pi", "Manage Pi extensions", true},
 	{"/find", "Find transcript text across the full history", true},
 	{"/find-next", "Jump to next transcript match", false},
 	{"/find-prev", "Jump to previous transcript match", false},
@@ -46,6 +47,15 @@ type slashSuggestion struct {
 func slashSuggestions(text string) []slashSuggestion {
 	if !strings.HasPrefix(text, "/") || strings.ContainsAny(text, "\n\r\t") {
 		return nil
+	}
+	if strings.HasPrefix(text, "/pi ") {
+		prefix:=strings.ToLower(strings.TrimPrefix(text,"/pi "))
+		if strings.Contains(prefix," "){return nil}
+		var options []slashSuggestion
+		for _,sub:=range []string{"install","remove","list","help"} {
+			if strings.HasPrefix(sub,prefix){options=append(options,slashSuggestion{label:sub,insert:"/pi "+sub})}
+		}
+		return options
 	}
 	if strings.HasPrefix(text, "/permission ") {
 		prefix := strings.ToLower(strings.TrimPrefix(text, "/permission "))
