@@ -38,12 +38,8 @@ func TestSlashHelpMatchesRegistry(t *testing.T) {
 			t.Fatalf("missing %s in help", command.name)
 		}
 	}
-	// Questions now have a native event source and typed answer route. Pi
-	// package management still has no native implementation and must stay out.
-	if !strings.Contains(help, "/answer — ") || !strings.Contains(help, "/questions — ") {
-		t.Fatal("native question commands missing from help")
-	}
-	if strings.Contains(help, "/pi — ") {
-		t.Fatal("do not advertise unimplemented JS-only integrations")
+	// Questions and native Pi package management now have host routes.
+	if !strings.Contains(help, "/answer — ") || !strings.Contains(help, "/questions — ") || !strings.Contains(help, "/pi — ") {
+		t.Fatal("native question or Pi package commands missing from help")
 	}
 }
