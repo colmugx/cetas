@@ -88,7 +88,8 @@ func OpenBun(binary, home, cwd string) (*BunGuest,error) {
  if err=cmd.Start();err!=nil {input.Close();os.Remove(script);return nil,err}
  g:=&BunGuest{cmd:cmd,input:input,output:bufio.NewScanner(output),done:make(chan error,1),script:script,cwd:cwd}
  g.output.Buffer(make([]byte,64*1024),16<<20)
- go func(){g.done<-cmd.Wait()}()
+ // Do not call Cmd.Wait concurrently with StdoutPipe reads: Wait can
+ // close the pipe before the final JSONL reply has been consumed.
  var reply bunReply
  if err=g.read(&reply,30*time.Second);err!=nil {
   g.Close()
@@ -158,6 +159,7 @@ func(g *BunGuest) Close(){
  g.closeOnce.Do(func(){
   _=g.input.Close()
   if g.cmd.Process!=nil{_ = g.cmd.Process.Kill()}
+  go func(){g.done<-g.cmd.Wait()}()
   select{case <-g.done:case <-time.After(3*time.Second):}
   _=os.Remove(g.script)
  })
