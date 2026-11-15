@@ -474,6 +474,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.feed = msg.host.Events()
 		if m.nativePiUnavailable() {
 			m.protocolNotice(nativePiHint)
+			m.refreshTranscript()
 		}
 		if msg.needsSetup {
 			m.needsSetup = true
