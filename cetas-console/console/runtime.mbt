@@ -12,6 +12,9 @@ pub struct ConsoleConfig {
   /// facts and the unflattened `UiRender` shape). Off keeps every existing
   /// consumer on the shared wire contract.
   native_ui : Bool
+  /// Pi is an optional native Agent extension, independent of UI projection.
+  /// No Bun runtime means no native Pi ToolContribution owner is composed.
+  native_pi_enabled : Bool
   /// Host-resolved startup permission posture, stamped on the first workspace
   /// and on every workspace composed later. The shared default stays
   /// `WorkspaceWrite`; a host whose own policy differs (the native terminal
@@ -33,10 +36,11 @@ pub fn console_config(
   label : String,
   protocol : String,
   native_ui~ : Bool = false,
+  native_pi_enabled~ : Bool = false,
   permission_mode~ : @permission.PermissionMode = @permission.PermissionMode::WorkspaceWrite,
   herdr_presence~ : Bool = false,
 ) -> ConsoleConfig {
-  { fs, home, label, protocol, native_ui, permission_mode, herdr_presence, }
+  { fs, home, label, protocol, native_ui, native_pi_enabled, permission_mode, herdr_presence, }
 }
 
 ///|
@@ -97,6 +101,8 @@ pub struct ConsoleRuntime {
   /// Native terminal UI projection opt-in, carried from `ConsoleConfig` to
   /// every session observer and UiPort this runtime composes.
   native_ui : Bool
+  /// Fixed per-process at native startup: never infer a Pi runtime from UI mode.
+  native_pi_enabled : Bool
   /// Host startup permission posture, carried from `ConsoleConfig`: the seed
   /// for the first workspace and every workspace composed on a later switch.
   /// Immutable — an interactive `/permission` switch only moves the live
@@ -292,6 +298,7 @@ async fn ConsoleRuntime::compose_handle(
         self.label,
         self.protocol,
         self.native_ui,
+        self.native_pi_enabled,
         self.herdr_presence,
         session_id,
       ),
@@ -420,6 +427,7 @@ async fn compose_session_agent(
   label : String,
   protocol : String,
   native_ui : Bool,
+  native_pi_enabled : Bool,
   herdr_presence : Bool,
   session_id : String,
 ) -> SessionHandle {
@@ -525,7 +533,7 @@ async fn compose_session_agent(
   )
   tail_exts.push(mcp_bridge as &@posoco.Extension)
   reserve_mcp_tool_names(mcp_bridge, session.base_defs)
-  let pi_guest = if native_ui {
+  let pi_guest = if native_ui && native_pi_enabled {
     let guest = NativePiGuest::new(session_id, hub)
     tail_exts.push(guest as &@posoco.Extension)
     Some(guest)
@@ -722,6 +730,7 @@ pub async fn ConsoleRuntime::switch_workspace(
           self.label,
           self.protocol,
           self.native_ui,
+          self.native_pi_enabled,
           self.herdr_presence,
         ),
       ) catch {
@@ -797,6 +806,7 @@ pub async fn ConsoleRuntime::resume_workspace_session(
               self.label,
               self.protocol,
               self.native_ui,
+              self.native_pi_enabled,
               self.herdr_presence,
             ),
           ) catch {
@@ -1198,6 +1208,7 @@ async fn build_workspace(
   label : String,
   protocol : String,
   native_ui : Bool,
+  native_pi_enabled : Bool,
   herdr_presence : Bool,
 ) -> WorkspaceRuntime {
   let warn = async fn(text : String) noraise {
@@ -1306,7 +1317,7 @@ async fn build_workspace(
   )
   tail_exts.push(mcp_bridge as &@posoco.Extension)
   reserve_mcp_tool_names(mcp_bridge, session.base_defs)
-  let pi_guest = if native_ui {
+  let pi_guest = if native_ui && native_pi_enabled {
     let guest = NativePiGuest::new(first_session_id, hub)
     tail_exts.push(guest as &@posoco.Extension)
     Some(guest)
@@ -1380,6 +1391,7 @@ pub async fn compose_console_runtime(
     config.label,
     config.protocol,
     config.native_ui,
+    config.native_pi_enabled,
     config.herdr_presence,
   )
   let workspaces : Map[String, WorkspaceRuntime] = Map::from_array([
@@ -1395,6 +1407,7 @@ pub async fn compose_console_runtime(
     label: config.label,
     protocol: config.protocol,
     native_ui: config.native_ui,
+    native_pi_enabled: config.native_pi_enabled,
     startup_permission: config.permission_mode,
     herdr_presence: config.herdr_presence,
     group,
