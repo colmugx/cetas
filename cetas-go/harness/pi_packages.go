@@ -78,12 +78,27 @@ func (s *piSupervisor) packageCommand(ctx context.Context,args any)(json.RawMess
  words:=strings.Fields(req.Args)
  cmd:="list"
  if len(words)>0 {cmd=words[0]}
- if cmd=="help" {return piLines("usage: /pi install <package>","       /pi remove <package>","       /pi list","Packages are allowlisted via ~/.cetas/pi-packages.json; changes require a restart.")}
+ if cmd=="help" {return piLines("usage: /pi install <package>","       /pi remove <package>","       /pi list","       /pi runtime status|prepare","Experimental Bun is downloaded only by /pi runtime prepare; it does not activate Bun guest support.","Packages are allowlisted via ~/.cetas/pi-packages.json; changes require a restart.")}
  s.mu.Lock()
  home:=s.home
  s.mu.Unlock()
  home,err=piHome(home)
  if err!=nil{return nil,err}
+ if cmd=="runtime" {
+  if len(words)>2 {return piLines("usage: /pi runtime status|prepare")}
+  action:="status"
+  if len(words)==2 {action=words[1]}
+  if action!="status"&&action!="prepare" {return piLines("usage: /pi runtime status|prepare")}
+  path,ready,err:=bunPrepared(home)
+  if err!=nil {return nil,err}
+  if action=="status" {
+   if ready {return piLines("Bun "+experimentalBunVersion+" is cached at "+path,"Experimental Pi Bun guest is not active.")}
+   return piLines("Bun "+experimentalBunVersion+" is not downloaded","Run /pi runtime prepare to download and verify the official archive.")
+  }
+  path,err=prepareBun(ctx,home)
+  if err!=nil {return nil,err}
+  return piLines("Bun "+experimentalBunVersion+" prepared at "+path,"The Bun extension guest is not implemented yet; no runtime was activated.")
+ }
  root:=filepath.Join(home,".cetas","pi-packages")
  configPath:=filepath.Join(home,".cetas","pi-packages.json")
  piInstallMu.Lock()
