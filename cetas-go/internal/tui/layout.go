@@ -209,7 +209,7 @@ func overlayPanelSize(width, height int) (int, int) {
 func (m model) overlayTitle() string {
 	title := m.modalPrompt
 	if title == "" {
-		title = map[string]string{"models": "Choose a model", "efforts": "Reasoning effort", "sessions": "Sessions", "providers": "Connect a provider", "login_methods": "Authentication method", "rewind": "Rewind", "skills_browse": "Skills"}[m.modal]
+		title = map[string]string{"models": "Choose a model", "efforts": "Reasoning effort", "sessions": "Sessions", "providers": "Connect a provider", "login_methods": "Authentication method", "rewind": "Rewind", "skills_browse": "Skills", "experimental": "Experimental features"}[m.modal]
 	}
 	if title == "" {
 		title = m.modal
