@@ -1067,7 +1067,7 @@ pub async fn ConsoleRuntime::model_slots_json(
   }
   let active_id = handle.model
   let slots : Array[Json] = []
-  handle.router.refresh_model_metadata()
+  handle.router.refresh_model_metadata_in_background()
   for slot in handle.router.list_slots() {
     let window = handle.router.context_window_reading(slot)
     let efforts : Array[Json] = []

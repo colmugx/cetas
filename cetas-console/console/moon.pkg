@@ -50,6 +50,8 @@ import {
 import {
   "colmugx/posoco-ext-custom" @custom,
   "moonbitlang/core/async/http",
+  "moonbitlang/core/env" @coreenv,
+
 } for "wbtest"
 
 supported_targets = "native"

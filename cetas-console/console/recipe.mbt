@@ -185,13 +185,14 @@ async fn build_compiled_recipe_features(
   profile_activation_sink~ : &@profiles.ProfileActivationSink? = None,
   host_help_note~ : String? = None,
   askquestion~ : @askquestion.AskQuestionTools? = None,
+  names~ : Array[String] = compiled_recipe,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
   let exts : Array[&@posoco.Extension] = []
   let episodic : Array[&@posoco.Extension] = []
   let anchor = @devkit.WorkspaceAnchor::WorkspaceAnchor(ctx.cwd)
   let freshness = @devkit.FreshnessGuard::FreshnessGuard()
 
-  for key in compiled_recipe {
+  for key in names {
     match key {
       "forme" =>
         exts.push(
