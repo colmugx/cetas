@@ -246,7 +246,6 @@ func (h *Host) Request(ctx context.Context, command string, args any) (json.RawM
 	if command == "" {
 		return nil, errors.New("empty Harness command")
 	}
-	if command=="pi_capability" {return json.Marshal(map[string]bool{"enabled":h.piAvailable})}
 	if command=="pi_packages" {return h.pi.packageCommand(ctx,args)}
 	if command=="experimental" {return h.pi.experimentalCommand(ctx,args)}
 	id := h.nextID.Add(1)
