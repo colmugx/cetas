@@ -101,8 +101,11 @@ func (b *EventBridge) Translate(raw []byte) ([]PiEvent, error) {
 		}
 		var out []PiEvent
 		if b.lastAssistant == nil {
-			// Posoco reports the tool once the assistant model response has
-			// completed. Match JS Pi's message_end-before-tool_start order.
+			// A tool-only model reply has no text_delta. Pi still requires
+			// message_start before its message_end and tool callbacks.
+			if !b.messageStarted {
+				out = append(out,emit("message_start",PiEvent{"message":b.message("pending")}))
+			}
 			b.lastAssistant = b.message("toolUse")
 			b.runMessages = append(b.runMessages, b.lastAssistant)
 			out = append(out, emit("message_end", PiEvent{
@@ -160,13 +163,29 @@ func (b *EventBridge) Translate(raw []byte) ([]PiEvent, error) {
 		}
 		return out, nil
 	case "turn.failed":
-		b.runActive = false
-		b.messageStarted = false
-		b.text = ""
-		b.toolResults = nil
-		b.lastAssistant = nil
-		b.runMessages = nil
-		return []PiEvent{emit("agent_end", PiEvent{"messages": []any{}})}, nil
+		// Failure is a terminal turn too: settle every passive observer
+		// in order so extension state cannot remain permanently active.
+		var out []PiEvent
+		message:=b.lastAssistant
+		if b.messageStarted || message == nil {
+			if !b.messageStarted {out=append(out,emit("message_start",PiEvent{"message":b.message("pending")}))}
+			message=b.message("error")
+			out=append(out,emit("message_end",PiEvent{"message":message}))
+			b.runMessages=append(b.runMessages,message)
+		}
+		out=append(out,emit("turn_end",PiEvent{
+			"turnIndex":b.turnIndex,"message":message,
+			"toolResults":append([]any{},b.toolResults...),
+		}))
+		out=append(out,emit("agent_end",PiEvent{"messages":append([]any{},b.runMessages...)}))
+		out=append(out,emit("agent_settled",nil))
+		b.runActive=false
+		b.messageStarted=false
+		b.text=""
+		b.toolResults=nil
+		b.lastAssistant=nil
+		b.runMessages=nil
+		return out,nil
 	default:
 		return nil, nil
 	}
