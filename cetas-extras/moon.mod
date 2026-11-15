@@ -14,5 +14,4 @@ description = "Cetas local extension seam: empty by default, replaceable by a lo
 
 import {
   "colmugx/posoco@0.24.2",
-  "moonbitlang/async@0.22.7",
 }
