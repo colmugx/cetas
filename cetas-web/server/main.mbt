@@ -72,10 +72,10 @@ async fn serve_websocket(
         let queue : @aqueue.Queue[String] = Queue(
           kind=Blocking(WEB_EVENT_QUEUE_CAPACITY),
         )
-        runtime.attach_sink(fn(event : String) {
+        let subscription_id = runtime.subscribe_events(fn(event : String) {
           ignore(queue.try_put(event) catch { _ => false })
         })
-        defer runtime.detach_sink()
+        defer runtime.unsubscribe_events(subscription_id)
         defer queue.close(clear=true)
 
         connection_group.spawn_bg(async fn() { drain_web_events(queue, ws) })
