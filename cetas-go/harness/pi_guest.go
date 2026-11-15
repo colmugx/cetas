@@ -23,7 +23,7 @@ type piGuestFrame struct {
 type piSupervisor struct {
 	host *Host
 	mu sync.Mutex
-	guests map[string]*nativepi.Guest
+	guests map[string]nativepi.RuntimeGuest
 	workers map[string]chan piGuestFrame
 	generations map[string]uint64
 	closed bool
@@ -31,7 +31,7 @@ type piSupervisor struct {
 }
 
 func newPiSupervisor(host *Host) *piSupervisor {
-	return &piSupervisor{host: host, guests: make(map[string]*nativepi.Guest), workers: make(map[string]chan piGuestFrame), generations: make(map[string]uint64)}
+	return &piSupervisor{host: host, guests: make(map[string]nativepi.RuntimeGuest), workers: make(map[string]chan piGuestFrame), generations: make(map[string]uint64)}
 }
 
 func (s *piSupervisor) handle(kind string, frame json.RawMessage) {
@@ -113,7 +113,7 @@ func (s *piSupervisor) failExecution(raw json.RawMessage, reason string) {
 	})
 	if err!=nil{s.host.report(fmt.Errorf("Pi guest failed execution %s: %w",e.RequestID,err))}
 }
-func (s *piSupervisor) process(sessionID string, g *nativepi.Guest, queue <-chan piGuestFrame) {
+func (s *piSupervisor) process(sessionID string, g nativepi.RuntimeGuest, queue <-chan piGuestFrame) {
 	for frame := range queue {
 		s.mu.Lock()
 		active:=s.guests[sessionID]==g
@@ -162,12 +162,24 @@ func (s *piSupervisor) beginReady(sessionID,home,cwd string) {
 	s.mu.Unlock()
 	go s.ready(sessionID,home,cwd,gen)
 }
+// A configured Bun guest never silently downgrades to moejs. Both guests
+// implement the same kernel-facing, serial session contract.
+func(s *piSupervisor) openGuest(home,cwd string)(nativepi.RuntimeGuest,error){
+ enabled,err:=bunGuestEnabled(home)
+ if err!=nil{return nil,err}
+ if !enabled{return nativepi.Open(home,cwd)}
+ path,ready,err:=bunPrepared(home)
+ if err!=nil{return nil,err}
+ if !ready{return nil,fmt.Errorf("experimental Bun runtime not prepared; run /pi runtime prepare")}
+ return nativepi.OpenBun(path,home,cwd)
+}
+
 func (s *piSupervisor) ready(sessionID,home,cwd string,generation uint64) {
 	select {
 	case <-s.host.started:
 	case <-s.host.done: return
 	}
-	g,err:=nativepi.Open(home,cwd)
+	g,err:=s.openGuest(home,cwd)
 	if err!=nil {
 		s.host.report(fmt.Errorf("Pi guest session %s: %w",sessionID,err))
 		s.mu.Lock()
@@ -244,7 +256,7 @@ func (s *piSupervisor) close() {
 	if s.closed{s.mu.Unlock();return}
 	s.closed=true
 	guests:=s.guests
-	s.guests=make(map[string]*nativepi.Guest)
+	s.guests=make(map[string]nativepi.RuntimeGuest)
 	for sessionID, queue := range s.workers {
 		close(queue)
 		delete(s.workers, sessionID)
