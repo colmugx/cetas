@@ -41,7 +41,7 @@ impl @posoco.ModelPort for AblationModel with fn chat(
     finish_reason=@posoco.FinishReason::Stop,
     usage=None,
   )
-  { completion, processed_messages: messages.to_owned() }
+  { completion, processed_messages: messages.to_owned(), }
 }
 
 ///|
@@ -63,7 +63,7 @@ impl @posoco.ModelPort for AblationModel with fn provider_config(_self) -> @poso
 
 ///|
 fn ablation_router() -> @ext_llm.RouterModelPort {
-  let port : &@posoco.ModelPort = { answer: ablation_answer() }
+  let port : &@posoco.ModelPort = { answer: ablation_answer(), }
   let slot = @ext_llm.ModelSlot::ModelSlot(
     id="main",
     label="main",
@@ -89,17 +89,21 @@ async fn main {
   let phase = env_phase()
   let home = @fs.tmpdir(prefix="cetas-ablate-")
   let fs = @workspace.NativeWorkspaceFs()
-  fs.mkdir(home + "/.cetas", recursive=true) catch { _ => () }
+  fs.mkdir(home + "/.cetas", recursive=true) catch {
+    _ => ()
+  }
   fs.write_file(
     home + "/.cetas/settings.json",
     "{\"providers\":{\"opencode\":{\"api_key\":\"sk-fixture\"}}}",
-  ) catch { _ => () }
+  ) catch {
+    _ => ()
+  }
   let cwd = @fs.tmpdir(prefix="cetas-ablate-ws-")
   println("MARK base")
   @async.sleep(300)
   let platform = @cetas_core.build_cetas_platform(
-    home=home,
-    cwd=cwd,
+    home~,
+    cwd~,
     fs,
     permission_mode=@permission.PermissionMode::Yolo,
   ) catch {
@@ -113,8 +117,8 @@ async fn main {
     return
   }
   let session = @cetas_core.build_cetas_session(
-    platform=platform,
-    cwd=cwd,
+    platform~,
+    cwd~,
     router=Some(ablation_router()),
     label="cetas-ablate",
   ) catch {
@@ -127,36 +131,34 @@ async fn main {
     @async.sleep(4000)
     return
   }
-  let agent = @cetas_core.compose_cetas_agent(session=session)
+  let agent = @cetas_core.compose_cetas_agent(session~)
   println("MARK agent")
   @async.sleep(300)
   if phase == "console-noui" || phase == "console" {
     let native_ui = phase == "console"
-    @async.with_task_group(
-      group => {
-        let console_fs = @workspace.NativeWorkspaceFs()
-        let console_fs_ref : &@workspace.WorkspaceFs = console_fs
-        let config = @console.console_config(
-          console_fs_ref,
-          home,
-          "cetas-native",
-          "cetas-native/0.1",
-          native_ui~,
-          permission_mode=@permission.PermissionMode::Yolo,
-        )
-        let runtime = @console.compose_console_runtime(config, cwd, group)
-        runtime.attach_sink(fn(frame : String) {
-          // Drain: delivery must not queue up behind an unread sink.
-          ignore(frame)
-        })
-        let snapshot = runtime.runtime_json()
-        ignore(snapshot)
-        println("MARK console \{phase}")
-        @async.sleep(1500)
-        runtime.shutdown_all()
-        ignore(group)
-      },
-    )
+    @async.with_task_group(group => {
+      let console_fs = @workspace.NativeWorkspaceFs()
+      let console_fs_ref : &@workspace.WorkspaceFs = console_fs
+      let config = @console.console_config(
+        console_fs_ref,
+        home,
+        "cetas-native",
+        "cetas-native/0.1",
+        native_ui~,
+        permission_mode=@permission.PermissionMode::Yolo,
+      )
+      let runtime = @console.compose_console_runtime(config, cwd, group)
+      runtime.attach_sink(fn(frame : String) {
+        // Drain: delivery must not queue up behind an unread sink.
+        ignore(frame)
+      })
+      let snapshot = runtime.runtime_json()
+      ignore(snapshot)
+      println("MARK console \{phase}")
+      @async.sleep(1500)
+      runtime.shutdown_all()
+      ignore(group)
+    })
     println("MARK done")
     @async.sleep(4000)
     return

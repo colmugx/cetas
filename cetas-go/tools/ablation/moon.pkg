@@ -1,9 +1,9 @@
 import {
-  "moonbitlang/core/async" @async,
-  "moonbitlang/core/async/fs" @fs,
-  "moonbitlang/core/env" @env,
+  "moonbitlang/core/async",
+  "moonbitlang/core/async/fs",
+  "moonbitlang/core/env",
   "colmugx/cetas-core/lib" @cetas_core,
-  "colmugx/cetas-console/console" @console,
+  "colmugx/cetas-console/console",
   "colmugx/posoco",
   "colmugx/posoco-ext-workspace" @workspace,
   "colmugx/posoco-ext-permission" @permission,
@@ -14,7 +14,9 @@ supported_targets = "native"
 
 pkgtype(kind: "executable")
 
-options("allow-experimental-packages": [
-  "moonbitlang/core/async",
-  "moonbitlang/core/async/fs",
-])
+options(
+  "allow-experimental-packages": [
+    "moonbitlang/core/async",
+    "moonbitlang/core/async/fs",
+  ],
+)
