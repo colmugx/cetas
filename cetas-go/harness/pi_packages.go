@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -19,6 +20,21 @@ import (
 
 var piPackageName = regexp.MustCompile(`^(@[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+(@[A-Za-z0-9._-]+)?$`)
 var piInstallMu sync.Mutex
+
+// Windows npm/pnpm/yarn are often .cmd shims rather than PE executables.
+// Match cetas-js: only route non-native shims through cmd.exe, with package
+// arguments validated by piPackageName before reaching this function.
+func piPackageRunner(ctx context.Context, manager, verb, pkg string) *exec.Cmd {
+	lower := strings.ToLower(manager)
+	if runtime.GOOS == "windows" && !strings.HasSuffix(lower, ".exe") && !strings.HasSuffix(lower, ".com") {
+		command := os.Getenv("ComSpec")
+		if command == "" {
+			command = "cmd.exe"
+		}
+		return exec.CommandContext(ctx, command, "/d", "/s", "/c", manager, verb, pkg)
+	}
+	return exec.CommandContext(ctx, manager, verb, pkg)
+}
 
 // Bounded npm output capture: progress is based on actual subprocess activity.
 // Do not display untrusted raw npm output in activities (registry URLs may
@@ -234,7 +250,7 @@ func (s *piSupervisor) packageCommand(ctx context.Context, args any) (json.RawMe
 	}
 	before := piPackageDependencies(root)
 	// Executed with argv, never a shell; package spec is a single validated arg.
-	runner := exec.CommandContext(ctx, snapshot.Manager, map[bool]string{true: "add", false: "remove"}[cmd == "install"], pkg)
+	runner := piPackageRunner(ctx, snapshot.Manager, map[bool]string{true: "add", false: "remove"}[cmd == "install"], pkg)
 	runner.Dir = root
 	runner.Stdin = nil
 	activityID := "pi:" + pkg
