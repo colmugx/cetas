@@ -41,6 +41,8 @@ type Guest struct {
 	active  map[string]bool
 	version uint64
 	events EventBridge
+	diagnostics []string
+	loaded []string
 }
 
 type registered struct {
@@ -73,23 +75,50 @@ func Open(home, cwd string) (*Guest, error) {
 	}
 	var allow struct{ Packages []string `json:"packages"` }
 	if err := json.Unmarshal(config, &allow); err != nil {
-		return nil, fmt.Errorf("parse Pi allowlist: %w", err)
+		g.diagnostics = append(g.diagnostics, fmt.Sprintf("Pi allowlist is malformed (deny by default): %v", err))
+		return g, nil
 	}
 	for _, name := range allow.Packages {
 		if !validPackageName(name) {
-			return nil, fmt.Errorf("invalid Pi allowlist package name %q", name)
+			g.diagnostics = append(g.diagnostics, fmt.Sprintf("invalid Pi allowlist package name %q", name))
+			continue
 		}
-		dir := filepath.Join(root, name)
-		if err := g.loadPackage(dir, name); err != nil {
-			return nil, err
+		dir, err := locatePiPackage(root, name)
+		if err == nil { err = g.loadPackage(dir, name) }
+		if err != nil {
+			g.diagnostics = append(g.diagnostics, fmt.Sprintf("Pi package %q: %v", name, err))
+			continue // A failed package cannot prevent unrelated allowlisted packages from loading.
 		}
+		g.loaded = append(g.loaded, name)
 	}
 	return g, nil
 }
 
 func validPackageName(name string) bool {
-	return name != "" && name != "." && name != ".." &&
-		!strings.ContainsAny(name, "/\\:\x00")
+	if name == "" || strings.ContainsAny(name, "\\:\x00") { return false }
+	segments := strings.Split(name, "/")
+	if len(segments) > 2 || (len(segments) == 2 && (!strings.HasPrefix(segments[0], "@") || len(segments[0]) < 2)) { return false }
+	for _, seg := range segments {
+		if seg == "" || seg == "." || seg == ".." || strings.ContainsAny(seg, " \t\n") { return false }
+	}
+	return true
+}
+
+// JS installs into the umbrella's node_modules; unpacked packages can
+// still be direct children. All candidates remain beneath the package root.
+func locatePiPackage(root, name string) (string, error) {
+	for _, dir := range []string{filepath.Join(root, "node_modules", name), filepath.Join(root, name)} {
+		if _, err := os.Stat(filepath.Join(dir,"package.json")); err != nil { continue }
+		canonicalRoot, rerr := filepath.EvalSymlinks(root)
+		canonicalDir, derr := filepath.EvalSymlinks(dir)
+		if rerr != nil || derr != nil { return "", fmt.Errorf("resolve Pi package symlink: %v / %v",rerr,derr) }
+		rel, err := filepath.Rel(canonicalRoot,canonicalDir)
+		if err != nil || rel == ".." || strings.HasPrefix(rel,".."+string(os.PathSeparator)) {
+			return "",fmt.Errorf("Pi package escapes package root: %q",dir)
+		}
+		return dir,nil
+	}
+	return "",fmt.Errorf("package.json not found under %s/node_modules/%s or %s/%s",root,name,root,name)
 }
 
 func (g *Guest) loadPackage(dir, expected string) error {
@@ -115,6 +144,36 @@ func (g *Guest) loadPackage(dir, expected string) error {
 	return nil
 }
 
+// Pi 0.46+ declares entries such as ./dist. Resolve to a file before linking.
+func resolvePiEntry(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err == nil && !info.IsDir() { return path,nil }
+	if err == nil && info.IsDir() {
+		if data,e:=os.ReadFile(filepath.Join(path,"package.json"));e==nil {
+			var manifest struct { Main string `json:"main"` }
+			if json.Unmarshal(data,&manifest)==nil && manifest.Main!="" && !filepath.IsAbs(manifest.Main) {
+				candidate:=filepath.Join(path,manifest.Main)
+				if candidate!=path {if resolved,e:=resolvePiEntry(candidate);e==nil {return resolved,nil}}
+			}
+		}
+	}
+	for _, candidate := range []string{path+".js",path+".mjs",path+".ts",
+		filepath.Join(path,"index.js"),filepath.Join(path,"index.mjs"),filepath.Join(path,"index.ts")} {
+		if stat,e:=os.Stat(candidate);e==nil&&!stat.IsDir(){return candidate,nil}
+	}
+	return "",fmt.Errorf("Pi entry %q resolved to no JavaScript file",path)
+}
+
+func (g *Guest) Diagnostics() []string {
+	g.mu.Lock();defer g.mu.Unlock()
+	return append([]string(nil),g.diagnostics...)
+}
+
+func (g *Guest) LoadedPackages() []string {
+	g.mu.Lock();defer g.mu.Unlock()
+	return append([]string(nil),g.loaded...)
+}
+
 func allowedModule(root, path string) (string, error) {
 	root, err := filepath.EvalSymlinks(root)
 	if err != nil { return "", err }
@@ -134,7 +193,9 @@ func (g *Guest) loadEntry(root, spec string) error {
 	if !strings.HasPrefix(spec, "./") {
 		return fmt.Errorf("Pi entry must be package-relative: %q", spec)
 	}
-	path, err := allowedModule(root, filepath.Join(root, spec))
+	entry, err := resolvePiEntry(filepath.Join(root, spec))
+	if err != nil { return err }
+	path, err := allowedModule(root, entry)
 	if err != nil { return err }
 	mods := map[string]*moejs.Module{}
 	var compileFile func(string) (*moejs.Module, error)
@@ -157,7 +218,9 @@ func (g *Guest) loadEntry(root, spec string) error {
 		if !strings.HasPrefix(specifier, "./") && !strings.HasPrefix(specifier, "../") {
 			return nil, fmt.Errorf("Pi guest import %q is not permitted", specifier)
 		}
-		target, err := allowedModule(root, filepath.Join(filepath.Dir(from.Name()), specifier))
+		entry, err := resolvePiEntry(filepath.Join(filepath.Dir(from.Name()), specifier))
+		if err != nil { return nil, err }
+		target, err := allowedModule(root, entry)
 		if err != nil { return nil, err }
 		return compileFile(target)
 	})
