@@ -1645,9 +1645,9 @@ pub async fn ConsoleRuntime::rename_session(
 }
 
 ///|
-/// Adaptor surface: one broadcast sink (the web keeps one WebSocket, the
-/// desktop keeps one window emitter), event emission, UI-response resolve,
-/// identity reads, and full shutdown.
+/// Adaptor surface: one legacy native/desktop sink plus independently
+/// managed subscriptions for concurrent WebSocket clients. Events,
+/// UI-response resolution, identity reads, and shutdown live here.
 pub fn ConsoleRuntime::attach_sink(
   self : ConsoleRuntime,
   sink : (String) -> Unit,
@@ -1724,6 +1724,24 @@ pub fn ConsoleRuntime::pi_guest_result(
 ///|
 pub fn ConsoleRuntime::detach_sink(self : ConsoleRuntime) -> Unit {
   self.hub.detach()
+}
+
+///|
+/// Malphite: each WebSocket gets a token-scoped subscriber. The legacy
+/// native bridge remains attached through attach_sink/detach_sink.
+pub fn ConsoleRuntime::subscribe_events(
+  self : ConsoleRuntime,
+  sink : (String) -> Unit,
+) -> String {
+  self.hub.subscribe(sink)
+}
+
+///|
+pub fn ConsoleRuntime::unsubscribe_events(
+  self : ConsoleRuntime,
+  subscription_id : String,
+) -> Unit {
+  self.hub.unsubscribe(subscription_id)
 }
 
 ///|
