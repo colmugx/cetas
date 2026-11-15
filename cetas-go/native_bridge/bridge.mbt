@@ -171,7 +171,8 @@ pub fn run_infra() -> Int32 {
         "cetas-go/0.1",
         native_ui=true,
         // Only a verified and opted-in Bun may compose native Pi tools.
-        native_pi_enabled=(@env.get_env_var("CETAS_NATIVE_PI_ENABLED") is Some("1")),
+        native_pi_enabled=@env.get_env_var("CETAS_NATIVE_PI_ENABLED")
+          is Some("1"),
         // Native terminal default: yolo, like the JS shell, where the console's
         // shared default stays WorkspaceWrite; an explicit runtime `/permission`
         // still wins afterwards.
