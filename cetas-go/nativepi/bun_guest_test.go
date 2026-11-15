@@ -105,3 +105,19 @@ export default function(pi: any) {
  out:=g.Execute("pi_host_probe","probe",json.RawMessage("{}"))
  if !out.OK||!strings.Contains(out.Content,":true"){t.Fatalf("host module functionality unavailable: %#v",out)}
 }
+
+func TestBunGuestEnvironmentConfinesPiConfig(t *testing.T) {
+ home:=t.TempDir()
+ t.Setenv("OPENAI_API_KEY","should-not-pass")
+ vars:=bunGuestEnv(home)
+ values:=make(map[string]string)
+ for _,entry:=range vars {
+  parts:=strings.SplitN(entry,"=",2)
+  if len(parts)==2 {values[parts[0]]=parts[1]}
+ }
+ if values["CETAS_HOME"]!=home {t.Fatalf("missing Cetas home: %q",values["CETAS_HOME"])}
+ if values["PI_CODING_AGENT_DIR"]!=filepath.Join(home,".cetas") {
+  t.Fatalf("Pi config escaped Cetas home: %q",values["PI_CODING_AGENT_DIR"])
+ }
+ if _,ok:=values["OPENAI_API_KEY"];ok {t.Fatal("provider credentials leaked into Bun guest")}
+}
