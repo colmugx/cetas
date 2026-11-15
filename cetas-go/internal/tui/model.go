@@ -1448,6 +1448,8 @@ func (m *model) command(value string) tea.Cmd {
 		return request(m.host,"session_compact",map[string]any{})
 	case "/pi":
 		return request(m.host,"pi_packages",map[string]any{"args":strings.TrimSpace(strings.TrimPrefix(value,"/pi"))})
+	case "/experimental":
+		return requestAs(m.host,"experimental_status","experimental",map[string]any{"action":"status"})
 	case "/find":
 		m.findTranscript(strings.TrimSpace(strings.TrimPrefix(value, "/find")))
 		return nil

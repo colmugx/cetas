@@ -28,6 +28,7 @@ var nativeSlashCommands = []nativeSlashCommand{
 	{"/skills", "Browse installed skills", false},
 	{"/compact", "Compact session context", false},
 	{"/pi", "Manage Pi extensions", true},
+	{"/experimental", "Manage experimental native features", false},
 	{"/find", "Find transcript text across the full history", true},
 	{"/find-next", "Jump to next transcript match", false},
 	{"/find-prev", "Jump to previous transcript match", false},
@@ -52,7 +53,7 @@ func slashSuggestions(text string) []slashSuggestion {
 		prefix:=strings.ToLower(strings.TrimPrefix(text,"/pi "))
 		if strings.Contains(prefix," "){return nil}
 		var options []slashSuggestion
-		for _,sub:=range []string{"install","remove","list","runtime","help"} {
+		for _,sub:=range []string{"install","remove","list","help"} {
 			if strings.HasPrefix(sub,prefix){options=append(options,slashSuggestion{label:sub,insert:"/pi "+sub})}
 		}
 		return options

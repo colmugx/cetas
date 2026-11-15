@@ -32,52 +32,27 @@ Cetas Core / Posoco (providers, tools, permissions, sessions, turns)
 
 The native runtime shares the core and provider configuration with other Cetas entry points, but UI commands and support for session flows can differ. All hosts normally use `~/.cetas/`; for isolated testing set `CETAS_HOME` to an alternate **parent-home directory** (state lives under `$CETAS_HOME/.cetas/`). For careful validation before using live data, see [Alpha-era validation checklist](ALPHA.md).
 
-## Experimental Pi extensions and on-demand Bun
+## Native Pi packages and experimental runtime
 
-The default native build runs the restricted moejs Pi guest. Full Node/Bun
-compatibility is **not** implied: experimental Bun support must be explicitly
-prepared and selected, and unsupported Pi APIs still report diagnostics.
-MoonBit/Posoco remains the sole Agent, session and tool authority.
+`/pi` matches cetas-js package management: `/pi install <package>`,
+`/pi remove <package>`, `/pi list`, and `/pi help` use the same
+`~/.cetas/pi-packages.json` allowlist and npm umbrella directory.
+**No Bun runtime management belongs in `/pi`.**
 
-Inside the native TUI:
+`/experimental` opens a picker like `/model`. Its **Bun Runtime**
+entry is optional and off by default. Users explicitly select **Install Bun
+Runtime** to download and verify Bun; then select **Enable Bun Runtime** to
+use it for new sessions. **Disable Bun Runtime** returns to moejs. No Bun
+binary is bundled in the native Cetas release and no download occurs on boot.
 
-```text
-/pi list
-/pi install pi-web-access
-/pi runtime status
-/pi runtime prepare
-/pi runtime enable
-```
+The pinned Bun archive is SHA-256 verified and cached under
+`~/.cetas/runtimes/bun/<version>/`. Experimental preferences are saved in
+`~/.cetas/experimental.json`, separately from the Pi allowlist.
 
-`/pi runtime prepare` downloads a pinned Bun release archive for the current
-OS/CPU only when requested, verifies the SHA-256 checksum, and extracts the
-executable into `~/.cetas/runtimes/bun/<version>/`. The release archive for
-`cetas-go` **does not contain Bun**. No download occurs at startup.
-`/pi runtime enable` checks the prepared executable and writes
-`~/.cetas/pi-runtime.json`; restarting Cetas applies the selection.
-`/pi runtime disable` selects moejs on the next session/restart.
+**Security:** Bun is a subprocess with restricted inherited environment,
+not a filesystem/network sandbox. Pi extensions run with user privileges.
+Bun adds Node/npm compatibility but does not implement every Pi API.
 
-Package management uses the shared `~/.cetas/pi-packages.json` allowlist
-and `~/.cetas/pi-packages/node_modules` umbrella layout; a prepared,
-selected Bun can install packages without separate npm. Existing explicit
-`npmCommand` preferences override that default.
-
-**Security boundary:** Bun runs as a separate subprocess with a restricted
-inherited environment, but this is **not** an OS filesystem or network
-sandbox. Bun extensions run with the current user's filesystem privileges.
-Only install trusted packages and enable this experimental feature knowingly.
-
-To exercise the real subprocess guest integration test with an existing Bun:
-
-```sh
-cd cetas-go
-CETAS_TEST_BUN="$(command -v bun)" go test ./nativepi -run TestBunGuest -count=1
-```
-
-The extension API does not yet cover all Pi commands, UI hooks, or mutating
-tool hooks; a package requiring unsupported hooks may fail to load. The
-goal remains the working `cetas-js` surface, not undocumented upstream Pi
-API completeness.
 
 ## Build from source
 
