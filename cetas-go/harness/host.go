@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -85,6 +86,7 @@ type Host struct {
 	boot       chan Event
 	started    chan struct{}
 	pi         *piSupervisor
+	piAvailable bool
 	done       chan struct{}
 	exited     chan struct{}
 	exitCode   int
@@ -164,6 +166,16 @@ func Start(ctx context.Context) (*Host, error) {
 		return nil, ErrAlreadyStarted
 	}
 	h := newHost(bridge.NewInfra())
+	// Resolve Pi before the MoonBit Agent composes its extension manifests.
+	// Do not instantiate moejs or a Bun subprocess during this check.
+	available, err := nativePiAvailable(ctx)
+	if err != nil { h.report(fmt.Errorf("Pi runtime capability: %w",err)) }
+	h.piAvailable = available
+	if available {
+		if err := os.Setenv("CETAS_NATIVE_PI_ENABLED","1");err!=nil{return nil,err}
+	} else {
+		if err := os.Setenv("CETAS_NATIVE_PI_ENABLED","0");err!=nil{return nil,err}
+	}
 	h.launch()
 	return h.awaitBoot(ctx)
 }
@@ -230,6 +242,7 @@ func (h *Host) Request(ctx context.Context, command string, args any) (json.RawM
 	if command == "" {
 		return nil, errors.New("empty Harness command")
 	}
+	if command=="pi_capability" {return json.Marshal(map[string]bool{"enabled":h.piAvailable})}
 	if command=="pi_packages" {return h.pi.packageCommand(ctx,args)}
 	if command=="experimental" {return h.pi.experimentalCommand(ctx,args)}
 	id := h.nextID.Add(1)
