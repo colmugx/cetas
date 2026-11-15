@@ -417,6 +417,7 @@ func (m model) activityLines(width, budget int) []string {
    detail=fmt.Sprintf("%.1f MiB",float64(item.Current)/(1<<20))
   }
   label:=marker+" "+item.Label
+  if item.State=="running"{label+=" · "+elapsed(item.Started)}
   if detail!=""{label+=" · "+preview(detail,70)}
   rows=append(rows,row{role,label})
  }
