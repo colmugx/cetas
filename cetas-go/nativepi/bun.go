@@ -68,7 +68,7 @@ func bunGuestEnv(home string) []string {
 			env = append(env, key+"="+value)
 		}
 	}
-	return append(env, "CETAS_HOME="+home)
+	return append(env, "CETAS_HOME="+home, "PI_CODING_AGENT_DIR="+filepath.Join(home, ".cetas"))
 }
 
 // OpenBun never downloads a runtime. The caller must explicitly prepare
