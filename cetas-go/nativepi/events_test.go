@@ -113,3 +113,34 @@ func TestPiUnsupportedMutatingHookIsRejected(t *testing.T) {
 		t.Fatalf("must report unsupported Pi hook, got %s",diagnostics)
 	}
 }
+
+func TestPiToolOnlyReplyHasMessageStart(t *testing.T) {
+ b:=&EventBridge{}
+ frames:=[]string{
+  `{"type":"turn.started"}`,
+  `{"type":"tool.started","tool_call_id":"x","tool_name":"echo","arguments":{}}`,
+  `{"type":"tool.completed","tool_call_id":"x","tool_name":"echo","result":"ok"}`,
+  `{"type":"turn.completed"}`,
+ }
+ var names []string
+ for _,frame:=range frames {
+  got,err:=b.Translate([]byte(frame))
+  if err!=nil {t.Fatal(err)}
+  for _,evt:=range got{names=append(names,evt["type"].(string))}
+ }
+ want:=[]string{"agent_start","turn_start","message_start","message_end","tool_execution_start","tool_execution_end","turn_end","agent_end","agent_settled"}
+ if !reflect.DeepEqual(names,want){t.Fatalf("tool-only events: %v want %v",names,want)}
+}
+
+func TestPiFailedTurnSettlesAgent(t *testing.T) {
+ b:=&EventBridge{}
+ for _,frame:=range []string{`{"type":"turn.started"}`,`{"type":"assistant.text_delta","delta":"partial"}`} {
+  if _,err:=b.Translate([]byte(frame));err!=nil{t.Fatal(err)}
+ }
+ got,err:=b.Translate([]byte(`{"type":"turn.failed"}`))
+ if err!=nil{t.Fatal(err)}
+ var names []string
+ for _,evt:=range got {names=append(names,evt["type"].(string))}
+ want:=[]string{"message_end","turn_end","agent_end","agent_settled"}
+ if !reflect.DeepEqual(names,want){t.Fatalf("failed-turn events: %v want %v",names,want)}
+}
