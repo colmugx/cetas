@@ -21,6 +21,41 @@ import (
 var piPackageName = regexp.MustCompile(`^(@[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+(@[A-Za-z0-9._-]+)?$`)
 var piInstallMu sync.Mutex
 
+// Pi packages import this host-supplied peer. It must be physically present
+// in the shared umbrella to support cetas-js's compiled module mirror and Bun's
+// native resolution, but it is NOT a Pi extension and is never allowlisted.
+// Keep the default version aligned with cetas-js/package.json.
+const piTuiHostPeer = "@earendil-works/pi-tui"
+const piTuiHostVersion = "^1.3.0"
+
+// ensurePiUmbrella preserves user-managed package versions and other fields.
+// It is called only during an explicit /pi install, never on startup.
+func ensurePiUmbrella(root string) error {
+ if err := os.MkdirAll(root,0700);err!=nil{return err}
+ manifestPath:=filepath.Join(root,"package.json")
+ raw,err:=os.ReadFile(manifestPath)
+ if os.IsNotExist(err) {
+  raw=[]byte(`{"name":"cetas-pi-packages","private":true,"type":"module"}`)
+ } else if err!=nil{return err}
+ var manifest map[string]json.RawMessage
+ if err=json.Unmarshal(raw,&manifest);err!=nil{return fmt.Errorf("Pi umbrella package.json: %w",err)}
+ if manifest==nil {return fmt.Errorf("Pi umbrella package.json must be an object")}
+ deps:=map[string]json.RawMessage{}
+ if value,ok:=manifest["dependencies"];ok {
+  if err=json.Unmarshal(value,&deps);err!=nil||deps==nil{return fmt.Errorf("Pi umbrella dependencies must be an object")}
+ }
+ if _,exists:=deps[piTuiHostPeer];exists{return nil}
+ version,err:=json.Marshal(piTuiHostVersion)
+ if err!=nil{return err}
+ deps[piTuiHostPeer]=version
+ manifest["dependencies"],err=json.Marshal(deps)
+ if err!=nil{return err}
+ data,err:=json.MarshalIndent(manifest,"","  ")
+ if err!=nil{return err}
+ return os.WriteFile(manifestPath,append(data,'\n'),0600)
+}
+
+
 // Windows npm/pnpm/yarn are often .cmd shims rather than PE executables.
 // Match cetas-js: only route non-native shims through cmd.exe, with package
 // arguments validated by piPackageName before reaching this function.
@@ -238,14 +273,8 @@ func (s *piSupervisor) packageCommand(ctx context.Context, args any) (json.RawMe
 			return piLines("Pi package root not found: " + root)
 		}
 	} else {
-		if err = os.MkdirAll(root, 0700); err != nil {
+		if err = ensurePiUmbrella(root); err != nil {
 			return nil, err
-		}
-		manifest := filepath.Join(root, "package.json")
-		if _, err := os.Stat(manifest); os.IsNotExist(err) {
-			if err = os.WriteFile(manifest, []byte(`{"name":"cetas-pi-packages","private":true,"type":"module"}`+"\n"), 0600); err != nil {
-				return nil, err
-			}
 		}
 	}
 	before := piPackageDependencies(root)
