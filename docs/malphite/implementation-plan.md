@@ -1,43 +1,62 @@
-# Cetas Malphite — Implementation Plan
+# Cetas — Local Multi-Surface and Agent Collaboration
 
-Malphite is the opt-in, local-first network of Cetas runtimes and agents. Booting a trusted instance should make it discoverable without requiring cloud connectivity.
+This document separates **Cetas's built-in local capabilities** from the optional **Cetas Malphite relay**.
 
-## Invariants
-- One authoritative executor for each running session; many observing clients.
-- Session identity differs from process identity, surface identity, and agent identity.
-- No hidden cross-device sharing of prompts, tools, secrets, or files.
-- A detached client never detaches another subscriber.
-- A slow or disconnected client cannot indefinitely stall agent execution.
-- Durable session history and transient runtime event streams are not interchangeable.
+## Product boundaries
 
-## Milestones
-1. **M1: Event fanout.** Replace the console EventHub's single-client assumption with independent subscription tokens. Preserve the native/desktop legacy sink; update WebSocket lifecycle and add two-client tests.
-2. **M2: Attach, snapshot, replay.** Add per-client workspace/session selection; stable runtime epoch/cursor; snapshot+subscribe handoff without missing events; reconnect/gap handling.
-3. **M3: Session authority.** Single writer per session, process-scoped ownership and arbitration of prompt/abort/approval. Local IPC (Unix domain socket / Windows named pipe). Avoid two agents writing one JSONL.
-4. **M4: Host integration.** Go+Go, JS+JS, Go+JS (and Web) clients attach to the same live owner. Preserve host-specific capabilities; do not silently replace a JS host with a Go host.
-5. **M5: Atom discovery.** Stable device/atom identities, ephemeral process IDs, capability descriptions, liveness and revocation, local registry.
-6. **M6: Malphite Relay.** Optional Cloudflare Worker / Durable Object signaling, paired device identity, outbound connections, end-to-end permissions. Local operation remains independent.
-7. **M7: Fairy delegation.** Structured observation, task messaging, delegation, wait/cancel and scoped approvals; ACP/MCP/A2A adaptors as appropriate.
+There are exactly two product names in this architecture:
+- **Cetas**: the agent product across JS, Go, Web, Memoh and other surfaces. It must support local multi-surface sessions and local agent-to-agent collaboration independently of any relay.
+- **Cetas Malphite**: a relay/network service that connects authorized, online Cetases across machines or networks. It reuses Cetas protocols; it is neither a prerequisite for local communication nor the host executing an agent.
 
-## M1 — Review checklist
-- [x] Test two subscribers receive the same event in order.
-- [x] Test unsubscribing A leaves B attached.
-- [x] Preserve the native/desktop single-sink adapter.
-- [x] WebSocket owns and disposes its own subscription token.
-- [ ] Run MoonBit native tests, formatting, typechecking and end-to-end dual-WebSocket test.
-- [ ] Confirm slow-subscriber backpressure semantics; no silent queue overflow.
+**Atom** (one core, every surface) and **Fairy** (Cetas's experience/metaphor as a digital-world spirit) are product concepts, **not** runtime classes, peer roles, protocol types, nor parent/child agent identities. Do not mint `AtomRuntime`, `FairyWorker`, `atom_id`, or `fairy_id` based on those concepts.
 
-## Out of scope for M1
-This milestone does **not** provide cross-process session synchronization, durable replay, per-client session selection, Cloudflare infrastructure, or the Atom/Fairy runtime model. Those are separate milestones and must not be claimed as shipped.
+## Non-negotiable invariants
+- A live Session has **one executor**, potentially observed or controlled by several Surfaces.
+- Two independently launched Cetases can communicate **locally without Malphite**, including when offline.
+- Session, process, surface and peer identities are distinct. Durable workspace/bucket identity scopes session IDs.
+- A detached or slow surface cannot interfere with another surface or stall the agent.
+- Messages from another Cetas carry a verified identity, an explicit capability/permission scope, and untrusted content grading. No implicit permission escalation or remote tool execution.
+- Malphite only adds cross-network discovery, authentication and routing/relay, never a second implementation of agent execution or local collaboration.
 
-## Relevant code
-- `cetas-console/console/protocol.mbt`
-- `cetas-console/console/runtime.mbt`
-- `cetas-web/server/main.mbt`
-- `cetas-js/src/app/`
-- `cetas-go/native_bridge/`
+## Merge strategy — vertical, independently demonstrable slices
 
-## Verification commands (from Cetas repository root)
+### Cetas M4: Local multi-surface (first product track)
+1. **Event fanout** ([PR #151](https://github.com/colmugx/cetas/pull/151)): multiple independent subscribers; connection-local error and handshake events; legacy native compatibility.
+2. **Per-surface attach**: attachment identifies workspace+session without changing another surface's selection; requested snapshot only reaches the attaching client.
+3. **Consistent snapshot/replay**: one authoritative cursor+epoch, subscribe/snapshot high-water barrier, explicit replay gap, no silent drops.
+4. **Local single-owner IPC**: Unix domain socket / Windows named pipe with local credentials; one Session executor, never two concurrent writers to JSONL.
+5. **Host integration**: Go+Go, JS+JS, Go+JS; browser as one Surface. No arbitrary requirement that a JS-hosted agent migrate into a Go process.
+
+Success demo: launch a second Cetas, select an existing Session and observe its real-time output, without starting a second agent.
+
+### Cetas M7: Local peer communication (parallel product track)
+1. Discover currently running local Cetases; verify same-user local peer identity and liveness.
+2. `peer.list`, `peer.inspect` (read-only description/capabilities).
+3. `peer.send` (message delivery), `peer.ask` (bounded correlated request/reply) with explicit busy/queue semantics.
+4. `peer.delegate`, `task.status`, `task.cancel`; reuse existing Cetas subagent/Board facilities rather than inventing a Fairy execution type.
+5. Scoped approval, trust, cancellation and observability; JS and Go adapters.
+
+Success demo: two separate local Cetases A and B; A can discover and ask B a question; B returns a correlated answer without losing its own Session context. No Malphite process required.
+
+### Cetas Malphite: Later, independent network extension
+- Connect authorized online Cetases across machines/networks by outbound relay connections.
+- Presence, remote peer directory, authentication/pairing/revocation, route forwarding and connection recovery.
+- Preserve the Cetas local message/Session protocol end-to-end, never duplicate task scheduling or session execution in the relay.
+- No global open discovery: “online” means explicitly authorized members within the relevant trust scope.
+
+## Current implementation scope
+The current draft PR #151 is a Cetas local-multi-surface prerequisite, despite its historical `feat/malphite-event-fanout` branch name. It is **not** Malphite Relay.
+
+### PR #151 completion checklist
+- [x] EventHub supports multiple independent subscribers and legacy native sink.
+- [x] Connection-local errors and ready events are unicast to their own WebSocket.
+- [x] Session attach snapshot is unicast to the requesting surface.
+- [x] Regression tests for subscriptions, out-of-band fanout, self-unsubscribe, connection-local isolation.
+- [ ] Final GitHub CI checks green and MoonBit interface drift clean.
+- [ ] Manual two-WebSocket smoke test, concurrent handling, slow-consumer behavior.
+- [ ] Per-session workspace attach, gap-free replay, and actual cross-process owner (next M4 slices).
+
+## Verification
 ```sh
 moon check --deny-warn --output-json
 moon fmt --check
@@ -45,4 +64,4 @@ moon info
 moon test --target native --output-json
 ```
 
-The first user-visible end-to-end goal is **two independently launched Cetas clients observing the same live session without creating a second agent execution**. M1 is one necessary prerequisite, not the full goal.
+**Definition of completion:** a checked box for source code is not a claim that all local multi-surface behavior or any remote relay works. Keep user-visible milestones truthful and testable.
