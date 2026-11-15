@@ -50,7 +50,7 @@ func TestNativeHarnessHost(t *testing.T) {
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		hasResult, hasDelegationResult, hasPiResult, hasPiEventResult := false, false, false, false
+		hasResult, hasDelegationResult := false, false
 		for _, message := range request.Messages {
 			if message.Role == "tool" && message.CallID == "native-ui-read" {
 				hasResult = true
@@ -58,12 +58,7 @@ func TestNativeHarnessHost(t *testing.T) {
 			if message.Role == "tool" && message.CallID == "native-ui-agent" {
 				hasDelegationResult = true
 			}
-			if message.Role == "tool" && message.CallID == "native-pi-echo" {
-				hasPiResult = true
-			}
-			if message.Role == "tool" && message.CallID == "native-pi-events" {
-				hasPiEventResult = true
-			}
+
 		}
 		chunks := []string{
 			`{"id":"mock","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"Check the evidence first.\nThen answer clearly."},"finish_reason":null}]}`,
@@ -86,20 +81,7 @@ func TestNativeHarnessHost(t *testing.T) {
 				`[DONE]`,
 			}
 		}
-		if strings.Contains(string(body), "native-ui-pi-fixture") && !hasPiResult {
-			chunks = []string{
-				`{"id":"mock","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"native-pi-echo","type":"function","function":{"name":"pi_native_echo","arguments":"{\"text\":\"native\"}"}}]},"finish_reason":null}]}`,
-				`{"id":"mock","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
-				`[DONE]`,
-			}
-		}
-		if strings.Contains(string(body), "native-ui-pi-events-fixture") && !hasPiEventResult {
-			chunks = []string{
-				`{"id":"mock","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"native-pi-events","type":"function","function":{"name":"pi_native_events","arguments":"{}"}}]},"finish_reason":null}]}`,
-				`{"id":"mock","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`,
-				`[DONE]`,
-			}
-		}
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		for _, chunk := range chunks {
 			_, _ = io.WriteString(w, "data: "+chunk+"\n\n")
@@ -114,41 +96,6 @@ func TestNativeHarnessHost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Allowlisted unmodified Pi module. It must be loaded by the *in-process*
-	// moejs VM and executed through the same MoonBit/Posoco Agent as base tools.
-	piDir := filepath.Join(home, ".cetas", "pi-packages", "pi-native-fixture")
-	if err := os.MkdirAll(piDir, 0700); err != nil { t.Fatal(err) }
-	for path, source := range map[string]string{
-		filepath.Join(home, ".cetas", "pi-packages.json"): `{"packages":["pi-native-fixture"]}`,
-		filepath.Join(piDir, "package.json"): `{"name":"pi-native-fixture","pi":{"extensions":["./index.mjs"]}}`,
-		filepath.Join(piDir, "index.mjs"): `export default function(pi) {
-			const events = [];
-			for (const name of ["agent_start", "agent_end", "agent_settled",
-				"turn_start", "turn_end", "message_start", "message_update",
-				"message_end", "tool_execution_start", "tool_execution_end"]) {
-				pi.on(name, (event) => events.push(event.type));
-			}
-			pi.registerTool({
-				name: "pi_native_events",
-				description: "Return the Pi lifecycle callbacks from real Agent runs",
-				parameters: {type: "object", properties: {}},
-				async execute() {
-					return {content: [{type: "text", text: events.join("|")}]};
-				}
-			});
-			pi.registerTool({
-				name:"pi_native_echo",
-				description:"Echo without leaving the Posoco Agent",
-				parameters:{type:"object",properties:{text:{type:"string",minLength:1}},required:["text"]},
-				async execute(callId, params) {
-					const text = await Promise.resolve(params.text);
-					return {content:[{type:"text",text:"echo:"+text}]};
-				}
-			});
-		}`,
-	} {
-		if err := os.WriteFile(path, []byte(source), 0600); err != nil { t.Fatal(err) }
-	}
 	t.Setenv("CETAS_HOME", home)
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
@@ -178,24 +125,11 @@ func TestNativeHarnessHost(t *testing.T) {
 		}
 	}()
 
-	// The VM is initialized after the first Agent Session is composed. The
-	// readiness event is emitted only after the Kernel accepts the catalog.
-	select {
-	case <-time.After(15 * time.Second):
-		t.Fatal("allowlisted native Pi tools were never installed into Posoco")
-	case event := <-seen:
-		if event.Type != "pi.guest.installed" {
-			// Ordinary bootstrap events may precede the guest publication.
-			deadline := time.After(15 * time.Second)
-			for event.Type != "pi.guest.installed" {
-				select {
-				case event = <-seen:
-				case <-deadline:
-					t.Fatal("no Pi tool publication after Native guest startup")
-				}
-			}
-		}
-	}
+	// Native without Bun must not compose or install any Pi adaptor.
+	if h.PiAvailable() { t.Fatal("unexpected Pi guest without Bun") }
+	catalog,err:=h.Request(ctx,"extensions",map[string]any{})
+	if err!=nil { t.Fatal(err) }
+	if strings.Contains(string(catalog),"cetas_native_pi_guest") { t.Fatal("Pi adaptor was composed without Bun") }
 	commands := []struct {
 		name string
 		args any
@@ -440,92 +374,6 @@ answeredQuestion:
 		}
 	}
 
-	// A real provider-generated tool call must cross the Posoco runtime,
-	// Go/moejs extension callback, and correlated result inbox. It is not a
-	// direct JS runner test.
-	if _, err := h.Request(ctx, "turn_start", map[string]any{"prompt": "native-ui-pi-fixture"}); err != nil {
-		t.Fatal(err)
-	}
-	piExecuted, piSucceeded := false, false
-	piDeadline := time.After(15 * time.Second)
-piTurn:
-	for {
-		select {
-		case evt := <-seen:
-			if evt.Type == "pi.guest.execute" {
-				piExecuted = true
-			}
-			if evt.Type == "tool.completed" || evt.Type == "tool.succeeded" {
-				if strings.Contains(string(evt.Raw), "native-pi-echo") {
-					piSucceeded = true
-				}
-			}
-			if evt.Type == "turn.failed" {
-				t.Fatalf("native Pi Agent turn failed: %s", evt.Raw)
-			}
-			if evt.Type == "turn.completed" {
-				break piTurn
-			}
-		case <-piDeadline:
-			t.Fatal("Pi extension call never returned to the Posoco Agent")
-		}
-	}
-	if !piExecuted || !piSucceeded {
-		t.Fatalf("Pi guest did not complete the Agent effect: executed=%v succeeded=%v", piExecuted, piSucceeded)
-	}
-	// Verify the Pi observer callbacks came from a real Posoco run, not a
-	// hand-crafted Go frame. The event_log tool executes in the same VM as the
-	// earlier pi_native_echo callback, so the log includes the prior turn's
-	// lifecycle and this turn's tool_execution_start.
-	if _, err := h.Request(ctx, "turn_start", map[string]any{"prompt": "native-ui-pi-events-fixture"}); err != nil {
-		t.Fatal(err)
-	}
-	eventToolResult := ""
-	eventToolSeen := false
-	piDeadline = time.After(15 * time.Second)
-piEventsTurn:
-	for {
-		select {
-		case evt := <-seen:
-			if evt.Type == "tool.completed" {
-				var result struct {
-					ToolCallID string `json:"tool_call_id"`
-					Result string `json:"result"`
-					IsError bool `json:"is_error"`
-				}
-				if err := json.Unmarshal(evt.Raw, &result); err != nil {
-					t.Fatal(err)
-				}
-				if result.ToolCallID == "native-pi-events" {
-					eventToolSeen = true
-					if result.IsError {
-						t.Fatalf("Pi lifecycle tool failed: %s", evt.Raw)
-					}
-					eventToolResult = result.Result
-				}
-			}
-			if evt.Type == "turn.failed" {
-				t.Fatalf("Pi event turn failed: %s", evt.Raw)
-			}
-			if evt.Type == "turn.completed" {
-				break piEventsTurn
-			}
-		case <-piDeadline:
-			t.Fatal("Pi lifecycle observer tool never returned")
-		}
-	}
-	if !eventToolSeen {
-		t.Fatal("the real Agent never executed the Pi event log tool")
-	}
-	for _, sequence := range []string{
-		"agent_start|turn_start", "message_start|message_update",
-		"message_end|tool_execution_start|tool_execution_end",
-		"turn_end|agent_end|agent_settled",
-	} {
-		if !strings.Contains(eventToolResult, sequence) {
-			t.Fatalf("missing real Pi lifecycle sequence %q in %s", sequence, eventToolResult)
-		}
-	}
 	checkSwitchSupersedesQueuedReplay(t, h, home)
 	checkSessionCatalogAnchorRoundTrip(t, h, home)
 	checkReplayDoesNotMonopolizeDispatcher(t, h, home)
