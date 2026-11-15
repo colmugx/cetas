@@ -92,9 +92,12 @@ async fn serve_websocket(
                 let raw = msg.read_all().text()
                 match decode_web_client_message(raw) {
                   Err(message) =>
-                    runtime.emit_to_subscriber(subscription_id, "", "protocol.error", extra=[
-                      ("message", Json::string(message)),
-                    ])
+                    runtime.emit_to_subscriber(
+                      subscription_id,
+                      "",
+                      "protocol.error",
+                      extra=[("message", Json::string(message))],
+                    )
                   Ok(SessionAttach) => {
                     runtime.emit_active_snapshot()
                     runtime.republish_status()
@@ -103,9 +106,12 @@ async fn serve_websocket(
                     match runtime.start_turn(prompt, session_id) {
                       Ok(_) => ()
                       Err(message) =>
-                        runtime.emit_to_subscriber(subscription_id, "", "protocol.error", extra=[
-                          ("message", Json::string(message)),
-                        ])
+                        runtime.emit_to_subscriber(
+                          subscription_id,
+                          "",
+                          "protocol.error",
+                          extra=[("message", Json::string(message))],
+                        )
                     }
                   Ok(TurnAbort(session_id)) => runtime.abort_turn(session_id)
                   Ok(SessionCompact) => runtime.compact_active_session()
@@ -135,12 +141,19 @@ async fn serve_websocket(
                 }
               }
               Binary =>
-                runtime.emit_to_subscriber(subscription_id, "", "protocol.error", extra=[
-                  (
-                    "message",
-                    Json::string("binary websocket messages are not supported"),
-                  ),
-                ])
+                runtime.emit_to_subscriber(
+                  subscription_id,
+                  "",
+                  "protocol.error",
+                  extra=[
+                    (
+                      "message",
+                      Json::string(
+                        "binary websocket messages are not supported",
+                      ),
+                    ),
+                  ],
+                )
             }
           }
         } catch {
