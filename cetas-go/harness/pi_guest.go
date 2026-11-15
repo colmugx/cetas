@@ -133,7 +133,7 @@ func (s *piSupervisor) process(sessionID string, g nativepi.RuntimeGuest, queue 
 				s.host.report(fmt.Errorf("Pi execute: %w", err))
 				continue
 			}
-			s.execute(sessionID, event.RequestID, event.ToolName, event.CallID, event.Arguments)
+			s.execute(g,sessionID,event.RequestID,event.ToolName,event.CallID,event.Arguments)
 			continue
 		}
 		_, before := g.Catalog()
@@ -211,11 +211,10 @@ func (s *piSupervisor) install(sessionID string,defs []nativepi.Tool) error {
 	return err
 }
 
-func (s *piSupervisor) execute(sessionID,requestID,name,callID string,arguments json.RawMessage) {
+func (s *piSupervisor) execute(g nativepi.RuntimeGuest,sessionID,requestID,name,callID string,arguments json.RawMessage) {
 	if requestID=="" || sessionID=="" {return}
-	s.mu.Lock()
-	g:=s.guests[sessionID]
-	s.mu.Unlock()
+	// The worker carries the guest identity that received this obligation.
+	// Never redirect a late request to a newly opened VM for the same session.
 	result:=nativepi.Result{Content:"Native Pi guest unavailable for session "+sessionID}
 	if g!=nil {
 		_,before:=g.Catalog()
