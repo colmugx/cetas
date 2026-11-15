@@ -49,3 +49,19 @@ func verifyBunBinary(ctx context.Context,path string)error{
  if strings.TrimSpace(string(out))!=experimentalBunVersion{return fmt.Errorf("Bun version %q != %s",strings.TrimSpace(string(out)),experimentalBunVersion)}
  return nil
 }
+
+
+// Native startup capability is a snapshot: a missing, disabled or invalid
+// Bun never creates a Posoco Pi extension. Installing/enabling requires restart.
+func nativePiAvailable(ctx context.Context) (bool,error) {
+ home,err:=piHome("")
+ if err!=nil{return false,err}
+ enabled,err:=bunGuestEnabled(home)
+ if err!=nil{return false,err}
+ if !enabled{return false,nil}
+ binary,ready,err:=bunPrepared(home)
+ if err!=nil{return false,err}
+ if !ready{return false,nil}
+ if err=verifyBunBinary(ctx,binary);err!=nil{return false,err}
+ return true,nil
+}

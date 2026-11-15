@@ -155,6 +155,7 @@ func (s *piSupervisor) beginReady(sessionID,home,cwd string) {
 	s.mu.Lock()
 	if s.closed {s.mu.Unlock();return}
 	s.home=home
+	if !s.host.piAvailable {s.mu.Unlock();return}
 	if _,exists:=s.guests[sessionID];exists {s.mu.Unlock();return}
 	s.generations[sessionID]++
 	gen:=s.generations[sessionID]
@@ -162,15 +163,13 @@ func (s *piSupervisor) beginReady(sessionID,home,cwd string) {
 	s.mu.Unlock()
 	go s.ready(sessionID,home,cwd,gen)
 }
-// A configured Bun guest never silently downgrades to moejs. Both guests
-// implement the same kernel-facing, serial session contract.
+// moejs remains available as a lazy lightweight runtime for future
+// bunraku work, but is never initialized by the native Pi adaptor.
 func(s *piSupervisor) openGuest(home,cwd string)(nativepi.RuntimeGuest,error){
- enabled,err:=bunGuestEnabled(home)
- if err!=nil{return nil,err}
- if !enabled{return nativepi.Open(home,cwd)}
+ if !s.host.piAvailable{return nil,fmt.Errorf("native Pi requires Bun Runtime; enable it in /experimental and restart")}
  path,ready,err:=bunPrepared(home)
  if err!=nil{return nil,err}
- if !ready{return nil,fmt.Errorf("experimental Bun runtime not prepared; run /pi runtime prepare")}
+ if !ready{return nil,fmt.Errorf("Bun Runtime not installed; open /experimental")}
  return nativepi.OpenBun(path,home,cwd)
 }
 
