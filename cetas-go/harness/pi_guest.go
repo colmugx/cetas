@@ -13,16 +13,24 @@ import (
 // piSupervisor is the Go owner of a session's foreign JavaScript VM.
 // No Javascript callback is invoked on the MoonBit scheduler thread. All
 // normal tool/catalog decisions still enter the Posoco kernel through Request.
+// piGuestFrame is a host-owned copy of an authoritative MoonBit EventHub frame.
+// Each session serializes callback delivery and tool execution on one worker.
+type piGuestFrame struct {
+	kind string
+	frame json.RawMessage
+}
+
 type piSupervisor struct {
 	host *Host
 	mu sync.Mutex
 	guests map[string]*nativepi.Guest
+	workers map[string]chan piGuestFrame
 	generations map[string]uint64
 	closed bool
 }
 
 func newPiSupervisor(host *Host) *piSupervisor {
-	return &piSupervisor{host: host, guests: make(map[string]*nativepi.Guest), generations: make(map[string]uint64)}
+	return &piSupervisor{host: host, guests: make(map[string]*nativepi.Guest), workers: make(map[string]chan piGuestFrame), generations: make(map[string]uint64)}
 }
 
 func (s *piSupervisor) handle(kind string, frame json.RawMessage) {
@@ -48,7 +56,74 @@ func (s *piSupervisor) handle(kind string, frame json.RawMessage) {
 			Arguments json.RawMessage `json:"arguments"`
 		}
 		if err := json.Unmarshal(frame,&event);err!=nil {s.host.report(fmt.Errorf("Pi tool frame: %w",err));return}
-		go s.execute(event.SessionID,event.RequestID,event.ToolName,event.CallID,event.Arguments)
+		s.enqueue(event.SessionID, kind, frame)
+	default:
+		if isPiObserverFrame(kind) {
+			var event struct { SessionID string `json:"session_id"` }
+			if err := json.Unmarshal(frame, &event); err != nil {
+				s.host.report(fmt.Errorf("Pi observer frame: %w", err))
+				return
+			}
+			s.enqueue(event.SessionID, kind, frame)
+		}
+	}
+}
+
+func isPiObserverFrame(kind string) bool {
+	switch kind {
+	case "turn.started", "assistant.text_delta", "tool.started",
+		"tool.completed", "turn.completed", "turn.failed":
+		return true
+	default:
+		return false
+	}
+}
+
+// Keep the source EventHub order: a tool.started observer must fire before
+// the tool's execute callback, even if the latter runs on another goroutine.
+func (s *piSupervisor) enqueue(sessionID, kind string, raw json.RawMessage) {
+	s.mu.Lock()
+	queue := s.workers[sessionID]
+	if queue == nil || s.closed {
+		s.mu.Unlock()
+		return // No guest was installed for this session.
+	}
+	select {
+	case queue <- piGuestFrame{kind: kind, frame: append(json.RawMessage(nil), raw...)}:
+	default:
+		s.host.report(fmt.Errorf("Pi guest session %s event queue full", sessionID))
+	}
+	s.mu.Unlock()
+}
+
+// A single worker per Session owns observer/event ordering. It may call the
+// Harness without blocking its EventHub pump; unrelated sessions stay live.
+func (s *piSupervisor) process(sessionID string, g *nativepi.Guest, queue <-chan piGuestFrame) {
+	for frame := range queue {
+		if frame.kind == "pi.guest.execute" {
+			var event struct {
+				RequestID string `json:"request_id"`
+				ToolName string `json:"tool_name"`
+				CallID string `json:"call_id"`
+				Arguments json.RawMessage `json:"arguments"`
+			}
+			if err := json.Unmarshal(frame.frame, &event); err != nil {
+				s.host.report(fmt.Errorf("Pi execute: %w", err))
+				continue
+			}
+			s.execute(sessionID, event.RequestID, event.ToolName, event.CallID, event.Arguments)
+			continue
+		}
+		_, before := g.Catalog()
+		if err := g.Emit(frame.frame); err != nil {
+			s.host.report(err)
+		}
+		defs, after := g.Catalog()
+		if after != before {
+			if err := s.install(sessionID, defs); err != nil {
+				s.host.report(fmt.Errorf("Pi observer catalog publication: %w", err))
+			}
+		}
 	}
 }
 
@@ -79,7 +154,10 @@ func (s *piSupervisor) ready(sessionID,home,cwd string) {
 	s.mu.Lock()
 	if s.closed || s.generations[sessionID]!=generation {s.mu.Unlock();g.Close();return}
 	s.guests[sessionID]=g
+	queue := make(chan piGuestFrame, 256)
+	s.workers[sessionID]=queue
 	s.mu.Unlock()
+	go s.process(sessionID, g, queue)
 	defs,_:=g.Catalog()
 	if len(defs)==0 {return}
 	if err:=s.install(sessionID,defs);err!=nil {
@@ -127,8 +205,13 @@ func (s *piSupervisor) retire(sessionID string) {
     s.generations[sessionID]++
     g := s.guests[sessionID]
     delete(s.guests,sessionID)
+    if queue := s.workers[sessionID]; queue != nil {
+        delete(s.workers,sessionID)
+        close(queue)
+    }
     s.mu.Unlock()
-    if g != nil { g.Close() }
+    // Never stall the EventHub pump while a foreign callback is unwinding.
+    if g != nil { go g.Close() }
 }
 
 func (s *piSupervisor) close() {
@@ -137,6 +220,10 @@ func (s *piSupervisor) close() {
 	s.closed=true
 	guests:=s.guests
 	s.guests=make(map[string]*nativepi.Guest)
+	for sessionID, queue := range s.workers {
+		close(queue)
+		delete(s.workers, sessionID)
+	}
 	s.mu.Unlock()
 	// Interrupt/termination belong to VM owner, never to MoonBit callbacks.
 	for _,g:=range guests {if g!=nil {g.Close()}}
