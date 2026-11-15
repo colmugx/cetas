@@ -28,7 +28,7 @@ type piSupervisor struct {
 	generations map[string]uint64
 	closed bool
 	home string
-
+}
 
 func newPiSupervisor(host *Host) *piSupervisor {
 	return &piSupervisor{host: host, guests: make(map[string]*nativepi.Guest), workers: make(map[string]chan piGuestFrame), generations: make(map[string]uint64)}

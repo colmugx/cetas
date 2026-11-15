@@ -53,6 +53,8 @@ func TestGuestRequiresAllowlist(t *testing.T) {
 func TestGuestRejectsPackageEscape(t *testing.T){
 	home,dir:=writeFixture(t)
 	if err:=os.WriteFile(filepath.Join(dir,"package.json"),[]byte(`{"name":"fixture","pi":{"extensions":["../../escape.js"]}}`),0600);err!=nil{t.Fatal(err)}
-	_,err:=Open(home,home)
-	if err==nil{t.Fatal("accepted escaping module path")}
+	g,err:=Open(home,home)
+	if err!=nil {t.Fatal(err)}
+	defer g.Close()
+	if len(g.Diagnostics())==0 {t.Fatal("accepted escaping module path without diagnostics")}
 }
