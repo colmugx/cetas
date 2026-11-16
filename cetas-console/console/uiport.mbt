@@ -4,19 +4,22 @@
 struct UiRegistry {
   mut next_id : Int32
   pending : Map[String, @aqueue.Queue[String]]
+  /// Owning session for each pending request; never trust caller-supplied IDs.
+  pending_sessions : Map[String, String]
 }
 
 ///|
 fn UiRegistry::new() -> UiRegistry {
-  { next_id: 1, pending: Map([]), }
+  { next_id: 1, pending: Map([]), pending_sessions: Map([]), }
 }
 
 ///|
-fn UiRegistry::register(self : UiRegistry) -> (String, @aqueue.Queue[String]) {
+fn UiRegistry::register(self : UiRegistry, session_id~ : String = "") -> (String, @aqueue.Queue[String]) {
   let id = "u-" + self.next_id.to_string()
   self.next_id += 1
   let queue : @aqueue.Queue[String] = Queue(kind=Blocking(1))
   self.pending[id] = queue
+  self.pending_sessions[id] = session_id
   (id, queue)
 }
 
@@ -29,6 +32,7 @@ fn UiRegistry::resolve(
   match self.pending.get(request_id) {
     Some(queue) => {
       self.pending.remove(request_id)
+      self.pending_sessions.remove(request_id)
       ignore(queue.try_put(response) catch { _ => false })
     }
     None => ()
@@ -41,6 +45,14 @@ fn UiRegistry::resolve(
 /// wake a different request.
 fn UiRegistry::forget(self : UiRegistry, request_id : String) -> Unit {
   self.pending.remove(request_id)
+  self.pending_sessions.remove(request_id)
+}
+
+///|
+/// A request must still be pending and must belong to the selected session.
+fn UiRegistry::belongs_to(self : UiRegistry, request_id : String, session_id : String) -> Bool {
+  self.pending.contains(request_id) &&
+  self.pending_sessions.get(request_id) == Some(session_id)
 }
 
 ///|
@@ -187,7 +199,7 @@ impl @posoco.UiPort for HubUiPort with fn request(
   self : HubUiPort,
   request : @posoco.UiRequest,
 ) -> @posoco.UiResponse raise {
-  let (request_id, queue) = self.registry.register()
+  let (request_id, queue) = self.registry.register(session_id=self.session_id)
   // Cancellation can unwind a suspended queue.get without executing its
   // catch branch. Synchronous defer is the only common retirement path.
   defer self.retire_request(request_id)
