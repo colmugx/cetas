@@ -1,9 +1,9 @@
 package tui
 
 import (
-	"github.com/colmugx/cetas/cetas-go/internal/i18n"
 	"encoding/json"
 	"fmt"
+	"github.com/colmugx/cetas/cetas-go/internal/i18n"
 	"sort"
 	"strconv"
 	"strings"

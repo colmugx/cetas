@@ -3,11 +3,11 @@
 package tui
 
 import (
-	"github.com/colmugx/cetas/cetas-go/internal/i18n"
 	"context"
-	"os"
 	"encoding/json"
 	"fmt"
+	"github.com/colmugx/cetas/cetas-go/internal/i18n"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -342,6 +342,12 @@ func requestAs(host runtimeHost, name, command string, args any) tea.Cmd {
 			if fields, ok := args.(map[string]any); ok && fields["action"] == "prepare" {
 				timeout = 4 * time.Minute
 			}
+		}
+		if command == "switch_model_manager" {
+			// The switch retires every live handle and recomposes the active
+			// session; a Magpie activation may refresh the gateway catalog on
+			// first start, so the default 30s budget is too tight.
+			timeout = 2 * time.Minute
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
@@ -929,8 +935,11 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.transcript = append(m.transcript, content)
 			m.refreshTranscript()
 		}
-		if msg.name == "runtime_state" || msg.name == "switch_model" || msg.name == "select_effort" || msg.name == "set_permission" {
+		if msg.name == "runtime_state" || msg.name == "switch_model" || msg.name == "select_effort" || msg.name == "set_permission" || msg.name == "switch_model_manager" {
 			m.snapshotSurface(msg.payload)
+		}
+		if msg.name == "switch_model_manager" {
+			m.status = i18n.Format("status.model_manager_set", map[string]any{"manager": m.surface.manager})
 		}
 		if msg.name == "runtime_state" {
 			var snapshot struct {
@@ -1119,6 +1128,17 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 						m.modalValues = nil
 						m.modalPrompt = ""
 						return m, cmd
+					case "manager":
+						m.modal = ""
+						m.modalItems = nil
+						m.modalValues = nil
+						m.modalPrompt = ""
+						if chosen == m.surface.manager {
+							m.status = i18n.Format("status.model_manager_set", map[string]any{"manager": chosen})
+							return m, nil
+						}
+						m.status = i18n.T("status.model_manager_switching")
+						return m, request(m.host, "switch_model_manager", map[string]any{"choice": chosen})
 					case "sessions":
 						m.modal = ""
 						m.modalValues = nil
@@ -1472,6 +1492,9 @@ func (m *model) command(value string) tea.Cmd {
 	case "/model":
 		m.nextPicker = "models"
 		return request(m.host, "models", map[string]any{})
+	case "/manager":
+		m.openManagerPicker()
+		return nil
 	case "/effort":
 		if len(parts) > 1 {
 			return request(m.host, "select_effort", map[string]any{"effort": parts[1]})
@@ -1483,6 +1506,11 @@ func (m *model) command(value string) tea.Cmd {
 		// resuming a conversation.
 		return requestAs(m.host, "new_session", "switch_session", map[string]any{})
 	case "/login":
+		if len(parts) > 1 && parts[1] == "magpie" {
+			// Gateway setup is a server-driven prompt flow (select, origin,
+			// hidden key) riding the same ui.request seam as provider logins.
+			return request(m.host, "login_magpie", map[string]any{})
+		}
 		if len(parts) > 1 {
 			method := ""
 			if len(parts) > 2 {
@@ -1542,13 +1570,25 @@ func (m *model) command(value string) tea.Cmd {
 			return request(m.host, "set_permission", map[string]any{"mode": parts[1]})
 		}
 	case "/language":
-		if len(parts) == 1 { m.protocolNotice(i18n.Format("notice.language_current", map[string]any{"locale": i18n.Current()})); return nil }
+		if len(parts) == 1 {
+			m.protocolNotice(i18n.Format("notice.language_current", map[string]any{"locale": i18n.Current()}))
+			return nil
+		}
 		locale := i18n.Normalize(parts[1])
-		if locale == "" || len(parts) != 2 { m.protocolNotice(i18n.T("notice.language_invalid")); return nil }
+		if locale == "" || len(parts) != 2 {
+			m.protocolNotice(i18n.T("notice.language_invalid"))
+			return nil
+		}
 		home, err := os.UserHomeDir()
-		if err == nil { err = i18n.Save(home, locale) }
-		if err != nil { m.protocolNotice(i18n.Format("notice.language_save_failed", map[string]any{"error": err.Error()})); return nil }
-		m.protocolNotice(i18n.T("notice.language_saved")); return nil
+		if err == nil {
+			err = i18n.Save(home, locale)
+		}
+		if err != nil {
+			m.protocolNotice(i18n.Format("notice.language_save_failed", map[string]any{"error": err.Error()}))
+			return nil
+		}
+		m.protocolNotice(i18n.T("notice.language_saved"))
+		return nil
 	case "/help":
 		return func() tea.Msg { return commandResult{name: "help", payload: json.RawMessage(`{"ok":true}`)} }
 	}

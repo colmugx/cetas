@@ -224,6 +224,7 @@ async fn harness_dispatch(
           )
         Err(e) => harness_error(e)
       }
+    "login_magpie" => auth_tasks.start_magpie(runtime, group)
     "login_cancel" =>
       match harness_required(args, "auth_id") {
         Ok(id) =>
@@ -342,6 +343,15 @@ async fn harness_dispatch(
           match
             runtime.select_effort(effort, harness_string(args, "session_id")) {
             Ok(_) => runtime.runtime_json()
+            Err(e) => harness_error(e)
+          }
+        Err(e) => harness_error(e)
+      }
+    "switch_model_manager" =>
+      match harness_required(args, "choice") {
+        Ok(choice) =>
+          match runtime.switch_model_manager(choice) {
+            Ok(state) => state
             Err(e) => harness_error(e)
           }
         Err(e) => harness_error(e)

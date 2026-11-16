@@ -77,24 +77,24 @@ func rejectionsDelta(current, seen bridge.Rejections) bridge.Rejections {
 }
 
 type Host struct {
-	infra       transport
-	nextID      atomic.Uint64
-	mu          sync.Mutex
-	pending     map[uint64]chan json.RawMessage
-	events      chan Event
-	activityMu  sync.RWMutex
+	infra          transport
+	nextID         atomic.Uint64
+	mu             sync.Mutex
+	pending        map[uint64]chan json.RawMessage
+	events         chan Event
+	activityMu     sync.RWMutex
 	activityClosed bool
-	problems    chan error
-	boot        chan Event
-	started     chan struct{}
-	pi          *piSupervisor
-	piAvailable bool
-	done        chan struct{}
-	exited      chan struct{}
-	exitCode    int
-	needsSetup  bool
-	closeOnce   sync.Once
-	stopped     bool
+	problems       chan error
+	boot           chan Event
+	started        chan struct{}
+	pi             *piSupervisor
+	piAvailable    bool
+	done           chan struct{}
+	exited         chan struct{}
+	exitCode       int
+	needsSetup     bool
+	closeOnce      sync.Once
+	stopped        bool
 	// cause keeps the first fatal reason the runtime stopped answering.
 	// The problems channel is best-effort and closes with the pump, so a
 	// later Request must still be able to say why the harness died

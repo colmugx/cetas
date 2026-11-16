@@ -16,6 +16,7 @@ type nativeSlashCommand struct {
 
 var nativeSlashCommands = []nativeSlashCommand{
 	{"/model", "Choose a model", false},
+	{"/manager", "Switch between Providers and Magpie", false},
 	{"/effort", "Select reasoning effort", true},
 	{"/new", "Start a new session", false},
 	{"/sessions", "Browse sessions", false},

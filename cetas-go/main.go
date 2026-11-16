@@ -3,9 +3,9 @@
 package main
 
 import (
-	"github.com/colmugx/cetas/cetas-go/internal/i18n"
 	"context"
 	"fmt"
+	"github.com/colmugx/cetas/cetas-go/internal/i18n"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,9 +45,15 @@ func main() {
 	// below keep working (`cetas tui --version`).
 	args := os.Args[1:]
 	home, homeErr := os.UserHomeDir()
-	if homeErr != nil { fmt.Fprintln(os.Stderr,homeErr); os.Exit(2) }
+	if homeErr != nil {
+		fmt.Fprintln(os.Stderr, homeErr)
+		os.Exit(2)
+	}
 	locale, rest, localeErr := i18n.Resolve(args, os.Getenv, home)
-	if localeErr != nil { fmt.Fprintln(os.Stderr,localeErr); os.Exit(2) }
+	if localeErr != nil {
+		fmt.Fprintln(os.Stderr, localeErr)
+		os.Exit(2)
+	}
 	i18n.Set(locale)
 	args = rest
 	for len(args) > 0 && args[0] == "tui" {

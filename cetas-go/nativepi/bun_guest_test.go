@@ -78,46 +78,70 @@ export default function(pi: any) {
 }
 
 func TestBunGuestHostModuleBridge(t *testing.T) {
- binary:=os.Getenv("CETAS_TEST_BUN")
- if binary=="" {var err error;binary,err=exec.LookPath("bun");if err!=nil{t.Skip("Bun not available")}}
- binary,err:=filepath.Abs(binary)
- if err!=nil{t.Fatal(err)}
- home:=t.TempDir()
- dir:=filepath.Join(home,".cetas","pi-packages","node_modules","fixture")
- for path,content:=range map[string]string{
-  filepath.Join(home,".cetas","pi-packages.json"):`{"packages":["fixture"]}`,
-  filepath.Join(dir,"package.json"):`{"name":"fixture","pi":{"extensions":["./index.ts"]}}`,
-  filepath.Join(dir,"index.ts"):`import { truncateToWidth } from "@earendil-works/pi-tui";
+	binary := os.Getenv("CETAS_TEST_BUN")
+	if binary == "" {
+		var err error
+		binary, err = exec.LookPath("bun")
+		if err != nil {
+			t.Skip("Bun not available")
+		}
+	}
+	binary, err := filepath.Abs(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	dir := filepath.Join(home, ".cetas", "pi-packages", "node_modules", "fixture")
+	for path, content := range map[string]string{
+		filepath.Join(home, ".cetas", "pi-packages.json"): `{"packages":["fixture"]}`,
+		filepath.Join(dir, "package.json"):                `{"name":"fixture","pi":{"extensions":["./index.ts"]}}`,
+		filepath.Join(dir, "index.ts"): `import { truncateToWidth } from "@earendil-works/pi-tui";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 export default function(pi: any) {
  pi.registerTool({name:"pi_host_probe",description:"Cetas host modules",parameters:{type:"object",properties:{}},
    execute: async () => ({content:[{type:"text",text:truncateToWidth("abcdef",3)+":"+getAgentDir().endsWith(".cetas")}]})});
 }`,
- } {
-  if err=os.MkdirAll(filepath.Dir(path),0700);err!=nil{t.Fatal(err)}
-  if err=os.WriteFile(path,[]byte(content),0600);err!=nil{t.Fatal(err)}
- }
- g,err:=OpenBun(binary,home,home)
- if err!=nil{t.Fatal(err)}
- defer g.Close()
- defs,_:=g.Catalog()
- if len(defs)!=1||defs[0].Name!="pi_host_probe"{t.Fatalf("host module shim missing: %v, warnings: %v",defs,g.Diagnostics())}
- out:=g.Execute("pi_host_probe","probe",json.RawMessage("{}"))
- if !out.OK||!strings.Contains(out.Content,":true"){t.Fatalf("host module functionality unavailable: %#v",out)}
+	} {
+		if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(path, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g, err := OpenBun(binary, home, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	defs, _ := g.Catalog()
+	if len(defs) != 1 || defs[0].Name != "pi_host_probe" {
+		t.Fatalf("host module shim missing: %v, warnings: %v", defs, g.Diagnostics())
+	}
+	out := g.Execute("pi_host_probe", "probe", json.RawMessage("{}"))
+	if !out.OK || !strings.Contains(out.Content, ":true") {
+		t.Fatalf("host module functionality unavailable: %#v", out)
+	}
 }
 
 func TestBunGuestEnvironmentConfinesPiConfig(t *testing.T) {
- home:=t.TempDir()
- t.Setenv("OPENAI_API_KEY","should-not-pass")
- vars:=bunGuestEnv(home)
- values:=make(map[string]string)
- for _,entry:=range vars {
-  parts:=strings.SplitN(entry,"=",2)
-  if len(parts)==2 {values[parts[0]]=parts[1]}
- }
- if values["CETAS_HOME"]!=home {t.Fatalf("missing Cetas home: %q",values["CETAS_HOME"])}
- if values["PI_CODING_AGENT_DIR"]!=filepath.Join(home,".cetas") {
-  t.Fatalf("Pi config escaped Cetas home: %q",values["PI_CODING_AGENT_DIR"])
- }
- if _,ok:=values["OPENAI_API_KEY"];ok {t.Fatal("provider credentials leaked into Bun guest")}
+	home := t.TempDir()
+	t.Setenv("OPENAI_API_KEY", "should-not-pass")
+	vars := bunGuestEnv(home)
+	values := make(map[string]string)
+	for _, entry := range vars {
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) == 2 {
+			values[parts[0]] = parts[1]
+		}
+	}
+	if values["CETAS_HOME"] != home {
+		t.Fatalf("missing Cetas home: %q", values["CETAS_HOME"])
+	}
+	if values["PI_CODING_AGENT_DIR"] != filepath.Join(home, ".cetas") {
+		t.Fatalf("Pi config escaped Cetas home: %q", values["PI_CODING_AGENT_DIR"])
+	}
+	if _, ok := values["OPENAI_API_KEY"]; ok {
+		t.Fatal("provider credentials leaked into Bun guest")
+	}
 }

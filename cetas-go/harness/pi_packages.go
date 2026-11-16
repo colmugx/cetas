@@ -26,45 +26,64 @@ var piInstallMu sync.Mutex
 // uses its own Pi API facade. None are extension allowlist entries.
 // Keep aligned with cetas-js/src/app/pi-commands.ts.
 var piHostDependencies = map[string]string{
- "@earendil-works/pi-tui": "^1.3.0",
- "@earendil-works/pi-coding-agent": "^1.0.4",
- "@earendil-works/pi-agent-core": "^1.0.4",
- "@earendil-works/pi-ai": "^1.0.4",
- "typebox": "^1.3.27",
+	"@earendil-works/pi-tui":          "^1.3.0",
+	"@earendil-works/pi-coding-agent": "^1.0.4",
+	"@earendil-works/pi-agent-core":   "^1.0.4",
+	"@earendil-works/pi-ai":           "^1.0.4",
+	"typebox":                         "^1.3.27",
 }
 
 // ensurePiUmbrella preserves user-managed package versions and other fields.
 // It is called only during an explicit /pi install, never on startup.
 func ensurePiUmbrella(root string) error {
- if err := os.MkdirAll(root,0700);err!=nil{return err}
- manifestPath:=filepath.Join(root,"package.json")
- raw,err:=os.ReadFile(manifestPath)
- if os.IsNotExist(err) {
-  raw=[]byte(`{"name":"cetas-pi-packages","private":true,"type":"module"}`)
- } else if err!=nil{return err}
- var manifest map[string]json.RawMessage
- if err=json.Unmarshal(raw,&manifest);err!=nil{return fmt.Errorf("Pi umbrella package.json: %w",err)}
- if manifest==nil {return fmt.Errorf("Pi umbrella package.json must be an object")}
- deps:=map[string]json.RawMessage{}
- if value,ok:=manifest["dependencies"];ok {
-  if err=json.Unmarshal(value,&deps);err!=nil||deps==nil{return fmt.Errorf("Pi umbrella dependencies must be an object")}
- }
- changed:=false
- for name,wanted:=range piHostDependencies {
-  if _,exists:=deps[name];exists{continue}
-  version,err:=json.Marshal(wanted)
-  if err!=nil{return err}
-  deps[name]=version
-  changed=true
- }
- if !changed{return nil}
- manifest["dependencies"],err=json.Marshal(deps)
- if err!=nil{return err}
- data,err:=json.MarshalIndent(manifest,"","  ")
- if err!=nil{return err}
- return os.WriteFile(manifestPath,append(data,'\n'),0600)
+	if err := os.MkdirAll(root, 0700); err != nil {
+		return err
+	}
+	manifestPath := filepath.Join(root, "package.json")
+	raw, err := os.ReadFile(manifestPath)
+	if os.IsNotExist(err) {
+		raw = []byte(`{"name":"cetas-pi-packages","private":true,"type":"module"}`)
+	} else if err != nil {
+		return err
+	}
+	var manifest map[string]json.RawMessage
+	if err = json.Unmarshal(raw, &manifest); err != nil {
+		return fmt.Errorf("Pi umbrella package.json: %w", err)
+	}
+	if manifest == nil {
+		return fmt.Errorf("Pi umbrella package.json must be an object")
+	}
+	deps := map[string]json.RawMessage{}
+	if value, ok := manifest["dependencies"]; ok {
+		if err = json.Unmarshal(value, &deps); err != nil || deps == nil {
+			return fmt.Errorf("Pi umbrella dependencies must be an object")
+		}
+	}
+	changed := false
+	for name, wanted := range piHostDependencies {
+		if _, exists := deps[name]; exists {
+			continue
+		}
+		version, err := json.Marshal(wanted)
+		if err != nil {
+			return err
+		}
+		deps[name] = version
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	manifest["dependencies"], err = json.Marshal(deps)
+	if err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(manifestPath, append(data, '\n'), 0600)
 }
-
 
 // Windows npm/pnpm/yarn are often .cmd shims rather than PE executables.
 // Match cetas-js: only route non-native shims through cmd.exe, with package
@@ -85,10 +104,10 @@ func piPackageRunner(ctx context.Context, manager, verb, pkg string) *exec.Cmd {
 // Do not display untrusted raw npm output in activities (registry URLs may
 // embed tokens). Failures keep only the trailing diagnostic output.
 type packageOutput struct {
-	mu sync.Mutex
-	buf bytes.Buffer
-	total int64
-	last time.Time
+	mu       sync.Mutex
+	buf      bytes.Buffer
+	total    int64
+	last     time.Time
 	progress func(int64)
 }
 
@@ -123,7 +142,6 @@ func (w *packageOutput) Output() string {
 	defer w.mu.Unlock()
 	return w.buf.String()
 }
-
 
 type piSnapshot struct {
 	Raw      map[string]json.RawMessage

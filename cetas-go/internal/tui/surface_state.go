@@ -23,15 +23,18 @@ type surfaceState struct {
 	fg, bg                    color.Color
 	cwd, home, branch         string
 	model, effort, permission string
-	context                   ui.ContextState
-	entries                   []ui.DashboardEntry
-	widgets                   map[string]mountedWidget
-	statuses                  map[string]mountedWidget
-	entriesExpires            time.Time
-	notices                   map[string]int
-	noticeExpires             map[string]time.Time
-	activities                activityState
-	usage                     tokenUsage
+	// Process-global model-manager choice ("providers" | "magpie"); carried
+	// by every runtime snapshot, survives session resets.
+	manager        string
+	context        ui.ContextState
+	entries        []ui.DashboardEntry
+	widgets        map[string]mountedWidget
+	statuses       map[string]mountedWidget
+	entriesExpires time.Time
+	notices        map[string]int
+	noticeExpires  map[string]time.Time
+	activities     activityState
+	usage          tokenUsage
 	// Presentation maps are reset with the owning session, never process-global.
 	askExpanded bool
 	searchOpen  bool
@@ -88,6 +91,7 @@ func (m *model) snapshotSurface(raw json.RawMessage) {
 		Effort     *string `json:"effort"`
 		Permission *string `json:"permission"`
 		Cwd        *string `json:"cwd"`
+		Manager    *string `json:"model_manager"`
 	}
 	if err := json.Unmarshal(raw, &s); err != nil {
 		m.err = "invalid runtime snapshot: " + err.Error()
@@ -101,6 +105,9 @@ func (m *model) snapshotSurface(raw json.RawMessage) {
 	}
 	if s.Permission != nil {
 		m.surface.permission = *s.Permission
+	}
+	if s.Manager != nil {
+		m.surface.manager = *s.Manager
 	}
 	if s.Cwd != nil && *s.Cwd != m.surface.cwd {
 		m.surface.cwd = *s.Cwd
@@ -386,6 +393,6 @@ func (m *model) retireSessionPresentation() tea.Cmd {
 	m.fragments = nil
 	m.blocks = nil
 	old := m.surface
-	m.surface = surfaceState{fg: old.fg, bg: old.bg, cwd: old.cwd, home: old.home, branch: old.branch}
+	m.surface = surfaceState{fg: old.fg, bg: old.bg, cwd: old.cwd, home: old.home, branch: old.branch, manager: old.manager}
 	return tea.Batch(cmds...)
 }

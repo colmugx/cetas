@@ -122,3 +122,46 @@ fn NativeAuthTasks::cancel_all(self : NativeAuthTasks) -> Unit {
     }
   }
 }
+
+///|
+/// Start the interactive Magpie gateway setup (select/origin/key prompts ride
+/// the same UiRequest seam as provider logins). Same single-flight rule: one
+/// terminal-owning flow at a time.
+fn NativeAuthTasks::start_magpie(
+  self : NativeAuthTasks,
+  runtime : @console.ConsoleRuntime,
+  group : @core_async.TaskGroup,
+) -> Json {
+  if self.busy() {
+    return harness_error("another provider login is already active")
+  }
+  let id = "auth-" + self.next_id.to_string()
+  self.next_id += 1
+  let session_id = runtime.active_session_id()
+  let task = group.spawn(
+    () => {
+      defer {
+        self.pending.remove(id)
+        self.cancelled.remove(id)
+      }
+      let result = runtime.login_magpie()
+      if !self.cancelled.contains(id) {
+        runtime.emit_event(session_id, "", "auth.login", extra=[
+          ("auth_id", Json::string(id)),
+          ("provider", Json::string("magpie")),
+          ("result", result),
+        ])
+      }
+    },
+    allow_failure=true,
+  )
+  self.pending[id] = task
+  Json::object(
+    Map::from_array([
+      ("status", Json::string("started")),
+      ("auth_id", Json::string(id)),
+      ("provider", Json::string("magpie")),
+      ("session_id", Json::string(session_id)),
+    ]),
+  )
+}

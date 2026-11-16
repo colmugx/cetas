@@ -21,6 +21,25 @@ func (m *model) openModelPicker() {
 	m.modelPicker = overlays.NewModels(m.modelSlots)
 	m.syncModelPicker()
 }
+
+// openManagerPicker installs the static two-choice manager dialog. The active
+// choice comes from the last runtime snapshot; a snapshot that never carried
+// model_manager (older runtime) simply shows no marker.
+func (m *model) openManagerPicker() {
+	items := []string{"Providers — ext-llm slot router", "Magpie — Magpie Gateway model manager"}
+	values := []string{"providers", "magpie"}
+	m.modalIndex = 0
+	for i, v := range values {
+		if v == m.surface.manager {
+			items[i] = "● " + items[i]
+			m.modalIndex = i
+		}
+	}
+	m.modal = "manager"
+	m.modalItems = items
+	m.modalValues = values
+	m.modalPrompt = "Select model manager"
+}
 func (m *model) modelPickerKey(key, text string) bool {
 	if m.modal != "models" || m.modalRequestID != "" {
 		return false

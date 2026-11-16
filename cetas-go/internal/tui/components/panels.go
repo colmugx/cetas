@@ -1,8 +1,8 @@
 package components
 
 import (
-	"github.com/colmugx/cetas/cetas-go/internal/i18n"
 	"fmt"
+	"github.com/colmugx/cetas/cetas-go/internal/i18n"
 	"strings"
 	"sync"
 	"unicode"
@@ -77,7 +77,7 @@ func Ask(t Theme, r AskRequest, width, selected int, value string, expanded bool
 			}
 			out = append(out, renderAskBody(t, body[:shown], width)...)
 			if collapsible && !expanded {
-				label := i18n.Format("dialog.expand", map[string]any{"count": len(body)-askPreviewLines})
+				label := i18n.Format("dialog.expand", map[string]any{"count": len(body) - askPreviewLines})
 				out = append(out, t.Role("muted", askCut(label, width)))
 			}
 		} else {
