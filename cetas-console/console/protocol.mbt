@@ -136,7 +136,7 @@ fn EventHub::emit_to(
 ) -> Unit {
   match self.subscribers.get(id) {
     Some(sink) =>
-      sink(self.next_frame(session_id, "", event_type, extra).stringify())
+      sink(self.next_frame(session_id, "", event_type, extra, cursor_advance=false).stringify())
     None => ()
   }
 }
@@ -169,6 +169,7 @@ fn EventHub::next_frame(
   turn_id : String,
   event_type : String,
   extra : Array[(String, Json)],
+  cursor_advance : Bool,
 ) -> Json {
   self.seq += 1
   let cursor = self.current_cursor(session_id)
@@ -180,6 +181,7 @@ fn EventHub::next_frame(
     ("turn_id", Json::string(turn_id)),
     ("runtime_epoch", Json::string(self.runtime_epoch)),
     ("cursor", Json::number(cursor.to_double())),
+    ("cursor_advance", Json::boolean(cursor_advance)),
   ]
   if event_type == "session.snapshot" {
     fields.push(("high_water_cursor", Json::number(cursor.to_double())))
@@ -203,7 +205,7 @@ fn EventHub::emit(
   if broadcast {
     self.advance_cursor(session_id)
   }
-  let framed = self.next_frame(session_id, turn_id, event_type, extra)
+  let framed = self.next_frame(session_id, turn_id, event_type, extra, cursor_advance=broadcast)
   if broadcast {
     self.keep_wire_frame(framed)
   }
@@ -300,7 +302,7 @@ fn EventHub::emit_out_of_band(
   extra~ : Array[(String, Json)] = [],
 ) -> Unit {
   self.advance_cursor(session_id)
-  let framed = self.next_frame(session_id, "", event_type, extra)
+  let framed = self.next_frame(session_id, "", event_type, extra, cursor_advance=true)
   self.deliver(framed.stringify())
 }
 
