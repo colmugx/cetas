@@ -1860,6 +1860,9 @@ func (m *model) applyEvent(e wire.Event) {
 			// presentation like a switch, or the in-flight index reply is dropped as
 			// stale before it can clear replayIndexPending and pagination latches dead.
 			m.pendingSessionCmd = m.retireSessionPresentation()
+			m.eventCursor = 0
+			m.eventResyncPending = false
+			m.eventResyncAwaitingSnapshot = false
 			m.session = frame.To
 			m.dynamicCommands = nil
 			m.commandSession = ""
@@ -1892,6 +1895,9 @@ func (m *model) applyEvent(e wire.Event) {
 		m.switchInFlight = ""
 		m.aborting = false
 		m.pendingSessionCmd = m.retireSessionPresentation()
+		m.eventCursor = 0
+		m.eventResyncPending = false
+		m.eventResyncAwaitingSnapshot = false
 		m.session = data.SessionID
 		m.requestTitle()
 		// A brand-new session shows the welcome; resuming a journal keeps working
