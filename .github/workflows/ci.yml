@@ -190,6 +190,13 @@ jobs:
             sleep $((attempt * 3))
           done
 
+      # Native Pi guest tests must run under the exact Bun version shipped by
+      # /experimental, rather than silently skipping when Bun is unavailable.
+      - name: Setup pinned Bun for native Pi integration tests
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
       - name: go vet
         working-directory: cetas-go
         env:
@@ -269,6 +276,10 @@ jobs:
       - name: Link MSVC runtime DLL
         shell: pwsh
         run: ./cetas-go/tools/build_windows_dll.ps1 -OutputDir bin
+      - name: Setup pinned Bun for Windows Pi integration tests
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
       - name: Go vet (no cgo)
         working-directory: cetas-go
         env:
