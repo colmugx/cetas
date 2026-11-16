@@ -121,6 +121,7 @@ pub async fn ConsoleRuntime::quota_json(Self) -> @json.Json
 pub async fn ConsoleRuntime::rename_session(Self, String, String) -> Result[Unit, String]
 pub fn ConsoleRuntime::republish_status(Self) -> Unit
 pub fn ConsoleRuntime::resolve_ui(Self, String, String) -> Unit
+pub fn ConsoleRuntime::resolve_ui_for_surface(Self, String, String, String) -> Result[Unit, String]
 pub async fn ConsoleRuntime::resume_workspace_session(Self, String, String, String?) -> Result[String, String] noraise
 pub async fn ConsoleRuntime::rewind_active_session(Self, Int32) -> @json.Json
 pub async fn ConsoleRuntime::rewind_points_json(Self) -> @json.Json
