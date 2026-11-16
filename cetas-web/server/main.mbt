@@ -113,7 +113,7 @@ async fn serve_websocket(
                     match runtime.start_turn_for_surface(subscription_id, prompt, session_id) {
                       Ok(_) => ()
                       Err(message) =>
-                        runtime.emit_event("", "", "protocol.error", extra=[
+                        runtime.emit_to_subscriber(subscription_id, session_id.unwrap_or(""), "protocol.error", extra=[
                           ("message", Json::string(message)),
                         ])
                     }
@@ -154,7 +154,7 @@ async fn serve_websocket(
                 }
               }
               Binary =>
-                runtime.emit_event("", "", "protocol.error", extra=[
+                runtime.emit_to_subscriber(subscription_id, "", "protocol.error", extra=[
                   (
                     "message",
                     Json::string("binary websocket messages are not supported"),
