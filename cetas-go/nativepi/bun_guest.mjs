@@ -15,6 +15,7 @@ const activeTools = new Set();
 const observers = new Map();
 const commands = new Map();
 let commandGeneration = 0;
+let activeCommandNotices = null;
 let generation = 0;
 const warnings = [];
 const originalLog = console.log;
@@ -25,6 +26,11 @@ function fail(reason) { return { ok: false, content: String(reason) }; }
 function allTools() { return [...tools.values()].map(({name,description,parameters}) => ({name,description,parameters})); }
 function catalog() { return allTools().filter(def => activeTools.has(def.name)); }
 function commandCatalog() { return [...commands.values()].map(({definition}) => definition); }
+function messageText(message) {
+  return Array.isArray(message?.content)
+    ? message.content.filter(part => part?.type === "text").map(part => String(part.text ?? "")).join("\n")
+    : typeof message?.content === "string" ? message.content : "";
+}
 function context(notices) {
   return {cwd,hasUI:false,mode:"json",
     sessionManager:{getBranch:()=>[]},
@@ -128,6 +134,15 @@ function api(pkg) {
       }, handler: def.handler, shortcut: false });
       commandGeneration++;
     },
+    // Pi messages emitted by a command can be displayed by the native TUI
+    // as command feedback. They are not injected into the Posoco journal or
+    // silently promoted into a new Agent turn.
+    sendMessage(message) {
+      const text = messageText(message);
+      if (!text) return;
+      if (activeCommandNotices) activeCommandNotices.push(text);
+      else warnings.push(pkg + ": Pi sendMessage outside a native command cannot be delivered: " + text);
+    },
     registerShortcut(key, def) {
       if (typeof key !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9+_-]*$/.test(key) || typeof def?.handler !== "function")
         throw new Error("Pi shortcut requires a key chord and handler(ctx)");
@@ -178,6 +193,7 @@ async function dispatch(req) {
     const entry = commands.get(req.name);
     if (!entry) return {outcome:{type:"failure",reason:"unknown Pi command: "+String(req.name)}};
     const notices = [];
+    activeCommandNotices = notices;
     try {
       const result = entry.shortcut
         ? await entry.handler(context(notices))
@@ -186,6 +202,8 @@ async function dispatch(req) {
       return {outcome:{type:"success",feedback}};
     } catch (e) {
       return {outcome:{type:"failure",reason:e instanceof Error ? e.message : String(e)}};
+    } finally {
+      activeCommandNotices = null;
     }
   }
   if(req.kind==="execute") {
