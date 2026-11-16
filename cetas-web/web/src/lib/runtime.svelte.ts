@@ -2,6 +2,7 @@ import { addWorkspace, fetchTrace, fetchTranscript, listExts, listSessions, list
 import { createRealtimeClient, type RealtimeClient, type RealtimeState, type ServerEvent } from "./socket";
 import type { TranscriptItem } from "./transcript";
 import { createSmoothMarkdownStream } from "markstream-core";
+import { SessionEventCursor } from "./event-cursor";
 
 export type ConnectionState = "checking" | "online" | "offline";
 export type CoreState = "checking" | "ready" | "needs_setup" | "offline";
@@ -187,6 +188,8 @@ class RuntimeStore {
   #sessionStates = new Map<string, SessionState>();
   realtime: RealtimeClient;
   #lastSeq = 0;
+  #eventCursor = new SessionEventCursor();
+  #resyncing = new Set<string>();
 
   constructor() {
     this.realtime = createRealtimeClient((state) => {
@@ -475,15 +478,40 @@ class RuntimeStore {
     }
   }
 
+  #recoverSession(sessionId: string) {
+    if (!sessionId || this.#resyncing.has(sessionId)) return;
+    this.#resyncing.add(sessionId);
+    const state = this.session(sessionId);
+    this.realtime.send({
+      type: "session.attach",
+      cwd: state?.cwd || this.activeWorkspace,
+      session_id: sessionId,
+    });
+    void this.replay(sessionId);
+  }
+
   #onEvent(event: ServerEvent) {
-    if (typeof event.seq === "number") {
-      if (event.seq <= this.#lastSeq) return;
-      this.#lastSeq = event.seq;
-    }
     const sessionId =
       typeof event.session_id === "string" && event.session_id.length > 0
         ? event.session_id
         : this.activeSessionId;
+    const previousEpoch = this.#eventCursor.epoch();
+    const decision = this.#eventCursor.accept({ ...event, session_id: sessionId });
+    if (decision.kind === "gap" || decision.kind === "epoch_changed") {
+      this.#recoverSession(sessionId);
+      return;
+    }
+    if (decision.kind === "duplicate") return;
+    if (typeof event.seq === "number") {
+      if (event.seq <= this.#lastSeq && decision.kind !== "snapshot") return;
+      if (decision.kind === "snapshot" && previousEpoch && previousEpoch !== decision.epoch) {
+        this.#lastSeq = 0;
+      }
+      this.#lastSeq = event.seq;
+    }
+    if (decision.kind === "snapshot" && this.#resyncing.delete(sessionId)) {
+      void this.replay(sessionId);
+    }
 
     switch (event.type) {
       case "session.snapshot": {
