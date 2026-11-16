@@ -169,7 +169,7 @@ fn EventHub::next_frame(
   turn_id : String,
   event_type : String,
   extra : Array[(String, Json)],
-  cursor_advance : Bool,
+  cursor_advance~ : Bool,
 ) -> Json {
   self.seq += 1
   let cursor = self.current_cursor(session_id)
@@ -201,7 +201,7 @@ fn EventHub::emit(
   event_type : String,
   extra~ : Array[(String, Json)] = [],
   broadcast~ : Bool = true,
- ) -> Unit {
+) -> Unit {
   if broadcast {
     self.advance_cursor(session_id)
   }
