@@ -98,8 +98,17 @@ async fn serve_websocket(
                       "protocol.error",
                       extra=[("message", Json::string(message))],
                     )
-                  Ok(SessionAttach) =>
-                    runtime.emit_active_snapshot_to(subscription_id)
+                  Ok(SessionAttach(cwd, session_id)) =>
+                    match runtime.attach_surface(subscription_id, cwd, session_id) {
+                      Ok(_) => ()
+                      Err(message) =>
+                        runtime.emit_to_subscriber(
+                          subscription_id,
+                          session_id.unwrap_or(""),
+                          "protocol.error",
+                          extra=[("message", Json::string(message))],
+                        )
+                    }
                   Ok(TurnStart(prompt, session_id)) =>
                     match runtime.start_turn(prompt, session_id) {
                       Ok(_) => ()
