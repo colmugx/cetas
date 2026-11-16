@@ -281,6 +281,11 @@ class RuntimeStore {
     ) {
       this.activeWorkspace = snapshot.cwd;
       this.activeSessionId = snapshot.session_id;
+      this.realtime.send({
+        type: "session.attach",
+        cwd: snapshot.cwd,
+        session_id: snapshot.session_id,
+      });
     }
   }
 
