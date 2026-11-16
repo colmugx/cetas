@@ -38,6 +38,11 @@ jobs:
       - name: moon version
         run: moon version --all
 
+      # The public JS build resolves the full workspace graph. Fresh runners
+      # must populate the MoonBit registry before running the preload/typecheck.
+      - name: Resolve MoonBit registry for checks
+        run: moon update
+
       - name: Version-sync gate
         run: python3 scripts/release.py check --scope core
 
