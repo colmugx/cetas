@@ -84,8 +84,11 @@ fn build_cetas_tools(
       }
       "ps1" =>
         if shell_platform_is_windows() {
+          // Native Windows has no PATH-aware resolver in posoco-ext-ps1;
+          // use the in-box executable so stock Windows works without pwsh.
           exts.push(
-            @ps1.PowerShellTools(anchor=Some(anchor)) as &@posoco.Extension,
+            @ps1.PowerShellTools(exe="powershell", anchor=Some(anchor))
+            as &@posoco.Extension,
           )
         } else {
           raise @posoco.CompositionError::ManifestSchemaError(
