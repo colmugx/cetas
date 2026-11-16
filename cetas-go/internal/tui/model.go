@@ -115,6 +115,10 @@ type model struct {
 	replayGeneration    uint64
 	replayIndexPending  bool
 	replayIndexSince    time.Time
+	// Runtime epoch + selected-session broadcast cursor for gap-free live delivery.
+	runtimeEpoch       string
+	eventCursor        int32
+	eventResyncPending bool
 	replayIndexTimeouts int
 	replayBackpressure  int
 	replayRetryAt       time.Time
@@ -539,6 +543,15 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.refreshTranscript()
+		if m.eventResyncPending && !msg.closed {
+			m.eventResyncPending = false
+			m.status = "resynchronizing session history"
+			return m, tea.Batch(
+				receive(m.feed),
+				request(m.host, "attach", map[string]any{}),
+				m.startPagedReplay(),
+			)
+		}
 		if msg.closed {
 			m.flushAssistant()
 			m.running = false
@@ -1635,12 +1648,19 @@ func (m *model) applyEvent(e wire.Event) {
 		Slot      string          `json:"slot"`
 		Lines     []string        `json:"lines"`
 		Default   json.RawMessage `json:"default"`
-		Busy      bool            `json:"busy"`
-		From      string          `json:"from"`
+		Busy          bool            `json:"busy"`
+		RuntimeEpoch  string          `json:"runtime_epoch"`
+		Cursor        int32           `json:"cursor"`
+		HighWater     int32           `json:"high_water_cursor"`
+		CursorAdvance bool            `json:"cursor_advance"`
+		From          string          `json:"from"`
 		To        string          `json:"to"`
 	}
 	if err := json.Unmarshal(e.Raw, &frame); err != nil {
 		m.err = "invalid event: " + err.Error()
+		return
+	}
+	if m.eventResyncPending && frame.Type != "session.snapshot" {
 		return
 	}
 	if frame.SessionID != "" {
@@ -1652,6 +1672,44 @@ func (m *model) applyEvent(e wire.Event) {
 		// purpose.
 		if frame.SessionID != m.session && frame.Type != "auth.login" && frame.Type != "auth.cancelled" && frame.Type != "session.switched" && frame.Type != "session.switch_failed" {
 			return
+		}
+	}
+	if frame.SessionID == m.session && frame.RuntimeEpoch != "" {
+		switch frame.Type {
+		case "session.snapshot":
+			epochChanged := m.runtimeEpoch != "" && m.runtimeEpoch != frame.RuntimeEpoch
+			previous := m.eventCursor
+			cursor := frame.HighWater
+			if cursor == 0 {
+				cursor = frame.Cursor
+			}
+			m.runtimeEpoch = frame.RuntimeEpoch
+			if epochChanged {
+				m.eventCursor = cursor
+				m.eventResyncPending = true
+			} else {
+				expected := previous
+				if frame.CursorAdvance {
+					expected++
+				}
+				if previous > 0 && cursor > expected {
+					m.eventResyncPending = true
+				} else {
+					m.eventResyncPending = false
+				}
+				m.eventCursor = cursor
+			}
+		default:
+			if frame.CursorAdvance {
+				if frame.Cursor <= m.eventCursor {
+					return
+				}
+				if m.eventCursor > 0 && frame.Cursor != m.eventCursor+1 {
+					m.eventResyncPending = true
+					return
+				}
+				m.eventCursor = frame.Cursor
+			}
 		}
 	}
 	if m.activityEvent(frame.Type, e.Raw) {
