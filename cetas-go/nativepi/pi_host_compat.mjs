@@ -136,8 +136,13 @@ export function installPiHostCompat(packageRoot) {
   // Bun 1.4.4 requires every matching onLoad callback to return a module
   // object. Scope the filter to the allowlisted root, so foreign dependencies
   // and generated host shims remain on Bun\'s ordinary module loader.
-  const escapedRoot = canonicalRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const loadFilter = new RegExp("^" + escapedRoot + "[/\\\\].*\\.(?:[cm]?[jt]sx?)$");
+  // Bun normalizes Windows paths in different places to slash-separated
+  // paths; match both forms, independent of the casing of the drive/root.
+  const escapedRoot = canonicalRoot.split(/[\\/]+/)
+    .map(part => part.replace(/[.*+?^${}()|[\]\\]/g, "\\  const escapedRoot = canonicalRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const loadFilter = new RegExp("^" + escapedRoot + "[/\\\\].*\\.(?:[cm]?[jt]sx?)$");"))
+    .join("[/\\\\]");
+  const loadFilter = new RegExp("^" + escapedRoot + "[/\\\\].*\\.(?:[cm]?[jt]sx?)$", "i");
   Bun.plugin({
     name: "cetas-pi-host",
     setup(build) {
