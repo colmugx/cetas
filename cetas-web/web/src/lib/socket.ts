@@ -127,6 +127,7 @@ function createSocketClient(
   const handlers = new Set<(event: ServerEvent) => void>();
   let state: RealtimeState = "connecting";
   let socket: WebSocket | undefined;
+  let attachment: Record<string, unknown> = { type: "session.attach" };
 
   const setState = (next: RealtimeState) => {
     if (state === next) return;
@@ -144,7 +145,7 @@ function createSocketClient(
     socket.addEventListener("open", () => {
       attempts = 0;
       setState("online");
-      socket?.send(JSON.stringify({ type: "session.attach" }));
+      socket?.send(JSON.stringify(attachment));
     });
 
     socket.addEventListener("message", (message) => {
@@ -173,6 +174,7 @@ function createSocketClient(
       return state;
     },
     send(message) {
+      if (message.type === "session.attach") attachment = { ...message };
       if (!socket || socket.readyState !== WebSocket.OPEN) return false;
       socket.send(JSON.stringify(message));
       return true;
