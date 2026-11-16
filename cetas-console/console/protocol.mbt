@@ -1,8 +1,9 @@
 ///|
-/// Shared event channel: one sink per WebSocket connection and one global
-/// sequence, so events from concurrent sessions interleave coherently.
+/// Shared event channel: a legacy host sink plus independent client subscriptions.
 struct EventHub {
   mut sink : ((String) -> Unit)?
+  subscribers : Map[String, (String) -> Unit]
+  mut next_subscriber_id : Int32
   mut seq : Int32
   /// Rolling wire log of broadcast events, newest last (capped).
   trace : Array[Json]
@@ -23,6 +24,8 @@ struct EventHub {
 fn EventHub::new() -> EventHub {
   {
     sink: None,
+    subscribers: Map([]),
+    next_subscriber_id: 0,
     seq: 0,
     trace: [],
     turn_traces: Map([]),
@@ -45,6 +48,51 @@ fn EventHub::attach(self : EventHub, sink : (String) -> Unit) -> Unit {
         sink(frame.stringify())
       }
     }
+  }
+}
+
+///|
+/// A legacy host sink plus independently attached transport subscribers.
+struct EventHub {
+  mut sink : ((String) -> Unit)?
+  subscribers : Map[String, (String) -> Unit]
+  mut next_subscriber_id : Int32
+  mut seq : Int32
+  /// Rolling wire log of broadcast events, newest last (capped).
+  trace : Array[Json]
+  /// Per-turn event ledgers, keyed by "session/turn".
+  turn_traces : Map[String, Array[Json]]
+  turn_order : Map[String, Array[String]]
+  mut retention : NativeRetention?
+  mut startup_warnings_flushed : Bool
+}
+
+///|
+fn EventHub::subscribe(self : EventHub, sink : (String) -> Unit) -> String {
+  self.next_subscriber_id += 1
+  let id = "sub-" + self.next_subscriber_id.to_string()
+  self.subscribers[id] = sink
+  id
+}
+
+///|
+fn EventHub::unsubscribe(self : EventHub, id : String) -> Unit {
+  ignore(self.subscribers.remove(id))
+}
+
+///|
+fn EventHub::deliver(self : EventHub, frame : String) -> Unit {
+  let targets : Array[(String) -> Unit] = []
+  for _, subscriber in self.subscribers { targets.push(subscriber) }
+  match self.sink { Some(sink) => sink(frame) None => () }
+  for subscriber in targets { subscriber(frame) }
+}
+
+///|
+fn EventHub::emit_to(self : EventHub, id : String, session_id : String, event_type : String, extra~ : Array[(String, Json)] = []) -> Unit {
+  match self.subscribers.get(id) {
+    Some(sink) => sink(self.next_frame(session_id, "", event_type, extra).stringify())
+    None => ()
   }
 }
 
@@ -123,12 +171,7 @@ fn EventHub::emit(
         }
     }
   }
-  if broadcast {
-    match self.sink {
-      Some(sink) => sink(framed.stringify())
-      None => ()
-    }
-  }
+  if broadcast { self.deliver(framed.stringify()) }
 }
 
 ///|
@@ -201,10 +244,7 @@ fn EventHub::emit_out_of_band(
   extra~ : Array[(String, Json)] = [],
 ) -> Unit {
   let framed = self.next_frame(session_id, "", event_type, extra)
-  match self.sink {
-    Some(sink) => sink(framed.stringify())
-    None => ()
-  }
+  self.deliver(framed.stringify())
 }
 
 ///|
