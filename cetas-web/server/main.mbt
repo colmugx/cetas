@@ -72,15 +72,15 @@ async fn serve_websocket(
         let queue : @aqueue.Queue[String] = Queue(
           kind=Blocking(WEB_EVENT_QUEUE_CAPACITY),
         )
-        runtime.attach_sink(fn(event : String) {
+        let subscription_id = runtime.subscribe_events(fn(event : String) {
           ignore(queue.try_put(event) catch { _ => false })
         })
-        defer runtime.detach_sink()
+        defer runtime.unsubscribe_events(subscription_id)
         defer queue.close(clear=true)
 
         connection_group.spawn_bg(async fn() { drain_web_events(queue, ws) })
 
-        runtime.emit_event("", "", "connection.ready", extra=[
+        runtime.emit_to_subscriber(subscription_id, "", "connection.ready", extra=[
           ("protocol", Json::string("cetas-web/0.1")),
         ])
 
@@ -92,12 +92,11 @@ async fn serve_websocket(
                 let raw = msg.read_all().text()
                 match decode_web_client_message(raw) {
                   Err(message) =>
-                    runtime.emit_event("", "", "protocol.error", extra=[
+                    runtime.emit_to_subscriber(subscription_id, "", "protocol.error", extra=[
                       ("message", Json::string(message)),
                     ])
                   Ok(SessionAttach) => {
-                    runtime.emit_active_snapshot()
-                    runtime.republish_status()
+                    runtime.emit_active_snapshot_to(subscription_id)
                   }
                   Ok(TurnStart(prompt, session_id)) =>
                     match runtime.start_turn(prompt, session_id) {
