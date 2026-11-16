@@ -169,8 +169,9 @@ async function dispatch(req) {
   }
   return {error:"unknown Pi guest RPC: "+String(req.kind)};
 }
-// Register host-owned module resolvers before dynamically importing packages.
-installPiHostCompat();
+// Install the Pi host import transform before dynamically importing packages.
+// Do not use runtime onResolve for bare specifiers: Bun 1.4.x skips that hook.
+const disposePiHostCompat = installPiHostCompat(root);
 await boot();
 send({kind:"ready",tools:catalog(),generation,warnings});
 const lines = createInterface({input:process.stdin,crlfDelay:Infinity});
@@ -185,3 +186,4 @@ for await (const line of lines) {
 }
 
 await notify("session_shutdown");
+disposePiHostCompat();
