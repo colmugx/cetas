@@ -34,7 +34,6 @@ pub struct ConsoleBootstrap {
   fs : &@posoco-ext-workspace.WorkspaceFs
   home : String
   hub : EventHub
-  surfaces : Map[String, SurfaceBinding]
   ui_registry : UiRegistry
   native_ui : Bool
 }
@@ -83,20 +82,16 @@ pub struct ConsoleRuntime {
   replay_cache : NativeReplayCache
   mut stopping : Bool
 }
-pub async fn ConsoleRuntime::abort_turn(Self, String?) -> Unit noraise
-pub fn ConsoleRuntime::surface_session_id(Self, String) -> String?
-pub async fn ConsoleRuntime::quota_all_surface_json(Self, String) -> @json.Json
-pub async fn ConsoleRuntime::quota_surface_json(Self, String) -> @json.Json
-pub async fn ConsoleRuntime::start_turn_for_surface(Self, String, String, String?) -> Result[String, String] noraise
-pub async fn ConsoleRuntime::compact_surface_session(Self, String) -> Unit
-pub async fn ConsoleRuntime::attach_surface(Self, String, String?, String?) -> Result[String, String] noraise
 pub async fn ConsoleRuntime::abort_surface_turn(Self, String, String?) -> Unit noraise
+pub async fn ConsoleRuntime::abort_turn(Self, String?) -> Unit noraise
 pub fn ConsoleRuntime::active_session_id(Self) -> String
 pub fn ConsoleRuntime::active_workspace(Self) -> String
 pub fn ConsoleRuntime::attach_sink(Self, (String) -> Unit) -> Unit
+pub async fn ConsoleRuntime::attach_surface(Self, String, String?, String?) -> Result[String, String] noraise
 pub fn ConsoleRuntime::cancel_pending_ui(Self) -> Unit
 pub fn ConsoleRuntime::commands_json(Self) -> @json.Json
 pub async fn ConsoleRuntime::compact_active_session(Self) -> Unit
+pub async fn ConsoleRuntime::compact_surface_session(Self, String) -> Unit
 pub async fn ConsoleRuntime::configure_magpie(Self, url~ : String, key~ : String) -> Result[@json.Json, String] noraise
 pub fn ConsoleRuntime::detach_sink(Self) -> Unit
 pub fn ConsoleRuntime::emit_active_snapshot(Self) -> Unit
@@ -117,7 +112,9 @@ pub fn ConsoleRuntime::pi_guest_result(Self, String, String, @json.Json) -> Bool
 pub async fn ConsoleRuntime::prefetch_session(Self, String) -> Result[String, String] noraise
 pub async fn ConsoleRuntime::providers_json(Self) -> @json.Json
 pub async fn ConsoleRuntime::quota_all_json(Self) -> @json.Json
+pub async fn ConsoleRuntime::quota_all_surface_json(Self, String) -> @json.Json
 pub async fn ConsoleRuntime::quota_json(Self) -> @json.Json
+pub async fn ConsoleRuntime::quota_surface_json(Self, String) -> @json.Json
 pub async fn ConsoleRuntime::rename_session(Self, String, String) -> Result[Unit, String]
 pub fn ConsoleRuntime::republish_status(Self) -> Unit
 pub fn ConsoleRuntime::resolve_ui(Self, String, String) -> Unit
@@ -134,7 +131,9 @@ pub async fn ConsoleRuntime::shutdown_all(Self) -> Unit
 pub async fn ConsoleRuntime::skills_json(Self) -> @json.Json
 pub fn ConsoleRuntime::spawn_background(Self, async () -> Unit) -> Unit
 pub async fn ConsoleRuntime::start_turn(Self, String, String?, images? : Array[@kernel.Content]) -> Result[String, String] noraise
+pub async fn ConsoleRuntime::start_turn_for_surface(Self, String, String, String?) -> Result[String, String] noraise
 pub fn ConsoleRuntime::subscribe_events(Self, (String) -> Unit) -> String
+pub fn ConsoleRuntime::surface_session_id(Self, String) -> String?
 pub async fn ConsoleRuntime::switch_model(Self, String, String?) -> Result[Unit, String] noraise
 pub async fn ConsoleRuntime::switch_model_manager(Self, String) -> Result[@json.Json, String] noraise
 pub async fn ConsoleRuntime::switch_session(Self, String) -> Result[String, String] noraise
@@ -150,7 +149,6 @@ pub fn ConsoleRuntime::workspaces_json(Self) -> @json.Json
 pub fn ConsoleRuntime::zoo_json(Self) -> @json.Json
 
 type EventHub
-type SurfaceBinding
 
 pub struct MagpieBinding {
   runtime : @posoco-ext-magpie.MagpieRuntime
@@ -194,6 +192,8 @@ pub struct NativeReplayIndex {
 }
 
 type SessionCatalogEntry
+
+type SurfaceBinding
 
 type UiRegistry
 
