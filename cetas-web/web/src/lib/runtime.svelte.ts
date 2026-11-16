@@ -496,6 +496,7 @@ class RuntimeStore {
         ? event.session_id
         : this.activeSessionId;
     const previousEpoch = this.#eventCursor.epoch();
+    const previousCursor = this.#eventCursor.cursor(sessionId);
     const decision = this.#eventCursor.accept({ ...event, session_id: sessionId });
     if (decision.kind === "gap" || decision.kind === "epoch_changed") {
       this.#recoverSession(sessionId);
@@ -509,7 +510,19 @@ class RuntimeStore {
       }
       this.#lastSeq = event.seq;
     }
-    if (decision.kind === "snapshot" && this.#resyncing.delete(sessionId)) {
+    const epochChanged =
+      decision.kind === "snapshot" &&
+      previousEpoch !== "" &&
+      previousEpoch !== decision.epoch;
+    const snapshotGap =
+      decision.kind === "snapshot" &&
+      previousCursor > 0 &&
+      decision.cursor >
+        previousCursor + (event.cursor_advance === true ? 1 : 0);
+    if (
+      decision.kind === "snapshot" &&
+      (this.#resyncing.delete(sessionId) || epochChanged || snapshotGap)
+    ) {
       void this.replay(sessionId);
     }
 
