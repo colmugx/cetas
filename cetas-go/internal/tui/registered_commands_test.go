@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -75,5 +76,59 @@ func TestNeedsInputReopensTypedCommandWithoutStartingAnotherTurn(t *testing.T) {
 	m.applyEvent(event(`{"type":"command.completed","session_id":"session-a","command_id":"ptc","outcome":{"type":"success","feedback":"stale"}}`))
 	if strings.Contains(strings.Join(m.transcript, "\n"), "stale") {
 		t.Fatal("stale command response crossed session boundary")
+	}
+}
+
+type piCommandRecordingHost struct {
+	testHost
+	id string
+	arguments map[string]any
+}
+
+func (h *piCommandRecordingHost) Request(_ context.Context, command string, args any) (json.RawMessage, error) {
+	if command == "invoke_command" {
+		fields, _ := args.(map[string]any)
+		h.id, _ = fields["id"].(string)
+		h.arguments, _ = fields["arguments"].(map[string]any)
+	}
+	return json.RawMessage(`{"status":"started"}`), nil
+}
+
+func TestPiCommandPaletteArgumentsAndShortcutDispatch(t *testing.T) {
+	const piCatalog = `{"session_id":"session-a","commands":[
+	  {"id":"pi:websearch","label":"/pi:websearch","description":"Web search","category":"pi","ctype":"action","visible":true,"aliases":[],"params":[]},
+	  {"id":"pi:#ctrl+shift+f9","description":"Search shortcut","category":"pi","ctype":"action","visible":false,"shortcut":"ctrl+shift+f9","aliases":[],"params":[]}
+	]}`
+	m := newModel()
+	host := &piCommandRecordingHost{}
+	m.host = host
+	m.session = "session-a"
+	m.installCommandCatalog(json.RawMessage(piCatalog))
+	suggestions := m.commandSuggestions("/pi:web")
+	if len(suggestions) != 1 || suggestions[0].insert != "/pi:websearch" {
+		t.Fatalf("Pi commands absent from slash picker: %#v", suggestions)
+	}
+	if hidden := m.commandSuggestions("/pi:#"); len(hidden) != 0 {
+		t.Fatalf("Hidden Pi shortcuts leaked into slash picker: %#v", hidden)
+	}
+	cmd := m.command("/pi:websearch two words \"quoted value\"")
+	if cmd == nil {
+		t.Fatal("Pi command did not dispatch")
+	}
+	_ = cmd()
+	if host.id != "pi:websearch" || host.arguments["_positional"] != "two words \"quoted value\"" {
+		t.Fatalf("Pi command altered raw arguments: %s %#v", host.id, host.arguments)
+	}
+	cmd = m.piShortcutCommand("ctrl+shift+f9")
+	if cmd == nil {
+		t.Fatal("Registered Pi shortcut did not dispatch")
+	}
+	_ = cmd()
+	if host.id != "pi:#ctrl+shift+f9" || host.arguments["_positional"] != "" {
+		t.Fatalf("Pi shortcut did not use registered binding: %s %#v", host.id, host.arguments)
+	}
+	m.session = "session-b"
+	if m.piShortcutCommand("ctrl+shift+f9") != nil {
+		t.Fatal("Stale Pi shortcut survived session switch")
 	}
 }
