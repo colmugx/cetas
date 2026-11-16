@@ -2094,9 +2094,23 @@ async fn ConsoleRuntime::resolve_surface_handle(
     None => return Err("surface workspace is no longer available")
   }
   let id = requested_session.unwrap_or(binding.session_id)
+  if id != binding.session_id {
+    return Err("session id does not match this surface attachment")
+  }
   match workspace.handles.get(id) {
     Some(handle) => Ok(handle)
     None => self.compose_handle(workspace, id)
+  }
+}
+
+///|
+pub fn ConsoleRuntime::surface_session_id(
+  self : ConsoleRuntime,
+  surface_id : String,
+) -> String? {
+  match self.surfaces.get(surface_id) {
+    Some(binding) => Some(binding.session_id)
+    None => None
   }
 }
 
