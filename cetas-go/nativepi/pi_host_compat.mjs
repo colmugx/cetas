@@ -94,8 +94,29 @@ function rewriteHostImports(source, shims) {
   return rewritten;
 }
 
+function comparablePath(path) {
+  const value = resolve(path);
+  if (process.platform !== "win32") return value;
+
+  // realpathSync and Bun's onLoad args.path can disagree on Windows about
+  // drive-letter casing and the extended-length \\?\ prefix. Normalize
+  // both before doing a boundary-aware containment check.
+  return value
+    .replace(/^\\\\\\?\\UNC\\/i, "\\\\")
+    .replace(/^\\\\\\?\\/, "")
+    .replace(/\\//g, "\\")
+    .replace(/\\+$/, "")
+    .toLowerCase();
+}
+
 function isWithin(root, path) {
-  const rel = relative(root, path);
+  const base = comparablePath(root);
+  const candidate = comparablePath(path);
+  if (process.platform === "win32") {
+    return candidate === base || candidate.startsWith(base + "\\");
+  }
+
+  const rel = relative(base, candidate);
   return rel === "" || (rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel));
 }
 
