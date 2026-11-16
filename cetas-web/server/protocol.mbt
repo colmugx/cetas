@@ -3,7 +3,7 @@
 /// events are the console protocol frames broadcast by the cetas-console
 /// core's EventHub; only this decode lives on the transport side.
 enum WebClientMessage {
-  SessionAttach
+  SessionAttach(String?, String?)
   TurnStart(String, String?)
   TurnAbort(String?)
   UiResponse(String)
@@ -14,6 +14,14 @@ enum WebClientMessage {
 ///|
 fn optional_session_id(fields : Map[String, Json]) -> String? {
   match fields.get("session_id") {
+    Some(Json::String(value)) => Some(value)
+    _ => None
+  }
+}
+
+///|
+fn optional_string(fields : Map[String, Json], key : String) -> String? {
+  match fields.get(key) {
     Some(Json::String(value)) => Some(value)
     _ => None
   }
@@ -32,7 +40,8 @@ fn decode_web_client_message(raw : String) -> Result[WebClientMessage, String] {
     _ => return Err("message.type must be a string")
   }
   match message_type {
-    "session.attach" => Ok(SessionAttach)
+    "session.attach" =>
+      Ok(SessionAttach(optional_string(fields, "cwd"), optional_string(fields, "session_id")) )
     "turn.start" => {
       let prompt = match fields.get("prompt") {
         Some(Json::String(value)) => value.trim().to_owned()
