@@ -176,3 +176,24 @@ async test "UiPort suspended task cancellation removes request and dismisses UI"
     assert_false(registry.pending.contains("u-1"))
   })
 }
+
+///|
+/// A pending approval is owned by the Session that produced its UiPort.
+/// A reply from another attached Session must not consume it.
+test "UiRegistry tracks Session ownership and rejects cross-session replies" {
+  let registry = UiRegistry::new()
+  let (first, _) = registry.register(session_id="session-a")
+  let (second, _) = registry.register(session_id="session-b")
+  assert_true(registry.belongs_to(first, "session-a"))
+  assert_false(registry.belongs_to(first, "session-b"))
+  assert_true(registry.belongs_to(second, "session-b"))
+  assert_false(registry.belongs_to(second, "session-a"))
+  registry.resolve(first, "{\"yes\":true}")
+  assert_false(registry.belongs_to(first, "session-a"))
+  assert_true(registry.belongs_to(second, "session-b"))
+  registry.forget(second)
+  assert_false(registry.belongs_to(second, "session-b"))
+  let (third, _) = registry.register(session_id="session-c")
+  registry.cancel_all()
+  assert_false(registry.belongs_to(third, "session-c"))
+}
