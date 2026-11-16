@@ -127,7 +127,10 @@ async test "recipe cost probe" {
       session~,
       tail_exts=[observer as &@posoco.Extension, speed_metrics, statusbar],
       runtime=Some(
-        compose_mcp_runtime(mcp_bridge, session.router as &@posoco.ModelPort)
+        compose_mcp_runtime(
+          mcp_bridge,
+          session.providers_router() as &@posoco.ModelPort,
+        )
         as &@runtime.Runtime,
       ),
       runtime_group=None,

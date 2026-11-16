@@ -61,7 +61,10 @@ priv struct SessionHandle {
   session_id : String
   cwd : String
   observer : ConsoleObserver
-  router : @ext_llm.RouterModelPort
+  /// The session's single model manager: the providers router, or the bound
+  /// Magpie runtime. All model selection, catalog, and status surfaces go
+  /// through its face, never the concrete port.
+  manager : ModelManagerFace
   policy : @permission.PermissionPolicy
   mut model : String
   mut effort : String
@@ -227,6 +230,7 @@ pub fn ConsoleRuntime::runtime_json(self : ConsoleRuntime) -> Json {
       ("session_id", Json::string(handle.session_id)),
       ("model", Json::string(handle.model)),
       ("effort", Json::string(handle.effort)),
+      ("model_manager", Json::string(manager_id(handle.manager))),
       ("cwd", Json::string(workspace.cwd)),
       ("permission", Json::string(permission_mode_name(handle.policy.mode))),
       ("detail", Json::string("")),
@@ -467,10 +471,28 @@ async fn compose_session_agent(
     askquestion=questions,
   )
   let plan_review = ConsolePlanReview::ConsolePlanReview(ui_port)
+  // The model manager is chosen from `~/.cetas/settings.json` before the
+  // assembly: a Magpie binding takes the router's product position (one
+  // ModelPort per Agent), and its quota-guard cadence is faster because the
+  // gateway reports transient failures without a provider reset timestamp.
+  let magpie = resolve_console_magpie_binding(fs, home~, warn~)
   let session = @cetas_core.build_cetas_session(
     platform~,
     cwd~,
     feature_exts~,
+    model_manager=match magpie {
+      Some(binding) => {
+        let face : ModelManagerFace = Magpie(binding)
+        Some({
+          extension: face.manager_extension(),
+          port: face.manager_port(),
+          control: face.manager_control(),
+        })
+      }
+      None => None
+    },
+    ratelimit_probe_ms=if magpie is Some(_) { Some(60000L) } else { None },
+    ratelimit_max_probe_ms=if magpie is Some(_) { Some(600000L) } else { None },
     ui=Some(ui_port),
     approval=Some(approval),
     tool_plane_group=Some(group),
@@ -483,7 +505,10 @@ async fn compose_session_agent(
     warn~,
   )
   session.permission.mode = permission_mode
-  let router = session.router
+  let manager : ModelManagerFace = match magpie {
+    Some(binding) => Magpie(binding)
+    None => Providers(session.providers_router())
+  }
   let policy = session.permission
   // The observer publishes the harness counters as typed status ops on the
   // session channel, under its own host-label owner.
@@ -499,6 +524,15 @@ async fn compose_session_agent(
   let speed_metrics = @stats.Stats()
   let statusbar = @statusbar.StatusBar(events=Some(session.events))
   seed_status(@cetas_core.mint_events_publisher(session.events, owner=label))
+  // The active manager owns the "manager"/"model"/"model_slot" status
+  // segments; published before the first snapshot so the bar never shows a
+  // stale manager after a switch.
+  manager.manager_publish_status(
+    @cetas_core.mint_events_publisher(
+      session.events,
+      owner="cetas.model_manager",
+    ),
+  )
   let tail_exts : Array[&@posoco.Extension] = [
     observer as &@posoco.Extension,
     speed_metrics,
@@ -526,7 +560,7 @@ async fn compose_session_agent(
           group,
           ui_port,
           approval,
-          router,
+          manager,
           fn() { policy.mode() },
           observers=[sink, fn(event) { meter.observe(event) }],
         ),
@@ -553,7 +587,7 @@ async fn compose_session_agent(
     session~,
     tail_exts~,
     runtime=Some(
-      compose_mcp_runtime(mcp_bridge, router as &@posoco.ModelPort)
+      compose_mcp_runtime(mcp_bridge, manager.manager_port())
       as &@runtime.Runtime,
     ),
     runtime_group=lifetime_group,
@@ -572,9 +606,9 @@ async fn compose_session_agent(
     session_id,
     cwd,
     observer,
-    model: router.active_slot_id(),
-    effort: router.active_effort().unwrap_or("default"),
-    router,
+    model: manager.manager_active_model_id(),
+    effort: manager.manager_active_effort().unwrap_or("default"),
+    manager,
     policy,
     busy: false,
     turn_no: 0,
@@ -953,7 +987,7 @@ async fn ConsoleRuntime::persist_model_selection(
 ) -> Unit noraise {
   let selection = @cetas_core.ActiveModelSelection::from_current(
     handle.model,
-    handle.router.active_effort(),
+    handle.manager.manager_active_effort(),
   )
   @cetas_core.write_active_model_selection(self.fs, home=self.home, selection) catch {
     error =>
@@ -987,11 +1021,23 @@ pub async fn ConsoleRuntime::switch_model(
   if handle.busy {
     return Err("a turn is already running in this session")
   }
-  handle.router.switch_slot(slot_id) catch {
-    error => return Err(error.to_string())
+  // Model ids are opaque manager-local keys: the providers manager treats
+  // them as ext-llm slot ids, Magpie as gateway catalog ids. A failed switch
+  // never mutates the manager state.
+  match handle.manager {
+    Providers(router) =>
+      router.switch_slot(slot_id) catch {
+        error => return Err(error.to_string())
+      }
+    Magpie(binding) =>
+      (binding.runtime.manager() as &@modelmgmt.ModelManagerControl).select_model(
+        slot_id,
+      ) catch {
+        error => return Err(error.to_string())
+      }
   }
   handle.model = slot_id
-  handle.effort = handle.router.active_effort().unwrap_or("default")
+  handle.effort = handle.manager.manager_active_effort().unwrap_or("default")
   self.persist_model_selection(handle)
   self.emit_active_snapshot()
   Ok(())
@@ -1010,8 +1056,17 @@ pub async fn ConsoleRuntime::select_effort(
   if handle.busy {
     return Err("a turn is already running in this session")
   }
-  handle.router.select_effort(handle.model, effort) catch {
-    error => return Err(error.to_string())
+  match handle.manager {
+    Providers(router) =>
+      router.select_effort(handle.model, effort) catch {
+        error => return Err(error.to_string())
+      }
+    Magpie(binding) =>
+      (binding.runtime.manager() as &@modelmgmt.ModelManagerControl).select_effort(
+        effort,
+      ) catch {
+        error => return Err(error.to_string())
+      }
   }
   handle.effort = effort
   self.persist_model_selection(handle)
@@ -1035,6 +1090,60 @@ pub fn ConsoleRuntime::set_permission(
   }
   self.emit_active_snapshot()
   Ok(())
+}
+
+///|
+/// Switch the model manager for every future composition: persist the choice
+/// to `~/.cetas/settings.json`, retire every live handle, and recompose the
+/// active session under the new manager. Requires an idle session everywhere
+/// — a manager swap mid-turn would race the running ModelPort. A recompose
+/// failure restores the previous settings text and recomposes back under the
+/// old manager; if that recovery fails too, both errors surface.
+pub async fn ConsoleRuntime::switch_model_manager(
+  self : ConsoleRuntime,
+  choice : String,
+) -> Result[Json, String] noraise {
+  match choice {
+    "providers" | "magpie" => ()
+    _ => return Err("model manager must be providers or magpie")
+  }
+  for _, workspace in self.workspaces {
+    for _, handle in workspace.handles {
+      if handle.busy {
+        return Err("model manager switch requires an idle session")
+      }
+    }
+  }
+  // Snapshot the raw settings text so a failed recompose can restore exactly
+  // what the user had, byte for byte.
+  let settings_path = self.home + "/.cetas/settings.json"
+  let snapshot : String? = match
+    @workspace.read_file_result(self.fs, settings_path) {
+    Content(text) => Some(text)
+    _ => None
+  }
+  @cetas_core.write_model_manager_choice(self.fs, home=self.home, choice~) catch {
+    error => return Err(error.to_string())
+  }
+  // Retire every live handle: composition reads the manager choice fresh, so
+  // the next compose is the switch. The pending-turn interruption from
+  // `shutdown_all` is unnecessary — the busy guard above emptied the field.
+  match self.recompose_all_handles() {
+    Ok(state) => Ok(state)
+    Err(message) => {
+      self.restore_settings_snapshot(settings_path, snapshot)
+      match self.recompose_all_handles() {
+        Ok(_) =>
+          Err(
+            "model manager switch to \{choice} failed: \{message}; the previous manager was restored",
+          )
+        Err(recovery_message) =>
+          Err(
+            "model manager switch to \{choice} failed: \{message}; recovery failed: \{recovery_message}",
+          )
+      }
+    }
+  }
 }
 
 ///|
@@ -1067,48 +1176,59 @@ pub async fn ConsoleRuntime::model_slots_json(
   }
   let active_id = handle.model
   let slots : Array[Json] = []
-  handle.router.refresh_model_metadata_in_background()
-  for slot in handle.router.list_slots() {
-    let window = handle.router.context_window_reading(slot)
-    let efforts : Array[Json] = []
-    for effort in slot.thinking_efforts {
-      efforts.push(Json::string(effort))
+  match handle.manager {
+    Providers(router) => {
+      router.refresh_model_metadata_in_background()
+      for slot in router.list_slots() {
+        let window = router.context_window_reading(slot)
+        let efforts : Array[Json] = []
+        for effort in slot.thinking_efforts {
+          efforts.push(Json::string(effort))
+        }
+        slots.push(
+          Json::object(
+            Map::from_array([
+              ("id", Json::string(slot.id)),
+              ("label", Json::string(slot.label)),
+              ("provider", Json::string(slot.provider_id)),
+              ("model", Json::string(slot.model_id)),
+              ("active", Json::boolean(slot.id == active_id)),
+              ("efforts", Json::array(efforts)),
+              (
+                "default_effort",
+                match slot.default_effort {
+                  Some(effort) => Json::string(effort)
+                  None => Json::null()
+                },
+              ),
+              (
+                "group",
+                match slot.display_group {
+                  Some(group) => Json::string(group)
+                  None => Json::null()
+                },
+              ),
+              ("context_window", Json::number(window.tokens.to_double())),
+              ("context_window_source", Json::string(window.source)),
+              ("context_window_stale", Json::boolean(window.stale)),
+            ]),
+          ),
+        )
+      }
     }
-    slots.push(
-      Json::object(
-        Map::from_array([
-          ("id", Json::string(slot.id)),
-          ("label", Json::string(slot.label)),
-          ("provider", Json::string(slot.provider_id)),
-          ("model", Json::string(slot.model_id)),
-          ("active", Json::boolean(slot.id == active_id)),
-          ("efforts", Json::array(efforts)),
-          (
-            "default_effort",
-            match slot.default_effort {
-              Some(effort) => Json::string(effort)
-              None => Json::null()
-            },
-          ),
-          (
-            "group",
-            match slot.display_group {
-              Some(group) => Json::string(group)
-              None => Json::null()
-            },
-          ),
-          ("context_window", Json::number(window.tokens.to_double())),
-          ("context_window_source", Json::string(window.source)),
-          ("context_window_stale", Json::boolean(window.stale)),
-        ]),
-      ),
-    )
+    // The Magpie catalog projects into the same slot shape one-for-one; the
+    // picker never learns which manager served the list.
+    Magpie(_) =>
+      for slot in handle.manager.manager_catalog_slots_json() {
+        slots.push(slot)
+      }
   }
   Json::object(
     Map::from_array([
       ("active", Json::string(active_id)),
       ("effort", Json::string(handle.effort)),
       ("permission", Json::string(permission_mode_name(handle.policy.mode))),
+      ("manager", Json::string(manager_id(handle.manager))),
       ("slots", Json::array(slots)),
     ]),
   )
@@ -1256,10 +1376,26 @@ async fn build_workspace(
     askquestion=questions,
   )
   let plan_review = ConsolePlanReview::ConsolePlanReview(ui_port)
+  // Same manager resolution as `compose_session_agent`: the choice lives in
+  // `~/.cetas/settings.json`, so a restart composes the same manager.
+  let magpie = resolve_console_magpie_binding(fs, home~, warn~)
   let session = @cetas_core.build_cetas_session(
     platform~,
     cwd~,
     feature_exts~,
+    model_manager=match magpie {
+      Some(binding) => {
+        let face : ModelManagerFace = Magpie(binding)
+        Some({
+          extension: face.manager_extension(),
+          port: face.manager_port(),
+          control: face.manager_control(),
+        })
+      }
+      None => None
+    },
+    ratelimit_probe_ms=if magpie is Some(_) { Some(60000L) } else { None },
+    ratelimit_max_probe_ms=if magpie is Some(_) { Some(600000L) } else { None },
     ui=Some(ui_port),
     approval=Some(approval),
     tool_plane_group=Some(group),
@@ -1279,13 +1415,22 @@ async fn build_workspace(
     protocol,
     native_ui~,
   )
-  let router = session.router
+  let manager : ModelManagerFace = match magpie {
+    Some(binding) => Magpie(binding)
+    None => Providers(session.providers_router())
+  }
   let policy = session.permission
   // The speed metrics publish their typed ops on the session event system the
   // bar listens on.
   let speed_metrics = @stats.Stats()
   let statusbar = @statusbar.StatusBar(events=Some(session.events))
   seed_status(@cetas_core.mint_events_publisher(session.events, owner=label))
+  manager.manager_publish_status(
+    @cetas_core.mint_events_publisher(
+      session.events,
+      owner="cetas.model_manager",
+    ),
+  )
   let tail_exts : Array[&@posoco.Extension] = [
     observer as &@posoco.Extension,
     speed_metrics,
@@ -1310,7 +1455,7 @@ async fn build_workspace(
           group,
           ui_port,
           approval,
-          router,
+          manager,
           fn() { policy.mode() },
           observers=[sink, fn(event) { meter.observe(event) }],
         ),
@@ -1337,7 +1482,7 @@ async fn build_workspace(
     session~,
     tail_exts~,
     runtime=Some(
-      compose_mcp_runtime(mcp_bridge, router as &@posoco.ModelPort)
+      compose_mcp_runtime(mcp_bridge, manager.manager_port())
       as &@runtime.Runtime,
     ),
     runtime_group=lifetime_group,
@@ -1348,9 +1493,9 @@ async fn build_workspace(
     session_id: first_session_id,
     cwd,
     observer,
-    model: router.active_slot_id(),
-    effort: router.active_effort().unwrap_or("default"),
-    router,
+    model: manager.manager_active_model_id(),
+    effort: manager.manager_active_effort().unwrap_or("default"),
+    manager,
     policy,
     busy: false,
     turn_no: 0,

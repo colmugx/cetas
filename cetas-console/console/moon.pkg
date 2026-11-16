@@ -35,6 +35,8 @@ import {
   "colmugx/posoco-ext-workspace" @workspace,
   "colmugx/posoco/types" @posoco_types,
   "posoco/ext-llm" @ext_llm,
+  "colmugx/posoco-kit-model-management" @modelmgmt,
+  "colmugx/posoco-ext-magpie" @magpie,
   "colmugx/posoco-ext-fs-session" @fs_session,
   "colmugx/posoco-ext-credentials" @credentials,
   "posoco/ext-oauth" @oauth,

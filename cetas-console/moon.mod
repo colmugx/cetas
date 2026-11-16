@@ -43,6 +43,8 @@ import {
   "colmugx/posoco-kit-subagent@0.1.1",
   "posoco/ext-llm@0.2.0",
   "posoco/kit-events@0.1.0",
+  "colmugx/posoco-kit-model-management@0.1.0",
+  "colmugx/posoco-ext-magpie@0.1.0",
   "colmugx/posoco-ext-fs-session@0.4.0",
   "colmugx/posoco-ext-openai@0.1.0",
   "colmugx/posoco-ext-custom@0.1.0",

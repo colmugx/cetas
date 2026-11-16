@@ -289,14 +289,22 @@ async fn ConsoleRuntime::install_provider_catalog(
         let slots = value.slots()
         for _, workspace in self.workspaces {
           for _, handle in workspace.handles {
-            handle.router.replace_provider_slots(provider_id, slots) catch {
-              _ => ()
+            // Slot installation is a providers-manager surface: a Magpie
+            // session's manager is untouched by provider logins.
+            match handle.manager {
+              Providers(router) => {
+                router.replace_provider_slots(provider_id, slots) catch {
+                  _ => ()
+                }
+                // The router may have healed a pending selection while
+                // installing the provider's slots; the console's per-handle
+                // mirror follows the router here exactly as `switch_model`
+                // keeps it in step.
+                handle.model = router.active_slot_id()
+                handle.effort = router.active_effort().unwrap_or("default")
+              }
+              Magpie(_) => ()
             }
-            // The router may have healed a pending selection while installing
-            // the provider's slots; the console's per-handle mirror follows the
-            // router here exactly as `switch_model` keeps it in step.
-            handle.model = handle.router.active_slot_id()
-            handle.effort = handle.router.active_effort().unwrap_or("default")
           }
         }
       }

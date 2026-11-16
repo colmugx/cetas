@@ -474,7 +474,7 @@ async test "native composition provides the real delegation surface" {
       group,
       ui_port,
       approval,
-      native_test_router(),
+      Providers(native_test_router()),
       fn() { @permission.PermissionMode::WorkspaceWrite },
       observers=[fn(event) { received.push(event.child_session) }],
     )

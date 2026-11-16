@@ -688,7 +688,9 @@ priv struct NativeChildComposer {
   /// id continues the same transcript (a per-spawn store would silently start a
   /// resumed child empty). The parent Agent's lifetime bounds it.
   store : NativeChildSessionStore
-  router : @ext_llm.RouterModelPort
+  /// The parent's model manager: children rebuild a fresh per-child selection
+  /// over the same manager material.
+  manager : ModelManagerFace
   /// Live parent posture, read at each spawn so `/permission` switches apply to
   /// children composed afterwards.
   parent_mode : () -> @permission.PermissionMode
@@ -698,37 +700,6 @@ priv struct NativeChildComposer {
   /// gets `ask_question_child`, answered by the spawning parent.
   question : @subagent.ParentQuestionChannel
   host_group : @async.TaskGroup?
-}
-
-///|
-/// Fresh router value for one child: provider ports may be shared, the active
-/// slot/effort selection never is.
-fn native_child_model(
-  router : @ext_llm.RouterModelPort,
-  slot~ : String,
-  effort~ : String?,
-) -> &@posoco.Extension raise @subagent.ComposerError {
-  let child = @ext_llm.RouterModelPort(
-    slots=router.list_slots(),
-    model_metadata=router.model_metadata,
-    default_slot_id=slot,
-  ) catch {
-    error =>
-      raise @subagent.ComposerError::Failed(
-        "child model selection failed: " + error.to_string(),
-      )
-  }
-  match effort {
-    Some(effort) =>
-      child.select_effort(slot, effort) catch {
-        error =>
-          raise @subagent.ComposerError::Failed(
-            "child effort selection failed: " + error.to_string(),
-          )
-      }
-    None => ()
-  }
-  child as &@posoco.Extension
 }
 
 ///|
@@ -757,10 +728,11 @@ impl @subagent.ChildComposer for NativeChildComposer with fn compose(
   self : NativeChildComposer,
   spec : @subagent.ChildSpec,
 ) -> @posoco.Agent raise @subagent.ComposerError {
-  let child_model = native_child_model(
-    self.router,
-    slot=spec.slot,
-    effort=spec.effort,
+  // Fresh per-child selection over the parent's manager material: provider
+  // ports may be shared, the active slot/effort selection never is.
+  let child_model = self.manager.manager_subagent_extension(
+    spec_slot=spec.slot,
+    spec_effort=spec.effort,
   )
   let permission = @permission.PermissionPolicy(
     native_effective_child_mode((self.parent_mode)(), spec.mode),
@@ -873,7 +845,7 @@ async fn compose_native_subagents(
   group : @async.TaskGroup,
   ui : &@posoco.UiPort,
   approval : &@permission.ApprovalSource,
-  router : @ext_llm.RouterModelPort,
+  manager : ModelManagerFace,
   parent_mode : () -> @permission.PermissionMode,
   observers~ : Array[(@subagent_kit.SubagentEvent) -> Unit],
 ) -> &@posoco.Extension {
@@ -891,21 +863,24 @@ async fn compose_native_subagents(
     cwd,
     home,
     store: NativeChildSessionStore::NativeChildSessionStore(),
-    router,
+    manager,
     parent_mode,
     approval: Some(approval),
     ui: Some(ui),
     question: broker.channel(),
     host_group: Some(group),
   }
+  let control = manager.manager_control()
+  let selection = control.active_selection()
   let tools = @subagent.SubagentTools::SubagentTools(
     catalog~,
     config~,
     composer=composer as &@subagent.ChildComposer,
-    parent_slot=router.active_slot_id(),
-    parent_effort=router.active_effort(),
+    parent_slot=selection.model_id,
+    parent_effort=selection.effort,
     parent_selection=Some(fn() {
-      (router.active_slot_id(), router.active_effort())
+      let current = control.active_selection()
+      (current.model_id, current.effort)
     }),
     observers~,
     auto_wakeup=false,
