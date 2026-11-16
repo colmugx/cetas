@@ -163,6 +163,10 @@ func (s *piSupervisor) process(sessionID string, g nativepi.RuntimeGuest, queue 
 			continue
 		}
 		_, before := g.Catalog()
+		var beforeCommands uint64
+		if commander, ok := g.(nativepi.Commander); ok {
+			_, beforeCommands = commander.Commands()
+		}
 		if err := g.Emit(frame.frame); err != nil {
 			s.host.report(err)
 		}
@@ -170,6 +174,12 @@ func (s *piSupervisor) process(sessionID string, g nativepi.RuntimeGuest, queue 
 		if after != before {
 			if err := s.install(sessionID, defs); err != nil {
 				s.host.report(fmt.Errorf("Pi observer catalog publication: %w", err))
+			}
+		}
+		if commander, ok := g.(nativepi.Commander); ok {
+			_, afterCommands := commander.Commands()
+			if afterCommands != beforeCommands {
+				s.notifyCommandsChanged(sessionID)
 			}
 		}
 	}
@@ -248,6 +258,12 @@ func (s *piSupervisor) ready(sessionID, home, cwd string, generation uint64) {
 	s.workers[sessionID] = queue
 	s.mu.Unlock()
 	go s.process(sessionID, g, queue)
+	if commander, ok := g.(nativepi.Commander); ok {
+		commands, _ := commander.Commands()
+		if len(commands) > 0 {
+			s.notifyCommandsChanged(sessionID)
+		}
+	}
 	defs, _ := g.Catalog()
 	if len(defs) == 0 {
 		return
