@@ -74,6 +74,7 @@ pub struct ConsoleRuntime {
   group : @async.TaskGroup
   lifetime_group : @async.TaskGroup?
   hub : EventHub
+  surfaces : Map[String, SurfaceBinding]
   ui_registry : UiRegistry
   workspaces : Map[String, WorkspaceRuntime]
   mut registry : Array[String]
@@ -83,6 +84,9 @@ pub struct ConsoleRuntime {
   mut stopping : Bool
 }
 pub async fn ConsoleRuntime::abort_turn(Self, String?) -> Unit noraise
+pub fn ConsoleRuntime::surface_session_id(Self, String) -> String?
+pub async fn ConsoleRuntime::quota_all_surface_json(Self, String) -> @json.Json
+pub async fn ConsoleRuntime::quota_surface_json(Self, String) -> @json.Json
 pub async fn ConsoleRuntime::start_turn_for_surface(Self, String, String, String?) -> Result[String, String] noraise
 pub async fn ConsoleRuntime::compact_surface_session(Self, String) -> Unit
 pub async fn ConsoleRuntime::attach_surface(Self, String, String?, String?) -> Result[String, String] noraise
@@ -145,6 +149,7 @@ pub fn ConsoleRuntime::workspaces_json(Self) -> @json.Json
 pub fn ConsoleRuntime::zoo_json(Self) -> @json.Json
 
 type EventHub
+type SurfaceBinding
 
 pub struct MagpieBinding {
   runtime : @posoco-ext-magpie.MagpieRuntime
