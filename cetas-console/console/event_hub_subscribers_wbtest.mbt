@@ -73,3 +73,37 @@ test "session-scoped subscribers only receive their attached session" {
   hub.unsubscribe(a)
   hub.unsubscribe(b)
 }
+
+///|
+fn event_cursor_field(raw : String, key : String) -> Json {
+  let parsed = @json.parse(raw) catch { _ => Json::null() }
+  match parsed {
+    Json::Object(fields) => fields.get(key).unwrap_or(Json::null())
+    _ => Json::null()
+  }
+}
+
+///|
+test "event hub snapshots expose runtime epoch and per-session high water" {
+  let hub = EventHub::new()
+  let frames : Array[String] = []
+  let sub = hub.subscribe(fn(frame) { frames.push(frame) })
+  hub.filter_session(sub, "session-a")
+  hub.emit("session-a", "t-1", "turn.accepted")
+  hub.emit("session-b", "t-2", "turn.accepted")
+  let before = event_cursor_field(frames[0], "cursor")
+  assert_eq(before, Json::number(1.0))
+  assert_eq(event_cursor_field(frames[0], "cursor_advance"), Json::True)
+  let epoch = event_cursor_field(frames[0], "runtime_epoch")
+  assert_true(epoch is Json::String(_))
+  hub.emit_to(sub, "session-a", "session.snapshot")
+  let snapshot = frames[1]
+  assert_eq(event_cursor_field(snapshot, "cursor"), Json::number(1.0))
+  assert_eq(event_cursor_field(snapshot, "high_water_cursor"), Json::number(1.0))
+  assert_eq(event_cursor_field(snapshot, "cursor_advance"), Json::False)
+  assert_eq(event_cursor_field(snapshot, "runtime_epoch"), epoch)
+  hub.emit("session-a", "t-1", "assistant.text_delta")
+  assert_eq(event_cursor_field(frames[2], "cursor"), Json::number(2.0))
+  assert_eq(event_cursor_field(frames[2], "runtime_epoch"), epoch)
+  hub.unsubscribe(sub)
+}
