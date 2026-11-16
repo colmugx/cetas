@@ -110,15 +110,15 @@ async fn serve_websocket(
                         )
                     }
                   Ok(TurnStart(prompt, session_id)) =>
-                    match runtime.start_turn(prompt, session_id) {
+                    match runtime.start_turn_for_surface(subscription_id, prompt, session_id) {
                       Ok(_) => ()
                       Err(message) =>
                         runtime.emit_event("", "", "protocol.error", extra=[
                           ("message", Json::string(message)),
                         ])
                     }
-                  Ok(TurnAbort(session_id)) => runtime.abort_turn(session_id)
-                  Ok(SessionCompact) => runtime.compact_active_session()
+                  Ok(TurnAbort(session_id)) => runtime.abort_surface_turn(subscription_id, session_id)
+                  Ok(SessionCompact) => runtime.compact_surface_session(subscription_id)
                   Ok(StatusRefresh(session_id)) => {
                     // /status-style pull: live-read the active provider's
                     // quota source and push readings to the strip/window,
