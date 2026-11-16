@@ -1677,6 +1677,10 @@ func (m *model) applyEvent(e wire.Event) {
 		}
 	}
 	if frame.SessionID == m.session && frame.RuntimeEpoch != "" {
+		if frame.Type != "session.snapshot" && m.runtimeEpoch != "" && frame.RuntimeEpoch != m.runtimeEpoch {
+			m.eventResyncPending = true
+			return
+		}
 		switch frame.Type {
 		case "session.snapshot":
 			epochChanged := m.runtimeEpoch != "" && m.runtimeEpoch != frame.RuntimeEpoch
