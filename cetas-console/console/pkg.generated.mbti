@@ -34,6 +34,7 @@ pub struct ConsoleBootstrap {
   fs : &@posoco-ext-workspace.WorkspaceFs
   home : String
   hub : EventHub
+  surfaces : Map[String, SurfaceBinding]
   ui_registry : UiRegistry
   native_ui : Bool
 }
@@ -82,6 +83,10 @@ pub struct ConsoleRuntime {
   mut stopping : Bool
 }
 pub async fn ConsoleRuntime::abort_turn(Self, String?) -> Unit noraise
+pub async fn ConsoleRuntime::start_turn_for_surface(Self, String, String, String?) -> Result[String, String] noraise
+pub async fn ConsoleRuntime::compact_surface_session(Self, String) -> Unit
+pub async fn ConsoleRuntime::attach_surface(Self, String, String?, String?) -> Result[String, String] noraise
+pub async fn ConsoleRuntime::abort_surface_turn(Self, String, String?) -> Unit noraise
 pub fn ConsoleRuntime::active_session_id(Self) -> String
 pub fn ConsoleRuntime::active_workspace(Self) -> String
 pub fn ConsoleRuntime::attach_sink(Self, (String) -> Unit) -> Unit
