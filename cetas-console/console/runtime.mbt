@@ -92,6 +92,13 @@ priv struct SessionHandle {
 }
 
 ///|
+/// One transport surface's independent workspace/session selection.
+struct SurfaceBinding {
+  cwd : String
+  session_id : String
+}
+
+///|
 /// One workspace = one independent Cetas: its own platform (cwd-scoped
 /// session bucket), catalog, and a map of concurrent session handles.
 struct WorkspaceRuntime {
@@ -131,6 +138,8 @@ pub struct ConsoleRuntime {
   /// without starting recovery.
   lifetime_group : @async.TaskGroup?
   hub : EventHub
+  /// Connection-scoped selections; never mutate WorkspaceRuntime.active_id.
+  surfaces : Map[String, SurfaceBinding]
   ui_registry : UiRegistry
   workspaces : Map[String, WorkspaceRuntime]
   /// Registry cwds not yet composed; combined lazily on first switch.
@@ -1595,6 +1604,7 @@ pub async fn compose_console_runtime(
     group,
     lifetime_group,
     hub,
+    surfaces: Map([]),
     ui_registry,
     workspaces,
     registry,
@@ -1926,7 +1936,79 @@ pub fn ConsoleRuntime::subscribe_events(
   self : ConsoleRuntime,
   sink : (String) -> Unit,
 ) -> String {
-  self.hub.subscribe(sink)
+  let id = self.hub.subscribe(sink)
+  let workspace = self.active()
+  self.surfaces[id] = { cwd: workspace.cwd, session_id: workspace.active_id }
+  self.hub.filter_session(id, workspace.active_id)
+  id
+}
+
+///|
+/// Bind one connected surface to an already composed workspace and an
+/// existing journal session. This is deliberately connection-local: it does
+/// not change the process-wide active workspace or workspace active session.
+pub async fn ConsoleRuntime::attach_surface(
+  self : ConsoleRuntime,
+  surface_id : String,
+  cwd : String?,
+  session_id : String?,
+) -> Result[String, String] noraise {
+  let current = match self.surfaces.get(surface_id) {
+    Some(binding) => binding
+    None => return Err("unknown surface subscription")
+  }
+  let target_cwd = match cwd {
+    Some(value) => @fs_session.normalize_cwd(value)
+    None => current.cwd
+  }
+  let workspace = match self.workspaces.get(target_cwd) {
+    Some(found) => found
+    None => return Err("workspace is not composed in this Cetas runtime")
+  }
+  let target_session = match session_id {
+    Some(value) => value
+    None => current.session_id
+  }
+  let handle = match workspace.handles.get(target_session) {
+    Some(found) => found
+    None => match self.compose_handle(workspace, target_session) {
+      Ok(found) => found
+      Err(reason) => return Err(reason)
+    }
+  }
+  self.surfaces[surface_id] = { cwd: target_cwd, session_id: handle.session_id }
+  self.hub.filter_session(surface_id, handle.session_id)
+  self.hub.emit_to(surface_id, handle.session_id, "session.snapshot", extra=[
+    ("model", Json::string(handle.model)),
+    ("effort", Json::string(handle.effort)),
+    ("cwd", Json::string(target_cwd)),
+    ("busy", Json::boolean(handle.busy)),
+    ("permission", Json::string(permission_mode_name(handle.policy.mode))),
+    ("protocol", Json::string(handle.observer.protocol)),
+  ])
+  Ok(handle.session_id)
+}
+
+///|
+/// Resolve a session for one surface without consulting global active state.
+async fn ConsoleRuntime::resolve_surface_handle(
+  self : ConsoleRuntime,
+  surface_id : String,
+  requested_session : String?,
+) -> Result[SessionHandle, String] noraise {
+  let binding = match self.surfaces.get(surface_id) {
+    Some(found) => found
+    None => return Err("unknown surface subscription")
+  }
+  let workspace = match self.workspaces.get(binding.cwd) {
+    Some(found) => found
+    None => return Err("surface workspace is no longer available")
+  }
+  let id = requested_session.unwrap_or(binding.session_id)
+  match workspace.handles.get(id) {
+    Some(handle) => Ok(handle)
+    None => self.compose_handle(workspace, id)
+  }
 }
 
 ///|
@@ -1934,6 +2016,7 @@ pub fn ConsoleRuntime::unsubscribe_events(
   self : ConsoleRuntime,
   id : String,
 ) -> Unit {
+  self.surfaces.remove(id)
   self.hub.unsubscribe(id)
 }
 
