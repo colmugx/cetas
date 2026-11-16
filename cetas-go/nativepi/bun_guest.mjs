@@ -2,8 +2,9 @@
 // all extension diagnostics go to stderr, never to the RPC stream.
 // Neither this guest nor its caller is the Agent: Posoco owns tool decisions.
 import { readFile, realpath, stat } from "node:fs/promises";
-import { join, resolve, sep, dirname, extname } from "node:path";
-import { pathToFileURL } from "node:url";
+// pi_host_compat.mjs is embedded immediately before this worker by bun.go.
+// Its imports supply join/resolve/sep/dirname/extname/pathToFileURL to this
+// combined module. Reimporting those names causes a Bun ESM syntax error.
 import { createInterface } from "node:readline";
 
 const home = process.argv[2];
