@@ -94,12 +94,16 @@ func TestBunGuestHostModuleBridge(t *testing.T) {
 	dir := filepath.Join(home, ".cetas", "pi-packages", "node_modules", "fixture")
 	for path, content := range map[string]string{
 		filepath.Join(home, ".cetas", "pi-packages.json"): `{"packages":["fixture"]}`,
-		filepath.Join(dir, "package.json"):                `{"name":"fixture","pi":{"extensions":["./index.ts"]}}`,
-		filepath.Join(dir, "index.ts"): `import { truncateToWidth } from "@earendil-works/pi-tui";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+		filepath.Join(dir, "package.json"):                `{"name":"fixture","pi":{"extensions":["./dist"]}}`,
+		filepath.Join(dir, "dist", "index.ts"): `import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { truncateFromNestedModule } from "./nested.ts";
 export default function(pi: any) {
  pi.registerTool({name:"pi_host_probe",description:"Cetas host modules",parameters:{type:"object",properties:{}},
-   execute: async () => ({content:[{type:"text",text:truncateToWidth("abcdef",3)+":"+getAgentDir().endsWith(".cetas")}]})});
+   execute: async () => ({content:[{type:"text",text:truncateFromNestedModule()+":"+getAgentDir().endsWith(".cetas")}]})});
+}`,
+		filepath.Join(dir, "dist", "nested.ts"): `import { truncateToWidth } from "@earendil-works/pi-tui";
+export function truncateFromNestedModule() {
+ return truncateToWidth("abcdef", 3);
 }`,
 	} {
 		if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
