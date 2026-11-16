@@ -44,11 +44,15 @@ export class SessionEventCursor {
     }
 
     if (frame.type === "session.snapshot") {
+      const epochChanged = Boolean(epoch && currentEpoch && epoch !== currentEpoch);
+      if (epochChanged) this.#cursors.clear();
       if (epoch) this.#epoch = epoch;
       const cursor = frame.high_water_cursor ?? frame.cursor ?? 0;
       if (!Number.isSafeInteger(cursor) || cursor < 0) {
         return { kind: "unsequenced" };
       }
+      const previous = this.cursor(sessionId);
+      if (!epochChanged && cursor < previous) return { kind: "duplicate" };
       this.#cursors.set(sessionId, cursor);
       return { kind: "snapshot", cursor, epoch: this.#epoch };
     }

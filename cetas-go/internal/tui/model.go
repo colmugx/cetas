@@ -1662,7 +1662,7 @@ func (m *model) applyEvent(e wire.Event) {
 		m.err = "invalid event: " + err.Error()
 		return
 	}
-	if m.eventResyncPending && frame.Type != "session.snapshot" {
+	if (m.eventResyncPending || m.eventResyncAwaitingSnapshot) && frame.Type != "session.snapshot" {
 		return
 	}
 	if frame.SessionID != "" {
@@ -1689,10 +1689,18 @@ func (m *model) applyEvent(e wire.Event) {
 			if cursor == 0 {
 				cursor = frame.Cursor
 			}
+			if !epochChanged && cursor < previous {
+				return
+			}
 			m.runtimeEpoch = frame.RuntimeEpoch
 			if epochChanged {
 				m.eventCursor = cursor
-				m.eventResyncPending = true
+				if m.eventResyncAwaitingSnapshot {
+					m.eventResyncAwaitingSnapshot = false
+					m.eventResyncPending = false
+				} else {
+					m.eventResyncPending = true
+				}
 			} else {
 				expected := previous
 				if frame.CursorAdvance {
@@ -1712,7 +1720,7 @@ func (m *model) applyEvent(e wire.Event) {
 				if frame.Cursor <= m.eventCursor {
 					return
 				}
-				if m.eventCursor > 0 && frame.Cursor != m.eventCursor+1 {
+				if frame.Cursor != m.eventCursor+1 {
 					m.eventResyncPending = true
 					return
 				}
