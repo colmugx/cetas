@@ -133,26 +133,26 @@ export function installPiHostCompat(packageRoot) {
     shims[name] = { path, url: pathToFileURL(path).href };
   }
 
+  // Bun 1.4.4 requires every matching onLoad callback to return a module
+  // object. Scope the filter to the allowlisted root, so foreign dependencies
+  // and generated host shims remain on Bun\'s ordinary module loader.
+  const escapedRoot = canonicalRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const loadFilter = new RegExp("^" + escapedRoot + "[/\\\\].*\\.(?:[cm]?[jt]sx?)$");
   Bun.plugin({
     name: "cetas-pi-host",
     setup(build) {
-      build.onLoad({ filter: /\.(?:[cm]?[jt]sx?)$/ }, args => {
+      build.onLoad({ filter: loadFilter }, args => {
         let sourcePath = resolve(args.path);
         try {
           sourcePath = realpathSync(sourcePath);
         } catch {}
-        if (!isWithin(canonicalRoot, sourcePath)) return undefined;
-
-        let source;
-        try {
-          source = readFileSync(sourcePath, "utf8");
-        } catch {
-          return undefined;
+        if (!isWithin(canonicalRoot, sourcePath)) {
+          throw new Error("Pi module escapes the allowlisted package tree: " + sourcePath);
         }
-        if (!source.includes("@earendil-works/pi-")) return undefined;
-
-        const contents = rewriteHostImports(source, shims);
-        if (contents === source) return undefined;
+        const source = readFileSync(sourcePath, "utf8");
+        const contents = source.includes("@earendil-works/pi-")
+          ? rewriteHostImports(source, shims)
+          : source;
         return {
           contents,
           loader: loaderFor(sourcePath),
