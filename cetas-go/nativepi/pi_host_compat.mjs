@@ -145,7 +145,7 @@ export function installPiHostCompat(packageRoot) {
   Bun.plugin({
     name: "cetas-pi-host",
     setup(build) {
-      build.onLoad({ filter: /\\.(?:[cm]?[jt]sx?)$/i }, args => {
+      build.onLoad({ filter: /\.(?:[cm]?[jt]sx?)$/i }, args => {
         let sourcePath = resolve(args.path);
         try {
           sourcePath = realpathSync(sourcePath);
