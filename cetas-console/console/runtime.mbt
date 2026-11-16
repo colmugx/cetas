@@ -2237,3 +2237,79 @@ pub async fn ConsoleRuntime::shutdown_all(self : ConsoleRuntime) -> Unit {
     }
   }
 }
+
+///|
+pub async fn ConsoleRuntime::quota_surface_json(self : ConsoleRuntime, surface_id : String) -> Json {
+  let handle = match self.resolve_surface_handle(surface_id, None) {
+    Ok(found) => found
+    Err(reason) => return Json::object(Map::from_array([("error", Json::string(reason))]))
+  }
+  // Quota cards are a providers-manager surface: the router exposes the
+  // active provider id and the registry serves pushed readings. Magpie owns
+  // its quota cards through its own magpie_quotas command, so this payload
+  // stays empty under it.
+  let provider_id = match handle.manager {
+    Providers(router) => router.current_provider_id()
+    Magpie(_) => "magpie"
+  }
+  let readings : Array[Json] = match handle.manager {
+    Providers(_) =>
+      match @devkit.quota_registry_lookup(provider_id) {
+        Some(source) =>
+          match source.read() {
+            Ok(list) => readings_json(list)
+            Err(_) => []
+          }
+        None => []
+      }
+    Magpie(_) => []
+  }
+  Json::object(
+    Map::from_array([
+      ("provider", Json::string(provider_id)),
+      ("session_id", Json::string(handle.session_id)),
+      ("readings", Json::array(readings)),
+    ]),
+  )
+}
+
+///|
+/// Every distinct slot provider with a registered quota source, read live —
+/// powers the expanded multi-provider view. Slow sources only delay this
+/// payload; the active-provider event goes out first. Magpie sessions
+/// report nothing here: their quota cards live behind the magpie commands.
+///|
+pub async fn ConsoleRuntime::quota_all_surface_json(self : ConsoleRuntime, surface_id : String) -> Json {
+  let handle = match self.resolve_surface_handle(surface_id, None) {
+    Ok(found) => found
+    Err(reason) => return Json::object(Map::from_array([("error", Json::string(reason))]))
+  }
+  let seen : Map[String, Bool] = Map::from_array([])
+  let providers : Array[Json] = []
+  match handle.manager {
+    Providers(router) =>
+      for slot in router.list_slots() {
+        if !seen.contains(slot.provider_id) {
+          seen[slot.provider_id] = true
+          match @devkit.quota_registry_lookup(slot.provider_id) {
+            Some(source) =>
+              match source.read() {
+                Ok(list) =>
+                  providers.push(
+                    Json::object(
+                      Map::from_array([
+                        ("provider", Json::string(slot.provider_id)),
+                        ("readings", Json::array(readings_json(list))),
+                      ]),
+                    ),
+                  )
+                Err(_) => ()
+              }
+            None => ()
+          }
+        }
+      }
+    Magpie(_) => ()
+  }
+  Json::object(Map::from_array([("providers", Json::array(providers))]))
+}
