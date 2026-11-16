@@ -13,6 +13,8 @@ const allowlist = join(home, ".cetas", "pi-packages.json");
 const tools = new Map();
 const activeTools = new Set();
 const observers = new Map();
+const commands = new Map();
+let commandGeneration = 0;
 let generation = 0;
 const warnings = [];
 const originalLog = console.log;
@@ -22,12 +24,16 @@ function send(message) { process.stdout.write(JSON.stringify(message) + "\n"); }
 function fail(reason) { return { ok: false, content: String(reason) }; }
 function allTools() { return [...tools.values()].map(({name,description,parameters}) => ({name,description,parameters})); }
 function catalog() { return allTools().filter(def => activeTools.has(def.name)); }
-function context() {
+function commandCatalog() { return [...commands.values()].map(({definition}) => definition); }
+function context(notices) {
   return {cwd,hasUI:false,mode:"json",
     sessionManager:{getBranch:()=>[]},
     isIdle:()=>true,
     ui:{
-      notify(message) { warnings.push("Pi UI notification (headless): "+String(message)); },
+      notify(message) {
+        if (notices) notices.push(String(message));
+        else warnings.push("Pi UI notification (headless): "+String(message));
+      },
       setWidget() { throw new Error("Pi setWidget requires a native UI bridge"); },
     },
   };
@@ -111,9 +117,28 @@ function api(pkg) {
       for(const name of names) activeTools.add(name);
       generation++;
     },
-    // Unsupported commands/shortcuts must not become fabricated kernel tools.
-    registerCommand(name) { warnings.push(pkg+": command /"+name+" is not bridged to native TUI"); },
-    registerShortcut(name) { warnings.push(pkg+": shortcut "+name+" is not bridged to native TUI"); },
+    registerCommand(name, def) {
+      if (typeof name !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(name) || typeof def?.handler !== "function")
+        throw new Error("Pi command requires a simple name and handler(args, ctx)");
+      const id = "pi:" + name;
+      if (commands.has(id)) throw new Error("duplicate Pi command " + id);
+      commands.set(id, { definition: {
+        id, label: "/" + id, description: def.description || "", category: "pi",
+        ctype: "action", params: [], aliases: [], visible: true,
+      }, handler: def.handler, shortcut: false });
+      commandGeneration++;
+    },
+    registerShortcut(key, def) {
+      if (typeof key !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9+_-]*$/.test(key) || typeof def?.handler !== "function")
+        throw new Error("Pi shortcut requires a key chord and handler(ctx)");
+      const id = "pi:#" + key.toLowerCase();
+      if (commands.has(id)) throw new Error("duplicate Pi shortcut " + id);
+      commands.set(id, { definition: {
+        id, label: id, description: def.description || "", category: "pi",
+        ctype: "action", params: [], aliases: [], visible: false, shortcut: key.toLowerCase(),
+      }, handler: def.handler, shortcut: true });
+      commandGeneration++;
+    },
   };
 }
 async function boot() {
@@ -149,6 +174,20 @@ function textResult(result) {
   return {ok:!result.isError,content:parts.join("\n"),details:result.details};
 }
 async function dispatch(req) {
+  if (req.kind === "command") {
+    const entry = commands.get(req.name);
+    if (!entry) return {outcome:{type:"failure",reason:"unknown Pi command: "+String(req.name)}};
+    const notices = [];
+    try {
+      const result = entry.shortcut
+        ? await entry.handler(context(notices))
+        : await entry.handler(String(req.args ?? ""), context(notices));
+      const feedback = [...notices, ...(typeof result === "string" && result ? [result] : [])].join("\n");
+      return {outcome:{type:"success",feedback}};
+    } catch (e) {
+      return {outcome:{type:"failure",reason:e instanceof Error ? e.message : String(e)}};
+    }
+  }
   if(req.kind==="execute") {
     const definition = tools.get(req.name);
     if(!definition) return {result:fail("unknown Pi tool: "+req.name)};
@@ -173,13 +212,13 @@ async function dispatch(req) {
 // Do not use runtime onResolve for bare specifiers: Bun 1.4.x skips that hook.
 const disposePiHostCompat = installPiHostCompat(root);
 await boot();
-send({kind:"ready",tools:catalog(),generation,warnings});
+send({kind:"ready",tools:catalog(),generation,commands:commandCatalog(),commandGeneration,warnings});
 const lines = createInterface({input:process.stdin,crlfDelay:Infinity});
 for await (const line of lines) {
   try {
     const req = JSON.parse(line);
     const response = await dispatch(req);
-    send({id:req.id,...response,tools:catalog(),generation,warnings:warnings.splice(0)});
+    send({id:req.id,...response,tools:catalog(),generation,commands:commandCatalog(),commandGeneration,warnings:warnings.splice(0)});
   } catch(e) {
     send({error:String(e)});
   }
