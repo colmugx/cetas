@@ -503,17 +503,15 @@ class RuntimeStore {
       return;
     }
     if (decision.kind === "duplicate") return;
-    if (typeof event.seq === "number") {
-      if (event.seq <= this.#lastSeq && decision.kind !== "snapshot") return;
-      if (decision.kind === "snapshot" && previousEpoch && previousEpoch !== decision.epoch) {
-        this.#lastSeq = 0;
-      }
-      this.#lastSeq = event.seq;
-    }
     const epochChanged =
       decision.kind === "snapshot" &&
       previousEpoch !== "" &&
       previousEpoch !== decision.epoch;
+    if (typeof event.seq === "number") {
+      if (event.seq <= this.#lastSeq && !epochChanged) return;
+      if (epochChanged) this.#lastSeq = 0;
+      this.#lastSeq = event.seq;
+    }
     const snapshotGap =
       decision.kind === "snapshot" &&
       previousCursor > 0 &&
