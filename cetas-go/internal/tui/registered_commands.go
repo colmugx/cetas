@@ -29,6 +29,7 @@ type registeredCommand struct {
 	Params      []registeredCommandParam `json:"params"`
 	Aliases     []string                 `json:"aliases"`
 	Visible     bool                     `json:"visible"`
+	Shortcut    string                   `json:"shortcut"`
 }
 type commandCatalog struct {
 	SessionID string              `json:"session_id"`
@@ -137,6 +138,21 @@ func (m *model) commandSuggestions(value string) []slashSuggestion {
 	})
 	return suggestions
 }
+// piShortcutCommand dispatches only shortcuts actually registered by a live
+// Pi guest. Hidden slash entries remain keyboard-only, while native reserved
+// keybindings retain priority in the model event handler.
+func (m *model) piShortcutCommand(key string) tea.Cmd {
+	if m.commandSession != m.session || m.host == nil || m.running {
+		return nil
+	}
+	for _, command := range m.dynamicCommands {
+		if strings.HasPrefix(command.ID, "pi:#") && command.Shortcut != "" && strings.EqualFold(command.Shortcut, key) {
+			return m.invokeDynamicCommand("/" + command.ID)
+		}
+	}
+	return nil
+}
+
 func (m *model) commandInsertion(value string) string {
 	for _, local := range nativeSlashCommands {
 		if local.name == value {
@@ -308,7 +324,14 @@ func (m *model) invokeDynamicCommand(input string) tea.Cmd {
 		return nil
 	}
 	raw := strings.TrimSpace(strings.TrimPrefix(input, fields[0]))
-	args, err := registeredCommandArgs(definition, raw)
+	var args map[string]any
+	if strings.HasPrefix(definition.ID, "pi:") {
+		// Pi handlers receive the original trailing argument string, not the
+		// typed Posoco CommandPort object. Preserve spaces and quotes.
+		args = map[string]any{"_positional": raw}
+	} else {
+		args, err = registeredCommandArgs(definition, raw)
+	}
 	if err != nil {
 		m.err = err.Error()
 		return nil
