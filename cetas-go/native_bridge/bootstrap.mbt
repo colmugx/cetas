@@ -20,6 +20,7 @@ fn NativeBootstrapTasks::start(
   config : @console.ConsoleConfig,
   cwd : String,
   group : @core_async.TaskGroup,
+  lifetime_group : @core_async.TaskGroup,
   provider : String,
   auth_method : String,
 ) -> Json {
@@ -50,7 +51,12 @@ fn NativeBootstrapTasks::start(
       }
       if succeeded {
         let composed : Result[@console.ConsoleRuntime, String] = Ok(
-          @console.compose_console_runtime(config, cwd, group),
+          @console.compose_console_runtime(
+            config,
+            cwd,
+            group,
+            lifetime_group=Some(lifetime_group),
+          ),
         ) catch {
           err => Err(err.to_string())
         }
@@ -139,6 +145,7 @@ async fn bootstrap_dispatch(
   config : @console.ConsoleConfig,
   cwd : String,
   group : @core_async.TaskGroup,
+  lifetime_group : @core_async.TaskGroup,
   command : String,
   args : Json,
 ) -> Json {
@@ -158,6 +165,7 @@ async fn bootstrap_dispatch(
             config,
             cwd,
             group,
+            lifetime_group,
             provider,
             harness_string(args, "method").unwrap_or(""),
           )
@@ -192,6 +200,7 @@ async fn bootstrap_handle_frame(
   config : @console.ConsoleConfig,
   cwd : String,
   group : @core_async.TaskGroup,
+  lifetime_group : @core_async.TaskGroup,
   raw : String,
 ) -> Unit {
   let parsed : Json = @json.parse(raw) catch {
@@ -217,7 +226,7 @@ async fn bootstrap_handle_frame(
           .get("args")
           .unwrap_or(Json::object(Map::from_array([])))
         let result : Json = bootstrap_dispatch(
-          setup, tasks, boot, config, cwd, group, command, args,
+          setup, tasks, boot, config, cwd, group, lifetime_group, command, args,
         ) catch {
           err => harness_error(err.to_string())
         }
