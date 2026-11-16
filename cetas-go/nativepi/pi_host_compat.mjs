@@ -99,8 +99,8 @@ function comparablePath(path) {
   if (process.platform !== "win32") return value;
 
   // Bun and Node can spell the same Windows path with different drive-letter
-  // casing, separators, or the extended-length \\\\?\\ prefix.
-  let normalized = value.split("\\\\").join("/");
+  // casing, separators, or the extended-length \\?\ prefix.
+  let normalized = value.split("\\").join("/");
   if (normalized.startsWith("//?/UNC/")) {
     normalized = "//" + normalized.slice(8);
   } else if (normalized.startsWith("//?/")) {
