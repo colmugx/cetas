@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"go/format"
 	"os"
 	"sort"
 	"strings"
@@ -51,8 +52,10 @@ func main() {
 	fmt.Fprintln(goOut, "}")
 	fmt.Fprintln(tsOut, "} as const;\nexport type MessageKey = keyof typeof catalog[\"en-US\"];")
 	
+	goBytes, err := format.Source(goOut.Bytes())
+	if err != nil { fail(fmt.Errorf("format generated Go catalog: %w", err)) }
 	outputs := map[string][]byte{
-		"cetas-go/internal/i18n/generated.go": goOut.Bytes(),
+		"cetas-go/internal/i18n/generated.go": goBytes,
 		"cetas-js/src/i18n/generated.ts": tsOut.Bytes(),
 	}
 	for path, content := range outputs {
