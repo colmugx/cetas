@@ -90,13 +90,9 @@ interface Snapshot {
 // the complete host dependency family in one place, not as package-specific
 // missing-module patches. The actual Agent remains MoonBit/Posoco; importing
 // SDK utilities does not instantiate a second Agent.
-export const PI_HOST_DEPENDENCIES = {
-  "@earendil-works/pi-tui": "^1.3.0",
-  "@earendil-works/pi-coding-agent": "^1.0.4",
-  "@earendil-works/pi-agent-core": "^1.0.4",
-  "@earendil-works/pi-ai": "^1.0.4",
-  "typebox": "^1.3.27",
-} as const;
+// Pi host modules are supplied by Cetas' Bun compatibility layer. Only
+// genuine third-party runtime dependencies belong in the npm umbrella.
+export const PI_HOST_DEPENDENCIES = {} as const;
 const UMBRELLA_PACKAGE_JSON = {
   name: "cetas-pi-packages",
   private: true,

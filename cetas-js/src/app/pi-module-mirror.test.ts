@@ -422,44 +422,34 @@ describe("PiModuleMirror directory entries", () => {
 });
 
 
-describe("Pi host peer family in compiled module mirrors", () => {
-  test("resolves every host peer from shared umbrella without falling through to temporary mirror imports", async () => {
-    const home = mkdtempSync(join(tmpdir(), "pi-host-peers-"));
-    const root = join(home, ".cetas", "pi-packages");
-    const packages = [
-      "@earendil-works/pi-tui",
-      "@earendil-works/pi-coding-agent",
-      "@earendil-works/pi-agent-core",
-      "@earendil-works/pi-ai",
-      "typebox",
-    ];
+describe("virtual Pi host modules in compiled module mirrors", () => {
+  test("resolves host-owned imports without installing a second Pi SDK", async () => {
+    const home = mkdtempSync(join(tmpdir(), "pi-host-facades-"));
+    const root = join(home, "packages");
     const write = (relative: string, content: string): void => {
       const target = join(root, relative);
       mkdirSync(dirname(target), { recursive: true });
       writeFileSync(target, content);
     };
     try {
-      for (const [i, name] of packages.entries()) {
-        write(`node_modules/${name}/package.json`, JSON.stringify({
-          name,
-          type: "module",
-          exports: { ".": "./index.js" },
-        }));
-        write(`node_modules/${name}/index.js`, `export const peer = ${i + 1};\n`);
-      }
-      write("node_modules/demo/package.json", JSON.stringify({ name: "demo", type: "module" }));
-      write("node_modules/demo/index.js", [
-        ...packages.map((name, i) => `import { peer as p${i} } from "${name}";`),
-        `export const sum = ${packages.map((_, i) => `p${i}`).join(" + ")};`,
+      write("demo/index.js", [
+        'import { Box, Text, truncateToWidth } from "@earendil-works/pi-tui";',
+        'import { getAgentDir, buildSessionContext } from "@earendil-works/pi-coding-agent";',
+        'import { host as aiHost } from "@earendil-works/pi-ai";',
+        'import { host as coreHost } from "@earendil-works/pi-agent-core";',
+        'export { Box, Text, truncateToWidth, getAgentDir, buildSessionContext, aiHost, coreHost };',
       ].join("\n"));
       const mirror = new PiModuleMirror(join(home, "mirror"));
-      const entry = mirror.mirrorEntry(join(root, "node_modules", "demo", "index.js"));
+      const entry = mirror.mirrorEntry(join(root, "demo/index.js"));
       expect(entry.warnings).toEqual([]);
-      expect((await import(entry.url)).sum).toBe(15);
-      const output = readFileSync(new URL(entry.url).pathname, "utf8");
-      for (const name of packages) {
-        expect(output).not.toContain(`from "${name}"`);
-      }
+      const mod = await import(entry.url);
+      expect(mod.truncateToWidth("abcdef", 3)).toBe("ab…");
+      expect(mod.getAgentDir()).toContain(".cetas");
+      expect(mod.buildSessionContext([{ type: "message", message: { role: "user" } }]).messages).toEqual([{ role: "user" }]);
+      expect(mod.aiHost).toBe("cetas");
+      expect(mod.coreHost).toBe("cetas");
+      expect(() => new mod.Box()).toThrow(/native Cetas UI adapter/);
+      expect(() => new mod.Text()).toThrow(/native Cetas UI adapter/);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

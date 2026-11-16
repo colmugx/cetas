@@ -21,17 +21,9 @@ import (
 var piPackageName = regexp.MustCompile(`^(@[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+(@[A-Za-z0-9._-]+)?$`)
 var piInstallMu sync.Mutex
 
-// Pi extensions import a family of host-owned peers. The Cetas JS mirror
-// needs physical copies in the shared umbrella, even when a native Bun guest
-// uses its own Pi API facade. None are extension allowlist entries.
-// Keep aligned with cetas-js/src/app/pi-commands.ts.
-var piHostDependencies = map[string]string{
-	"@earendil-works/pi-tui":          "^1.3.0",
-	"@earendil-works/pi-coding-agent": "^1.0.4",
-	"@earendil-works/pi-agent-core":   "^1.0.4",
-	"@earendil-works/pi-ai":           "^1.0.4",
-	"typebox":                         "^1.3.27",
-}
+// Pi SDK namespaces are virtual host facades, not npm dependencies.
+// The shared umbrella contains only explicitly installed Pi extensions.
+var piHostDependencies = map[string]string{}
 
 // ensurePiUmbrella preserves user-managed package versions and other fields.
 // It is called only during an explicit /pi install, never on startup.
@@ -41,7 +33,8 @@ func ensurePiUmbrella(root string) error {
 	}
 	manifestPath := filepath.Join(root, "package.json")
 	raw, err := os.ReadFile(manifestPath)
-	if os.IsNotExist(err) {
+	created := os.IsNotExist(err)
+	if created {
 		raw = []byte(`{"name":"cetas-pi-packages","private":true,"type":"module"}`)
 	} else if err != nil {
 		return err
@@ -59,7 +52,7 @@ func ensurePiUmbrella(root string) error {
 			return fmt.Errorf("Pi umbrella dependencies must be an object")
 		}
 	}
-	changed := false
+	changed := created
 	for name, wanted := range piHostDependencies {
 		if _, exists := deps[name]; exists {
 			continue

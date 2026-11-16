@@ -10,6 +10,9 @@ on:
       - ".github/workflows/memoh-release.yml"
       - ".github/workflows/memoh-live-e2e.yml"
   pull_request:
+    # Draft PRs become eligible for checks when converted to ready-for-review.
+    # This activity is not part of GitHub's default pull_request event types.
+    types: [opened, synchronize, reopened, ready_for_review]
     paths-ignore:
       - "cetas-memoh/**"
       - ".github/workflows/memoh-ci.yml"
