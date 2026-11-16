@@ -275,10 +275,9 @@ class RuntimeStore {
     state.effort = snapshot.effort;
     state.permission = snapshot.permission;
     state.cwd = snapshot.cwd;
-    if (
-      !this.activeSessionId ||
-      this.workspaces.find((w) => w.cwd === snapshot.cwd)?.active
-    ) {
+    // A remote runtime snapshot must never move a Surface that already
+    // selected its own Session. Only seed the initial attachment.
+    if (!this.activeSessionId) {
       this.activeWorkspace = snapshot.cwd;
       this.activeSessionId = snapshot.session_id;
       this.realtime.send({
