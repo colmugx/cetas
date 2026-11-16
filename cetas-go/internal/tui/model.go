@@ -515,6 +515,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		ready := false
 		switched := false
 		turnSettled := false
+		piCommandsChanged := false
 		for _, e := range msg.events {
 			var meta struct {
 				Type      string `json:"type"`
@@ -525,6 +526,9 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.applyEvent(e)
 			if meta.Type == "infra.ready" {
 				ready = true
+			}
+			if meta.Type == "pi.commands.changed" && meta.SessionID == m.session {
+				piCommandsChanged = true
 			}
 			if meta.Type == "session.switched" || meta.Type == "session.redirect" {
 				switched = true
@@ -567,6 +571,9 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if reject := m.pendingAskReject; reject != "" {
 			m.pendingAskReject = ""
 			return m, tea.Batch(receive(m.feed), request(m.host, "ui_response", map[string]any{"request_id": reject, "cancelled": true, "reason": "unsupported ask kind"}))
+		}
+		if piCommandsChanged {
+			return m, tea.Batch(receive(m.feed), request(m.host, "commands", map[string]any{}))
 		}
 		if turnSettled {
 			// A settled turn closed the journal for the blocks the live path
@@ -1224,6 +1231,13 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			// switch retires it; it consumes every key, so the composer never sees
 			// them.
 			return m, m.sessionPickerKey(key)
+		}
+		// Pi shortcuts run only when the composer is not holding an input.
+		// Reserve native exit/turn-control bindings before checking extensions.
+		if key != "ctrl+c" && key != "esc" && key != "ctrl+o" && key != "ctrl+t" && m.textarea.Value() == "" {
+			if shortcut := m.piShortcutCommand(key); shortcut != nil {
+				return m, shortcut
+			}
 		}
 		switch key {
 		case "tab":
