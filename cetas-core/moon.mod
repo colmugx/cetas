@@ -37,7 +37,6 @@ import {
   "colmugx/posoco-ext-fs-session@0.4.0",
   "colmugx/posoco-ext-permission@0.2.0",
   "colmugx/posoco-ext-ratelimit@0.4.0",
-  // MCP host glue lives in the `mcp_host` package (native/js only); the import
-  // is module-level so the wasm lib stays free of it.
+  "colmugx/posoco-kit-model-management@0.1.0",
   "colmugx/posoco-ext-mcp@0.6.0",
 }

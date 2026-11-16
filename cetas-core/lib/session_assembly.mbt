@@ -8,7 +8,15 @@
 /// order (host slots woven in); `routing`/`base_defs` are the tool table and
 /// static catalog captured over `exts` before any host tail extension joins.
 pub(all) struct CetasSession {
-  router : @llm.RouterModelPort
+  /// The providers router, `None` only when the host injected a foreign
+  /// model manager via `model_manager~`. Providers-only hosts go through
+  /// `providers_router()`.
+  router : @llm.RouterModelPort?
+  /// The session's single ModelPort: the providers router, or the port of
+  /// the host-injected model manager.
+  model_port : &@posoco.ModelPort
+  /// Manager-neutral control surface of the active model manager.
+  model_control : &@modelmgmt.ModelManagerControl
   exts : Array[&@posoco.Extension]
   /// Session-private posoco event system: every `@kit_events` payload
   /// (today the `StatusChanged` ops `publish_status_*` emits) is delivered
@@ -41,6 +49,34 @@ pub fn mint_events_publisher(
   match system.publisher(owner~) {
     Ok(events) => Some(events)
     Err(_) => None
+  }
+}
+
+///|
+/// A host-injected model manager joining the composition at the router's
+/// product position. The manager stays host-owned and opaque to core: it
+/// contributes exactly one `Extension` (whose manifest carries the single
+/// `ModelPort`), that port, and the manager-neutral control surface.
+pub(all) struct CetasModelManager {
+  extension : &@posoco.Extension
+  port : &@posoco.ModelPort
+  control : &@modelmgmt.ModelManagerControl
+}
+
+///|
+/// The providers router of a session. Hosts that never inject a foreign
+/// model manager can rely on the router always being present; a missing
+/// router means the host composed the session with `model_manager~`.
+pub fn CetasSession::providers_router(
+  self : CetasSession,
+) -> @llm.RouterModelPort raise @posoco.CompositionError {
+  match self.router {
+    Some(router) => router
+    None =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id="cetas.session_assembly",
+        detail="session composed without the providers model manager",
+      )
   }
 }
 
@@ -81,7 +117,11 @@ pub fn build_cetas_router(
 ///|
 /// Assemble one session's product machinery over the platform. `router~`
 /// injects a router built earlier via `build_cetas_router`; without one the
-/// router is built here. The persisted effort warning carries the host's
+/// router is built here. `model_manager~` injects a foreign model manager
+/// (host-owned `CetasModelManager`) that joins at the router's product
+/// position instead: no router is built, the providers persisted-effort
+/// seeding is skipped (the manager seeds itself), and it wins over an
+/// injected `router~`. The persisted effort warning carries the host's
 /// diagnostic `label~`. Injection seams keep protocol concerns host-side:
 /// `approval~` carries the client bridge behind the permission policy and
 /// `ui~` contributes the client bridge to the composition (as a
@@ -100,11 +140,15 @@ pub fn build_cetas_router(
 /// the internally built router only (an injected `router~` wins unchanged);
 /// `None` disables model-call retrying, which scripted-failure tests use so
 /// they surface the failure immediately instead of sleeping the default
-/// backoff budget.
+/// backoff budget. `ratelimit_probe_ms~`/`ratelimit_max_probe_ms~` tune the
+/// quota guard's recovery probing for managers whose rate-limit shape needs
+/// faster cadence (e.g. gateways reporting transient failures without a
+/// provider reset timestamp); `None` keeps the provider-stated defaults.
 pub async fn build_cetas_session(
   platform~ : CetasPlatform,
   cwd~ : String,
   router~ : @llm.RouterModelPort? = None,
+  model_manager~ : CetasModelManager? = None,
   transient_retry~ : @llm.TransientRetryPolicy? = Some(
     @llm.TransientRetryPolicy::default(),
   ),
@@ -120,6 +164,8 @@ pub async fn build_cetas_session(
   tool_plane_group~ : @async.TaskGroup? = None,
   prompt_suffix~ : String? = None,
   session_fs~ : &@workspace.WorkspaceFs? = None,
+  ratelimit_probe_ms~ : Int64? = None,
+  ratelimit_max_probe_ms~ : Int64? = None,
   label~ : String = "cetas-acp",
   warn~ : async (String) -> Unit noraise = fn(_ : String) { () },
 ) -> CetasSession raise @posoco.CompositionError {
@@ -133,31 +179,48 @@ pub async fn build_cetas_session(
   // the session's system by process identity; this registration is what points
   // those publishes at this session's channel.
   @devkit.events_system_register(events)
-  let router = match router {
-    Some(router) => router
-    None =>
-      build_cetas_router(
-        platform~,
-        events=mint_events_publisher(events, owner="posoco_ext_llm"),
-        transient_retry~,
-      )
-  }
-  match platform.persisted_effort {
-    Some(effort) =>
-      if platform.default_slot_id != "" && !platform.default_slot_pending {
-        router.select_effort(platform.default_slot_id, effort) catch {
-          _ =>
-            warn(
-              label +
-              ": persisted reasoning effort '" +
-              effort +
-              "' is not advertised by model slot '" +
-              platform.default_slot_id +
-              "'; using the slot's default effort\n",
-            )
-        }
+  // One model manager joins at the router's product position: the providers
+  // router (default, with its persisted-effort seeding) or the host-injected
+  // foreign manager.
+  let resolved : (CetasModelManager, @llm.RouterModelPort?) = match
+    model_manager {
+    Some(manager) => (manager, None)
+    None => {
+      let router = match router {
+        Some(router) => router
+        None =>
+          build_cetas_router(
+            platform~,
+            events=mint_events_publisher(events, owner="posoco_ext_llm"),
+            transient_retry~,
+          )
       }
-    None => ()
+      match platform.persisted_effort {
+        Some(effort) =>
+          if platform.default_slot_id != "" && !platform.default_slot_pending {
+            router.select_effort(platform.default_slot_id, effort) catch {
+              _ =>
+                warn(
+                  label +
+                  ": persisted reasoning effort '" +
+                  effort +
+                  "' is not advertised by model slot '" +
+                  platform.default_slot_id +
+                  "'; using the slot's default effort\n",
+                )
+            }
+          }
+        None => ()
+      }
+      (
+        {
+          extension: router as &@posoco.Extension,
+          port: router as &@posoco.ModelPort,
+          control: router as &@modelmgmt.ModelManagerControl,
+        },
+        Some(router),
+      )
+    }
   }
   // Context files (AGENTS.md/CLAUDE.md) are best-effort: a read failure
   // never blocks composition.
@@ -186,7 +249,7 @@ pub async fn build_cetas_session(
   )
   let exts : Array[&@posoco.Extension] = [
     cetas,
-    router as &@posoco.Extension,
+    resolved.0.extension,
     platform.session_store as &@posoco.Extension,
   ]
   for ext in client_exts {
@@ -221,7 +284,16 @@ pub async fn build_cetas_session(
   // at the provider-stated reset time; one guard per session agent. Its event
   // capability and background lifetime are its own (Lifecycle on_compose plus
   // the host-supplied core-async group), so nothing is handed in here.
-  let ratelimit = @ratelimit.RateLimitGuard()
+  let ratelimit = match (ratelimit_probe_ms, ratelimit_max_probe_ms) {
+    (Some(probe), Some(max)) =>
+      @ratelimit.RateLimitGuard(
+        probe_interval_ms=probe,
+        max_probe_interval_ms=max,
+      )
+    (Some(probe), None) => @ratelimit.RateLimitGuard(probe_interval_ms=probe)
+    (None, Some(max)) => @ratelimit.RateLimitGuard(max_probe_interval_ms=max)
+    (None, None) => @ratelimit.RateLimitGuard()
+  }
   exts.push(ratelimit as &@posoco.Extension)
   let session_fs = match session_fs {
     Some(fs) => fs
@@ -240,7 +312,7 @@ pub async fn build_cetas_session(
           home=platform.home,
           label~,
           group~,
-          initial_slot_id=router.active_id,
+          initial_slot_id=resolved.0.control.active_selection().model_id,
         ) {
         exts.push(ext)
       }
@@ -269,7 +341,9 @@ pub async fn build_cetas_session(
     ),
   )
   {
-    router,
+    router: resolved.1,
+    model_port: resolved.0.port,
+    model_control: resolved.0.control,
     exts,
     events,
     permission: permission_policy,

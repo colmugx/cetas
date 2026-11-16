@@ -467,3 +467,140 @@ async test "decision write: missing file starts fresh and malformed file is loud
   }
   assert_eq(fs.files["/h/.cetas/settings.json"], "{broken")
 }
+
+// --------------------------------------------------------- manager choice
+
+///|
+test "manager parse: missing key is providers, wrong shape/value is loud" {
+  let quiet = @json.parse("{\"providers\":{}}") catch {
+    _ => fail("fixture must parse")
+  }
+  assert_eq(parse_model_manager_choice(quiet), "providers")
+  let good = @json.parse("{\"model_manager\":\"magpie\"}") catch {
+    _ => fail("fixture must parse")
+  }
+  assert_eq(parse_model_manager_choice(good), "magpie")
+  let bad_value = @json.parse("{\"model_manager\":\"acme\"}") catch {
+    _ => fail("fixture must parse")
+  }
+  try parse_model_manager_choice(bad_value) catch {
+    @posoco.CompositionError::ManifestSchemaError(detail~, ..) =>
+      assert_true(detail.contains("must be providers or magpie"))
+    _ => fail("expected ManifestSchemaError for unknown choice")
+  } noraise {
+    _ => fail("expected unknown choice to raise")
+  }
+  let bad_shape = @json.parse("{\"model_manager\":42}") catch {
+    _ => fail("fixture must parse")
+  }
+  try parse_model_manager_choice(bad_shape) catch {
+    @posoco.CompositionError::ManifestSchemaError(detail~, ..) =>
+      assert_true(detail.contains("must be providers or magpie"))
+    _ => fail("expected ManifestSchemaError for wrong shape")
+  } noraise {
+    _ => fail("expected wrong shape to raise")
+  }
+}
+
+///|
+test "manager merge: switch stashes the live selection and promotes the target" {
+  // providers is live with a selection; magpie has an older stashed one.
+  let settings = @json.parse(
+    "{\"providers\":{},\"model\":\"prov/a\",\"reasoning_effort\":\"high\",\"manager_selections\":{\"magpie\":{\"model\":\"gw/m2\",\"reasoning_effort\":\"mid\"}}}",
+  ) catch {
+    _ => fail("fixture must parse")
+  }
+  let switched = merge_model_manager_choice(settings, choice="magpie")
+  let fields = tk_object_fields(switched, what="switched settings")
+  assert_true(fields.get("model_manager") is Some(Json::String("magpie")))
+  assert_true(fields.get("model") is Some(Json::String("gw/m2")))
+  assert_true(fields.get("reasoning_effort") is Some(Json::String("mid")))
+  let stash = match fields.get("manager_selections") {
+    Some(Json::Object(inner)) => inner
+    _ => fail("manager_selections must be an object")
+  }
+  match stash.get("providers") {
+    Some(Json::Object(entry)) => {
+      assert_true(entry.get("model") is Some(Json::String("prov/a")))
+      assert_true(entry.get("reasoning_effort") is Some(Json::String("high")))
+    }
+    _ => fail("providers stash entry must be an object")
+  }
+  // Switching back restores the providers selection from the stash.
+  let back = merge_model_manager_choice(switched, choice="providers")
+  let back_fields = tk_object_fields(back, what="restored settings")
+  assert_true(
+    back_fields.get("model_manager") is Some(Json::String("providers")),
+  )
+  assert_true(back_fields.get("model") is Some(Json::String("prov/a")))
+  assert_true(back_fields.get("reasoning_effort") is Some(Json::String("high")))
+}
+
+///|
+test "manager merge: unknown keys survive and a bare target stays keyless" {
+  let settings = @json.parse(
+    "{\"unknown\":1,\"providers\":{},\"model\":\"prov/a\",\"decision_model\":\"zai/judge\"}",
+  ) catch {
+    _ => fail("fixture must parse")
+  }
+  let switched = merge_model_manager_choice(settings, choice="magpie")
+  let fields = tk_object_fields(switched, what="switched settings")
+  assert_true(fields.get("unknown") is Some(Json::Number(_)))
+  assert_true(fields.get("providers") is Some(Json::Object({ .. })))
+  assert_true(fields.get("decision_model") is Some(Json::String("zai/judge")))
+  // The target has no stash, so both selection keys are absent, not null.
+  assert_true(fields.get("model") is None)
+  assert_true(fields.get("reasoning_effort") is None)
+}
+
+///|
+test "manager merge: malformed stash and malformed root fail or rewrite loudly" {
+  // A malformed stash entry is replaced by the fresh entry, never merged.
+  let bad_stash = @json.parse(
+    "{\"model_manager\":\"magpie\",\"model\":\"gw/m\",\"manager_selections\":{\"magpie\":42}}",
+  ) catch {
+    _ => fail("fixture must parse")
+  }
+  let switched = merge_model_manager_choice(bad_stash, choice="providers")
+  let fields = tk_object_fields(switched, what="rewritten settings")
+  match fields.get("manager_selections") {
+    Some(Json::Object(inner)) =>
+      match inner.get("magpie") {
+        Some(Json::Object(entry)) =>
+          assert_true(entry.get("model") is Some(Json::String("gw/m")))
+        _ => fail("magpie stash entry must be an object after the switch")
+      }
+    _ => fail("manager_selections must be an object")
+  }
+  // A malformed root fails loudly.
+  let bad_root = @json.parse("[]") catch { _ => fail("fixture must parse") }
+  try merge_model_manager_choice(bad_root, choice="providers") catch {
+    @posoco.CompositionError::ManifestSchemaError(detail~, ..) =>
+      assert_true(detail.contains("must be an object"))
+    _ => fail("expected ManifestSchemaError for malformed root")
+  } noraise {
+    _ => fail("expected malformed root to raise")
+  }
+}
+
+///|
+async test "manager write: atomic round-trip preserves unknown keys" {
+  let fs = FakeFs()
+  fs.files["/h/.cetas/settings.json"] = "{\"providers\":{},\"model\":\"prov/a\",\"reasoning_effort\":\"high\",\"unknown\":1}"
+  write_model_manager_choice(fs, home="/h", choice="magpie")
+  let written = @json.parse(fs.files["/h/.cetas/settings.json"]) catch {
+    _ => fail("written settings must parse")
+  }
+  let fields = tk_object_fields(written, what="written settings")
+  assert_true(fields.get("model_manager") is Some(Json::String("magpie")))
+  assert_true(fields.get("unknown") is Some(Json::Number(_)))
+  assert_eq(parse_model_manager_choice(written), "magpie")
+  fs.fail_ops["write_file_atomic"] = true
+  try write_model_manager_choice(fs, home="/h", choice="providers") catch {
+    @posoco.CompositionError::ManifestSchemaError(detail~, ..) =>
+      assert_true(detail.contains("write failed"))
+    _ => fail("expected ManifestSchemaError for fs write failure")
+  } noraise {
+    _ => fail("expected fs write failure to raise")
+  }
+}

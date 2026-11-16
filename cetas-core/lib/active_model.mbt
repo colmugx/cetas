@@ -351,3 +351,144 @@ pub fn resolve_active_decision_model_restore(
   }
   Pending(slot=selected.slot)
 }
+
+///|
+/// The persisted model-manager choice: the flat `model_manager` key next to
+/// `model`/`reasoning_effort`. The file is shared with cetas-js, whose
+/// manager switch stashes each manager's last selection under
+/// `manager_selections` and swaps the top-level keys — the merge below must
+/// stay field-for-field identical with that TypeScript logic
+/// (`cetas-js/src/app/model-manager-settings.ts`), or the two hosts corrupt
+/// each other's settings.
+pub fn parse_model_manager_choice(
+  settings : Json,
+) -> String raise @posoco.CompositionError {
+  let fields = match settings {
+    Json::Object(fields) => fields
+    _ =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id=active_model_manifest_id,
+        detail="settings.json must be an object",
+      )
+  }
+  match fields.get("model_manager") {
+    None => "providers"
+    Some(Json::String("providers")) => "providers"
+    Some(Json::String("magpie")) => "magpie"
+    Some(_) =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id=active_model_manifest_id,
+        detail="settings.model_manager must be providers or magpie",
+      )
+  }
+}
+
+///|
+/// Return the settings JSON with the model-manager choice switched. The
+/// current manager's live top-level selection (`model`, `reasoning_effort`)
+/// is stashed into its `manager_selections` entry; the target manager's
+/// stashed entry is promoted back to the top level. Every other key
+/// (including unknown ones) survives untouched. The input must be an object —
+/// a malformed root fails loudly so the write path never clobbers the file.
+pub fn merge_model_manager_choice(
+  settings : Json,
+  choice~ : String,
+) -> Json raise @posoco.CompositionError {
+  match choice {
+    "providers" | "magpie" => ()
+    _ =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id=active_model_manifest_id,
+        detail="model manager choice must be providers or magpie",
+      )
+  }
+  let fields = match settings {
+    Json::Object(fields) => fields
+    _ =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id=active_model_manifest_id,
+        detail="settings.json must be an object",
+      )
+  }
+  let current = match fields.get("model_manager") {
+    None => "providers"
+    Some(Json::String("providers")) => "providers"
+    Some(Json::String("magpie")) => "magpie"
+    Some(_) =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id=active_model_manifest_id,
+        detail="settings.model_manager must be providers or magpie",
+      )
+  }
+  let selections : Map[String, Json] = match fields.get("manager_selections") {
+    Some(Json::Object(inner)) => inner
+    _ => Map::from_array([])
+  }
+  // Stash the live selection into the current manager's entry. The entry is
+  // replaced as a whole (mirroring the JS object spread): a malformed stash
+  // value is rewritten, never merged into.
+  let source_entry : Map[String, Json] = match selections.get(current) {
+    Some(Json::Object(inner)) => inner
+    _ => Map::from_array([])
+  }
+  match fields.get("model") {
+    Some(Json::String(model)) => source_entry["model"] = Json::string(model)
+    _ => ()
+  }
+  match fields.get("reasoning_effort") {
+    Some(Json::String(effort)) =>
+      source_entry["reasoning_effort"] = Json::string(effort)
+    _ => ()
+  }
+  selections[current] = Json::object(source_entry)
+  // Promote the target manager's stashed selection back to the top level; a
+  // target without a stashed model leaves both keys absent.
+  ignore(fields.remove("model"))
+  ignore(fields.remove("reasoning_effort"))
+  match selections.get(choice) {
+    Some(Json::Object(target)) => {
+      match target.get("model") {
+        Some(Json::String(model)) => fields["model"] = Json::string(model)
+        _ => ()
+      }
+      match target.get("reasoning_effort") {
+        Some(Json::String(effort)) =>
+          fields["reasoning_effort"] = Json::string(effort)
+        _ => ()
+      }
+    }
+    _ => ()
+  }
+  fields["manager_selections"] = Json::object(selections)
+  fields["model_manager"] = Json::string(choice)
+  Json::object(fields)
+}
+
+///|
+/// Persist the model-manager choice into `~/.cetas/settings.json`, preserving
+/// every unrelated key, with an atomic write. A missing file starts from `{}`.
+pub async fn write_model_manager_choice(
+  fs : &@workspace.WorkspaceFs,
+  home~ : String,
+  choice~ : String,
+) -> Unit raise @posoco.CompositionError {
+  let path = settings_path(home)
+  let current = match @workspace.read_file_result(fs, path) {
+    Missing => Json::object(Map::from_array([]))
+    Failed(message) =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id=active_model_manifest_id,
+        detail=".cetas/settings.json read failed: " + message,
+      )
+    Content(text) =>
+      parse_settings_json(text, manifest_id=active_model_manifest_id)
+  }
+  let merged = merge_model_manager_choice(current, choice~)
+  fs.write_file_atomic(path, merged.stringify(indent=2) + "\n") catch {
+    @workspace.WorkspaceFsError::WorkspaceFsError(message) =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id=active_model_manifest_id,
+        detail=".cetas/settings.json write failed: " + message,
+      )
+  }
+}

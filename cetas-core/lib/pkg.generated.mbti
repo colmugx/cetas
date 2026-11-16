@@ -10,6 +10,7 @@ import {
   "colmugx/posoco-ext-profiles",
   "colmugx/posoco-ext-ratelimit",
   "colmugx/posoco-ext-workspace",
+  "colmugx/posoco-kit-model-management",
   "colmugx/posoco-kit-provider",
   "colmugx/posoco/error",
   "colmugx/posoco/events",
@@ -38,7 +39,7 @@ pub async fn build_cetas_platform(home~ : String, cwd~ : String, &@posoco-ext-wo
 
 pub fn build_cetas_router(platform~ : CetasPlatform, events? : @events.Events?, transient_retry? : @ext-llm.TransientRetryPolicy?) -> @ext-llm.RouterModelPort raise @error.CompositionError
 
-pub async fn build_cetas_session(platform~ : CetasPlatform, cwd~ : String, router? : @ext-llm.RouterModelPort?, transient_retry? : @ext-llm.TransientRetryPolicy?, approval? : &@posoco-ext-permission.ApprovalSource?, ui? : &@port.UiPort?, client_exts? : Array[&@port.Extension], policy_exts? : Array[&@port.Extension], events_exts? : ((@posoco.EventSystem) -> Array[&@port.Extension])?, feature_exts? : Array[&@port.Extension], tool_plane_group? : @async.TaskGroup?, prompt_suffix? : String?, session_fs? : &@posoco-ext-workspace.WorkspaceFs?, label? : String, warn? : async (String) -> Unit noraise) -> CetasSession raise @error.CompositionError
+pub async fn build_cetas_session(platform~ : CetasPlatform, cwd~ : String, router? : @ext-llm.RouterModelPort?, model_manager? : CetasModelManager?, transient_retry? : @ext-llm.TransientRetryPolicy?, approval? : &@posoco-ext-permission.ApprovalSource?, ui? : &@port.UiPort?, client_exts? : Array[&@port.Extension], policy_exts? : Array[&@port.Extension], events_exts? : ((@posoco.EventSystem) -> Array[&@port.Extension])?, feature_exts? : Array[&@port.Extension], tool_plane_group? : @async.TaskGroup?, prompt_suffix? : String?, session_fs? : &@posoco-ext-workspace.WorkspaceFs?, ratelimit_probe_ms? : Int64?, ratelimit_max_probe_ms? : Int64?, label? : String, warn? : async (String) -> Unit noraise) -> CetasSession raise @error.CompositionError
 
 pub fn build_provider_catalog(&@posoco-kit-provider.ProviderFactory, ProviderCredentialSnapshot, cached_models? : @json.Json?) -> @posoco-kit-provider.ProviderModelCatalog? raise @error.CompositionError
 
@@ -228,6 +229,12 @@ pub(all) struct CetasCapability {
   recipe : String?
 }
 
+pub(all) struct CetasModelManager {
+  extension : &@port.Extension
+  port : &@port.ModelPort
+  control : &@posoco-kit-model-management.ModelManagerControl
+}
+
 pub(all) struct CetasPlatform {
   home : String
   cwd : String
@@ -266,7 +273,9 @@ pub async fn CetasProfileStore::write(Self, String, @posoco-ext-profiles.Profile
 pub impl @posoco-ext-profiles.ProfileStore for CetasProfileStore
 
 pub(all) struct CetasSession {
-  router : @ext-llm.RouterModelPort
+  router : @ext-llm.RouterModelPort?
+  model_port : &@port.ModelPort
+  model_control : &@posoco-kit-model-management.ModelManagerControl
   exts : Array[&@port.Extension]
   events : @posoco.EventSystem
   permission : @posoco-ext-permission.PermissionPolicy
@@ -278,6 +287,7 @@ pub(all) struct CetasSession {
   cwd : String
   session_fs : &@posoco-ext-workspace.WorkspaceFs
 }
+pub fn CetasSession::providers_router(Self) -> @ext-llm.RouterModelPort raise @error.CompositionError
 
 pub struct CetasWorkflowSettings {
   enabled : Bool
