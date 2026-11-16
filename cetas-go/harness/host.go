@@ -260,6 +260,24 @@ func (h *Host) Request(ctx context.Context, command string, args any) (json.RawM
 	if command == "experimental" {
 		return h.pi.experimentalCommand(ctx, args)
 	}
+	if command == "invoke_command" {
+		if response, handled, err := h.pi.invokeCommand(args); handled {
+			return response, err
+		}
+	}
+	if command == "commands" {
+		response, err := h.requestNative(ctx, command, args)
+		if err != nil {
+			return response, err
+		}
+		return h.pi.mergeCommands(response), nil
+	}
+	return h.requestNative(ctx, command, args)
+}
+
+// Native requests keep their original correlation and MoonBit authority;
+// Pi slash commands are an additive host-only projection.
+func (h *Host) requestNative(ctx context.Context, command string, args any) (json.RawMessage, error) {
 	id := h.nextID.Add(1)
 	// The native dispatcher parses ids into Int32; minting beyond that range
 	// would wrap negative on the MoonBit side and be refused as an invalid
