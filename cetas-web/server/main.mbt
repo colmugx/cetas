@@ -99,7 +99,8 @@ async fn serve_websocket(
                       extra=[("message", Json::string(message))],
                     )
                   Ok(SessionAttach(cwd, session_id)) =>
-                    match runtime.attach_surface(subscription_id, cwd, session_id) {
+                    match
+                      runtime.attach_surface(subscription_id, cwd, session_id) {
                       Ok(_) => ()
                       Err(message) =>
                         runtime.emit_to_subscriber(
@@ -110,62 +111,111 @@ async fn serve_websocket(
                         )
                     }
                   Ok(TurnStart(prompt, session_id)) =>
-                    match runtime.start_turn_for_surface(subscription_id, prompt, session_id) {
+                    match
+                      runtime.start_turn_for_surface(
+                        subscription_id, prompt, session_id,
+                      ) {
                       Ok(_) => ()
                       Err(message) =>
-                        runtime.emit_to_subscriber(subscription_id, session_id.unwrap_or(""), "protocol.error", extra=[
-                          ("message", Json::string(message)),
-                        ])
+                        runtime.emit_to_subscriber(
+                          subscription_id,
+                          session_id.unwrap_or(""),
+                          "protocol.error",
+                          extra=[("message", Json::string(message))],
+                        )
                     }
-                  Ok(TurnAbort(session_id)) => runtime.abort_surface_turn(subscription_id, session_id)
-                  Ok(SessionCompact) => runtime.compact_surface_session(subscription_id)
+                  Ok(TurnAbort(session_id)) =>
+                    runtime.abort_surface_turn(subscription_id, session_id)
+                  Ok(SessionCompact) =>
+                    runtime.compact_surface_session(subscription_id)
                   Ok(StatusRefresh(session_id)) => {
                     let attached = runtime.surface_session_id(subscription_id)
                     match attached {
-                      None => runtime.emit_to_subscriber(subscription_id, "", "protocol.error", extra=[
-                        ("message", Json::string("unknown surface subscription")),
-                      ])
-                      Some(sid) => {
+                      None =>
+                        runtime.emit_to_subscriber(
+                          subscription_id,
+                          "",
+                          "protocol.error",
+                          extra=[
+                            (
+                              "message",
+                              Json::string("unknown surface subscription"),
+                            ),
+                          ],
+                        )
+                      Some(sid) =>
                         match session_id {
                           Some(requested) if requested != sid =>
-                            runtime.emit_to_subscriber(subscription_id, sid, "protocol.error", extra=[
-                              ("message", Json::string("session id does not match this surface attachment")),
-                            ])
+                            runtime.emit_to_subscriber(
+                              subscription_id,
+                              sid,
+                              "protocol.error",
+                              extra=[
+                                (
+                                  "message",
+                                  Json::string(
+                                    "session id does not match this surface attachment",
+                                  ),
+                                ),
+                              ],
+                            )
                           _ => {
-                            let payload : Json = runtime.quota_surface_json(subscription_id) catch {
+                            let payload : Json = runtime.quota_surface_json(
+                              subscription_id,
+                            ) catch {
                               error => error_json(error.to_string())
                             }
-                            runtime.emit_to_subscriber(subscription_id, sid, "statusbar.quota", extra=[
-                              ("payload", payload),
-                            ])
-                            let all_payload : Json = runtime.quota_all_surface_json(subscription_id) catch {
+                            runtime.emit_to_subscriber(
+                              subscription_id,
+                              sid,
+                              "statusbar.quota",
+                              extra=[("payload", payload)],
+                            )
+                            let all_payload : Json = runtime.quota_all_surface_json(
+                              subscription_id,
+                            ) catch {
                               error => error_json(error.to_string())
                             }
-                            runtime.emit_to_subscriber(subscription_id, sid, "statusbar.quota_all", extra=[
-                              ("payload", all_payload),
-                            ])
+                            runtime.emit_to_subscriber(
+                              subscription_id,
+                              sid,
+                              "statusbar.quota_all",
+                              extra=[("payload", all_payload)],
+                            )
                           }
                         }
-                      }
                     }
                   }
                   Ok(UiResponse(request_id)) =>
-                    match runtime.resolve_ui_for_surface(subscription_id, request_id, raw) {
+                    match
+                      runtime.resolve_ui_for_surface(
+                        subscription_id, request_id, raw,
+                      ) {
                       Ok(_) => ()
                       Err(reason) =>
-                        runtime.emit_to_subscriber(subscription_id, "", "protocol.error", extra=[
-                          ("message", Json::string(reason)),
-                        ])
+                        runtime.emit_to_subscriber(
+                          subscription_id,
+                          "",
+                          "protocol.error",
+                          extra=[("message", Json::string(reason))],
+                        )
                     }
                 }
               }
               Binary =>
-                runtime.emit_to_subscriber(subscription_id, "", "protocol.error", extra=[
-                  (
-                    "message",
-                    Json::string("binary websocket messages are not supported"),
-                  ),
-                ])
+                runtime.emit_to_subscriber(
+                  subscription_id,
+                  "",
+                  "protocol.error",
+                  extra=[
+                    (
+                      "message",
+                      Json::string(
+                        "binary websocket messages are not supported",
+                      ),
+                    ),
+                  ],
+                )
             }
           }
         } catch {
