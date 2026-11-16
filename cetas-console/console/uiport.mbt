@@ -14,7 +14,10 @@ fn UiRegistry::new() -> UiRegistry {
 }
 
 ///|
-fn UiRegistry::register(self : UiRegistry, session_id~ : String = "") -> (String, @aqueue.Queue[String]) {
+fn UiRegistry::register(
+  self : UiRegistry,
+  session_id~ : String = "",
+) -> (String, @aqueue.Queue[String]) {
   let id = "u-" + self.next_id.to_string()
   self.next_id += 1
   let queue : @aqueue.Queue[String] = Queue(kind=Blocking(1))
@@ -50,7 +53,11 @@ fn UiRegistry::forget(self : UiRegistry, request_id : String) -> Unit {
 
 ///|
 /// A request must still be pending and must belong to the selected session.
-fn UiRegistry::belongs_to(self : UiRegistry, request_id : String, session_id : String) -> Bool {
+fn UiRegistry::belongs_to(
+  self : UiRegistry,
+  request_id : String,
+  session_id : String,
+) -> Bool {
   self.pending.contains(request_id) &&
   self.pending_sessions.get(request_id) == Some(session_id)
 }
