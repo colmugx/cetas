@@ -156,303 +156,314 @@ pub fn run_infra() -> Int32 {
   let result = Ref(0)
   @core_async.run_async_main(async fn() {
     @core_async.with_task_group(async fn(group) {
-      let fs_impl = @workspace.NativeWorkspaceFs()
-      let fs : &@workspace.WorkspaceFs = fs_impl
-      let cwd = @env.current_dir().unwrap_or(".")
-      let home = @cetas_core.cetas_home()
-      // The terminal is the one consumer that opts into the full realtime UI
-      // projection (tool phases, argument deltas, Custom/scope attribution,
-      // ledger facts, unflattened UiRender); every other console consumer keeps
-      // the shared default contract.
-      let config = @console.console_config(
-        fs,
-        home,
-        "cetas-go",
-        "cetas-go/0.1",
-        native_ui=true,
-        // Only a verified and opted-in Bun may compose native Pi tools.
-        native_pi_enabled=@env.get_env_var("CETAS_NATIVE_PI_ENABLED")
-          is Some("1"),
-        // Native terminal default: yolo, like the JS shell, where the console's
-        // shared default stays WorkspaceWrite; an explicit runtime `/permission`
-        // still wins afterwards.
-        permission_mode=@permission.PermissionMode::Yolo,
-        // The terminal owns its pane: report agent state to herdr like the JS
-        // and run hosts. Env-gated, so nothing registers outside a pane.
-        herdr_presence=true,
-      )
-      let boot : Ref[Result[@console.ConsoleRuntime, String]] = Ref(
-        Err("connecting"),
-      )
-      let composing = Ref(true)
-      // Settled once by the compose task: whether the error state is the clean
-      // missing-provider setup (first-run onboarding) rather than a fatal
-      // failure. The dispatcher routes on this flag instead of re-sniffing the
-      // error text every frame.
-      let needs_setup = Ref(false)
-      let setup = @console.console_bootstrap(
-        fs,
-        home,
-        fn(frame) { emit(frame) },
-        native_ui=true,
-      )
-      let setup_tasks = NativeBootstrapTasks::new()
-      // Composition is disk-heavy (settings, credentials, model cache, recipe, a
-      // whole first agent), so it runs on the background group: the command loop
-      // below serves ping/state immediately while progress frames stream to the
-      // terminal.
-      ignore(
-        group.spawn(
-          async fn() {
-            // Whatever ends this task — completion, error, cancellation — the
-            // shutdown epilogue waits on this flag, so a raise in the middle must
-            // never park it at `true` forever.
-            defer {
-              composing.val = false
-            }
-            let started = @core_async.now()
-            emit_boot_progress("composing", 0)
-            // Protected: cancelling the boot mid-build would strand a half-built
-            // workspace whose session scopes parked on close signals nobody would
-            // send, and the runtime's deadlock detector aborts the process at group
-            // exit. Composition always runs to its install-or-error decision;
-            // shutdown waits for it below.
-            let composed : Result[@console.ConsoleRuntime, String] = @core_async.protect_from_cancel(async fn() {
-                Ok(@console.compose_console_runtime(config, cwd, group)) catch {
-                  error => Err(error.to_string())
-                }
-              },
-            )
-            needs_setup.val = match composed {
-              Err(detail) =>
-                detail.contains("providers: no configured model provider")
-              Ok(_) => false
-            }
-            boot.val = composed
-            emit_boot_progress("composed", @core_async.now() - started)
-            match composed {
-              Ok(runtime) => {
-                runtime.attach_sink(fn(frame : String) { emit(frame) })
-                emit(
-                  "{\"type\":\"infra.boot\",\"status\":\"ready\",\"boot_state\":\"ready\",\"snapshot\":" +
-                  runtime.runtime_json().stringify() +
-                  "}",
-                )
+      // Match cetas-js: the outer group owns I/O work (including MCP
+      // subprocesses); the inner group owns MCP actors and recovery tasks.
+      @core_async.with_task_group(async fn(lifetime_group) {
+        let fs_impl = @workspace.NativeWorkspaceFs()
+        let fs : &@workspace.WorkspaceFs = fs_impl
+        let cwd = @env.current_dir().unwrap_or(".")
+        let home = @cetas_core.cetas_home()
+        // The terminal is the one consumer that opts into the full realtime UI
+        // projection (tool phases, argument deltas, Custom/scope attribution,
+        // ledger facts, unflattened UiRender); every other console consumer keeps
+        // the shared default contract.
+        let config = @console.console_config(
+          fs,
+          home,
+          "cetas-go",
+          "cetas-go/0.1",
+          native_ui=true,
+          // Only a verified and opted-in Bun may compose native Pi tools.
+          native_pi_enabled=@env.get_env_var("CETAS_NATIVE_PI_ENABLED")
+            is Some("1"),
+          // Native terminal default: yolo, like the JS shell, where the console's
+          // shared default stays WorkspaceWrite; an explicit runtime `/permission`
+          // still wins afterwards.
+          permission_mode=@permission.PermissionMode::Yolo,
+          // The terminal owns its pane: report agent state to herdr like the JS
+          // and run hosts. Env-gated, so nothing registers outside a pane.
+          herdr_presence=true,
+        )
+        let boot : Ref[Result[@console.ConsoleRuntime, String]] = Ref(
+          Err("connecting"),
+        )
+        let composing = Ref(true)
+        // Settled once by the compose task: whether the error state is the clean
+        // missing-provider setup (first-run onboarding) rather than a fatal
+        // failure. The dispatcher routes on this flag instead of re-sniffing the
+        // error text every frame.
+        let needs_setup = Ref(false)
+        let setup = @console.console_bootstrap(
+          fs,
+          home,
+          fn(frame) { emit(frame) },
+          native_ui=true,
+        )
+        let setup_tasks = NativeBootstrapTasks::new()
+        // Composition is disk-heavy (settings, credentials, model cache, recipe, a
+        // whole first agent), so it runs on the background group: the command loop
+        // below serves ping/state immediately while progress frames stream to the
+        // terminal.
+        ignore(
+          group.spawn(
+            async fn() {
+              // Whatever ends this task — completion, error, cancellation — the
+              // shutdown epilogue waits on this flag, so a raise in the middle must
+              // never park it at `true` forever.
+              defer {
+                composing.val = false
               }
-              Err(detail) =>
-                emit(
-                  Json::object({
-                    "type": Json::string("infra.boot"),
-                    "status": Json::string(
-                      if needs_setup.val {
-                        "needs_setup"
-                      } else {
-                        "error"
-                      },
-                    ),
-                    "boot_state": Json::string(
-                      if needs_setup.val {
-                        "needs_setup"
-                      } else {
-                        "error"
-                      },
-                    ),
-                    "detail": Json::string(detail),
-                  }).stringify(),
-                )
-            }
-          },
-          allow_failure=true,
-        ),
-      )
-      let auth_tasks = NativeAuthTasks::new()
-      let replay_tasks = NativeReplayTasks::new("native replay")
-      let catalog_tasks = NativeReplayTasks::new("native session catalog")
-      let harness_buffer = Bytes::make(262144, 0)
-      // Wait for the host's readiness byte rather than a fixed 10 ms interval:
-      // the owner thread parks inside the async scheduler, so every other task on
-      // this domain keeps running. Adoption failures are reported once, never
-      // swallowed: the loop then degrades to bounded polling.
-      let mut wake_reported = false
-      let mut command_wake : @raw_fd.RawFd? = None
-      match adopt_command_wake() {
-        Ok(wake) => command_wake = Some(wake)
-        Err("") =>
-          // The expected platform shape: the None branch below polls at 10 ms by
-          // design, so no error frame.
-          ()
-        Err(detail) => {
-          emit_degraded("command notification channel unavailable: " + detail)
-          wake_reported = true
-        }
-      }
-      let mut protocol_reported = false
-      let wake_buffer = FixedArray::make(1, b'\x00')
-      let mut stopping = false
-      while !stopping {
-        match next_command() {
-          0 => {
-            let n = next_harness(harness_buffer, harness_buffer.length())
-            if n > 0 {
-              let raw = @utf8.decode_lossy(harness_buffer[:n])
-              if composing.val {
-                // A request that raced composition cannot be served yet: reply
-                // with a named refusal, never a silent drop.
-                reject_while_composing(raw)
-              } else {
-                match boot.val {
-                  Ok(runtime) =>
-                    harness_handle_frame(
-                      runtime, auth_tasks, replay_tasks, catalog_tasks, group, raw,
-                    )
-                  Err(detail) =>
-                    if needs_setup.val {
-                      bootstrap_handle_frame(
-                        setup, setup_tasks, boot, config, cwd, group, raw,
-                      )
-                    } else {
-                      emit(harness_reply(-1, harness_error(detail)))
-                    }
-                }
-              }
-            } else {
-              if n < 0 && !protocol_reported {
-                // A request larger than this dispatcher buffer stays at the FIFO
-                // head and would stall every later request with no trace.
-                // Unreachable while `Submit` enforces the same 256 KiB bound, but
-                // never silent: report the exact sizes once.
-                protocol_reported = true
-                emit(
-                  Json::object({
-                    "type": Json::string("infra.error"),
-                    "detail": Json::string(
-                      "harness request does not fit the " +
-                      harness_buffer.length().to_string() +
-                      "-byte dispatcher buffer (" +
-                      (-n).to_string() +
-                      " bytes queued); the native request queue cannot advance",
-                    ),
-                  }).stringify(),
-                )
-              }
-              match command_wake {
-                Some(wake) => {
-                  // One byte per queued item, so a wakeup may coalesce but is
-                  // never lost: the queues above are re-read after every wait.
-                  let resumed = wake.read(wake_buffer) catch {
-                    error => {
-                      if !wake_reported {
-                        emit_degraded(
-                          "command notification wait failed: " +
-                          error.to_string(),
-                        )
-                        wake_reported = true
-                      }
-                      -1
-                    }
+              let started = @core_async.now()
+              emit_boot_progress("composing", 0)
+              // Protected: cancelling the boot mid-build would strand a half-built
+              // workspace whose session scopes parked on close signals nobody would
+              // send, and the runtime's deadlock detector aborts the process at group
+              // exit. Composition always runs to its install-or-error decision;
+              // shutdown waits for it below.
+              let composed : Result[@console.ConsoleRuntime, String] = @core_async.protect_from_cancel(async fn() {
+                  Ok(
+                  @console.compose_console_runtime(
+                    config,
+                    cwd,
+                    group,
+                    lifetime_group=Some(lifetime_group),
+                  ),
+                ) catch {
+                    error => Err(error.to_string())
                   }
-                  if resumed <= 0 {
-                    // A failed or closed channel ends this wait for good: the
-                    // descriptor is closed and the loop falls back to polling
-                    // instead of retrying a dead fd every iteration.
-                    if !wake_reported {
-                      emit_degraded(
-                        "command notification channel closed while waiting (EOF)",
-                      )
-                      wake_reported = true
-                    }
-                    wake.close()
-                    command_wake = None
-                  }
-                }
-                None => @core_async.sleep(10)
-              }
-            }
-          }
-          1 =>
-            if composing.val {
-              emit(
-                Json::object({
-                  "type": Json::string("infra.state"),
-                  "status": Json::string("connecting"),
-                }).stringify(),
+                },
               )
-            } else {
-              match boot.val {
-                Ok(runtime) =>
+              needs_setup.val = match composed {
+                Err(detail) =>
+                  detail.contains("providers: no configured model provider")
+                Ok(_) => false
+              }
+              boot.val = composed
+              emit_boot_progress("composed", @core_async.now() - started)
+              match composed {
+                Ok(runtime) => {
+                  runtime.attach_sink(fn(frame : String) { emit(frame) })
                   emit(
-                    "{\"type\":\"infra.state\",\"snapshot\":" +
+                    "{\"type\":\"infra.boot\",\"status\":\"ready\",\"boot_state\":\"ready\",\"snapshot\":" +
                     runtime.runtime_json().stringify() +
                     "}",
                   )
+                }
                 Err(detail) =>
                   emit(
-                    Json::object(
-                      Map::from_array([
-                        ("type", Json::string("infra.state")),
-                        ("status", Json::string("needs_setup")),
-                        ("detail", Json::string(detail)),
-                      ]),
-                    ).stringify(),
+                    Json::object({
+                      "type": Json::string("infra.boot"),
+                      "status": Json::string(
+                        if needs_setup.val {
+                          "needs_setup"
+                        } else {
+                          "error"
+                        },
+                      ),
+                      "boot_state": Json::string(
+                        if needs_setup.val {
+                          "needs_setup"
+                        } else {
+                          "error"
+                        },
+                      ),
+                      "detail": Json::string(detail),
+                    }).stringify(),
                   )
               }
-            }
-          2 =>
-            if composing.val {
-              emit("{\"type\":\"infra.ping\",\"status\":\"connecting\"}")
-            } else {
-              match boot.val {
-                Ok(runtime) => {
-                  runtime.emit_event("", "", "infra.ping", extra=[
-                    ("source", Json::string("moonbit")),
-                  ])
+            },
+            allow_failure=true,
+          ),
+        )
+        let auth_tasks = NativeAuthTasks::new()
+        let replay_tasks = NativeReplayTasks::new("native replay")
+        let catalog_tasks = NativeReplayTasks::new("native session catalog")
+        let harness_buffer = Bytes::make(262144, 0)
+        // Wait for the host's readiness byte rather than a fixed 10 ms interval:
+        // the owner thread parks inside the async scheduler, so every other task on
+        // this domain keeps running. Adoption failures are reported once, never
+        // swallowed: the loop then degrades to bounded polling.
+        let mut wake_reported = false
+        let mut command_wake : @raw_fd.RawFd? = None
+        match adopt_command_wake() {
+          Ok(wake) => command_wake = Some(wake)
+          Err("") =>
+            // The expected platform shape: the None branch below polls at 10 ms by
+            // design, so no error frame.
+            ()
+          Err(detail) => {
+            emit_degraded("command notification channel unavailable: " + detail)
+            wake_reported = true
+          }
+        }
+        let mut protocol_reported = false
+        let wake_buffer = FixedArray::make(1, b'\x00')
+        let mut stopping = false
+        while !stopping {
+          match next_command() {
+            0 => {
+              let n = next_harness(harness_buffer, harness_buffer.length())
+              if n > 0 {
+                let raw = @utf8.decode_lossy(harness_buffer[:n])
+                if composing.val {
+                  // A request that raced composition cannot be served yet: reply
+                  // with a named refusal, never a silent drop.
+                  reject_while_composing(raw)
+                } else {
+                  match boot.val {
+                    Ok(runtime) =>
+                      harness_handle_frame(
+                        runtime, auth_tasks, replay_tasks, catalog_tasks, group, raw,
+                      )
+                    Err(detail) =>
+                      if needs_setup.val {
+                        bootstrap_handle_frame(
+                          setup, setup_tasks, boot, config, cwd, group, lifetime_group, raw,
+                        )
+                      } else {
+                        emit(harness_reply(-1, harness_error(detail)))
+                      }
+                  }
+                }
+              } else {
+                if n < 0 && !protocol_reported {
+                  // A request larger than this dispatcher buffer stays at the FIFO
+                  // head and would stall every later request with no trace.
+                  // Unreachable while `Submit` enforces the same 256 KiB bound, but
+                  // never silent: report the exact sizes once.
+                  protocol_reported = true
                   emit(
-                    "{\"type\":\"infra.workspaces\",\"snapshot\":" +
-                    runtime.workspaces_json().stringify() +
-                    "}",
+                    Json::object({
+                      "type": Json::string("infra.error"),
+                      "detail": Json::string(
+                        "harness request does not fit the " +
+                        harness_buffer.length().to_string() +
+                        "-byte dispatcher buffer (" +
+                        (-n).to_string() +
+                        " bytes queued); the native request queue cannot advance",
+                      ),
+                    }).stringify(),
                   )
                 }
-                Err(_) =>
-                  emit("{\"type\":\"infra.ping\",\"status\":\"needs_setup\"}")
+                match command_wake {
+                  Some(wake) => {
+                    // One byte per queued item, so a wakeup may coalesce but is
+                    // never lost: the queues above are re-read after every wait.
+                    let resumed = wake.read(wake_buffer) catch {
+                      error => {
+                        if !wake_reported {
+                          emit_degraded(
+                            "command notification wait failed: " +
+                            error.to_string(),
+                          )
+                          wake_reported = true
+                        }
+                        -1
+                      }
+                    }
+                    if resumed <= 0 {
+                      // A failed or closed channel ends this wait for good: the
+                      // descriptor is closed and the loop falls back to polling
+                      // instead of retrying a dead fd every iteration.
+                      if !wake_reported {
+                        emit_degraded(
+                          "command notification channel closed while waiting (EOF)",
+                        )
+                        wake_reported = true
+                      }
+                      wake.close()
+                      command_wake = None
+                    }
+                  }
+                  None => @core_async.sleep(10)
+                }
               }
             }
-          9 => stopping = true
-          other =>
-            emit(
-              "{\"type\":\"infra.error\",\"detail\":\"unknown command " +
-              other.to_string() +
-              "\"}",
-            )
+            1 =>
+              if composing.val {
+                emit(
+                  Json::object({
+                    "type": Json::string("infra.state"),
+                    "status": Json::string("connecting"),
+                  }).stringify(),
+                )
+              } else {
+                match boot.val {
+                  Ok(runtime) =>
+                    emit(
+                      "{\"type\":\"infra.state\",\"snapshot\":" +
+                      runtime.runtime_json().stringify() +
+                      "}",
+                    )
+                  Err(detail) =>
+                    emit(
+                      Json::object(
+                        Map::from_array([
+                          ("type", Json::string("infra.state")),
+                          ("status", Json::string("needs_setup")),
+                          ("detail", Json::string(detail)),
+                        ]),
+                      ).stringify(),
+                    )
+                }
+              }
+            2 =>
+              if composing.val {
+                emit("{\"type\":\"infra.ping\",\"status\":\"connecting\"}")
+              } else {
+                match boot.val {
+                  Ok(runtime) => {
+                    runtime.emit_event("", "", "infra.ping", extra=[
+                      ("source", Json::string("moonbit")),
+                    ])
+                    emit(
+                      "{\"type\":\"infra.workspaces\",\"snapshot\":" +
+                      runtime.workspaces_json().stringify() +
+                      "}",
+                    )
+                  }
+                  Err(_) =>
+                    emit("{\"type\":\"infra.ping\",\"status\":\"needs_setup\"}")
+                }
+              }
+            9 => stopping = true
+            other =>
+              emit(
+                "{\"type\":\"infra.error\",\"detail\":\"unknown command " +
+                other.to_string() +
+                "\"}",
+              )
+          }
         }
-      }
-      replay_tasks.cancel_all()
-      catalog_tasks.cancel_all()
-      setup_tasks.cancel_all()
-      setup.cancel_all()
-      // A shutdown that won the composition race still waits for the protected
-      // compose task: once boot.val is final, shutdown_all sweeps every installed
-      // handle, and an early break would leave a freshly composed runtime's
-      // scopes parked.
-      while composing.val {
-        @core_async.pause()
-      }
-      match boot.val {
-        Ok(runtime) => {
-          // Wake suspended approval/auth coroutines BEFORE draining Posoco: the
-          // Go terminal has already requested shutdown and cannot answer an
-          // outstanding UiPort request anymore.
-          auth_tasks.cancel_all()
-          runtime.cancel_pending_ui()
-          runtime.detach_sink()
-          runtime.shutdown_all()
+        replay_tasks.cancel_all()
+        catalog_tasks.cancel_all()
+        setup_tasks.cancel_all()
+        setup.cancel_all()
+        // A shutdown that won the composition race still waits for the protected
+        // compose task: once boot.val is final, shutdown_all sweeps every installed
+        // handle, and an early break would leave a freshly composed runtime's
+        // scopes parked.
+        while composing.val {
+          @core_async.pause()
         }
-        // No agent ever owned a Lifecycle, so nobody else releases the pane:
-        // a composition that failed after detection registered herdr would
-        // leave the pane showing an agent for this dead process.
-        Err(_) => @console.release_herdr_presence()
-      }
-      emit("{\"type\":\"infra.stopped\",\"status\":\"clean\"}")
-      result.val = 1
+        match boot.val {
+          Ok(runtime) => {
+            // Wake suspended approval/auth coroutines BEFORE draining Posoco: the
+            // Go terminal has already requested shutdown and cannot answer an
+            // outstanding UiPort request anymore.
+            auth_tasks.cancel_all()
+            runtime.cancel_pending_ui()
+            runtime.detach_sink()
+            runtime.shutdown_all()
+          }
+          // No agent ever owned a Lifecycle, so nobody else releases the pane:
+          // a composition that failed after detection registered herdr would
+          // leave the pane showing an agent for this dead process.
+          Err(_) => @console.release_herdr_presence()
+        }
+        emit("{\"type\":\"infra.stopped\",\"status\":\"clean\"}")
+        result.val = 1
+      })
     })
   })
   result.val
