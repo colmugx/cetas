@@ -2094,6 +2094,26 @@ async fn ConsoleRuntime::resolve_surface_handle(
 }
 
 ///|
+/// A WebSocket can settle a UI request only while attached to the Session
+/// that issued it. The native/desktop resolve_ui path remains unchanged.
+pub fn ConsoleRuntime::resolve_ui_for_surface(
+  self : ConsoleRuntime,
+  surface_id : String,
+  request_id : String,
+  response : String,
+) -> Result[Unit, String] {
+  let bound = match self.surfaces.get(surface_id) {
+    Some(binding) => binding
+    None => return Err("unknown surface subscription")
+  }
+  if !self.ui_registry.belongs_to(request_id, bound.session_id) {
+    return Err("UI request is not pending for this surface session")
+  }
+  self.resolve_ui(request_id, response)
+  Ok(())
+}
+
+///|
 pub fn ConsoleRuntime::surface_session_id(
   self : ConsoleRuntime,
   surface_id : String,
