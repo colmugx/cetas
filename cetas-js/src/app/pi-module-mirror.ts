@@ -195,6 +195,10 @@ export class PiModuleMirror {
   }
 
   private resolveBare(spec: string, fromDir: string): string | undefined {
+    // Pi SDK packages are host-owned peers. Never mirror a second Agent/TUI
+    // implementation from npm: provide only the small Cetas host facade.
+    const virtual = this.virtualPiHostModule(spec);
+    if (virtual !== undefined) return virtual;
     const segments = spec.split("/");
     const scoped = spec.startsWith("@");
     const pkgName = scoped ? segments.slice(0, 2).join("/") : segments[0];
@@ -206,6 +210,47 @@ export class PiModuleMirror {
       const parent = dirname(dir);
       if (parent === dir) return undefined;
       dir = parent;
+    }
+  }
+
+  private virtualPiHostModule(spec: string): string | undefined {
+    const root = spec.startsWith("@")
+      ? spec.split("/").slice(0, 2).join("/")
+      : spec.split("/")[0];
+    const source = root === "@earendil-works/pi-tui"
+      ? `function unavailable(name) { return function() { throw new Error("Pi UI component " + name + " requires a native Cetas UI adapter"); }; }
+export const Box = unavailable("Box");
+export const Text = unavailable("Text");
+export function truncateToWidth(value, width, suffix = "…") {
+  const text = String(value ?? "");
+  if (!Number.isFinite(width) || width <= 0) return "";
+  if ([...text].length <= width) return text;
+  const tail = [...suffix].length < width ? suffix : "";
+  return [...text].slice(0, Math.max(0, width - [...tail].length)).join("") + tail;
+}`
+      : root === "@earendil-works/pi-coding-agent"
+        ? `import { join } from "node:path";
+export function getAgentDir() {
+  const home = process.env.CETAS_HOME || process.env.HOME || process.env.USERPROFILE;
+  if (!home) throw new Error("Cetas home is unavailable");
+  return join(home, ".cetas");
+}
+export function buildSessionContext(branch) {
+  if (!Array.isArray(branch)) throw new Error("Cetas session branch unavailable");
+  return { messages: branch.filter(entry => entry?.type === "message" && entry.message && typeof entry.message === "object").map(entry => entry.message) };
+}
+export async function resizeImage() { throw new Error("Image resizing is not exposed by the Cetas host"); }`
+        : root === "@earendil-works/pi-agent-core" || root === "@earendil-works/pi-ai"
+          ? "export const host = \"cetas\";"
+          : undefined;
+    if (source === undefined) return undefined;
+    const file = join(this.root, "virtual-pi-host", root.replace(/[^a-z0-9]+/gi, "-") + ".mjs");
+    try {
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, source);
+      return file;
+    } catch {
+      return undefined;
     }
   }
 

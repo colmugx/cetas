@@ -23,6 +23,15 @@ const hostModules = {
     export class Box { constructor() { unavailable(); } }
     export class Text { constructor() { unavailable(); } }
   `,
+  "@earendil-works/pi-agent-core": `
+    // Agent-core is a host-owned namespace, not a second runtime.
+    export const host = "cetas";
+  `,
+  "@earendil-works/pi-ai": `
+    // Runtime imports are intentionally limited; type-only Pi AI imports
+    // disappear during compilation. Unknown runtime APIs fail explicitly.
+    export const host = "cetas";
+  `,
   "@earendil-works/pi-coding-agent": `
     import { join } from "node:path";
     export function getAgentDir() {
@@ -32,7 +41,7 @@ const hostModules = {
     }
     export function buildSessionContext(branch) {
       if (!Array.isArray(branch)) throw new Error("Pi session branch was not supplied by the Cetas host");
-      return { messages: branch.filter(entry => entry && typeof entry === "object") };
+      return { messages: branch.filter(entry => entry?.type === "message" && entry.message && typeof entry.message === "object").map(entry => entry.message) };
     }
     export async function resizeImage() {
       throw new Error("Pi resizeImage is not exposed by the Cetas native Pi host");
@@ -48,13 +57,14 @@ export function installPiHostCompat() {
     name: "cetas-pi-host",
     setup(build) {
       build.onResolve(
-        { filter: /^@earendil-works\/pi-(?:tui|coding-agent)$/ },
+        { filter: /^@earendil-works\/pi-(?:tui|coding-agent|agent-core|ai)(?:\/.*)?$/ },
         args => ({ path: args.path, namespace: "cetas-pi-host" }),
       );
       build.onLoad(
         { filter: /.*/, namespace: "cetas-pi-host" },
         args => {
-          const contents = hostModules[args.path];
+          const root = args.path.split("/").slice(0, 2).join("/");
+          const contents = hostModules[args.path] ?? hostModules[root];
           if (contents === undefined) throw new Error("Unsupported Pi host module " + args.path);
           return { contents, loader: "js" };
         },
