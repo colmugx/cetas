@@ -117,8 +117,9 @@ type model struct {
 	replayIndexSince    time.Time
 	// Runtime epoch + selected-session broadcast cursor for gap-free live delivery.
 	runtimeEpoch       string
-	eventCursor        int32
-	eventResyncPending bool
+	eventCursor                int32
+	eventResyncPending         bool
+	eventResyncAwaitingSnapshot bool
 	replayIndexTimeouts int
 	replayBackpressure  int
 	replayRetryAt       time.Time
@@ -545,6 +546,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshTranscript()
 		if m.eventResyncPending && !msg.closed {
 			m.eventResyncPending = false
+			m.eventResyncAwaitingSnapshot = true
 			m.status = "resynchronizing session history"
 			return m, tea.Batch(
 				receive(m.feed),
@@ -1694,7 +1696,9 @@ func (m *model) applyEvent(e wire.Event) {
 				}
 				if previous > 0 && cursor > expected {
 					m.eventResyncPending = true
-				} else {
+				}
+				if m.eventResyncAwaitingSnapshot {
+					m.eventResyncAwaitingSnapshot = false
 					m.eventResyncPending = false
 				}
 				m.eventCursor = cursor
