@@ -868,9 +868,15 @@ class RuntimeStore {
   }
 
   async switchSession(id: string) {
-    await apiSwitchSession(id);
+    // A WebSocket surface owns its own selection. Do not mutate the process-
+    // global active session through the legacy HTTP picker endpoint.
     this.activeSessionId = id;
     this.openSession(id);
+    this.realtime.send({
+      type: "session.attach",
+      cwd: this.activeWorkspace,
+      session_id: id,
+    });
     await Promise.all([this.replay(id), this.loadCatalog(), this.loadSessions()]);
   }
 
