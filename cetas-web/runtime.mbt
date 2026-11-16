@@ -296,7 +296,7 @@ async fn compose_session_agent(
     warn~,
   )
   session.permission.mode = permission_mode
-  let router = session.router
+  let router = session.providers_router()
   let policy = session.permission
   let observer = WebObserver::new(hub, session_id)
   let tail_exts : Array[&@posoco.Extension] = [observer as &@posoco.Extension]
@@ -672,7 +672,7 @@ async fn build_workspace(
     warn~,
   )
   session.permission.mode = permission_mode
-  let router = session.router
+  let router = session.providers_router()
   let policy = session.permission
   let tail_exts : Array[&@posoco.Extension] = [observer as &@posoco.Extension]
   let agent = @cetas_core.compose_cetas_agent(

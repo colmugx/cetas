@@ -222,7 +222,7 @@ async test "magpie settings: absent file and non-magpie manager resolve to none"
       fs,
       @cetas_core.credentials_path("/h"),
     ),
-    warn=async fn(text : String) noraise { warns.push(text) },
+    warn=fn(text : String) noraise { warns.push(text) },
   )
   assert_true(none is None)
   fs.files["/h/.cetas/settings.json"] = "{\"providers\":{}}"
@@ -233,7 +233,7 @@ async test "magpie settings: absent file and non-magpie manager resolve to none"
       fs,
       @cetas_core.credentials_path("/h"),
     ),
-    warn=async fn(text : String) noraise { warns.push(text) },
+    warn=fn(text : String) noraise { warns.push(text) },
   )
   assert_true(providers is None)
   assert_eq(warns.length(), 0)
@@ -251,7 +251,7 @@ async test "magpie settings: valid block parses seed and warns about gateway_key
       fs,
       @cetas_core.credentials_path("/h"),
     ),
-    warn=async fn(text : String) noraise { warns.push(text) },
+    warn=fn(text : String) noraise { warns.push(text) },
   )
   let parsed = match settings {
     Some(parsed) => parsed
@@ -274,7 +274,9 @@ async test "magpie settings: malformed shapes fail loudly" {
     fs,
     @cetas_core.credentials_path("/h"),
   )
-  let loud = async fn(text : String) noraise { ignore(text) }
+  let loud : async (String) -> Unit noraise = fn(text : String) noraise {
+    ignore(text)
+  }
   let bad_json = async fn() raise @posoco.CompositionError {
     fs.files["/h/.cetas/settings.json"] = "{broken"
     ignore(read_magpie_host_settings(fs, home="/h", cred_store~, warn=loud))

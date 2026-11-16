@@ -2,6 +2,7 @@
 package "colmugx/cetas-console/console"
 
 import {
+  "colmugx/posoco-ext-magpie",
   "colmugx/posoco-ext-permission",
   "colmugx/posoco-ext-plan",
   "colmugx/posoco-ext-workspace",
@@ -12,6 +13,7 @@ import {
   "moonbitlang/core/async",
   "moonbitlang/core/async/aqueue",
   "moonbitlang/core/json",
+  "posoco/ext-llm",
 }
 
 // Values
@@ -86,6 +88,7 @@ pub fn ConsoleRuntime::attach_sink(Self, (String) -> Unit) -> Unit
 pub fn ConsoleRuntime::cancel_pending_ui(Self) -> Unit
 pub fn ConsoleRuntime::commands_json(Self) -> @json.Json
 pub async fn ConsoleRuntime::compact_active_session(Self) -> Unit
+pub async fn ConsoleRuntime::configure_magpie(Self, url~ : String, key~ : String) -> Result[@json.Json, String] noraise
 pub fn ConsoleRuntime::detach_sink(Self) -> Unit
 pub fn ConsoleRuntime::emit_active_snapshot(Self) -> Unit
 pub fn ConsoleRuntime::emit_active_snapshot_to(Self, String) -> Unit
@@ -95,6 +98,7 @@ pub fn ConsoleRuntime::emit_to_subscriber(Self, String, String, String, extra? :
 pub async fn ConsoleRuntime::file_suggestions_json(Self, String, Int32) -> @json.Json
 pub async fn ConsoleRuntime::invoke_registered_command(Self, String, String, @json.Json) -> @json.Json
 pub async fn ConsoleRuntime::login(Self, String, String) -> String
+pub async fn ConsoleRuntime::login_magpie(Self) -> @json.Json
 pub async fn ConsoleRuntime::logout(Self, String) -> String
 pub async fn ConsoleRuntime::mcp_login_outcome(Self, String, String, @json.Json) -> @port.CommandOutcome? noraise
 pub async fn ConsoleRuntime::model_slots_json(Self, String?) -> @json.Json noraise
@@ -122,6 +126,7 @@ pub fn ConsoleRuntime::spawn_background(Self, async () -> Unit) -> Unit
 pub async fn ConsoleRuntime::start_turn(Self, String, String?, images? : Array[@kernel.Content]) -> Result[String, String] noraise
 pub fn ConsoleRuntime::subscribe_events(Self, (String) -> Unit) -> String
 pub async fn ConsoleRuntime::switch_model(Self, String, String?) -> Result[Unit, String] noraise
+pub async fn ConsoleRuntime::switch_model_manager(Self, String) -> Result[@json.Json, String] noraise
 pub async fn ConsoleRuntime::switch_session(Self, String) -> Result[String, String] noraise
 pub async fn ConsoleRuntime::switch_workspace(Self, String) -> Result[String, String] noraise
 pub fn ConsoleRuntime::trace_json(Self, String?, String?) -> @json.Json
@@ -135,6 +140,17 @@ pub fn ConsoleRuntime::workspaces_json(Self) -> @json.Json
 pub fn ConsoleRuntime::zoo_json(Self) -> @json.Json
 
 type EventHub
+
+pub struct MagpieBinding {
+  runtime : @posoco-ext-magpie.MagpieRuntime
+  config : @posoco-ext-magpie.MagpieConfig
+  transport : &@posoco-ext-magpie.MagpieTransport
+}
+
+pub enum ModelManagerFace {
+  Providers(@ext-llm.RouterModelPort)
+  Magpie(MagpieBinding)
+}
 
 pub struct NativePiGuest {
   session_id : String

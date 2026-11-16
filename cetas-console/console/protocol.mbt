@@ -169,7 +169,9 @@ fn EventHub::emit(
         }
     }
   }
-  if broadcast { self.deliver(framed.stringify()) }
+  if broadcast {
+    self.deliver(framed.stringify())
+  }
 }
 
 ///|

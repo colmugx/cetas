@@ -101,6 +101,8 @@ pub fn merge_active_model_selection(@json.Json, ActiveModelSelection) -> @json.J
 
 pub fn merge_model_list_cache(@json.Json, String, @json.Json) -> @json.Json
 
+pub fn merge_model_manager_choice(@json.Json, choice~ : String) -> @json.Json raise @error.CompositionError
+
 pub fn mint_events_publisher(@posoco.EventSystem, owner~ : String) -> @events.Events?
 
 pub fn mint_session_id() -> String
@@ -116,6 +118,8 @@ pub fn parse_active_decision_model_selection(@json.Json) -> ActiveDecisionSelect
 pub fn parse_active_model_selection(@json.Json) -> ActiveModelSelection? raise @error.CompositionError
 
 pub fn parse_model_list_cache(@json.Json) -> Map[String, @json.Json]
+
+pub fn parse_model_manager_choice(@json.Json) -> String raise @error.CompositionError
 
 pub fn parse_refresh_provider_ids(String) -> Array[String]? raise @error.CompositionError
 
@@ -188,6 +192,8 @@ pub async fn write_active_decision_model_selection(&@posoco-ext-workspace.Worksp
 pub async fn write_active_model_selection(&@posoco-ext-workspace.WorkspaceFs, home~ : String, ActiveModelSelection) -> Unit raise @error.CompositionError
 
 pub async fn write_model_list_cache(&@posoco-ext-workspace.WorkspaceFs, home~ : String, String, @json.Json) -> Unit raise @error.CompositionError
+
+pub async fn write_model_manager_choice(&@posoco-ext-workspace.WorkspaceFs, home~ : String, choice~ : String) -> Unit raise @error.CompositionError
 
 // Errors
 

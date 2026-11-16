@@ -103,7 +103,7 @@ pub async fn CetasRunHost::CetasRunHost(
     warn~,
   )
   apply_model_override(
-    session.router,
+    session.providers_router(),
     platform.catalogs,
     model=model_override,
     effort=effort_override,
@@ -123,7 +123,7 @@ pub async fn CetasRunHost::CetasRunHost(
     home,
     cwd,
     agent,
-    router: session.router,
+    router: session.providers_router(),
     session_id: sid,
     routing: session.routing,
   }

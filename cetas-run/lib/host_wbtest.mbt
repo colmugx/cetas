@@ -211,7 +211,7 @@ async test "--model override routes the turn to the selected slot's model" {
     label="cetas-run-tests",
   )
   apply_model_override(
-    session.router,
+    session.providers_router(),
     platform.catalogs,
     model="opencode/slot-b",
     effort="",
