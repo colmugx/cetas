@@ -61,8 +61,16 @@ func main() {
 	for path, content := range outputs {
 		if *check {
 			previous, err := os.ReadFile(path)
-			if err != nil || !bytes.Equal(previous, content) { fail(fmt.Errorf("%s is stale; run go run i18n/generate.go", path)) }
-		} else if err := os.WriteFile(path, content, 0644); err != nil { fail(err) }
+			if err != nil {
+				fail(fmt.Errorf("%s is stale; run go run i18n/generate.go", path))
+			}
+			formatted, err := format.Source(previous)
+			if err != nil || !bytes.Equal(formatted, content) {
+				fail(fmt.Errorf("%s is stale; run go run i18n/generate.go", path))
+			}
+		} else if err := os.WriteFile(path, content, 0644); err != nil {
+			fail(err)
+		}
 	}
 }
 func placeholders(s string) string {
