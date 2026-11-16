@@ -347,8 +347,18 @@ async fn ConsoleRuntime::compose_handle(
         }
         return Err("runtime is shutting down")
       }
-      workspace.handles[session_id] = handle
-      Ok(handle)
+      match workspace.handles.get(session_id) {
+        Some(installed) => {
+          release_handle_scope(handle) catch {
+            _ => ()
+          }
+          Ok(installed)
+        }
+        None => {
+          workspace.handles[session_id] = handle
+          Ok(handle)
+        }
+      }
     }
     Err(reason) => Err(reason)
   }

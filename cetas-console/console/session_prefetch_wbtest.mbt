@@ -68,6 +68,54 @@ async test "prefetch_session warms an inactive handle and rejects malformed ids"
 }
 
 ///|
+async test "a compose that loses the install race keeps the installed handle" {
+  @async.with_task_group(group => {
+    let cwd = @fs.tmpdir(prefix="cetas-prefetch-race-")
+    let home = permission_fixture("prefetch-race")
+    let fs_impl = @workspace.NativeWorkspaceFs()
+    let fs : &@workspace.WorkspaceFs = fs_impl
+    let config = console_config(fs, home, "cetas-go", "cetas-go/0.1")
+    let runtime = compose_console_runtime(config, cwd, group)
+    let second = permission_ok(runtime.new_session())
+    let workspace = runtime.active()
+    let installed = match workspace.handles.get(second) {
+      Some(handle) => handle
+      None => abort("the active session has no installed handle")
+    }
+    // A prefetch and a switch both pass their cache check before either one
+    // finishes composing, so two composers can run for one session id. The
+    // second install must hand back the handle the first one installed:
+    // replacing it would strand the earlier session scope on a close signal
+    // no shutdown sweep can reach, and the runtime's deadlock detector aborts
+    // the process at exit.
+    let raced = match runtime.compose_handle(workspace, second) {
+      Ok(handle) => handle
+      Err(reason) => abort("second compose failed: " + reason)
+    }
+    ignore(raced)
+    let after = match workspace.handles.get(second) {
+      Some(handle) => handle
+      None => abort("the session handle disappeared")
+    }
+    if !physical_equal(installed, after) {
+      // Regression shape: the map kept the fresh compose and stranded the
+      // earlier handle. Release both so this test reports a failure instead of
+      // deadlocking the runtime when the group drains.
+      release_handle_scope(after) catch {
+        _ => ()
+      }
+      release_handle_scope(installed) catch {
+        _ => ()
+      }
+      abort("compose_handle replaced an installed handle for the same session")
+    }
+    runtime.shutdown_all()
+    permission_fixture_cleanup(cwd)
+    permission_fixture_cleanup(home)
+  })
+}
+
+///|
 async test "composition after the shutdown sweep is refused without installing" {
   @async.with_task_group(group => {
     let cwd = @fs.tmpdir(prefix="cetas-prefetch-stop-")
