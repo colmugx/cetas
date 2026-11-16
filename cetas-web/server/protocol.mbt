@@ -41,7 +41,12 @@ fn decode_web_client_message(raw : String) -> Result[WebClientMessage, String] {
   }
   match message_type {
     "session.attach" =>
-      Ok(SessionAttach(optional_string(fields, "cwd"), optional_string(fields, "session_id")) )
+      Ok(
+        SessionAttach(
+          optional_string(fields, "cwd"),
+          optional_string(fields, "session_id"),
+        ),
+      )
     "turn.start" => {
       let prompt = match fields.get("prompt") {
         Some(Json::String(value)) => value.trim().to_owned()
