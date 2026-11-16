@@ -1980,6 +1980,71 @@ pub async fn ConsoleRuntime::attach_surface(
 }
 
 ///|
+pub async fn ConsoleRuntime::start_turn_for_surface(
+  self : ConsoleRuntime,
+  surface_id : String,
+  prompt : String,
+  session_id : String?,
+) -> Result[String, String] noraise {
+  let handle = match self.resolve_surface_handle(surface_id, session_id) {
+    Ok(found) => found
+    Err(reason) => return Err(reason)
+  }
+  if handle.busy {
+    return Err("a turn is already running in this session")
+  }
+  let prompt = prompt.trim().to_owned()
+  if prompt.is_empty() {
+    return Err("prompt must not be empty")
+  }
+  handle.turn_no += 1
+  let turn_id = "t-" + handle.turn_no.to_string()
+  handle.busy = true
+  handle.observer.begin_turn(turn_id)
+  handle.observer.emit_turn_accepted(prompt)
+  let agent = handle.agent
+  let sid = handle.session_id
+  let workspace = self.workspaces.get(handle.cwd) |> unwrap_workspace
+  self.group.spawn_bg(async fn() {
+    if self.stopping {
+      handle.observer.emit_turn_failed("runtime is shutting down")
+      handle.busy = false
+      return
+    }
+    let outcome : Result[String, @posoco.AgentError] = Ok(
+      @cetas_core.run_prompt(agent, prompt, sid),
+    ) catch {
+      error => Err(error)
+    }
+    match outcome {
+      Ok(text) => handle.observer.emit_turn_completed(text)
+      Err(error) => handle.observer.emit_turn_failed(error.to_string())
+    }
+    handle.busy = false
+    emit_workspace_snapshot(workspace, handle)
+  })
+  Ok(turn_id)
+}
+
+///|
+pub async fn ConsoleRuntime::abort_surface_turn(
+  self : ConsoleRuntime,
+  surface_id : String,
+  session_id : String?,
+) -> Unit noraise {
+  match self.resolve_surface_handle(surface_id, session_id) {
+    Ok(handle) => {
+      let outcome = handle.agent.control().abort_active(None)
+      handle.observer.emit_abort_result(outcome.to_string())
+    }
+    Err(reason) =>
+      self.hub.emit_to(surface_id, "", "protocol.error", extra=[
+        ("message", Json::string(reason)),
+      ])
+  }
+}
+
+///|
 /// Resolve a session for one surface without consulting global active state.
 async fn ConsoleRuntime::resolve_surface_handle(
   self : ConsoleRuntime,
