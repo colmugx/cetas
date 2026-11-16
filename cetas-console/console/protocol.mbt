@@ -69,7 +69,11 @@ fn EventHub::unsubscribe(self : EventHub, id : String) -> Unit {
 }
 
 ///|
-fn EventHub::filter_session(self : EventHub, id : String, session_id : String) -> Unit {
+fn EventHub::filter_session(
+  self : EventHub,
+  id : String,
+  session_id : String,
+) -> Unit {
   if self.subscribers.contains(id) {
     self.subscriber_sessions[id] = session_id
   }
