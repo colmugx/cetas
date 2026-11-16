@@ -51,3 +51,25 @@ test "connection-scoped event never leaks to other subscribers" {
   hub.unsubscribe(a)
   hub.unsubscribe(b)
 }
+
+///|
+test "session-scoped subscribers only receive their attached session" {
+  let hub = EventHub::new()
+  let first : Array[String] = []
+  let second : Array[String] = []
+  let a = hub.subscribe(fn(frame) { first.push(frame) })
+  let b = hub.subscribe(fn(frame) { second.push(frame) })
+  hub.filter_session(a, "session-a")
+  hub.filter_session(b, "session-b")
+  hub.emit("session-a", "turn-1", "turn.accepted")
+  hub.emit("session-b", "turn-2", "turn.accepted")
+  assert_eq(first.length(), 1)
+  assert_eq(second.length(), 1)
+  assert_true(first[0].contains("session-a"))
+  assert_true(second[0].contains("session-b"))
+  hub.emit_to(a, "session-a", "session.snapshot")
+  assert_eq(first.length(), 2)
+  assert_eq(second.length(), 1)
+  hub.unsubscribe(a)
+  hub.unsubscribe(b)
+}
