@@ -100,13 +100,14 @@ function comparablePath(path) {
 
   // Bun and Node can spell the same Windows path with different drive-letter
   // casing, separators, or the extended-length \\\\?\\ prefix.
-  let normalized = value.replace(/\\\\/g, "/");
-  if (/^\\/\\/\\?\\/UNC\\//i.test(normalized)) {
+  let normalized = value.split("\\\\").join("/");
+  if (normalized.startsWith("//?/UNC/")) {
     normalized = "//" + normalized.slice(8);
-  } else if (/^\\/\\/\\?\\//.test(normalized)) {
+  } else if (normalized.startsWith("//?/")) {
     normalized = normalized.slice(4);
   }
-  return normalized.replace(/\\/+$/, "").toLowerCase();
+  while (normalized.endsWith("/")) normalized = normalized.slice(0, -1);
+  return normalized.toLowerCase();
 }
 
 function isWithin(root, path) {
