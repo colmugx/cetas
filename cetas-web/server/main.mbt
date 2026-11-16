@@ -120,25 +120,34 @@ async fn serve_websocket(
                   Ok(TurnAbort(session_id)) => runtime.abort_surface_turn(subscription_id, session_id)
                   Ok(SessionCompact) => runtime.compact_surface_session(subscription_id)
                   Ok(StatusRefresh(session_id)) => {
-                    // /status-style pull: live-read the active provider's
-                    // quota source and push readings to the strip/window,
-                    // then the all-providers map for the expanded view.
-                    let payload : Json = runtime.quota_json() catch {
-                      error => error_json(error.to_string())
+                    let attached = runtime.surface_session_id(subscription_id)
+                    match attached {
+                      None => runtime.emit_to_subscriber(subscription_id, "", "protocol.error", extra=[
+                        ("message", Json::string("unknown surface subscription")),
+                      ])
+                      Some(sid) => {
+                        match session_id {
+                          Some(requested) if requested != sid =>
+                            runtime.emit_to_subscriber(subscription_id, sid, "protocol.error", extra=[
+                              ("message", Json::string("session id does not match this surface attachment")),
+                            ])
+                          _ => {
+                            let payload : Json = runtime.quota_surface_json(subscription_id) catch {
+                              error => error_json(error.to_string())
+                            }
+                            runtime.emit_to_subscriber(subscription_id, sid, "statusbar.quota", extra=[
+                              ("payload", payload),
+                            ])
+                            let all_payload : Json = runtime.quota_all_surface_json(subscription_id) catch {
+                              error => error_json(error.to_string())
+                            }
+                            runtime.emit_to_subscriber(subscription_id, sid, "statusbar.quota_all", extra=[
+                              ("payload", all_payload),
+                            ])
+                          }
+                        }
+                      }
                     }
-                    let sid = match session_id {
-                      Some(id) => id
-                      None => runtime.active_session_id()
-                    }
-                    runtime.emit_event(sid, "", "statusbar.quota", extra=[
-                      ("payload", payload),
-                    ])
-                    let all_payload : Json = runtime.quota_all_json() catch {
-                      error => error_json(error.to_string())
-                    }
-                    runtime.emit_event(sid, "", "statusbar.quota_all", extra=[
-                      ("payload", all_payload),
-                    ])
                   }
                   Ok(UiResponse(request_id)) =>
                     runtime.resolve_ui(request_id, raw)
