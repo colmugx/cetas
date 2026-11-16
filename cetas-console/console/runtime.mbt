@@ -1642,13 +1642,15 @@ pub async fn ConsoleRuntime::compact_surface_session(
           ("messages_after", Json::number(outcome.messages_after.to_double())),
         ])
       } catch {
-        error => self.hub.emit_to(surface_id, handle.session_id, "compact.failed", extra=[
-          ("message", Json::string(error.to_string())),
-        ])
+        error =>
+          self.hub.emit_to(surface_id, handle.session_id, "compact.failed", extra=[
+            ("message", Json::string(error.to_string())),
+          ])
       }
-    Err(reason) => self.hub.emit_to(surface_id, "", "protocol.error", extra=[
-      ("message", Json::string(reason)),
-    ])
+    Err(reason) =>
+      self.hub.emit_to(surface_id, "", "protocol.error", extra=[
+        ("message", Json::string(reason)),
+      ])
   }
 }
 
@@ -1962,7 +1964,7 @@ pub fn ConsoleRuntime::subscribe_events(
 ) -> String {
   let id = self.hub.subscribe(sink)
   let workspace = self.active()
-  self.surfaces[id] = { cwd: workspace.cwd, session_id: workspace.active_id }
+  self.surfaces[id] = { cwd: workspace.cwd, session_id: workspace.active_id, }
   self.hub.filter_session(id, workspace.active_id)
   id
 }
@@ -1995,12 +1997,16 @@ pub async fn ConsoleRuntime::attach_surface(
   }
   let handle = match workspace.handles.get(target_session) {
     Some(found) => found
-    None => match self.compose_handle(workspace, target_session) {
-      Ok(found) => found
-      Err(reason) => return Err(reason)
-    }
+    None =>
+      match self.compose_handle(workspace, target_session) {
+        Ok(found) => found
+        Err(reason) => return Err(reason)
+      }
   }
-  self.surfaces[surface_id] = { cwd: target_cwd, session_id: handle.session_id }
+  self.surfaces[surface_id] = {
+    cwd: target_cwd,
+    session_id: handle.session_id,
+  }
   self.hub.filter_session(surface_id, handle.session_id)
   self.hub.emit_to(surface_id, handle.session_id, "session.snapshot", extra=[
     ("model", Json::string(handle.model)),
@@ -2259,10 +2265,14 @@ pub async fn ConsoleRuntime::shutdown_all(self : ConsoleRuntime) -> Unit {
 }
 
 ///|
-pub async fn ConsoleRuntime::quota_surface_json(self : ConsoleRuntime, surface_id : String) -> Json {
+pub async fn ConsoleRuntime::quota_surface_json(
+  self : ConsoleRuntime,
+  surface_id : String,
+) -> Json {
   let handle = match self.resolve_surface_handle(surface_id, None) {
     Ok(found) => found
-    Err(reason) => return Json::object(Map::from_array([("error", Json::string(reason))]))
+    Err(reason) =>
+      return Json::object(Map::from_array([("error", Json::string(reason))]))
   }
   // Quota cards are a providers-manager surface: the router exposes the
   // active provider id and the registry serves pushed readings. Magpie owns
@@ -2298,11 +2308,16 @@ pub async fn ConsoleRuntime::quota_surface_json(self : ConsoleRuntime, surface_i
 /// powers the expanded multi-provider view. Slow sources only delay this
 /// payload; the active-provider event goes out first. Magpie sessions
 /// report nothing here: their quota cards live behind the magpie commands.
+
 ///|
-pub async fn ConsoleRuntime::quota_all_surface_json(self : ConsoleRuntime, surface_id : String) -> Json {
+pub async fn ConsoleRuntime::quota_all_surface_json(
+  self : ConsoleRuntime,
+  surface_id : String,
+) -> Json {
   let handle = match self.resolve_surface_handle(surface_id, None) {
     Ok(found) => found
-    Err(reason) => return Json::object(Map::from_array([("error", Json::string(reason))]))
+    Err(reason) =>
+      return Json::object(Map::from_array([("error", Json::string(reason))]))
   }
   let seen : Map[String, Bool] = Map::from_array([])
   let providers : Array[Json] = []
