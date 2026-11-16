@@ -6,6 +6,11 @@ struct EventHub {
   subscriber_sessions : Map[String, String]
   mut next_subscriber_id : Int32
   mut seq : Int32
+  /// Unique process/runtime identity. A new EventHub means a new epoch.
+  runtime_epoch : String
+  /// Monotonic broadcast cursor per Session. Unicast frames carry the current
+  /// cursor without advancing it, so other Surfaces never observe false gaps.
+  cursors : Map[String, Int32]
   /// Rolling wire log of broadcast events, newest last (capped).
   trace : Array[Json]
   /// Per-turn event ledgers, keyed by "session/turn"; the trace view reads
@@ -29,6 +34,8 @@ fn EventHub::new() -> EventHub {
     subscriber_sessions: Map([]),
     next_subscriber_id: 0,
     seq: 0,
+    runtime_epoch: @cetas_core.mint_session_id(),
+    cursors: Map([]),
     trace: [],
     turn_traces: Map([]),
     turn_order: Map([]),
@@ -107,6 +114,19 @@ fn EventHub::deliver(self : EventHub, frame : String) -> Unit {
 }
 
 ///|
+fn EventHub::current_cursor(self : EventHub, session_id : String) -> Int32 {
+  self.cursors.get(session_id).unwrap_or(0)
+}
+
+///|
+
+fn EventHub::advance_cursor(self : EventHub, session_id : String) -> Unit {
+  if session_id != "" {
+    self.cursors[session_id] = self.current_cursor(session_id) + 1
+  }
+}
+
+///|
 fn EventHub::emit_to(
   self : EventHub,
   id : String,
@@ -151,13 +171,19 @@ fn EventHub::next_frame(
   extra : Array[(String, Json)],
 ) -> Json {
   self.seq += 1
+  let cursor = self.current_cursor(session_id)
   let fields : Array[(String, Json)] = [
     ("type", Json::string(event_type)),
     ("seq", Json::number(self.seq.to_double())),
     ("event_id", Json::string("e-" + self.seq.to_string())),
     ("session_id", Json::string(session_id)),
     ("turn_id", Json::string(turn_id)),
+    ("runtime_epoch", Json::string(self.runtime_epoch)),
+    ("cursor", Json::number(cursor.to_double())),
   ]
+  if event_type == "session.snapshot" {
+    fields.push(("high_water_cursor", Json::number(cursor.to_double())))
+  }
   for field in extra {
     fields.push(field)
   }
@@ -173,7 +199,10 @@ fn EventHub::emit(
   event_type : String,
   extra~ : Array[(String, Json)] = [],
   broadcast~ : Bool = true,
-) -> Unit {
+ ) -> Unit {
+  if broadcast {
+    self.advance_cursor(session_id)
+  }
   let framed = self.next_frame(session_id, turn_id, event_type, extra)
   if broadcast {
     self.keep_wire_frame(framed)
@@ -270,6 +299,7 @@ fn EventHub::emit_out_of_band(
   event_type : String,
   extra~ : Array[(String, Json)] = [],
 ) -> Unit {
+  self.advance_cursor(session_id)
   let framed = self.next_frame(session_id, "", event_type, extra)
   self.deliver(framed.stringify())
 }
