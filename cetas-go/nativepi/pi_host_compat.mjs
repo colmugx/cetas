@@ -133,30 +133,30 @@ export function installPiHostCompat(packageRoot) {
     shims[name] = { path, url: pathToFileURL(path).href };
   }
 
-  // Bun 1.4.4 requires every matching onLoad callback to return a module
-  // object. Scope the filter to the allowlisted root, so foreign dependencies
-  // and generated host shims remain on Bun\'s ordinary module loader.
-  // Bun normalizes Windows paths in different places to slash-separated
-  // paths; match both forms, independent of the casing of the drive/root.
-  const escapedRoot = canonicalRoot.split(/[\\/]+/)
-    .map(part => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join("[/\\\\]");
-  const loadFilter = new RegExp("^" + escapedRoot + "[/\\\\].*\\.(?:[cm]?[jt]sx?)$", "i");
+  // Use a path-independent extension filter. Bun 1.4.x normalizes Windows
+  // drive paths differently between resolver and onLoad filter matching; a
+  // root-prefixed regular expression can therefore miss the entry module
+  // before its bare Pi SDK imports are transformed.
+  //
+  // Every JavaScript/TypeScript file is returned unchanged unless its real
+  // path is inside the allowlisted extension tree. This keeps Bun's normal
+  // package graph intact while making the transform independent of path
+  // separators, drive-letter casing, and file:// URL normalization.
   Bun.plugin({
     name: "cetas-pi-host",
     setup(build) {
-      build.onLoad({ filter: loadFilter }, args => {
+      build.onLoad({ filter: /\\.(?:[cm]?[jt]sx?)$/i }, args => {
         let sourcePath = resolve(args.path);
         try {
           sourcePath = realpathSync(sourcePath);
         } catch {}
-        if (!isWithin(canonicalRoot, sourcePath)) {
-          throw new Error("Pi module escapes the allowlisted package tree: " + sourcePath);
-        }
+
         const source = readFileSync(sourcePath, "utf8");
-        const contents = source.includes("@earendil-works/pi-")
+        const contents = isWithin(canonicalRoot, sourcePath) &&
+          source.includes("@earendil-works/pi-")
           ? rewriteHostImports(source, shims)
           : source;
+
         return {
           contents,
           loader: loaderFor(sourcePath),
