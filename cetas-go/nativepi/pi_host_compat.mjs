@@ -139,8 +139,7 @@ export function installPiHostCompat(packageRoot) {
   // Bun normalizes Windows paths in different places to slash-separated
   // paths; match both forms, independent of the casing of the drive/root.
   const escapedRoot = canonicalRoot.split(/[\\/]+/)
-    .map(part => part.replace(/[.*+?^${}()|[\]\\]/g, "\\  const escapedRoot = canonicalRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const loadFilter = new RegExp("^" + escapedRoot + "[/\\\\].*\\.(?:[cm]?[jt]sx?)$");"))
+    .map(part => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     .join("[/\\\\]");
   const loadFilter = new RegExp("^" + escapedRoot + "[/\\\\].*\\.(?:[cm]?[jt]sx?)$", "i");
   Bun.plugin({
