@@ -150,7 +150,13 @@ async fn serve_websocket(
                     }
                   }
                   Ok(UiResponse(request_id)) =>
-                    runtime.resolve_ui(request_id, raw)
+                    match runtime.resolve_ui_for_surface(subscription_id, request_id, raw) {
+                      Ok(_) => ()
+                      Err(reason) =>
+                        runtime.emit_to_subscriber(subscription_id, "", "protocol.error", extra=[
+                          ("message", Json::string(reason)),
+                        ])
+                    }
                 }
               }
               Binary =>
