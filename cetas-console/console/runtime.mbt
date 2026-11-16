@@ -218,6 +218,21 @@ pub fn ConsoleRuntime::emit_active_snapshot(self : ConsoleRuntime) -> Unit {
 }
 
 ///|
+/// Deliver the active snapshot to one attaching surface only.
+pub fn ConsoleRuntime::emit_active_snapshot_to(self : ConsoleRuntime, subscription_id : String) -> Unit {
+  let workspace = self.active()
+  let handle = workspace.active()
+  self.hub.emit_to(subscription_id, handle.session_id, "session.snapshot", extra=[
+    ("model", Json::string(handle.model)),
+    ("effort", Json::string(handle.effort)),
+    ("cwd", Json::string(workspace.cwd)),
+    ("busy", Json::boolean(handle.busy)),
+    ("permission", Json::string(permission_mode_name(handle.policy.mode))),
+    ("protocol", Json::string(handle.observer.protocol)),
+  ])
+}
+
+///|
 pub fn ConsoleRuntime::runtime_json(self : ConsoleRuntime) -> Json {
   let workspace = self.active()
   let handle = workspace.active()
@@ -1746,6 +1761,21 @@ pub fn ConsoleRuntime::pi_guest_result(
 ///|
 pub fn ConsoleRuntime::detach_sink(self : ConsoleRuntime) -> Unit {
   self.hub.detach()
+}
+
+///|
+pub fn ConsoleRuntime::subscribe_events(self : ConsoleRuntime, sink : (String) -> Unit) -> String {
+  self.hub.subscribe(sink)
+}
+
+///|
+pub fn ConsoleRuntime::unsubscribe_events(self : ConsoleRuntime, id : String) -> Unit {
+  self.hub.unsubscribe(id)
+}
+
+///|
+pub fn ConsoleRuntime::emit_to_subscriber(self : ConsoleRuntime, id : String, session_id : String, event_type : String, extra~ : Array[(String, Json)] = []) -> Unit {
+  self.hub.emit_to(id, session_id, event_type, extra~)
 }
 
 ///|
