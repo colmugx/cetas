@@ -30,11 +30,40 @@ type RuntimeGuest interface {
 	Close()
 }
 
+// Command is a Pi-registered host command, kept separate from Posoco tools.
+// Only descriptors, never JavaScript closures, cross the Bun/Go boundary.
+type Command struct {
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	Category    string `json:"category"`
+	CType       string `json:"ctype"`
+	Params      []any  `json:"params"`
+	Aliases     []string `json:"aliases"`
+	Visible     bool   `json:"visible"`
+	Shortcut    string `json:"shortcut,omitempty"`
+}
+
+type CommandOutcome struct {
+	Type     string `json:"type"`
+	Feedback string `json:"feedback,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+// Commander is optional: the native moejs guest has no slash-command bridge.
+type Commander interface {
+	Commands() ([]Command, uint64)
+	RunCommand(name, args string) CommandOutcome
+}
+
 type bunReply struct {
 	ID         uint64   `json:"id"`
 	Kind       string   `json:"kind"`
 	Tools      []Tool   `json:"tools"`
 	Generation uint64   `json:"generation"`
+	Commands []Command `json:"commands"`
+	CommandGeneration uint64 `json:"commandGeneration"`
+	Outcome CommandOutcome `json:"outcome"`
 	Warnings   []string `json:"warnings"`
 	Result     Result   `json:"result"`
 	Error      string   `json:"error"`
@@ -50,6 +79,8 @@ type BunGuest struct {
 	next       uint64
 	catalog    []Tool
 	generation uint64
+	commands []Command
+	commandGeneration uint64
 	warnings   []string
 	events     EventBridge
 	closeOnce  sync.Once
@@ -151,6 +182,8 @@ func (g *BunGuest) read(out *bunReply, timeout time.Duration) error {
 func (g *BunGuest) accept(reply bunReply) {
 	g.catalog = append([]Tool(nil), reply.Tools...)
 	g.generation = reply.Generation
+	g.commands = append([]Command(nil), reply.Commands...)
+	g.commandGeneration = reply.CommandGeneration
 	g.warnings = append(g.warnings, reply.Warnings...)
 }
 func (g *BunGuest) request(kind string, data map[string]any) (bunReply, error) {
@@ -184,6 +217,22 @@ func (g *BunGuest) Catalog() ([]Tool, uint64) {
 	defer g.mu.Unlock()
 	return append([]Tool(nil), g.catalog...), g.generation
 }
+func (g *BunGuest) Commands() ([]Command, uint64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return append([]Command(nil), g.commands...), g.commandGeneration
+}
+
+func (g *BunGuest) RunCommand(name, args string) CommandOutcome {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	reply, err := g.request("command", map[string]any{"name": name, "args": args})
+	if err != nil {
+		return CommandOutcome{Type: "failure", Reason: err.Error()}
+	}
+	return reply.Outcome
+}
+
 func (g *BunGuest) Emit(raw []byte) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -227,3 +276,4 @@ func (g *BunGuest) Close() {
 // Keep compiler checks for the guest contract in the package that owns it.
 var _ RuntimeGuest = (*Guest)(nil)
 var _ RuntimeGuest = (*BunGuest)(nil)
+var _ Commander = (*BunGuest)(nil)
