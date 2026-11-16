@@ -128,6 +128,75 @@ export function truncateFromNestedModule() {
 	}
 }
 
+// The Pi command face is distinct from the model-visible tool catalog.
+// Both native /pi:<name> and shortcut keys invoke the original JS handlers.
+func TestBunGuestPiCommandAndShortcutBridge(t *testing.T) {
+	binary := os.Getenv("CETAS_TEST_BUN")
+	if binary == "" {
+		var err error
+		binary, err = exec.LookPath("bun")
+		if err != nil {
+			t.Skip("Bun not available")
+		}
+	}
+	binary, err := filepath.Abs(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	dir := filepath.Join(home, ".cetas", "pi-packages", "node_modules", "fixture")
+	for path, content := range map[string]string{
+		filepath.Join(home, ".cetas", "pi-packages.json"): `{"packages":["fixture"]}`,
+		filepath.Join(dir, "package.json"): `{"name":"fixture","pi":{"extensions":["./dist"]}}`,
+		filepath.Join(dir, "dist", "index.js"): `export default function(pi) {
+  pi.registerCommand("websearch", {
+    description: "Open web search curator",
+    async handler(args, ctx) {
+      ctx.ui.notify("search:" + args + ":" + ctx.cwd, "info");
+    },
+  });
+  pi.registerShortcut("ctrl+shift+f9", {
+    description: "Web search shortcut",
+    handler(ctx) { ctx.ui.notify("shortcut:" + ctx.cwd, "info"); },
+  });
+}`,
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g, err := OpenBun(binary, home, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	commands, revision := g.Commands()
+	if revision != 2 || len(commands) != 2 ||
+		commands[0].ID != "pi:websearch" || !commands[0].Visible ||
+		commands[1].ID != "pi:#ctrl+shift+f9" || commands[1].Visible ||
+		commands[1].Shortcut != "ctrl+shift+f9" {
+		t.Fatalf("Pi command catalog = %#v, revision %d, warnings %v", commands, revision, g.Diagnostics())
+	}
+	if defs, _ := g.Catalog(); len(defs) != 0 {
+		t.Fatalf("Commands were leaked as model tools: %#v", defs)
+	}
+	out := g.RunCommand("pi:websearch", "two words")
+	if out.Type != "success" || !strings.Contains(out.Feedback, "search:two words:"+home) {
+		t.Fatalf("Pi command handler failed: %#v", out)
+	}
+	out = g.RunCommand("pi:#ctrl+shift+f9", "")
+	if out.Type != "success" || !strings.Contains(out.Feedback, "shortcut:"+home) {
+		t.Fatalf("Pi shortcut handler failed: %#v", out)
+	}
+	out = g.RunCommand("pi:missing", "")
+	if out.Type != "failure" {
+		t.Fatalf("Unknown Pi command succeeded: %#v", out)
+	}
+}
+
 func TestBunGuestEnvironmentConfinesPiConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("OPENAI_API_KEY", "should-not-pass")
