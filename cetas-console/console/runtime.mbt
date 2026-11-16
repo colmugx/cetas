@@ -1629,6 +1629,30 @@ pub fn release_herdr_presence() -> Unit {
 }
 
 ///|
+pub async fn ConsoleRuntime::compact_surface_session(
+  self : ConsoleRuntime,
+  surface_id : String,
+) -> Unit {
+  match self.resolve_surface_handle(surface_id, None) {
+    Ok(handle) =>
+      try {
+        let outcome = handle.agent.compact_session(handle.session_id)
+        self.hub.emit_to(surface_id, handle.session_id, "compact.finished", extra=[
+          ("final_session_id", Json::string(outcome.final_session_id)),
+          ("messages_after", Json::number(outcome.messages_after.to_double())),
+        ])
+      } catch {
+        error => self.hub.emit_to(surface_id, handle.session_id, "compact.failed", extra=[
+          ("message", Json::string(error.to_string())),
+        ])
+      }
+    Err(reason) => self.hub.emit_to(surface_id, "", "protocol.error", extra=[
+      ("message", Json::string(reason)),
+    ])
+  }
+}
+
+///|
 /// `session.compact` — trigger the kernel compaction for the ACTIVE
 /// session. Compaction is a long LLM call, so it runs in the runtime's
 /// task group (the WS loop stays free for aborts) and its progress rides
