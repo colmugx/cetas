@@ -222,13 +222,13 @@ pub fn run_infra() -> Int32 {
               // shutdown waits for it below.
               let composed : Result[@console.ConsoleRuntime, String] = @core_async.protect_from_cancel(async fn() {
                   Ok(
-                  @console.compose_console_runtime(
-                    config,
-                    cwd,
-                    group,
-                    lifetime_group=Some(lifetime_group),
-                  ),
-                ) catch {
+                    @console.compose_console_runtime(
+                      config,
+                      cwd,
+                      group,
+                      lifetime_group=Some(lifetime_group),
+                    ),
+                  ) catch {
                     error => Err(error.to_string())
                   }
                 },
@@ -313,12 +313,14 @@ pub fn run_infra() -> Int32 {
                   match boot.val {
                     Ok(runtime) =>
                       harness_handle_frame(
-                        runtime, auth_tasks, replay_tasks, catalog_tasks, group, raw,
+                        runtime, auth_tasks, replay_tasks, catalog_tasks, group,
+                        raw,
                       )
                     Err(detail) =>
                       if needs_setup.val {
                         bootstrap_handle_frame(
-                          setup, setup_tasks, boot, config, cwd, group, lifetime_group, raw,
+                          setup, setup_tasks, boot, config, cwd, group, lifetime_group,
+                          raw,
                         )
                       } else {
                         emit(harness_reply(-1, harness_error(detail)))

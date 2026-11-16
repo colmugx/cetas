@@ -119,7 +119,6 @@ fn EventHub::current_cursor(self : EventHub, session_id : String) -> Int32 {
 }
 
 ///|
-
 fn EventHub::advance_cursor(self : EventHub, session_id : String) -> Unit {
   if session_id != "" {
     self.cursors[session_id] = self.current_cursor(session_id) + 1
@@ -136,7 +135,11 @@ fn EventHub::emit_to(
 ) -> Unit {
   match self.subscribers.get(id) {
     Some(sink) =>
-      sink(self.next_frame(session_id, "", event_type, extra, cursor_advance=false).stringify())
+      sink(
+        self
+        .next_frame(session_id, "", event_type, extra, cursor_advance=false)
+        .stringify(),
+      )
     None => ()
   }
 }
@@ -205,7 +208,13 @@ fn EventHub::emit(
   if broadcast {
     self.advance_cursor(session_id)
   }
-  let framed = self.next_frame(session_id, turn_id, event_type, extra, cursor_advance=broadcast)
+  let framed = self.next_frame(
+    session_id,
+    turn_id,
+    event_type,
+    extra,
+    cursor_advance=broadcast,
+  )
   if broadcast {
     self.keep_wire_frame(framed)
   }
@@ -302,7 +311,13 @@ fn EventHub::emit_out_of_band(
   extra~ : Array[(String, Json)] = [],
 ) -> Unit {
   self.advance_cursor(session_id)
-  let framed = self.next_frame(session_id, "", event_type, extra, cursor_advance=true)
+  let framed = self.next_frame(
+    session_id,
+    "",
+    event_type,
+    extra,
+    cursor_advance=true,
+  )
   self.deliver(framed.stringify())
 }
 
