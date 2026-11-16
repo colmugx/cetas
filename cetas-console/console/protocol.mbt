@@ -3,6 +3,7 @@
 struct EventHub {
   mut sink : ((String) -> Unit)?
   subscribers : Map[String, (String) -> Unit]
+  subscriber_sessions : Map[String, String]
   mut next_subscriber_id : Int32
   mut seq : Int32
   /// Rolling wire log of broadcast events, newest last (capped).
@@ -25,6 +26,7 @@ fn EventHub::new() -> EventHub {
   {
     sink: None,
     subscribers: Map([]),
+    subscriber_sessions: Map([]),
     next_subscriber_id: 0,
     seq: 0,
     trace: [],
@@ -56,19 +58,40 @@ fn EventHub::subscribe(self : EventHub, sink : (String) -> Unit) -> String {
   self.next_subscriber_id += 1
   let id = "sub-" + self.next_subscriber_id.to_string()
   self.subscribers[id] = sink
+  self.subscriber_sessions[id] = ""
   id
 }
 
 ///|
 fn EventHub::unsubscribe(self : EventHub, id : String) -> Unit {
   ignore(self.subscribers.remove(id))
+  ignore(self.subscriber_sessions.remove(id))
+}
+
+///|
+fn EventHub::filter_session(self : EventHub, id : String, session_id : String) -> Unit {
+  if self.subscribers.contains(id) {
+    self.subscriber_sessions[id] = session_id
+  }
 }
 
 ///|
 fn EventHub::deliver(self : EventHub, frame : String) -> Unit {
   let targets : Array[(String) -> Unit] = []
-  for _, subscriber in self.subscribers {
-    targets.push(subscriber)
+  let parsed = @json.parse(frame) catch { _ => Json::null() }
+  let event_session = match parsed {
+    Json::Object(fields) =>
+      match fields.get("session_id") {
+        Some(Json::String(id)) => id
+        _ => ""
+      }
+    _ => ""
+  }
+  for id, subscriber in self.subscribers {
+    let filter = self.subscriber_sessions.get(id).unwrap_or("")
+    if filter == "" || event_session == "" || event_session == filter {
+      targets.push(subscriber)
+    }
   }
   match self.sink {
     Some(sink) => sink(frame)
