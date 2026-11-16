@@ -62,3 +62,52 @@ func TestSessionEventCursorRuntimeRestartRequiresSnapshot(t *testing.T) {
 		t.Fatalf("restart snapshot did not request replay: epoch=%q cursor=%d pending=%v", m.runtimeEpoch, m.eventCursor, m.eventResyncPending)
 	}
 }
+
+
+func TestSessionEventCursorRequiresSnapshotBaseline(t *testing.T) {
+	m := newModel()
+	defer m.Close()
+	m.session = "s-1"
+
+	m.applyEvent(cursorEvent(`{"type":"assistant.text_delta","session_id":"s-1","runtime_epoch":"epoch-a","cursor":3,"cursor_advance":true,"delta":"must not render"}`))
+	if m.eventCursor != 0 || !m.eventResyncPending || m.streaming != "" {
+		t.Fatalf("event before snapshot baseline was accepted: cursor=%d pending=%v streaming=%q", m.eventCursor, m.eventResyncPending, m.streaming)
+	}
+}
+
+func TestSessionEventCursorHoldsEventsUntilFreshAttachSnapshot(t *testing.T) {
+	m := newModel()
+	defer m.Close()
+	m.session = "s-1"
+	m.runtimeEpoch = "epoch-a"
+	m.eventCursor = 5
+	m.eventResyncAwaitingSnapshot = true
+
+	m.applyEvent(cursorEvent(`{"type":"assistant.text_delta","session_id":"s-1","runtime_epoch":"epoch-a","cursor":6,"cursor_advance":true,"delta":"held"}`))
+	if m.eventCursor != 5 || m.streaming != "" || !m.eventResyncAwaitingSnapshot {
+		t.Fatalf("event escaped the resync latch: cursor=%d streaming=%q awaiting=%v", m.eventCursor, m.streaming, m.eventResyncAwaitingSnapshot)
+	}
+
+	m.applyEvent(cursorEvent(`{"type":"session.snapshot","session_id":"s-1","runtime_epoch":"epoch-a","cursor":6,"high_water_cursor":6,"cursor_advance":false}`))
+	if m.eventCursor != 6 || m.eventResyncPending || m.eventResyncAwaitingSnapshot {
+		t.Fatalf("fresh snapshot did not settle resync: cursor=%d pending=%v awaiting=%v", m.eventCursor, m.eventResyncPending, m.eventResyncAwaitingSnapshot)
+	}
+	m.applyEvent(cursorEvent(`{"type":"assistant.text_delta","session_id":"s-1","runtime_epoch":"epoch-a","cursor":7,"cursor_advance":true,"delta":"resumed"}`))
+	if m.eventCursor != 7 || m.streaming != "resumed" {
+		t.Fatalf("live delivery did not resume after snapshot: cursor=%d streaming=%q", m.eventCursor, m.streaming)
+	}
+}
+
+func TestSessionEventCursorRestartSnapshotSettlesAwaitingLatch(t *testing.T) {
+	m := newModel()
+	defer m.Close()
+	m.session = "s-1"
+	m.runtimeEpoch = "epoch-a"
+	m.eventCursor = 9
+	m.eventResyncAwaitingSnapshot = true
+
+	m.applyEvent(cursorEvent(`{"type":"session.snapshot","session_id":"s-1","runtime_epoch":"epoch-b","cursor":1,"high_water_cursor":1}`))
+	if m.runtimeEpoch != "epoch-b" || m.eventCursor != 1 || m.eventResyncPending || m.eventResyncAwaitingSnapshot {
+		t.Fatalf("restart snapshot did not settle resync: epoch=%q cursor=%d pending=%v awaiting=%v", m.runtimeEpoch, m.eventCursor, m.eventResyncPending, m.eventResyncAwaitingSnapshot)
+	}
+}

@@ -190,6 +190,9 @@ class RuntimeStore {
   #lastSeq = 0;
   #eventCursor = new SessionEventCursor();
   #resyncing = new Set<string>();
+  #resyncingReplay = new Set<string>();
+  #resyncReplayAgain = new Set<string>();
+  #resyncBuffers = new Map<string, ServerEvent[]>();
 
   constructor() {
     this.realtime = createRealtimeClient((state) => {
@@ -487,7 +490,29 @@ class RuntimeStore {
       cwd: state?.cwd || this.activeWorkspace,
       session_id: sessionId,
     });
-    void this.replay(sessionId);
+  }
+
+  #replayAfterResync(sessionId: string, rerun = false) {
+    if (this.#resyncingReplay.has(sessionId)) {
+      if (rerun) this.#resyncReplayAgain.add(sessionId);
+      return;
+    }
+    this.#resyncing.add(sessionId);
+    this.#resyncingReplay.add(sessionId);
+    void (async () => {
+      do {
+        this.#resyncReplayAgain.delete(sessionId);
+        await this.replay(sessionId);
+      } while (this.#resyncReplayAgain.has(sessionId));
+    })()
+      .catch(() => undefined)
+      .finally(() => {
+        this.#resyncingReplay.delete(sessionId);
+        this.#resyncing.delete(sessionId);
+        const pending = this.#resyncBuffers.get(sessionId) ?? [];
+        this.#resyncBuffers.delete(sessionId);
+        for (const buffered of pending) this.#onEvent(buffered);
+      });
   }
 
   #onEvent(event: ServerEvent) {
@@ -495,6 +520,17 @@ class RuntimeStore {
       typeof event.session_id === "string" && event.session_id.length > 0
         ? event.session_id
         : this.activeSessionId;
+    if (
+      this.#resyncing.has(sessionId) &&
+      event.type !== "session.snapshot" &&
+      event.type !== "protocol.error" &&
+      event.cursor_advance !== false
+    ) {
+      const pending = this.#resyncBuffers.get(sessionId) ?? [];
+      pending.push(event);
+      this.#resyncBuffers.set(sessionId, pending);
+      return;
+    }
     const previousEpoch = this.#eventCursor.epoch();
     const previousCursor = this.#eventCursor.cursor(sessionId);
     const decision = this.#eventCursor.accept({ ...event, session_id: sessionId });
@@ -507,7 +543,7 @@ class RuntimeStore {
       decision.kind === "snapshot" &&
       previousEpoch !== "" &&
       previousEpoch !== decision.epoch;
-    if (typeof event.seq === "number") {
+    if (typeof event.seq === "number" && event.cursor_advance !== false) {
       if (event.seq <= this.#lastSeq && !epochChanged) return;
       if (epochChanged) this.#lastSeq = 0;
       this.#lastSeq = event.seq;
@@ -519,9 +555,9 @@ class RuntimeStore {
         previousCursor + (event.cursor_advance === true ? 1 : 0);
     if (
       decision.kind === "snapshot" &&
-      (this.#resyncing.delete(sessionId) || epochChanged || snapshotGap)
+      (this.#resyncing.has(sessionId) || epochChanged || snapshotGap)
     ) {
-      void this.replay(sessionId);
+      this.#replayAfterResync(sessionId, epochChanged || snapshotGap);
     }
 
     switch (event.type) {

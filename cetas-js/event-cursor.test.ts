@@ -42,4 +42,21 @@ describe("SessionEventCursor", () => {
     expect(cursor.accept({ type: "turn.started", session_id: "a", runtime_epoch: "e2", cursor: 1, cursor_advance: true })).toEqual({ kind: "epoch_changed", previous: "e1", received: "e2" });
     expect(cursor.accept({ type: "session.snapshot", session_id: "a", runtime_epoch: "e2", high_water_cursor: 1 })).toEqual({ kind: "snapshot", cursor: 1, epoch: "e2" });
   });
+
+  test("a runtime epoch change clears every Session cursor", () => {
+    const cursor = new SessionEventCursor();
+    cursor.accept({ type: "session.snapshot", session_id: "a", runtime_epoch: "e1", high_water_cursor: 9 });
+    cursor.accept({ type: "session.snapshot", session_id: "b", runtime_epoch: "e1", high_water_cursor: 4 });
+    expect(cursor.accept({ type: "session.snapshot", session_id: "a", runtime_epoch: "e2", high_water_cursor: 1 })).toEqual({ kind: "snapshot", cursor: 1, epoch: "e2" });
+    expect(cursor.cursor("b")).toBe(0);
+    expect(cursor.accept({ type: "turn.started", session_id: "b", runtime_epoch: "e2", cursor: 1, cursor_advance: true })).toEqual({ kind: "event", cursor: 1 });
+  });
+
+  test("an older snapshot cannot rewind a Session cursor", () => {
+    const cursor = new SessionEventCursor();
+    cursor.accept({ type: "session.snapshot", session_id: "a", runtime_epoch: "e1", high_water_cursor: 4 });
+    cursor.accept({ type: "turn.started", session_id: "a", runtime_epoch: "e1", cursor: 5, cursor_advance: true });
+    expect(cursor.accept({ type: "session.snapshot", session_id: "a", runtime_epoch: "e1", high_water_cursor: 3 })).toEqual({ kind: "duplicate" });
+    expect(cursor.cursor("a")).toBe(5);
+  });
 });
