@@ -178,25 +178,26 @@ func (h *Host) stoppedErr() error {
 // Start composes a real ConsoleRuntime. The caller must consume Events.
 // The process is intentionally single-use until restart safety is proven.
 func Start(ctx context.Context) (*Host, error) {
-	// Preserve the process-singleton contract before attempting any disk or
-	// cross-process ownership operation: a repeated Start must report
-	// ErrAlreadyStarted, not ErrOwnerActive, even while the first Host owns
-	// its lease. This CAS also serializes concurrent Start calls.
+	// Process-local single-use semantics protect MoonBit even when IPC is
+	// disabled. IPC is experimental and must not prevent an ordinary Cetas
+	// session from starting when another process has the same Cetas home.
 	if !activated.CompareAndSwap(false, true) {
 		return nil, ErrAlreadyStarted
 	}
-	// Acquire cross-process authority before composing anything or touching
-	// the MoonBit scheduler. If another process owns this home, release the
-	// uncommitted process-local startup claim so callers can retry after the
-	// external owner exits (and IPC client mode is not yet implemented).
-	lease, err := localipc.Acquire(localipc.Home())
-	if err != nil {
-		activated.Store(false)
-		return nil, fmt.Errorf("native local owner: %w", err)
-	}
 	h := newHost(bridge.NewInfra())
-	h.ownerLease = lease
-	h.ownerReleased = make(chan struct{})
+	// Until the cross-process client/owner transport is fully integrated,
+	// enforce an OS owner lease only with explicit opt-in. An opt-in lease
+	// remains fail-closed: silently ignoring a claimed owner would permit
+	// two writers under a purported single-owner setup.
+	if localipc.OwnerLeaseEnabled() {
+		lease, err := localipc.Acquire(localipc.Home())
+		if err != nil {
+			activated.Store(false)
+			return nil, fmt.Errorf("native local owner: %w", err)
+		}
+		h.ownerLease = lease
+		h.ownerReleased = make(chan struct{})
+	}
 	// Resolve Pi before the MoonBit Agent composes its extension manifests.
 	// Do not instantiate moejs or a Bun subprocess during this check.
 	available, err := nativePiAvailable(ctx)
@@ -206,13 +207,17 @@ func Start(ctx context.Context) (*Host, error) {
 	h.piAvailable = available
 	if available {
 		if err := os.Setenv("CETAS_NATIVE_PI_ENABLED", "1"); err != nil {
-			_ = lease.Close()
+			if h.ownerLease != nil {
+				_ = h.ownerLease.Close()
+			}
 			activated.Store(false)
 			return nil, err
 		}
 	} else {
 		if err := os.Setenv("CETAS_NATIVE_PI_ENABLED", "0"); err != nil {
-			_ = lease.Close()
+			if h.ownerLease != nil {
+				_ = h.ownerLease.Close()
+			}
 			activated.Store(false)
 			return nil, err
 		}
