@@ -446,6 +446,34 @@ async fn harness_dispatch(
       ])
       harness_ok()
     }
+    "pi_guest_entries" =>
+      match harness_required(args, "session_id") {
+        Ok(id) =>
+          match runtime.pi_guest_entries_json(id) {
+            Ok(snapshot) => snapshot
+            Err(reason) => harness_error(reason)
+          }
+        Err(reason) => harness_error(reason)
+      }
+    "pi_guest_append_entries" =>
+      match harness_required(args, "session_id") {
+        Ok(id) => {
+          let entries = match args {
+            Json::Object(fields) =>
+              fields.get("entries").unwrap_or(Json::array([]))
+            _ => Json::array([])
+          }
+          match runtime.pi_guest_append_entries(id, entries) {
+            Ok(count) =>
+              Json::object({
+                "ok": Json::boolean(true),
+                "added": Json::number(count.to_double()),
+              })
+            Err(reason) => harness_error(reason)
+          }
+        }
+        Err(reason) => harness_error(reason)
+      }
     "pi_guest_install" =>
       match harness_required(args, "session_id") {
         Ok(id) => {
