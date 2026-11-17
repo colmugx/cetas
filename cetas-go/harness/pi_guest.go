@@ -289,6 +289,15 @@ func (s *piSupervisor) refreshModels(sessionID string, guest nativepi.RuntimeGue
 	if err != nil {
 		return fmt.Errorf("native model snapshot: %w", err)
 	}
+	var identity struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal(raw, &identity); err != nil {
+		return fmt.Errorf("native model snapshot identity: %w", err)
+	}
+	if identity.SessionID != sessionID {
+		return fmt.Errorf("native model snapshot belongs to session %q, expected %q", identity.SessionID, sessionID)
+	}
 	if err := updater.UpdateModels(raw); err != nil {
 		return fmt.Errorf("Pi model snapshot: %w", err)
 	}
