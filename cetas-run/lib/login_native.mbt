@@ -231,9 +231,10 @@ async fn run_login_with_interactions(
   match authenticated {
     Some(outcome) if outcome.provider_id == selected_provider &&
       outcome.login_method == login.auth_method => ()
-    _ => raise @posoco.CommandError::ExecutionFailed(
-      "Authentication returned an inconsistent provider or method",
-    )
+    _ =>
+      raise @posoco.CommandError::ExecutionFailed(
+        "Authentication returned an inconsistent provider or method",
+      )
   }
   let store = @credentials.FileProviderCredentialStore(
     fs,

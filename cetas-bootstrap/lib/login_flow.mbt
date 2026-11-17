@@ -101,10 +101,7 @@ pub async fn authenticate_login(
       prompt,
       "Select login provider",
       candidates.map(fn(value) {
-        @oauth.AuthPromptOption::AuthPromptOption(
-          id=value.id,
-          label=value.id,
-        )
+        @oauth.AuthPromptOption::AuthPromptOption(id=value.id, label=value.id)
       }),
     )
   } else {

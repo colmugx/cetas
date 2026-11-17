@@ -39,15 +39,6 @@ pub async fn run_setup(home~ : String, provider? : String) -> String
 // Errors
 
 // Types and methods
-pub(all) enum MemohInvocation {
-  MemohServe
-  MemohSetup(String)
-  MemohLogin(String)
-  MemohHelp
-  MemohVersion
-  MemohInvalid(String)
-}
-
 pub struct MemohHost {
   version : String
   cwd : String
@@ -66,6 +57,15 @@ pub async fn MemohHost::handle_prompt(Self, @agent.AgentContext, @session.Prompt
 pub async fn MemohHost::handle_resume_session(Self, @agent.AgentContext, @session.ResumeSessionParams) -> @session.ResumeSessionResult raise @colmugx/acp/error.HandlerError
 pub async fn MemohHost::handle_set_config_option(Self, @agent.AgentContext, @session.SetSessionConfigOptionParams) -> @session.SetSessionConfigOptionResult raise @colmugx/acp/error.HandlerError
 pub async fn MemohHost::shutdown(Self) -> Unit noraise
+
+pub(all) enum MemohInvocation {
+  MemohServe
+  MemohSetup(String)
+  MemohLogin(String)
+  MemohHelp
+  MemohVersion
+  MemohInvalid(String)
+}
 
 pub(all) struct ProviderIssue {
   provider_id : String
