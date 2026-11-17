@@ -287,6 +287,12 @@ func (h *Host) Request(ctx context.Context, command string, args any) (json.RawM
 	if command == "" {
 		return nil, errors.New("empty Harness command")
 	}
+	// Pi custom entry reads/writes are private to the supervised Bun guest;
+	// a terminal surface cannot impersonate a foreign extension or mutate
+	// its journal metadata via the public command interface.
+	if command == "pi_guest_entries" || command == "pi_guest_append_entries" {
+		return nil, errors.New("Pi custom entry RPC is host-private")
+	}
 	if command == "pi_packages" {
 		return h.pi.packageCommand(ctx, args)
 	}
