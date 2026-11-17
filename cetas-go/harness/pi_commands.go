@@ -96,17 +96,24 @@ func (s *piSupervisor) invokeCommand(args any) (json.RawMessage, bool, error) {
 		return nil, true, fmt.Errorf("Pi command not registered: %s", input.ID)
 	}
 	go func() {
+		_, toolBefore := g.Catalog()
+		_, before := commander.Commands()
 		if err := s.refreshModels(input.SessionID, g); err != nil {
 			s.host.report(fmt.Errorf("Pi command %s model refresh: %w", input.ID, err))
 		}
-		_, before := commander.Commands()
 		outcome := commander.RunCommand(input.ID, input.Arguments.Positional)
+		tools, toolAfter := g.Catalog()
 		_, after := commander.Commands()
 		s.mu.Lock()
 		active := !s.closed && s.generations[input.SessionID] == generation && s.guests[input.SessionID] == g
 		s.mu.Unlock()
 		if !active {
 			return
+		}
+		if toolAfter != toolBefore {
+			if err := s.install(input.SessionID, tools); err != nil {
+				outcome = nativepi.CommandOutcome{Type: "failure", Reason: "Pi tool catalog publication failed: " + err.Error()}
+			}
 		}
 		if after != before {
 			s.notifyCommandsChanged(input.SessionID)
