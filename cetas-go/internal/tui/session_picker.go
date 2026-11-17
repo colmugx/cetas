@@ -129,7 +129,7 @@ func (m *model) sessionPickerFetch(after string, direction sessionPickerDirectio
 		p.cursor = ""
 	}
 	if m.host == nil {
-		p.panel.SetError(generation, "Posoco is not connected")
+		p.panel.SetError(generation, m.runtimeUnavailableReason())
 		return nil
 	}
 	return sessionCatalogCommand(m.host, m.sessionPickerEpoch, m.session, p.panel.Scope, generation, after)
@@ -391,7 +391,7 @@ func (m *model) sessionPickerChoose(entry overlays.SessionEntry) tea.Cmd {
 		return nil
 	}
 	if m.host == nil {
-		m.err = "Posoco is not connected"
+		m.err = m.runtimeUnavailableReason()
 		return nil
 	}
 	// The switch composes in the background: the reply is an immediate ack
@@ -426,7 +426,7 @@ func (m *model) resumeForeignSession(entry overlays.SessionEntry) tea.Cmd {
 		return nil
 	}
 	if m.host == nil {
-		m.err = "Posoco is not connected"
+		m.err = m.runtimeUnavailableReason()
 		return nil
 	}
 	args := map[string]any{"id": entry.ID, "cwd": cwd}

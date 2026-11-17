@@ -337,7 +337,7 @@ func (m *model) invokeDynamicCommand(input string) tea.Cmd {
 		return nil
 	}
 	if m.host == nil {
-		m.err = "Posoco is not connected"
+		m.err = m.runtimeUnavailableReason()
 		return nil
 	}
 	m.nextCommandRequest++
