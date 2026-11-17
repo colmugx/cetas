@@ -365,6 +365,101 @@ func TestBunGuestCuratorBrowserAndLifecycleBridge(t *testing.T) {
 	}
 }
 
+// Pi custom entries are queued until the native SessionPort confirms a save;
+// background sendMessage is never silently dropped after a command returns.
+func TestBunGuestCustomEntryAndFollowUpOutbox(t *testing.T) {
+	binary := os.Getenv("CETAS_TEST_BUN")
+	if binary == "" {
+		var err error
+		binary, err = exec.LookPath("bun")
+		if err != nil {
+			t.Skip("Bun not available")
+		}
+	}
+	binary, err := filepath.Abs(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	dir := filepath.Join(home, ".cetas", "pi-packages", "node_modules", "fixture")
+	for path, content := range map[string]string{
+		filepath.Join(home, ".cetas", "pi-packages.json"): `{"packages":["fixture"]}`,
+		filepath.Join(dir, "package.json"):                `{"name":"fixture","pi":{"extensions":["./dist"]}}`,
+		filepath.Join(dir, "dist", "index.js"): `export default function(pi) {
+ pi.registerCommand("store-check", {
+   description:"Queue custom data and host-owned follow-up",
+   handler(_args, ctx) {
+     pi.appendEntry("web-search-results",{id:"search-1",timestamp:1234,queries:[]});
+     pi.sendMessage({content:[{type:"text",text:"Search completed"}],display:true},
+       {triggerTurn:true,deliverAs:"followUp"});
+     ctx.ui.notify("branch:" + ctx.sessionManager.getBranch().length +
+       ";session:" + ctx.sessionManager.getSessionId());
+   },
+ });
+ pi.registerTool({
+   name:"pi_store_probe",description:"Read restored entries",
+   parameters:{type:"object",properties:{}},
+   execute(_id,_args,_signal,_onUpdate,ctx) {
+     const entries=ctx.sessionManager.getBranch();
+     return {content:[{type:"text",text:ctx.sessionManager.getSessionId()+
+       ":"+entries.length+":"+entries[0]?.customType}]};
+   },
+ });
+}`,
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g, err := OpenBun(binary, home, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	snapshot := json.RawMessage(`{"session_id":"session-1","entries":[]}`)
+	if err := g.UpdateSession(snapshot); err != nil {
+		t.Fatalf("restore Pi session: %v", err)
+	}
+	out := g.RunCommand("pi:store-check", "")
+	if out.Type != "success" || !strings.Contains(out.Feedback, "branch:1;session:session-1") {
+		t.Fatalf("Pi appendEntry not reflected in session branch: %#v", out)
+	}
+	pending, err := g.PendingOutbox()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending.Entries) != 1 || pending.Entries[0].CustomType != "web-search-results" ||
+		len(pending.Messages) != 1 || pending.Messages[0].Text != "Search completed" ||
+		!pending.Messages[0].TriggerTurn || pending.Messages[0].DeliverAs != "followUp" {
+		t.Fatalf("unexpected Pi outbox: %#v", pending)
+	}
+	if err := g.AckOutbox([]string{pending.Entries[0].ID}, []string{pending.Messages[0].ID}); err != nil {
+		t.Fatalf("ack Pi outbox: %v", err)
+	}
+	pending, err = g.PendingOutbox()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending.Entries) != 0 || len(pending.Messages) != 0 {
+		t.Fatalf("acknowledged Pi outbox was not drained: %#v", pending)
+	}
+	result := g.Execute("pi_store_probe", "call-1", json.RawMessage(`{}`))
+	if !result.OK || result.Content != "session-1:1:web-search-results" {
+		t.Fatalf("Pi custom entry disappeared after native acknowledgement: %#v", result)
+	}
+	restored := json.RawMessage(`{"session_id":"session-1","entries":[{"id":"persisted-2","customType":"web-search-results","data":{"id":"search-2","queries":[]}}]}`)
+	if err := g.UpdateSession(restored); err != nil {
+		t.Fatalf("update restored entries: %v", err)
+	}
+	result = g.Execute("pi_store_probe", "call-2", json.RawMessage(`{}`))
+	if !result.OK || result.Content != "session-1:1:web-search-results" {
+		t.Fatalf("Pi stored entry was not restored from host: %#v", result)
+	}
+}
+
 func TestBunGuestEnvironmentConfinesPiConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("OPENAI_API_KEY", "should-not-pass")
