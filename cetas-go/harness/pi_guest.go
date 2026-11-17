@@ -244,6 +244,9 @@ func (s *piSupervisor) ready(sessionID, home, cwd string, generation uint64) {
 		s.mu.Unlock()
 		return
 	}
+	if err := s.refreshModels(sessionID, g); err != nil {
+		s.host.report(fmt.Errorf("Pi guest session %s: %w", sessionID, err))
+	}
 	for _, diagnostic := range g.Diagnostics() {
 		s.host.report(fmt.Errorf("Pi guest session %s: %s", sessionID, diagnostic))
 	}
@@ -273,6 +276,25 @@ func (s *piSupervisor) ready(sessionID, home, cwd string, generation uint64) {
 	}
 }
 
+// refreshModels asks the authoritative session's ModelPort for public picker
+// metadata. Never forward tokens, auth configuration, or a guessed model.
+func (s *piSupervisor) refreshModels(sessionID string, guest nativepi.RuntimeGuest) error {
+	updater, ok := guest.(interface{ UpdateModels(json.RawMessage) error })
+	if !ok {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	raw, err := s.host.Request(ctx, "models", map[string]any{"session_id": sessionID})
+	if err != nil {
+		return fmt.Errorf("native model snapshot: %w", err)
+	}
+	if err := updater.UpdateModels(raw); err != nil {
+		return fmt.Errorf("Pi model snapshot: %w", err)
+	}
+	return nil
+}
+
 func (s *piSupervisor) install(sessionID string, defs []nativepi.Tool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -290,6 +312,9 @@ func (s *piSupervisor) execute(g nativepi.RuntimeGuest, sessionID, requestID, na
 	// Never redirect a late request to a newly opened VM for the same session.
 	result := nativepi.Result{Content: "Native Pi guest unavailable for session " + sessionID}
 	if g != nil {
+		if err := s.refreshModels(sessionID, g); err != nil {
+			s.host.report(fmt.Errorf("Pi guest session %s model refresh: %w", sessionID, err))
+		}
 		_, before := g.Catalog()
 		result = g.Execute(name, callID, arguments)
 		defs, after := g.Catalog()
