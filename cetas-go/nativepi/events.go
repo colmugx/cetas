@@ -60,6 +60,10 @@ func (b *EventBridge) Translate(raw []byte) ([]PiEvent, error) {
 		return data
 	}
 	switch frame.Type {
+	case "session.switched":
+		// Cetas can switch the active session tree without starting a model
+		// turn. Reset Pi extension branch-local state on that real boundary.
+		return []PiEvent{emit("session_tree", nil)}, nil
 	case "turn.started":
 		var out []PiEvent
 		if !b.runActive {
