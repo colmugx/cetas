@@ -477,3 +477,12 @@ pub fn run_infra() -> Int32 {
   })
   result.val
 }
+
+///|
+/// The POSIX fd helper is excluded on Windows; its native fd type remains
+/// an imported interface for the shared bridge package.
+#cfg(platform="windows")
+#coverage.skip
+let _keep_posix_fd_type : Unit = {
+  let _ : (@types.Fd) -> Unit = ignore
+}
