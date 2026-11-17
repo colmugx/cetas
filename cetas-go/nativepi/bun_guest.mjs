@@ -32,8 +32,25 @@ function messageText(message) {
     ? message.content.filter(part => part?.type === "text").map(part => String(part.text ?? "")).join("\n")
     : typeof message?.content === "string" ? message.content : "";
 }
+// Pi extensions may ask about available models even when the native Posoco
+// Agent has not bridged model discovery into the isolated Bun worker. Expose
+// an honest empty registry rather than leaving modelRegistry undefined (which
+// crashes /pi:websearch before it can start its curator). Never fabricate
+// models or forward provider credentials into the extension subprocess.
+const unbridgedModelRegistry = Object.freeze({
+  getAvailable() { return []; },
+  getAll() { return []; },
+  find(_provider, _id) { return undefined; },
+  isUsingOAuth(_model) { return false; },
+  async getApiKeyAndHeaders(_model) {
+    return {ok:false,error:"Model credentials are not bridged to the Cetas native Pi guest"};
+  },
+});
 function context(notices) {
   return {cwd,hasUI:false,mode:"json",
+    model:undefined,
+    modelRegistry:unbridgedModelRegistry,
+    scopedModels:[],
     sessionManager:{getBranch:()=>[]},
     isIdle:()=>true,
     ui:{
@@ -41,6 +58,7 @@ function context(notices) {
         if (notices) notices.push(String(message));
         else warnings.push("Pi UI notification (headless): "+String(message));
       },
+      select() { throw new Error("Pi interactive selection requires a native UI bridge"); },
       setWidget() { throw new Error("Pi setWidget requires a native UI bridge"); },
     },
   };
