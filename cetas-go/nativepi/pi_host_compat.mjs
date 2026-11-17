@@ -9,7 +9,8 @@
 // Bun's normal Node-compatible package resolver finds them on every OS.
 // Third-party dependencies remain untouched and use the normal package graph.
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, extname, join, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const hostModules = {
   "@earendil-works/pi-tui": [
