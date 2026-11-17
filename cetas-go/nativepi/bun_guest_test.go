@@ -197,6 +197,79 @@ func TestBunGuestPiCommandAndShortcutBridge(t *testing.T) {
 	}
 }
 
+// A real Pi extension such as pi-web-access reads modelRegistry.getAvailable()
+// during /pi:websearch startup. The native guest cannot supply Pi models or
+// credentials without a Posoco provider bridge; these fields must be present,
+// accurately empty, and never expose the native host's provider secrets.
+func TestBunGuestPiCommandModelRegistryContext(t *testing.T) {
+	binary := os.Getenv("CETAS_TEST_BUN")
+	if binary == "" {
+		var err error
+		binary, err = exec.LookPath("bun")
+		if err != nil {
+			t.Skip("Bun not available")
+		}
+	}
+	binary, err := filepath.Abs(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	dir := filepath.Join(home, ".cetas", "pi-packages", "node_modules", "fixture")
+	for path, content := range map[string]string{
+		filepath.Join(home, ".cetas", "pi-packages.json"): `{"packages":["fixture"]}`,
+		filepath.Join(dir, "package.json"): `{"name":"fixture","pi":{"extensions":["./dist"]}}`,
+		filepath.Join(dir, "dist", "index.js"): `export default function(pi) {
+  pi.registerCommand("websearch", {
+    description: "Probe pi-web-access's model registry usage",
+    async handler(_args, ctx) {
+      const summaryContext = {
+        model: ctx.model,
+        modelRegistry: ctx.modelRegistry,
+        sessionManager: ctx.sessionManager,
+        scopedModels: ctx.scopedModels,
+      };
+      const available = summaryContext.modelRegistry.getAvailable();
+      const all = summaryContext.modelRegistry.getAll();
+      const found = summaryContext.modelRegistry.find("openai", "test-model");
+      const auth = await summaryContext.modelRegistry.getApiKeyAndHeaders({provider:"openai",id:"test-model"});
+      ctx.ui.notify("available:" + available.length + ",all:" + all.length +
+        ",found:" + String(found) + ",auth:" + auth.ok +
+        ",scope:" + summaryContext.scopedModels.length);
+    },
+  });
+  pi.registerTool({
+    name:"probe_context",
+    description:"Check the model registry in tool executions",
+    parameters:{type:"object",properties:{}},
+    async execute(_id, _args, _signal, _onUpdate, ctx) {
+      return {content:[{type:"text",text:"available:"+ctx.modelRegistry.getAvailable().length}]};
+    },
+  });
+}`,
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g, err := OpenBun(binary, home, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	out := g.RunCommand("pi:websearch", "")
+	if out.Type != "success" || !strings.Contains(out.Feedback, "available:0,all:0,found:undefined,auth:false,scope:0") {
+		t.Fatalf("Pi command model registry context unavailable: %#v, warnings: %v", out, g.Diagnostics())
+	}
+	result := g.Execute("probe_context", "call-1", json.RawMessage(`{}`))
+	if !result.OK || result.Content != "available:0" {
+		t.Fatalf("Pi tool model registry context unavailable: %#v", result)
+	}
+}
+
 func TestBunGuestEnvironmentConfinesPiConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("OPENAI_API_KEY", "should-not-pass")
