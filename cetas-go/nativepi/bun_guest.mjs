@@ -32,24 +32,46 @@ function messageText(message) {
     ? message.content.filter(part => part?.type === "text").map(part => String(part.text ?? "")).join("\n")
     : typeof message?.content === "string" ? message.content : "";
 }
-// Pi extensions may ask about available models even when the native Posoco
-// Agent has not bridged model discovery into the isolated Bun worker. Expose
-// an honest empty registry rather than leaving modelRegistry undefined (which
-// crashes /pi:websearch before it can start its curator). Never fabricate
-// models or forward provider credentials into the extension subprocess.
-const unbridgedModelRegistry = Object.freeze({
-  getAvailable() { return []; },
-  getAll() { return []; },
-  find(_provider, _id) { return undefined; },
+// Read-only model metadata comes from the real Posoco model picker via a
+// session-scoped Harness RPC. No secrets or standalone Pi Agent enter Bun.
+let modelSnapshot = Object.freeze({model:undefined,available:Object.freeze([])});
+const modelRegistry = Object.freeze({
+  getAvailable() { return [...modelSnapshot.available]; },
+  getAll() { return [...modelSnapshot.available]; },
+  find(provider,id) { return modelSnapshot.available.find(m=>m.provider===provider && m.id===id); },
   isUsingOAuth(_model) { return false; },
   async getApiKeyAndHeaders(_model) {
     return {ok:false,error:"Model credentials are not bridged to the Cetas native Pi guest"};
   },
 });
+function acceptModelSnapshot(snapshot) {
+  if(!snapshot || !Array.isArray(snapshot.slots) || typeof snapshot.active!=="string")
+    throw new Error("invalid native Pi model snapshot");
+  const available = [];
+  const seen = new Set();
+  let activeModel;
+  for(const slot of snapshot.slots) {
+    if(!slot || typeof slot.provider!=="string" || typeof slot.model!=="string" ||
+       !slot.provider || !slot.model || typeof slot.id!=="string") continue;
+    const id = slot.provider+"/"+slot.model;
+    if(seen.has(id)) continue;
+    seen.add(id);
+    // These are discovery descriptors, not Pi model API implementations.
+    const entry = Object.freeze({
+      provider:slot.provider, id:slot.model, name:typeof slot.label==="string"?slot.label:slot.model,
+      ...(typeof slot.context_window==="number"?{contextWindow:slot.context_window}:{}),
+    });
+    available.push(entry);
+    if(slot.id===snapshot.active) activeModel=entry;
+  }
+  const previous = modelSnapshot.model;
+  modelSnapshot=Object.freeze({model:activeModel,available:Object.freeze(available)});
+  return previous?.provider!==activeModel?.provider || previous?.id!==activeModel?.id;
+}
 function context(notices) {
   return {cwd,hasUI:false,mode:"json",
-    model:undefined,
-    modelRegistry:unbridgedModelRegistry,
+    model:modelSnapshot.model,
+    modelRegistry,
     scopedModels:[],
     sessionManager:{getBranch:()=>[]},
     isIdle:()=>true,
@@ -69,11 +91,11 @@ async function notify(name,payload={}) {
     catch(e) { warnings.push("Pi event "+name+": "+String(e)); }
   }
 }
-const passive = new Set(["agent_start","agent_end","agent_settled","turn_start","turn_end","message_start","message_update","message_end","tool_execution_start","tool_execution_end","session_start","session_shutdown"]);
+const passive = new Set(["model_select","agent_start","agent_end","agent_settled","turn_start","turn_end","message_start","message_update","message_end","tool_execution_start","tool_execution_end","session_start","session_shutdown"]);
 // These Pi hooks mutate Agent or TUI behavior, and cannot be faithfully
 // replayed from a passive observer. Accept registration to let other tools
 // load, but expose the limitation as diagnostics instead of fabricating it.
-const unsupported = new Set(["session_tree","model_select","tool_call","before_agent_start"]);
+const unsupported = new Set(["session_tree","tool_call","before_agent_start"]);
 function validName(n) {
   return typeof n === "string" && /^(?:@[a-zA-Z0-9._-]+\/)?[a-zA-Z0-9._-]+$/.test(n)
     && n.split("/").every(s => s !== "." && s !== "..");
@@ -208,6 +230,11 @@ function textResult(result) {
   return {ok:!result.isError,content:parts.join("\n"),details:result.details};
 }
 async function dispatch(req) {
+  if(req.kind==="models") {
+    const changed=acceptModelSnapshot(req.snapshot);
+    if(changed) await notify("model_select", {model:modelSnapshot.model});
+    return {};
+  }
   if (req.kind === "command") {
     const entry = commands.get(req.name);
     if (!entry) return {outcome:{type:"failure",reason:"unknown Pi command: "+String(req.name)}};
