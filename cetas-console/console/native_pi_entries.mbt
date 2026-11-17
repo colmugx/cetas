@@ -68,8 +68,10 @@ pub async fn ConsoleRuntime::pi_guest_append_entries(
         }
         let session = match loaded {
           Ok(value) => value
-          Err(_) =>
-            @posoco.Session::{ messages: [], metadata: Map::from_array([]), }
+          Err(error) =>
+            // A failed load might mean corruption, not a new journal.
+            // Never replace an unreadable session with an empty snapshot.
+            return Err("Pi session journal unavailable: " + error.to_string())
         }
         let merged : Array[Json] = match
           session.metadata.get(NATIVE_PI_ENTRIES_KEY) {
