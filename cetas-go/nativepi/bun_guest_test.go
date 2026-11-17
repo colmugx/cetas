@@ -310,6 +310,8 @@ func TestBunGuestCuratorBrowserAndLifecycleBridge(t *testing.T) {
 		filepath.Join(dir, "package.json"):                `{"name":"fixture","pi":{"extensions":["./dist"]}}`,
 		filepath.Join(dir, "dist", "index.js"): `export default function(pi) {
   const sequence = [];
+  pi.on("tool_call", event => sequence.push("tool_call:" + event.toolCallId + ":" +
+    (event.parentToolCallId ?? "root") + ":" + event.toolName));
   for (const name of ["session_start", "before_agent_start", "agent_start",
     "session_tree", "turn_start"]) {
     pi.on(name, event => sequence.push(event.type));
@@ -346,15 +348,18 @@ func TestBunGuestCuratorBrowserAndLifecycleBridge(t *testing.T) {
 	if err := g.Emit([]byte(`{"type":"session.switched"}`)); err != nil {
 		t.Fatal(err)
 	}
+	if err := g.Emit([]byte(`{"type":"tool.started","tool_call_id":"nested-1","parent_tool_call_id":"outer-1","tool_name":"web_search","arguments":{"query":"cetas"}}`)); err != nil {
+		t.Fatal(err)
+	}
 	out := g.RunCommand("pi:bridge-check", "")
 	if out.Type != "success" {
 		t.Fatalf("Pi browser compatibility command failed: %#v", out)
 	}
-	if !strings.Contains(out.Feedback, "events:session_start,before_agent_start,agent_start,turn_start,session_tree") {
+	if !strings.Contains(out.Feedback, "events:session_start,before_agent_start,agent_start,turn_start,session_tree,tool_call:nested-1:outer-1:web_search") {
 		t.Fatalf("Pi lifecycle events missing or reordered: %#v", out)
 	}
 	for _, warning := range g.Diagnostics() {
-		if strings.Contains(warning, "before_agent_start") || strings.Contains(warning, "session_tree") {
+		if strings.Contains(warning, "before_agent_start") || strings.Contains(warning, "session_tree") || strings.Contains(warning, "tool_call") {
 			t.Fatalf("supported Pi lifecycle hook warned: %s", warning)
 		}
 	}
