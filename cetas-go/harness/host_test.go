@@ -108,6 +108,9 @@ func TestNativeHarnessHost(t *testing.T) {
 	}
 
 	t.Setenv("CETAS_HOME", home)
+	// Exercise the explicit owner-lease path in the real native integration
+	// test even though ordinary Cetas startup defaults to IPC-independent.
+	t.Setenv("CETAS_IPC_OWNER", "1")
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 	h, err := Start(ctx)
