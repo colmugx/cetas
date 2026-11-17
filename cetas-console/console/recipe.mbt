@@ -171,9 +171,8 @@ async fn build_cetas_skills(
     }
   }
   if catalog.find("poteto-mode") is Some(_) {
-    match @pstack.Pstack::compose(
-      ctx.fs, catalog, config=cetas_skills_config(),
-    ) {
+    match
+      @pstack.Pstack::compose(ctx.fs, catalog, config=cetas_skills_config()) {
       Ok(pstack) => Some(pstack as &@posoco.Extension)
       Err(reason) =>
         raise @posoco.CompositionError::ManifestSchemaError(
@@ -182,9 +181,12 @@ async fn build_cetas_skills(
         )
     }
   } else {
-    match @skills.Skills::from_catalog(
-      ctx.fs, catalog~, config=cetas_skills_config(),
-    ) {
+    match
+      @skills.Skills::from_catalog(
+        ctx.fs,
+        catalog~,
+        config=cetas_skills_config(),
+      ) {
       Ok(skills) => Some(skills as &@posoco.Extension)
       Err(reason) =>
         raise @posoco.CompositionError::ManifestSchemaError(

@@ -141,9 +141,13 @@ async fn build_cetas_skills(
   manuals~ : Array[@skills.SkillDescriptor],
   requested~ : Array[String]? = None,
 ) -> &@posoco.Extension? raise @posoco.CompositionError {
-  let discovered : @skills.SkillCatalog = match @skills.Skills::discover(
-    ctx.fs, cwd=ctx.cwd, home=ctx.home, config=cetas_skills_config(),
-  ) {
+  let discovered : @skills.SkillCatalog = match
+    @skills.Skills::discover(
+      ctx.fs,
+      cwd=ctx.cwd,
+      home=ctx.home,
+      config=cetas_skills_config(),
+    ) {
     Some(skills) => skills.catalog()
     None => @skills.SkillCatalog::empty()
   }
@@ -173,9 +177,8 @@ async fn build_cetas_skills(
     }
   }
   if catalog.find("poteto-mode") is Some(_) {
-    match @pstack.Pstack::compose(
-      ctx.fs, catalog, config=cetas_skills_config(),
-    ) {
+    match
+      @pstack.Pstack::compose(ctx.fs, catalog, config=cetas_skills_config()) {
       Ok(pstack) => Some(pstack as &@posoco.Extension)
       Err(reason) =>
         raise @posoco.CompositionError::ManifestSchemaError(
@@ -184,9 +187,12 @@ async fn build_cetas_skills(
         )
     }
   } else {
-    match @skills.Skills::from_catalog(
-      ctx.fs, catalog~, config=cetas_skills_config(),
-    ) {
+    match
+      @skills.Skills::from_catalog(
+        ctx.fs,
+        catalog~,
+        config=cetas_skills_config(),
+      ) {
       Ok(skills) => Some(skills as &@posoco.Extension)
       Err(reason) =>
         raise @posoco.CompositionError::ManifestSchemaError(
