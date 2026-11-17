@@ -317,7 +317,7 @@ func (s *piSupervisor) seedEntries(sessionID string, guest nativepi.RuntimeGuest
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	raw, err := s.host.Request(ctx, "pi_guest_entries", map[string]any{"session_id": sessionID})
+	raw, err := s.host.requestNative(ctx, "pi_guest_entries", map[string]any{"session_id": sessionID})
 	if err != nil {
 		return err
 	}
@@ -382,7 +382,7 @@ func (s *piSupervisor) flushOutbox(sessionID string, guest nativepi.RuntimeGuest
 			entries = entries[:maxBatch]
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		raw, requestErr := s.host.Request(ctx, "pi_guest_append_entries", map[string]any{
+		raw, requestErr := s.host.requestNative(ctx, "pi_guest_append_entries", map[string]any{
 			"session_id": sessionID, "entries": entries,
 		})
 		cancel()
