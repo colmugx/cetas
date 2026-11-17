@@ -20,6 +20,7 @@ pub async fn run_login(
 #coverage.skip
 let _keep_native_only_imports : Unit = {
   ignore(@credentials.encode_provider_credential)
+  ignore(@bootstrap.login_candidates([], []))
   ignore(@env.rand)
   let _ : (@types.Fd) -> Unit = ignore
   let _ : (&@oauth.AuthInteraction) -> Unit = ignore
