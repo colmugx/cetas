@@ -244,6 +244,9 @@ func (s *piSupervisor) ready(sessionID, home, cwd string, generation uint64) {
 		s.mu.Unlock()
 		return
 	}
+	if err := s.seedEntries(sessionID, g); err != nil {
+		s.host.report(fmt.Errorf("Pi guest session %s entry restore: %w", sessionID, err))
+	}
 	if err := s.refreshModels(sessionID, g); err != nil {
 		s.host.report(fmt.Errorf("Pi guest session %s: %w", sessionID, err))
 	}
@@ -261,6 +264,7 @@ func (s *piSupervisor) ready(sessionID, home, cwd string, generation uint64) {
 	s.workers[sessionID] = queue
 	s.mu.Unlock()
 	go s.process(sessionID, g, queue)
+	go s.pollOutbox(sessionID, g)
 	if commander, ok := g.(nativepi.Commander); ok {
 		commands, _ := commander.Commands()
 		if len(commands) > 0 {
@@ -302,6 +306,159 @@ func (s *piSupervisor) refreshModels(sessionID string, guest nativepi.RuntimeGue
 		return fmt.Errorf("Pi model snapshot: %w", err)
 	}
 	return nil
+}
+
+// seedEntries restores durable Pi custom data from the owning native
+// SessionPort before the guest serves tool and command calls.
+func (s *piSupervisor) seedEntries(sessionID string, guest nativepi.RuntimeGuest) error {
+	seeder, ok := guest.(interface{ UpdateSession(json.RawMessage) error })
+	if !ok {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	raw, err := s.host.Request(ctx, "pi_guest_entries", map[string]any{"session_id": sessionID})
+	if err != nil {
+		return err
+	}
+	var envelope struct {
+		SessionID string `json:"session_id"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return err
+	}
+	if envelope.Error != "" {
+		return fmt.Errorf("Pi custom entry load: %s", envelope.Error)
+	}
+	if envelope.SessionID != sessionID {
+		return fmt.Errorf("Pi custom entries belong to session %q, expected %q", envelope.SessionID, sessionID)
+	}
+	return seeder.UpdateSession(raw)
+}
+
+// pollOutbox serializes all foreign side effects back through native
+// authority. While a turn is active, the native SessionPort rejects writes;
+// the unacknowledged outbox remains in Bun and is retried at a safe boundary.
+func (s *piSupervisor) pollOutbox(sessionID string, guest nativepi.RuntimeGuest) {
+	ticker := time.NewTicker(1500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.host.done:
+			return
+		case <-ticker.C:
+			s.mu.Lock()
+			active := !s.closed && s.guests[sessionID] == guest
+			s.mu.Unlock()
+			if !active {
+				return
+			}
+			s.flushOutbox(sessionID, guest)
+		}
+	}
+}
+
+func (s *piSupervisor) flushOutbox(sessionID string, guest nativepi.RuntimeGuest) {
+	outbox, ok := guest.(interface {
+		PendingOutbox() (nativepi.PiOutbox, error)
+		AckOutbox([]string, []string) error
+	})
+	if !ok {
+		return
+	}
+	pending, err := outbox.PendingOutbox()
+	if err != nil {
+		s.host.report(fmt.Errorf("Pi outbox %s: %w", sessionID, err))
+		return
+	}
+	var entryIDs []string
+	if len(pending.Entries) > 0 {
+		// Each entry has a stable ID; the native store deduplicates on retries.
+		// Keep the queue if the session is busy or persistence fails.
+		const maxBatch = 64
+		entries := pending.Entries
+		if len(entries) > maxBatch {
+			entries = entries[:maxBatch]
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		raw, requestErr := s.host.Request(ctx, "pi_guest_append_entries", map[string]any{
+			"session_id": sessionID, "entries": entries,
+		})
+		cancel()
+		var response struct {
+			OK bool `json:"ok"`
+			Error string `json:"error"`
+		}
+		if requestErr == nil {
+			requestErr = json.Unmarshal(raw, &response)
+		}
+		if requestErr == nil && response.OK {
+			for _, entry := range entries {
+				entryIDs = append(entryIDs, entry.ID)
+			}
+		} else if requestErr != nil {
+			s.host.report(fmt.Errorf("Pi custom entry persist %s: %w", sessionID, requestErr))
+		} else if response.Error != "" && response.Error != "Pi session is busy; retry after the native turn" {
+			s.host.report(fmt.Errorf("Pi custom entry persist %s: %s", sessionID, response.Error))
+		}
+	}
+	var messageIDs []string
+	for _, message := range pending.Messages {
+		if message.ID == "" || message.Text == "" {
+			continue
+		}
+		if message.TriggerTurn {
+			// Only the native runtime can admit a new Agent turn. Busy turns
+			// leave this message pending rather than silently dropping it.
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			raw, requestErr := s.host.Request(ctx, "turn", map[string]any{
+				"session_id": sessionID, "prompt": message.Text,
+			})
+			cancel()
+			var result struct {
+				TurnID string `json:"turn_id"`
+				Error string `json:"error"`
+			}
+			if requestErr == nil {
+				requestErr = json.Unmarshal(raw, &result)
+			}
+			if requestErr != nil {
+				s.host.report(fmt.Errorf("Pi follow-up %s: %w", sessionID, requestErr))
+				break
+			}
+			if result.TurnID == "" {
+				if result.Error != "a turn is already running in this session" {
+					s.host.report(fmt.Errorf("Pi follow-up %s: %s", sessionID, result.Error))
+				}
+				break
+			}
+			messageIDs = append(messageIDs, message.ID)
+			// A new turn makes the session busy; preserve queued ordering.
+			break
+		}
+		if !message.Display {
+			messageIDs = append(messageIDs, message.ID)
+			continue
+		}
+		payload, err := json.Marshal(map[string]any{
+			"type":"pi.message", "session_id":sessionID, "message":message.Text,
+		})
+		if err != nil {
+			break
+		}
+		select {
+		case s.host.events <- Event{Type:"pi.message", Raw:payload}:
+			messageIDs = append(messageIDs, message.ID)
+		default:
+			s.host.report(fmt.Errorf("Pi message %s: UI event queue full", sessionID))
+		}
+	}
+	if len(entryIDs) != 0 || len(messageIDs) != 0 {
+		if err := outbox.AckOutbox(entryIDs, messageIDs); err != nil {
+			s.host.report(fmt.Errorf("Pi outbox ack %s: %w", sessionID, err))
+		}
+	}
 }
 
 func (s *piSupervisor) install(sessionID string, defs []nativepi.Tool) error {
