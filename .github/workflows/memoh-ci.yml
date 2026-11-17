@@ -55,6 +55,12 @@ jobs:
           moon check -p cetas-memoh/lib --target native --deny-warn --output-json
           moon check -p cetas-memoh/main --target native --deny-warn --output-json
 
+      - name: test shared native bootstrap
+        run: moon test cetas-bootstrap/lib --target native --output-json
+
+      - name: test Run native login compatibility
+        run: moon test cetas-run/lib --target native --output-json
+
       - name: test Memoh
         run: moon test cetas-memoh/lib --target native --output-json
 
@@ -67,6 +73,11 @@ jobs:
           out="$(_build/native/release/build/colmugx/cetas-memoh/main/main.exe --version)"
           [[ "$out" == "$expected" ]] || {
             echo "::error::version mismatch: got '$out', want '$expected'"
+            exit 1
+          }
+          help="$(_build/native/release/build/colmugx/cetas-memoh/main/main.exe --help)"
+          [[ "$help" == *"login [provider]"* ]] || {
+            echo "::error::Memoh CLI help omits standalone login"
             exit 1
           }
 
