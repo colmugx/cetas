@@ -23,7 +23,6 @@ import {
   "colmugx/posoco-ext-zai-coding-plan" @zai_coding_plan,
   "moonbitlang/core/async",
   "moonbitlang/core/async/fs",
-  "moonbitlang/core/async/types",
   "moonbitlang/core/async/stdio",
   "moonbitlang/core/env",
   "moonbitlang/core/encoding/utf8",
