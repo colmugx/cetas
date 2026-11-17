@@ -17,6 +17,17 @@ import (
 	"time"
 )
 
+func TestPiCustomEntryRPCIsHostPrivate(t *testing.T) {
+	host := &Host{}
+	for _, command := range []string{"pi_guest_entries", "pi_guest_append_entries"} {
+		if _, err := host.Request(context.Background(), command, map[string]any{
+			"session_id": "arbitrary",
+		}); err == nil || !strings.Contains(err.Error(), "host-private") {
+			t.Fatalf("%s exposed private Pi journal RPC to public Host.Request: %v", command, err)
+		}
+	}
+}
+
 func TestNativeHarnessHost(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
