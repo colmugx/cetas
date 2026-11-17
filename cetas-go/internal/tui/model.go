@@ -200,6 +200,9 @@ type model struct {
 	session                string
 	status                 string
 	err                    string
+	// Retain the original startup cause even when the user later presses
+	// Enter or opens a picker without a connected host.
+	startupFailure         string
 	presentedError         string
 	clockGeneration        uint64
 	clockDue               time.Time
@@ -490,9 +493,11 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case bootResult:
 		if msg.err != nil {
 			m.status = i18n.T("status.startup_failed")
-			m.err = msg.err.Error()
+			m.startupFailure = msg.err.Error()
+			m.err = m.startupFailure
 			return m, nil
 		}
+		m.startupFailure = ""
 		m.host = msg.host
 		m.feed = msg.host.Events()
 		if m.nativePiUnavailable() {
@@ -1339,6 +1344,15 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// runtimeUnavailableReason preserves the actionable boot failure instead of
+// replacing an owner/IPC startup error with a misleading Posoco message.
+func (m model) runtimeUnavailableReason() string {
+	if m.startupFailure != "" {
+		return m.startupFailure
+	}
+	return "Posoco is not connected"
+}
+
 // Shared by ordinary Enter and confirmed slash completion; file/skill completion
 // deliberately never enters this path.
 func (m *model) submitEditor() tea.Cmd {
@@ -1347,7 +1361,7 @@ func (m *model) submitEditor() tea.Cmd {
 		return nil
 	}
 	if m.host == nil {
-		m.err = "Posoco is not connected"
+		m.err = m.runtimeUnavailableReason()
 		return nil
 	}
 	m.textarea.Remember(value)

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -30,5 +31,26 @@ func TestStartupNoticeDoesNotCollapseWelcomeBeforeUserPrompt(t *testing.T) {
 	m = next.(model)
 	if strings.Contains(ansi.Strip(m.View().Content), "startup fixture warning") {
 		t.Fatal("a later replay carried a retired startup notification")
+	}
+}
+
+func TestFailedBootstrapKeepsOriginalCauseWhenHostIsUnavailable(t *testing.T) {
+	m := newModel()
+	const cause = "native local owner: another Cetas runtime owns this home"
+	next, _ := m.Update(bootResult{err: errors.New(cause)})
+	m = next.(model)
+	if m.err != cause || m.startupFailure != cause {
+		t.Fatalf("startup error was lost: err=%q original=%q", m.err, m.startupFailure)
+	}
+	m.textarea.SetValue("hello")
+	next, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = next.(model)
+	if m.err != cause {
+		t.Fatalf("Enter overwrote original startup cause: %q", m.err)
+	}
+	// A session picker must report the real startup problem as well.
+	m.sessionPickerFetch("", sessionPickerFirst, 1)
+	if m.startupFailure != cause {
+		t.Fatalf("picker discarded startup failure: %q", m.startupFailure)
 	}
 }
