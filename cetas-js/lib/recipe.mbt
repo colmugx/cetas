@@ -128,6 +128,10 @@ fn build_cetas_tools(
 }
 
 ///|
+extern "js" fn cetas_pstack_assets_root() -> String =
+  #| () => process.env.CETAS_PSTACK_ASSETS_ROOT ?? ""
+
+///|
 fn cetas_skills_config() -> @skills.SkillsConfig {
   {
     ..@skills.SkillsConfig::default(),
@@ -140,16 +144,36 @@ async fn build_cetas_skills(
   ctx~ : @cetas_core.HostContext,
   manuals~ : Array[@skills.SkillDescriptor],
   requested~ : Array[String]? = None,
+  pstack_assets_root~ : String = cetas_pstack_assets_root(),
+  pstack_events~ : @posoco.Events? = None,
 ) -> &@posoco.Extension? raise @posoco.CompositionError {
-  let discovered : @skills.SkillCatalog = match
-    @skills.Skills::discover(
+  let pstack_enabled = !pstack_assets_root.trim().is_empty()
+  let discovered : @skills.SkillCatalog = if pstack_enabled {
+    match @pstack.Pstack::discover(
+      ctx.fs,
+      cwd=ctx.cwd,
+      home=ctx.home,
+      assets_root=pstack_assets_root,
+      config=cetas_skills_config(),
+    ) {
+      Some(extension) => extension.catalog()
+      None =>
+        raise @posoco.CompositionError::ManifestSchemaError(
+          manifest_id="cetas.pstack",
+          detail="PStack resources are missing or invalid at CETAS_PSTACK_ASSETS_ROOT: " +
+            pstack_assets_root,
+        )
+    }
+  } else {
+    match @skills.Skills::discover(
       ctx.fs,
       cwd=ctx.cwd,
       home=ctx.home,
       config=cetas_skills_config(),
     ) {
-    Some(skills) => skills.catalog()
-    None => @skills.SkillCatalog::empty()
+      Some(skills) => skills.catalog()
+      None => @skills.SkillCatalog::empty()
+    }
   }
   let full = @skills.merge_builtin_skills(discovered, manuals)
   let catalog = match requested {
@@ -176,7 +200,19 @@ async fn build_cetas_skills(
   }
   match
     @skills.Skills::from_catalog(ctx.fs, catalog~, config=cetas_skills_config()) {
-    Ok(skills) => Some(skills as &@posoco.Extension)
+    Ok(skills) =>
+      if pstack_enabled && catalog.find("poteto-mode") is Some(_) {
+        match @pstack.Pstack::from_skills(skills, events=pstack_events) {
+          Some(extension) => Some(extension as &@posoco.Extension)
+          None =>
+            raise @posoco.CompositionError::ManifestSchemaError(
+              manifest_id="cetas.pstack",
+              detail="PStack skill is not present in the selected catalog",
+            )
+        }
+      } else {
+        Some(skills as &@posoco.Extension)
+      }
     Err(reason) =>
       raise @posoco.CompositionError::ManifestSchemaError(
         manifest_id="cetas.skills",
@@ -194,6 +230,7 @@ async fn build_compiled_recipe_features(
   profile_activation_sink~ : &@profiles.ProfileActivationSink? = None,
   host_help_note~ : String? = None,
   host_version_note~ : String? = None,
+  pstack_events~ : @posoco.Events? = None,
 ) -> Array[&@posoco.Extension] raise @posoco.CompositionError {
   let exts : Array[&@posoco.Extension] = []
   let episodic : Array[&@posoco.Extension] = []
@@ -241,8 +278,14 @@ async fn build_compiled_recipe_features(
         let skills = build_cetas_skills(
           ctx~,
           manuals=forme.builtin_manual_skills(),
+          pstack_events~,
         ) catch {
-          _ => None
+          error =>
+            if !cetas_pstack_assets_root().trim().is_empty() {
+              raise error
+            } else {
+              None
+            }
         }
         match skills {
           Some(skills) => exts.push(skills)
