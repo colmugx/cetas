@@ -36,7 +36,7 @@ pub async fn run_login(
   provider~ : String,
   note~ : async (String) -> Unit noraise,
 ) -> Unit {
-  with_terminal_auth(note~, body=async fn(interaction, prompt) {
+  @bootstrap.with_terminal_auth(note~, body=async fn(interaction, prompt) {
     run_login_with_interactions(
       home~,
       provider~,
@@ -138,9 +138,7 @@ fn core_login_driver() -> LoginDriver {
 fn check_login_cancelled(
   interaction : &@oauth.AuthInteraction,
 ) -> Unit raise @posoco.CommandError {
-  if interaction.is_cancelled() {
-    raise @posoco.CommandError::ExecutionFailed("Login cancelled")
-  }
+  @bootstrap.require_login_active(interaction)
 }
 
 ///|
@@ -150,22 +148,7 @@ async fn login_select(
   message : String,
   options : Array[@oauth.AuthPromptOption],
 ) -> String raise @posoco.CommandError {
-  check_login_cancelled(interaction)
-  let selected = prompt.prompt(
-    @oauth.AuthPromptRequest::Select(message~, options~),
-  ) catch {
-    @oauth.OAuthError::Cancelled =>
-      raise @posoco.CommandError::ExecutionFailed("Login cancelled")
-    _ => raise @posoco.CommandError::ExecutionFailed("Login selection failed")
-  }
-  check_login_cancelled(interaction)
-  for option in options {
-    if option.id == selected {
-      return selected
-    }
-  }
-  // Do not echo invalid input: a mistaken paste may contain a secret.
-  raise @posoco.CommandError::InvalidArgs(reason="Invalid login selection")
+  @bootstrap.choose_login_option(interaction, prompt, message, options)
 }
 
 ///|
