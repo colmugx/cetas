@@ -178,15 +178,21 @@ func (h *Host) stoppedErr() error {
 // Start composes a real ConsoleRuntime. The caller must consume Events.
 // The process is intentionally single-use until restart safety is proven.
 func Start(ctx context.Context) (*Host, error) {
+	// Preserve the process-singleton contract before attempting any disk or
+	// cross-process ownership operation: a repeated Start must report
+	// ErrAlreadyStarted, not ErrOwnerActive, even while the first Host owns
+	// its lease. This CAS also serializes concurrent Start calls.
+	if !activated.CompareAndSwap(false, true) {
+		return nil, ErrAlreadyStarted
+	}
 	// Acquire cross-process authority before composing anything or touching
-	// the MoonBit scheduler. Contenders fail closed until IPC proxying lands.
+	// the MoonBit scheduler. If another process owns this home, release the
+	// uncommitted process-local startup claim so callers can retry after the
+	// external owner exits (and IPC client mode is not yet implemented).
 	lease, err := localipc.Acquire(localipc.Home())
 	if err != nil {
+		activated.Store(false)
 		return nil, fmt.Errorf("native local owner: %w", err)
-	}
-	if !activated.CompareAndSwap(false, true) {
-		_ = lease.Close()
-		return nil, ErrAlreadyStarted
 	}
 	h := newHost(bridge.NewInfra())
 	h.ownerLease = lease
@@ -201,11 +207,13 @@ func Start(ctx context.Context) (*Host, error) {
 	if available {
 		if err := os.Setenv("CETAS_NATIVE_PI_ENABLED", "1"); err != nil {
 			_ = lease.Close()
+			activated.Store(false)
 			return nil, err
 		}
 	} else {
 		if err := os.Setenv("CETAS_NATIVE_PI_ENABLED", "0"); err != nil {
 			_ = lease.Close()
+			activated.Store(false)
 			return nil, err
 		}
 	}
