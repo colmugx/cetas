@@ -287,6 +287,79 @@ func TestBunGuestPiCommandModelRegistryContext(t *testing.T) {
 	}
 }
 
+// pi-web-access invokes pi.exec to open its local Curator URL on macOS
+// and Windows. Reject arbitrary commands/remote URLs without spawning
+// anything, and deliver lifecycle events from real native frame boundaries.
+func TestBunGuestCuratorBrowserAndLifecycleBridge(t *testing.T) {
+	binary := os.Getenv("CETAS_TEST_BUN")
+	if binary == "" {
+		var err error
+		binary, err = exec.LookPath("bun")
+		if err != nil {
+			t.Skip("Bun not available")
+		}
+	}
+	binary, err := filepath.Abs(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	dir := filepath.Join(home, ".cetas", "pi-packages", "node_modules", "fixture")
+	for path, content := range map[string]string{
+		filepath.Join(home, ".cetas", "pi-packages.json"): `{"packages":["fixture"]}`,
+		filepath.Join(dir, "package.json"):                `{"name":"fixture","pi":{"extensions":["./dist"]}}`,
+		filepath.Join(dir, "dist", "index.js"): `export default function(pi) {
+  const sequence = [];
+  for (const name of ["session_start", "before_agent_start", "agent_start",
+    "session_tree", "turn_start"]) {
+    pi.on(name, event => sequence.push(event.type));
+  }
+  pi.registerCommand("bridge-check", {
+    description:"Probe local Curator launcher and lifecycle hooks",
+    async handler(_args, ctx) {
+      const arbitrary = await pi.exec("sh", ["-c", "echo should-not-run"]);
+      const remote = await pi.exec("open", ["https://example.com/"]);
+      const unsafe = await pi.exec("cmd", ["/c", "start", "", "http://localhost/&calc.exe"]);
+      if (arbitrary.code === 0 || remote.code === 0 || unsafe.code === 0) {
+        throw new Error("Pi exec allowed an unsupported command or URL");
+      }
+      ctx.ui.notify("exec:function; events:" + sequence.join(","));
+    },
+  });
+}`,
+	} {
+		if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(path, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g, err := OpenBun(binary, home, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+	if err := g.Emit([]byte(`{"type":"turn.started"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Emit([]byte(`{"type":"session.switched"}`)); err != nil {
+		t.Fatal(err)
+	}
+	out := g.RunCommand("pi:bridge-check", "")
+	if out.Type != "success" {
+		t.Fatalf("Pi browser compatibility command failed: %#v", out)
+	}
+	if !strings.Contains(out.Feedback, "events:session_start,before_agent_start,agent_start,turn_start,session_tree") {
+		t.Fatalf("Pi lifecycle events missing or reordered: %#v", out)
+	}
+	for _, warning := range g.Diagnostics() {
+		if strings.Contains(warning, "before_agent_start") || strings.Contains(warning, "session_tree") {
+			t.Fatalf("supported Pi lifecycle hook warned: %s", warning)
+		}
+	}
+}
+
 func TestBunGuestEnvironmentConfinesPiConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("OPENAI_API_KEY", "should-not-pass")
