@@ -339,8 +339,10 @@ async function dispatch(req) {
     if(!snapshot || typeof snapshot.session_id!=="string" ||
       !Array.isArray(snapshot.entries)) throw new Error("invalid Pi session snapshot");
     sessionID=snapshot.session_id;
+    // cetas-js's pi.custom_entries records predate native idempotency IDs:
+    // preserve those records when a session moves between JS and Go surfaces.
     restoredEntries=snapshot.entries.filter(e=>
-      typeof e?.customType==="string" && typeof e?.id==="string");
+      typeof e?.customType==="string" && e.customType.length>0);
     // Re-run Pi's branch-local restore after the host supplied the journal.
     await notify("session_tree");
     return {};
