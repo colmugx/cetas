@@ -300,7 +300,7 @@ async test "terminal auth: isolated PTY mode restoration" {
 ///|
 async test "terminal auth: native guard refuses a non-terminal and closes idempotently" {
   let dir = @fs.tmpdir(prefix="cetas-auth-mode-test")
-  defer @fs.rmdir(dir, recursive=true)
+  defer @fs.remove(dir, recursive=true)
   let file = @fs.create(dir + "/not-a-terminal")
   defer file.close()
   let mode = terminal_auth_mode_new(file.fd())

@@ -6,7 +6,7 @@ async test "bootstrap leaves existing symlinks including dangling links untouche
     return
   }
   let home = @fs.tmpdir(prefix="cetas-run-symlink")
-  defer @fs.rmdir(home, recursive=true)
+  defer @fs.remove(home, recursive=true)
   let dir = @cetas_core.cetas_dir(home)
   let path = @cetas_core.settings_path(home)
   @fs.mkdir(dir)

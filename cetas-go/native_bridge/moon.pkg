@@ -21,5 +21,6 @@ options(
   "allow-experimental-packages": [
     "moonbitlang/core/async",
     "moonbitlang/core/async/raw_fd",
+    "moonbitlang/core/async/types",
   ],
 )

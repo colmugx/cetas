@@ -3,7 +3,7 @@
 async test "login twice on real NativeWorkspaceFs reuses Kimi device path and replaces credentials" {
   @async.with_task_group() <| group => {
     let home = @fs.tmpdir(prefix="cetas-login-native-test-")
-    group.add_defer(() => @fs.rmdir(home, recursive=true))
+    group.add_defer(() => @fs.remove(home, recursive=true))
     let fs = @workspace.NativeWorkspaceFs()
     let dir = @cetas_core.cetas_dir(home)
     // Existing .cetas is normal for a shared home; device-id persistence must
