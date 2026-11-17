@@ -133,10 +133,7 @@ test "out-of-band events reach existing subscribers without replaying history" {
   assert_eq(second.length(), 1)
   assert_eq(first[1], second[0])
   assert_eq(event_cursor_field(first[1], "cursor"), Json::number(2.0))
-  assert_eq(
-    event_cursor_field(first[1], "cursor_advance"),
-    Json::boolean(true),
-  )
+  assert_eq(event_cursor_field(first[1], "cursor_advance"), Json::boolean(true))
   hub.unsubscribe(b)
   hub.emit_out_of_band("s", "question.resolved")
   assert_eq(first.length(), 3)
