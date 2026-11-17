@@ -7,6 +7,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 // combined module. Reimporting those names causes a Bun ESM syntax error.
 import { createInterface } from "node:readline";
 import { spawn as spawnBrowser } from "node:child_process";
+import { randomUUID } from "node:crypto";
 
 const home = process.argv[2];
 const cwd = process.argv[3];
@@ -22,8 +23,7 @@ let sessionID = "";
 let restoredEntries = [];
 let pendingEntries = [];
 let pendingMessages = [];
-let nextOutboxID = 0;
-const newOutboxID = () => String(Date.now()) + "-" + String(++nextOutboxID);
+const newOutboxID = () => randomUUID();
 const entryBranch = () => [...restoredEntries, ...pendingEntries].map(
   e => ({type:"custom",customType:e.customType,data:e.data})
 );
