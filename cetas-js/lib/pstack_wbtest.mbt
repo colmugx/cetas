@@ -36,7 +36,9 @@ async test "pstack: default recipe composes native toggle and skills" {
       match port.invoke("poteto-mode", Json::null()) {
         @posoco.CommandOutcome::Success(feedback~, structured~, ..) => {
           assert_true(feedback.contains("activated skill: poteto-mode"))
-          assert_true(structured.unwrap().stringify().contains("agent_skill_activation"))
+          assert_true(
+            structured.unwrap().stringify().contains("agent_skill_activation"),
+          )
         }
         _ => fail("PStack activation failed")
       }
