@@ -450,7 +450,7 @@ func TestBunGuestCustomEntryAndFollowUpOutbox(t *testing.T) {
 	if !result.OK || result.Content != "session-1:1:web-search-results" {
 		t.Fatalf("Pi custom entry disappeared after native acknowledgement: %#v", result)
 	}
-	restored := json.RawMessage(`{"session_id":"session-1","entries":[{"id":"persisted-2","customType":"web-search-results","data":{"id":"search-2","queries":[]}}]}`)
+	restored := json.RawMessage(`{"session_id":"session-1","entries":[{"customType":"web-search-results","data":{"id":"search-2","queries":[]}}]}`)
 	if err := g.UpdateSession(restored); err != nil {
 		t.Fatalf("update restored entries: %v", err)
 	}
