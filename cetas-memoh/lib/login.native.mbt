@@ -33,8 +33,8 @@ fn memoh_api_key_factories(
   ]
   for id, _ in settings {
     if !static_provider_factories(ctx).any(fn(factory) {
-      factory.provider_id() == id
-    }) {
+        factory.provider_id() == id
+      }) {
       keys.push(@custom.CustomProvider(id, ctx~))
     }
   }
@@ -46,10 +46,7 @@ fn memoh_oauth_factories(
   ctx : @devkit.ExtContext,
   device_id~ : String = "",
 ) -> Array[&@llm.OAuthFactory] {
-  [
-    @kimi.KimiProvider(ctx~, device_id~),
-    @openai.OpenAIProvider(),
-  ]
+  [@kimi.KimiProvider(ctx~, device_id~), @openai.OpenAIProvider()]
 }
 
 ///|
@@ -58,9 +55,10 @@ fn memoh_oauth_factories(
 fn memoh_mint_device_id() -> String raise @posoco.CommandError {
   let bytes = match @env.rand(16) {
     Some(data) if data.length() == 16 => data
-    _ => raise @posoco.CommandError::ExecutionFailed(
-      "Cannot mint persistent login device id",
-    )
+    _ =>
+      raise @posoco.CommandError::ExecutionFailed(
+        "Cannot mint persistent login device id",
+      )
   }
   let hex = "0123456789abcdef"
   let result = StringBuilder()
@@ -89,20 +87,23 @@ async fn memoh_device_id(
   let path = home + "/kimi_device_id"
   match @workspace.read_file_result(fs, path) {
     Content(value) if !value.trim().is_empty() => value.trim().to_owned()
-    Failed(_) => raise @posoco.CommandError::ExecutionFailed(
-      "Cannot read persistent login device id",
-    )
+    Failed(_) =>
+      raise @posoco.CommandError::ExecutionFailed(
+        "Cannot read persistent login device id",
+      )
     _ => {
       let id = memoh_mint_device_id()
       fs.mkdir(home, recursive=true) catch {
-        _ => raise @posoco.CommandError::ExecutionFailed(
-          "Cannot save persistent login device id",
-        )
+        _ =>
+          raise @posoco.CommandError::ExecutionFailed(
+            "Cannot save persistent login device id",
+          )
       }
       fs.write_file_atomic(path, id) catch {
-        _ => raise @posoco.CommandError::ExecutionFailed(
-          "Cannot save persistent login device id",
-        )
+        _ =>
+          raise @posoco.CommandError::ExecutionFailed(
+            "Cannot save persistent login device id",
+          )
       }
       id
     }
@@ -113,17 +114,16 @@ async fn memoh_device_id(
 /// Credential commit is the only durable mutation during login. A provider
 /// can authenticate successfully yet still need non-secret model settings;
 /// unlike setup, login does not require a runnable model to save auth.
-pub async fn run_memoh_login(
-  home~ : String,
-  provider~ : String = "",
-) -> Unit {
+pub async fn run_memoh_login(home~ : String, provider~ : String = "") -> Unit {
   let fs = @workspace.NativeWorkspaceFs()
   let settings = load_provider_settings(fs, home)
   let ctx = @devkit.ExtContext::default()
   let candidates = memoh_login_candidates(settings)
   @bootstrap.with_terminal_auth(
     note=async fn(message) noraise {
-      @stdio.stderr.write(@utf8.encode(message)[:]) catch { _ => () }
+      @stdio.stderr.write(@utf8.encode(message)[:]) catch {
+        _ => ()
+      }
     },
     body=async fn(interaction, prompt) {
       let login = @bootstrap.authenticate_login(
@@ -160,16 +160,19 @@ pub async fn run_memoh_login(
       // Commit only after the shared flow has checked cancellation and
       // returned a complete, provider-owned credential.
       let store = @credentials.FileProviderCredentialStore(
-        fs, credentials_path(home),
+        fs,
+        credentials_path(home),
       )
       store.write(login.provider, login.credential) catch {
-        _ => raise @posoco.CommandError::ExecutionFailed(
-          "Authentication completed, but credentials could not be saved",
-        )
+        _ =>
+          raise @posoco.CommandError::ExecutionFailed(
+            "Authentication completed, but credentials could not be saved",
+          )
       }
       @stdio.stderr.write(
         @utf8.encode(
-          "cetas-memoh: authentication saved for " + login.provider +
+          "cetas-memoh: authentication saved for " +
+          login.provider +
           "; restart the Memoh ACP runtime to use the updated credential.\n",
         )[:],
       )

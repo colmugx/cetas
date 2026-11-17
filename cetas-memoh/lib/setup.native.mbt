@@ -145,8 +145,10 @@ async fn setup_with_prompt(
 pub async fn run_setup(home~ : String, provider~ : String = "") -> String {
   let output = Ref("")
   @bootstrap.with_terminal_auth(
-    note=async fn(message) noraise { 
-      @stdio.stderr.write(@utf8.encode(message)[:]) catch { _ => () }
+    note=async fn(message) noraise {
+      @stdio.stderr.write(@utf8.encode(message)[:]) catch {
+        _ => ()
+      }
     },
     body=async fn(_interaction, prompt) {
       output.val = setup_with_prompt(home, provider, prompt)

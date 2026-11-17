@@ -24,15 +24,30 @@ pub async fn load_provider_settings(&@posoco-ext-workspace.WorkspaceFs, String) 
 
 pub fn memoh_builtin_skills() -> Array[@posoco-ext-skills.SkillDescriptor]
 
+pub fn memoh_usage() -> String
+
 pub async fn memoh_warn(String) -> Unit noraise
 
+pub fn parse_memoh_invocation(Array[String]) -> MemohInvocation
+
 pub fn providers_path(String) -> String
+
+pub async fn run_memoh_login(home~ : String, provider? : String) -> Unit
 
 pub async fn run_setup(home~ : String, provider? : String) -> String
 
 // Errors
 
 // Types and methods
+pub(all) enum MemohInvocation {
+  MemohServe
+  MemohSetup(String)
+  MemohLogin(String)
+  MemohHelp
+  MemohVersion
+  MemohInvalid(String)
+}
+
 pub struct MemohHost {
   version : String
   cwd : String

@@ -7,7 +7,9 @@ test "Memoh login candidates use only registered provider capabilities" {
   assert_true(ids.contains("deepseek"))
   assert_true(ids.contains("zai"))
   for option in choices {
-    assert_true(option.methods.contains("api_key") || option.methods.contains("oauth"))
+    assert_true(
+      option.methods.contains("api_key") || option.methods.contains("oauth"),
+    )
     if option.id == "kimi" || option.id == "openai" {
       assert_true(option.methods.contains("oauth"))
       assert_true(option.methods.contains("api_key"))
@@ -16,7 +18,9 @@ test "Memoh login candidates use only registered provider capabilities" {
   let custom = memoh_login_candidates(
     Map::from_array([("my_provider", Json::object(Map::from_array([])))]),
   )
-  assert_true(custom.any(fn(option) {
-    option.id == "my_provider" && option.methods.contains("api_key")
-  }))
+  assert_true(
+    custom.any(fn(option) {
+      option.id == "my_provider" && option.methods.contains("api_key")
+    }),
+  )
 }

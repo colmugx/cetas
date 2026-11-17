@@ -32,7 +32,9 @@ async fn main {
     match action {
       @lib.MemohInvalid(reason) =>
         @stdio.stderr.write(
-          @utf8.encode("cetas-memoh: " + reason + "\n" + @lib.memoh_usage() + "\n")[:],
+          @utf8.encode(
+            "cetas-memoh: " + reason + "\n" + @lib.memoh_usage() + "\n",
+          )[:],
         )
       _ => ()
     }
@@ -60,11 +62,10 @@ async fn main {
       _ => ""
     }
     @lib.run_memoh_login(home~, provider~) catch {
-      error => {
+      error =>
         @stdio.stderr.write(
           @utf8.encode("cetas-memoh: login failed: " + error.to_string() + "\n")[:],
         )
-      }
     }
     return
   }
