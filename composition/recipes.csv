@@ -26,6 +26,7 @@ general,*,*,270,webfetch,core,colmugx/posoco-ext-webfetch,webfetch,any,webfetch
 general,*,*,280,bash,core,colmugx/posoco-ext-bash,bash,any,shell
 general,*,*,281,ps1,core,colmugx/posoco-ext-ps1,ps1,any,shell
 general,*,*,290,skills,core,colmugx/posoco-ext-skills,skills,any,skills
+general,*,*,295,pstack,host,colmugx/posoco-ext-pstack,pstack,any,
 general,*,*,300,askquestion,core,colmugx/posoco-ext-askquestion,askquestion,any,askquestion
 general,*,*,310,handoff,core,colmugx/posoco-ext-handoff,handoff,any,handoff
 general,*,*,320,lazytools,core,colmugx/posoco-ext-lazytools,lazytools,any,lazytools

@@ -131,7 +131,9 @@ async fn build_cetas_skills(
     Some(skills) => skills.catalog()
     None => @skills.SkillCatalog::empty()
   }
-  let full = @skills.merge_builtin_skills(discovered, manuals)
+  let builtins = manuals.copy()
+  builtins.push(@pstack.Pstack::embedded_descriptor())
+  let full = @skills.merge_builtin_skills(discovered, builtins)
   let catalog = match requested {
     None => full
     Some(names) if names.is_empty() => full
@@ -154,14 +156,28 @@ async fn build_cetas_skills(
       @skills.SkillCatalog::{ skills: selected, diagnostics: [], }
     }
   }
-  match
-    @skills.Skills::from_catalog(ctx.fs, catalog~, config=cetas_skills_config()) {
-    Ok(skills) => Some(skills as &@posoco.Extension)
-    Err(reason) =>
-      raise @posoco.CompositionError::ManifestSchemaError(
-        manifest_id="cetas.skills",
-        detail="skills composition failed: " + reason,
-      )
+  if catalog.find("poteto-mode") is Some(_) {
+    match @pstack.Pstack::compose(
+      ctx.fs, catalog, config=cetas_skills_config(),
+    ) {
+      Ok(pstack) => Some(pstack as &@posoco.Extension)
+      Err(reason) =>
+        raise @posoco.CompositionError::ManifestSchemaError(
+          manifest_id="cetas.pstack",
+          detail="PStack composition failed: " + reason,
+        )
+    }
+  } else {
+    match @skills.Skills::from_catalog(
+      ctx.fs, catalog~, config=cetas_skills_config(),
+    ) {
+      Ok(skills) => Some(skills as &@posoco.Extension)
+      Err(reason) =>
+        raise @posoco.CompositionError::ManifestSchemaError(
+          manifest_id="cetas.skills",
+          detail="skills composition failed: " + reason,
+        )
+    }
   }
 }
 
@@ -222,9 +238,7 @@ async fn build_compiled_recipe_features(
         let skills = build_cetas_skills(
           ctx~,
           manuals=forme.builtin_manual_skills(),
-        ) catch {
-          _ => None
-        }
+        )
         match skills {
           Some(skills) => exts.push(skills)
           None => ()

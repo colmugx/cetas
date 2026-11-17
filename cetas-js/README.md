@@ -3,24 +3,17 @@
 The JS host composes Cetas through Posoco extensions.
 
 
-## Optional PStack workflow
 
-PStack is opt-in. Set `CETAS_PSTACK_ASSETS_ROOT` to the installed
-`posoco-ext-pstack/assets` directory, for example:
+## PStack workflow (built-in)
 
-```sh
-CETAS_PSTACK_ASSETS_ROOT="$PWD/extension/posoco-ext-pstack/assets" bun run start
-```
+All Cetas surfaces ship PStack through `posoco-ext-pstack`, with no
+`CETAS_PSTACK_ASSETS_ROOT`, extra installation or activation configuration.
+Run `/poteto-mode` to load the task-specific original PStack workflow;
+run it again to clear the mode's session status. PStack's embedded readonly
+resources are available through `read_skill_resource` on JS, Native, ACP and Run.
 
-Cetas discovers the file-backed PStack SKILL.md alongside normal project/user
-Skills and Forme manuals in **one** Skills catalog. It uses the existing Posoco
-tools, model, permissions and subagents. Run `/poteto-mode` to activate the
-original task-specific playbooks; run it again to clear the session mode and
-`🥔 Mode On` statusbar segment. The second toggle does not erase instructions
-already loaded into conversation history.
-
-An invalid configured root fails composition rather than silently falling
-back to a condensed prompt. With the environment variable unset, Cetas behaves
-as before, including its normal Skills command and catalog. A child Agent
-reconstructs its own Skills catalog from the same directory when its Kind
-allows `poteto-mode`. No Cursor cloud agents, Automations or plugins are added.
+The extension shares Cetas's normal Skills runtime and Forme manuals, not a
+second `activate_skill` ToolProvider. It uses the composed Agent's event
+bus for its statusbar segment. Subagent skill access remains restricted by
+Kind selection. Toggling off cannot erase already loaded conversation history.
+No Cursor automations, cloud agents or other peripheral features are included.

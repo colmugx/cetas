@@ -55,6 +55,9 @@ pub fn cetas_shared_capabilities() -> Array[CetasCapability] {
     capability("bash", "colmugx/posoco-ext-bash", Some("shell")),
     capability("ps1", "colmugx/posoco-ext-ps1", Some("shell")),
     capability("skills", "colmugx/posoco-ext-skills", Some("skills")),
+    // PStack is composed through the same Skills runtime on every surface,
+    // not as a second skill tool provider or a JS-specific feature.
+    capability("pstack", "colmugx/posoco-ext-pstack", None),
     capability(
       "askquestion",
       "colmugx/posoco-ext-askquestion",
@@ -212,4 +215,14 @@ test "roster: only the js surface carries the js-only capabilities" {
   assert_true(cetas_capability_package("native", "plan") is Some(_))
   assert_true(cetas_capability_package("native", "mcp") is Some(_))
   assert_true(cetas_capability_package("run", "stats") is None)
+}
+
+///|
+test "roster: PStack is a standard capability on every surface" {
+  for host in cetas_roster_hosts() {
+    assert_eq(
+      cetas_capability_package(host, "pstack"),
+      Some("colmugx/posoco-ext-pstack"),
+    )
+  }
 }
