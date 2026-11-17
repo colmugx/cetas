@@ -8,15 +8,15 @@ Atom (one core, every surface) and Fairy (Cetas's spirit-like product experience
 
 ## M4 — local multi-surface Session
 
-1. Independent EventHub subscriptions and connection-scoped control messages — merged in PR #151.
+1. Independent EventHub subscriptions and connection-scoped control messages — implemented on main; historical PR #151 remains open and is superseded by M4.2/M4.3.
 2. Per-Surface attachment to an explicit workspace and Session without mutating another Surface's selection — merged in PR #162.
-3. Snapshot/replay continuity with per-Session high-water cursors, runtime epochs, and explicit gap handling — in progress in PR #164.
-4. Local single-owner IPC (Unix domain socket / Windows named pipe), owner arbitration, and single-writer JSONL enforcement — next slice, M4.4.
+3. Snapshot/replay continuity with per-Session high-water cursors, runtime epochs, and explicit gap handling — merged in PR #164.
+4. Local single-owner IPC — OS owner lease from merged PR #166 and Unix wire protocol from merged PR #171; Windows named pipes, cross-host adapters, and single-writer end-to-end validation remain incomplete.
 5. Acceptance across JS+JS, Go+Go, Go+JS, Web, and desktop surfaces.
 
 Success: a second Cetas surface resumes an existing live Session and observes the same execution without composing a second Agent or creating a second journal writer.
 
-M4.3 does not claim cross-process ownership. Until M4.4 is complete, the single-owner guarantee is limited to the current in-process runtime boundary.
+M4.3 provides in-process event continuity, not cross-process ownership. M4.4 has native Go owner leasing and initial Unix transport building blocks, but does not yet provide cross-host shared execution or fully enforce single-writer ownership across JS, Go, and Web.
 
 ## M7 — local Agent collaboration
 
@@ -64,4 +64,4 @@ Malphite extends the local collaboration protocols across machine and network bo
 
 ## Current PR scope
 
-PR #164 implements M4.3 snapshot/replay continuity. It does not implement M4.4 local IPC, M7 peer collaboration, or the Malphite remote relay.
+PR #164 merged M4.3 snapshot/replay continuity; PR #166 merged the native owner lease and PR #171 merged initial local IPC framing and Unix endpoint. Full M4.4 host adapters, M7 peer collaboration, and the Malphite remote relay remain future work. PR #151 is an older unmerged implementation of event fanout whose behavior is already present in main; only its missing regression coverage is being ported separately.

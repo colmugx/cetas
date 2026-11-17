@@ -116,3 +116,51 @@ test "event hub snapshots expose runtime epoch and per-session high water" {
   assert_eq(event_cursor_field(frames[2], "runtime_epoch"), epoch)
   hub.unsubscribe(sub)
 }
+
+///|
+/// Realtime-only frames advance the per-Session broadcast cursor and fan out
+/// to existing subscribers, without replaying earlier frames to a late peer.
+test "out-of-band events reach existing subscribers without replaying history" {
+  let hub = EventHub::new()
+  let first : Array[String] = []
+  let second : Array[String] = []
+  let a = hub.subscribe(fn(frame) { first.push(frame) })
+  hub.emit("s", "t", "turn.accepted")
+  let b = hub.subscribe(fn(frame) { second.push(frame) })
+  assert_eq(second.length(), 0)
+  hub.emit_out_of_band("s", "question.pending")
+  assert_eq(first.length(), 2)
+  assert_eq(second.length(), 1)
+  assert_eq(first[1], second[0])
+  assert_eq(event_cursor_field(first[1], "cursor"), Json::number(2.0))
+  assert_eq(
+    event_cursor_field(first[1], "cursor_advance"),
+    Json::boolean(true),
+  )
+  hub.unsubscribe(b)
+  hub.emit_out_of_band("s", "question.resolved")
+  assert_eq(first.length(), 3)
+  assert_eq(second.length(), 1)
+  hub.unsubscribe(a)
+}
+
+///|
+/// Removing a subscriber during dispatch must not mutate the iterator,
+/// suppress the other subscriber, or re-deliver on the following broadcast.
+test "subscriber can cancel itself during event delivery" {
+  let hub = EventHub::new()
+  let self_id = Ref("")
+  let first : Array[String] = []
+  let second : Array[String] = []
+  let a = hub.subscribe(fn(frame) {
+    first.push(frame)
+    hub.unsubscribe(self_id.val)
+  })
+  self_id.val = a
+  let b = hub.subscribe(fn(frame) { second.push(frame) })
+  hub.emit("s", "", "statusbar.step")
+  hub.emit("s", "", "statusbar.step")
+  assert_eq(first.length(), 1)
+  assert_eq(second.length(), 2)
+  hub.unsubscribe(b)
+}
