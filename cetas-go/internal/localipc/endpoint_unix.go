@@ -4,6 +4,7 @@ package localipc
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net"
@@ -16,6 +17,28 @@ import (
 var ErrEndpointActive = errors.New("Cetas local IPC endpoint is already active")
 
 const socketName = "owner.sock"
+
+// unixSocketPath uses the canonical Cetas home to derive a stable, short
+// socket path. macOS limits sockaddr_un.sun_path to roughly 104 bytes and
+// neither a deep home nor macOS's long TMPDIR can safely be used directly.
+// /tmp is a short Unix-local parent, with a 0700 per-user/per-home directory.
+// The OS owner lease in home/.cetas/ipc remains the execution authority.
+func unixSocketPath(home string) (string, error) {
+	root, err := filepath.Abs(home)
+	if err != nil {
+		return "", fmt.Errorf("resolve IPC home: %w", err)
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize IPC home: %w", err)
+	}
+	if err := checkDirectory(filepath.Join(root, ".cetas", "ipc"), true); err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256([]byte(root))
+	dir := filepath.Join("/tmp", fmt.Sprintf("cetas-%d-%x", os.Geteuid(), digest[:12]))
+	return filepath.Join(dir, socketName), nil
+}
 
 type ownedUnixListener struct {
 	*net.UnixListener
@@ -47,11 +70,19 @@ func ListenLocal(lease *Lease) (net.Listener, error) {
 	if _, err := lease.file.Stat(); err != nil {
 		return nil, fmt.Errorf("local IPC lease unavailable: %w", err)
 	}
-	dir := filepath.Dir(lease.file.Name())
+	// Lease file is <canonical home>/.cetas/ipc/owner.lock.
+	home := filepath.Dir(filepath.Dir(filepath.Dir(lease.file.Name())))
+	path, err := unixSocketPath(home)
+	if err != nil {
+		return nil, err
+	}
+	dir := filepath.Dir(path)
+	if err := os.Mkdir(dir, 0700); err != nil && !errors.Is(err, os.ErrExist) {
+		return nil, fmt.Errorf("create private local IPC directory: %w", err)
+	}
 	if err := checkDirectory(dir, true); err != nil {
 		return nil, err
 	}
-	path := filepath.Join(dir, socketName)
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSocket == 0 {
 			return nil, fmt.Errorf("refusing non-socket IPC endpoint %s", path)
@@ -98,17 +129,17 @@ func ListenLocal(lease *Lease) (net.Listener, error) {
 // DialLocal does not attempt owner election or create runtime state. It
 // connects only to an existing endpoint within a private per-user directory.
 func DialLocal(ctx context.Context, home string) (net.Conn, error) {
-	root, err := filepath.Abs(home)
-	if err != nil { return nil, err }
-	root, err = filepath.EvalSymlinks(root)
-	if err != nil { return nil, err }
-	dir := filepath.Join(root, ".cetas", "ipc")
-	if err := checkDirectory(dir, true); err != nil {
+	path, err := unixSocketPath(home)
+	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(dir, socketName)
+	if err := checkDirectory(filepath.Dir(path), true); err != nil {
+		return nil, err
+	}
 	info, err := os.Lstat(path)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	if info.Mode()&os.ModeSocket == 0 || info.Mode().Perm()&0077 != 0 {
 		return nil, errors.New("unsafe local IPC socket")
 	}
