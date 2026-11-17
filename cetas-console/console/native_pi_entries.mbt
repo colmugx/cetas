@@ -63,21 +63,16 @@ pub async fn ConsoleRuntime::pi_guest_append_entries(
           return Err("Pi session is busy; retry after the native turn")
         }
         let store = workspace.platform.session_store as &@posoco.SessionPort
-        let loaded : Result[@posoco.Session, Error] = Ok(
-          store.load(session_id),
-        ) catch {
+        let loaded : Result[@posoco.Session, Error] = Ok(store.load(session_id)) catch {
           error => Err(error)
         }
         let session = match loaded {
           Ok(value) => value
-          Err(_) => @posoco.Session::{
-            messages: [],
-            metadata: Map::from_array([]),
-          }
+          Err(_) =>
+            @posoco.Session::{ messages: [], metadata: Map::from_array([]), }
         }
-        let merged : Array[Json] = match session.metadata.get(
-          NATIVE_PI_ENTRIES_KEY,
-        ) {
+        let merged : Array[Json] = match
+          session.metadata.get(NATIVE_PI_ENTRIES_KEY) {
           Some(Json::Array(items)) => items.copy()
           _ => []
         }
@@ -110,11 +105,13 @@ pub async fn ConsoleRuntime::pi_guest_append_entries(
             if merged.length() >= 1024 {
               return Err("Pi custom entry journal reached its 1024-entry limit")
             }
-            merged.push(Json::object({
-              "id": Json::string(id),
-              "customType": Json::string(custom_type),
-              "data": data,
-            }))
+            merged.push(
+              Json::object({
+                "id": Json::string(id),
+                "customType": Json::string(custom_type),
+                "data": data,
+              }),
+            )
             seen[id] = true
             added += 1
           }
@@ -125,16 +122,14 @@ pub async fn ConsoleRuntime::pi_guest_append_entries(
         let metadata = session.metadata.copy()
         metadata[NATIVE_PI_ENTRIES_KEY] = Json::array(merged)
         let saved : Result[Unit, Error] = Ok(
-          store.save(session_id, {
-            messages: session.messages,
-            metadata,
-          }),
+          store.save(session_id, { messages: session.messages, metadata, }),
         ) catch {
           error => Err(error)
         }
         return match saved {
           Ok(_) => Ok(added)
-          Err(error) => Err("Pi custom entry persist failed: " + error.to_string())
+          Err(error) =>
+            Err("Pi custom entry persist failed: " + error.to_string())
         }
       }
       None => ()
