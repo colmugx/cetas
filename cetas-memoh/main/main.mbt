@@ -15,21 +15,34 @@ async fn main {
   for i = 1; i < args.length(); i = i + 1 {
     argv.push(args[i])
   }
-  if argv.contains("--version") {
-    println("cetas-memoh \{CETAS_MEMOH_VERSION}")
-    return
-  }
-  let home = @lib.cetas_memoh_home()
-  if !argv.is_empty() && argv[0] == "setup" {
-    if argv.length() > 2 {
-      @stdio.stderr.write(
-        @utf8.encode(
-          "usage: cetas-memoh setup [openai|kimi|opencode|zai|zai-coding-plan]\n",
-        )[:],
-      )
+  let action = @lib.parse_memoh_invocation(argv)
+  match action {
+    @lib.MemohVersion => {
+      println("cetas-memoh \{CETAS_MEMOH_VERSION}")
       return
     }
-    let provider = if argv.length() == 2 { argv[1] } else { "" }
+    @lib.MemohHelp => {
+      println(@lib.memoh_usage())
+      return
+    }
+    _ => ()
+  }
+  let home = @lib.cetas_memoh_home()
+  if action is @lib.MemohInvalid(_) {
+    match action {
+      @lib.MemohInvalid(reason) =>
+        @stdio.stderr.write(
+          @utf8.encode("cetas-memoh: " + reason + "\n" + @lib.memoh_usage() + "\n")[:],
+        )
+      _ => ()
+    }
+    return
+  }
+  if action is @lib.MemohSetup(_) {
+    let provider = match action {
+      @lib.MemohSetup(provider) => provider
+      _ => ""
+    }
     let result = @lib.run_setup(home~, provider~) catch {
       error => {
         @stdio.stderr.write(
@@ -39,6 +52,20 @@ async fn main {
       }
     }
     println("cetas-memoh: " + result)
+    return
+  }
+  if action is @lib.MemohLogin(_) {
+    let provider = match action {
+      @lib.MemohLogin(provider) => provider
+      _ => ""
+    }
+    @lib.run_memoh_login(home~, provider~) catch {
+      error => {
+        @stdio.stderr.write(
+          @utf8.encode("cetas-memoh: login failed: " + error.to_string() + "\n")[:],
+        )
+      }
+    }
     return
   }
   let cwd = match @env.current_dir() {
