@@ -40,13 +40,11 @@ The bot must also have provider configuration/credentials that let
 
 ## 2. Run the live ACP preflight
 
-The harness is a MoonBit script (`scripts/memoh_live_e2e.mbtx`). It resolves its
-own dependencies from the registry, but it runs inside the `cetas-memoh` module,
-so the workspace bridge has to be prepared first:
+The harness runs against Cetas's root `moon.work` and normal `extension/`
+submodule. From the repository root:
 
 ```sh
-cd cetas-memoh
-python3 scripts/bootstrap_workspace.py
+git submodule update --init --recursive
 moon update
 ```
 
@@ -58,7 +56,7 @@ export MEMOH_API_URL="https://memoh.example/api"
 export MEMOH_TOKEN="..."
 export MEMOH_BOT_ID="..."
 
-moon run --target native scripts/memoh_live_e2e.mbtx --
+moon run --target native cetas-memoh/scripts/memoh_live_e2e.mbtx --
 ```
 
 The harness speaks exactly one Memoh surface: `GET /bots/{id}/acp-options`,
@@ -79,7 +77,7 @@ and a preflight against the wrong surface is worse than none.
 To exercise live model and reasoning controls:
 
 ```sh
-moon run --target native scripts/memoh_live_e2e.mbtx -- --exercise-controls
+moon run --target native cetas-memoh/scripts/memoh_live_e2e.mbtx -- --exercise-controls
 ```
 
 This selects a model on a throwaway probe session and checks that the agent
@@ -88,7 +86,7 @@ reports it back together with that model's own reasoning efforts.
 To verify that two model selections do not bleed into each other:
 
 ```sh
-moon run --target native scripts/memoh_live_e2e.mbtx -- --exercise-concurrency
+moon run --target native cetas-memoh/scripts/memoh_live_e2e.mbtx -- --exercise-concurrency
 ```
 
 This fails unless the agent offers at least two models, then reads two different
@@ -110,13 +108,13 @@ repository secret `MEMOH_TOKEN`, then dispatch the workflow with:
 - optional `project_path`,
 - optional model/reasoning and concurrency checks (enabled by default).
 
-The workflow installs the MoonBit toolchain, prepares the workspace bridge and
+The workflow installs the MoonBit toolchain, checks out the shared extension submodule and
 runs the `.mbtx` harness; ``memoh-ci`` separately runs its ``--self-check``
 fixture set on every pull request, so harness regressions fail without needing a
 live deployment.
 
-The workflow uses only the dedicated `memoh-*` path and never runs as part of
-the general Cetas CI. GitHub masks the configured secret and the harness also
+The dedicated Memoh workflows share the same root workspace and extension
+submodule with the general Cetas CI. GitHub masks the configured secret and the harness also
 redacts common credential shapes from HTTP error bodies.
 
 ## 4. Finish the UI/tool E2E manually

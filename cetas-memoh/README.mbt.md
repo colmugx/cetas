@@ -80,27 +80,38 @@ context, or permission extensions; those remain Memoh-owned surfaces.
 
 ## Development workspace
 
-Some Posoco extension modules used by `cetas-memoh` are not yet published to
-the Moon registry. Until they are, the subtree pins a source revision in
-`EXTENSION_REV`. Prepare the local workspace with:
+Memoh uses the **same root `moon.work` and `extension/` submodule as every
+other Cetas surface**. There is no Memoh-specific source checkout, revision
+pin, hand-maintained module list, or generated workspace.
+
+From the Cetas repository root:
 
 ```sh
-python3 scripts/bootstrap_workspace.py
+git submodule update --init --recursive
 moon update
-moon check --target native
+moon check -p cetas-memoh/lib --target native
+moon check -p cetas-memoh/main --target native
+moon test cetas-memoh/lib --target native
+moon build cetas-memoh/main --target native --release
 ```
 
-The bootstrap clones `posoco-extension` into the ignored `.deps/` directory
-and generates an ignored local `moon.work`. This temporary bridge is contained
-inside `cetas-memoh/` so the subtree can move to its own repository cleanly.
+The `extension` gitlink in Cetas controls the shared extension revision for
+**all** surfaces. Update that single submodule pointer to advance shared code;
+Memoh follows alongside ACP, Core, and the other surfaces. There is no
+Memoh-only pin or remote clone.
 
-The bridge is not optional yet. Every `colmugx/posoco-ext-*` import in
-`moon.mod` is absent from the registry, so a standalone `moon update` fails
-with `module was not found in the registry`; deleting the script or the pin
-breaks CI and the release job. The pin must also contain every module in the
-closure, including transitive `posoco-kit-*` ones — a missing member fails
-resolution the same way. Bumping `EXTENSION_REV` is the supported way to move
-the bridge forward; keep `MEMBERS` a closure over the revision, not a wish list.
+## Release process
+
+Memoh alone owns `cetas-memoh/VERSION`, its executable's `--version`, and
+`cetas-memoh-vX.Y.Z` tags. CI and Release use the root workspace and the
+same submodule checkout as the other surfaces. A Memoh tag checks, tests,
+builds, and publishes the Linux x86_64 binary in one job.
+
+For the next release, update Memoh's four independent version declarations
+(`VERSION`, `moon.mod`, `main/main.mbt`, and `install.sh`), run
+`python3 cetas-memoh/scripts/check_version.py`, commit on `main`, then push
+the matching `cetas-memoh-vX.Y.Z` tag. `SOURCE_REVISIONS-memoh` in the
+release assets identifies the Cetas and shared extension commits.
 
 ## Runtime ownership
 

@@ -1,153 +1,80 @@
-# Dedicated Linux x86_64 release pipeline for cetas-memoh.
+# Independent Memoh tag/release, shared root Cetas workspace.
 name: memoh-release
 
 on:
   push:
     tags: ["cetas-memoh-v*"]
-  workflow_dispatch:
-    inputs:
-      cetas_ref:
-        description: "cetas ref containing the cetas-memoh source"
-        default: "main"
 
 permissions:
   contents: write
 
-env:
-  CETAS_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.cetas_ref || github.ref }}
-
 jobs:
-  memoh-preflight:
+  memoh-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
-      - name: memoh-checkout
+      - name: checkout Cetas with shared extension
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.CETAS_REF }}
-          sparse-checkout: |
-            /cetas-memoh/
-          sparse-checkout-cone-mode: false
+          submodules: recursive
 
-      - name: memoh-install-moon
+      - name: install MoonBit
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
 
-      - name: memoh-version-sync
-        working-directory: cetas-memoh
-        run: python3 scripts/check_version.py
-
-      - name: memoh-tag-version
-        if: github.event_name == 'push'
-        working-directory: cetas-memoh
+      - name: validate independent Memoh version
         run: |
-          expected="${GITHUB_REF_NAME#cetas-memoh-v}"
-          actual="$(cat VERSION)"
-          [[ "$actual" == "$expected" ]] || {
-            echo "::error::tag/version mismatch: tag=$expected file=$actual"
+          python3 cetas-memoh/scripts/check_version.py
+          expected="cetas-memoh-v$(cat cetas-memoh/VERSION)"
+          [[ "$GITHUB_REF_NAME" == "$expected" ]] || {
+            echo "::error::tag mismatch: got '$GITHUB_REF_NAME', want '$expected'"
             exit 1
           }
+          bash -n cetas-memoh/install.sh
 
-      - name: memoh-install-script-syntax
-        working-directory: cetas-memoh
-        run: bash -n install.sh
-
-      - name: memoh-bootstrap-workspace
-        working-directory: cetas-memoh
-        run: python3 scripts/bootstrap_workspace.py
-
-      - name: memoh-update
-        working-directory: cetas-memoh
+      - name: resolve shared root workspace
         run: moon update
 
-      - name: memoh-harness-self-check
-        working-directory: cetas-memoh
-        run: moon run --target native scripts/memoh_live_e2e.mbtx -- --self-check
+      - name: harness self-check
+        run: moon run --target native cetas-memoh/scripts/memoh_live_e2e.mbtx -- --self-check
 
-      - name: memoh-check
-        working-directory: cetas-memoh
-        run: moon check --target native --deny-warn --output-json
-
-      - name: memoh-test
-        working-directory: cetas-memoh
-        run: moon test --target native --output-json
-
-  memoh-build-linux-x64:
-    needs: [memoh-preflight]
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - name: memoh-checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.CETAS_REF }}
-          sparse-checkout: |
-            /cetas-memoh/
-          sparse-checkout-cone-mode: false
-
-      - name: memoh-install-moon
+      - name: typecheck Memoh
         run: |
-          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
-          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+          moon check -p cetas-memoh/lib --target native --deny-warn --output-json
+          moon check -p cetas-memoh/main --target native --deny-warn --output-json
 
-      - name: memoh-bootstrap-workspace
-        working-directory: cetas-memoh
-        run: python3 scripts/bootstrap_workspace.py
+      - name: test Memoh
+        run: moon test cetas-memoh/lib --target native --output-json
 
-      - name: memoh-update
-        working-directory: cetas-memoh
-        run: moon update
+      - name: build Linux x86_64
+        run: moon build cetas-memoh/main --target native --release
 
-      - name: memoh-build-release
-        working-directory: cetas-memoh
-        run: moon build --target native --release
-
-      - name: memoh-version-smoke
-        working-directory: cetas-memoh
+      - name: smoke-test and package
         run: |
-          expected="cetas-memoh $(cat VERSION)"
+          expected="cetas-memoh $(cat cetas-memoh/VERSION)"
           out="$(_build/native/release/build/colmugx/cetas-memoh/main/main.exe --version)"
-          echo "$out"
           [[ "$out" == "$expected" ]] || {
-            echo "::error::--version mismatch: got '$out', want '$expected'"
+            echo "::error::version mismatch: got '$out', want '$expected'"
             exit 1
           }
-
-      - name: memoh-package
-        working-directory: cetas-memoh
-        run: |
-          mkdir -p dist
-          cp "_build/native/release/build/colmugx/cetas-memoh/main/main.exe" "dist/cetas-memoh"
+          mkdir -p cetas-memoh/dist
+          cp _build/native/release/build/colmugx/cetas-memoh/main/main.exe cetas-memoh/dist/cetas-memoh
           (
-            cd dist
+            cd cetas-memoh/dist
             tar -czf cetas-memoh-linux-x64.tar.gz cetas-memoh
             sha256sum cetas-memoh-linux-x64.tar.gz > SHA256SUMS-memoh
           )
+          {
+            printf "cetas=%s\n" "$(git rev-parse HEAD)"
+            printf "extension=%s\n" "$(git rev-parse HEAD:extension)"
+          } > cetas-memoh/dist/SOURCE_REVISIONS-memoh
 
-      - name: memoh-upload
-        uses: actions/upload-artifact@v6
-        with:
-          name: memoh-linux-x64
-          path: |
-            cetas-memoh/dist/cetas-memoh-linux-x64.tar.gz
-            cetas-memoh/dist/SHA256SUMS-memoh
-
-  memoh-publish:
-    needs: [memoh-build-linux-x64]
-    if: startsWith(github.ref, 'refs/tags/cetas-memoh-v')
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: memoh-download
-        uses: actions/download-artifact@v7
-        with:
-          name: memoh-linux-x64
-          path: memoh-staging
-
-      - name: memoh-publish-assets
+      - name: publish Memoh release
         uses: softprops/action-gh-release@v2
         with:
+          fail_on_unmatched_files: true
           files: |
-            memoh-staging/cetas-memoh-linux-x64.tar.gz
-            memoh-staging/SHA256SUMS-memoh
+            cetas-memoh/dist/cetas-memoh-linux-x64.tar.gz
+            cetas-memoh/dist/SHA256SUMS-memoh
+            cetas-memoh/dist/SOURCE_REVISIONS-memoh
