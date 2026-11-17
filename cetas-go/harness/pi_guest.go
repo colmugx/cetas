@@ -412,7 +412,7 @@ func (s *piSupervisor) flushOutbox(sessionID string, guest nativepi.RuntimeGuest
 			// Only the native runtime can admit a new Agent turn. Busy turns
 			// leave this message pending rather than silently dropping it.
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			raw, requestErr := s.host.Request(ctx, "turn", map[string]any{
+			raw, requestErr := s.host.Request(ctx, "turn_start", map[string]any{
 				"session_id": sessionID, "prompt": message.Text,
 			})
 			cancel()
