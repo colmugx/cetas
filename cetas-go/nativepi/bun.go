@@ -49,6 +49,25 @@ type CommandOutcome struct {
 	Feedback string `json:"feedback,omitempty"`
 	Reason   string `json:"reason,omitempty"`
 }
+type PiCustomEntry struct {
+	ID         string          `json:"id"`
+	CustomType string          `json:"customType"`
+	Data       json.RawMessage `json:"data"`
+}
+
+type PiOutgoingMessage struct {
+	ID          string `json:"id"`
+	Text        string `json:"text"`
+	TriggerTurn bool   `json:"triggerTurn"`
+	DeliverAs   string `json:"deliverAs"`
+	Display     bool   `json:"display"`
+}
+
+type PiOutbox struct {
+	Entries  []PiCustomEntry
+	Messages []PiOutgoingMessage
+}
+
 
 // Commander is optional: the native moejs guest has no slash-command bridge.
 type Commander interface {
@@ -64,6 +83,8 @@ type bunReply struct {
 	Commands []Command `json:"commands"`
 	CommandGeneration uint64 `json:"commandGeneration"`
 	Outcome CommandOutcome `json:"outcome"`
+	Entries []PiCustomEntry `json:"entries"`
+	Messages []PiOutgoingMessage `json:"messages"`
 	Warnings   []string `json:"warnings"`
 	Result     Result   `json:"result"`
 	Error      string   `json:"error"`
@@ -232,6 +253,39 @@ func (g *BunGuest) UpdateModels(snapshot json.RawMessage) error {
 		return errors.New("invalid Pi model snapshot")
 	}
 	_, err := g.request("models", map[string]any{"snapshot": json.RawMessage(snapshot)})
+	return err
+}
+
+// UpdateSession restores the owning Posoco journal's Pi custom entries.
+// A Bun guest never chooses another session or opens the native store.
+func (g *BunGuest) UpdateSession(snapshot json.RawMessage) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !json.Valid(snapshot) {
+		return errors.New("invalid Pi session snapshot")
+	}
+	_, err := g.request("session", map[string]any{"snapshot": snapshot})
+	return err
+}
+
+// PendingOutbox is a non-destructive snapshot. Acknowledgements happen only
+// after the native host has accepted the journal write or message delivery.
+func (g *BunGuest) PendingOutbox() (PiOutbox, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	reply, err := g.request("peek-outbox", map[string]any{})
+	if err != nil {
+		return PiOutbox{}, err
+	}
+	return PiOutbox{Entries:reply.Entries, Messages:reply.Messages}, nil
+}
+
+func (g *BunGuest) AckOutbox(entryIDs, messageIDs []string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	_, err := g.request("ack-outbox", map[string]any{
+		"entryIds":entryIDs, "messageIds":messageIDs,
+	})
 	return err
 }
 
