@@ -16,6 +16,17 @@ const tools = new Map();
 const activeTools = new Set();
 const observers = new Map();
 const commands = new Map();
+// Session custom entries are host-owned; the worker holds only unacknowledged
+// submissions plus a read-only copy of entries restored by the native store.
+let sessionID = "";
+let restoredEntries = [];
+let pendingEntries = [];
+let pendingMessages = [];
+let nextOutboxID = 0;
+const newOutboxID = () => String(Date.now()) + "-" + String(++nextOutboxID);
+const entryBranch = () => [...restoredEntries, ...pendingEntries].map(
+  e => ({type:"custom",customType:e.customType,data:e.data})
+);
 let commandGeneration = 0;
 let activeCommandNotices = null;
 let generation = 0;
@@ -74,7 +85,7 @@ function context(notices) {
     model:modelSnapshot.model,
     modelRegistry,
     scopedModels:[],
-    sessionManager:{getBranch:()=>[]},
+    sessionManager:{getBranch:entryBranch,getSessionId:()=>sessionID},
     isIdle:()=>true,
     ui:{
       notify(message) {
@@ -227,6 +238,16 @@ function api(pkg) {
       };
     },
     exec(command, args) { return openCuratorBrowser(command, args); },
+    appendEntry(customType, data) {
+      if(typeof customType !== "string" || !customType || customType.length > 128)
+        throw new Error("Pi appendEntry requires a bounded custom type");
+      const json = JSON.stringify(data ?? null);
+      if(!json || json.length > 262144)
+        throw new Error("Pi appendEntry exceeds the 256 KiB entry budget");
+      if(pendingEntries.length >= 64)
+        throw new Error("Pi appendEntry outbox full (64 entries)");
+      pendingEntries.push({id:newOutboxID(),customType,data:JSON.parse(json)});
+    },
     getAllTools() { return allTools(); },
     getActiveTools() { return [...activeTools]; },
     setActiveTools(names) {
@@ -247,14 +268,25 @@ function api(pkg) {
       }, handler: def.handler, shortcut: false });
       commandGeneration++;
     },
-    // Pi messages emitted by a command can be displayed by the native TUI
-    // as command feedback. They are not injected into the Posoco journal or
-    // silently promoted into a new Agent turn.
-    sendMessage(message) {
+    // Messages with triggerTurn are delivered to the native host's turn
+    // admission path. Non-turn notifications are out-of-band UI events. No
+    // message is injected into the Agent from inside the Bun subprocess.
+    sendMessage(message, options={}) {
       const text = messageText(message);
       if (!text) return;
-      if (activeCommandNotices) activeCommandNotices.push(text);
-      else warnings.push(pkg + ": Pi sendMessage outside a native command cannot be delivered: " + text);
+      if(text.length > 65536) throw new Error("Pi sendMessage exceeds 64 KiB");
+      if (activeCommandNotices && options?.triggerTurn !== true) {
+        activeCommandNotices.push(text);
+        return;
+      }
+      if(pendingMessages.length >= 64)
+        throw new Error("Pi sendMessage outbox full (64 messages)");
+      pendingMessages.push({
+        id:newOutboxID(),text,
+        triggerTurn:options?.triggerTurn===true,
+        deliverAs:options?.deliverAs==="followUp"?"followUp":"turn",
+        display:message?.display!==false,
+      });
     },
     registerShortcut(key, def) {
       if (typeof key !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9+_-]*$/.test(key) || typeof def?.handler !== "function")
@@ -302,6 +334,30 @@ function textResult(result) {
   return {ok:!result.isError,content:parts.join("\n"),details:result.details};
 }
 async function dispatch(req) {
+  if(req.kind==="session") {
+    const snapshot = req.snapshot;
+    if(!snapshot || typeof snapshot.session_id!=="string" ||
+      !Array.isArray(snapshot.entries)) throw new Error("invalid Pi session snapshot");
+    sessionID=snapshot.session_id;
+    restoredEntries=snapshot.entries.filter(e=>
+      typeof e?.customType==="string" && typeof e?.id==="string");
+    // Re-run Pi's branch-local restore after the host supplied the journal.
+    await notify("session_tree");
+    return {};
+  }
+  if(req.kind==="peek-outbox") {
+    return {entries:pendingEntries.slice(),messages:pendingMessages.slice()};
+  }
+  if(req.kind==="ack-outbox") {
+    if(!Array.isArray(req.entryIds) || !Array.isArray(req.messageIds))
+      throw new Error("invalid Pi outbox acknowledgement");
+    const saved = new Set(req.entryIds);
+    restoredEntries.push(...pendingEntries.filter(e=>saved.has(e.id)));
+    pendingEntries=pendingEntries.filter(e=>!saved.has(e.id));
+    const delivered = new Set(req.messageIds);
+    pendingMessages=pendingMessages.filter(e=>!delivered.has(e.id));
+    return {};
+  }
   if(req.kind==="models") {
     const changed=acceptModelSnapshot(req.snapshot);
     if(changed) await notify("model_select", {model:modelSnapshot.model});
