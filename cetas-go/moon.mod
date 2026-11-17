@@ -1,6 +1,6 @@
 name = "colmugx/cetas-go"
 
-version = "0.11.5"
+version = "0.11.6"
 
 readme = "README.md"
 

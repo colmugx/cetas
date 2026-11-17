@@ -2,6 +2,20 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.11.6 (2026-11-17)
+
+## General
+### Feats
+- Keep each connected surface on its own session, so switching sessions in one surface no longer changes the session used by another.
+- Recover missed conversation updates after reconnects or runtime restarts, keeping session transcripts in sync without replaying stale events.
+
+## Native Ver.（cetas-go）
+### Feats
+- Run allowlisted Pi extensions in an optional Bun guest and use their tools from the agent.
+- Discover Pi slash commands and shortcuts in the terminal, run them with their arguments, and see command output directly in the TUI.
+- Switch between the Providers and Magpie model managers, and sign in to Magpie from the terminal.
+- Manage Pi extension packages with install, remove, and list commands, and see progress while Pi or Bun packages are being installed.
+
 ## 0.11.5 (2026-11-16)
 
 ## General
