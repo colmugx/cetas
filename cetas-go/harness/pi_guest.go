@@ -312,10 +312,10 @@ func (s *piSupervisor) execute(g nativepi.RuntimeGuest, sessionID, requestID, na
 	// Never redirect a late request to a newly opened VM for the same session.
 	result := nativepi.Result{Content: "Native Pi guest unavailable for session " + sessionID}
 	if g != nil {
+		_, before := g.Catalog()
 		if err := s.refreshModels(sessionID, g); err != nil {
 			s.host.report(fmt.Errorf("Pi guest session %s model refresh: %w", sessionID, err))
 		}
-		_, before := g.Catalog()
 		result = g.Execute(name, callID, arguments)
 		defs, after := g.Catalog()
 		if after != before {
