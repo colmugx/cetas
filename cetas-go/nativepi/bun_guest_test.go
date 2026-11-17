@@ -234,8 +234,9 @@ func TestBunGuestPiCommandModelRegistryContext(t *testing.T) {
       const found = summaryContext.modelRegistry.find("openai", "test-model");
       const auth = await summaryContext.modelRegistry.getApiKeyAndHeaders({provider:"openai",id:"test-model"});
       ctx.ui.notify("available:" + available.length + ",all:" + all.length +
-        ",found:" + String(found) + ",auth:" + auth.ok +
-        ",scope:" + summaryContext.scopedModels.length);
+        ",found:" + String(found?.id) + ",auth:" + auth.ok +
+        ",scope:" + summaryContext.scopedModels.length +
+        ",active:" + (ctx.model?.provider ?? "none") + "/" + (ctx.model?.id ?? "none"));
     },
   });
   pi.registerTool({
@@ -267,6 +268,22 @@ func TestBunGuestPiCommandModelRegistryContext(t *testing.T) {
 	result := g.Execute("probe_context", "call-1", json.RawMessage(`{}`))
 	if !result.OK || result.Content != "available:0" {
 		t.Fatalf("Pi tool model registry context unavailable: %#v", result)
+	}
+
+	// The real Cetas model picker publishes a session-scoped snapshot.
+	// Project metadata only, never credentials, then verify both command
+	// and tool contexts switch from the empty bootstrap state to real data.
+	snapshot := json.RawMessage(`{"active":"openai/test-model","slots":[{"id":"openai/test-model","provider":"openai","model":"test-model","label":"Test model","context_window":8192}]}`)
+	if err := g.UpdateModels(snapshot); err != nil {
+		t.Fatalf("update Pi model snapshot: %v", err)
+	}
+	out = g.RunCommand("pi:websearch", "")
+	if out.Type != "success" || !strings.Contains(out.Feedback, "available:1,all:1,found:test-model,auth:false,scope:0,active:openai/test-model") {
+		t.Fatalf("Pi command model snapshot missing: %#v", out)
+	}
+	result = g.Execute("probe_context", "call-2", json.RawMessage(`{}`))
+	if !result.OK || result.Content != "available:1" {
+		t.Fatalf("Pi tool model snapshot missing: %#v", result)
 	}
 }
 
