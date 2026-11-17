@@ -10,7 +10,7 @@ pub(all) struct LoginCandidate {
 /// A successful authentication. The caller owns storage and post-login policy.
 pub(all) struct AuthenticatedLogin {
   provider : String
-  method : String
+  auth_method : String
   credential : @oauth.ProviderCredential
 }
 
@@ -122,7 +122,7 @@ pub async fn authenticate_login(
       reason="Unknown login provider; select a registered authentication provider",
     )
   }
-  let method = if methods.length() == 1 {
+  let auth_method = if methods.length() == 1 {
     methods[0]
   } else {
     choose_login_option(
@@ -138,7 +138,7 @@ pub async fn authenticate_login(
     )
   }
   require_login_active(interaction)
-  let credential = authenticate(provider, method, interaction, prompt) catch {
+  let credential = authenticate(provider, auth_method, interaction, prompt) catch {
     _ => {
       require_login_active(interaction)
       raise @posoco.CommandError::ExecutionFailed(
@@ -147,5 +147,5 @@ pub async fn authenticate_login(
     }
   }
   require_login_active(interaction)
-  { provider, method, credential, }
+  { provider, auth_method, credential, }
 }

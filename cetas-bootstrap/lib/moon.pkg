@@ -5,8 +5,6 @@ import {
   "moonbitlang/core/async/aqueue",
   "moonbitlang/core/async/fs",
   "moonbitlang/core/async/types",
-  "moonbitlang/core/async/stdio",
-  "moonbitlang/core/env",
   "moonbitlang/core/encoding/utf8",
 }
 
@@ -26,3 +24,8 @@ options(
     "terminal_auth_native_wbtest.mbt": [ "native" ],
   },
 )
+
+import {
+  "moonbitlang/core/async/stdio",
+  "moonbitlang/core/env",
+} for "wbtest"

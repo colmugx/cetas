@@ -131,15 +131,15 @@ pub async fn run_memoh_login(
         requested=provider,
         interaction~,
         prompt~,
-        authenticate=async fn(id, method, auth_interaction, auth_prompt) {
-          if method == "api_key" {
+        authenticate=async fn(id, auth_method, auth_interaction, auth_prompt) {
+          if auth_method == "api_key" {
             for factory in memoh_api_key_factories(settings, ctx) {
               if factory.provider_id() == id {
                 let key = factory.login(auth_prompt)
                 return @oauth.ProviderCredential::ApiKey(key)
               }
             }
-          } else if method == "oauth" {
+          } else if auth_method == "oauth" {
             let device_id = if id == "kimi" {
               memoh_device_id(fs, home)
             } else {
