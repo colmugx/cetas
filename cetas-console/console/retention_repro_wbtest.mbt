@@ -183,7 +183,7 @@ async fn retention_http_probe_post(
   client.write(@utf8.encode(filler)[:]) catch {
     err =>
       raise @posoco.ModelError::Transport(
-        "http probe write: \{err.to_repr().to_string()}",
+        "http probe write: \{@debug.Repr(err).to_string()}",
       )
   }
   let response = client.end_request() catch {
@@ -192,7 +192,7 @@ async fn retention_http_probe_post(
   let body = client.read_all() catch {
     err =>
       raise @posoco.ModelError::Transport(
-        "http probe read: \{err.to_repr().to_string()}",
+        "http probe read: \{@debug.Repr(err).to_string()}",
       )
   }
   ignore(response)
@@ -340,7 +340,7 @@ async test "retention probe, raw http no agent" {
         )
         defer client.close()
         client.write(@utf8.encode(content)[:]) catch {
-          err => abort("write: \{err.to_repr().to_string()}")
+          err => abort("write: \{@debug.Repr(err).to_string()}")
         }
         let response = client.end_request() catch {
           err => abort("end: \{err}")
