@@ -6,6 +6,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 // Its imports supply join/resolve/sep/dirname/extname/pathToFileURL to this
 // combined module. Reimporting those names causes a Bun ESM syntax error.
 import { createInterface } from "node:readline";
+import { spawn as spawnBrowser } from "node:child_process";
 
 const home = process.argv[2];
 const cwd = process.argv[3];
@@ -91,11 +92,86 @@ async function notify(name,payload={}) {
     catch(e) { warnings.push("Pi event "+name+": "+String(e)); }
   }
 }
-const passive = new Set(["model_select","agent_start","agent_end","agent_settled","turn_start","turn_end","message_start","message_update","message_end","tool_execution_start","tool_execution_end","session_start","session_shutdown"]);
+const passive = new Set(["before_agent_start","session_tree","model_select","agent_start","agent_end","agent_settled","turn_start","turn_end","message_start","message_update","message_end","tool_execution_start","tool_execution_end","session_start","session_shutdown"]);
 // These Pi hooks mutate Agent or TUI behavior, and cannot be faithfully
 // replayed from a passive observer. Accept registration to let other tools
 // load, but expose the limitation as diagnostics instead of fabricating it.
-const unsupported = new Set(["session_tree","tool_call","before_agent_start"]);
+const unsupported = new Set(["tool_call"]);
+// pi-web-access opens its local Curator UI via pi.exec("open", [url]) on
+// macOS or pi.exec("cmd", ["/c", "start", "", url]) on Windows.
+// Do not expose an unrestricted subprocess runner through this API: accept
+// only these browser-launch shapes and HTTP URLs to the loopback interface.
+// The guest already runs with a credential-scrubbed environment.
+function curatorBrowserTarget(command, args) {
+  if (typeof command !== "string" || !Array.isArray(args))
+    throw new Error("Pi browser opener requires a command and argument array");
+  const mac = command === "open" && args.length === 1;
+  const win = command === "cmd" && args.length === 4 &&
+    args[0] === "/c" && args[1] === "start" && args[2] === "";
+  if (!mac && !win)
+    throw new Error("Pi exec is limited to opening the local Curator browser URL");
+  const raw = mac ? args[0] : args[3];
+  if (typeof raw !== "string" || raw.length > 4096 || /[\u0000-\u001f\u007f"']/u.test(raw))
+    throw new Error("invalid Curator browser URL");
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error("invalid Curator browser URL");
+  }
+  if (parsed.protocol !== "http:" ||
+      !["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname.toLowerCase()) ||
+      parsed.username || parsed.password)
+    throw new Error("Pi exec may only open a local HTTP Curator URL");
+  // Use an argv-only system browser helper; never forward an extension's
+  // command to cmd.exe, a shell, or an arbitrary executable.
+  if (process.platform === "win32")
+    return {file:"rundll32.exe", args:["url.dll,FileProtocolHandler", parsed.href]};
+  if (process.platform === "darwin")
+    return {file:"open", args:[parsed.href]};
+  return {file:"xdg-open", args:[parsed.href]};
+}
+async function openCuratorBrowser(command, args) {
+  let target;
+  try {
+    target = curatorBrowserTarget(command, args);
+  } catch (error) {
+    return {code:1, stdout:"", stderr:String(error?.message ?? error), killed:false};
+  }
+  return await new Promise(resolve => {
+    let finished = false;
+    let stderr = "";
+    let child;
+    let timer;
+    const finish = (code, killed=false) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      resolve({code, stdout:"", stderr, killed});
+    };
+    try {
+      child = spawnBrowser(target.file, target.args, {
+        cwd, env:process.env, windowsHide:true,
+        shell:false, stdio:["ignore", "ignore", "pipe"],
+      });
+    } catch (error) {
+      stderr = String(error?.message ?? error);
+      finish(1);
+      return;
+    }
+    child.stderr?.on("data", data => { stderr = (stderr + String(data)).slice(-4096); });
+    child.on("error", error => {
+      stderr = String(error?.message ?? error);
+      finish(1);
+    });
+    child.on("close", code => finish(typeof code === "number" ? code : 1));
+    timer = setTimeout(() => {
+      stderr ||= "Local browser opener timed out";
+      child.kill();
+      finish(124, true);
+    }, 10000);
+  });
+}
 function validName(n) {
   return typeof n === "string" && /^(?:@[a-zA-Z0-9._-]+\/)?[a-zA-Z0-9._-]+$/.test(n)
     && n.split("/").every(s => s !== "." && s !== "..");
@@ -155,6 +231,7 @@ function api(pkg) {
         if(index>=0) handlers.splice(index,1);
       };
     },
+    exec(command, args) { return openCuratorBrowser(command, args); },
     getAllTools() { return allTools(); },
     getActiveTools() { return [...activeTools]; },
     setActiveTools(names) {
@@ -263,6 +340,10 @@ async function dispatch(req) {
     const frame = req.frame;
     // Event projection is owned by Go (same adapter as the moejs guest).
     for(const event of req.events ?? []) {
+      // Cetas's earliest observable run boundary corresponds to Pi's
+      // before_agent_start callback. Tool changes are published through
+      // the existing catalog bridge after this observer batch.
+      if (event.type === "agent_start") await notify("before_agent_start");
       for(const listener of observers.get(event.type)??[]) {
         try {await listener(event,context());}
         catch(e) {warnings.push("Pi event "+event.type+": "+String(e));}
