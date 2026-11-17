@@ -327,7 +327,7 @@ async fn harness_dispatch(
         }
         None => harness_error("session_prefetch requires session_id")
       }
-    "models" => runtime.model_slots_json(None)
+    "models" => runtime.model_slots_json(harness_string(args, "session_id"))
     "switch_model" =>
       match harness_required(args, "slot_id") {
         Ok(slot) =>
