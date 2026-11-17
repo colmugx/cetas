@@ -9,5 +9,5 @@ let _keep_native_bootstrap_imports : Unit = {
   let _ : @aqueue.Queue[Unit]? = None
   ignore(@fs.exists)
   let _ : (@types.Fd) -> Unit = ignore
-  ignore(@utf8.encode)
+  ignore(@utf8.encode(""))
 }
