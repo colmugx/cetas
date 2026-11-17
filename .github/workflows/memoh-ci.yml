@@ -1,84 +1,76 @@
-# Dedicated standalone CI for cetas-memoh.
+# Memoh CI uses the same root workspace and extension submodule as every Cetas surface.
 name: memoh-ci
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
       - "cetas-memoh/**"
+      - "extension"
+      - "moon.work"
       - ".github/workflows/memoh-ci.yml"
       - ".github/workflows/memoh-release.yml"
       - ".github/workflows/memoh-live-e2e.yml"
   pull_request:
     paths:
       - "cetas-memoh/**"
+      - "extension"
+      - "moon.work"
       - ".github/workflows/memoh-ci.yml"
       - ".github/workflows/memoh-release.yml"
       - ".github/workflows/memoh-live-e2e.yml"
 
+permissions:
+  contents: read
+
 jobs:
   memoh-checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
-      - name: memoh-checkout
+      - name: checkout Cetas with shared extension
         uses: actions/checkout@v4
         with:
-          sparse-checkout: |
-            /cetas-memoh/
-          sparse-checkout-cone-mode: false
+          submodules: recursive
 
-      - name: memoh-install-moon
+      - name: install MoonBit
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
 
-      - name: memoh-version-sync
-        working-directory: cetas-memoh
-        run: python3 scripts/check_version.py
+      - name: check Memoh version declarations
+        run: python3 cetas-memoh/scripts/check_version.py
 
-      - name: memoh-install-script-syntax
-        working-directory: cetas-memoh
-        run: bash -n install.sh
+      - name: check installer syntax
+        run: bash -n cetas-memoh/install.sh
 
-      - name: memoh-bootstrap-workspace
-        working-directory: cetas-memoh
-        run: python3 scripts/bootstrap_workspace.py
-
-      - name: memoh-update
-        working-directory: cetas-memoh
+      - name: resolve shared root workspace
         run: moon update
 
-      - name: memoh-harness-self-check
-        working-directory: cetas-memoh
-        run: moon run --target native scripts/memoh_live_e2e.mbtx -- --self-check
+      - name: harness self-check
+        run: moon run --target native cetas-memoh/scripts/memoh_live_e2e.mbtx -- --self-check
 
-      - name: memoh-check
-        working-directory: cetas-memoh
-        run: moon check --target native --deny-warn --output-json
-
-      - name: memoh-test
-        working-directory: cetas-memoh
-        run: moon test --target native --output-json
-
-      - name: memoh-build-release
-        working-directory: cetas-memoh
-        run: moon build --target native --release
-
-      - name: memoh-version-smoke
-        working-directory: cetas-memoh
+      - name: typecheck Memoh library and executable
         run: |
-          expected="cetas-memoh $(cat VERSION)"
+          moon check -p cetas-memoh/lib --target native --deny-warn --output-json
+          moon check -p cetas-memoh/main --target native --deny-warn --output-json
+
+      - name: test Memoh
+        run: moon test cetas-memoh/lib --target native --output-json
+
+      - name: build Memoh
+        run: moon build cetas-memoh/main --target native --release
+
+      - name: smoke-test version
+        run: |
+          expected="cetas-memoh $(cat cetas-memoh/VERSION)"
           out="$(_build/native/release/build/colmugx/cetas-memoh/main/main.exe --version)"
           [[ "$out" == "$expected" ]] || {
-            echo "::error::--version mismatch: got '$out', want '$expected'"
+            echo "::error::version mismatch: got '$out', want '$expected'"
             exit 1
           }
 
-      - name: memoh-fmt
-        working-directory: cetas-memoh
-        run: moon fmt
-
-      - name: memoh-drift
-        run: git diff --exit-code -- cetas-memoh
+      - name: check Memoh formatting
+        run: |
+          moon fmt
+          git diff --exit-code -- cetas-memoh

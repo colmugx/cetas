@@ -38,6 +38,8 @@ jobs:
     steps:
       - name: memoh-live-checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: memoh-live-require-token
         env:
@@ -54,16 +56,10 @@ jobs:
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
 
-      - name: memoh-live-bootstrap-workspace
-        working-directory: cetas-memoh
-        run: python3 scripts/bootstrap_workspace.py
-
       - name: memoh-live-update
-        working-directory: cetas-memoh
         run: moon update
 
       - name: memoh-live-preflight
-        working-directory: cetas-memoh
         env:
           MEMOH_API_URL: ${{ inputs.api_url }}
           MEMOH_BOT_ID: ${{ inputs.bot_id }}
@@ -78,4 +74,4 @@ jobs:
           if [[ "${{ inputs.exercise_concurrency }}" == "true" ]]; then
             args+=(--exercise-concurrency)
           fi
-          moon run --target native scripts/memoh_live_e2e.mbtx -- "${args[@]}"
+          moon run --target native cetas-memoh/scripts/memoh_live_e2e.mbtx -- "${args[@]}"
