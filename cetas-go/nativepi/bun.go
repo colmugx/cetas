@@ -223,6 +223,18 @@ func (g *BunGuest) Commands() ([]Command, uint64) {
 	return append([]Command(nil), g.commands...), g.commandGeneration
 }
 
+// UpdateModels projects the native session's public model picker metadata
+// into the Bun extension context. Provider secrets never cross this RPC.
+func (g *BunGuest) UpdateModels(snapshot json.RawMessage) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !json.Valid(snapshot) {
+		return errors.New("invalid Pi model snapshot")
+	}
+	_, err := g.request("models", map[string]any{"snapshot": json.RawMessage(snapshot)})
+	return err
+}
+
 func (g *BunGuest) RunCommand(name, args string) CommandOutcome {
 	g.mu.Lock()
 	defer g.mu.Unlock()
