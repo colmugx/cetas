@@ -85,7 +85,7 @@ func (s *piSupervisor) handle(kind string, frame json.RawMessage) {
 
 func isPiObserverFrame(kind string) bool {
 	switch kind {
-	case "turn.started", "assistant.text_delta", "tool.started",
+	case "session.switched", "turn.started", "assistant.text_delta", "tool.started",
 		"tool.completed", "turn.completed", "turn.failed":
 		return true
 	default:
