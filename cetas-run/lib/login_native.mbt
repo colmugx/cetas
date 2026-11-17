@@ -50,34 +50,21 @@ pub async fn run_login(
 }
 
 ///|
-/// Login uses core's authentication capabilities, not its ready model slots.
-priv struct LoginProvider {
-  id : String
-  auth_methods : Array[String]
-}
-
-///|
-fn login_providers(settings : Map[String, Json]) -> Array[LoginProvider] {
+/// The host contributes its actual provider factories; bootstrap owns the
+/// shared provider/method selection and cancellation checks.
+fn login_providers(
+  settings : Map[String, Json],
+) -> Array[@bootstrap.LoginCandidate] {
   let ctx = @devkit.ExtContext::default()
-  let providers : Array[LoginProvider] = []
-  let add = fn(id : String, auth_method : String) {
-    for provider in providers {
-      if provider.id == id {
-        if !provider.auth_methods.contains(auth_method) {
-          provider.auth_methods.push(auth_method)
-        }
-        return
-      }
-    }
-    providers.push({ id, auth_methods: [auth_method], })
-  }
+  let api : Array[String] = []
   for factory in @cetas_core.all_api_key_factories(ctx, settings) {
-    add(factory.provider_id(), "api_key")
+    api.push(factory.provider_id())
   }
+  let oauth : Array[String] = []
   for factory in @cetas_core.oauth_factories(ctx) {
-    add(factory.provider_id(), "oauth")
+    oauth.push(factory.provider_id())
   }
-  providers
+  @bootstrap.login_candidates(api, oauth)
 }
 
 ///|
@@ -220,61 +207,31 @@ async fn run_login_with_interactions(
         "Cannot read persisted model selection",
       )
   }
-  let providers = login_providers(settings)
-  let selected_provider = if provider.is_empty() {
-    let options = providers.map(fn(p) {
-      @oauth.AuthPromptOption::AuthPromptOption(id=p.id, label=p.id)
-    })
-    login_select(interaction, prompt, "Select login provider", options)
-  } else {
-    provider
-  }
-  let auth_methods : Array[String] = []
-  for p in providers {
-    if p.id == selected_provider {
-      auth_methods.append(p.auth_methods)
-    }
-  }
-  if auth_methods.is_empty() {
-    raise @posoco.CommandError::InvalidArgs(
-      reason="Unknown login provider; select a registered authentication provider",
-    )
-  }
-  let auth_method = if auth_methods.length() == 1 {
-    auth_methods[0]
-  } else {
-    login_select(
-      interaction,
-      prompt,
-      "Select authentication method",
-      auth_methods.map(fn(id) {
-        @oauth.AuthPromptOption::AuthPromptOption(
-          id~,
-          label=if id == "oauth" { "OAuth / browser login" } else { "API key" },
-        )
-      }),
-    )
-  }
-  check_login_cancelled(interaction)
-  let device_id = if selected_provider == "kimi" && auth_method == "oauth" {
-    login_device_id(fs, home, mint_device_id)
-  } else {
-    ""
-  }
-  let outcome = (driver.login)(
-    selected_provider, auth_method, settings, device_id, interaction, prompt,
-  ) catch {
-    _ => {
-      check_login_cancelled(interaction)
-      raise @posoco.CommandError::ExecutionFailed(
-        "Authentication failed or was cancelled; credentials were not saved",
+  let mut device_id = ""
+  let mut authenticated : @cetas_core.LoginOutcome? = None
+  let login = @bootstrap.authenticate_login(
+    login_providers(settings),
+    interaction,
+    prompt,
+    async fn(selected, auth_method, auth_interaction, auth_prompt) {
+      device_id = if selected == "kimi" && auth_method == "oauth" {
+        login_device_id(fs, home, mint_device_id)
+      } else {
+        ""
+      }
+      let result = (driver.login)(
+        selected, auth_method, settings, device_id, auth_interaction, auth_prompt,
       )
-    }
-  }
-  check_login_cancelled(interaction)
-  if outcome.provider_id != selected_provider ||
-    outcome.login_method != auth_method {
-    raise @posoco.CommandError::ExecutionFailed(
+      authenticated = Some(result)
+      result.credential
+    },
+    requested=provider,
+  )
+  let selected_provider = login.provider
+  match authenticated {
+    Some(outcome) if outcome.provider_id == selected_provider &&
+      outcome.login_method == login.auth_method => ()
+    _ => raise @posoco.CommandError::ExecutionFailed(
       "Authentication returned an inconsistent provider or method",
     )
   }
@@ -282,7 +239,7 @@ async fn run_login_with_interactions(
     fs,
     @cetas_core.credentials_path(home),
   )
-  store.write(selected_provider, outcome.credential) catch {
+  store.write(selected_provider, login.credential) catch {
     _ =>
       raise @posoco.CommandError::ExecutionFailed(
         "Authentication completed, but credentials could not be saved; catalog was not refreshed",
