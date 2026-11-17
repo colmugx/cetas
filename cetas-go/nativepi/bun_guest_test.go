@@ -319,7 +319,7 @@ func TestBunGuestCuratorBrowserAndLifecycleBridge(t *testing.T) {
     async handler(_args, ctx) {
       const arbitrary = await pi.exec("sh", ["-c", "echo should-not-run"]);
       const remote = await pi.exec("open", ["https://example.com/"]);
-      const unsafe = await pi.exec("cmd", ["/c", "start", "", "http://localhost/&calc.exe"]);
+      const unsafe = await pi.exec("cmd", ["/c", "start", "", "http://example.com/"]);
       if (arbitrary.code === 0 || remote.code === 0 || unsafe.code === 0) {
         throw new Error("Pi exec allowed an unsupported command or URL");
       }
