@@ -82,7 +82,7 @@ fn memoh_mint_device_id() -> String raise @posoco.CommandError {
 }
 
 ///|
-fn memoh_device_id(
+async fn memoh_device_id(
   fs : &@workspace.WorkspaceFs,
   home : String,
 ) -> String raise @posoco.CommandError {
@@ -128,10 +128,9 @@ pub async fn run_memoh_login(
     body=async fn(interaction, prompt) {
       let login = @bootstrap.authenticate_login(
         candidates,
-        requested=provider,
-        interaction~,
-        prompt~,
-        authenticate=async fn(id, auth_method, auth_interaction, auth_prompt) {
+        interaction,
+        prompt,
+        async fn(id, auth_method, auth_interaction, auth_prompt) {
           if auth_method == "api_key" {
             for factory in memoh_api_key_factories(settings, ctx) {
               if factory.provider_id() == id {
@@ -156,6 +155,7 @@ pub async fn run_memoh_login(
             reason="unsupported authentication method",
           )
         },
+        requested=provider,
       )
       // Commit only after the shared flow has checked cancellation and
       // returned a complete, provider-owned credential.
