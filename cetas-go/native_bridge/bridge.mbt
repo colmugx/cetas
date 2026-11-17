@@ -29,6 +29,7 @@ extern "C" fn command_wake_fd() -> Int32 = "cetas_bridge_command_fd"
 ///|
 /// POSIX descriptor handoff: the C side yields an int, while the async runtime
 /// owns descriptors as the opaque `@types.Fd` with an int ABI.
+#cfg(not(platform="windows"))
 fn fd_from_raw(raw : Int32) -> @types.Fd = "%identity"
 
 ///|
