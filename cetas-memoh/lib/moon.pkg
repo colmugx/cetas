@@ -1,5 +1,6 @@
 import {
   "colmugx/posoco",
+  "colmugx/cetas-bootstrap/lib" @bootstrap,
   "colmugx/acp",
   "posoco/devkit",
   "colmugx/posoco-ext-acp" @ext_acp,
