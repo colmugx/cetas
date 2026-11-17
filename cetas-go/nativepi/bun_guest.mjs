@@ -92,11 +92,10 @@ async function notify(name,payload={}) {
     catch(e) { warnings.push("Pi event "+name+": "+String(e)); }
   }
 }
-const passive = new Set(["before_agent_start","session_tree","model_select","agent_start","agent_end","agent_settled","turn_start","turn_end","message_start","message_update","message_end","tool_execution_start","tool_execution_end","session_start","session_shutdown"]);
-// These Pi hooks mutate Agent or TUI behavior, and cannot be faithfully
-// replayed from a passive observer. Accept registration to let other tools
-// load, but expose the limitation as diagnostics instead of fabricating it.
-const unsupported = new Set(["tool_call"]);
+// tool_call is observer-only: the native kernel already made its tool
+// admission decision when tool.started reaches this guest. Pi extensions can
+// track nested call IDs, but they cannot block, rewrite, or approve calls.
+const passive = new Set(["tool_call","before_agent_start","session_tree","model_select","agent_start","agent_end","agent_settled","turn_start","turn_end","message_start","message_update","message_end","tool_execution_start","tool_execution_end","session_start","session_shutdown"]);
 // pi-web-access opens its local Curator UI via pi.exec("open", [url]) on
 // macOS or pi.exec("cmd", ["/c", "start", "", url]) on Windows.
 // Do not expose an unrestricted subprocess runner through this API: accept
@@ -218,10 +217,6 @@ function api(pkg) {
     },
     on(name,handler) {
       if(typeof handler !== "function") throw new Error("Pi event handler must be callable");
-      if(unsupported.has(name)){
-        warnings.push("Pi hook "+name+" requires a Posoco kernel bridge; not enabled in headless Bun");
-        return () => {};
-      }
       if(!passive.has(name)) throw new Error("unsupported Pi event " + name);
       if(!observers.has(name)) observers.set(name,[]);
       observers.get(name).push(handler);
