@@ -47,7 +47,7 @@ test "typesafe resolves api_key login and the jev id stays unregistered" {
           "provider": Json::String("typesafe"),
           "methods": Json::Array(methods),
           ..
-        }
+        },
       ) {
       found = true
       assert_eq(methods, [Json::string("api_key")])
@@ -150,7 +150,7 @@ test "settings-derived custom provider resolves api_key login and joins the setu
           "provider": Json::String("qwen"),
           "methods": Json::Array(methods),
           ..
-        }
+        },
       ) {
       found = true
       assert_eq(methods, [Json::string("api_key")])

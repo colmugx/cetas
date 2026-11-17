@@ -237,7 +237,7 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
       call~,
       content~,
       structured~,
-      attachments~
+      attachments~,
     ) => {
       let fields : Array[(String, Json)] = [
         ("type", Json::string("tool_call_completed")),
@@ -409,7 +409,7 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
           output_tokens~,
           total_tokens~,
           cached_input_tokens~,
-          uncached_input_tokens~
+          uncached_input_tokens~,
         ) => {
           let u : @posoco.Usage = {
             input_tokens: Some(input_tokens),
@@ -507,7 +507,7 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
       trigger~,
       mode~,
       final_session_id~,
-      messages_after~
+      messages_after~,
     ) =>
       Json::object(
         Map::from_array([

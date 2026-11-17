@@ -140,7 +140,7 @@ async test "startup filesystem failure precedes argument error and any notes or 
 ///|
 async test "bootstrap creates complete settings once and preserves existing bytes and metadata" {
   let home = @fs.tmpdir(prefix="cetas-run-bootstrap")
-  defer @fs.rmdir(home, recursive=true)
+  defer @fs.remove(home, recursive=true)
   let dir = @cetas_core.cetas_dir(home)
   let path = @cetas_core.settings_path(home)
   assert_true(create_minimal_settings(dir, path))
@@ -159,7 +159,7 @@ async test "bootstrap creates complete settings once and preserves existing byte
 ///|
 async test "bootstrap concurrent starters publish once with no partial file or leftovers" {
   let home = @fs.tmpdir(prefix="cetas-run-race")
-  defer @fs.rmdir(home, recursive=true)
+  defer @fs.remove(home, recursive=true)
   let dir = @cetas_core.cetas_dir(home)
   let path = @cetas_core.settings_path(home)
   let results : Array[Bool] = []
@@ -176,15 +176,15 @@ async test "bootstrap concurrent starters publish once with no partial file or l
 ///|
 async test "bootstrap existing directory entries are untouched; real FS errors propagate" {
   let home = @fs.tmpdir(prefix="cetas-run-errors")
-  defer @fs.rmdir(home, recursive=true)
+  defer @fs.remove(home, recursive=true)
   let dir = @cetas_core.cetas_dir(home)
   let path = @cetas_core.settings_path(home)
   @fs.mkdir(dir)
   @fs.mkdir(path)
   assert_false(create_minimal_settings(dir, path))
   assert_true(@fs.kind(path) is @fs.Directory)
-  @fs.rmdir(path)
-  @fs.rmdir(dir)
+  @fs.remove(path)
+  @fs.remove(dir)
   @fs.write_text(dir, "not a directory")
   try create_minimal_settings(dir, path) catch {
     _ => ()

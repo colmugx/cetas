@@ -6,6 +6,7 @@ import {
   "colmugx/posoco-ext-workspace" @workspace,
   "moonbitlang/core/async" @core_async,
   "moonbitlang/core/async/raw_fd",
+  "moonbitlang/core/async/types",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
   "moonbitlang/core/encoding/utf8",

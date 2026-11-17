@@ -96,7 +96,7 @@ fn native_child_ev_json(event : @posoco.TurnEvent) -> Json? {
       call~,
       content~,
       structured~,
-      attachments~
+      attachments~,
     ) =>
       Some(
         Json::object({

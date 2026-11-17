@@ -6,6 +6,7 @@ priv type TerminalAuthMode
 extern "C" fn terminal_auth_input_path() -> String = "cetas_auth_input_path"
 
 ///|
+#borrow(fd)
 extern "C" fn terminal_auth_mode_new(fd : @types.Fd) -> TerminalAuthMode = "cetas_auth_mode_new"
 
 ///|

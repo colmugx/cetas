@@ -18,7 +18,7 @@ async fn create_minimal_settings_protected(dir : String, path : String) -> Bool 
   } noraise {
     _ => return false
   }
-  @fs.mkdir(dir, permission=0o700, recursive=true, allow_exist=true)
+  @fs.mkdir(dir, permission=0o700, recursive=true, allow_existing=true)
   let (staging, file) = for ;; {
     let staging = path + ".bootstrap-" + @cetas_core.mint_session_id()
     try

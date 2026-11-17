@@ -176,18 +176,24 @@ async fn retention_http_probe_post(
   body_chars : Int32,
 ) -> Int32 raise @posoco.ModelError {
   let filler = "0123456789abcdef ghij ".repeat(body_chars / 23 + 1)[:body_chars].to_owned()
-  let client = @http.post(url, headers={}) catch {
+  let client = @http.post_stream(url, headers={}) catch {
     err => raise @posoco.ModelError::Transport("http probe post: \{err}")
   }
   defer client.close()
   client.write(@utf8.encode(filler)[:]) catch {
-    err => raise @posoco.ModelError::Transport("http probe write: \{err}")
+    err =>
+      raise @posoco.ModelError::Transport(
+        "http probe write: \{err.to_repr().to_string()}",
+      )
   }
   let response = client.end_request() catch {
     err => raise @posoco.ModelError::Transport("http probe end: \{err}")
   }
   let body = client.read_all() catch {
-    err => raise @posoco.ModelError::Transport("http probe read: \{err}")
+    err =>
+      raise @posoco.ModelError::Transport(
+        "http probe read: \{err.to_repr().to_string()}",
+      )
   }
   ignore(response)
   body.length()
@@ -328,13 +334,13 @@ async test "retention probe, raw http no agent" {
         content = content + block
       }
       try {
-        let client = @http.post(
+        let client = @http.post_stream(
           "http://127.0.0.1:\{port}/v1/chat/completions",
           headers={},
         )
         defer client.close()
         client.write(@utf8.encode(content)[:]) catch {
-          err => abort("write: \{err}")
+          err => abort("write: \{err.to_repr().to_string()}")
         }
         let response = client.end_request() catch {
           err => abort("end: \{err}")

@@ -118,8 +118,12 @@ priv struct NativeReplayLine {
 /// growing at `REPLAY_MAX_LINE_BYTES` (the line is then flagged oversized and
 /// drained to its newline so the reader stays aligned).
 priv struct NativeReplayReader {
-  file : @fs.File
+  path : String
+  mut file : @fs.File
   size : Int64
+  /// Current file-handle position; @fs has no positional reads, so a
+  /// backward seek reopens and skips forward from the start.
+  mut pos : Int64
   chunk : FixedArray[Byte]
   chunk_bytes : Bytes
   mut chunk_start : Int64
@@ -144,8 +148,10 @@ async fn NativeReplayReader::open(
   let size = file.size()
   let chunk = FixedArray::make(chunk_bytes, b'\x00')
   {
+    path,
     file,
     size,
+    pos: 0L,
     chunk,
     chunk_bytes: chunk.unsafe_reinterpret_as_bytes(),
     chunk_start: 0L,
@@ -159,6 +165,39 @@ async fn NativeReplayReader::open(
 }
 
 ///|
+/// Move the file handle to `target`, reopening from the start when the target
+/// is behind the current position. Replay seeks backward to line-table offsets
+/// and @fs no longer exposes positional reads.
+async fn NativeReplayReader::reposition(
+  self : NativeReplayReader,
+  target : Int64,
+) -> Bool noraise {
+  if target < self.pos {
+    self.file.close()
+    self.file = @fs.open(self.path, mode=@fs.Mode::ReadOnly) catch {
+      _ => return false
+    }
+    self.pos = 0L
+  }
+  if target == self.pos {
+    return true
+  }
+  let scratch = FixedArray::make(8192, b'\x00')
+  while self.pos < target {
+    let want = (target - self.pos).to_int()
+    let len = if want < 8192 { want } else { 8192 }
+    let got = self.file.read_into(scratch, offset=0, max_len=len) catch {
+      _ => return false
+    }
+    if got <= 0 {
+      return false
+    }
+    self.pos += got.to_int64()
+  }
+  true
+}
+
+///|
 /// Read the next chunk into the fixed buffer. Returns false at end of file.
 async fn NativeReplayReader::fill(self : NativeReplayReader) -> Bool {
   if self.loaded_end >= self.size {
@@ -168,19 +207,26 @@ async fn NativeReplayReader::fill(self : NativeReplayReader) -> Bool {
   }
   let capacity = self.chunk.length()
   let start = self.loaded_end
+  if !self.reposition(start) {
+    self.chunk_len = 0
+    self.cursor = 0
+    return false
+  }
   let mut filled = 0
   while filled < capacity {
-    let read = self.file.read_at(
+    let read = self.file.read_into(
       self.chunk,
-      position=start + filled.to_int64(),
       offset=filled,
-      len=capacity - filled,
-    )
+      max_len=capacity - filled,
+    ) catch {
+      _ => break
+    }
     if read <= 0 {
       break
     }
     filled += read
   }
+  self.pos += filled.to_int64()
   self.bytes_read += filled.to_int64()
   self.loaded_end = start + filled.to_int64()
   self.chunk_start = start
@@ -666,15 +712,25 @@ async fn native_replay_read_slice(
   }
   let file = @fs.open(path, mode=@fs.Mode::ReadOnly) catch { _ => return b"" }
   defer file.close()
+  let scratch = FixedArray::make(8192, b'\x00')
+  let mut skipped = 0L
+  while skipped < position {
+    let want = (position - skipped).to_int()
+    let len = if want < 8192 { want } else { 8192 }
+    let got = file.read_into(scratch, offset=0, max_len=len) catch {
+      _ => return b""
+    }
+    if got <= 0 {
+      return b""
+    }
+    skipped += got.to_int64()
+  }
   let buffer = FixedArray::make(length, b'\x00')
   let mut read = 0
   while read < length {
-    let got = file.read_at(
-      buffer,
-      position=position + read.to_int64(),
-      offset=read,
-      len=length - read,
-    )
+    let got = file.read_into(buffer, offset=read, max_len=length - read) catch {
+      _ => break
+    }
     if got <= 0 {
       break
     }

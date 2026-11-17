@@ -1,13 +1,14 @@
 ///|
-/// Verify that the host's normal Skills recipe publishes one native PStack
-/// command and retains its existing Skills tool provider. No asset path or
-/// environment variable is needed for registration.
+/// The default recipe registers the embedded PStack bundle as one Skills
+/// runtime: both commands, the native toggle, and the bundled playbooks
+/// reachable through the activated skill without any assets directory.
 async test "pstack: default recipe composes native toggle and skills" {
   let fs = @workspace.NativeWorkspaceFs()
   let ext = build_cetas_skills(
     ctx={ fs, cwd: ".", home: ".", },
     manuals=@forme.Forme::Forme().builtin_manual_skills(),
   ).unwrap()
+  assert_eq(ext.extension_id(), "posoco_ext_pstack")
   let manifest = ext.manifest()
   assert_eq(manifest.tools.length(), 1)
   let names : Array[String] = []

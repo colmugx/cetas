@@ -77,7 +77,7 @@ fn replay_test_utf8_len(text : String) -> Int32 {
 
 ///|
 async fn replay_test_teardown(root : String) -> Unit noraise {
-  @fs.rmdir(root, recursive=true) catch {
+  @fs.remove(root, recursive=true) catch {
     _ => ()
   }
 }

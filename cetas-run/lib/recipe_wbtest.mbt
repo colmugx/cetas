@@ -15,8 +15,8 @@ async test "public run recipe assembles the standard Cetas capabilities" {
     ids.push(ext.extension_id())
   }
   assert_true(ids.contains("forme"))
-  // PStack wraps the existing Skills tool provider, so the host registers
-  // one extension (and still exposes the original Skills tools).
+  // PStack wraps the existing Skills tool provider, so the host registers one
+  // extension (and still exposes the original Skills tools).
   assert_true(ids.contains("posoco_ext_pstack"))
   assert_false(ids.contains("posoco_ext_skills"))
   assert_true(ids.contains("posoco_ext_webfetch"))

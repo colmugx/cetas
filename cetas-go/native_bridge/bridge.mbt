@@ -27,6 +27,11 @@ extern "C" fn next_harness(dst : Bytes, capacity : Int32) -> Int32 = "cetas_brid
 extern "C" fn command_wake_fd() -> Int32 = "cetas_bridge_command_fd"
 
 ///|
+/// POSIX descriptor handoff: the C side yields an int, while the async runtime
+/// owns descriptors as the opaque `@types.Fd` with an int ABI.
+fn fd_from_raw(raw : Int32) -> @types.Fd = "%identity"
+
+///|
 /// Exact step that failed while building the notify channel (0 = healthy,
 /// 1 = `pipe()`, 2 = `fcntl()` non-blocking/cloexec, 3 = the dup write guard,
 /// 4 = disabled by a transport test).
@@ -68,13 +73,14 @@ async fn adopt_command_wake() -> Result[@raw_fd.RawFd, String] {
       ")",
     )
   }
-  Ok(@raw_fd.RawFd(fd)) catch {
+  let raw = @raw_fd.RawFd(fd_from_raw(fd)) catch {
     error =>
-      Err(
+      return Err(
         "descriptor could not be adopted by the async scheduler: " +
         error.to_string(),
       )
   }
+  Ok(raw)
 }
 
 ///|
@@ -351,7 +357,7 @@ pub fn run_infra() -> Int32 {
                   Some(wake) => {
                     // One byte per queued item, so a wakeup may coalesce but is
                     // never lost: the queues above are re-read after every wait.
-                    let resumed = wake.read(wake_buffer) catch {
+                    let resumed = wake.read_into_once(wake_buffer) catch {
                       error => {
                         if !wake_reported {
                           emit_degraded(

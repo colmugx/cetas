@@ -513,7 +513,7 @@ impl @posoco.Observer for ConsoleObserver with fn on_event(
       call~,
       content~,
       structured~,
-      attachments~
+      attachments~,
     ) => {
       let extra : Array[(String, Json)] = [
         ("tool_call_id", Json::string(call.call_id.to_string())),

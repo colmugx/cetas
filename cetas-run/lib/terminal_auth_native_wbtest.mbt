@@ -232,6 +232,7 @@ async test "terminal auth: cancellation restores mode and drains pending notific
 }
 
 ///|
+#borrow(fd)
 extern "C" fn terminal_auth_test_snapshot(fd : @types.Fd) -> Bytes = "cetas_auth_test_snapshot"
 
 ///|

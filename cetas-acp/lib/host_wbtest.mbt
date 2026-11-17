@@ -2696,7 +2696,7 @@ async fn tk_drop_mcp_project_dir(cwd : String) -> Unit {
   @fs.remove(cwd + "/.mcp.json") catch {
     _ => ()
   }
-  @fs.rmdir(cwd) catch {
+  @fs.remove(cwd) catch {
     _ => ()
   }
 }
@@ -4925,7 +4925,7 @@ async test "the native append path writes real files record by record" {
   @fs.remove(path) catch {
     _ => ()
   }
-  @fs.rmdir(dir) catch {
+  @fs.remove(dir) catch {
     _ => ()
   }
 }
@@ -4950,7 +4950,7 @@ async test "a failed native append falls back to the workspace fs" {
   @fs.remove(blocker) catch {
     _ => ()
   }
-  @fs.rmdir(base) catch {
+  @fs.remove(base) catch {
     _ => ()
   }
 }

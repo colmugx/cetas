@@ -258,7 +258,7 @@ async test "workspace_index_walk ignores segments and stays deterministic" {
   // MoonBit's String ordering is length-before-code-units (the JS walk's
   // documented behavior), so this deterministic order is not alphabetical.
   assert_eq(out, ["beta/", "beta/inner/", "beta/inner/deep.txt", "alpha.txt"])
-  @fs.rmdir(root, recursive=true) catch {
+  @fs.remove(root, recursive=true) catch {
     _ => ()
   }
 }

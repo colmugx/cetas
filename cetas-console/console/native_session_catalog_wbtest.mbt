@@ -127,7 +127,7 @@ async fn cat_test_home(tag : String) -> String {
 
 ///|
 async fn cat_test_cleanup(root : String) -> Unit {
-  @fs.rmdir(root, recursive=true) catch {
+  @fs.remove(root, recursive=true) catch {
     _ => ()
   }
 }

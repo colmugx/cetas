@@ -22,7 +22,7 @@ async fn permission_fixture(label : String) -> String {
 /// Best-effort fixture teardown; a leaked temp dir must not fail an assertion
 /// that already ran.
 async fn permission_fixture_cleanup(root : String) -> Unit noraise {
-  @fs.rmdir(root, recursive=true) catch {
+  @fs.remove(root, recursive=true) catch {
     _ => ()
   }
 }

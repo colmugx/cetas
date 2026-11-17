@@ -191,7 +191,7 @@ async test "readonly guided start refuses before any input or approval prompt" {
         assert_true(
           result
           is @posoco.CommandOutcome::Failure(
-            reason="Board commands accept trusted UI decisions, not executable JSON arguments"
+            reason="Board commands accept trusted UI decisions, not executable JSON arguments",
           ),
         )
       }

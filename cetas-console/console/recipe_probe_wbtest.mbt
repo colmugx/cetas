@@ -35,7 +35,7 @@ async test "recipe cost probe" {
     let cwd = @fs.tmpdir(prefix="cetas-recipe-probe-ws-")
     // Probe #7: a FRESH models.dev cache makes the metadata refresh take
     // the cache-restore path (no network fetch, no giant parse).
-    if @coreenv.get_env_var("FRESH_CACHE") is Some(_) {
+    if @env.get_env_var("FRESH_CACHE") is Some(_) {
       let now_ms = @async.now()
       let payload = "{\"version\":1,\"providers\":{\"opencode\":{\"models\":{\"probe-model\":200000},\"fetched_at\":\"" +
         now_ms.to_string() +
@@ -46,7 +46,7 @@ async test "recipe cost probe" {
     }
     println("MARK base")
     @async.sleep(1000)
-    let subset : Array[String] = match @coreenv.get_env_var("RECIPE_SUBSET") {
+    let subset : Array[String] = match @env.get_env_var("RECIPE_SUBSET") {
       Some(value) => {
         let keys : Array[String] = []
         for part in value.split(",") {

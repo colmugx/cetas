@@ -4,6 +4,7 @@
 priv type MemohTerminalMode
 
 ///|
+#borrow(fd)
 extern "C" fn memoh_terminal_mode_new(fd : @types.Fd) -> MemohTerminalMode = "cetas_memoh_auth_mode_new"
 
 ///|

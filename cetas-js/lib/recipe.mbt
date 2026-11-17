@@ -176,30 +176,22 @@ async fn build_cetas_skills(
       @skills.SkillCatalog::{ skills: selected, diagnostics: [], }
     }
   }
-  if catalog.find("poteto-mode") is Some(_) {
-    match
-      @pstack.Pstack::compose(ctx.fs, catalog, config=cetas_skills_config()) {
-      Ok(pstack) => Some(pstack as &@posoco.Extension)
-      Err(reason) =>
-        raise @posoco.CompositionError::ManifestSchemaError(
-          manifest_id="cetas.pstack",
-          detail="PStack composition failed: " + reason,
-        )
-    }
-  } else {
-    match
-      @skills.Skills::from_catalog(
-        ctx.fs,
-        catalog~,
-        config=cetas_skills_config(),
-      ) {
-      Ok(skills) => Some(skills as &@posoco.Extension)
-      Err(reason) =>
-        raise @posoco.CompositionError::ManifestSchemaError(
-          manifest_id="cetas.skills",
-          detail="skills composition failed: " + reason,
-        )
-    }
+  match
+    @skills.Skills::from_catalog(ctx.fs, catalog~, config=cetas_skills_config()) {
+    Ok(skills) =>
+      if catalog.find("poteto-mode") is Some(_) {
+        match @pstack.Pstack::from_skills(skills) {
+          Some(pstack) => Some(pstack as &@posoco.Extension)
+          None => Some(skills as &@posoco.Extension)
+        }
+      } else {
+        Some(skills as &@posoco.Extension)
+      }
+    Err(reason) =>
+      raise @posoco.CompositionError::ManifestSchemaError(
+        manifest_id="cetas.skills",
+        detail="skills composition failed: " + reason,
+      )
   }
 }
 
