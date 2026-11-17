@@ -15,6 +15,7 @@ import (
 	"time"
 
 	bridge "github.com/colmugx/cetas/cetas-go/go_bridge"
+	"github.com/colmugx/cetas/cetas-go/internal/localipc"
 	"github.com/colmugx/cetas/cetas-go/internal/wire"
 )
 
@@ -78,6 +79,8 @@ func rejectionsDelta(current, seen bridge.Rejections) bridge.Rejections {
 
 type Host struct {
 	infra          transport
+	ownerLease     *localipc.Lease
+	ownerReleased  chan struct{}
 	nextID         atomic.Uint64
 	mu             sync.Mutex
 	pending        map[uint64]chan json.RawMessage
@@ -129,6 +132,17 @@ func (h *Host) launch() {
 		_ = h.infra.Wake()
 	}()
 	go h.pump()
+	if h.ownerLease != nil {
+		go func() {
+			<-h.exited
+			<-h.done
+			// The lease survives until both the runtime and its guest
+			// subprocesses have retired, even when Close was never called.
+			h.pi.close()
+			_ = h.ownerLease.Close()
+			close(h.ownerReleased)
+		}()
+	}
 }
 
 // fail records the first fatal cause and reports it. Every later
@@ -164,10 +178,19 @@ func (h *Host) stoppedErr() error {
 // Start composes a real ConsoleRuntime. The caller must consume Events.
 // The process is intentionally single-use until restart safety is proven.
 func Start(ctx context.Context) (*Host, error) {
+	// Acquire cross-process authority before composing anything or touching
+	// the MoonBit scheduler. Contenders fail closed until IPC proxying lands.
+	lease, err := localipc.Acquire(localipc.Home())
+	if err != nil {
+		return nil, fmt.Errorf("native local owner: %w", err)
+	}
 	if !activated.CompareAndSwap(false, true) {
+		_ = lease.Close()
 		return nil, ErrAlreadyStarted
 	}
 	h := newHost(bridge.NewInfra())
+	h.ownerLease = lease
+	h.ownerReleased = make(chan struct{})
 	// Resolve Pi before the MoonBit Agent composes its extension manifests.
 	// Do not instantiate moejs or a Bun subprocess during this check.
 	available, err := nativePiAvailable(ctx)
@@ -177,10 +200,12 @@ func Start(ctx context.Context) (*Host, error) {
 	h.piAvailable = available
 	if available {
 		if err := os.Setenv("CETAS_NATIVE_PI_ENABLED", "1"); err != nil {
+			_ = lease.Close()
 			return nil, err
 		}
 	} else {
 		if err := os.Setenv("CETAS_NATIVE_PI_ENABLED", "0"); err != nil {
+			_ = lease.Close()
 			return nil, err
 		}
 	}
@@ -449,7 +474,17 @@ func (h *Host) Close(ctx context.Context) error {
 	select {
 	case <-h.exited:
 		<-h.done
-		h.pi.close()
+		if h.ownerReleased != nil {
+			// The runtime and its Pi guests must be fully retired before
+			// another process can obtain the lease.
+			select {
+			case <-h.ownerReleased:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		} else {
+			h.pi.close()
+		}
 		if h.exitCode != 1 {
 			return fmt.Errorf("MoonBit Harness exited with code %d", h.exitCode)
 		}
