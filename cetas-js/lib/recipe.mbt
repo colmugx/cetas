@@ -149,13 +149,14 @@ async fn build_cetas_skills(
 ) -> &@posoco.Extension? raise @posoco.CompositionError {
   let pstack_enabled = !pstack_assets_root.trim().is_empty()
   let discovered : @skills.SkillCatalog = if pstack_enabled {
-    match @pstack.Pstack::discover(
-      ctx.fs,
-      cwd=ctx.cwd,
-      home=ctx.home,
-      assets_root=pstack_assets_root,
-      config=cetas_skills_config(),
-    ) {
+    match
+      @pstack.Pstack::discover(
+        ctx.fs,
+        cwd=ctx.cwd,
+        home=ctx.home,
+        assets_root=pstack_assets_root,
+        config=cetas_skills_config(),
+      ) {
       Some(extension) => extension.catalog()
       None =>
         raise @posoco.CompositionError::ManifestSchemaError(
@@ -165,12 +166,13 @@ async fn build_cetas_skills(
         )
     }
   } else {
-    match @skills.Skills::discover(
-      ctx.fs,
-      cwd=ctx.cwd,
-      home=ctx.home,
-      config=cetas_skills_config(),
-    ) {
+    match
+      @skills.Skills::discover(
+        ctx.fs,
+        cwd=ctx.cwd,
+        home=ctx.home,
+        config=cetas_skills_config(),
+      ) {
       Some(skills) => skills.catalog()
       None => @skills.SkillCatalog::empty()
     }
