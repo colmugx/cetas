@@ -97,6 +97,19 @@ func TestFollowupWaitsUntilMoonBitIdleSnapshot(t *testing.T) {
 		t.Fatalf("followup not dispatched on idle: %#v", last)
 	}
 }
+func TestPiBackgroundMessageScopedToSession(t *testing.T) {
+	m := newModel()
+	m.session = "s-1"
+	m.applyEvent(event(`{"type":"pi.message","session_id":"s-2","message":"foreign"}`))
+	if len(m.transcript) != 0 {
+		t.Fatalf("foreign Pi notification escaped its session: %#v", m.transcript)
+	}
+	m.applyEvent(event(`{"type":"pi.message","session_id":"s-1","message":"Fetched content ready"}`))
+	if len(m.transcript) != 1 || !strings.Contains(m.transcript[0], "Fetched content ready") {
+		t.Fatalf("Pi background notification did not reach TUI: %#v", m.transcript)
+	}
+}
+
 func TestToolCompletionMatchesCallID(t *testing.T) {
 	m := newModel()
 	m.applyEvent(event(`{"type":"tool.started","session_id":"s","tool_call_id":"tc-1","tool_name":"bash"}`))
