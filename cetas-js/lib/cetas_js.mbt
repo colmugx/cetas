@@ -1893,10 +1893,6 @@ pub fn cetas_js_runtime_create_agent(
                 },
                 host_group=Some(group),
                 profile_activation_sink=Some(profile_sink),
-                pstack_events=@cetas_core.mint_events_publisher(
-                  events,
-                  owner="posoco_ext_pstack",
-                ),
                 host_help_note=if runtime.config.host_help_note == "" {
                   None
                 } else {
