@@ -25,6 +25,7 @@ func supportedPiEvent(name string) bool {
 type nativeFrame struct {
 	Type       string          `json:"type"`
 	ToolCallID string          `json:"tool_call_id"`
+	ParentToolCallID string `json:"parent_tool_call_id"`
 	ToolName   string          `json:"tool_name"`
 	Arguments  json.RawMessage `json:"arguments"`
 	Result     string          `json:"result"`
@@ -118,6 +119,17 @@ func (b *EventBridge) Translate(raw []byte) ([]PiEvent, error) {
 			b.messageStarted = false
 			b.text = ""
 		}
+		// Pi's tool_call hook is raised before the tool_execution_start
+		// observer. This native EventHub boundary is observational (the
+		// kernel has already admitted the call), so extension callbacks
+		// cannot block, change arguments, or grant permissions here.
+		call := PiEvent{
+			"toolCallId": frame.ToolCallID, "toolName": frame.ToolName, "input": args,
+		}
+		if frame.ParentToolCallID != "" {
+			call["parentToolCallId"] = frame.ParentToolCallID
+		}
+		out = append(out, emit("tool_call", call))
 		return append(out, emit("tool_execution_start", PiEvent{
 			"toolCallId": frame.ToolCallID, "toolName": frame.ToolName, "args": args,
 		})), nil
