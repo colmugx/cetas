@@ -1262,6 +1262,7 @@ pub async fn ConsoleRuntime::model_slots_json(
   }
   Json::object(
     Map::from_array([
+      ("session_id", Json::string(handle.session_id)),
       ("active", Json::string(active_id)),
       ("effort", Json::string(handle.effort)),
       ("permission", Json::string(permission_mode_name(handle.policy.mode))),
