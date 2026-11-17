@@ -238,3 +238,28 @@ does not exist in Posoco 0.23.1; the live channel is
 ## License
 
 Apache-2.0
+
+## Standalone login and startup commands
+
+Cetas-Memoh shares its pre-runtime authentication selection and trusted
+controlling-terminal implementation with `cetas-run` through the
+`cetas-bootstrap` module. Unlike `cetas-run`, Memoh retains a separate
+provider registry and the `CETAS_MEMOH_HOME` credentials directory.
+
+```sh
+cetas-memoh --help
+cetas-memoh --version
+cetas-memoh setup [provider]
+cetas-memoh login [provider]
+cetas-memoh serve
+```
+
+No arguments are equivalent to `serve`. `setup` requires an immediately
+runnable model catalog before saving the credential. `login` supports each
+provider's registered API-key or OAuth mechanism and can save credentials
+before non-secret model settings are complete. The login command does not
+alter active model selection. Credential entry uses the controlling terminal,
+not ACP stdin or arguments; all progress is sent to stderr. Restart the
+Memoh runtime after login to rebuild the provider catalog. Help/version
+never instantiate a host or open a terminal. Invalid commands do not fall
+through into the ACP server.
