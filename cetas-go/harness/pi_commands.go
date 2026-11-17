@@ -96,6 +96,9 @@ func (s *piSupervisor) invokeCommand(args any) (json.RawMessage, bool, error) {
 		return nil, true, fmt.Errorf("Pi command not registered: %s", input.ID)
 	}
 	go func() {
+		if err := s.refreshModels(input.SessionID, g); err != nil {
+			s.host.report(fmt.Errorf("Pi command %s model refresh: %w", input.ID, err))
+		}
 		_, before := commander.Commands()
 		outcome := commander.RunCommand(input.ID, input.Arguments.Positional)
 		_, after := commander.Commands()
