@@ -1,10 +1,15 @@
-// Cetas's Pi host module adapter. Pi extensions run inside Bun, but there is
-// no second Pi Agent. Only the explicitly bridged host surface is exported.
-// Keep real third-party utilities (e.g. typebox) in the npm package graph.
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { pathToFileURL } from "node:url";
+// Cetas's Pi host module adapter.
+//
+// Do not depend on Bun runtime plugin hooks to resolve host-owned bare
+// specifiers. Bun's runtime plugin path handling differs on Windows, and the
+// import fails before an onLoad transform can reliably rewrite it.
+//
+// Pi extensions are loaded from <CETAS_HOME>/.cetas/pi-packages/node_modules.
+// Install small, scoped host packages into that same node_modules tree so
+// Bun's normal Node-compatible package resolver finds them on every OS.
+// Third-party dependencies remain untouched and use the normal package graph.
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 const hostModules = {
   "@earendil-works/pi-tui": [
@@ -54,139 +59,44 @@ const hostModules = {
   ].join("\n"),
 };
 
-function hostModuleRoot(specifier) {
-  for (const name of Object.keys(hostModules)) {
-    if (specifier === name || specifier.startsWith(name + "/")) return name;
-  }
-  return undefined;
-}
-
-function rewriteHostImports(source, shims) {
-  // Bun 1.4.x runtime plugins do not run onResolve for bare package names.
-  // onLoad does run for file-backed modules, so rewrite only Pi-owned imports
-  // in the source before Bun's normal resolver sees them. Third-party imports
-  // remain untouched and continue through Bun's package resolver.
-  const patterns = [
-    {
-      kind: "import",
-      regex: /((?:^|[;{}\s])(?:import|export)\s+(?:[^;'"]*?\bfrom\s*)?)(["'\x60])([^"'\x60\n]+)\2/g,
-    },
-    {
-      kind: "dynamic-import",
-      regex: /(\bimport\s*\(\s*)(["'\x60])([^"'\x60\n]+)\2/g,
-    },
-    {
-      kind: "require",
-      regex: /(\brequire\s*\(\s*)(["'\x60])([^"'\x60\n]+)\2/g,
-    },
-  ];
-  let rewritten = source;
-  for (const pattern of patterns) {
-    pattern.regex.lastIndex = 0;
-    rewritten = rewritten.replace(pattern.regex, (match, prefix, quote, specifier) => {
-      const root = hostModuleRoot(specifier);
-      if (root === undefined) return match;
-      const shim = shims[root];
-      const target = pattern.kind === "require" ? shim.path : shim.url;
-      return prefix + quote + target + quote;
-    });
-  }
-  return rewritten;
-}
-
-function comparablePath(path) {
-  const value = resolve(path);
-  if (process.platform !== "win32") return value;
-
-  // Bun and Node can spell the same Windows path with different drive-letter
-  // casing, separators, or the extended-length \\?\ prefix.
-  let normalized = value.split("\\").join("/");
-  if (normalized.startsWith("//?/UNC/")) {
-    normalized = "//" + normalized.slice(8);
-  } else if (normalized.startsWith("//?/")) {
-    normalized = normalized.slice(4);
-  }
-  while (normalized.endsWith("/")) normalized = normalized.slice(0, -1);
-  return normalized.toLowerCase();
-}
-
-function isWithin(root, path) {
-  const base = comparablePath(root);
-  const candidate = comparablePath(path);
-  if (process.platform === "win32") {
-    return candidate === base || candidate.startsWith(base + "/");
-  }
-
-  const rel = relative(base, candidate);
-  return rel === "" || (rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel));
-}
-
-function loaderFor(path) {
-  switch (extname(path).toLowerCase()) {
-    case ".ts":
-    case ".mts":
-    case ".cts":
-      return "ts";
-    case ".tsx":
-      return "tsx";
-    case ".jsx":
-      return "jsx";
-    default:
-      return "js";
-  }
-}
-
-// Install a file-load transform instead of a bare-specifier resolver. This is
-// deliberately scoped to the allowlisted package tree: it cannot rewrite host
-// code or unrelated application dependencies. The returned disposer removes
-// the per-guest shim files when the isolated Bun process shuts down.
 export function installPiHostCompat(packageRoot) {
-  let canonicalRoot = resolve(packageRoot);
-  try {
-    canonicalRoot = realpathSync(canonicalRoot);
-  } catch {}
+  const scopeRoot = join(packageRoot, "node_modules", "@earendil-works");
+  mkdirSync(scopeRoot, { recursive: true });
 
-  const shimRoot = mkdtempSync(join(tmpdir(), "cetas-pi-host-"));
-  const shims = Object.create(null);
+  const created = [];
   for (const [name, contents] of Object.entries(hostModules)) {
-    const shortName = name.slice(name.lastIndexOf("/") + 1);
-    const path = join(shimRoot, shortName + ".mjs");
-    writeFileSync(path, contents, { mode: 0o600 });
-    shims[name] = { path, url: pathToFileURL(path).href };
+    const packageName = name.slice(name.lastIndexOf("/") + 1);
+    const packageDir = join(scopeRoot, packageName);
+
+    // Never overwrite a package supplied by the user or package manager.
+    // If it already exists, Bun's normal resolver will load that package.
+    if (existsSync(packageDir)) continue;
+
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(
+      join(packageDir, "package.json"),
+      JSON.stringify({
+        name,
+        version: "0.0.0-cetas-host",
+        type: "module",
+        main: "./index.mjs",
+        module: "./index.mjs",
+        exports: {
+          ".": "./index.mjs",
+          "./*": "./index.mjs",
+        },
+      }, null, 2),
+      { mode: 0o600 },
+    );
+    writeFileSync(join(packageDir, "index.mjs"), contents + "\n", { mode: 0o600 });
+    created.push(packageDir);
   }
 
-  // Use a path-independent extension filter. Bun 1.4.x normalizes Windows
-  // drive paths differently between resolver and onLoad filter matching; a
-  // root-prefixed regular expression can therefore miss the entry module
-  // before its bare Pi SDK imports are transformed.
-  //
-  // Every JavaScript/TypeScript file is returned unchanged unless its real
-  // path is inside the allowlisted extension tree. This keeps Bun's normal
-  // package graph intact while making the transform independent of path
-  // separators, drive-letter casing, and file:// URL normalization.
-  Bun.plugin({
-    name: "cetas-pi-host",
-    setup(build) {
-      build.onLoad({ filter: /\.(?:[cm]?[jt]sx?)$/i }, args => {
-        let sourcePath = resolve(args.path);
-        try {
-          sourcePath = realpathSync(sourcePath);
-        } catch {}
-
-        const source = readFileSync(sourcePath, "utf8");
-        const contents = isWithin(canonicalRoot, sourcePath) &&
-          source.includes("@earendil-works/pi-")
-          ? rewriteHostImports(source, shims)
-          : source;
-
-        return {
-          contents,
-          loader: loaderFor(sourcePath),
-          resolveDir: dirname(sourcePath),
-        };
-      });
-    },
-  });
-
-  return () => rmSync(shimRoot, { recursive: true, force: true });
+  // Only remove packages created by this guest. The user's package tree and
+  // any pre-existing @earendil-works packages are never deleted.
+  return () => {
+    for (const packageDir of created) {
+      rmSync(packageDir, { recursive: true, force: true });
+    }
+  };
 }
