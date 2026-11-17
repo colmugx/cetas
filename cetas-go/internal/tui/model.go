@@ -1802,6 +1802,12 @@ func (m *model) applyEvent(e wire.Event) {
 		m.err = "Authentication saved, but no usable model is configured. Choose another provider or configure a model, then restart."
 	case "command.completed":
 		m.handleCommandCompletion(e.Raw)
+	case "pi.message":
+		// Background Pi notifications are host events, not new Agent turns.
+		// The SessionPort remains the sole authority for persistent entries.
+		if frame.SessionID == m.session && frame.Message != "" {
+			m.protocolNotice("Pi: " + frame.Message)
+		}
 	case "turn.accepted", "turn.started":
 		m.welcomeHidden = true
 		m.fragments = nil
