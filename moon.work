@@ -45,6 +45,7 @@ members = [
   "./extension/posoco-ext-permission",
   "./extension/posoco-ext-pi-adaptor",
   "./extension/posoco-ext-plan",
+  "./extension/posoco-ext-pstack",
   "./extension/posoco-ext-profiles",
   "./extension/posoco-ext-ps1",
   "./extension/posoco-ext-ratelimit",

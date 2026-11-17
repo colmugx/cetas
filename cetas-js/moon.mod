@@ -51,6 +51,7 @@ import {
   "colmugx/posoco-ext-bash@0.2.0",
   "colmugx/posoco-ext-ps1@0.1.0",
   "colmugx/posoco-ext-skills@0.2.0",
+  "colmugx/posoco-ext-pstack@0.2.0",
   "colmugx/posoco-ext-askquestion@0.1.0",
   "colmugx/posoco-ext-handoff@0.1.0",
   "colmugx/posoco-ext-lazytools@0.1.0",
