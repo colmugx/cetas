@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -260,6 +261,16 @@ func checkReplayClosesReadDescriptors(t *testing.T, h *Host, path, id string) {
 		}
 	}
 	read() // Account for lazily initialized async file workers before measuring.
+	// Windows cannot probe a POSIX descriptor table. Keep exercising all 20
+	// replay/catalog reads on Windows; only the OS-specific leak assertion
+	// is skipped. Calling countOpenDescriptors(t) there calls t.Skip and
+	// would skip the parent integration test before it closes its Host.
+	if runtime.GOOS == "windows" {
+		for i := 0; i < 20; i++ {
+			read()
+		}
+		return
+	}
 	before := countOpenDescriptors(t)
 	for i := 0; i < 20; i++ {
 		read()

@@ -103,6 +103,17 @@ func TestNativeHarnessHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A failure, Fatal or platform-specific Skip below must not leave the
+	// owner.lock handle open through TempDir's cleanup (Windows refuses to
+	// remove locked files). The cleanup has its own deadline because the
+	// test's request context may already be expired when an assertion fails.
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cleanupCancel()
+		if err := h.Close(cleanupCtx); err != nil {
+			t.Errorf("native harness cleanup: %v", err)
+		}
+	})
 	// The thread-owner runtime is process-singleton, not an accidental set
 	// of parallel MoonBit interpreters created from Go goroutines.
 	if _, err := Start(ctx); !errors.Is(err, ErrAlreadyStarted) {
