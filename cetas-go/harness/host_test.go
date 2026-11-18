@@ -10,11 +10,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/colmugx/cetas/cetas-go/internal/localipc"
 )
 
 func TestPiCustomEntryRPCIsHostPrivate(t *testing.T) {
@@ -128,6 +131,19 @@ func TestNativeHarnessHost(t *testing.T) {
 			t.Errorf("native harness cleanup: %v", err)
 		}
 	})
+	// The opt-in owner announces only the real EventHub runtime epoch
+	// and a read-only health capability. Windows named pipes are not yet
+	// implemented and must never be faked with TCP.
+	if runtime.GOOS != "windows" {
+		owner, probeErr := localipc.ProbeLocal(ctx, home)
+		if probeErr != nil {
+			t.Fatalf("opt-in native owner health endpoint unavailable: %v", probeErr)
+		}
+		if owner.RuntimeEpoch == "" || len(owner.Capabilities) != 1 ||
+			owner.Capabilities[0] != localipc.CapabilityHealthPing {
+			t.Fatalf("native owner advertised unsafe capabilities: %+v", owner)
+		}
+	}
 	// The thread-owner runtime is process-singleton, not an accidental set
 	// of parallel MoonBit interpreters created from Go goroutines.
 	if _, err := Start(ctx); !errors.Is(err, ErrAlreadyStarted) {
