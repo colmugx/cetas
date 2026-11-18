@@ -6,16 +6,17 @@ import {
   "colmugx/posoco-ext-workspace" @workspace,
   "moonbitlang/core/async" @core_async,
   "moonbitlang/core/async/raw_fd",
+  "moonbitlang/core/async/types",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
   "moonbitlang/core/encoding/utf8",
 }
 
-// POSIX-only Fd ABI conversion is excluded from Windows builds.
-#cfg(not(platform="windows"))
-import {
-  "moonbitlang/core/async/types",
-}
+// Fd is only referenced by the POSIX-native bridge implementation.
+// moon.pkg #cfg only accepts backend targets (native/js/wasm), not OS
+// platforms, so the import is necessarily unused on Windows.
+// Keep all other compiler diagnostics enabled.
+warnings = "-unused_package"
 
 supported_targets = "native"
 
