@@ -8,7 +8,7 @@
 
 name = "colmugx/cetas-js"
 
-version = "0.11.6"
+version = "0.11.7"
 
 readme = "README.mbt.md"
 

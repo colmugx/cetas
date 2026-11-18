@@ -20,7 +20,7 @@ import (
 	"github.com/colmugx/cetas/cetas-go/internal/tui"
 )
 
-var version = "0.11.6"
+var version = "0.11.7"
 
 const usage = `Cetas agent
 

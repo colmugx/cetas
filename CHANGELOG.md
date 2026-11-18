@@ -2,6 +2,33 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.11.7 (2026-11-18)
+
+## Native Ver.（cetas-go）
+
+### Feats
+- Keep Pi custom session entries across restarts and deliver queued follow-up messages through the native session runtime.
+- Receive background Pi notifications without creating misleading Agent turns.
+- Let Pi extensions observe tool calls, including nested calls, without changing native tool approval or execution.
+- Give Pi extensions up-to-date model and tool information for the active session.
+
+## NPM Ver.（cetas-js）
+
+### Feats
+- Use PStack’s built-in workflows alongside existing Skills, with mode updates reflected in the status bar and no host-specific setup.
+- Browse the Skills catalog for `$`-mention autocomplete, including while a turn is running.
+
+## ACP Ver.（cetas-acp）
+
+### Feats
+- Use PStack’s built-in workflows through Skills, with no host-specific setup.
+
+## Run Ver.（cetas-run）
+
+### Feats
+- Use PStack’s built-in workflows through Skills, with no host-specific setup.
+- Log in to supported providers independently of setup, saving credentials for later use without requiring a runnable model.
+
 ## 0.11.6 (2026-11-17)
 
 ## General
