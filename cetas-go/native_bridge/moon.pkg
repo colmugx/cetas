@@ -12,12 +12,6 @@ import {
   "moonbitlang/core/encoding/utf8",
 }
 
-// Fd is only referenced by the POSIX-native bridge implementation.
-// moon.pkg #cfg only accepts backend targets (native/js/wasm), not OS
-// platforms, so the import is necessarily unused on Windows.
-// Keep all other compiler diagnostics enabled.
-warnings = "-unused_package"
-
 supported_targets = "native"
 
 pkgtype(kind: "foreign_library")
