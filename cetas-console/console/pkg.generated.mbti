@@ -81,6 +81,7 @@ pub struct ConsoleRuntime {
   mut file_index_cache : (Int64, Array[String])?
   replay_cache : NativeReplayCache
   mut stopping : Bool
+  mut composing_handles : Int32
 }
 pub async fn ConsoleRuntime::abort_surface_turn(Self, String, String?) -> Unit noraise
 pub async fn ConsoleRuntime::abort_turn(Self, String?) -> Unit noraise

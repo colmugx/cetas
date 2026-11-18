@@ -158,6 +158,12 @@ pub struct ConsoleRuntime {
   /// sweep parks its scope owner forever and trips the async runtime's
   /// deadlock detector at task-group exit.
   mut stopping : Bool
+  /// Session compositions in flight (boot, session switch, prefetch). The
+  /// shutdown sweep drains to zero before returning: a protected compose's
+  /// tail starts recovery actors on the core-async lifetime group, and the
+  /// host may terminate that group the moment the sweep is done — spawning
+  /// on a terminated group aborts the process.
+  mut composing_handles : Int32
 }
 
 ///|
@@ -297,6 +303,17 @@ async fn release_handle_scope(handle : SessionHandle) -> Unit {
     }
     None => ()
   }
+  // The bridge's probe retries and reconnect refills are the only code that
+  // spawns MCP connection actors on the core-async lifetime group from tasks
+  // this sweep does not cancel; once that group terminates, a late commit
+  // aborts the whole process in TaskGroup::spawn's terminated-group guard.
+  // Closing first stops the retries and drains the actors while the group is
+  // still alive. A failed drain must not fail the sweep: later handles still
+  // need their scopes released.
+  match handle.mcp {
+    Some(bridge) => ignore(bridge.close() catch { _ => () })
+    None => ()
+  }
   match handle.close {
     Some(close) => ignore(close.try_put(()) catch { _ => false })
     None => handle.agent.shutdown()
@@ -318,6 +335,9 @@ async fn ConsoleRuntime::compose_handle(
     Err(reason) => return Err(reason)
     Ok(_) => ()
   }
+  // Registered for shutdown_all's drain (see begin_composing).
+  self.begin_composing()
+  defer self.end_composing()
   // Composition suspends on disk I/O, so a shutdown can land mid-compose:
   // `shutdown_all` may already have swept the workspace's handles. Protect
   // the compose-and-decide region, then either install the handle or — once
@@ -796,6 +816,10 @@ pub async fn ConsoleRuntime::switch_workspace(
     self.emit_active_snapshot()
     return Ok(normalized)
   }
+  // The first-session build inside the workspace touches the lifetime group;
+  // registered for shutdown_all's drain (see begin_composing).
+  self.begin_composing()
+  defer self.end_composing()
   let workspace : Result[WorkspaceRuntime, String] = @async.protect_from_cancel(async fn() {
       Ok(
         build_workspace(
@@ -872,6 +896,9 @@ pub async fn ConsoleRuntime::resume_workspace_session(
           }
         None => self.startup_permission
       }
+      // Same lifetime-group accounting as switch_workspace's build.
+      self.begin_composing()
+      defer self.end_composing()
       let built : Result[WorkspaceRuntime, String] = @async.protect_from_cancel(async fn() {
           Ok(
             build_workspace(
@@ -1613,6 +1640,7 @@ pub async fn compose_console_runtime(
     file_index_cache: None,
     replay_cache: NativeReplayCache::new(),
     stopping: false,
+    composing_handles: 0,
   }
 }
 
@@ -2242,6 +2270,28 @@ pub fn ConsoleRuntime::active_workspace(self : ConsoleRuntime) -> String {
 }
 
 ///|
+/// Register one in-flight composition for `shutdown_all`'s drain. Every
+/// protected region that ends by touching the core-async lifetime group —
+/// `compose_handle`'s agent build and the first-session build inside
+/// `switch_workspace`/`resume_workspace_session` — must bracket itself with
+/// this pair: their tail starts recovery actors on that group, and the sweep
+/// parks at its drain until the count clears, so the host cannot terminate
+/// the group underneath a still-running composition (core/async aborts the
+/// process on a spawn aimed at a terminated group). The decrement rides the
+/// caller's defer, so a cancelled composition settles too; the boot
+/// composition runs before this runtime value exists and is gated by the
+/// host's own startup fence instead.
+fn ConsoleRuntime::begin_composing(self : ConsoleRuntime) -> Unit {
+  self.composing_handles = self.composing_handles + 1
+}
+
+///|
+/// The settle half of `begin_composing`; call it from the same scope's defer.
+fn ConsoleRuntime::end_composing(self : ConsoleRuntime) -> Unit {
+  self.composing_handles = self.composing_handles - 1
+}
+
+///|
 pub async fn ConsoleRuntime::shutdown_all(self : ConsoleRuntime) -> Unit {
   // Fence FIRST: composition in flight must observe stopping when its
   // protected region ends, release its fresh scope, and refuse the install —
@@ -2262,6 +2312,15 @@ pub async fn ConsoleRuntime::shutdown_all(self : ConsoleRuntime) -> Unit {
       // hand-off. The host task group drains the parked owner on exit.
       release_handle_scope(handle)
     }
+  }
+  // In-flight compositions settle before the sweep returns. Their protected
+  // region always finishes (install or self-release), and late entrants were
+  // refused at the fence above, so this drain is bounded — but without it a
+  // compose that began before the fence would race the host terminating the
+  // core-async lifetime group, and its recovery-actor spawn on a terminated
+  // group aborts the process.
+  while self.composing_handles > 0 {
+    @async.pause()
   }
 }
 

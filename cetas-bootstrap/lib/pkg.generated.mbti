@@ -1,0 +1,34 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "colmugx/cetas-bootstrap/lib"
+
+import {
+  "colmugx/posoco/error",
+  "posoco/ext-oauth",
+}
+
+// Values
+pub async fn authenticate_login(Array[LoginCandidate], requested? : String, &@ext-oauth.AuthInteraction, &@ext-oauth.AuthPromptInteraction, async (String, String, &@ext-oauth.AuthInteraction, &@ext-oauth.AuthPromptInteraction) -> @ext-oauth.ProviderCredential) -> AuthenticatedLogin raise @error.CommandError
+
+pub async fn choose_login_option(&@ext-oauth.AuthInteraction, &@ext-oauth.AuthPromptInteraction, String, Array[@ext-oauth.AuthPromptOption]) -> String raise @error.CommandError
+
+pub fn login_candidates(Array[String], Array[String]) -> Array[LoginCandidate]
+
+pub fn require_login_active(&@ext-oauth.AuthInteraction) -> Unit raise @error.CommandError
+
+// Errors
+
+// Types and methods
+pub(all) struct AuthenticatedLogin {
+  provider : String
+  auth_method : String
+  credential : @ext-oauth.ProviderCredential
+}
+
+pub(all) struct LoginCandidate {
+  id : String
+  methods : Array[String]
+}
+
+// Type aliases
+
+// Traits

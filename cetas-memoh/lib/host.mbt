@@ -468,12 +468,11 @@ pub async fn MemohHost::handle_resume_session(
 }
 
 ///|
-/// A cancelled turn reaches this host in two shapes, and both are a
-/// cancellation rather than a failure: the awaited task was cancelled from
-/// outside (pause/unwind before the turn produced its own terminal), or the
-/// turn unwound internally and reported `AgentError::Cancelled`. Reporting the
-/// second as an application error would answer ACP with a failure for a turn
-/// the user cancelled, so both must settle as `StopReason::Cancelled`.
+/// Fallback for a cancelled turn that left no terminal to read: the awaited
+/// task was cancelled from outside (pause/unwind before the turn published
+/// anything). A turn that did publish a terminal is settled from
+/// `AcpBridge::stop_reason()`, which reports `TurnCancelled` — including the
+/// hard-cancellation path that unwinds outside every `catch`.
 fn prompt_failure_is_cancelled(error : Error) -> Bool {
   if error is @async.WaitedTaskAlreadyCancelled {
     return true
@@ -548,11 +547,16 @@ pub async fn MemohHost::handle_prompt(
     session.in_flight = None
     ignore(session.bridge.flush())
     session.bridge.close()
+    // The bridge observed the turn's own terminal, so a cancelled turn is
+    // answered from that fact rather than from the shape of the error. The
+    // error is consulted only for a task cancelled before the turn published
+    // a terminal at all.
+    let stop_reason = session.bridge.stop_reason()
     settled.val = Some(
-      match failure {
-        None =>
-          Ok({ stop_reason: session.bridge.stop_reason(), meta: Omitted, })
-        Some(error) =>
+      match (stop_reason, failure) {
+        (@acp.StopReason::Cancelled, _) => Ok({ stop_reason, meta: Omitted, })
+        (_, None) => Ok({ stop_reason, meta: Omitted, })
+        (_, Some(error)) =>
           if prompt_failure_is_cancelled(error) {
             Ok({ stop_reason: @acp.StopReason::Cancelled, meta: Omitted, })
           } else {

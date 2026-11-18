@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEFAULT_VERSION="0.1.2"
+DEFAULT_VERSION="0.1.3"
 REPO="${CETAS_MEMOH_REPO:-colmugx/cetas}"
 VERSION="${1:-${CETAS_MEMOH_VERSION:-$DEFAULT_VERSION}}"
 INSTALL_DIR="${CETAS_MEMOH_INSTALL_DIR:-$HOME/.local/bin}"
