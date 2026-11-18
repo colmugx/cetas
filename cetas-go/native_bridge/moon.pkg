@@ -16,7 +16,6 @@ import {
 // moon.pkg #cfg only accepts backend targets (native/js/wasm), not OS
 // platforms, so the import is necessarily unused on Windows.
 // Keep all other compiler diagnostics enabled.
-
 warnings = "-unused_package"
 
 supported_targets = "native"
