@@ -33,6 +33,8 @@ fn native_child_ev_json(event : @posoco.TurnEvent) -> Json? {
       Some(Json::object({ "type": "turn.started" }))
     @posoco.TurnEvent::TurnCompleted =>
       Some(Json::object({ "type": "turn.completed" }))
+    @posoco.TurnEvent::TurnCancelled =>
+      Some(Json::object({ "type": "turn.cancelled" }))
     @posoco.TurnEvent::TurnFailed(message) =>
       Some(
         Json::object({ "type": "turn.failed", "message": Json::string(message) }),
@@ -663,7 +665,10 @@ fn NativeChildMeter::observe(
 ) -> Unit {
   match event.event {
     @posoco.TurnEvent::TurnStarted => self.live[event.child_session] = true
+    // Any terminal — completed, cancelled, failed — retires the child row;
+    // a cancelled child that stayed "live" would block handle retirement.
     @posoco.TurnEvent::TurnCompleted => self.live.remove(event.child_session)
+    @posoco.TurnEvent::TurnCancelled => self.live.remove(event.child_session)
     @posoco.TurnEvent::TurnFailed(_) => self.live.remove(event.child_session)
     _ => ()
   }

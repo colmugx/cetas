@@ -1543,6 +1543,9 @@ async fn build_session_agent(
       ctx={ fs: session_fs, cwd, home: platform.home, },
       host_group=platform.mcp_group,
       host_version_note=Some(agent_version),
+      // The MCP bridge is registered by this host after the recipe; declaring
+      // its owner keeps every published MCP tool out of the model request.
+      extra_deferred_owners=["posoco_ext_mcp"],
     ) {
     exts.push(feature)
   }

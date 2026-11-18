@@ -34,7 +34,6 @@ import {
   "colmugx/posoco-ext-pstack" @pstack,
   "colmugx/posoco-ext-askquestion" @askquestion,
   "colmugx/posoco-ext-handoff" @handoff,
-  "colmugx/posoco-ext-lazytools" @lazytools,
   "colmugx/posoco-ext-acp" @ext_acp,
   "colmugx/posoco-ext-mcp" @mcp,
   "colmugx/posoco-ext-plan" @plan,

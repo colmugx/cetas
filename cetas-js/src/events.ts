@@ -87,6 +87,15 @@ export type CetasEvent =
   | { type: "model_request_started" }
   | { type: "turn_completed" }
   | {
+      /**
+       * The turn ended because it was cancelled, not because anything failed
+       * (posoco 0.24 `TurnCancelled`). Soft cancellation, hard cancellation
+       * and Agent shutdown all report this terminal; there is no payload —
+       * the typed reason stays on the raised error, not on the wire event.
+       */
+      type: "turn_cancelled";
+    }
+  | {
       type: "turn_failed";
       error_message: string;
       error_kind: string;
@@ -426,6 +435,7 @@ export function parseCetasEvent(raw: unknown): CetasEvent | null {
     case "turn_started":
     case "model_request_started":
     case "turn_completed":
+    case "turn_cancelled":
       return { type: ev.type };
     case "turn_failed":
       return {

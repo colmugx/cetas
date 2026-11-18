@@ -17,9 +17,9 @@ supported_targets = "native"
 import {
   "colmugx/posoco@0.24.2",
   "colmugx/cetas-core@0.2.0",
-  "colmugx/posoco-ext-profiles@0.1.0",
+  "colmugx/posoco-ext-profiles@0.2.0",
   "posoco/devkit@0.4.1",
-  "colmugx/posoco-ext-permission@0.2.0",
+  "colmugx/posoco-ext-permission@0.2.1",
   "colmugx/posoco-ext-workspace@0.1.0",
   "colmugx/posoco-ext-credentials@0.1.0",
   "posoco/ext-oauth@0.1.0",
@@ -38,7 +38,7 @@ import {
   "colmugx/posoco-ext-pstack@0.2.0",
   "colmugx/posoco-ext-askquestion@0.1.0",
   "colmugx/posoco-ext-handoff@0.1.0",
-  "colmugx/posoco-ext-lazytools@0.1.0",
+  "colmugx/posoco-ext-lazytools@0.2.0",
   "colmugx/posoco-ext-subagent@0.1.3",
   "colmugx/posoco-ext-kind@0.1.0",
   "colmugx/posoco-kit-subagent@0.1.1",
@@ -53,6 +53,6 @@ import {
   "colmugx/posoco-ext-stats@0.1.0",
   "posoco/ext-herdr@0.1.0",
   "colmugx/posoco-ext-mcp@0.6.1",
-  "colmugx/posoco-ext-plan@0.5.0",
+  "colmugx/posoco-ext-plan@0.5.1",
   "bobzhang/fuzzyscore@0.1.2",
 }

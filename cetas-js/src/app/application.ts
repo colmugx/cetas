@@ -1939,6 +1939,24 @@ export class CetasApplication<AgentHandle = unknown> {
     }
   }
 
+  /**
+   * Read-only skills catalog for `$`-mention autocomplete. Listing reads the
+   * composition-time catalog snapshot, so it takes no command lane and stays
+   * available while a turn occupies the lanes — unlike `invokeCommand`, whose
+   * mid-turn refusal would silently empty the suggestion list.
+   */
+  async listSkillsCatalog(): Promise<string> {
+    const agent = this.agent;
+    if (agent === undefined) {
+      return JSON.stringify({
+        type: "failure",
+        reason: "no Agent is composed; configure a provider first",
+        code: "not_ready",
+      });
+    }
+    return await this.options.bridge.invokeCommand(agent, "skills", "{}");
+  }
+
   /** Request cooperative cancellation of the active provider command. */
   cancelCurrentOperation(): boolean {
     if (this.activeCommand === undefined) return false;

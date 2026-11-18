@@ -83,6 +83,8 @@ pub fn debug_wire_path(String, String) -> String
 
 pub fn default_agent_config(max_tool_rounds? : Int32?, max_tool_depth? : Int32?, system_prompt? : String?) -> @posoco.AgentConfig
 
+pub fn deferred_tool_hints() -> Map[String, String]
+
 pub fn list_persisted_rewind_points(String) -> Array[PersistedRewindPoint]
 
 pub async fn load_cetas_profiles(&@posoco-ext-workspace.WorkspaceFs, home~ : String, cwd~ : String) -> Array[@posoco-ext-profiles.ProfileManifest]

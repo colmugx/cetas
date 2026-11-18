@@ -166,6 +166,10 @@ fn message_delivery_tag(delivery : @posoco.MessageDeliveryKind) -> String {
 ///                            stamp arrival, the router treats it as a
 ///                            no-op until a consumer opts in)
 ///   TurnCompleted          → turn_completed
+///   TurnCancelled          → turn_cancelled (terminal, not an error: soft
+///                            cancellation, hard cancellation and shutdown all
+///                            report this; without it the TS side waits for a
+///                            terminal that never comes)
 ///   TurnFailed(msg)        → turn_failed { error_message }
 ///   ToolCallPending        → tool_call_started { tool_call_id, tool_name, args }
 ///   ToolCallSucceeded      → tool_call_completed { tool_call_id, result,
@@ -216,6 +220,8 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
       )
     @posoco.TurnEvent::TurnCompleted =>
       Json::object(Map::from_array([("type", Json::string("turn_completed"))]))
+    @posoco.TurnEvent::TurnCancelled =>
+      Json::object(Map::from_array([("type", Json::string("turn_cancelled"))]))
     @posoco.TurnEvent::TurnFailed(msg) =>
       Json::object(
         Map::from_array([
@@ -530,7 +536,6 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
         ]),
       )
 
-    // FIXME: TurnCancelled
     // @posoco.TurnEvent::UserRequestStarted(..) => Json::null()
     // @posoco.TurnEvent::UserRequestFinished(..) => Json::null()
     // @posoco.TurnEvent::ToolChildDeclared(..) => Json::null()
@@ -1893,6 +1898,10 @@ pub fn cetas_js_runtime_create_agent(
                 },
                 host_group=Some(group),
                 profile_activation_sink=Some(profile_sink),
+                // The MCP bridge joins `exts` below (its transport is
+                // host-specific), so declare its owner here: every tool it
+                // publishes is deferred without a second composition pass.
+                extra_deferred_owners=["posoco_ext_mcp"],
                 host_help_note=if runtime.config.host_help_note == "" {
                   None
                 } else {

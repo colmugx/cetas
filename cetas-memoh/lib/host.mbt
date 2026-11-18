@@ -289,17 +289,22 @@ async fn MemohHost::build_session(
   match mcp_tools {
     Some(mcp_bridge) => {
       let mcp_ext : &@posoco.Extension = mcp_bridge
-      let (lazy_gateway, mcp_views) = match
-        @lazytools.LazyTools::defer_extensions(exts=[mcp_ext]) {
+      // The bridge keeps its definitions; the gateway only keeps them out of
+      // the model request, so Memoh Tools stay reachable through tool_list.
+      let lazy_gateway = match
+        @lazytools.LazyTools::new(groups=[
+          {
+            owner: mcp_ext.extension_id(),
+            hint: "Memoh workspace, platform, and host-authorized tools",
+          },
+        ]) {
         Ok(value) => value
         Err(message) => {
           close_failed_mcp_bridge(mcp_bridge)
           return Err("Memoh Tools lazy catalog failed: " + message)
         }
       }
-      for view in mcp_views {
-        exts.push(view)
-      }
+      exts.push(mcp_ext)
       exts.push(lazy_gateway as &@posoco.Extension)
     }
     None => ()

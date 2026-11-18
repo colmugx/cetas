@@ -180,6 +180,7 @@ async fn build_compiled_recipe_features(
   ctx~ : @cetas_core.HostContext,
   host_group~ : @async.TaskGroup? = None,
   profile_activation_sink~ : &@profiles.ProfileActivationSink? = None,
+  extra_deferred_owners~ : Array[String] = [],
   host_help_note~ : String? = None,
   host_version_note~ : String? = None,
   obsidian_vault~ : String? = None,
@@ -275,6 +276,8 @@ async fn build_compiled_recipe_features(
         deferred=episodic,
         manifests~,
         activation_sink=profile_activation_sink,
+        extra_deferred_owners~,
+        deferred_hints=@cetas_core.deferred_tool_hints(),
         store=Some(
           @cetas_core.CetasProfileStore(ctx.fs, home=ctx.home, cwd=ctx.cwd),
         ),
@@ -294,21 +297,25 @@ async fn build_compiled_recipe_features(
   }
 
   match compiled_recipe_packages.get("lazytools") {
-    Some(_) =>
-      match @lazytools.LazyTools::defer_extensions(exts=episodic) {
-        Ok((gateway, views)) => {
-          for view in views {
-            exts.push(view)
-          }
-          exts.push(gateway as &@posoco.Extension)
-        }
+    Some(_) => {
+      let gateway = match
+        @profiles.deferred_gateway(
+          deferred=episodic,
+          extra_owners=extra_deferred_owners,
+          hints=@cetas_core.deferred_tool_hints(),
+        ) {
+        Ok(gateway) => gateway
         Err(message) =>
-          raise @posoco.CompositionError::ToolCollision(
-            "deferred tool name collision",
-            message,
-            manifests=["cetas.recipe"],
+          raise @posoco.CompositionError::ManifestSchemaError(
+            manifest_id="cetas.recipe",
+            detail=message,
           )
       }
+      for ext in episodic {
+        exts.push(ext)
+      }
+      exts.push(gateway as &@posoco.Extension)
+    }
     None =>
       if !episodic.is_empty() {
         raise @posoco.CompositionError::ManifestSchemaError(

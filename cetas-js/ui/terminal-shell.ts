@@ -3111,7 +3111,7 @@ export class TerminalShell {
   > {
     if (this.skillsAutocompleteItems !== undefined) return this.skillsAutocompleteItems;
     try {
-      const outcome = parseSkillsOutcome(await this.requireApp().invokeCommand("skills", "{}"));
+      const outcome = parseSkillsOutcome(await this.requireApp().listSkillsCatalog());
       if (outcome.type !== "success") return [];
       const items = outcome.entries.map((entry) => ({
         label: `$${entry.name}`,

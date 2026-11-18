@@ -526,6 +526,9 @@ async fn compose_session_agent(
     ctx={ fs, cwd, home, },
     host_group=Some(group),
     askquestion=questions,
+    // The MCP bridge joins `tail_exts` below; declaring its owner keeps every
+    // published MCP tool out of the model request.
+    extra_deferred_owners=["posoco_ext_mcp"],
   )
   let plan_review = ConsolePlanReview::ConsolePlanReview(ui_port)
   // The model manager is chosen from `~/.cetas/settings.json` before the
@@ -1439,6 +1442,9 @@ async fn build_workspace(
     ctx={ fs, cwd, home, },
     host_group=Some(group),
     askquestion=questions,
+    // The MCP bridge joins `tail_exts` below; declaring its owner keeps every
+    // published MCP tool out of the model request.
+    extra_deferred_owners=["posoco_ext_mcp"],
   )
   let plan_review = ConsolePlanReview::ConsolePlanReview(ui_port)
   // Same manager resolution as `compose_session_agent`: the choice lives in

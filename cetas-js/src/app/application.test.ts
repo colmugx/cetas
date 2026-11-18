@@ -711,6 +711,68 @@ describe("CetasApplication", () => {
     expect(app.appState).toBe("shutting_down");
   });
 
+  test("lists the skills catalog while a turn occupies the command lanes", async () => {
+    const counters = { created: 0, runs: 0, shutdowns: 0 };
+    let markTurnStarted!: () => void;
+    let releaseTurn!: () => void;
+    const turnStarted = new Promise<void>((resolve) => {
+      markTurnStarted = resolve;
+    });
+    const turnReleased = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+    const catalog = JSON.stringify({
+      type: "success",
+      structured: { kind: "skills_catalog", skills: [] },
+    });
+    const base = bridgeFor(
+      {
+        providers: [
+          {
+            id: "deepseek/chat",
+            label: "DeepSeek Chat",
+            provider: "deepseek",
+            model: "deepseek-chat",
+            active: true,
+            efforts: [],
+            oauth: false,
+          },
+        ],
+        oauthProviders: [],
+      },
+      counters,
+    );
+    const app = new CetasApplication({
+      bridge: {
+        ...base,
+        runTurn: async () => {
+          counters.runs += 1;
+          markTurnStarted();
+          await turnReleased;
+          return "reply";
+        },
+        invokeCommand: async (_agent, id) =>
+          id === "skills" ? catalog : JSON.stringify({ type: "success", id }),
+      },
+      config,
+      callbacks,
+      initialSessionId: "session-1",
+    });
+
+    await app.start();
+    const turn = app.runTurn("hello");
+    await turnStarted;
+    // The command lane refuses reads mid-turn; autocomplete must not take it.
+    await expect(app.invokeCommand("skills", "{}")).rejects.toMatchObject({
+      code: "already_running",
+    });
+    await expect(app.listSkillsCatalog()).resolves.toBe(catalog);
+
+    releaseTurn();
+    await expect(turn).resolves.toBe("reply");
+    await app.shutdown();
+  });
+
   test("serializes commands and blocks turns until the command completes", async () => {
     const counters = { created: 0, runs: 0, shutdowns: 0 };
     let markCommandStarted!: () => void;
