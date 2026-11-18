@@ -260,6 +260,7 @@ pub fn ConsoleRuntime::runtime_json(self : ConsoleRuntime) -> Json {
   Json::object(
     Map::from_array([
       ("status", Json::string("ready")),
+      ("runtime_epoch", Json::string(self.hub.runtime_epoch)),
       ("session_id", Json::string(handle.session_id)),
       ("model", Json::string(handle.model)),
       ("effort", Json::string(handle.effort)),
