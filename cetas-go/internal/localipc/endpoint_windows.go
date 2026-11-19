@@ -43,7 +43,7 @@ func windowsPipePath(home string) (string, error) {
 }
 
 func currentUserPipeDACL() (string, error) {
-	tokenUser, err := windows.Token(0).GetTokenUser()
+	tokenUser, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
 		return "", fmt.Errorf("resolve Windows user identity for IPC ACL: %w", err)
 	}
