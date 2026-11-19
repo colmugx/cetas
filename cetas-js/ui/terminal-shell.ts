@@ -45,6 +45,8 @@ import {
 } from "../src/app/index.ts";
 import type { CatalogRefreshSummary } from "../src/app/types.ts";
 import { newSessionId, sessionFilePath } from "../src/app/session-id.ts";
+import { observeLocalOwner } from "../src/app/local-session-client.ts";
+import type { SessionViewer, SessionEvent } from "../../extension/posoco-ext-session-bridge/ts/bridge.ts";
 import { PiCommands, piCommandArgItems } from "../src/app/pi-commands.ts";
 import { parseSessionReplay, type ReplayItem } from "../src/transcript/replay.ts";
 import {
@@ -265,6 +267,12 @@ export class TerminalShell {
 
   private app?: CetasApplication;
   private sessionId: string;
+  // A remote owner is always read-only. Never invoke the local Agent with
+  // this session ID; its single Session writer remains in the owner process.
+  private remoteViewer?: SessionViewer;
+  private remoteViewerGeneration = 0;
+  private remoteOutput?: AssistantMessage;
+  private remoteText = "";
   /**
    * Working directory of the composed application. Mutable because a
    * cross-folder `/sessions` resume swaps in an application built for the
@@ -726,6 +734,12 @@ export class TerminalShell {
     if (this.hostFaultStopped) throw new Error("host stopped after a fatal fault");
     const trimmed = prompt.trim();
     const commandId = trimmed.startsWith("/") ? trimmed.slice(1).split(/\s/, 1)[0]! : "";
+    if (this.remoteViewer !== undefined &&
+      !["sessions", "new", "exit", "quit"].includes(commandId)) {
+      this.editor.setText("");
+      this.addTranscriptChild(errorNotice("Remote Session is read-only. Use /sessions or /new."));
+      return;
+    }
     if (this.commandBusy && !isBoardWorkflowControl(commandId)) {
       throw new Error("editor submitted while a command is running");
     }
@@ -888,6 +902,7 @@ export class TerminalShell {
    * A shutdown whose promises never settle must still end the process.
    */
   requestShutdown(code = 0): void {
+    this.retireRemoteViewer();
     if (this.hostFaultStopped) return;
     if (this.shutdownPromise === undefined) {
       this.armForceExitWatchdog(code);
@@ -1040,7 +1055,7 @@ export class TerminalShell {
   }
 
   handleSnapshot(snapshot: AppSnapshot): void {
-    if (this.hostFaultStopped) return;
+    if (this.hostFaultStopped || this.remoteViewer !== undefined) return;
     this.welcomeSnapshot = snapshot;
     const previousState = this.renderedAppState;
     this.renderedAppState = snapshot.state;
@@ -2308,6 +2323,7 @@ export class TerminalShell {
       return;
     }
     const nextSession = newSessionId();
+    this.retireRemoteViewer();
     this.requireApp().setSession(nextSession);
     this.sessionId = nextSession;
     this.transcript.clear();
@@ -2736,13 +2752,136 @@ export class TerminalShell {
     }));
   }
 
-  /** Enter on a row: same-folder rows resume in place, foreign ones switch. */
+  /** Enter on a row: first check the actual local Session owner.
+   * Never turn an explicit owner refusal into local journal write access. */
   private pickSessionEntry(entry: SessionEntry): void {
+    void this.pickSessionWithOwner(entry);
+  }
+
+  private async pickSessionWithOwner(entry: SessionEntry): Promise<void> {
+    if (entry.id === this.sessionId && this.remoteViewer !== undefined) {
+      this.addTranscriptChild(systemNotice("already observing this Session"));
+      return;
+    }
+    const found = await observeLocalOwner(this.home, entry.id);
+    if (found.kind === "attached") {
+      this.installRemoteViewer(entry.id, found.viewer);
+      return;
+    }
+    if (found.kind === "refused") {
+      this.addTranscriptChild(errorNotice(
+        `/sessions: owner attach refused: ${found.reason}. Session not resumed locally.`,
+      ));
+      return;
+    }
     if (entry.inCurrentFolder !== false) {
       this.resumeSession(entry.id);
       return;
     }
-    void this.resumeSessionFromOtherFolder(entry);
+    await this.resumeSessionFromOtherFolder(entry);
+  }
+
+  private retireRemoteViewer(): void {
+    this.remoteViewerGeneration++;
+    this.remoteViewer?.close();
+    this.remoteViewer = undefined;
+    this.remoteOutput = undefined;
+    this.remoteText = "";
+  }
+
+  private installRemoteViewer(sessionID: string, viewer: SessionViewer): void {
+    this.retireRemoteViewer();
+    this.remoteViewer = viewer;
+    const generation = this.remoteViewerGeneration;
+    this.sessionId = sessionID;
+    this.transcript.clear();
+    this.virtualTranscript?.reset();
+    this.welcomeHeader.compact = true;
+    this.addTranscriptChild(systemNotice(`Observing Session ${sessionID} · read-only Posoco bridge`));
+    if (viewer.snapshot.busy === true) this.setTurnStatus("working", "working · remote owner");
+    else this.setTurnStatus("idle");
+    this.tui.terminal.clearScreen();
+    this.tui.requestRender(true);
+    void this.consumeRemoteViewer(viewer, generation);
+  }
+
+  private async consumeRemoteViewer(viewer: SessionViewer, generation: number): Promise<void> {
+    let cursor = Math.max(viewer.snapshot.cursor, viewer.snapshot.high_water_cursor ?? 0);
+    try {
+      for await (const event of viewer.events()) {
+        if (this.remoteViewer !== viewer || generation !== this.remoteViewerGeneration) return;
+        if (event.session_id !== this.sessionId ||
+          event.runtime_epoch !== viewer.owner.runtimeEpoch) {
+          throw new Error("owner changed Session identity");
+        }
+        if (event.cursor_advance === true) {
+          if (!Number.isSafeInteger(event.cursor)) throw new Error("invalid owner cursor");
+          if (event.cursor <= cursor) continue; // already covered by snapshot
+          if (event.cursor !== cursor + 1) throw new Error("owner event cursor gap");
+          cursor = event.cursor;
+        }
+        this.renderRemoteEvent(event);
+      }
+      throw new Error("owner ended the live event stream");
+    } catch (err) {
+      if (this.remoteViewer !== viewer || generation !== this.remoteViewerGeneration) return;
+      // Freeze the Session as read-only until the user chooses another
+      // Session; no automatic replay or independent Agent is ever started.
+      viewer.close();
+      this.addTranscriptChild(errorNotice(
+        `Remote Session disconnected: ${String(err)}. Reselect /sessions to reconnect.`,
+      ));
+      this.setTurnStatus("idle");
+      this.tui.requestRender();
+    }
+  }
+
+  private renderRemoteEvent(event: SessionEvent): void {
+    switch (event.type) {
+      case "turn.accepted":
+      case "turn.started":
+        this.setTurnStatus("working", "working · remote owner");
+        break;
+      case "assistant.text_delta": {
+        const delta = typeof event.delta === "string" ? event.delta :
+          typeof event.text === "string" ? event.text :
+          typeof event.token === "string" ? event.token : "";
+        if (delta.length > 0) {
+          this.remoteText += delta;
+          if (this.remoteOutput === undefined) {
+            this.remoteOutput = new AssistantMessage("", { streaming: true });
+            this.addTranscriptChild(this.remoteOutput);
+          }
+          this.remoteOutput.updateContent(this.remoteText);
+          this.tui.requestRender();
+        }
+        break;
+      }
+      case "turn.completed":
+        if (this.remoteOutput === undefined && typeof event.text === "string") {
+          this.addTranscriptChild(new AssistantMessage(event.text));
+        }
+        this.remoteOutput = undefined;
+        this.remoteText = "";
+        this.setTurnStatus("idle");
+        break;
+      case "turn.failed":
+        this.remoteOutput = undefined;
+        this.remoteText = "";
+        this.addTranscriptChild(errorNotice(
+          typeof event.message === "string" ? event.message : "Remote turn failed",
+        ));
+        this.setTurnStatus("idle");
+        break;
+      case "session.snapshot":
+        this.setTurnStatus(event.busy === true ? "working" : "idle",
+          event.busy === true ? "working · remote owner" : undefined);
+        break;
+      default:
+        // Unknown EventHub frames are not silently converted into agent
+        // commands or journal writes.
+        break;
+    }
   }
 
   /**
@@ -2959,6 +3098,7 @@ export class TerminalShell {
         this.addTranscriptChild(systemNotice("already in this session"));
         return;
       }
+      this.retireRemoteViewer();
       this.requireApp().setSession(sessionId);
       this.sessionId = sessionId;
       this.transcript.clear();

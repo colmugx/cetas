@@ -50,9 +50,10 @@ export async function observeLocalOwner(home: string, sessionID: string): Promis
     }
   }
   const socket: Socket = connect(path);
+  let attached = false;
   try {
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("Session owner connect timeout")), 1200);
+      const timeout = setTimeout(() => { cleanup(); reject(new Error("Session owner connect timeout")); }, 1200);
       const cleanup = () => {
         clearTimeout(timeout);
         socket.off("connect", connected);
@@ -65,21 +66,18 @@ export async function observeLocalOwner(home: string, sessionID: string): Promis
     });
     try {
       const viewer = await observeSessionSocket(socket, sessionID, randomUUID());
+      attached = true;
       return { kind: "attached", viewer };
     } catch (err) {
       return { kind: "refused", reason: String(err) };
     }
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" || code === "ECONNREFUSED" || code === "ENOENT") {
+    if (code === "ENOENT" || code === "ECONNREFUSED") {
       return { kind: "absent" };
     }
     return { kind: "refused", reason: String(err) };
   } finally {
-    if (!socket.readyState || socket.destroyed) {
-      // observeSessionSocket owns a connected socket after attach.
-    } else if (socket.connecting) {
-      socket.destroy();
-    }
+    if (!attached) socket.destroy();
   }
 }
