@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -155,6 +156,21 @@ func TestNativeHarnessHost(t *testing.T) {
 		t.Fatalf("invalid owned Session snapshot: %s %v", viewer.Snapshot, err)
 	}
 	_ = viewer.Close()
+
+	// Real cross-process admission: the child uses the same published
+	// Posoco Session stream, without starting a second Agent or obtaining
+	// the owner's journal. This catches real Unix/Windows pipe interop.
+	executable, err := os.Executable()
+	if err != nil { t.Fatal(err) }
+	child := exec.CommandContext(ctx, executable, "-test.run=^TestExternalSessionObserver$")
+	child.Env = append(os.Environ(),
+		"CETAS_TEST_OBSERVE_CHILD=1",
+		"CETAS_TEST_OBSERVE_SESSION="+state.SessionID,
+		"CETAS_TEST_OBSERVE_HOME="+home)
+	output, err := child.CombinedOutput()
+	if err != nil || !strings.Contains(string(output), "external Session observation accepted") {
+		t.Fatalf("external observer failed: %v\n%s", err, output)
+	}
 	// The thread-owner runtime is process-singleton, not an accidental set
 	// of parallel MoonBit interpreters created from Go goroutines.
 	if _, err := Start(ctx); !errors.Is(err, ErrAlreadyStarted) {
@@ -450,4 +466,37 @@ answeredQuestion:
 	if !gotSnapshot {
 		t.Fatal("EventHub did not reach Go host event subscription")
 	}
+}
+
+func TestExternalSessionObserver(t *testing.T) {
+	if os.Getenv("CETAS_TEST_OBSERVE_CHILD") != "1" {
+		return
+	}
+	home := os.Getenv("CETAS_TEST_OBSERVE_HOME")
+	session := os.Getenv("CETAS_TEST_OBSERVE_SESSION")
+	if home == "" || session == "" {
+		t.Fatal("missing external owner identity")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	conn, err := localipc.DialLocal(ctx, home)
+	if err != nil {
+		t.Fatalf("external process could not reach owner: %v", err)
+	}
+	viewer, err := sb.ObserveConn(ctx, conn, session, "external-go-test-viewer")
+	if err != nil {
+		t.Fatalf("external process was not attached to owner: %v", err)
+	}
+	defer viewer.Close()
+	var snapshot struct {
+		Type string `json:"type"`
+		SessionID string `json:"session_id"`
+		RuntimeEpoch string `json:"runtime_epoch"`
+	}
+	if err := json.Unmarshal(viewer.Snapshot, &snapshot); err != nil ||
+		snapshot.Type != "session.snapshot" ||
+		snapshot.SessionID != session || snapshot.RuntimeEpoch == "" {
+		t.Fatalf("external process got incompatible Session snapshot: %s, %v", viewer.Snapshot, err)
+	}
+	t.Log("external Session observation accepted")
 }
