@@ -19,6 +19,7 @@ import (
 	bridge "github.com/colmugx/cetas/cetas-go/go_bridge"
 	"github.com/colmugx/cetas/cetas-go/internal/localipc"
 	"github.com/colmugx/cetas/cetas-go/internal/wire"
+	sb "github.com/colmugx/posoco-extension/posoco-ext-session-bridge/go"
 )
 
 var (
@@ -83,8 +84,12 @@ type Host struct {
 	infra          transport
 	ownerLease     *localipc.Lease
 	ownerReleased  chan struct{}
-	ownerHealthMu  sync.Mutex
-	ownerHealth    *localipc.HealthService
+	ownerBridgeMu  sync.Mutex
+	ownerBridge    *observerServer
+	nextStreamID   atomic.Uint64
+	streamsMu      sync.Mutex
+	streams        map[uint64]sessionStream
+	streamsClosed  bool
 	nextID         atomic.Uint64
 	mu             sync.Mutex
 	pending        map[uint64]chan json.RawMessage
@@ -114,6 +119,7 @@ func newHost(infra transport) *Host {
 	h := &Host{
 		infra:    infra,
 		pending:  make(map[uint64]chan json.RawMessage),
+		streams:  make(map[uint64]sessionStream),
 		events:   make(chan Event, 256),
 		problems: make(chan error, 1),
 		boot:     make(chan Event, 1),
@@ -140,13 +146,12 @@ func (h *Host) launch() {
 		go func() {
 			<-h.exited
 			<-h.done
-			// The health listener and its peers are retired while the
-			// lease is still held, before any successor can take over.
-			h.ownerHealthMu.Lock()
-			if h.ownerHealth != nil {
-				_ = h.ownerHealth.Close()
+			// Retire all Session viewers before releasing the owner lease.
+			h.ownerBridgeMu.Lock()
+			if h.ownerBridge != nil {
+				_ = h.ownerBridge.Close()
 			}
-			h.ownerHealthMu.Unlock()
+			h.ownerBridgeMu.Unlock()
 			// The lease survives until both the runtime and its guest
 			// subprocesses have retired, even when Close was never called.
 			h.pi.close()
@@ -269,7 +274,7 @@ func (h *Host) awaitBoot(ctx context.Context) (*Host, error) {
 			_ = h.Close(ctx)
 			return nil, fmt.Errorf("Cetas startup: %s: %s", v.Status, v.Detail)
 		}
-		h.startOwnerHealth(evt.Raw)
+		h.startOwnerBridge(evt.Raw)
 		close(h.started)
 		return h, nil
 	case <-ctx.Done():
@@ -286,7 +291,9 @@ func (h *Host) awaitBoot(ctx context.Context) (*Host, error) {
 // discovery endpoint must never prevent an already-booted Agent from working.
 // It is only called after the real MoonBit runtime reported a ready snapshot.
 // The snapshot epoch is the same EventHub epoch clients must use for replay.
-func (h *Host) startOwnerHealth(boot json.RawMessage) {
+// startOwnerBridge publishes a read-only Session feed only after the
+// real Runtime has announced its EventHub epoch. IPC remains optional.
+func (h *Host) startOwnerBridge(boot json.RawMessage) {
 	if h.ownerLease == nil {
 		return
 	}
@@ -296,38 +303,31 @@ func (h *Host) startOwnerHealth(boot json.RawMessage) {
 		} `json:"snapshot"`
 	}
 	if err := json.Unmarshal(boot, &frame); err != nil || frame.Snapshot.RuntimeEpoch == "" {
-		h.report(fmt.Errorf("optional local IPC: runtime epoch unavailable"))
+		h.report(fmt.Errorf("optional Session bridge: runtime epoch unavailable"))
 		return
 	}
 	listener, err := localipc.ListenLocal(h.ownerLease)
 	if err != nil {
-		h.report(fmt.Errorf("optional local IPC endpoint: %w", err))
+		h.report(fmt.Errorf("optional Session bridge endpoint: %w", err))
 		return
 	}
 	var id [16]byte
 	if _, err := rand.Read(id[:]); err != nil {
 		_ = listener.Close()
-		h.report(fmt.Errorf("optional local IPC identity: %w", err))
+		h.report(fmt.Errorf("optional Session bridge identity: %w", err))
 		return
 	}
-	service, err := localipc.StartHealthService(listener, localipc.OwnerInfo{
+	service := startObserverServer(listener, sb.Owner{
 		InstanceID: hex.EncodeToString(id[:]),
 		RuntimeEpoch: frame.Snapshot.RuntimeEpoch,
-	})
-	if err != nil {
-		_ = listener.Close()
-		h.report(fmt.Errorf("optional local IPC service: %w", err))
-		return
-	}
-	h.ownerHealthMu.Lock()
-	defer h.ownerHealthMu.Unlock()
-	// A fast-shutdown race must never publish a listener after the runtime
-	// owner has already exited and begun releasing its OS lease.
+	}, h)
+	h.ownerBridgeMu.Lock()
+	defer h.ownerBridgeMu.Unlock()
 	select {
 	case <-h.exited:
 		_ = service.Close()
 	default:
-		h.ownerHealth = service
+		h.ownerBridge = service
 	}
 }
 
@@ -446,6 +446,7 @@ func (h *Host) requestNative(ctx context.Context, command string, args any) (jso
 
 func (h *Host) pump() {
 	defer close(h.done)
+	defer h.closeSessionStreams()
 	defer h.closeActivityEvents()
 	defer close(h.problems)
 	// seen holds the rejection counts the pump already acted on; the native
@@ -531,6 +532,9 @@ func (h *Host) pump() {
 			tag.Type == "pi.guest.retired" || isPiObserverFrame(tag.Type) {
 			h.pi.handle(tag.Type, append(json.RawMessage(nil), payload...))
 		}
+		// Independent Session observers never consume the UI's event queue.
+		// A slow observer is detached, not allowed to stall the Agent.
+		h.publishSessionFrame(payload)
 		evt := Event{Type: tag.Type, Raw: append(json.RawMessage(nil), payload...)}
 		if tag.Type == "infra.boot" {
 			select {
