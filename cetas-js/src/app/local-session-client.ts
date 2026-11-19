@@ -33,8 +33,13 @@ export async function observeLocalOwner(
   home: string, sessionID: string, skipOwnBun = false,
 ): Promise<LocalOwnerLookup> {
   const go = await observeOneLocalOwner(home, sessionID, localOwnerEndpoint);
-  if (go.kind !== "absent" || skipOwnBun || process.platform === "win32") return go;
-  return observeOneLocalOwner(home, sessionID, bunOwnerEndpoint);
+  if (go.kind === "attached" || skipOwnBun || process.platform === "win32") return go;
+  // Go may own a different Session in the same home. A real Bun owner
+  // can still own the selected one; probe BOTH safe same-user endpoints.
+  const bun = await observeOneLocalOwner(home, sessionID, bunOwnerEndpoint);
+  if (bun.kind === "attached") return bun;
+  if (go.kind === "refused") return go; // never turn denial into a writer
+  return bun;
 }
 
 async function observeOneLocalOwner(

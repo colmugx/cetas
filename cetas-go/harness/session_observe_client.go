@@ -21,28 +21,23 @@ func (h *Host) ObserveSession(ctx context.Context, sessionID string) (*wire.Sess
 	if sessionID == "" {
 		return nil, fmt.Errorf("empty Session ID")
 	}
-	var conn net.Conn
-	var err error
-	home:=localipc.Home()
+	home := localipc.Home()
+	var attempts []func(context.Context,string)(net.Conn,error)
 	if h.ownerContended {
-		conn,err=localipc.DialLocal(ctx,home)
-		if err!=nil{return nil,fmt.Errorf("connect to Go Session owner: %w",err)}
-	} else if localipc.BunOwnerAvailable(home) {
-		conn,err=localipc.DialBunOwner(ctx,home)
-		if err!=nil{return nil,fmt.Errorf("connect to Bun Session owner: %w",err)}
-	} else {
+		attempts=append(attempts,localipc.DialLocal)
+	}
+	if localipc.BunOwnerAvailable(home) {
+		attempts=append(attempts,localipc.DialBunOwner)
+	}
+	if len(attempts)==0 {
 		return nil,fmt.Errorf("no competing local Session owner to observe")
 	}
-	var identity [16]byte
-	if _, err := rand.Read(identity[:]); err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
-	observer, err := sb.ObserveConn(ctx, conn, sessionID, hex.EncodeToString(identity[:]))
-	if err != nil {
-		return nil, fmt.Errorf("observe owned Session %s: %w", sessionID, err)
-	}
-	events := make(chan wire.Event, 128)
+	var observer *sb.Observer
+	var lastErr error
+	for _,dial:=range attempts {
+		conn,err:=dial(ctx,home)
+		if err!=nil {lastErr=err;continue}
+		events := make(chan wire.Event, 128)
 	closed := make(chan struct{})
 	var once sync.Once
 	closeObserver := func() error {
