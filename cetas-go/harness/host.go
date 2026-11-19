@@ -203,11 +203,15 @@ func Start(ctx context.Context) (*Host, error) {
 	if localipc.OwnerLeaseEnabled() {
 		lease, err := localipc.Acquire(localipc.Home())
 		if err != nil {
-			activated.Store(false)
-			return nil, fmt.Errorf("native local owner: %w", err)
+			// IPC is an optional coordination aid, never a prerequisite for
+			// composing or using the local Cetas runtime. In particular, a
+			// stale/ambiguous endpoint or another lease holder must not turn
+			// an IPC problem into an application startup failure.
+			h.report(fmt.Errorf("optional native local owner unavailable; continuing standalone: %w", err))
+		} else {
+			h.ownerLease = lease
+			h.ownerReleased = make(chan struct{})
 		}
-		h.ownerLease = lease
-		h.ownerReleased = make(chan struct{})
 	}
 	// Resolve Pi before the MoonBit Agent composes its extension manifests.
 	// Do not instantiate moejs or a Bun subprocess during this check.
