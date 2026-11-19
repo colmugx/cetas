@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"sync"
 
 	"github.com/colmugx/cetas/cetas-go/internal/localipc"
@@ -17,15 +18,20 @@ import (
 // already-running local Owner. It never loads a journal, starts an Agent, or
 // retries a command. The caller owns the returned stream and must Close it.
 func (h *Host) ObserveSession(ctx context.Context, sessionID string) (*wire.SessionObservation, error) {
-	if !h.ownerContended {
-		return nil, fmt.Errorf("no competing local Session owner to observe")
-	}
 	if sessionID == "" {
 		return nil, fmt.Errorf("empty Session ID")
 	}
-	conn, err := localipc.DialLocal(ctx, localipc.Home())
-	if err != nil {
-		return nil, fmt.Errorf("connect to existing Session owner: %w", err)
+	var conn net.Conn
+	var err error
+	home:=localipc.Home()
+	if h.ownerContended {
+		conn,err=localipc.DialLocal(ctx,home)
+		if err!=nil{return nil,fmt.Errorf("connect to Go Session owner: %w",err)}
+	} else if localipc.BunOwnerAvailable(home) {
+		conn,err=localipc.DialBunOwner(ctx,home)
+		if err!=nil{return nil,fmt.Errorf("connect to Bun Session owner: %w",err)}
+	} else {
+		return nil,fmt.Errorf("no competing local Session owner to observe")
 	}
 	var identity [16]byte
 	if _, err := rand.Read(identity[:]); err != nil {

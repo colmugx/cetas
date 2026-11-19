@@ -346,7 +346,9 @@ func (h *Host) PiAvailable() bool { return h.piAvailable }
 
 // RemoteOwnerExpected reports an actual competing owner lease. It is only
 // used for read-only Session attach decisions; it does not imply IPC health.
-func (h *Host) RemoteOwnerExpected() bool { return h.ownerContended }
+func (h *Host) RemoteOwnerExpected() bool {
+	return h.ownerContended || localipc.BunOwnerAvailable(localipc.Home())
+}
 
 // OwnsLocalOwnerLease reports whether this process can serve local Session
 // observations. It does not authorize writes to other processes' Sessions.
