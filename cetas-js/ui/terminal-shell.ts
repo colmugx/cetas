@@ -1295,7 +1295,9 @@ export class TerminalShell {
   }
 
   private handleObserverEvent(eventJson: string): void {
-    if (this.shutdownPromise !== undefined) return;
+    // Ignore events from the standalone Agent while viewing a different
+    // process' Session; mixing them would fabricate cross-Session output.
+    if (this.remoteViewer !== undefined || this.shutdownPromise !== undefined) return;
     if (this.handleOperationLifecycleEvent(eventJson)) return;
     const outcome = parseCetasEventLenient(eventJson);
     if ("skipped" in outcome) {
@@ -1910,6 +1912,12 @@ export class TerminalShell {
     }
     if (this.tui.hasOverlay()) {
       this.tui.hideOverlay();
+      return { consume: true };
+    }
+    if (this.remoteViewer !== undefined && matchesKey(data, "escape")) {
+      this.addTranscriptChild(systemNotice(
+        "Remote Session is read-only. Interrupt the turn in its owning terminal.",
+      ));
       return { consume: true };
     }
     // ESC interrupts the active operation: a running turn (mailbox abort plus
