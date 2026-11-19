@@ -29,6 +29,7 @@ import {
   resolvedSessionsDir,
 } from "./src/app/moonbit-bridge.ts";
 import { newSessionId } from "./src/app/session-id.ts";
+import { BunSessionOwner } from "./src/app/local-session-owner.ts";
 import { disposeSharedPiModuleMirror } from "./src/app/pi-module-mirror.ts";
 import { TerminalShell, localizedCetasTuiHelpNote } from "./ui/terminal-shell.ts";
 import { openInBrowser } from "./ui/workflow-board-server.ts";
@@ -116,6 +117,7 @@ async function main(): Promise<void> {
   };
   const tui = new TuiAltScreen(new ProcessTerminal(), false, undefined, { mouse: true, scrollToEndIndicator: () => "↓ newer messages" });
   let shell: TerminalShell;
+  let sessionOwner: BunSessionOwner | undefined;
   /**
    * Compose one application for `hostConfig`. Also the seam a cross-folder
    * `/sessions` resume uses: the fresh application's tools, workspace anchor,
@@ -175,12 +177,28 @@ async function main(): Promise<void> {
       return { app, sessionsDir: resolvedSessionsDir(nextConfig) };
     },
     onExit: (code) => {
+      sessionOwner?.close();
       disposeSharedPiModuleMirror();
       process.exit(code);
     },
   });
   const app = composeApplication(config, sessionId);
   shell.attachApplication(app);
+  // Same-user, read-only Unix Session observer service. A missing/blocked
+  // endpoint never prevents ordinary Bun Agent startup.
+  sessionOwner = new BunSessionOwner(config.home, () => shell.ownerSessionState());
+  const published = await sessionOwner.start().catch((error: unknown) => {
+    console.error("optional Bun Session owner unavailable:", error);
+    return false;
+  });
+  shell.setLocalBunOwnerActive(published);
+  if (published) {
+    const originalObserver = shell.callbacks.observerCallback;
+    shell.callbacks.observerCallback = (raw) => {
+      originalObserver(raw);
+      sessionOwner?.publish(raw);
+    };
+  }
   stopSurface = (outputBroken) => shell.stopForHostFault(outputBroken);
   process.on("SIGINT", () => shell.requestShutdown(0));
   process.on("SIGTERM", () => shell.requestShutdown(0));

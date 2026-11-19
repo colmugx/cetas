@@ -270,6 +270,7 @@ export class TerminalShell {
   // A remote owner is always read-only. Never invoke the local Agent with
   // this session ID; its single Session writer remains in the owner process.
   private remoteViewer?: SessionViewer;
+  private localBunOwnerActive = false;
   private remoteViewerGeneration = 0;
   private remoteOutput?: AssistantMessage;
   private remoteText = "";
@@ -629,6 +630,15 @@ export class TerminalShell {
       );
     };
     this.registerAutocomplete();
+  }
+
+  // Used by the host-owned optional Unix IPC publisher, not a second Agent.
+  ownerSessionState(): { sessionID: string; busy: boolean } {
+    return { sessionID: this.sessionId, busy: this.app?.snapshot().state === "running" };
+  }
+
+  setLocalBunOwnerActive(active: boolean): void {
+    this.localBunOwnerActive = active;
   }
 
   attachApplication(app: CetasApplication): void {
@@ -2771,7 +2781,7 @@ export class TerminalShell {
       this.addTranscriptChild(systemNotice("already observing this Session"));
       return;
     }
-    const found = await observeLocalOwner(this.home, entry.id);
+    const found = await observeLocalOwner(this.home, entry.id, this.localBunOwnerActive);
     if (found.kind === "attached") {
       this.installRemoteViewer(entry.id, found.viewer);
       return;
