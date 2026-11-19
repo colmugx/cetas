@@ -155,7 +155,7 @@ func TestNativeHarnessHost(t *testing.T) {
 		observed.Type != "session.snapshot" || observed.SessionID != state.SessionID {
 		t.Fatalf("invalid owned Session snapshot: %s %v", viewer.Snapshot, err)
 	}
-	_ = viewer.Close()
+	defer viewer.Close()
 
 	// Real cross-process admission: the child uses the same published
 	// Posoco Session stream, without starting a second Agent or obtaining
@@ -321,6 +321,40 @@ waitTurn:
 	}
 	if !reasoningSeen {
 		t.Fatal("real provider reasoning never crossed the native bridge")
+	}
+	// Observer must see the SAME real working and token stream. A valid
+	// protocol hello alone cannot satisfy cross-terminal acceptance.
+	type streamOutcome struct {
+		working bool
+		delta bool
+		err error
+	}
+	streamResult := make(chan streamOutcome, 1)
+	go func() {
+		got := streamOutcome{}
+		for {
+			raw, err := viewer.Next()
+			if err != nil { got.err = err; break }
+			var frame struct {
+				Type string `json:"type"`
+				Delta string `json:"delta"`
+				Text string `json:"text"`
+			}
+			if err := json.Unmarshal(raw, &frame); err != nil { got.err = err; break }
+			if frame.Type == "turn.accepted" || frame.Type == "turn.started" { got.working = true }
+			if frame.Type == "assistant.text_delta" && (frame.Delta != "" || frame.Text != "") { got.delta = true }
+			if frame.Type == "turn.completed" { break }
+		}
+		streamResult <- got
+	}()
+	select {
+	case result := <-streamResult:
+		if result.err != nil || !result.working || !result.delta {
+			t.Fatalf("real owner stream missing working/output: %+v", result)
+		}
+	case <-time.After(8 * time.Second):
+		_ = viewer.Close()
+		t.Fatal("real owner stream did not settle")
 	}
 	// The new projection must cross the real MoonBit/C/Go path, not merely
 	// render artificial Go fixtures. Reuse this process-singleton runtime.
