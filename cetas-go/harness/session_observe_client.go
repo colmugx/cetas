@@ -14,30 +14,48 @@ import (
 	sb "github.com/colmugx/posoco-extension/posoco-ext-session-bridge/go"
 )
 
-// ObserveSession attaches read-only to a Session currently held in the
-// already-running local Owner. It never loads a journal, starts an Agent, or
-// retries a command. The caller owns the returned stream and must Close it.
+// ObserveSession reads an already composed Session from its existing Go or
+// Bun owner. It never creates a competing Agent, writes a journal, or blindly
+// retries a mutation.
 func (h *Host) ObserveSession(ctx context.Context, sessionID string) (*wire.SessionObservation, error) {
 	if sessionID == "" {
 		return nil, fmt.Errorf("empty Session ID")
 	}
 	home := localipc.Home()
-	var attempts []func(context.Context,string)(net.Conn,error)
+	var attempts []func(context.Context, string) (net.Conn, error)
 	if h.ownerContended {
-		attempts=append(attempts,localipc.DialLocal)
+		attempts = append(attempts, localipc.DialLocal)
 	}
 	if localipc.BunOwnerAvailable(home) {
-		attempts=append(attempts,localipc.DialBunOwner)
+		attempts = append(attempts, localipc.DialBunOwner)
 	}
-	if len(attempts)==0 {
-		return nil,fmt.Errorf("no competing local Session owner to observe")
+	if len(attempts) == 0 {
+		return nil, fmt.Errorf("no competing local Session owner to observe")
 	}
+
 	var observer *sb.Observer
 	var lastErr error
-	for _,dial:=range attempts {
-		conn,err:=dial(ctx,home)
-		if err!=nil {lastErr=err;continue}
-		events := make(chan wire.Event, 128)
+	for _, dial := range attempts {
+		conn, err := dial(ctx, home)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		var identity [16]byte
+		if _, err := rand.Read(identity[:]); err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
+		observer, err = sb.ObserveConn(ctx, conn, sessionID, hex.EncodeToString(identity[:]))
+		if err == nil {
+			break
+		}
+		lastErr = err
+	}
+	if observer == nil {
+		return nil, fmt.Errorf("existing owner refused Session %s: %w", sessionID, lastErr)
+	}
+	events := make(chan wire.Event, 128)
 	closed := make(chan struct{})
 	var once sync.Once
 	closeObserver := func() error {
@@ -54,8 +72,6 @@ func (h *Host) ObserveSession(ctx context.Context, sessionID string) (*wire.Sess
 		for {
 			raw, err := observer.Next()
 			if err != nil {
-				// A transport failure must stop the read-only stream. It
-				// cannot silently create a new writer for the same Session.
 				return
 			}
 			var tag struct {
@@ -70,15 +86,15 @@ func (h *Host) ObserveSession(ctx context.Context, sessionID string) (*wire.Sess
 			case <-closed:
 				return
 			default:
-				// Slow UI: retire the view instead of dropping a cursor
-				// while claiming event continuity.
+				// Slow viewers must resnapshot rather than lose a cursor,
+				// and can never stall the existing owner Runtime.
 				return
 			}
 		}
 	}()
 	return &wire.SessionObservation{
 		Snapshot: append(json.RawMessage(nil), observer.Snapshot...),
-		Events: events,
-		Close: closeObserver,
+		Events:   events,
+		Close:    closeObserver,
 	}, nil
 }
