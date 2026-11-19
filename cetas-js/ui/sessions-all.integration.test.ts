@@ -318,6 +318,9 @@ describe("acceptance: /sessions opens on Current Folder and behaves as before", 
 
     // Enter on the second row resumes that session; no project switch happens.
     selectRow(harness, 1);
+    // Owner lookup is asynchronous: a missing IPC owner falls back to the
+    // original local-session resume without blocking the UI event loop.
+    await waitFor(() => harness.setSessions.length === 1, "local session resume");
     expect(harness.setSessions).toEqual([fixture.ids.alphaOld]);
     expect(harness.switchCalls).toEqual([]);
     expect(shellInternals(harness.shell).sessionId).toBe(fixture.ids.alphaOld);
