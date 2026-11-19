@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/colmugx/cetas/cetas-go/internal/localipc"
+	sb "github.com/colmugx/posoco-extension/posoco-ext-session-bridge/go"
 )
 
 func TestPiCustomEntryRPCIsHostPrivate(t *testing.T) {
@@ -130,16 +131,30 @@ func TestNativeHarnessHost(t *testing.T) {
 			t.Errorf("native harness cleanup: %v", err)
 		}
 	})
-	// The opt-in owner advertises only the real EventHub runtime epoch and
-	// a read-only health capability on both Unix sockets and Windows pipes.
-	owner, probeErr := localipc.ProbeLocal(ctx, home)
-	if probeErr != nil {
-		t.Fatalf("opt-in native owner health endpoint unavailable: %v", probeErr)
+	// The opted-in owner serves its already-composed Session without
+	// creating a second Agent, using the same bridge as the Bun client.
+	runtimeFrame, err := h.Request(ctx, "runtime_state", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if owner.RuntimeEpoch == "" || len(owner.Capabilities) != 1 ||
-		owner.Capabilities[0] != localipc.CapabilityHealthPing {
-		t.Fatalf("native owner advertised unsafe capabilities: %+v", owner)
+	var state struct{ SessionID string `json:"session_id"` }
+	if err := json.Unmarshal(runtimeFrame, &state); err != nil || state.SessionID == "" {
+		t.Fatalf("runtime returned no owned Session: %s %v", runtimeFrame, err)
 	}
+	conn, err := localipc.DialLocal(ctx, home)
+	if err != nil { t.Fatalf("local Session bridge: %v", err) }
+	viewer, err := sb.ObserveConn(ctx, conn, state.SessionID, "native-bridge-test")
+	if err != nil { t.Fatalf("attach existing Session: %v", err) }
+	var observed struct {
+		Type string `json:"type"`
+		SessionID string `json:"session_id"`
+		Busy bool `json:"busy"`
+	}
+	if err := json.Unmarshal(viewer.Snapshot, &observed); err != nil ||
+		observed.Type != "session.snapshot" || observed.SessionID != state.SessionID {
+		t.Fatalf("invalid owned Session snapshot: %s %v", viewer.Snapshot, err)
+	}
+	_ = viewer.Close()
 	// The thread-owner runtime is process-singleton, not an accidental set
 	// of parallel MoonBit interpreters created from Go goroutines.
 	if _, err := Start(ctx); !errors.Is(err, ErrAlreadyStarted) {

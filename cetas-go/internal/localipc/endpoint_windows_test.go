@@ -16,46 +16,30 @@ func TestWindowsNamedPipeRequiresOwnerLease(t *testing.T) {
 	}
 }
 
-func TestWindowsNamedPipeSameUserAndHealthProbe(t *testing.T) {
+func TestWindowsNamedPipeSameUserAndRawTransport(t *testing.T) {
 	home := t.TempDir()
 	lease, err := Acquire(home)
-	if err != nil {
-		t.Fatal(err)
-	}
+	if err != nil { t.Fatal(err) }
 	defer lease.Close()
 	listener, err := ListenLocal(lease)
-	if err != nil {
-		t.Fatal(err)
-	}
-	svc, err := StartHealthService(listener, OwnerInfo{
-		InstanceID: "windows-owner", RuntimeEpoch: "epoch-windows",
-	})
-	if err != nil {
-		_ = listener.Close()
-		t.Fatal(err)
-	}
-	defer svc.Close()
+	if err != nil { t.Fatal(err) }
+	defer listener.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	owner, err := ProbeLocal(ctx, home)
-	if err != nil {
-		t.Fatalf("same-user Windows named-pipe probe: %v", err)
-	}
-	if owner.InstanceID != "windows-owner" || owner.RuntimeEpoch != "epoch-windows" ||
-		len(owner.Capabilities) != 1 || owner.Capabilities[0] != CapabilityHealthPing {
-		t.Fatalf("unexpected Windows owner identity: %+v", owner)
-	}
-	// Another instance, even in the same process, must not bind the
-	// existing endpoint or impersonate its health service.
+	client, err := DialLocal(ctx, home)
+	if err != nil { t.Fatalf("connect to owned pipe: %v", err) }
+	defer client.Close()
+	server, err := listener.Accept()
+	if err != nil { t.Fatal(err) }
+	defer server.Close()
 	if duplicate, err := ListenLocal(lease); duplicate != nil || err == nil {
 		if duplicate != nil { _ = duplicate.Close() }
 		t.Fatalf("second named-pipe listener succeeded: %v", err)
 	}
-	if err := svc.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ProbeLocal(ctx, home); err == nil {
-		t.Fatal("Windows health pipe remained accessible after owner stopped")
+	if err := listener.Close(); err != nil { t.Fatal(err) }
+	if client, err := DialLocal(ctx, home); err == nil {
+		_ = client.Close()
+		t.Fatal("Windows IPC pipe survived listener shutdown")
 	}
 }
 
