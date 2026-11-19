@@ -115,6 +115,12 @@ func resolveSibling(name string) (string, error) {
 }
 
 func runTUI() {
+	// Interactive Cetas advertises its already-running Sessions over local
+	// IPC on a best-effort basis. CETAS_IPC_OWNER=0 explicitly disables it.
+	// Neither ownership failure nor missing IPC prevents local startup.
+	if _, configured := os.LookupEnv("CETAS_IPC_OWNER"); !configured {
+		_ = os.Setenv("CETAS_IPC_OWNER", "1")
+	}
 	lifetime, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var active atomic.Pointer[harness.Host]

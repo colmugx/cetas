@@ -83,6 +83,10 @@ func rejectionsDelta(current, seen bridge.Rejections) bridge.Rejections {
 type Host struct {
 	infra          transport
 	ownerLease     *localipc.Lease
+	// A different process holds the optional per-home owner lease. This
+	// process can still operate independent Sessions, but never resume a
+	// foreign active Session as an independent writer.
+	ownerContended bool
 	ownerReleased  chan struct{}
 	ownerBridgeMu  sync.Mutex
 	ownerBridge    *observerServer
@@ -208,6 +212,7 @@ func Start(ctx context.Context) (*Host, error) {
 	if localipc.OwnerLeaseEnabled() {
 		lease, err := localipc.Acquire(localipc.Home())
 		if err != nil {
+			h.ownerContended = errors.Is(err, localipc.ErrOwnerActive)
 			// IPC is an optional coordination aid, never a prerequisite for
 			// composing or using the local Cetas runtime. In particular, a
 			// stale/ambiguous endpoint or another lease holder must not turn
@@ -338,6 +343,14 @@ func (h *Host) NeedsSetup() bool { return h.needsSetup }
 // PiAvailable describes the fixed, verified Pi capability of this native process.
 // Enabling or installing Bun during this run requires a restart.
 func (h *Host) PiAvailable() bool { return h.piAvailable }
+
+// RemoteOwnerExpected reports an actual competing owner lease. It is only
+// used for read-only Session attach decisions; it does not imply IPC health.
+func (h *Host) RemoteOwnerExpected() bool { return h.ownerContended }
+
+// OwnsLocalOwnerLease reports whether this process can serve local Session
+// observations. It does not authorize writes to other processes' Sessions.
+func (h *Host) OwnsLocalOwnerLease() bool { return h.ownerLease != nil }
 
 // Events contains all real EventHub payloads plus lifecycle frames.
 // The consuming MyGo adapter must feed them into Window.Update.
