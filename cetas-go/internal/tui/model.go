@@ -57,6 +57,8 @@ type eventResult struct {
 type eventBatchResult struct {
 	events []wire.Event
 	closed bool
+	remote bool
+	remoteGeneration uint64
 }
 type errorResult struct {
 	err error
@@ -98,6 +100,9 @@ type model struct {
 	surface       surfaceState
 	host          runtimeHost
 	feed          <-chan wire.Event
+	remoteObservation *wire.SessionObservation
+	remoteReadOnly bool
+	remoteGeneration uint64
 	textarea      composer.Model
 	blocks        map[int]transcriptui.Block
 	viewport      viewport.Model
@@ -375,6 +380,7 @@ func requestAs(host runtimeHost, name, command string, args any) tea.Cmd {
 // Close releases presentation workers after Program.Run returns, including the
 // QuitMsg and context-cancellation paths that bypass Model.Update.
 func (m model) Close() {
+	if m.remoteObservation!=nil { _=m.remoteObservation.Close() }
 	m.cancelPagedCopy()
 	m.closeHistoryMarkdown()
 	if worker := m.document.markdown; worker != nil {
@@ -520,7 +526,22 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = i18n.T("status.runtime_problem")
 		}
 		return m, receiveErrors(m.host.Errors())
+	case remoteAttachResult:
+		return m, m.installRemoteObservation(msg)
 	case eventBatchResult:
+		if msg.remote {
+			if !m.remoteReadOnly || m.remoteObservation==nil || msg.remoteGeneration!=m.remoteGeneration {
+				return m,nil
+			}
+		} else if m.remoteReadOnly {
+			// The standalone MoonBit runtime continues running, but its
+			// events must never overwrite the remote Session presentation.
+			return m,receive(m.feed)
+		}
+		nextReceive:=receive(m.feed)
+		if msg.remote {
+			nextReceive=receiveRemoteObservation(m.remoteObservation,m.remoteGeneration)
+		}
 		var next string
 		ready := false
 		switched := false
@@ -554,16 +575,34 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.refreshTranscript()
 		if m.eventResyncPending && !msg.closed {
+			if msg.remote {
+				_ = m.remoteObservation.Close()
+				m.remoteObservation=nil
+				m.err="remote Session stream lost cursor continuity; reselect the Session to resnapshot"
+				m.running=false
+				m.status="remote Session disconnected (read-only)"
+				return m,nil
+			}
 			m.eventResyncPending = false
 			m.eventResyncAwaitingSnapshot = true
 			m.status = "resynchronizing session history"
 			return m, tea.Batch(
-				receive(m.feed),
+				nextReceive,
 				request(m.host, "attach", map[string]any{}),
 				m.startPagedReplay(),
 			)
 		}
 		if msg.closed {
+			if msg.remote {
+				_ = m.remoteObservation.Close()
+				m.remoteObservation=nil
+				m.flushAssistant()
+				m.running=false
+				m.aborting=false
+				m.status="remote Session disconnected (read-only)"
+				m.err="remote Session stream ended; reselect the Session to reconnect"
+				return m,nil
+			}
 			m.flushAssistant()
 			m.running = false
 			m.aborting = false
@@ -578,7 +617,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Raw(formatProgramStatus(programStatus{state: "clear"}))
 		}
 		if ready {
-			return m, tea.Batch(receive(m.feed), m.startPagedReplay(), request(m.host, "commands", map[string]any{}))
+			return m, tea.Batch(nextReceive, m.startPagedReplay(), request(m.host, "commands", map[string]any{}))
 		}
 		if switched {
 			// applyEvent already moved onto the target session; settle the departed
@@ -586,28 +625,28 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			retired := m.pendingSessionCmd
 			m.pendingSessionCmd = nil
 			m.status = i18n.T("status.ready_lower")
-			return m, tea.Batch(receive(m.feed), retired, m.startPagedReplay(), request(m.host, "commands", map[string]any{}))
+			return m, tea.Batch(nextReceive, retired, m.startPagedReplay(), request(m.host, "commands", map[string]any{}))
 		}
 		if reject := m.pendingAskReject; reject != "" {
 			m.pendingAskReject = ""
-			return m, tea.Batch(receive(m.feed), request(m.host, "ui_response", map[string]any{"request_id": reject, "cancelled": true, "reason": "unsupported ask kind"}))
+			return m, tea.Batch(nextReceive, request(m.host, "ui_response", map[string]any{"request_id": reject, "cancelled": true, "reason": "unsupported ask kind"}))
 		}
 		if piCommandsChanged {
-			return m, tea.Batch(receive(m.feed), request(m.host, "commands", map[string]any{}))
+			return m, tea.Batch(nextReceive, request(m.host, "commands", map[string]any{}))
 		}
-		if turnSettled {
+		if turnSettled && !msg.remote {
 			// A settled turn closed the journal for the blocks the live path
 			// appended; a heavy enough tail is re-indexed so adoption can hand
 			// it to the resident budget. The reply must carry this document's
 			// replay generation or applyPagedReply retires it as stale.
 			if growth := m.replay.refreshForTailGrowth(&m); growth != nil {
-				return m, tea.Batch(receive(m.feed), replayCommand(growth, m.replayGeneration))
+				return m, tea.Batch(nextReceive, replayCommand(growth, m.replayGeneration))
 			}
 		}
 		if next != "" {
-			return m, tea.Batch(receive(m.feed), request(m.host, "turn_start", map[string]any{"prompt": next, "session_id": m.session}))
+			return m, tea.Batch(nextReceive, request(m.host, "turn_start", map[string]any{"prompt": next, "session_id": m.session}))
 		}
-		return m, receive(m.feed)
+		return m, nextReceive
 	case commandResult:
 		if follow, handled := m.applyPagedReply(msg); handled {
 			return m, follow
@@ -863,6 +902,12 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if msg.name == "switch_session" || msg.name == "new_session" {
+			if msg.name=="new_session" && m.remoteReadOnly {
+				if m.remoteObservation!=nil {_=m.remoteObservation.Close()}
+				m.remoteObservation=nil
+				m.remoteReadOnly=false
+				m.remoteGeneration++
+			}
 			var ack struct {
 				Status string `json:"status"`
 			}
@@ -1294,6 +1339,10 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshTranscript()
 			return m, nil
 		case "esc":
+			if m.remoteReadOnly && m.running {
+				m.err="This remote Session is read-only; abort it in the owning terminal"
+				return m,nil
+			}
 			if m.host != nil && m.running {
 				if m.aborting {
 					// One abort is already in flight; re-issuing per press only floods
@@ -1363,6 +1412,14 @@ func (m *model) submitEditor() tea.Cmd {
 	if m.host == nil {
 		m.err = m.runtimeUnavailableReason()
 		return nil
+	}
+	if m.remoteReadOnly {
+		fields:=strings.Fields(value)
+		allowed:=len(fields)==1 && (fields[0]=="/sessions"||fields[0]=="/new"||fields[0]=="/quit"||fields[0]=="/exit")
+		if !allowed {
+			m.err="This Session is read-only; use /sessions to switch or /new to create an independent Session"
+			return nil
+		}
 	}
 	m.textarea.Remember(value)
 	m.textarea.Reset()

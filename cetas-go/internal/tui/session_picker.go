@@ -383,6 +383,9 @@ func (m *model) sessionPickerChoose(entry overlays.SessionEntry) tea.Cmd {
 		// (session.switched / session.switch_failed) is still pending.
 		return nil
 	}
+	if m.host!=nil {
+		if remote,handled:=m.observeRemoteIfContended(entry.ID);handled{return remote}
+	}
 	if !m.sessionPickerSameCwd(entry) {
 		return m.resumeForeignSession(entry)
 	}
