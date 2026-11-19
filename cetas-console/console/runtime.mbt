@@ -283,19 +283,24 @@ pub fn ConsoleRuntime::observe_session_json(
     match workspace.handles.get(session_id) {
       Some(handle) => {
         let cursor = self.hub.current_cursor(session_id)
-        return Json::object(Map::from_array([
-          ("type", Json::string("session.snapshot")),
-          ("session_id", Json::string(session_id)),
-          ("runtime_epoch", Json::string(self.hub.runtime_epoch)),
-          ("cursor", Json::number(cursor.to_double())),
-          ("high_water_cursor", Json::number(cursor.to_double())),
-          ("cursor_advance", Json::boolean(false)),
-          ("busy", Json::boolean(handle.busy)),
-          ("cwd", Json::string(workspace.cwd)),
-          ("model", Json::string(handle.model)),
-          ("effort", Json::string(handle.effort)),
-          ("permission", Json::string(permission_mode_name(handle.policy.mode))),
-        ]))
+        return Json::object(
+          Map::from_array([
+            ("type", Json::string("session.snapshot")),
+            ("session_id", Json::string(session_id)),
+            ("runtime_epoch", Json::string(self.hub.runtime_epoch)),
+            ("cursor", Json::number(cursor.to_double())),
+            ("high_water_cursor", Json::number(cursor.to_double())),
+            ("cursor_advance", Json::boolean(false)),
+            ("busy", Json::boolean(handle.busy)),
+            ("cwd", Json::string(workspace.cwd)),
+            ("model", Json::string(handle.model)),
+            ("effort", Json::string(handle.effort)),
+            (
+              "permission",
+              Json::string(permission_mode_name(handle.policy.mode)),
+            ),
+          ]),
+        )
       }
       None => ()
     }
