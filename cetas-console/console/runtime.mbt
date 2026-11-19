@@ -273,6 +273,39 @@ pub fn ConsoleRuntime::runtime_json(self : ConsoleRuntime) -> Json {
 }
 
 ///|
+/// Read-only view of an ALREADY COMPOSED Session. A second terminal must
+/// not create another Agent or writable journal just to observe a turn.
+pub fn ConsoleRuntime::observe_session_json(
+  self : ConsoleRuntime,
+  session_id : String,
+) -> Json {
+  for _, workspace in self.workspaces {
+    match workspace.handles.get(session_id) {
+      Some(handle) => {
+        let cursor = self.hub.current_cursor(session_id)
+        return Json::object(Map::from_array([
+          ("type", Json::string("session.snapshot")),
+          ("session_id", Json::string(session_id)),
+          ("runtime_epoch", Json::string(self.hub.runtime_epoch)),
+          ("cursor", Json::number(cursor.to_double())),
+          ("high_water_cursor", Json::number(cursor.to_double())),
+          ("cursor_advance", Json::boolean(false)),
+          ("busy", Json::boolean(handle.busy)),
+          ("cwd", Json::string(workspace.cwd)),
+          ("model", Json::string(handle.model)),
+          ("effort", Json::string(handle.effort)),
+          ("permission", Json::string(permission_mode_name(handle.policy.mode))),
+        ]))
+      }
+      None => ()
+    }
+  }
+  Json::object({
+    "error": Json::string("Session is not composed in this Runtime"),
+  })
+}
+
+///|
 /// Resolve the target session: an explicit id composes a handle on demand in
 /// the active workspace; without one, the workspace's active session runs.
 async fn ConsoleRuntime::resolve_handle(

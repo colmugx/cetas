@@ -96,6 +96,11 @@ async fn harness_dispatch(
         ]),
       )
     "runtime_state" => runtime.runtime_json()
+    "session_observe" =>
+      match harness_required(args, "session_id") {
+        Ok(session_id) => runtime.observe_session_json(session_id)
+        Err(reason) => harness_error(reason)
+      }
     "commands" => runtime.commands_json()
     "invoke_command" =>
       match
