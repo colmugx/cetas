@@ -53,6 +53,7 @@ members = [
   "./extension/posoco-ext-read",
   "./extension/posoco-ext-rtk",
   "./extension/posoco-ext-skills",
+  "./extension/posoco-ext-session-bridge",
   "./extension/posoco-ext-stats",
   "./extension/posoco-ext-statusbar",
   "./extension/posoco-ext-subagent",

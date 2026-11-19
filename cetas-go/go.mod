@@ -3,6 +3,7 @@ module github.com/colmugx/cetas/cetas-go
 go 1.27.4
 
 require (
+	github.com/colmugx/posoco-extension/posoco-ext-session-bridge/go v0.0.0
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.1.1
 	charm.land/glamour/v2 v2.0.1
@@ -40,3 +41,5 @@ require (
 	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
 )
+
+replace github.com/colmugx/posoco-extension/posoco-ext-session-bridge/go => ../extension/posoco-ext-session-bridge/go
