@@ -162,7 +162,7 @@ func TestNativeHarnessHost(t *testing.T) {
 	// the owner's journal. This catches real Unix/Windows pipe interop.
 	executable, err := os.Executable()
 	if err != nil { t.Fatal(err) }
-	child := exec.CommandContext(ctx, executable, "-test.run=^TestExternalSessionObserver$")
+	child := exec.CommandContext(ctx, executable, "-test.run=^TestExternalSessionObserver$", "-test.v")
 	child.Env = append(os.Environ(),
 		"CETAS_TEST_OBSERVE_CHILD=1",
 		"CETAS_TEST_OBSERVE_SESSION="+state.SessionID,
