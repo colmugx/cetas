@@ -6,6 +6,7 @@ import {
   observeSessionSocket,
   type SessionViewer,
 } from "../../../extension/posoco-ext-session-bridge/ts/bridge.ts";
+import { bunOwnerEndpoint } from "./local-session-owner.ts";
 
 // Mirror the existing Cetas Go protected localipc endpoint derivation.
 // No endpoint is created and no Agent or journal is touched during probing.
@@ -28,10 +29,20 @@ export type LocalOwnerLookup =
 
 // A reachable owner may refuse the Session. That is NOT permission to
 // open a competing writable journal: callers must fail closed.
-export async function observeLocalOwner(home: string, sessionID: string): Promise<LocalOwnerLookup> {
+export async function observeLocalOwner(
+  home: string, sessionID: string, skipOwnBun = false,
+): Promise<LocalOwnerLookup> {
+  const go = await observeOneLocalOwner(home, sessionID, localOwnerEndpoint);
+  if (go.kind !== "absent" || skipOwnBun || process.platform === "win32") return go;
+  return observeOneLocalOwner(home, sessionID, bunOwnerEndpoint);
+}
+
+async function observeOneLocalOwner(
+  home: string, sessionID: string, endpoint: (home: string) => string,
+): Promise<LocalOwnerLookup> {
   let path: string;
   try {
-    path = localOwnerEndpoint(home);
+    path = endpoint(home);
   } catch (err) {
     return { kind: "refused", reason: String(err) };
   }
