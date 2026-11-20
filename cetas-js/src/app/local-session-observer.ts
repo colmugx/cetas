@@ -9,7 +9,13 @@ import { observeSessionSocket, type SessionViewer } from "../../../extension/pos
 import type { OwnerElection } from "./local-session-owner.ts";
 
 export function localOwnerEndpoint(home: string): string {
-  const canonical = realpathSync(home);
+  // Bun's JS-walk realpathSync can preserve Windows 8.3 short names
+  // (e.g. RUNNER~1), whereas Go's filepath.EvalSymlinks resolves the
+  // on-disk canonical component names before hashing the pipe address.
+  // The native/libuv variant matches Go's OS-level canonicalization.
+  const canonical = process.platform === "win32"
+    ? realpathSync.native(home)
+    : realpathSync(home);
   if (process.platform === "win32") {
     const hash = createHash("sha256").update(canonical.toLowerCase()).digest("hex").slice(0, 32);
     return "\\\\.\\pipe\\cetas-" + hash;
