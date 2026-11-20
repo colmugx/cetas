@@ -62,6 +62,7 @@ import {
   type ImageAttachment,
 } from "../src/app/image-attachments.ts";
 import { EventRouter } from "../src/controllers/event-router.ts";
+import type { SessionViewer, SessionEvent } from "../extension/posoco-ext-session-bridge/ts/bridge.ts";
 import { SubagentActivityStore } from "../src/controllers/subagent-activity.ts";
 import { BoardActivityStore } from "../src/controllers/board-activity.ts";
 import { WakeupActivityStore } from "../src/controllers/wakeup-activity.ts";
@@ -215,6 +216,8 @@ export interface TerminalShellOptions {
    * wrong directory.
    */
   switchProject?: (cwd: string) => Promise<ProjectSwitch>;
+  /** Optional, host-verified read-only attachment to a foreign local owner. */
+  observeSession?: (sessionID: string) => Promise<SessionViewer | undefined>;
 }
 
 /** Result of a host-owned project switch (see `TerminalShellOptions`). */
@@ -278,6 +281,10 @@ export class TerminalShell {
   private readonly onExit: (code: number) => void;
   private readonly openBoardUrl?: (url: string) => void;
   private readonly switchProject?: (cwd: string) => Promise<ProjectSwitch>;
+  private readonly observeSession?: (sessionID: string) => Promise<SessionViewer | undefined>;
+  private remoteView?: SessionViewer;
+  // Remains set after a remote disconnect: socket loss is not a write lease.
+  private foreignSessionID?: string;
   private readonly updateOverlay: UpdateOverlay;
   private readonly updateWorkflow: UpdateWorkflow;
   /** Set by "Update now"; exit() runs it after teardown instead of onExit. */
@@ -429,6 +436,7 @@ export class TerminalShell {
     });
     this.sessionId = options.initialSessionId;
     this.switchProject = options.switchProject;
+    this.observeSession = options.observeSession;
     this.onExit = options.onExit ?? (() => {});
     this.openBoardUrl = options.openBoardUrl;
     this.forceExitDelayMs = options.forceExitDelayMs ?? 10_000;
@@ -726,6 +734,9 @@ export class TerminalShell {
     if (this.hostFaultStopped) throw new Error("host stopped after a fatal fault");
     const trimmed = prompt.trim();
     const commandId = trimmed.startsWith("/") ? trimmed.slice(1).split(/\s/, 1)[0]! : "";
+    if (this.foreignSessionID !== undefined && commandId !== "sessions" && commandId !== "session" && commandId !== "new") {
+      throw new Error("Session belongs to another runtime: read-only observation; use /sessions or /new");
+    }
     if (this.commandBusy && !isBoardWorkflowControl(commandId)) {
       throw new Error("editor submitted while a command is running");
     }
@@ -960,6 +971,7 @@ export class TerminalShell {
    * owns the terminal and exits the process itself.
    */
   private exit(code: number): void {
+    this.leaveForeignSession();
     const handoff = this.pendingUpdateHandoff;
     if (handoff === undefined) {
       this.onExit(code);
@@ -2309,6 +2321,7 @@ export class TerminalShell {
     }
     const nextSession = newSessionId();
     this.requireApp().setSession(nextSession);
+    this.leaveForeignSession();
     this.sessionId = nextSession;
     this.transcript.clear();
       this.virtualTranscript?.reset();
@@ -2738,11 +2751,124 @@ export class TerminalShell {
 
   /** Enter on a row: same-folder rows resume in place, foreign ones switch. */
   private pickSessionEntry(entry: SessionEntry): void {
+    void this.chooseSessionEntry(entry);
+  }
+
+  private async chooseSessionEntry(entry: SessionEntry): Promise<void> {
+    if (this.observeSession !== undefined) {
+      try {
+        const viewer = await this.observeSession(entry.id);
+        if (viewer !== undefined) {
+          this.joinForeignSession(entry.id, viewer);
+          return;
+        }
+      } catch (error: unknown) {
+        // A rejecting or unreachable owner does not grant a second writer.
+        this.addTranscriptChild(errorNotice(
+          `/sessions: cannot safely attach to owner: ${errorMessage(error)}`,
+        ));
+        return;
+      }
+    }
     if (entry.inCurrentFolder !== false) {
       this.resumeSession(entry.id);
       return;
     }
-    void this.resumeSessionFromOtherFolder(entry);
+    await this.resumeSessionFromOtherFolder(entry);
+  }
+
+  private leaveForeignSession(): void {
+    this.remoteView?.close();
+    this.remoteView = undefined;
+    this.foreignSessionID = undefined;
+  }
+
+  private joinForeignSession(sessionID: string, viewer: SessionViewer): void {
+    this.leaveForeignSession();
+    this.remoteView = viewer;
+    this.foreignSessionID = sessionID;
+    this.sessionId = sessionID;
+    this.transcript.clear();
+    this.virtualTranscript?.reset();
+    this.welcomeHeader.compact = true;
+    for (const part of banner("cetas-js", `observing session ${sessionID}`)) {
+      this.transcript.addChild(part);
+    }
+    this.addTranscriptChild(systemNotice("read-only live Session from local owner"));
+    if (viewer.snapshot.busy === true) {
+      this.router.handleEvent({ type: "turn_started" });
+      this.setTurnStatus("working", "owner working");
+    } else {
+      this.setTurnStatus("idle");
+    }
+    this.tui.terminal.clearScreen();
+    this.tui.requestRender(true);
+    void this.consumeForeignSession(viewer);
+  }
+
+  private applyForeignEvent(event: SessionEvent): void {
+    switch (event.type) {
+      case "turn.accepted":
+      case "turn.started":
+        this.router.handleEvent({ type: "turn_started" });
+        this.setTurnStatus("working", "owner working");
+        break;
+      case "assistant.text_delta":
+      case "assistant.reasoning_delta": {
+        const raw = event.delta ?? event.text ?? event.token;
+        if (typeof raw === "string" && raw.length > 0) {
+          this.router.handleEvent({
+            type: "stream_chunk",
+            kind: event.type === "assistant.text_delta" ? "text" : "reasoning",
+            raw,
+          });
+        }
+        break;
+      }
+      case "turn.completed":
+      case "turn.cancelled":
+        this.router.handleEvent({ type: "turn_completed" });
+        this.setTurnStatus("idle");
+        break;
+      case "turn.failed":
+        this.router.handleEvent({ type: "turn_failed",
+          error_message: typeof event.message === "string" ? event.message : "owner turn failed",
+          error_kind: "foreign_owner",
+        });
+        this.setTurnStatus("idle");
+        break;
+      case "session.snapshot":
+        if (event.busy === true) {
+          this.router.handleEvent({ type: "turn_started" });
+          this.setTurnStatus("working", "owner working");
+        } else {
+          this.router.handleEvent({ type: "turn_completed" });
+          this.setTurnStatus("idle");
+        }
+        break;
+    }
+    this.tui.requestRender();
+  }
+
+  private async consumeForeignSession(viewer: SessionViewer): Promise<void> {
+    try {
+      for await (const event of viewer.events()) {
+        if (this.remoteView !== viewer) return;
+        this.applyForeignEvent(event);
+      }
+      throw new Error("owner stream ended; resnapshot required");
+    } catch (error: unknown) {
+      if (this.remoteView === viewer) {
+        this.remoteView = undefined;
+        // Intentionally retain foreignSessionID to prevent local submission.
+        this.setTurnStatus("idle");
+        this.addTranscriptChild(errorNotice(
+          `Session owner disconnected; rejoin via /sessions: ${errorMessage(error)}`,
+        ));
+      }
+    } finally {
+      viewer.close();
+    }
   }
 
   /**
@@ -2960,6 +3086,7 @@ export class TerminalShell {
         return;
       }
       this.requireApp().setSession(sessionId);
+      this.leaveForeignSession();
       this.sessionId = sessionId;
       this.transcript.clear();
       this.virtualTranscript?.reset();
