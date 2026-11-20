@@ -131,7 +131,13 @@ func TestGoOwnerToIndependentGoViewer(t *testing.T) {
 		name := "already-working"
 		if !alreadyWorking { name = "idle-then-working" }
 		t.Run(name, func(t *testing.T) {
-			endpoint := filepath.Join(t.TempDir(), "owner.sock")
+			// macOS limits Unix socket paths to about 104 bytes; Go's
+			// t.TempDir includes the full test/subtest name and exceeds it.
+			// A private, short OS temp path keeps real socket transport tested.
+			ownerDir, err := os.MkdirTemp("", "cetas-sb-")
+			if err != nil { t.Fatal(err) }
+			defer os.RemoveAll(ownerDir)
+			endpoint := filepath.Join(ownerDir, "owner.sock")
 			listener, err := net.Listen("unix", endpoint)
 			if err != nil { t.Fatal(err) }
 			defer listener.Close()
