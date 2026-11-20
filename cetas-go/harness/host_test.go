@@ -494,7 +494,7 @@ func TestForeignProcessSessionObserver(t *testing.T) {
 	}
 	if err := json.Unmarshal(viewer.Snapshot, &snapshot); err != nil ||
 		snapshot.Type != "session.snapshot" || snapshot.SessionID != sessionID ||
-		snapshot.RuntimeEpoch == "" || snapshot.RuntimeEpoch != viewer.Owner.RuntimeEpoch {
+		snapshot.RuntimeEpoch == "" || snapshot.RuntimeEpoch != viewer.Epoch {
 		t.Fatalf("foreign child got incompatible Owner snapshot: %s %v", viewer.Snapshot, err)
 	}
 }
