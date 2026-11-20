@@ -29,6 +29,7 @@ import {
   resolvedSessionsDir,
 } from "./src/app/moonbit-bridge.ts";
 import { newSessionId } from "./src/app/session-id.ts";
+import { observeLocalOwnerSession } from "./src/app/local-session-observer.ts";
 import { disposeSharedPiModuleMirror } from "./src/app/pi-module-mirror.ts";
 import { TerminalShell, localizedCetasTuiHelpNote } from "./ui/terminal-shell.ts";
 import { openInBrowser } from "./ui/workflow-board-server.ts";
@@ -154,6 +155,7 @@ async function main(): Promise<void> {
     toolLabels,
     versionInfo,
     openBoardUrl: openInBrowser,
+    observeSession: (id) => observeLocalOwnerSession(config.home, id),
     // `/sessions` → All → a row from another project: build that project's
     // application so the following turns run in its directory. The shell
     // releases the previous application once this resolves.
