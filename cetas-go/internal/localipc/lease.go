@@ -1,5 +1,5 @@
-// Package localipc provides the OS-enforced process-owner lease used before
-// composing a native Cetas runtime. It is not an IPC server or client yet.
+// Package localipc provides the OS-enforced local Session owner lease and
+// same-user endpoint adapters used by Cetas terminal surfaces.
 package localipc
 
 import (
@@ -11,9 +11,10 @@ import (
 	"sync"
 )
 
-// ErrOwnerActive means another process holds the local runtime lease.
-// Callers must attach through IPC when available, never compose a second Agent.
-var ErrOwnerActive = errors.New("another Cetas runtime owns this home (local IPC client not available yet)")
+// ErrOwnerActive means another process holds the local Session owner lease.
+// It is ordinary contention, not an application startup diagnostic. A viewer
+// must attach through the read-only Session Bridge rather than claim ownership.
+var ErrOwnerActive = errors.New("another Cetas runtime already holds the local Session owner lease")
 
 // Lease keeps the kernel lock alive for the lifetime of the native runtime.
 // The file is never unlinked: removing it permits a second inode and a
