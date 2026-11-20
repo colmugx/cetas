@@ -52,6 +52,7 @@ func TestNativeHarnessHost(t *testing.T) {
 	// observers have acknowledged the authoritative working Snapshot.
 	// It is released only once both Go and Bun have attached.
 	releaseLiveTurn := make(chan struct{})
+	releasePrejoinedTurn := make(chan struct{})
 	// Real compatible-provider factory and router; no secrets or network I/O.
 	// Test-only in-process mock LLM endpoint. Not a Cetas app sidecar:
 	// this simulates the external model API and exists only inside go test.
@@ -116,11 +117,22 @@ func TestNativeHarnessHost(t *testing.T) {
 				`[DONE]`,
 			}
 		}
+		prejoinedBridgeFixture := strings.Contains(string(body), "native-owner-prejoin-fixture")
+		if prejoinedBridgeFixture {
+			chunks = []string{
+				`{"id":"mock","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"owner preparing "},"finish_reason":null}]}`,
+				`{"id":"mock","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"prejoined Go viewer received text"},"finish_reason":null}]}`,
+				`{"id":"mock","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			}
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		for i, chunk := range chunks {
-			if liveBridgeFixture && i == 1 {
+			if (liveBridgeFixture || prejoinedBridgeFixture) && i == 1 {
+				gate := releaseLiveTurn
+				if prejoinedBridgeFixture { gate = releasePrejoinedTurn }
 				select {
-				case <-releaseLiveTurn:
+				case <-gate:
 				case <-r.Context().Done():
 					return
 				case <-time.After(25 * time.Second):
@@ -487,6 +499,7 @@ answeredQuestion:
 		t.Fatalf("invalid live Owner Session: %s (%v)", liveFrame, err)
 	}
 	checkLiveCrossProcessSessionBridge(t, ctx, h, liveState.SessionID, releaseLiveTurn, seen, harnessDir)
+	checkPrejoinedGoSessionWorking(t, ctx, h, liveState.SessionID, releasePrejoinedTurn, seen)
 	if err := h.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
