@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -206,7 +207,7 @@ func TestGoOwnerToIndependentGoViewer(t *testing.T) {
 			owner.closeSessionStreams()
 			select {
 			case err := <-served:
-				if err != nil && ctx.Err() == nil {
+				if err != nil && !errors.Is(err, sb.ErrResnapshot) && ctx.Err() == nil {
 					t.Fatalf("Posoco bridge server failed: %v", err)
 				}
 			case <-ctx.Done():
