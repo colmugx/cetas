@@ -35,6 +35,10 @@ func TestPiCustomEntryRPCIsHostPrivate(t *testing.T) {
 }
 
 func TestNativeHarnessHost(t *testing.T) {
+	// Preserve the repository path before Chdir into the isolated fixture.
+	// Bun is launched from this package's source tree, not the temp workspace.
+	harnessDir, err := os.Getwd()
+	if err != nil { t.Fatal(err) }
 	home := t.TempDir()
 	workspace := t.TempDir()
 	t.Chdir(workspace)
@@ -474,7 +478,7 @@ answeredQuestion:
 	checkSwitchSupersedesQueuedReplay(t, h, home)
 	checkSessionCatalogAnchorRoundTrip(t, h, home)
 	checkReplayDoesNotMonopolizeDispatcher(t, h, home)
-	checkLiveCrossProcessSessionBridge(t, ctx, h, state.SessionID, releaseLiveTurn, seen)
+	checkLiveCrossProcessSessionBridge(t, ctx, h, state.SessionID, releaseLiveTurn, seen, harnessDir)
 	if err := h.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -532,7 +536,7 @@ func TestForeignProcessSessionObserver(t *testing.T) {
 // turn is insufficient evidence for these cases.
 func checkLiveCrossProcessSessionBridge(
 	t *testing.T, parent context.Context, h *Host, sessionID string,
-	release chan struct{}, seen <-chan Event,
+	release chan struct{}, seen <-chan Event, harnessDir string,
 ) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(parent, 35*time.Second)
@@ -608,7 +612,7 @@ func checkLiveCrossProcessSessionBridge(
 	if bun, err := exec.LookPath("bun"); err == nil {
 		// Native CI installs Bun before running Go tests on all three OSes.
 		// The adapter is the real cetas-js observer and no Agent is composed.
-		b := startViewer("Bun", bun, "run", filepath.Join("..", "..", "cetas-js", "tests", "session-bridge-bun-viewer.ts"))
+		b := startViewer("Bun", bun, "run", filepath.Join(harnessDir, "..", "..", "cetas-js", "tests", "session-bridge-bun-viewer.ts"))
 		bunViewer = &b
 		defer func() { _ = b.cmd.Process.Kill(); _ = b.cmd.Wait() }()
 		waitMarker("Bun", b, "FOREIGN_SNAPSHOT_WORKING")
