@@ -222,10 +222,18 @@ export class BunLocalSessionOwner {
     this.subscribers.clear();
     for (const peer of this.peers) peer.destroy();
     this.peers.clear();
-    // The OS closes the descriptor on process crash. Normal shutdown closes
-    // the endpoint first; no user-untrusted socket is ever unlinked here.
-    this.server?.close();
-    this.releaseLease();
+    // Keep kernel ownership until the listener is retired. Another writer
+    // must never elect itself while the old endpoint can still accept peers.
+    // A process crash still releases the fd and socket automatically.
+    if (this.server === undefined) {
+      this.releaseLease();
+    } else {
+      try {
+        this.server.close(() => this.releaseLease());
+      } catch {
+        this.releaseLease();
+      }
+    }
   }
 }
 
