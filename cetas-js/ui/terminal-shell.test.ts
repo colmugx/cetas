@@ -607,6 +607,51 @@ describe("isAbortError", () => {
   });
 });
 
+describe("local two-terminal Session observer presentation", () => {
+  test("Go Owner's working snapshot and live deltas render in the Bun terminal without creating a writer", async () => {
+    const { shell } = makeShell();
+    let closed = false;
+    const viewer = {
+      snapshot: {
+        type: "session.snapshot", session_id: "shared-owner-session",
+        runtime_epoch: "go-epoch", cursor: 3, high_water_cursor: 3, busy: true,
+      },
+      owner: { instanceID: "go-owner", runtimeEpoch: "go-epoch" },
+      events: async function* () {
+        // Keep the owner connection alive until the test closes it. This
+        // checks the actual shell's reducer, not only bridge wire framing.
+        await new Promise<void>(() => {});
+      },
+      close: () => { closed = true; },
+    };
+    (shell as any).joinForeignSession("shared-owner-session", viewer);
+    const status = (shell as any).statusWrapper.render(80).join("\n");
+    expect(status).toContain("owner working");
+    (shell as any).applyForeignEvent({
+      type: "assistant.text_delta", session_id: "shared-owner-session",
+      runtime_epoch: "go-epoch", cursor: 4, cursor_advance: true,
+      delta: "text from first Go terminal",
+    });
+    (shell as any).applyForeignEvent({
+      type: "turn.completed", session_id: "shared-owner-session",
+      runtime_epoch: "go-epoch", cursor: 5, cursor_advance: true,
+    });
+    expect((shell as any).transcript.render(160).join("\n")).toContain("text from first Go terminal");
+    await expect(shell.submit("this must never start a second turn")).rejects.toThrow("read-only");
+    (shell as any).leaveForeignSession();
+    expect(closed).toBe(true);
+  });
+
+  test("a Bun viewer already attached idle sees owner turn start immediately", () => {
+    const { shell } = makeShell();
+    (shell as any).applyForeignEvent({
+      type: "turn.started", session_id: "shared-owner-session",
+      runtime_epoch: "go-epoch", cursor: 1, cursor_advance: true,
+    });
+    expect((shell as any).statusWrapper.render(80).join("\n")).toContain("owner working");
+  });
+});
+
 describe("operation lifecycle wire events", () => {
   function transcriptOf(shell: TerminalShell): string {
     return (shell as any).transcript.render(200).join("\n");
