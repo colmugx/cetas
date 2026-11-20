@@ -3,7 +3,6 @@ module github.com/colmugx/cetas/cetas-go
 go 1.27.4
 
 require (
-	github.com/colmugx/posoco-extension/posoco-ext-session-bridge/go v0.0.0
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.1.1
 	charm.land/glamour/v2 v2.0.1
@@ -12,6 +11,7 @@ require (
 	github.com/MoeForge/moejs v0.1.0
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/charmbracelet/x/ansi v0.11.9
+	github.com/colmugx/posoco-extension/posoco-ext-session-bridge/go v0.0.0
 	golang.org/x/sys v0.50.0
 )
 
