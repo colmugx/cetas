@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -769,5 +770,64 @@ func TestSessionPickerNoForeignOwnerUsesExistingLocalSwitch(t *testing.T) {
 	// detector reports an active-but-unreachable process (tested above).
 	if m.switchInFlight != entry.ID {
 		t.Fatalf("local Session switch did not retain its identity: %q", m.switchInFlight)
+	}
+}
+
+func TestRemoteObserverRendersOwnerWorkingAndLiveOutput(t *testing.T) {
+	server, client := net.Pipe()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	events := make(chan json.RawMessage, 2)
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- sb.ServeConn(ctx, server,
+			sb.Owner{InstanceID: "owner", RuntimeEpoch: "epoch-remote"},
+			func(_ context.Context, sessionID string) (sb.Subscription, error) {
+				if sessionID != "remote-session" {
+					return sb.Subscription{}, fmt.Errorf("unknown owner Session %s", sessionID)
+				}
+				return sb.Subscription{
+					Snapshot: json.RawMessage(`{"type":"session.snapshot","session_id":"remote-session","runtime_epoch":"epoch-remote","cursor":2,"high_water_cursor":2,"busy":true}`),
+					Events: events,
+				}, nil
+			})
+	}()
+	observer, err := sb.ObserveConn(ctx, client, "remote-session", "viewer-go")
+	if err != nil {
+		t.Fatalf("connect read-only owner: %v", err)
+	}
+	defer observer.Close()
+
+	host := &sessionCatalogHost{}
+	m := sessionPickerModel(t, host)
+	m.switchInFlight = "remote-session"
+	next, _ := m.Update(remoteAttachResult{sessionID: "remote-session", observer: observer})
+	m = next.(model)
+	if m.session != "remote-session" || !m.running {
+		t.Fatalf("join missed owner working snapshot: session=%q running=%v", m.session, m.running)
+	}
+	events <- json.RawMessage(`{"type":"assistant.text_delta","session_id":"remote-session","runtime_epoch":"epoch-remote","cursor":3,"cursor_advance":true,"delta":"live from owner"}`)
+	event := receiveRemote(observer)()
+	next, _ = m.Update(event)
+	m = next.(model)
+	if !strings.Contains(m.streaming, "live from owner") {
+		t.Fatalf("owner stream did not reach the terminal: %q", m.streaming)
+	}
+	events <- json.RawMessage(`{"type":"turn.completed","session_id":"remote-session","runtime_epoch":"epoch-remote","cursor":4,"cursor_advance":true}`)
+	event = receiveRemote(observer)()
+	next, _ = m.Update(event)
+	m = next.(model)
+	if m.running {
+		t.Fatal("remote owner completed but local viewer remained working")
+	}
+	if host.sent("switch_session") || host.sent("turn_start") {
+		t.Fatalf("read-only observation dispatched a local writer: %v", host.commands())
+	}
+	close(events)
+	_ = observer.Close()
+	select {
+	case <-serveDone:
+	case <-ctx.Done():
+		t.Fatal("owner stream did not shut down")
 	}
 }
