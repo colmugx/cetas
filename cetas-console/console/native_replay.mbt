@@ -715,7 +715,9 @@ async fn native_replay_read_slice(
   while skipped < position {
     let want = (position - skipped).to_int()
     let len = if want < 8192 { want } else { 8192 }
-    let got = file.read_into(scratch.mut_view(end=len)) catch { _ => return b"" }
+    let got = file.read_into(scratch.mut_view(end=len)) catch {
+      _ => return b""
+    }
     if got <= 0 {
       return b""
     }
