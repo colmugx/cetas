@@ -279,6 +279,25 @@ func press(t *testing.T, m *model, code rune) tea.Cmd {
 	return cmd
 }
 
+// TestSessionSingularAliasUsesTheSamePicker ensures both terminal hosts
+// accept the /session spelling used to attach to another live Session.
+func TestSessionSingularAliasUsesTheSamePicker(t *testing.T) {
+	for _, command := range []string{"/session", "/sessions"} {
+		t.Run(command, func(t *testing.T) {
+			host := &sessionCatalogHost{total: 1, cwd: "/workspace/demo"}
+			m := sessionPickerModel(t, host)
+			cmd := m.command(command)
+			if !m.sessionPicker.open || cmd == nil {
+				t.Fatalf("%s did not open and fetch Session picker", command)
+			}
+			result := sessionRequest(t, cmd)
+			if result.name != "session_catalog" {
+				t.Fatalf("%s did not fetch Session catalog: %q", command, result.name)
+			}
+		})
+	}
+}
+
 // TestSessionPickerOpensWithBoundedCurrentScopePage pins the open request: one
 // `session_catalog` page for the current folder, cursor 0, limit 100, tagged
 // with the picker epoch, generation, scope and session.
