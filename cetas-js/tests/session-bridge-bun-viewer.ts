@@ -19,15 +19,14 @@ try {
     throw new Error("Bun viewer did not receive the authoritative working Snapshot");
   }
   console.log("FOREIGN_SNAPSHOT_WORKING");
-  let seen = false;
+  let output = "";
   for await (const frame of viewer.events()) {
-    if (frame.type === "assistant.text_delta" &&
-        frame.delta === "live from Go owner to Bun") {
-      seen = true;
-      break;
+    if (frame.type === "assistant.text_delta") {
+      output += typeof frame.delta === "string" ? frame.delta : "";
+      if (output.includes("live from Go owner to Bun")) break;
     }
   }
-  if (!seen) {
+  if (!output.includes("live from Go owner to Bun")) {
     throw new Error("Go Owner stream ended before Bun saw live assistant text");
   }
   console.log("FOREIGN_STREAM_OK");
