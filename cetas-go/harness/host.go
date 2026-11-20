@@ -221,10 +221,10 @@ func Start(ctx context.Context) (*Host, error) {
 		return nil, ErrAlreadyStarted
 	}
 	h := newHost(bridge.NewInfra())
-	// Until the cross-process client/owner transport is fully integrated,
-	// enforce an OS owner lease only with explicit opt-in. An opt-in lease
-	// remains fail-closed: silently ignoring a claimed owner would permit
-	// two writers under a purported single-owner setup.
+	// Local Session owner election is optional and on by default. An
+	// existing owner is expected when a second terminal starts: only the
+	// elected process serves its read-only Session Bridge, and /sessions
+	// resolves the owner when the user selects an existing Session.
 	if localipc.OwnerLeaseEnabled() {
 		h.electLocalSessionOwner(localipc.Home())
 	}
