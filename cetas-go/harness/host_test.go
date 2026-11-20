@@ -489,7 +489,6 @@ answeredQuestion:
 
 	checkSwitchSupersedesQueuedReplay(t, h, home)
 	checkSessionCatalogAnchorRoundTrip(t, h, home)
-	checkReplayDoesNotMonopolizeDispatcher(t, h, home)
 	// Earlier integration checks can switch the native Session. Always
 	// observe the currently composed Owner Session, not the startup ID.
 	liveFrame, err := h.Request(ctx, "runtime_state", map[string]any{})
@@ -500,6 +499,9 @@ answeredQuestion:
 	}
 	checkLiveCrossProcessSessionBridge(t, ctx, h, liveState.SessionID, releaseLiveTurn, seen, harnessDir)
 	checkPrejoinedGoSessionWorking(t, ctx, h, liveState.SessionID, releasePrejoinedTurn, seen)
+	// This legacy check intentionally shuts the runtime down while replay
+	// is active; therefore run live Bridge acceptance strictly before it.
+	checkReplayDoesNotMonopolizeDispatcher(t, h, home)
 	if err := h.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
