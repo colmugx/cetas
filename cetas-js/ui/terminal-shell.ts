@@ -218,6 +218,8 @@ export interface TerminalShellOptions {
   switchProject?: (cwd: string) => Promise<ProjectSwitch>;
   /** Optional, host-verified read-only attachment to a foreign local owner. */
   observeSession?: (sessionID: string) => Promise<SessionViewer | undefined>;
+  /** The elected Bun owner publishes existing Agent observer frames verbatim. */
+  onLocalOwnerEvent?: (eventJSON: string) => void;
 }
 
 /** Result of a host-owned project switch (see `TerminalShellOptions`). */
@@ -282,6 +284,7 @@ export class TerminalShell {
   private readonly openBoardUrl?: (url: string) => void;
   private readonly switchProject?: (cwd: string) => Promise<ProjectSwitch>;
   private readonly observeSession?: (sessionID: string) => Promise<SessionViewer | undefined>;
+  private readonly onLocalOwnerEvent?: (eventJSON: string) => void;
   private remoteView?: SessionViewer;
   // Remains set after a remote disconnect: socket loss is not a write lease.
   private foreignSessionID?: string;
@@ -437,12 +440,16 @@ export class TerminalShell {
     this.sessionId = options.initialSessionId;
     this.switchProject = options.switchProject;
     this.observeSession = options.observeSession;
+    this.onLocalOwnerEvent = options.onLocalOwnerEvent;
     this.onExit = options.onExit ?? (() => {});
     this.openBoardUrl = options.openBoardUrl;
     this.forceExitDelayMs = options.forceExitDelayMs ?? 10_000;
     this.callbacks = {
       observerCallback: (eventJson) => {
-        if (!this.hostFaultStopped) this.handleObserverEvent(eventJson);
+        if (!this.hostFaultStopped) {
+          this.onLocalOwnerEvent?.(eventJson);
+          this.handleObserverEvent(eventJson);
+        }
       },
       renderCallback: (eventJson) => {
         if (!this.hostFaultStopped) this.handleUiRender(eventJson);

@@ -30,6 +30,7 @@ import {
 } from "./src/app/moonbit-bridge.ts";
 import { newSessionId } from "./src/app/session-id.ts";
 import { observeLocalOwnerSession } from "./src/app/local-session-observer.ts";
+import { electBunLocalOwner } from "./src/app/local-session-owner.ts";
 import { disposeSharedPiModuleMirror } from "./src/app/pi-module-mirror.ts";
 import { TerminalShell, localizedCetasTuiHelpNote } from "./ui/terminal-shell.ts";
 import { openInBrowser } from "./ui/workflow-board-server.ts";
@@ -103,6 +104,11 @@ async function main(): Promise<void> {
     versionNote,
   });
   await bootstrapSettings(config.home);
+  // Optional same-user owner election uses the SAME OS lease as cetas-go.
+  // Failure only suppresses collaboration; JS Agent startup is unchanged.
+  const ownerElection = electBunLocalOwner(config.home);
+  const localOwner = ownerElection.owner;
+  process.once("exit", () => localOwner?.close());
   const sessionId = newSessionId();
   // The shell is constructed before the agent exists, so it receives the
   // mutable Map and the active bridge's catalog is merged in on every state
@@ -137,6 +143,7 @@ async function main(): Promise<void> {
       initialSessionId: initialSession,
       onStateChange: (snapshot) => {
         if (activeBridge !== bridge) return;
+        localOwner?.update(snapshot.sessionId, snapshot.state === "running");
         syncToolLabels();
         shell.handleSnapshot(snapshot);
       },
@@ -155,7 +162,8 @@ async function main(): Promise<void> {
     toolLabels,
     versionInfo,
     openBoardUrl: openInBrowser,
-    observeSession: (id) => observeLocalOwnerSession(config.home, id),
+    observeSession: (id) => observeLocalOwnerSession(config.home, id, ownerElection.status),
+    onLocalOwnerEvent: (raw) => localOwner?.publish(raw),
     // `/sessions` → All → a row from another project: build that project's
     // application so the following turns run in its directory. The shell
     // releases the previous application once this resolves.
@@ -177,6 +185,7 @@ async function main(): Promise<void> {
       return { app, sessionsDir: resolvedSessionsDir(nextConfig) };
     },
     onExit: (code) => {
+      localOwner?.close();
       disposeSharedPiModuleMirror();
       process.exit(code);
     },
