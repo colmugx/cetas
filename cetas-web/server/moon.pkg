@@ -5,7 +5,6 @@ import {
   "moonbitlang/core/debug",
   "moonbitlang/core/env",
   "moonbitlang/core/json",
-  "moonbitlang/async",
   "moonbitlang/core/async" @core_async,
   "moonbitlang/async/aqueue",
   "moonbitlang/async/websocket",
