@@ -414,15 +414,69 @@ async test "manager switch: runtime recomposes under magpie and back" {
     runtime.shutdown_all()
     let session_before = json_string_field(before, key="session_id")
     let manager_before = json_string_field(before, key="model_manager")
-    assert_eq(manager_before, "posoco_ext_llm")
+    // The wire carries the settings vocabulary, not the control-plane owner id
+    // status ops are tagged with: hosts mark the active picker choice by it.
+    assert_eq(manager_before, "providers")
     assert_true(
       json_string_field(magpie_outcome, key="model_manager") == "magpie",
     )
     assert_true(
-      json_string_field(back_outcome, key="model_manager") == "posoco_ext_llm",
+      json_string_field(back_outcome, key="model_manager") == "providers",
     )
     assert_eq(json_string_field(back_outcome, key="session_id"), session_before)
     assert_true(json_string_field(bad_outcome, key="error") != "")
+  })
+}
+
+///|
+/// A manager switch must resolve the providers selection again. The platform
+/// owns the providers router and its active slot is resolved at build time, so
+/// a reused platform composes the switched-to manager over the selection the
+/// previous manager left in `settings.json`.
+async test "manager switch: providers resumes its own persisted model" {
+  @async.with_task_group(group => {
+    let fs_impl = @workspace.NativeWorkspaceFs()
+    let fs : &@workspace.WorkspaceFs = fs_impl
+    let home = @fs.tmpdir(prefix="cetas-console-manager-model-home-")
+    fs.mkdir(home + "/.cetas", recursive=true) catch {
+      _ => ()
+    }
+    // Boots under magpie, so the top-level `model` is a gateway id the
+    // providers catalog does not know; the providers stash is the slot a
+    // switch back must restore.
+    fs.write_file(
+      home + "/.cetas/settings.json",
+      "{\"providers\":{\"opencode\":{\"api_key\":\"sk-fixture\"}},\"model_manager\":\"magpie\",\"model\":\"group/magpie-a\",\"manager_selections\":{\"magpie\":{\"model\":\"group/magpie-a\",\"reasoning_effort\":\"low\"},\"providers\":{\"model\":\"opencode/gpt-5.1-codex\",\"reasoning_effort\":\"high\"}}}",
+    ) catch {
+      _ => ()
+    }
+    let cwd = @fs.tmpdir(prefix="cetas-console-manager-model-ws-")
+    let config = console_config(
+      fs,
+      home,
+      "cetas-go-test",
+      "cetas-go-test/0.1",
+      native_ui=false,
+      native_pi_enabled=false,
+      permission_mode=@permission.PermissionMode::Yolo,
+      herdr_presence=false,
+    )
+    let runtime = compose_console_runtime(config, cwd, group)
+    let switch_to_providers = async fn() -> Json {
+      match runtime.switch_model_manager("providers") {
+        Ok(state) => state
+        Err(message) =>
+          Json::object(Map::from_array([("error", Json::string(message))]))
+      }
+    }
+    let outcome = switch_to_providers()
+    let switched = runtime.runtime_json()
+    runtime.shutdown_all()
+    assert_eq(json_string_field(outcome, key="error"), "")
+    assert_eq(
+      json_string_field(switched, key="model"),
+      "opencode/gpt-5.1-codex",
+    )
   })
 }
 

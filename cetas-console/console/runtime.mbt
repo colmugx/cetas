@@ -65,6 +65,10 @@ priv struct SessionHandle {
   /// Magpie runtime. All model selection, catalog, and status surfaces go
   /// through its face, never the concrete port.
   manager : ModelManagerFace
+  /// The manager's status publisher, held so a selection change can re-announce
+  /// the `model` / `model_slot` / `manager` segments. Without it the bar keeps
+  /// rendering the pre-switch registry.
+  manager_events : @posoco.Events?
   policy : @permission.PermissionPolicy
   mut model : String
   mut effort : String
@@ -103,8 +107,11 @@ struct SurfaceBinding {
 /// session bucket), catalog, and a map of concurrent session handles.
 struct WorkspaceRuntime {
   cwd : String
-  platform : @cetas_core.CetasPlatform
-  catalog : &SessionCatalog
+  /// Rebuilt on a model-manager switch: the platform owns the providers
+  /// router, whose active slot is resolved from `settings.json` at build time.
+  /// Reusing it would keep the previous manager's model selected.
+  mut platform : @cetas_core.CetasPlatform
+  mut catalog : &SessionCatalog
   handles : Map[String, SessionHandle]
   mut active_id : String
   mut permission_mode : @permission.PermissionMode
@@ -264,7 +271,7 @@ pub fn ConsoleRuntime::runtime_json(self : ConsoleRuntime) -> Json {
       ("session_id", Json::string(handle.session_id)),
       ("model", Json::string(handle.model)),
       ("effort", Json::string(handle.effort)),
-      ("model_manager", Json::string(manager_id(handle.manager))),
+      ("model_manager", Json::string(manager_choice_id(handle.manager))),
       ("cwd", Json::string(workspace.cwd)),
       ("permission", Json::string(permission_mode_name(handle.policy.mode))),
       ("detail", Json::string("")),
@@ -625,13 +632,13 @@ async fn compose_session_agent(
   seed_status(@cetas_core.mint_events_publisher(session.events, owner=label))
   // The active manager owns the "manager"/"model"/"model_slot" status
   // segments; published before the first snapshot so the bar never shows a
-  // stale manager after a switch.
-  manager.manager_publish_status(
-    @cetas_core.mint_events_publisher(
-      session.events,
-      owner="cetas.model_manager",
-    ),
+  // stale manager after a switch. The handle keeps the same publisher for
+  // every later selection change.
+  let manager_events = @cetas_core.mint_events_publisher(
+    session.events,
+    owner="cetas.model_manager",
   )
+  manager.manager_publish_status(manager_events)
   let tail_exts : Array[&@posoco.Extension] = [
     observer as &@posoco.Extension,
     speed_metrics,
@@ -708,6 +715,7 @@ async fn compose_session_agent(
     model: manager.manager_active_model_id(),
     effort: manager.manager_active_effort().unwrap_or("default"),
     manager,
+    manager_events,
     policy,
     busy: false,
     turn_no: 0,
@@ -1146,6 +1154,10 @@ pub async fn ConsoleRuntime::switch_model(
   handle.effort = handle.manager.manager_active_effort().unwrap_or("default")
   self.persist_model_selection(handle)
   self.emit_active_snapshot()
+  // The bar renders from its segment registry, and the router's own `model`
+  // op cannot carry the full slot id; re-announce the manager segments so the
+  // status line follows the selection instead of the pre-switch slot.
+  handle.manager.manager_publish_status(handle.manager_events)
   Ok(())
 }
 
@@ -1177,6 +1189,9 @@ pub async fn ConsoleRuntime::select_effort(
   handle.effort = effort
   self.persist_model_selection(handle)
   self.emit_active_snapshot()
+  // Magpie's own `model` segment carries the effort and only the manager
+  // publishes it; Providers re-registers the unchanged slot/manager pair.
+  handle.manager.manager_publish_status(handle.manager_events)
   Ok(())
 }
 
@@ -1335,7 +1350,7 @@ pub async fn ConsoleRuntime::model_slots_json(
       ("active", Json::string(active_id)),
       ("effort", Json::string(handle.effort)),
       ("permission", Json::string(permission_mode_name(handle.policy.mode))),
-      ("manager", Json::string(manager_id(handle.manager))),
+      ("manager", Json::string(manager_choice_id(handle.manager))),
       ("slots", Json::array(slots)),
     ]),
   )
@@ -1430,6 +1445,53 @@ pub async fn ConsoleRuntime::sessions_json(self : ConsoleRuntime) -> Json {
 }
 
 ///|
+/// Workspace-scoped warning sink: native hosts surface it as a config warning
+/// on the unaddressed session, stdio hosts on stderr. Shared by the first
+/// build and every manager-switch rebuild.
+fn workspace_warn(
+  hub : EventHub,
+  native_ui : Bool,
+  label : String,
+) -> async (String) -> Unit noraise {
+  async fn(text : String) noraise {
+    if native_ui {
+      hub.native_warning("", text)
+    } else {
+      @stdio.stderr.write(@utf8.encode(label + ": " + text)[:]) catch {
+        _ => ()
+      }
+    }
+  }
+}
+
+///|
+/// Resolve one workspace's platform and session catalog again from the current
+/// `settings.json`. A model-manager switch rewrites those settings, and the
+/// platform owns the providers router whose active slot is resolved at build
+/// time: reusing it would compose the switched-to manager over the previous
+/// manager's model selection.
+async fn ConsoleRuntime::rebuild_workspace_platform(
+  self : ConsoleRuntime,
+  workspace : WorkspaceRuntime,
+) -> Result[Unit, String] noraise {
+  let warn = workspace_warn(self.hub, self.native_ui, self.label)
+  let platform = @cetas_core.build_cetas_platform(
+    home=self.home,
+    cwd=workspace.cwd,
+    self.fs,
+    permission_mode=@permission.PermissionMode::ReadOnly,
+    mcp_group=Some(self.group),
+    label=self.label,
+    warn~,
+  ) catch {
+    error => return Err(error.to_string())
+  }
+  workspace.platform = platform
+  workspace.catalog = FsSessionCatalog::new(platform.session_store)
+  Ok(())
+}
+
+///|
 /// Build one workspace runtime: platform, catalog, and the first session
 /// handle. Failures propagate so a bad cwd never registers silently.
 async fn build_workspace(
@@ -1447,15 +1509,7 @@ async fn build_workspace(
   native_pi_enabled : Bool,
   herdr_presence : Bool,
 ) -> WorkspaceRuntime {
-  let warn = async fn(text : String) noraise {
-    if native_ui {
-      hub.native_warning("", text)
-    } else {
-      @stdio.stderr.write(@utf8.encode(label + ": " + text)[:]) catch {
-        _ => ()
-      }
-    }
-  }
+  let warn = workspace_warn(hub, native_ui, label)
   let platform = @cetas_core.build_cetas_platform(
     home~,
     cwd~,
@@ -1535,12 +1589,11 @@ async fn build_workspace(
   let speed_metrics = @stats.Stats()
   let statusbar = @statusbar.StatusBar(events=Some(session.events))
   seed_status(@cetas_core.mint_events_publisher(session.events, owner=label))
-  manager.manager_publish_status(
-    @cetas_core.mint_events_publisher(
-      session.events,
-      owner="cetas.model_manager",
-    ),
+  let manager_events = @cetas_core.mint_events_publisher(
+    session.events,
+    owner="cetas.model_manager",
   )
+  manager.manager_publish_status(manager_events)
   let tail_exts : Array[&@posoco.Extension] = [
     observer as &@posoco.Extension,
     speed_metrics,
@@ -1606,6 +1659,7 @@ async fn build_workspace(
     model: manager.manager_active_model_id(),
     effort: manager.manager_active_effort().unwrap_or("default"),
     manager,
+    manager_events,
     policy,
     busy: false,
     turn_no: 0,

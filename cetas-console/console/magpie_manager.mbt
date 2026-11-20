@@ -79,9 +79,16 @@ fn ModelManagerFace::manager_control(
 }
 
 ///|
-/// Wire identity of the active manager, for host panels and picker headers.
-fn manager_id(manager : ModelManagerFace) -> String {
-  manager.manager_control().manager_id()
+/// The `settings.json` vocabulary (`"providers"` | `"magpie"`) that every host
+/// and picker speaks. It is not the manager's owner identity
+/// (`ModelManagerControl::manager_id`), which names the namespace status ops
+/// and session metadata are tagged with: reporting that identity as the choice
+/// leaves a host unable to mark the active manager.
+fn manager_choice_id(manager : ModelManagerFace) -> String {
+  match manager {
+    Providers(_) => "providers"
+    Magpie(_) => "magpie"
+  }
 }
 
 ///|
@@ -827,11 +834,24 @@ async fn ConsoleRuntime::recompose_all_handles(
       }
     }
     workspace.handles.clear()
+    // The settings are already rewritten, so every workspace's platform is
+    // resolved again: it owns the providers router and the persisted model
+    // selection, and a reused platform would compose the new manager over the
+    // previous manager's model.
+    match self.rebuild_workspace_platform(workspace) {
+      Ok(_) => ()
+      Err(message) => return Err(message)
+    }
   }
   let workspace = self.active()
   match self.compose_handle(workspace, workspace.active_id) {
-    Ok(_) => {
+    Ok(handle) => {
       self.emit_active_snapshot()
+      // The recomposed session binds a fresh UiPort; replay the manager
+      // segments so the new bar delivers the switched-to manager's strip
+      // instead of waiting for an unrelated status op.
+      handle.manager.manager_publish_status(handle.manager_events)
+      self.republish_status()
       Ok(self.runtime_json())
     }
     Err(message) => Err(message)
