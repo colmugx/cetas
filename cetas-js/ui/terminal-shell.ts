@@ -3727,7 +3727,7 @@ const LOCAL_SLASH_ROUTES: readonly SlashRoute[] = [
     id: "answer",
     description: "Answer a pending question (/answer [@qN] [reply])",
   },
-  { id: "sessions", description: "Browse and resume past sessions" },
+  { id: "sessions", description: "Browse and resume past sessions", aliases: ["session"] },
   { id: "rewind", description: "Rewind to an earlier message of this session" },
   { id: "resume", description: "Resume this session's interrupted turn" },
   { id: "compact", description: "Compact this session's context on the server" },
