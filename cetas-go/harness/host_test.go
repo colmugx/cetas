@@ -478,7 +478,15 @@ answeredQuestion:
 	checkSwitchSupersedesQueuedReplay(t, h, home)
 	checkSessionCatalogAnchorRoundTrip(t, h, home)
 	checkReplayDoesNotMonopolizeDispatcher(t, h, home)
-	checkLiveCrossProcessSessionBridge(t, ctx, h, state.SessionID, releaseLiveTurn, seen, harnessDir)
+	// Earlier integration checks can switch the native Session. Always
+	// observe the currently composed Owner Session, not the startup ID.
+	liveFrame, err := h.Request(ctx, "runtime_state", map[string]any{})
+	if err != nil { t.Fatalf("read live Owner Session: %v", err) }
+	var liveState struct { SessionID string `json:"session_id"` }
+	if err := json.Unmarshal(liveFrame, &liveState); err != nil || liveState.SessionID == "" {
+		t.Fatalf("invalid live Owner Session: %s (%v)", liveFrame, err)
+	}
+	checkLiveCrossProcessSessionBridge(t, ctx, h, liveState.SessionID, releaseLiveTurn, seen, harnessDir)
 	if err := h.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
