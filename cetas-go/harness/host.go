@@ -191,6 +191,26 @@ func (h *Host) stoppedErr() error {
 	return ErrClosed
 }
 
+// electLocalSessionOwner is best-effort. Contention means another terminal
+// already holds the local owner lease: this is the expected viewer case, not
+// an error to show in the TUI. /sessions discovers that owner independently
+// and attaches read-only, without acquiring a competing writer lease.
+//
+// Other election failures (unsafe paths, permissions, unexpected OS errors)
+// remain visible diagnostics; they are not mistaken for normal contention.
+func (h *Host) electLocalSessionOwner(home string) {
+	lease, err := localipc.Acquire(home)
+	if errors.Is(err, localipc.ErrOwnerActive) {
+		return
+	}
+	if err != nil {
+		h.report(fmt.Errorf("optional native local owner unavailable; continuing standalone: %w", err))
+		return
+	}
+	h.ownerLease = lease
+	h.ownerReleased = make(chan struct{})
+}
+
 // Start composes a real ConsoleRuntime. The caller must consume Events.
 // The process is intentionally single-use until restart safety is proven.
 func Start(ctx context.Context) (*Host, error) {
@@ -206,17 +226,7 @@ func Start(ctx context.Context) (*Host, error) {
 	// remains fail-closed: silently ignoring a claimed owner would permit
 	// two writers under a purported single-owner setup.
 	if localipc.OwnerLeaseEnabled() {
-		lease, err := localipc.Acquire(localipc.Home())
-		if err != nil {
-			// IPC is an optional coordination aid, never a prerequisite for
-			// composing or using the local Cetas runtime. In particular, a
-			// stale/ambiguous endpoint or another lease holder must not turn
-			// an IPC problem into an application startup failure.
-			h.report(fmt.Errorf("optional native local owner unavailable; continuing standalone: %w", err))
-		} else {
-			h.ownerLease = lease
-			h.ownerReleased = make(chan struct{})
-		}
+		h.electLocalSessionOwner(localipc.Home())
 	}
 	// Resolve Pi before the MoonBit Agent composes its extension manifests.
 	// Do not instantiate moejs or a Bun subprocess during this check.
