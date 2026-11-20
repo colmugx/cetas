@@ -1,10 +1,60 @@
 import { test, expect } from "bun:test";
+import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { mkdtempSync, mkdirSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { serveSessionSocket } from "../../../extension/posoco-ext-session-bridge/ts/bridge.ts";
 import { localOwnerEndpoint, observeLocalOwnerSession } from "./local-session-observer.ts";
+
+test.skipIf(process.platform === "win32")(
+  "independent Go Owner process streams working and live deltas to Bun viewer",
+  async () => {
+    const home = mkdtempSync(join(tmpdir(), "cetas-go-to-bun-"));
+    const endpoint = localOwnerEndpoint(home);
+    mkdirSync(dirname(endpoint), { mode: 0o700 });
+    let child: ReturnType<typeof spawn> | undefined;
+    try {
+      const cwd = resolve(import.meta.dir, "../../../cetas-go");
+      child = spawn("go", ["run", "../cetas-js/tests/session-bridge-go-owner/main.go",
+        endpoint, "idle"], { cwd, stdio: ["pipe", "pipe", "pipe"] });
+      const owner = child;
+      let stderr = "";
+      owner.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+      await new Promise<void>((done, fail) => {
+        let output = "";
+        const timeout = setTimeout(() => fail(new Error("Go Owner did not listen: " + stderr)), 25000);
+        owner.stdout?.on("data", (chunk: Buffer) => {
+          output += chunk.toString();
+          if (output.includes("GO_OWNER_READY")) { clearTimeout(timeout); done(); }
+        });
+        owner.once("error", (err) => { clearTimeout(timeout); fail(err); });
+        owner.once("exit", (code) => {
+          clearTimeout(timeout);
+          fail(new Error(`Go Owner exited before viewer attachment (${code}): ${stderr}`));
+        });
+      });
+      const viewer = await observeLocalOwnerSession(home, "go-owner-session", "busy");
+      if (!viewer) throw new Error("Bun did not attach to separate Go Owner");
+      try {
+        expect(viewer.snapshot.busy).toBe(false);
+        const feed = viewer.events()[Symbol.asyncIterator]();
+        owner.stdin?.write("EMIT\\n");
+        expect((await feed.next()).value?.type).toBe("turn.accepted");
+        const delta = (await feed.next()).value;
+        expect(delta?.type).toBe("assistant.text_delta");
+        expect(delta?.delta).toBe("Go owner output to Bun");
+      } finally {
+        viewer.close();
+      }
+    } finally {
+      child?.kill();
+      rmSync(dirname(endpoint), { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  },
+  35000,
+);
 
 test("Bun viewer attached while idle observes the next owner working transition", async () => {
   const home = mkdtempSync(join(tmpdir(), "cetas-idle-observer-"));
