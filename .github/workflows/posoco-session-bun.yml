@@ -29,4 +29,4 @@ jobs:
         with:
           submodules: recursive
       - uses: oven-sh/setup-bun@v2
-      - run: bun test cetas-js/src/app/local-session-observer.test.ts
+      - run: bun test cetas-js/src/app/local-session-observer.test.ts cetas-js/src/app/local-session-owner.test.ts
