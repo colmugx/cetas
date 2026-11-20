@@ -17,7 +17,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/colmugx/cetas/cetas-go/harness"
 	"github.com/colmugx/cetas/cetas-go/internal/tui/overlays"
+	sb "github.com/colmugx/posoco-extension/posoco-ext-session-bridge/go"
 )
 
 // sessionCatalogHost emulates the console's bounded catalog route from an
@@ -711,5 +713,61 @@ func TestSessionPickerStaleSessionReplyIsRefused(t *testing.T) {
 	}
 	if m.sessionPickerEpoch <= epoch {
 		t.Fatal("a session redirect did not bump the epoch")
+	}
+}
+
+type deniedForeignObserver struct {
+	sessionCatalogHost
+	reason error
+	observed string
+}
+
+func (h *deniedForeignObserver) ObserveSession(_ context.Context, sessionID string) (*sb.Observer, error) {
+	h.observed = sessionID
+	return nil, h.reason
+}
+
+func TestSessionPickerForeignOwnerUnreachableDoesNotResumeWritable(t *testing.T) {
+	host := &deniedForeignObserver{reason: harness.ErrOwnerUnreachable}
+	host.cwd = "/workspace/demo"
+	m := sessionPickerModel(t, host)
+	entry := host.entry(0)
+
+	cmd := m.sessionPickerChoose(entry)
+	if cmd == nil {
+		t.Fatal("did not attempt owner observation")
+	}
+	next, _ := m.Update(cmd())
+	m = next.(model)
+	if host.observed != entry.ID {
+		t.Fatalf("did not contact Session owner: %q", host.observed)
+	}
+	if host.sent("switch_session") {
+		t.Fatal("foreign owner failure fell back to a competing writable Session")
+	}
+	if !strings.Contains(m.err, "cannot observe Session safely") {
+		t.Fatalf("owner error not surfaced: %q", m.err)
+	}
+}
+
+func TestSessionPickerNoForeignOwnerUsesExistingLocalSwitch(t *testing.T) {
+	host := &deniedForeignObserver{reason: harness.ErrNoForeignOwner}
+	host.cwd = "/workspace/demo"
+	m := sessionPickerModel(t, host)
+	entry := host.entry(0)
+	cmd := m.sessionPickerChoose(entry)
+	if cmd == nil {
+		t.Fatal("no owner discovery command")
+	}
+	next, follow := m.Update(cmd())
+	m = next.(model)
+	if follow == nil {
+		t.Fatal("missing existing local switch fallback")
+	}
+	// Bubble Tea may wrap follow in a Batch for the local display updates.
+	// It must never switch to another writable Session while the owner
+	// detector reports an active-but-unreachable process (tested above).
+	if m.switchInFlight != entry.ID {
+		t.Fatalf("local Session switch did not retain its identity: %q", m.switchInFlight)
 	}
 }
