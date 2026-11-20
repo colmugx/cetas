@@ -851,6 +851,112 @@ func TestRemoteObserverRendersOwnerWorkingAndLiveOutput(t *testing.T) {
 	}
 }
 
+// An idle Go observer must transition to working as soon as a separate
+// owner accepts a turn, even when it attached before that turn began.
+func TestRemoteObserverIdleAttachSeesNextOwnerTurnImmediately(t *testing.T) {
+	server, client := net.Pipe()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	events := make(chan json.RawMessage, 3)
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- sb.ServeConn(ctx, server,
+			sb.Owner{InstanceID: "owner", RuntimeEpoch: "epoch-idle"},
+			func(_ context.Context, sessionID string) (sb.Subscription, error) {
+				if sessionID != "shared-session" {
+					return sb.Subscription{}, fmt.Errorf("unknown Session %s", sessionID)
+				}
+				return sb.Subscription{
+					Snapshot: json.RawMessage(`{"type":"session.snapshot","session_id":"shared-session","runtime_epoch":"epoch-idle","cursor":0,"high_water_cursor":0,"busy":false}`),
+					Events: events,
+				}, nil
+			})
+	}()
+	observer, err := sb.ObserveConn(ctx, client, "shared-session", "viewer-go")
+	if err != nil {
+		t.Fatalf("observe owner: %v", err)
+	}
+	defer observer.Close()
+	host := &sessionCatalogHost{}
+	m := sessionPickerModel(t, host)
+	m.switchInFlight = "shared-session"
+	next, _ := m.Update(remoteAttachResult{sessionID: "shared-session", observer: observer})
+	m = next.(model)
+	if m.running {
+		t.Fatal("idle owner snapshot showed working before a turn")
+	}
+	events <- json.RawMessage(`{"type":"turn.started","session_id":"shared-session","runtime_epoch":"epoch-idle","cursor":1,"cursor_advance":true}`)
+	next, _ = m.Update(receiveRemote(observer)())
+	m = next.(model)
+	if !m.running {
+		t.Fatal("remote owner turn.started was not displayed as working")
+	}
+	events <- json.RawMessage(`{"type":"assistant.text_delta","session_id":"shared-session","runtime_epoch":"epoch-idle","cursor":2,"cursor_advance":true,"delta":"visible while working"}`)
+	next, _ = m.Update(receiveRemote(observer)())
+	m = next.(model)
+	if !strings.Contains(m.streaming, "visible while working") {
+		t.Fatalf("viewer lost remote delta: %q", m.streaming)
+	}
+	events <- json.RawMessage(`{"type":"turn.completed","session_id":"shared-session","runtime_epoch":"epoch-idle","cursor":3,"cursor_advance":true}`)
+	next, _ = m.Update(receiveRemote(observer)())
+	m = next.(model)
+	if m.running || host.sent("turn_start") || host.sent("switch_session") {
+		t.Fatalf("viewer did not finish as read-only: working=%v commands=%v", m.running, host.commands())
+	}
+	close(events)
+	_ = observer.Close()
+	select {
+	case <-serveDone:
+	case <-ctx.Done():
+		t.Fatal("idle-to-working owner stream did not close")
+	}
+}
+
+func TestForeignObserverCanCreateNewLocalSessionButCannotSubmitForeignTurn(t *testing.T) {
+	host := &sessionCatalogHost{}
+	m := sessionPickerModel(t, host)
+	m.session = "foreign-session"
+	m.remoteSessionID = "foreign-session"
+	m.textarea.SetValue("/new")
+	cmd := m.submitEditor()
+	if cmd == nil {
+		t.Fatal("foreign observer cannot create an independent new Session")
+	}
+	// The foreign read-only latch remains until the local switch is acknowledged.
+	if m.remoteSessionID != "foreign-session" {
+		t.Fatal("new-session request prematurely dropped foreign writer protection")
+	}
+	_ = sessionRequestName(t, cmd, "new_session")
+	m.textarea.SetValue("never send to foreign Agent")
+	if got := m.submitEditor(); got != nil || host.sent("turn_start") {
+		t.Fatal("pending /new exposed foreign Session to local turn admission")
+	}
+}
+
+// A new-session request uses an existing host response envelope, not the
+// Session picker catalog response used by sessionRequest.
+func sessionRequestName(t *testing.T, cmd tea.Cmd, want string) commandResult {
+	t.Helper()
+	var result commandResult
+	seen := false
+	var visit func(tea.Cmd)
+	visit = func(next tea.Cmd) {
+		if next == nil { return }
+		switch msg := next().(type) {
+		case tea.BatchMsg:
+			for _, part := range msg { visit(part) }
+		case commandResult:
+			result = msg
+			seen = true
+		}
+	}
+	visit(cmd)
+	if !seen || result.name != want {
+		t.Fatalf("wanted %q response, found %#v", want, result)
+	}
+	return result
+}
+
 func TestForeignSessionDisconnectDoesNotEnableLocalWriter(t *testing.T) {
 	host := &sessionCatalogHost{}
 	m := sessionPickerModel(t, host)
