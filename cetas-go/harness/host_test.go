@@ -628,7 +628,17 @@ func checkLiveCrossProcessSessionBridge(
 		for {
 			select {
 			case line, ok := <-proc.lines:
-				if !ok { t.Fatalf("%s exited before %s: %s", label, marker, proc.stderr.String()) }
+				if !ok {
+					if label == "Bun" {
+						if peer, err := localipc.DialLocal(ctx, localipc.Home()); err == nil {
+							t.Logf("Go Owner actual endpoint: %s", peer.RemoteAddr())
+							_ = peer.Close()
+						} else {
+							t.Logf("Go Owner diagnostic connect: %v", err)
+						}
+					}
+					t.Fatalf("%s exited before %s: %s", label, marker, proc.stderr.String())
+				}
 				if strings.Contains(line, marker) { return }
 			case <-ctx.Done():
 				t.Fatalf("%s timed out waiting for %s: %s (%v)", label, marker, proc.stderr.String(), ctx.Err())
