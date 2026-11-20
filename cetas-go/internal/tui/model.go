@@ -1482,12 +1482,15 @@ func (m *model) submitEditor() tea.Cmd {
 	if m.remoteSessionID != "" {
 		// No foreign Session writer is ever created locally, including
 		// after the remote socket drops. The observer
-		// may reopen /session but cannot submit turns or approvals.
-		if strings.HasPrefix(value, "/session") {
+		// Session selection and a fresh local Session are the only safe
+		// exits from read-only observation. The latch is retired only
+		// after an acknowledged local session.switched event.
+		command := strings.Fields(value)[0]
+		if command == "/session" || command == "/sessions" || command == "/new" {
 			m.textarea.Reset()
 			return m.command(value)
 		}
-		m.err = "this Session belongs to another runtime (read-only); use /session to switch"
+		m.err = "this Session belongs to another runtime (read-only); use /sessions or /new"
 		return nil
 	}
 	m.textarea.Remember(value)
@@ -1692,7 +1695,7 @@ func (m *model) command(value string) tea.Cmd {
 		if len(parts) > 1 {
 			return request(m.host, "logout", map[string]any{"provider": parts[1]})
 		}
-	case "/sessions":
+	case "/session", "/sessions":
 		// One bounded page of session_catalog metadata; the whole-list `sessions`
 		// reply stays supported for hosts that still answer it.
 		return m.openSessionPicker()
