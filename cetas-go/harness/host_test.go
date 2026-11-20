@@ -558,10 +558,18 @@ func checkLiveCrossProcessSessionBridge(
 	if err != nil {
 		t.Fatalf("start live Owner turn: %v (%s)", err, turn)
 	}
-	// The Owner has actually accepted the turn before a viewer joins.
+	var accepted struct { TurnID string `json:"turn_id"` }
+	if err := json.Unmarshal(turn, &accepted); err != nil || accepted.TurnID == "" {
+		t.Fatalf("live Owner returned no turn id: %s (%v)", turn, err)
+	}
+	// The Owner has actually started *this* turn before a viewer joins;
+	// discard leftover events from earlier integration checks.
 	for started := false; !started; {
 		select {
 		case event := <-seen:
+			var frame struct { TurnID string `json:"turn_id"` }
+			_ = json.Unmarshal(event.Raw, &frame)
+			if frame.TurnID != accepted.TurnID { continue }
 			if event.Type == "turn.started" || event.Type == "turn.accepted" {
 				started = true
 			} else if event.Type == "turn.failed" {
