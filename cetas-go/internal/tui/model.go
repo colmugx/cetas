@@ -5,6 +5,8 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"github.com/colmugx/cetas/cetas-go/harness"
 	"fmt"
 	"github.com/colmugx/cetas/cetas-go/internal/i18n"
 	"os"
@@ -21,6 +23,7 @@ import (
 	transcriptui "github.com/colmugx/cetas/cetas-go/internal/tui/transcript"
 
 	"github.com/colmugx/cetas/cetas-go/internal/wire"
+	sb "github.com/colmugx/posoco-extension/posoco-ext-session-bridge/go"
 )
 
 type Runtime interface {
@@ -28,6 +31,40 @@ type Runtime interface {
 	Events() <-chan wire.Event
 	Errors() <-chan error
 	Close(context.Context) error
+}
+
+// Optional capability: existing Runtime implementations retain their
+// independent local behavior. A native owner can attach a read-only viewer
+// without creating a second Agent or opening its Journal for writing.
+type foreignSessionObserver interface {
+	ObserveSession(context.Context, string) (*sb.Observer, error)
+}
+
+type remoteAttachResult struct {
+	sessionID string
+	entry overlays.SessionEntry
+	observer *sb.Observer
+	err error
+}
+
+type remoteEventResult struct {
+	observer *sb.Observer
+	event wire.Event
+	err error
+}
+
+func receiveRemote(observer *sb.Observer) tea.Cmd {
+	return func() tea.Msg {
+		raw, err := observer.Next()
+		if err != nil {
+			return remoteEventResult{observer: observer, err: err}
+		}
+		var meta struct { Type string `json:"type"` }
+		if err := json.Unmarshal(raw, &meta); err != nil || meta.Type == "" {
+			return remoteEventResult{observer: observer, err: fmt.Errorf("invalid remote EventHub frame")}
+		}
+		return remoteEventResult{observer: observer, event: wire.Event{Type: meta.Type, Raw: raw}}
+	}
 }
 
 type runtimeHost = Runtime
@@ -97,6 +134,7 @@ type model struct {
 	fragments     map[int]toolFragment
 	surface       surfaceState
 	host          runtimeHost
+	remoteObserver *sb.Observer
 	feed          <-chan wire.Event
 	textarea      composer.Model
 	blocks        map[int]transcriptui.Block
@@ -375,6 +413,9 @@ func requestAs(host runtimeHost, name, command string, args any) tea.Cmd {
 // Close releases presentation workers after Program.Run returns, including the
 // QuitMsg and context-cancellation paths that bypass Model.Update.
 func (m model) Close() {
+	if m.remoteObserver != nil {
+		_ = m.remoteObserver.Close()
+	}
 	m.cancelPagedCopy()
 	m.closeHistoryMarkdown()
 	if worker := m.document.markdown; worker != nil {
@@ -511,6 +552,76 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.status = i18n.T("status.ready_lower")
 		return m, tea.Batch(receive(m.feed), receiveErrors(m.host.Errors()), request(m.host, "runtime_state", map[string]string{}))
+	case remoteAttachResult:
+		if msg.sessionID != m.switchInFlight {
+			if msg.observer != nil { _ = msg.observer.Close() }
+			return m, nil
+		}
+		m.switchInFlight = ""
+		if msg.err != nil {
+			if msg.observer != nil { _ = msg.observer.Close() }
+			// An unowned/incompatible or unreachable remote Session must
+			// not be resumed through a competing writable local Agent.
+			// When no foreign Owner is present, native clients explicitly
+			// report ErrNoForeignOwner; the host adapter handles fallback
+			// via a separate typed sentinel.
+			if errors.Is(msg.err, harness.ErrNoForeignOwner) {
+				if m.remoteObserver != nil {
+					_ = m.remoteObserver.Close()
+					m.remoteObserver = nil
+				}
+				if !m.sessionPickerSameCwd(msg.entry) {
+					return m, m.resumeForeignSession(msg.entry)
+				}
+				return m, m.sessionPickerChooseLocal(msg.entry)
+			}
+			m.err = "cannot observe Session safely: " + msg.err.Error()
+			return m, nil
+		}
+		if m.remoteObserver != nil { _ = m.remoteObserver.Close() }
+		m.remoteObserver = msg.observer
+		m.closeSessionPicker()
+		retired := m.retireSessionPresentation()
+		m.session = msg.sessionID
+		m.welcomeHidden = true
+		m.streaming = ""
+		m.reasoning = ""
+		m.transcript = nil
+		m.fragments = nil
+		m.followups = nil
+		m.aborting = false
+		m.eventResyncPending = false
+		m.eventResyncAwaitingSnapshot = false
+		m.runtimeEpoch = msg.observer.Epoch
+		m.eventCursor = 0
+		m.applyEvent(wire.Event{Type: "session.snapshot", Raw: msg.observer.Snapshot})
+		m.refreshTranscript()
+		if m.running {
+			m.status = i18n.T("status.working_lower")
+		} else {
+			m.status = "observing Session (read-only)"
+		}
+		return m, tea.Batch(retired, receiveRemote(msg.observer))
+	case remoteEventResult:
+		if msg.observer != m.remoteObserver {
+			return m, nil
+		}
+		if msg.err != nil {
+			_ = m.remoteObserver.Close()
+			m.remoteObserver = nil
+			m.err = "Session owner stream stopped; reconnect from /session: " + msg.err.Error()
+			m.status = "Session observation disconnected"
+			return m, nil
+		}
+		m.applyEvent(msg.event)
+		if m.eventResyncPending {
+			_ = m.remoteObserver.Close()
+			m.remoteObserver = nil
+			m.err = "Session event cursor gap; rejoin from /session to resynchronize"
+			return m, nil
+		}
+		m.refreshTranscript()
+		return m, receiveRemote(msg.observer)
 	case errorResult:
 		if !msg.ok {
 			return m, nil
@@ -1362,6 +1473,16 @@ func (m *model) submitEditor() tea.Cmd {
 	}
 	if m.host == nil {
 		m.err = m.runtimeUnavailableReason()
+		return nil
+	}
+	if m.remoteObserver != nil {
+		// No foreign Session writer is ever created locally. The observer
+		// may reopen /session but cannot submit turns or approvals.
+		if strings.HasPrefix(value, "/session") {
+			m.textarea.Reset()
+			return m.command(value)
+		}
+		m.err = "this Session belongs to another runtime (read-only); use /session to switch"
 		return nil
 	}
 	m.textarea.Remember(value)
