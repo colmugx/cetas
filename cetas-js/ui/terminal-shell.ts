@@ -62,7 +62,7 @@ import {
   type ImageAttachment,
 } from "../src/app/image-attachments.ts";
 import { EventRouter } from "../src/controllers/event-router.ts";
-import type { SessionViewer, SessionEvent } from "../extension/posoco-ext-session-bridge/ts/bridge.ts";
+import type { SessionViewer, SessionEvent } from "../../extension/posoco-ext-session-bridge/ts/bridge.ts";
 import { SubagentActivityStore } from "../src/controllers/subagent-activity.ts";
 import { BoardActivityStore } from "../src/controllers/board-activity.ts";
 import { WakeupActivityStore } from "../src/controllers/wakeup-activity.ts";
