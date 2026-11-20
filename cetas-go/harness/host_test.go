@@ -1,6 +1,8 @@
 package harness
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -42,6 +44,10 @@ func TestNativeHarnessHost(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".cetas"), 0700); err != nil {
 		t.Fatal(err)
 	}
+	// A live provider turn is held in the mock until both independent local
+	// observers have acknowledged the authoritative working Snapshot.
+	// It is released only once both Go and Bun have attached.
+	releaseLiveTurn := make(chan struct{})
 	// Real compatible-provider factory and router; no secrets or network I/O.
 	// Test-only in-process mock LLM endpoint. Not a Cetas app sidecar:
 	// this simulates the external model API and exists only inside go test.
@@ -97,8 +103,26 @@ func TestNativeHarnessHost(t *testing.T) {
 			}
 		}
 
+		liveBridgeFixture := strings.Contains(string(body), "native-owner-live-bridge-fixture")
+		if liveBridgeFixture {
+			chunks = []string{
+				`{"id":"mock","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"owner starting "},"finish_reason":null}]}`,
+				`{"id":"mock","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"live from Go owner to Bun"},"finish_reason":null}]}`,
+				`{"id":"mock","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			}
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		for _, chunk := range chunks {
+		for i, chunk := range chunks {
+			if liveBridgeFixture && i == 1 {
+				select {
+				case <-releaseLiveTurn:
+				case <-r.Context().Done():
+					return
+				case <-time.After(25 * time.Second):
+					return
+				}
+			}
 			_, _ = io.WriteString(w, "data: "+chunk+"\n\n")
 			if flusher, ok := w.(http.Flusher); ok {
 				flusher.Flush()
@@ -115,7 +139,7 @@ func TestNativeHarnessHost(t *testing.T) {
 	// Exercise the explicit owner-lease path in the real native integration
 	// test even though ordinary Cetas startup defaults to IPC-independent.
 	t.Setenv("CETAS_IPC_OWNER", "1")
-	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 	defer cancel()
 	h, err := Start(ctx)
 	if err != nil {
@@ -450,6 +474,7 @@ answeredQuestion:
 	checkSwitchSupersedesQueuedReplay(t, h, home)
 	checkSessionCatalogAnchorRoundTrip(t, h, home)
 	checkReplayDoesNotMonopolizeDispatcher(t, h, home)
+	checkLiveCrossProcessSessionBridge(t, ctx, h, state.SessionID, releaseLiveTurn, seen)
 	if err := h.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -497,4 +522,153 @@ func TestForeignProcessSessionObserver(t *testing.T) {
 		snapshot.RuntimeEpoch == "" || snapshot.RuntimeEpoch != viewer.Epoch {
 		t.Fatalf("foreign child got incompatible Owner snapshot: %s %v", viewer.Snapshot, err)
 	}
+}
+
+
+// checkLiveCrossProcessSessionBridge verifies the user-facing working/live
+// semantics against the real native Agent and two *independent* observer
+// processes. The mock model pauses mid-turn until both viewers have joined.
+// A protocol-only handshake, in-memory test server, or completed-before-join
+// turn is insufficient evidence for these cases.
+func checkLiveCrossProcessSessionBridge(
+	t *testing.T, parent context.Context, h *Host, sessionID string,
+	release chan struct{}, seen <-chan Event,
+) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(parent, 35*time.Second)
+	defer cancel()
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(release) })
+
+	turn, err := h.Request(ctx, "turn_start", map[string]any{
+		"prompt": "native-owner-live-bridge-fixture",
+	})
+	if err != nil {
+		t.Fatalf("start live Owner turn: %v (%s)", err, turn)
+	}
+	// The Owner has actually accepted the turn before a viewer joins.
+	for started := false; !started; {
+		select {
+		case event := <-seen:
+			if event.Type == "turn.started" || event.Type == "turn.accepted" {
+				started = true
+			} else if event.Type == "turn.failed" {
+				t.Fatalf("Owner failed before attach: %s", event.Raw)
+			}
+		case <-ctx.Done():
+			t.Fatalf("Owner never started the live test turn: %v", ctx.Err())
+		}
+	}
+
+	type viewerProcess struct {
+		cmd *exec.Cmd
+		lines <-chan string
+		stderr *bytes.Buffer
+	}
+	startViewer := func(label, name string, args ...string) viewerProcess {
+		t.Helper()
+		cmd := exec.CommandContext(ctx, name, args...)
+		cmd.Env = append(os.Environ(),
+			"CETAS_GO_LIVE_OBSERVER_CHILD=1",
+			"CETAS_TEST_SESSION_ID="+sessionID,
+		)
+		stdout, err := cmd.StdoutPipe()
+		if err != nil { t.Fatalf("%s stdout: %v", label, err) }
+		stderr := &bytes.Buffer{}
+		cmd.Stderr = stderr
+		if err := cmd.Start(); err != nil { t.Fatalf("%s start: %v", label, err) }
+		lines := make(chan string, 32)
+		go func() {
+			defer close(lines)
+			scanner := bufio.NewScanner(stdout)
+			scanner.Buffer(make([]byte, 4096), 1<<20)
+			for scanner.Scan() {
+				lines <- scanner.Text()
+			}
+		}()
+		return viewerProcess{cmd:cmd, lines:lines, stderr:stderr}
+	}
+	waitMarker := func(label string, proc viewerProcess, marker string) {
+		t.Helper()
+		for {
+			select {
+			case line, ok := <-proc.lines:
+				if !ok { t.Fatalf("%s exited before %s: %s", label, marker, proc.stderr.String()) }
+				if strings.Contains(line, marker) { return }
+			case <-ctx.Done():
+				t.Fatalf("%s timed out waiting for %s: %s (%v)", label, marker, proc.stderr.String(), ctx.Err())
+			}
+		}
+	}
+	goViewer := startViewer("Go", os.Args[0], "-test.run=^TestForeignProcessLiveSessionObserver$")
+	defer func() { _ = goViewer.cmd.Process.Kill(); _ = goViewer.cmd.Wait() }()
+	waitMarker("Go", goViewer, "FOREIGN_SNAPSHOT_WORKING")
+
+	var bunViewer *viewerProcess
+	if bun, err := exec.LookPath("bun"); err == nil {
+		// Native CI installs Bun before running Go tests on all three OSes.
+		// The adapter is the real cetas-js observer and no Agent is composed.
+		b := startViewer("Bun", bun, "run", filepath.Join("..", "..", "cetas-js", "tests", "session-bridge-bun-viewer.ts"))
+		bunViewer = &b
+		defer func() { _ = b.cmd.Process.Kill(); _ = b.cmd.Wait() }()
+		waitMarker("Bun", b, "FOREIGN_SNAPSHOT_WORKING")
+	} else {
+		t.Logf("Bun not installed; native Go-to-Go live check runs, Bun cross-host part skipped: %v", err)
+	}
+	// Both processes joined an already-working Owner. Only now allow its
+	// provider to emit the assistant delta; receivers must see it live.
+	releaseOnce.Do(func() { close(release) })
+	waitMarker("Go", goViewer, "FOREIGN_STREAM_OK")
+	if bunViewer != nil {
+		waitMarker("Bun", *bunViewer, "FOREIGN_STREAM_OK")
+	}
+	// Confirm the same owner turn settles, without requiring either viewer
+	// to issue a command, own the journal or compose another Agent.
+	for {
+		select {
+		case event := <-seen:
+			if event.Type == "turn.completed" { return }
+			if event.Type == "turn.failed" { t.Fatalf("Owner turn failed: %s", event.Raw) }
+		case <-ctx.Done():
+			t.Fatalf("Owner did not complete after the viewers received live output: %v", ctx.Err())
+		}
+	}
+}
+
+// Runs only inside the spawned Go observer process. Never compose a second
+// native Harness or issue write commands against the Owner's Session.
+func TestForeignProcessLiveSessionObserver(t *testing.T) {
+	if os.Getenv("CETAS_GO_LIVE_OBSERVER_CHILD") != "1" { return }
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	sessionID := os.Getenv("CETAS_TEST_SESSION_ID")
+	if sessionID == "" { t.Fatal("missing live Owner Session ID") }
+	var observerHost Host
+	viewer, err := observerHost.ObserveSession(ctx, sessionID)
+	if err != nil { t.Fatalf("Go viewer could not observe live Owner: %v", err) }
+	defer viewer.Close()
+	var snapshot struct {
+		Type string `json:"type"`
+		SessionID string `json:"session_id"`
+		RuntimeEpoch string `json:"runtime_epoch"`
+		Busy bool `json:"busy"`
+	}
+	if err := json.Unmarshal(viewer.Snapshot, &snapshot); err != nil ||
+		snapshot.Type != "session.snapshot" || snapshot.SessionID != sessionID ||
+		snapshot.RuntimeEpoch != viewer.Epoch || !snapshot.Busy {
+		t.Fatalf("Go viewer did not receive authoritative working Snapshot: %s (%v)", viewer.Snapshot, err)
+	}
+	fmt.Println("FOREIGN_SNAPSHOT_WORKING")
+	var textOutput strings.Builder
+	for !strings.Contains(textOutput.String(), "live from Go owner to Bun") {
+		frame, err := viewer.Next()
+		if err != nil { t.Fatalf("Go Owner live stream stopped: %v", err) }
+		var event struct {
+			Type string `json:"type"`
+			Delta string `json:"delta"`
+		}
+		if err := json.Unmarshal(frame, &event); err != nil { t.Fatal(err) }
+		if event.Type == "assistant.text_delta" { textOutput.WriteString(event.Delta) }
+	}
+	fmt.Println("FOREIGN_STREAM_OK")
 }
