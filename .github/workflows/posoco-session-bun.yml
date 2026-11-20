@@ -29,4 +29,8 @@ jobs:
         with:
           submodules: recursive
       - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-go@v5
+        if: runner.os != 'Windows'
+        with:
+          go-version-file: cetas-go/go.mod
       - run: bun test cetas-js/src/app/local-session-observer.test.ts cetas-js/src/app/local-session-owner.test.ts
