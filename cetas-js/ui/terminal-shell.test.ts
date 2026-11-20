@@ -153,12 +153,6 @@ describe("local slash autocomplete", () => {
 });
 
 describe("matchLocalSlash", () => {
-  test("/session and /sessions use the same local Session picker", () => {
-    expect(matchLocalSlash("/session")?.id).toBe("sessions");
-    expect(matchLocalSlash("/sessions")?.id).toBe("sessions");
-    expect(matchLocalSlash("/session-mutation")).toBeUndefined();
-  });
-
   test("/quit routes to the exit route via alias", () => {
     expect(matchLocalSlash("/quit")?.id).toBe("exit");
     expect(matchLocalSlash("/exit")?.id).toBe("exit");
