@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -155,6 +156,20 @@ func TestNativeHarnessHost(t *testing.T) {
 		t.Fatalf("invalid owned Session snapshot: %s %v", viewer.Snapshot, err)
 	}
 	_ = viewer.Close()
+	// Real second OS process (not a goroutine or a second in-process Agent)
+	// joins the existing Owner over the same local IPC endpoint. The child
+	// starts NO MoonBit scheduler and must never acquire a journal writer.
+	childCtx, stopChild := context.WithTimeout(ctx, 15*time.Second)
+	defer stopChild()
+	child := exec.CommandContext(childCtx, os.Args[0], "-test.run=^TestForeignProcessSessionObserver$")
+	child.Env = append(os.Environ(),
+		"CETAS_GO_OBSERVER_CHILD=1",
+		"CETAS_TEST_SESSION_ID="+state.SessionID,
+	)
+	output, childErr := child.CombinedOutput()
+	if childErr != nil {
+		t.Fatalf("independent Cetas process could not observe owned Session: %v (%s)", childErr, output)
+	}
 	// The thread-owner runtime is process-singleton, not an accidental set
 	// of parallel MoonBit interpreters created from Go goroutines.
 	if _, err := Start(ctx); !errors.Is(err, ErrAlreadyStarted) {
@@ -449,5 +464,37 @@ answeredQuestion:
 	}
 	if !gotSnapshot {
 		t.Fatal("EventHub did not reach Go host event subscription")
+	}
+}
+
+// TestForeignProcessSessionObserver only runs when invoked as an independent
+// child of TestNativeHarnessHost. It deliberately never calls harness.Start:
+// observing an existing writer must not compose a second native Agent.
+func TestForeignProcessSessionObserver(t *testing.T) {
+	if os.Getenv("CETAS_GO_OBSERVER_CHILD") != "1" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	sessionID := os.Getenv("CETAS_TEST_SESSION_ID")
+	if sessionID == "" {
+		t.Fatal("missing parent-owned Session ID")
+	}
+	var viewerHost Host
+	viewer, err := viewerHost.ObserveSession(ctx, sessionID)
+	if err != nil {
+		t.Fatalf("foreign child could not attach to local owner: %v", err)
+	}
+	defer viewer.Close()
+	var snapshot struct {
+		Type string `json:"type"`
+		SessionID string `json:"session_id"`
+		RuntimeEpoch string `json:"runtime_epoch"`
+		Busy bool `json:"busy"`
+	}
+	if err := json.Unmarshal(viewer.Snapshot, &snapshot); err != nil ||
+		snapshot.Type != "session.snapshot" || snapshot.SessionID != sessionID ||
+		snapshot.RuntimeEpoch == "" || snapshot.RuntimeEpoch != viewer.Owner.RuntimeEpoch {
+		t.Fatalf("foreign child got incompatible Owner snapshot: %s %v", viewer.Snapshot, err)
 	}
 }
