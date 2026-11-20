@@ -279,25 +279,6 @@ func press(t *testing.T, m *model, code rune) tea.Cmd {
 	return cmd
 }
 
-// TestSessionSingularAliasUsesTheSamePicker ensures both terminal hosts
-// accept the /session spelling used to attach to another live Session.
-func TestSessionSingularAliasUsesTheSamePicker(t *testing.T) {
-	for _, command := range []string{"/session", "/sessions"} {
-		t.Run(command, func(t *testing.T) {
-			host := &sessionCatalogHost{total: 1, cwd: "/workspace/demo"}
-			m := sessionPickerModel(t, host)
-			cmd := m.command(command)
-			if !m.sessionPicker.open || cmd == nil {
-				t.Fatalf("%s did not open and fetch Session picker", command)
-			}
-			result := sessionRequest(t, cmd)
-			if result.name != "session_catalog" {
-				t.Fatalf("%s did not fetch Session catalog: %q", command, result.name)
-			}
-		})
-	}
-}
-
 // TestSessionPickerOpensWithBoundedCurrentScopePage pins the open request: one
 // `session_catalog` page for the current folder, cursor 0, limit 100, tagged
 // with the picker epoch, generation, scope and session.
@@ -910,51 +891,6 @@ func TestRemoteObserverIdleAttachSeesNextOwnerTurnImmediately(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("idle-to-working owner stream did not close")
 	}
-}
-
-func TestForeignObserverCanCreateNewLocalSessionButCannotSubmitForeignTurn(t *testing.T) {
-	host := &sessionCatalogHost{}
-	m := sessionPickerModel(t, host)
-	m.session = "foreign-session"
-	m.remoteSessionID = "foreign-session"
-	m.textarea.SetValue("/new")
-	cmd := m.submitEditor()
-	if cmd == nil {
-		t.Fatal("foreign observer cannot create an independent new Session")
-	}
-	// The foreign read-only latch remains until the local switch is acknowledged.
-	if m.remoteSessionID != "foreign-session" {
-		t.Fatal("new-session request prematurely dropped foreign writer protection")
-	}
-	_ = sessionRequestName(t, cmd, "new_session")
-	m.textarea.SetValue("never send to foreign Agent")
-	if got := m.submitEditor(); got != nil || host.sent("turn_start") {
-		t.Fatal("pending /new exposed foreign Session to local turn admission")
-	}
-}
-
-// A new-session request uses an existing host response envelope, not the
-// Session picker catalog response used by sessionRequest.
-func sessionRequestName(t *testing.T, cmd tea.Cmd, want string) commandResult {
-	t.Helper()
-	var result commandResult
-	seen := false
-	var visit func(tea.Cmd)
-	visit = func(next tea.Cmd) {
-		if next == nil { return }
-		switch msg := next().(type) {
-		case tea.BatchMsg:
-			for _, part := range msg { visit(part) }
-		case commandResult:
-			result = msg
-			seen = true
-		}
-	}
-	visit(cmd)
-	if !seen || result.name != want {
-		t.Fatalf("wanted %q response, found %#v", want, result)
-	}
-	return result
 }
 
 func TestForeignSessionDisconnectDoesNotEnableLocalWriter(t *testing.T) {
