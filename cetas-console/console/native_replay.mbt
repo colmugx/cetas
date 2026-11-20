@@ -214,7 +214,9 @@ async fn NativeReplayReader::fill(self : NativeReplayReader) -> Bool {
   }
   let mut filled = 0
   while filled < capacity {
-    let read = self.file.read_into(self.chunk.mut_view(start=filled, end=capacity)) catch {
+    let read = self.file.read_into(
+      self.chunk.mut_view(start=filled, end=capacity),
+    ) catch {
       _ => break
     }
     if read <= 0 {
