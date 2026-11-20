@@ -39,7 +39,7 @@ test.skipIf(process.platform === "win32")(
       try {
         expect(viewer.snapshot.busy).toBe(false);
         const feed = viewer.events()[Symbol.asyncIterator]();
-        owner.stdin?.write("EMIT\\n");
+        owner.stdin?.write("EMIT\n");
         expect((await feed.next()).value?.type).toBe("turn.accepted");
         const delta = (await feed.next()).value;
         expect(delta?.type).toBe("assistant.text_delta");
