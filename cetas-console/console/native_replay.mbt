@@ -186,7 +186,7 @@ async fn NativeReplayReader::reposition(
   while self.pos < target {
     let want = (target - self.pos).to_int()
     let len = if want < 8192 { want } else { 8192 }
-    let got = self.file.read_into(scratch, offset=0, max_len=len) catch {
+    let got = self.file.read_into(scratch.mut_view(end=len)) catch {
       _ => return false
     }
     if got <= 0 {
@@ -214,11 +214,7 @@ async fn NativeReplayReader::fill(self : NativeReplayReader) -> Bool {
   }
   let mut filled = 0
   while filled < capacity {
-    let read = self.file.read_into(
-      self.chunk,
-      offset=filled,
-      max_len=capacity - filled,
-    ) catch {
+    let read = self.file.read_into(self.chunk.mut_view(start=filled, end=capacity)) catch {
       _ => break
     }
     if read <= 0 {
@@ -717,7 +713,7 @@ async fn native_replay_read_slice(
   while skipped < position {
     let want = (position - skipped).to_int()
     let len = if want < 8192 { want } else { 8192 }
-    let got = file.read_into(scratch, offset=0, max_len=len) catch {
+    let got = file.read_into(scratch.mut_view(end=len)) catch {
       _ => return b""
     }
     if got <= 0 {
@@ -728,7 +724,7 @@ async fn native_replay_read_slice(
   let buffer = FixedArray::make(length, b'\x00')
   let mut read = 0
   while read < length {
-    let got = file.read_into(buffer, offset=read, max_len=length - read) catch {
+    let got = file.read_into(buffer.mut_view(start=read, end=length)) catch {
       _ => break
     }
     if got <= 0 {
