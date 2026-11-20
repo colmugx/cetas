@@ -686,14 +686,18 @@ func TestForeignProcessLiveSessionObserver(t *testing.T) {
 		RuntimeEpoch string `json:"runtime_epoch"`
 		Busy bool `json:"busy"`
 	}
+	prejoined := os.Getenv("CETAS_TEST_PREJOINED_OBSERVER") == "1"
 	if err := json.Unmarshal(viewer.Snapshot, &snapshot); err != nil ||
 		snapshot.Type != "session.snapshot" || snapshot.SessionID != sessionID ||
-		snapshot.RuntimeEpoch != viewer.Epoch || !snapshot.Busy {
-		t.Fatalf("Go viewer did not receive authoritative working Snapshot: %s (%v)", viewer.Snapshot, err)
+		snapshot.RuntimeEpoch != viewer.Epoch || snapshot.Busy == prejoined {
+		t.Fatalf("Go viewer got unexpected prejoin/working Snapshot: %s (%v)", viewer.Snapshot, err)
 	}
-	fmt.Println("FOREIGN_SNAPSHOT_WORKING")
+	if prejoined { fmt.Println("FOREIGN_SNAPSHOT_IDLE") } else { fmt.Println("FOREIGN_SNAPSHOT_WORKING") }
+	target := "live from Go owner to Bun"
+	if prejoined { target = "prejoined Go viewer received text" }
+	seenWorking := !prejoined
 	var textOutput strings.Builder
-	for !strings.Contains(textOutput.String(), "live from Go owner to Bun") {
+	for !strings.Contains(textOutput.String(), target) {
 		frame, err := viewer.Next()
 		if err != nil { t.Fatalf("Go Owner live stream stopped: %v", err) }
 		var event struct {
@@ -701,7 +705,85 @@ func TestForeignProcessLiveSessionObserver(t *testing.T) {
 			Delta string `json:"delta"`
 		}
 		if err := json.Unmarshal(frame, &event); err != nil { t.Fatal(err) }
+		if prejoined && !seenWorking &&
+			(event.Type == "turn.accepted" || event.Type == "turn.started") {
+			seenWorking = true
+			fmt.Println("FOREIGN_STREAM_WORKING")
+		}
 		if event.Type == "assistant.text_delta" { textOutput.WriteString(event.Delta) }
 	}
+	if !seenWorking { t.Fatal("Go viewer saw model text before the Owner working event") }
 	fmt.Println("FOREIGN_STREAM_OK")
+}
+
+
+// checkPrejoinedGoSessionWorking qualifies the third UX scenario separately:
+// the second Go process attaches to an *idle* existing Session, and must
+// receive the next turn's working transition before the model emits its next
+// text delta. The owner remains the only Agent and Journal writer.
+func checkPrejoinedGoSessionWorking(
+	t *testing.T, parent context.Context, h *Host, sessionID string,
+	release chan struct{}, seen <-chan Event,
+) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	defer cancel()
+	var once sync.Once
+	defer once.Do(func() { close(release) })
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestForeignProcessLiveSessionObserver$")
+	cmd.Env = append(os.Environ(),
+		"CETAS_GO_LIVE_OBSERVER_CHILD=1",
+		"CETAS_TEST_PREJOINED_OBSERVER=1",
+		"CETAS_TEST_SESSION_ID="+sessionID,
+	)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil { t.Fatal(err) }
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil { t.Fatal(err) }
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	lines := make(chan string, 32)
+	go func() {
+		defer close(lines)
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() { lines <- scanner.Text() }
+	}()
+	wait := func(marker string) {
+		t.Helper()
+		for {
+			select {
+			case line, ok := <-lines:
+				if !ok { t.Fatalf("prejoined Go observer exited before %s: %s", marker, stderr.String()) }
+				if strings.Contains(line, marker) { return }
+			case <-ctx.Done():
+				t.Fatalf("prejoined Go observer missed %s: %v %s", marker, ctx.Err(), stderr.String())
+			}
+		}
+	}
+	wait("FOREIGN_SNAPSHOT_IDLE")
+	turn, err := h.Request(ctx, "turn_start", map[string]any{
+		"prompt": "native-owner-prejoin-fixture",
+	})
+	if err != nil { t.Fatalf("start Owner turn with prejoined observer: %v (%s)", err, turn) }
+	var accepted struct { TurnID string `json:"turn_id"` }
+	if err := json.Unmarshal(turn, &accepted); err != nil || accepted.TurnID == "" {
+		t.Fatalf("Owner returned no prejoined turn id: %s (%v)", turn, err)
+	}
+	// Fail if the viewer does not show working while the provider is held
+	// before its second output chunk; a late completion is not sufficient.
+	wait("FOREIGN_STREAM_WORKING")
+	once.Do(func() { close(release) })
+	wait("FOREIGN_STREAM_OK")
+	for {
+		select {
+		case event := <-seen:
+			var frame struct { TurnID string `json:"turn_id"` }
+			_ = json.Unmarshal(event.Raw, &frame)
+			if frame.TurnID != accepted.TurnID { continue }
+			if event.Type == "turn.completed" { return }
+			if event.Type == "turn.failed" { t.Fatalf("prejoined Owner turn failed: %s", event.Raw) }
+		case <-ctx.Done():
+			t.Fatalf("prejoined Owner did not finish after live text: %v", ctx.Err())
+		}
+	}
 }
