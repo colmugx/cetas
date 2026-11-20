@@ -2825,6 +2825,20 @@ export class TerminalShell {
         }
         break;
       }
+      case "tool.started":
+        this.router.handleEvent({ type: "tool_call_started",
+          tool_call_id: typeof event.tool_call_id === "string" ? event.tool_call_id : "",
+          tool_name: typeof event.tool_name === "string" ? event.tool_name : "tool",
+          args: event.args ?? {},
+        });
+        break;
+      case "tool.completed":
+        this.router.handleEvent({ type: "tool_call_completed",
+          tool_call_id: typeof event.tool_call_id === "string" ? event.tool_call_id : "",
+          result: typeof event.result === "string" ? event.result : JSON.stringify(event.result ?? ""),
+          is_error: event.is_error === true,
+        });
+        break;
       case "turn.completed":
       case "turn.cancelled":
         this.router.handleEvent({ type: "turn_completed" });
@@ -2851,9 +2865,22 @@ export class TerminalShell {
   }
 
   private async consumeForeignSession(viewer: SessionViewer): Promise<void> {
+    let cursor = Math.max(viewer.snapshot.cursor, viewer.snapshot.high_water_cursor ?? 0);
     try {
       for await (const event of viewer.events()) {
         if (this.remoteView !== viewer) return;
+        if (event.cursor_advance === true) {
+          if (!Number.isSafeInteger(event.cursor) || event.cursor < 0) {
+            throw new Error("invalid owner event cursor");
+          }
+          // Events queued during snapshot construction are already included
+          // in its high-water state; never repaint them twice.
+          if (event.cursor <= cursor) continue;
+          if (event.cursor !== cursor + 1) {
+            throw new Error("owner event cursor gap; fresh snapshot required");
+          }
+          cursor = event.cursor;
+        }
         this.applyForeignEvent(event);
       }
       throw new Error("owner stream ended; resnapshot required");
