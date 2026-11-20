@@ -831,3 +831,21 @@ func TestRemoteObserverRendersOwnerWorkingAndLiveOutput(t *testing.T) {
 		t.Fatal("owner stream did not shut down")
 	}
 }
+
+func TestForeignSessionDisconnectDoesNotEnableLocalWriter(t *testing.T) {
+	host := &sessionCatalogHost{}
+	m := sessionPickerModel(t, host)
+	m.session = "foreign-session"
+	m.remoteSessionID = "foreign-session"
+	m.remoteObserver = nil // remote transport is already disconnected
+	m.textarea.SetValue("do not run this turn locally")
+	if cmd := m.submitEditor(); cmd != nil {
+		t.Fatal("foreign Session permitted a local turn command after disconnect")
+	}
+	if host.sent("turn_start") {
+		t.Fatal("detached foreign Session became a second writer")
+	}
+	if !strings.Contains(m.err, "read-only") {
+		t.Fatalf("missing foreign Session read-only warning: %q", m.err)
+	}
+}

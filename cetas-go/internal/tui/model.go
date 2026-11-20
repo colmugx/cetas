@@ -135,6 +135,9 @@ type model struct {
 	surface       surfaceState
 	host          runtimeHost
 	remoteObserver *sb.Observer
+	// Keep a foreign Session read-only after its socket has disconnected.
+	// Only an acknowledged LOCAL session switch can retire this latch.
+	remoteSessionID string
 	feed          <-chan wire.Event
 	textarea      composer.Model
 	blocks        map[int]transcriptui.Block
@@ -580,6 +583,7 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.remoteObserver != nil { _ = m.remoteObserver.Close() }
 		m.remoteObserver = msg.observer
+		m.remoteSessionID = msg.sessionID
 		m.closeSessionPicker()
 		retired := m.retireSessionPresentation()
 		m.session = msg.sessionID
@@ -1475,8 +1479,9 @@ func (m *model) submitEditor() tea.Cmd {
 		m.err = m.runtimeUnavailableReason()
 		return nil
 	}
-	if m.remoteObserver != nil {
-		// No foreign Session writer is ever created locally. The observer
+	if m.remoteSessionID != "" {
+		// No foreign Session writer is ever created locally, including
+		// after the remote socket drops. The observer
 		// may reopen /session but cannot submit turns or approvals.
 		if strings.HasPrefix(value, "/session") {
 			m.textarea.Reset()
@@ -2048,6 +2053,13 @@ func (m *model) applyEvent(e wire.Event) {
 		m.switchInFlight = ""
 		m.status = i18n.T("status.session_redirected")
 	case "session.switched":
+		// An acknowledged local switch is the only safe way to retire a
+		// disconnected foreign Session's read-only identity.
+		if m.remoteObserver != nil {
+			_ = m.remoteObserver.Close()
+			m.remoteObserver = nil
+		}
+		m.remoteSessionID = ""
 		// applyEvent cannot return commands, so the ask-cancellation batch rides
 		// pendingSessionCmd and the event pump restarts the paged replay beside it.
 		var data struct {
