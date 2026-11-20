@@ -6,6 +6,7 @@ import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { join } from "node:path";
 import { observeSessionSocket, type SessionViewer } from "../../../extension/posoco-ext-session-bridge/ts/bridge.ts";
+import type { OwnerElection } from "./local-session-owner.ts";
 
 export function localOwnerEndpoint(home: string): string {
   const canonical = realpathSync(home);
@@ -50,12 +51,22 @@ function dialOwner(path: string): Promise<Socket> {
 // An absent endpoint preserves the normal standalone JS path. A present
 // endpoint that rejects a Session MUST NOT fall back to composing that
 // Session locally, since it may belong to an active other-process writer.
-export async function observeLocalOwnerSession(home: string, sessionID: string): Promise<SessionViewer | undefined> {
+export async function observeLocalOwnerSession(
+  home: string, sessionID: string, electionStatus: OwnerElection["status"] = "unavailable",
+): Promise<SessionViewer | undefined> {
+  // This process is the elected writer; use the ordinary local JS Session
+  // path, not a read-only loopback connection to its own Owner.
+  if (electionStatus === "owner") return undefined;
   if (!sessionID || ["0", "false", "no", "off"].includes((process.env.CETAS_IPC_OWNER ?? "").trim().toLowerCase())) {
     return undefined;
   }
   const path = localOwnerEndpoint(home);
-  if (process.platform !== "win32" && !existsSync(path)) return undefined;
+  if (process.platform !== "win32" && !existsSync(path)) {
+    if (electionStatus === "busy") {
+      throw new Error("another runtime owns this home but its Session endpoint is unavailable; refusing competing writer");
+    }
+    return undefined;
+  }
   if (process.platform !== "win32") assertPrivateSocket(path);
   let socket: Socket | undefined;
   try {
