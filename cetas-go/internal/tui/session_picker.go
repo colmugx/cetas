@@ -383,6 +383,18 @@ func (m *model) sessionPickerChoose(entry overlays.SessionEntry) tea.Cmd {
 		// (session.switched / session.switch_failed) is still pending.
 		return nil
 	}
+	if client, ok := m.host.(foreignSessionObserver); ok {
+		// Prefer an existing owner (Go or Bun) before any local writable
+		// switch. The blocking attach is performed in a Bubble Tea command,
+		// never in the UI update cycle.
+		m.switchInFlight = entry.ID
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			observer, err := client.ObserveSession(ctx, entry.ID)
+			return remoteAttachResult{sessionID: entry.ID, entry: entry, observer: observer, err: err}
+		}
+	}
 	if !m.sessionPickerSameCwd(entry) {
 		return m.resumeForeignSession(entry)
 	}
@@ -394,8 +406,11 @@ func (m *model) sessionPickerChoose(entry overlays.SessionEntry) tea.Cmd {
 		m.err = m.runtimeUnavailableReason()
 		return nil
 	}
-	// The switch composes in the background: the reply is an immediate ack
-	// that closes the picker, and the switched/switch_failed event finishes.
+	return m.sessionPickerChooseLocal(entry)
+}
+
+// sessionPickerChooseLocal preserves the existing single-process switch path.
+func (m *model) sessionPickerChooseLocal(entry overlays.SessionEntry) tea.Cmd {
 	m.switchInFlight = entry.ID
 	return request(m.host, "switch_session", map[string]any{"id": entry.ID})
 }
