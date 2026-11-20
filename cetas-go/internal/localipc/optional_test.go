@@ -2,19 +2,20 @@ package localipc
 
 import "testing"
 
-func TestOwnerLeaseEnabledIsOptIn(t *testing.T) {
+func TestOwnerLeaseEnabledDefaultsToBestEffort(t *testing.T) {
 	for _, tc := range []struct {
 		value string
-		want  bool
+		want bool
 	}{
-		{"", false},
+		{"", true},
 		{"0", false},
 		{"false", false},
-		{"broken", false},
+		{" NO ", false},
+		{"off", false},
 		{"1", true},
 		{"true", true},
-		{" YES ", true},
-		{"on", true},
+		{"yes", true},
+		{"broken", true},
 	} {
 		t.Run(tc.value, func(t *testing.T) {
 			t.Setenv("CETAS_IPC_OWNER", tc.value)
