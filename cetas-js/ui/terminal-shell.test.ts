@@ -1810,6 +1810,67 @@ describe("/sessions folder scope and cross-folder resume", () => {
     };
   }
 
+  test("Go-owned working Session is read-only and paints live output in Bun shell", async () => {
+    const { shell } = makeShell();
+    const app = attachSessionApp(shell);
+    const projected: Array<{ type: string; raw?: string }> = [];
+    const router = (shell as any).router;
+    const originalHandle = router.handleEvent.bind(router);
+    router.handleEvent = (event: { type: string; raw?: string }) => {
+      projected.push(event);
+      originalHandle(event);
+    };
+    const statuses: string[] = [];
+    const originalStatus = (shell as any).setTurnStatus.bind(shell);
+    (shell as any).setTurnStatus = (status: string, detail?: string) => {
+      statuses.push(status);
+      originalStatus(status, detail);
+    };
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    let closed = false;
+    (shell as any).observeSession = async (sessionID: string) => {
+      expect(sessionID).toBe("go-owned-session");
+      return {
+        snapshot: {
+          type: "session.snapshot",
+          session_id: sessionID,
+          runtime_epoch: "go-owner-epoch",
+          cursor: 2,
+          high_water_cursor: 2,
+          busy: true,
+        },
+        events: async function* () {
+          await gate;
+          yield { type: "assistant.text_delta", session_id: sessionID,
+            runtime_epoch: "go-owner-epoch", cursor: 3, cursor_advance: true,
+            delta: "live from Go owner" };
+          yield { type: "turn.completed", session_id: sessionID,
+            runtime_epoch: "go-owner-epoch", cursor: 4, cursor_advance: true };
+        },
+        close: () => { closed = true; },
+      };
+    };
+    await (shell as any).chooseSessionEntry(foreign("go-owned-session"));
+    expect((shell as any).foreignSessionID).toBe("go-owned-session");
+    expect(statuses).toContain("working");
+    expect(projected.map((event) => event.type)).toContain("turn_started");
+    expect(app.setSessions).toEqual([]);
+    await expect(shell.submit("write from the second terminal")).rejects.toThrow("read-only");
+
+    release();
+    for (let i = 0; i < 30 && !closed; i++) {
+      await Bun.sleep(1);
+    }
+    expect(projected).toContainEqual(expect.objectContaining({
+      type: "stream_chunk", kind: "text", raw: "live from Go owner",
+    }));
+    expect(projected.map((event) => event.type)).toContain("turn_completed");
+    expect(statuses).toContain("idle");
+    expect((shell as any).foreignSessionID).toBe("go-owned-session");
+    expect(app.setSessions).toEqual([]);
+  });
+
   test("a bridge without a catalog keeps the previous single-folder listing", async () => {
     const { shell } = makeShell();
     attachSessionApp(shell, { titles: [{ id: "2026-09-01T00-00-00-000Z_deadbeef", title: "Named" }] });
