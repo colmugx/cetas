@@ -1401,14 +1401,18 @@ pub async fn ConsoleRuntime::session_catalog_json(
   if !self.native_ui {
     return replay_error("session_catalog is native-only")
   }
-  native_session_catalog_json(
-    self.home,
-    self.active_cwd,
-    self.active().active_id,
-    scope,
-    after,
-    limit,
-  )
+  match self.active().backend {
+    Some(_) => native_database_catalog_json(self, scope, after, limit)
+    None =>
+      native_session_catalog_json(
+        self.home,
+        self.active_cwd,
+        self.active().active_id,
+        scope,
+        after,
+        limit,
+      )
+  }
 }
 
 ///|
@@ -1419,7 +1423,7 @@ pub async fn ConsoleRuntime::sessions_json(self : ConsoleRuntime) -> Json {
   let ids = workspace.catalog.list_ids()
   for index in 0..<ids.length() {
     let id = ids[ids.length() - 1 - index]
-    if self.native_ui {
+    if self.native_ui && workspace.backend is None {
       // Native path: the title comes from the metadata line plus the legacy
       // first-user line, streamed. `entry` (store.summary -> store.load) would
       // materialise every listed session, which is exactly the long-session
