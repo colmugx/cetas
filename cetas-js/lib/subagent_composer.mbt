@@ -448,7 +448,21 @@ async fn build_cetas_subagents(
   home~ : String,
   host_group~ : @async.TaskGroup? = None,
 ) -> &@posoco.Extension raise @posoco.CompositionError {
-  let (config, extra_kinds) = load_cetas_subagent_settings(home~)
+  let (config, settings_kinds) = load_cetas_subagent_settings(home~)
+  // PStack kind presets precede the settings-carried kinds so the catalog
+  // loader's last-writer-wins merge makes a same-named user kind (and any
+  // on-disk overlay) win over the preset. An embedded parse failure drops the
+  // presets rather than the delegation surface.
+  let extra_kinds : Array[@kind.KindSpec] = match
+    @pstack.Pstack::embedded_kinds() {
+    Ok(presets) => {
+      for kind in settings_kinds {
+        presets.push(kind)
+      }
+      presets
+    }
+    Err(_) => settings_kinds
+  }
   // One broker serves both sides of the question round trip: the parent's
   // SubagentTools (answer tool, race, injection) and every child's
   // ask_question_child face through the channel view.

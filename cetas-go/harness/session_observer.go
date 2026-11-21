@@ -32,6 +32,12 @@ func (h *Host) ObserveSession(ctx context.Context, sessionID string) (*sb.Observ
     if err == nil {
         observer, attachErr := sb.ObserveConn(ctx, conn, sessionID, "cetas-go-tui")
         if attachErr != nil {
+            // The owner never composed this Session: no live writer exists,
+            // so the ordinary local writable path is safe. The typed
+            // sentinel must survive wrapping for the TUI fallback check.
+            if errors.Is(attachErr, sb.ErrSessionNotComposed) {
+                return nil, attachErr
+            }
             return nil, fmt.Errorf("%w: %v", ErrOwnerUnreachable, attachErr)
         }
         return observer, nil

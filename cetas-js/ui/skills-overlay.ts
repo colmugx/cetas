@@ -20,13 +20,13 @@ import { matchesKey } from "@earendil-works/pi-tui";
 
 import { theme } from "./theme.ts";
 
-export type SkillScope = "project" | "user" | "extra";
+export type SkillScope = "project" | "user" | "extension";
 
 export interface SkillsEntry {
   name: string;
   description: string;
   scope: SkillScope;
-  /** Configured extra root; present only for scope === "extra". */
+  /** Configured extra root; present only for scope === "extension". */
   root?: string;
 }
 
@@ -67,7 +67,7 @@ function optionalString(value: unknown, path: string): string | undefined {
 
 function scope(value: unknown, path: string): SkillScope {
   const text = string(value, path);
-  if (text !== "project" && text !== "user" && text !== "extra") {
+  if (text !== "project" && text !== "user" && text !== "extension") {
     throw new Error(`${path} is not a known skill scope: ${text}`);
   }
   return text;
@@ -148,8 +148,8 @@ function scopeBadge(entry: SkillsEntry): string {
       return theme.accent("[project]");
     case "user":
       return theme.success("[user]");
-    case "extra":
-      return theme.info(`[extra${entry.root === undefined ? "" : `:${entry.root}`}]`);
+    case "extension":
+      return theme.info(`[extension${entry.root === undefined ? "" : `:${entry.root}`}]`);
   }
 }
 

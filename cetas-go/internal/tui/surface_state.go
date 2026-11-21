@@ -6,7 +6,9 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -114,6 +116,28 @@ func (m *model) snapshotSurface(raw json.RawMessage) {
 		m.surface.branch = workspaceBranch(*s.Cwd)
 	}
 }
+
+// utcTimestampShape matches the ISO-8601 UTC `Z` form MoonBit publishers use
+// for absolute times (the devkit status convention, e.g. the ratelimit reset
+// announcement).
+var utcTimestampShape = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$`)
+
+// formatStatusValue is the one host-side localization of status values: an
+// absolute UTC timestamp renders on the user's wall clock, because MoonBit
+// publishers stay timezone-free and the wall clock is a host concern.
+// Rendered as local `yyyy-mm-dd hh:mm:ss`; every other value — including a
+// shape match that is not a real date — passes through untouched.
+func formatStatusValue(value string) string {
+	if !utcTimestampShape.MatchString(value) {
+		return value
+	}
+	at, err := time.Parse("2006-01-02T15:04:05Z", value)
+	if err != nil {
+		return value
+	}
+	return at.Local().Format("2006-01-02 15:04:05")
+}
+
 func (m *model) surfaceEvent(kind string, raw json.RawMessage) bool {
 	switch kind {
 	case "session.snapshot":
@@ -150,6 +174,21 @@ func (m *model) surfaceEvent(kind string, raw json.RawMessage) bool {
 		return true
 	case "compact.finished":
 		m.status = "ready"
+		// A compaction leaves a transcript trace, as js does: "context
+		// compacted (mode, N messages)". The native frame carries `mode` but
+		// never `messages_after`; a missing or non-numeric count degrades to
+		// "?" exactly as js renders a non-number.
+		var r struct {
+			Mode          string `json:"mode"`
+			MessagesAfter any    `json:"messages_after"`
+		}
+		if json.Unmarshal(raw, &r) == nil {
+			count := "?"
+			if n, ok := r.MessagesAfter.(float64); ok {
+				count = strconv.FormatFloat(n, 'f', -1, 64)
+			}
+			m.protocolNotice("context compacted (" + r.Mode + ", " + count + " messages)")
+		}
 		return true
 	case "stream.dropped":
 		m.err = "Some streamed content was dropped by the runtime; history may contain the complete result."
@@ -196,7 +235,12 @@ func (m *model) surfaceEvent(kind string, raw json.RawMessage) bool {
 	case "operation.finalized":
 		var r struct{ Operation, Outcome, Detail string }
 		if json.Unmarshal(raw, &r) == nil {
-			m.protocolNotice(r.Operation + ": " + r.Outcome + " · " + r.Detail)
+			// Only cancelled/failed finalizations are announced; js stays
+			// silent on success, and a notice on every settled operation was
+			// noise on the common path.
+			if r.Outcome == "cancelled" || r.Outcome == "failed" {
+				m.protocolNotice(r.Operation + ": " + r.Outcome + " · " + r.Detail)
+			}
 		}
 		return true
 	case "ui.render":
@@ -271,6 +315,17 @@ func (m *model) surfaceEvent(kind string, raw json.RawMessage) bool {
 		if key == "" {
 			key = slot
 		}
+		// Mounted renders are keyed `slot:key` (as js's UiRenderHost does) so
+		// the same key in different slots stays independent instead of one
+		// mount clobbering the other.
+		slotKey := slot + ":" + key
+		// Absolute UTC timestamps in entry values (the ratelimit reset time)
+		// are localized once at ingest, so the statusbar replace branch and
+		// the generic entries-to-lines branch below both render local
+		// wall-clock values.
+		for i := range r.Entries {
+			r.Entries[i].Value = formatStatusValue(r.Entries[i].Value)
+		}
 		expires := time.Time{}
 		if r.TTL > 0 {
 			expires = time.Now().Add(time.Duration(r.TTL) * time.Millisecond)
@@ -298,9 +353,9 @@ func (m *model) surfaceEvent(kind string, raw json.RawMessage) bool {
 			}
 			w := mountedWidget{Lines: lines, Expires: expires}
 			if len(lines) == 0 {
-				delete(m.surface.widgets, key)
+				delete(m.surface.widgets, slotKey)
 			} else {
-				m.surface.widgets[key] = w
+				m.surface.widgets[slotKey] = w
 			}
 			return true
 		}
@@ -313,9 +368,9 @@ func (m *model) surfaceEvent(kind string, raw json.RawMessage) bool {
 					m.surface.statuses = map[string]mountedWidget{}
 				}
 				if len(lines) == 0 {
-					delete(m.surface.statuses, key)
+					delete(m.surface.statuses, slotKey)
 				} else {
-					m.surface.statuses[key] = mountedWidget{Lines: lines, Expires: expires}
+					m.surface.statuses[slotKey] = mountedWidget{Lines: lines, Expires: expires}
 				}
 			}
 			return true
@@ -368,6 +423,12 @@ func (m model) widgetLines() []string {
 
 // Retire only the departed session's presentation, explicitly cancelling its
 // abandoned asks instead of carrying an approval into another conversation.
+// The wholesale surface replacement is the session-scope rule: statusbar
+// entries, widgets, statuses and notice blocks are all rendered by the
+// departed session's runtime and reset with it — notices doubly so, since
+// their map values index the transcript that the switch clears. Only host
+// facts survive: fg/bg chrome, cwd/home/branch and the process-global
+// model-manager choice.
 func (m *model) retireSessionPresentation() tea.Cmd {
 	ids := []string{}
 	if m.modalRequestID != "" {

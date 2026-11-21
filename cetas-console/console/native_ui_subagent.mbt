@@ -381,7 +381,11 @@ fn native_question_tools(
   match native_question_sink(hub, session_id, native_ui~) {
     None => None
     Some(sink) => {
-      let tools = @askquestion.AskQuestionTools()
+      // No expiry for human-facing async questions: the answer may land
+      // turns later, and `/answer` keeps them reachable until then.
+      let tools = @askquestion.AskQuestionTools::with_async_timeout(
+        async_timeout_ms=0L,
+      )
       tools.subscribe(sink)
       Some(tools)
     }
@@ -854,9 +858,21 @@ async fn compose_native_subagents(
   parent_mode : () -> @permission.PermissionMode,
   observers~ : Array[(@subagent_kit.SubagentEvent) -> Unit],
 ) -> &@posoco.Extension {
-  // On-disk kind overlays stay optional product configuration: an IO failure
-  // must not disable the builtin delegation surface.
-  let catalog : @kind.KindCatalog = @kind.KindCatalog::load(home~, cwd~) catch {
+  // PStack kind presets travel the settings-carried `extra` slot ahead of any
+  // host extras, so the loader's last-writer-wins merge lets a same-named
+  // user kind (and any on-disk overlay) win. An embedded parse failure drops
+  // the presets rather than the delegation surface; on-disk kind overlays
+  // stay optional product configuration and an IO failure must not disable
+  // the builtin delegation surface either.
+  let extras : Array[@kind.KindSpec] = match @pstack.Pstack::embedded_kinds() {
+    Ok(presets) => presets
+    Err(_) => []
+  }
+  let catalog : @kind.KindCatalog = @kind.KindCatalog::load(
+    home~,
+    cwd~,
+    extra=extras,
+  ) catch {
     _ => @kind.KindCatalog::builtin()
   }
   let config = @subagent_kit.SubagentConfig::defaults()

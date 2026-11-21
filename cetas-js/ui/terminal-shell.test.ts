@@ -22,6 +22,7 @@ import {
   TerminalShell,
 } from "./terminal-shell.ts";
 import { closeWorkflowBoard } from "./workflow-board-server.ts";
+import { BridgeError, sessionNotComposed } from "../../extension/posoco-ext-session-bridge/ts/bridge.ts";
 import {
   BOARD_ACTIVATION_NOTE,
   CetasApplication,
@@ -649,6 +650,29 @@ describe("local two-terminal Session observer presentation", () => {
       runtime_epoch: "go-epoch", cursor: 1, cursor_advance: true,
     });
     expect((shell as any).statusWrapper.render(80).join("\n")).toContain("owner working");
+  });
+
+  test("an owner that never composed the picked Session falls back to local resume", async () => {
+    const { shell } = makeShell();
+    (shell as any).observeSession = async () => {
+      throw new BridgeError("Session is not composed in this Runtime", sessionNotComposed);
+    };
+    const resumed: string[] = [];
+    (shell as any).resumeSession = (id: string) => { resumed.push(id); };
+    await (shell as any).chooseSessionEntry({ id: "unowned-session", inCurrentFolder: true });
+    expect(resumed).toEqual(["unowned-session"]);
+  });
+
+  test("any other owner rejection still fails closed without a local writer", async () => {
+    const { shell } = makeShell();
+    (shell as any).observeSession = async () => {
+      throw new Error("bridge exploded");
+    };
+    const resumed: string[] = [];
+    (shell as any).resumeSession = (id: string) => { resumed.push(id); };
+    await (shell as any).chooseSessionEntry({ id: "unowned-session", inCurrentFolder: true });
+    expect(resumed).toEqual([]);
+    expect((shell as any).transcript.render(200).join("\n")).toContain("cannot safely attach");
   });
 });
 

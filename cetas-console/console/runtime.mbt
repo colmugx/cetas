@@ -85,6 +85,10 @@ priv struct SessionHandle {
   /// the `model` / `model_slot` / `manager` segments. Without it the bar keeps
   /// rendering the pre-switch registry.
   manager_events : @posoco.Events?
+  /// This session's statusbar bridge, held so a switch that activates the
+  /// handle can re-project its current registry: the newly watching surface
+  /// never saw the renders that predate the switch.
+  statusbar : @statusbar.StatusBar
   policy : @permission.PermissionPolicy
   mut model : String
   mut effort : String
@@ -133,6 +137,10 @@ struct WorkspaceRuntime {
   mut active_id : String
   mut permission_mode : @permission.PermissionMode
   zoo : Json
+  /// Composed skills catalog (disk-discovered skills plus the extension
+  /// builtins) captured at compose time: `/api/skills` reads this mirror of
+  /// the session's skills extension instead of re-walking the filesystem.
+  skills : @skills.SkillCatalog
 }
 
 ///|
@@ -335,6 +343,10 @@ pub fn ConsoleRuntime::observe_session_json(
   }
   Json::object({
     "error": Json::string("Session is not composed in this Runtime"),
+    // Machine-readable twin of the message above: bridge clients turn it
+    // into a typed reject so a viewer can fall back to composing this
+    // Session locally (no live writer exists for it).
+    "code": Json::string("session_not_composed"),
   })
 }
 
@@ -743,6 +755,7 @@ async fn compose_session_agent(
     effort: manager.manager_active_effort().unwrap_or("default"),
     manager,
     manager_events,
+    statusbar,
     policy,
     busy: false,
     turn_no: 0,
@@ -763,6 +776,11 @@ pub async fn ConsoleRuntime::switch_session(
   if workspace.handles.get(session_id) is Some(handle) {
     workspace.active_id = session_id
     emit_handle_snapshot(workspace, handle)
+    // Cached activation: the host retired its presentation on the switch and
+    // never saw this bar's earlier renders, so re-project the current
+    // registry. Bar after snapshot: entries are presentation, the snapshot
+    // feeds the host's model/permission fields.
+    handle.statusbar.republish()
     self.retire_idle_handles(workspace)
     return Ok(session_id)
   }
@@ -772,6 +790,10 @@ pub async fn ConsoleRuntime::switch_session(
   }
   workspace.active_id = session_id
   emit_handle_snapshot(workspace, handle)
+  // A fresh composition renders its backlog before the host's
+  // `session.switched` retires the presentation; re-project so the strip
+  // survives the switch instead of waiting for the next segment op.
+  handle.statusbar.republish()
   self.retire_idle_handles(workspace)
   Ok(session_id)
 }
@@ -1386,13 +1408,16 @@ pub async fn ConsoleRuntime::model_slots_json(
 }
 
 ///|
-/// Re-push the active session's counters after a sink attaches: the
-/// statusbar renders every valued segment on any segment op, so one update
-/// delivers the full strip to the new connection.
+/// Re-push the active session's presentation after a sink attaches: the
+/// statusbar registry is re-projected as a fresh render (the new connection
+/// never saw the composition-time renders, and the turn/step reseed must not
+/// be the only thing keeping the strip alive), and the harness counters are
+/// re-announced as typed status ops.
 pub fn ConsoleRuntime::republish_status(self : ConsoleRuntime) -> Unit {
   let handle = self.active().active()
   handle.observer.publish_turn_count()
   handle.observer.publish_step_count()
+  handle.statusbar.republish()
 }
 
 ///|
@@ -1716,6 +1741,7 @@ async fn build_workspace(
     effort: manager.manager_active_effort().unwrap_or("default"),
     manager,
     manager_events,
+    statusbar,
     policy,
     busy: false,
     turn_no: 0,
@@ -1726,6 +1752,12 @@ async fn build_workspace(
     close,
   }
   let zoo = collect_zoo(session.exts, tail_exts)
+  let skills = compose_skills_catalog(
+    fs,
+    cwd,
+    home,
+    manuals=@forme.Forme::Forme().builtin_manual_skills(),
+  )
   let handles : Map[String, SessionHandle] = Map::from_array([
     (first_session_id, handle),
   ])
@@ -1742,6 +1774,7 @@ async fn build_workspace(
     active_id: first_session_id,
     permission_mode,
     zoo,
+    skills,
   }
 }
 

@@ -773,6 +773,35 @@ func TestSessionPickerNoForeignOwnerUsesExistingLocalSwitch(t *testing.T) {
 	}
 }
 
+// An owner that never composed the picked Session holds no live writer for
+// it: the picker must fall back to the ordinary local writable switch, the
+// same path as a home without any owner.
+func TestSessionPickerOwnerNotComposingFallsBackToLocalSwitch(t *testing.T) {
+	reason := fmt.Errorf("%w: Session is not composed in this Runtime", sb.ErrSessionNotComposed)
+	host := &deniedForeignObserver{reason: reason}
+	host.cwd = "/workspace/demo"
+	m := sessionPickerModel(t, host)
+	entry := host.entry(0)
+	cmd := m.sessionPickerChoose(entry)
+	if cmd == nil {
+		t.Fatal("did not attempt owner observation")
+	}
+	next, follow := m.Update(cmd())
+	m = next.(model)
+	if host.observed != entry.ID {
+		t.Fatalf("did not contact Session owner: %q", host.observed)
+	}
+	if follow == nil {
+		t.Fatal("typed not-composed refusal did not fall back to the local switch")
+	}
+	if m.switchInFlight != entry.ID {
+		t.Fatalf("local Session switch did not retain its identity: %q", m.switchInFlight)
+	}
+	if m.err != "" {
+		t.Fatalf("not-composed fallback surfaced an error: %q", m.err)
+	}
+}
+
 func TestRemoteObserverRendersOwnerWorkingAndLiveOutput(t *testing.T) {
 	server, client := net.Pipe()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

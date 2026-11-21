@@ -132,7 +132,9 @@ async fn build_cetas_skills(
     None => @skills.SkillCatalog::empty()
   }
   let builtins = manuals.copy()
-  builtins.push(@pstack.Pstack::embedded_descriptor())
+  for descriptor in @pstack.Pstack::embedded_descriptors() {
+    builtins.push(descriptor)
+  }
   let full = @skills.merge_builtin_skills(discovered, builtins)
   let catalog = match requested {
     None => full

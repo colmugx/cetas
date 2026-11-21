@@ -2057,8 +2057,12 @@ pub fn cetas_js_runtime_create_agent(
             // lifecycle events ride the same JS callback as every other
             // host event, and `cetas_js_answer_question` below holds the
             // instance. The compiled recipe deliberately does not build it
-            // (see recipe.mbt "askquestion").
-            let askquestion = @askquestion.AskQuestionTools()
+            // (see recipe.mbt "askquestion"). Async questions never expire:
+            // the human may answer long after the asking turn ended, and
+            // the reply rides the next model call's envelope.
+            let askquestion = @askquestion.AskQuestionTools::with_async_timeout(
+              async_timeout_ms=0L,
+            )
             askquestion.subscribe(fn(event) {
               observer_callback.invoke(
                 question_event_to_json(event).stringify(),

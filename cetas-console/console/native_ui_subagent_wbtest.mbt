@@ -332,6 +332,9 @@ async test "native non-blocking question lifecycle is real and answerable" {
   assert_eq(native_frame_string(frame, "question"), "Which environment?")
   assert_eq(native_frame_string(frame, "kind"), "input")
   assert_eq(frame["options"], Json::array([]))
+  // The native human face parks questions without a deadline: the terminal
+  // keeps them in `/questions` until answered, however long that takes.
+  assert_eq(frame["deadline_at"], Json::number(0.0))
   assert_true(hub.trace.is_empty())
   assert_true(hub.turn_traces.is_empty())
   assert_eq(tools.open_questions().length(), 1)

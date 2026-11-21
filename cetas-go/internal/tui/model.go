@@ -564,11 +564,17 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			if msg.observer != nil { _ = msg.observer.Close() }
 			// An unowned/incompatible or unreachable remote Session must
-			// not be resumed through a competing writable local Agent.
-			// When no foreign Owner is present, native clients explicitly
-			// report ErrNoForeignOwner; the host adapter handles fallback
-			// via a separate typed sentinel.
-			if errors.Is(msg.err, harness.ErrNoForeignOwner) {
+			// not be resumed through a competing writable local Agent,
+			// with two fall-back exceptions:
+			//   - ErrNoForeignOwner: this process holds the local lease (or
+			//     no owner exists), so the session is ours to compose.
+			//   - ErrSessionNotComposed: a foreign owner exists but never
+			//     composed this session, so no live writer holds it and the
+			//     ordinary local switch is the same single-writer path as
+			//     before the owner bridge existed.
+			// Real bridge/protocol failures stay fail-closed.
+			if errors.Is(msg.err, harness.ErrNoForeignOwner) ||
+				errors.Is(msg.err, sb.ErrSessionNotComposed) {
 				if m.remoteObserver != nil {
 					_ = m.remoteObserver.Close()
 					m.remoteObserver = nil
@@ -2024,6 +2030,26 @@ func (m *model) applyEvent(e wire.Event) {
 			m.turnOutcomeDetail = "Turn failed"
 		}
 		m.requestNotice(i18n.T("status.turn_failed_notice"))
+	case "turn.abort_result", "turn.cancelled":
+		// Two planes carry the owner-cancel terminal — the native
+		// turn.abort_result and the observer-plane turn.cancelled — and both
+		// were dropped before, leaving running stuck on "working". js folds
+		// the cancelled terminal into an idle completion
+		// (applyForeignEvent); go mirrors turn.failed's cleanup with a
+		// cancelled disposition instead.
+		m.flushAssistant()
+		m.streaming = ""
+		m.reasoning = ""
+		m.running = false
+		m.aborting = false
+		// A cancelled turn never produces the idle snapshot follow-ups wait
+		// for, so keeping them strands prompts forever.
+		if len(m.followups) > 0 {
+			m.followups = nil
+		}
+		m.status = i18n.T("status.ready_lower")
+		m.turnOutcome, m.turnOutcomeDetail = "", ""
+		m.protocolNotice("turn cancelled")
 	case "session.redirect":
 		if frame.From == m.session && frame.To != "" {
 			// A redirect retires the picker that asked for it.

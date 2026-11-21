@@ -7,7 +7,7 @@ import { constants, closeSync, existsSync, fstatSync, lstatSync, mkdirSync, open
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import { dlopen, FFIType } from "bun:ffi";
-import { serveSessionSocket, type SessionEvent, type Subscription } from "../../../extension/posoco-ext-session-bridge/ts/bridge.ts";
+import { serveSessionSocket, sessionNotComposed, BridgeError, type SessionEvent, type Subscription } from "../../../extension/posoco-ext-session-bridge/ts/bridge.ts";
 import { localOwnerEndpoint } from "./local-session-observer.ts";
 
 const maxSubscribers = 16;
@@ -133,7 +133,9 @@ export class BunLocalSessionOwner {
 
   private async subscribe(sessionID: string): Promise<Subscription> {
     if (this.stopped || sessionID === "" || sessionID !== this.sessionID) {
-      throw new Error("Session not owned by this Bun runtime");
+      // Typed refusal: this runtime never composed the Session, so no live
+      // writer holds it and the viewer may compose it locally.
+      throw new BridgeError("Session not owned by this Bun runtime", sessionNotComposed);
     }
     const events = new EventQueue();
     // Register first; then capture the authoritative high-water cursor and

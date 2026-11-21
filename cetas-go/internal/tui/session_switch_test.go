@@ -362,6 +362,42 @@ func TestTurnFailureDropsStrandedFollowups(t *testing.T) {
 	}
 }
 
+// TestCancelTerminalSettlesRunningTurn pins the owner-cancel terminal: both
+// planes that carry it (native turn.abort_result, observer-plane
+// turn.cancelled) must clear the running/aborting state and stranded
+// follow-ups exactly like turn.failed, but settle to ready with a "turn
+// cancelled" transcript trace. Foreign-session cancels stay filtered.
+func TestCancelTerminalSettlesRunningTurn(t *testing.T) {
+	m := switchPickerModel(t, &testHost{})
+	m.applyEvent(event(`{"type":"turn.started","session_id":"s-current"}`))
+	m.applyEvent(event(`{"type":"assistant.text_delta","session_id":"s-current","delta":"partial"}`))
+	m.applyEvent(event(`{"type":"turn.abort_result","session_id":"s-current","outcome":"Accepted(abort-1)"}`))
+	if m.running || m.aborting || m.status != "ready" {
+		t.Fatalf("abort_result did not settle the turn: running=%v aborting=%v status=%q", m.running, m.aborting, m.status)
+	}
+	if len(m.transcript) != 2 || m.transcript[0] != "partial" || !strings.Contains(m.transcript[1], "turn cancelled") {
+		t.Fatalf("cancelled terminal lost its trace: %#v", m.transcript)
+	}
+	// The observer-plane frame takes the same cleanup path.
+	m.aborting = true
+	m.followups = []string{"next prompt"}
+	m.applyEvent(event(`{"type":"turn.cancelled","session_id":"s-current"}`))
+	if m.running || m.aborting || m.status != "ready" || len(m.followups) != 0 {
+		t.Fatalf("turn.cancelled skipped the failed-turn cleanup: running=%v aborting=%v status=%q followups=%#v", m.running, m.aborting, m.status, m.followups)
+	}
+	if len(m.transcript) != 3 || !strings.Contains(m.transcript[2], "turn cancelled") {
+		t.Fatalf("observer-plane cancel left no trace: %#v", m.transcript)
+	}
+	// Session scoping is unchanged: another session's cancel never mutates
+	// this one's running state.
+	m.applyEvent(event(`{"type":"turn.started","session_id":"s-current"}`))
+	before := len(m.transcript)
+	m.applyEvent(event(`{"type":"turn.cancelled","session_id":"s-other"}`))
+	if !m.running || len(m.transcript) != before {
+		t.Fatalf("foreign cancel leaked into this session: running=%v transcript=%#v", m.running, m.transcript)
+	}
+}
+
 func TestBackgroundChildFinishingGraceExpires(t *testing.T) {
 	m := switchPickerModel(t, &testHost{})
 	m.applyEvent(event(`{"type":"subagent.event","session_id":"s-current","child_session":"c-1","kind":"explore","parent_call":"spawn-1","ev":{"type":"custom","source":"posoco_ext_subagent","label":"spawned","data":{"background":true}}}`))

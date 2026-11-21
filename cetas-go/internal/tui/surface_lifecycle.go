@@ -6,6 +6,10 @@ import (
 )
 
 func (m *model) expireSurface(now time.Time) {
+	// Arm the question-expiry notice against this Update's model copy: the
+	// sweep in activities.expire runs moments later in the same clock tick,
+	// so its trace lands in the frame that is actually returned.
+	m.surface.activities.expireNotice = m.questionExpiredNotice
 	expired := func(deadline time.Time) bool { return !deadline.IsZero() && !now.Before(deadline) }
 	for _, renders := range []map[string]mountedWidget{m.surface.widgets, m.surface.statuses} {
 		for key, render := range renders {

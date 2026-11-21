@@ -93,6 +93,21 @@ type activityState struct {
 	questions     map[string]userQuestion
 	questionOrder []string
 	settled       map[string]bool
+	// expireNotice is bound by expireSurface right before the render-time
+	// sweep in the same clock tick, so an expired question leaves the same
+	// "⌛ … expired" trace js writes. It is consumed once per sweep: a binding
+	// left over from an earlier frame copy must never fire into that frame.
+	expireNotice func(id string)
+	// Core projection bookkeeping (frozen `custom` schemas). taskReceipts
+	// mirrors js's readyReceipts: one entry per background_outcome_ready,
+	// keyed by task id and holding the receipt's own `session` field so a
+	// foreign receipt never leaks into this session's waiting count;
+	// deliveredTasks keeps a consumed receipt a no-op under replay.
+	// wakeupNotices dedupes the single environment notice per executing
+	// ticket envelope.
+	taskReceipts   map[string]string
+	deliveredTasks map[string]bool
+	wakeupNotices  map[string]bool
 }
 
 func (s *activityState) expire(now time.Time) {
@@ -108,6 +123,10 @@ func (s *activityState) expire(now time.Time) {
 			}
 		}
 	}
+	// A stale binding must not survive into a later frame's sweep, so every
+	// sweep requires expireSurface to have re-armed it moments before.
+	notice := s.expireNotice
+	s.expireNotice = nil
 	for id, q := range s.questions {
 		if q.Deadline > 0 && now.UnixMilli() > q.Deadline {
 			delete(s.questions, id)
@@ -116,8 +135,18 @@ func (s *activityState) expire(now time.Time) {
 				s.settled = map[string]bool{}
 			}
 			s.settled[id] = true
+			if notice != nil {
+				notice(id)
+			}
 		}
 	}
+}
+
+// questionExpiredNotice is the expiry trace js emits when its question ticker
+// sweeps a parked ask: the question is gone, but the transcript still says so
+// instead of it vanishing silently.
+func (m *model) questionExpiredNotice(id string) {
+	m.protocolNotice("⌛ " + strings.Replace(id, "question-", "@q", 1) + " expired before an answer arrived")
 }
 
 type tokenUsage struct{ Input, Output, Total, Cached, Responses int64 }
@@ -267,14 +296,217 @@ func (m *model) activityEvent(kind string, raw json.RawMessage) bool {
 			m.err = "invalid custom event: " + err.Error()
 			return true
 		}
-		if f.Source != "posoco_ext_subagent" || f.Child == "" {
+		if f.Source == "posoco_ext_subagent" {
+			if f.Child == "" {
+				return false
+			}
+			m.foldChild(f.Child, "", f.Call, raw)
+			return true
+		}
+		// Core custom facts (wakeup/operation/tasks/decision) are frozen
+		// projections with dedicated renderings; js routes them ahead of the
+		// generic foreign notice so the sources never fall through.
+		switch f.Source {
+		case "posoco.wakeup":
+			return m.wakeupCustom(f.Label, coreFields(f.Data))
+		case "posoco.tasks":
+			return m.taskCustom(f.Label, coreFields(f.Data))
+		case "posoco.decision":
+			return m.decisionCustom(f.Label, coreFields(f.Data))
+		case "posoco.operation":
+			// js hands operation facts to its application layer and renders
+			// nothing in the shell; go has no equivalent layer yet, so the
+			// frames stay silent here rather than half-rendering as notices.
 			return false
 		}
-		m.foldChild(f.Child, "", f.Call, raw)
+		// Every other foreign source falls back to js's generic one-liner so
+		// unknown publishers are never entirely invisible.
+		m.protocolNotice("· " + f.Source + "/" + f.Label)
 		return true
 	}
 	return false
 }
+
+// Core projection customs (docs/wakeup-decision-development.md "Shared event
+// contract"): the runtime publishes wakeup/task/decision facts as plain
+// `custom` observer events and the native observer forwards those frames
+// unchanged, so these projections are what makes them visible. js's shell is
+// the reference (terminal-shell.ts handleCoreCustom); its ambient header
+// component is deliberately out of scope here. Parsing is defensive: a
+// payload that breaks its frozen schema degrades to a notice built from
+// whatever fields are still readable, never into m.err's sticky error state.
+
+// coreFields decodes a projection payload without trusting its shape: a
+// non-object body or a mistyped field simply reads as absent.
+func coreFields(data json.RawMessage) map[string]any {
+	fields := map[string]any{}
+	if len(data) > 0 {
+		_ = json.Unmarshal(data, &fields)
+	}
+	return fields
+}
+
+func coreString(fields map[string]any, key string) string {
+	value, _ := fields[key].(string)
+	return value
+}
+
+// coreSkewNotice degrades a matched core source whose payload breaks its
+// frozen schema (version skew, bad payload): the notice lists whatever
+// fields are still readable instead of guessing a success or tripping m.err.
+// Field order follows the frozen contract so the line stays stable.
+func (m *model) coreSkewNotice(source, label string, fields map[string]any) {
+	parts := []string{}
+	for _, key := range []string{
+		"ticket_id", "tag", "envelope",
+		"task_id", "session", "extension_id", "status",
+		"call_id", "consumer", "provider", "purpose", "failure_mode", "model",
+	} {
+		if value := coreString(fields, key); value != "" {
+			parts = append(parts, key+"="+preview(value, 40))
+		}
+	}
+	if len(parts) == 0 {
+		m.protocolNotice("⚠ malformed " + source + "/" + label)
+		return
+	}
+	m.protocolNotice("⚠ malformed " + source + "/" + label + " · " + strings.Join(parts, " "))
+}
+
+// wakeupCustom mirrors js's wakeup projection: only the executing envelope
+// renders, once per ticket; every other terminal is ambient-header
+// bookkeeping the go host does not carry.
+func (m *model) wakeupCustom(label string, fields map[string]any) bool {
+	state := strings.TrimPrefix(label, "wakeup_")
+	ticket := coreString(fields, "ticket_id")
+	if !wakeupStates[state] || ticket == "" {
+		m.coreSkewNotice("posoco.wakeup", label, fields)
+		return true
+	}
+	if state == "executing" {
+		if envelope := coreString(fields, "envelope"); envelope != "" {
+			if m.surface.activities.wakeupNotices == nil {
+				m.surface.activities.wakeupNotices = map[string]bool{}
+			}
+			if !m.surface.activities.wakeupNotices[ticket] {
+				m.surface.activities.wakeupNotices[ticket] = true
+				m.protocolNotice("◌ wakeup envelope — environment signal · " + preview(envelope, 200))
+			}
+		}
+	}
+	return true
+}
+
+var wakeupStates = map[string]bool{
+	"requested": true, "executing": true, "satisfied": true, "completed": true,
+	"failed": true, "cancelled": true, "dropped": true,
+}
+
+// taskCustom records a core background_outcome_ready receipt: it feeds only
+// the waiting count, never the transcript, and attribution is the receipt's
+// own frozen `session` field, not the host's current session.
+func (m *model) taskCustom(label string, fields map[string]any) bool {
+	if label != "background_outcome_ready" {
+		m.coreSkewNotice("posoco.tasks", label, fields)
+		return true
+	}
+	taskID := coreString(fields, "task_id")
+	if taskID == "" {
+		m.coreSkewNotice("posoco.tasks", label, fields)
+		return true
+	}
+	s := &m.surface.activities
+	if s.deliveredTasks[taskID] {
+		return true
+	}
+	if s.taskReceipts == nil {
+		s.taskReceipts = map[string]string{}
+	}
+	if _, seen := s.taskReceipts[taskID]; !seen {
+		s.taskReceipts[taskID] = coreString(fields, "session")
+	}
+	return true
+}
+
+// deliverTaskReceipt closes one ready receipt on the extension's
+// background_delivered ack — the same exact-once ack js keys its receipts by.
+func (m *model) deliverTaskReceipt(taskID string) {
+	if taskID == "" {
+		return
+	}
+	s := &m.surface.activities
+	if s.deliveredTasks == nil {
+		s.deliveredTasks = map[string]bool{}
+	}
+	delete(s.taskReceipts, taskID)
+	s.deliveredTasks[taskID] = true
+}
+
+// tasksWaiting counts ready-but-undelivered receipts for the current
+// session: what js's resultsWaiting adds to its ambient line, wired into
+// go's existing dashboard awaiting-reply count.
+func (s *activityState) tasksWaiting(current string) int {
+	count := 0
+	for _, owner := range s.taskReceipts {
+		if owner == "" || owner == current {
+			count++
+		}
+	}
+	return count
+}
+
+// decisionCustom mirrors js's decision projection: only failures render, as
+// an error-styled transcript line; started/completed/cancelled stay silent
+// so successful decisions never spam the transcript.
+func (m *model) decisionCustom(label string, fields map[string]any) bool {
+	kind := strings.TrimPrefix(label, "decision_")
+	switch kind {
+	case "started", "completed", "failed", "cancelled":
+	default:
+		m.coreSkewNotice("posoco.decision", label, fields)
+		return true
+	}
+	if coreString(fields, "call_id") == "" {
+		m.coreSkewNotice("posoco.decision", label, fields)
+		return true
+	}
+	if kind != "failed" {
+		return true
+	}
+	// js renders decision failures as errorNotice: an error-styled
+	// transcript row, not m.err's sticky state.
+	m.errorNoticeLine("⚠ decision failed (" + decisionFailureDiagnostic(fields) + ")")
+	return true
+}
+
+// decisionFailureDiagnostic is js's bounded single-line attribution for a
+// failed decision call: route, purpose and failure mode, omitting absent
+// parts and falling back to the call id. Schema fields only — never payload
+// bodies or raw errors.
+func decisionFailureDiagnostic(fields map[string]any) string {
+	consumer, provider := coreString(fields, "consumer"), coreString(fields, "provider")
+	parts := []string{}
+	if consumer != "" || provider != "" {
+		if consumer == "" {
+			consumer = "?"
+		}
+		if provider == "" {
+			provider = "?"
+		}
+		parts = append(parts, consumer+"→"+provider)
+	}
+	if purpose := coreString(fields, "purpose"); purpose != "" {
+		parts = append(parts, "purpose "+purpose)
+	}
+	if mode := coreString(fields, "failure_mode"); mode != "" {
+		parts = append(parts, "mode "+mode)
+	}
+	if len(parts) == 0 {
+		return coreString(fields, "call_id")
+	}
+	return strings.Join(parts, " · ")
+}
+
 func (m *model) foldChild(child, kind, call string, raw json.RawMessage) {
 	var ev struct {
 		Type, Source, Label, Delta, Message string
@@ -292,6 +524,12 @@ func (m *model) foldChild(child, kind, call string, raw json.RawMessage) {
 		return
 	}
 	if ev.Type == "custom" && ev.Source != "posoco_ext_subagent" {
+		return
+	}
+	// The delivery ack carries only a task id: it closes the ready receipt
+	// and never creates a record (js intercepts it before record folding).
+	if ev.Type == "custom" && ev.Label == "background_delivered" {
+		m.deliverTaskReceipt(ev.Data.Task)
 		return
 	}
 	s := &m.surface.activities

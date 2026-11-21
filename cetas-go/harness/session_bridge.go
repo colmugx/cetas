@@ -4,6 +4,7 @@ import (
     "context"
     "encoding/json"
     "errors"
+    "fmt"
     "net"
     "sync"
 
@@ -120,6 +121,16 @@ func (h *Host) subscribeSession(ctx context.Context,sessionID string)(sb.Subscri
     snapshot,err:=h.requestNative(ctx,"session_observe",map[string]string{"session_id":sessionID})
     if err!=nil {
         release()
+        // The runtime's refusal carries a machine-readable code when the
+        // Session was never composed here: surface it as the typed bridge
+        // error so the reject frame tells viewers a local writable fallback
+        // is safe instead of failing closed on a protocol ambiguity.
+        var refusal struct{
+            Code string `json:"code"`
+        }
+        if json.Unmarshal(snapshot,&refusal)==nil&&refusal.Code==sb.ErrCodeSessionNotComposed{
+            return sb.Subscription{},fmt.Errorf("%w: %w",sb.ErrSessionNotComposed,err)
+        }
         return sb.Subscription{},err
     }
     var summary struct{

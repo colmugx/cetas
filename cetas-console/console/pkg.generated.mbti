@@ -135,7 +135,7 @@ pub async fn ConsoleRuntime::session_catalog_json(Self, String, String, Int32) -
 pub async fn ConsoleRuntime::sessions_json(Self) -> @json.Json
 pub fn ConsoleRuntime::set_permission(Self, String) -> Result[Unit, String]
 pub async fn ConsoleRuntime::shutdown_all(Self) -> Unit
-pub async fn ConsoleRuntime::skills_json(Self) -> @json.Json
+pub fn ConsoleRuntime::skills_json(Self) -> @json.Json
 pub fn ConsoleRuntime::spawn_background(Self, async () -> Unit) -> Unit
 pub async fn ConsoleRuntime::start_turn(Self, String, String?, images? : Array[@kernel.Content]) -> Result[String, String] noraise
 pub async fn ConsoleRuntime::start_turn_for_surface(Self, String, String, String?) -> Result[String, String] noraise

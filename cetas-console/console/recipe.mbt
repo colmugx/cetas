@@ -107,7 +107,14 @@ fn build_cetas_tools(
               as &@posoco.Extension,
             )
           None =>
-            exts.push(@askquestion.AskQuestionTools() as &@posoco.Extension)
+            // Human face without a parent endpoint: async questions carry
+            // no deadline, so a late answer still reaches the agent.
+            exts.push(
+              @askquestion.AskQuestionTools::with_async_timeout(
+                async_timeout_ms=0L,
+              )
+              as &@posoco.Extension,
+            )
         }
       _ =>
         raise @posoco.CompositionError::ManifestSchemaError(
@@ -130,24 +137,36 @@ fn cetas_skills_config() -> @skills.SkillsConfig {
 }
 
 ///|
+/// The composed skills catalog for one cwd: the disk-discovered skills merged
+/// with the extension-provided builtins (the caller's manuals plus PStack's
+/// embedded descriptor). Single merge point for every skills consumer — the
+/// recipe's skills extension and the workspace catalog mirror — so the
+/// builtin list cannot drift between them.
+async fn compose_skills_catalog(
+  fs : &@workspace.WorkspaceFs,
+  cwd : String,
+  home : String,
+  manuals~ : Array[@skills.SkillDescriptor],
+) -> @skills.SkillCatalog noraise {
+  let discovered = match
+    @skills.Skills::discover(fs, cwd~, home~, config=cetas_skills_config()) {
+    Some(skills) => skills.catalog()
+    None => @skills.SkillCatalog::empty()
+  }
+  let builtins = manuals.copy()
+  for descriptor in @pstack.Pstack::embedded_descriptors() {
+    builtins.push(descriptor)
+  }
+  @skills.merge_builtin_skills(discovered, builtins)
+}
+
+///|
 async fn build_cetas_skills(
   ctx~ : @cetas_core.HostContext,
   manuals~ : Array[@skills.SkillDescriptor],
   requested~ : Array[String]? = None,
 ) -> &@posoco.Extension? raise @posoco.CompositionError {
-  let discovered : @skills.SkillCatalog = match
-    @skills.Skills::discover(
-      ctx.fs,
-      cwd=ctx.cwd,
-      home=ctx.home,
-      config=cetas_skills_config(),
-    ) {
-    Some(skills) => skills.catalog()
-    None => @skills.SkillCatalog::empty()
-  }
-  let builtins = manuals.copy()
-  builtins.push(@pstack.Pstack::embedded_descriptor())
-  let full = @skills.merge_builtin_skills(discovered, builtins)
+  let full = compose_skills_catalog(ctx.fs, ctx.cwd, ctx.home, manuals~)
   let catalog = match requested {
     None => full
     Some(names) if names.is_empty() => full

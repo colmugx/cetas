@@ -62,7 +62,7 @@ import {
   type ImageAttachment,
 } from "../src/app/image-attachments.ts";
 import { EventRouter } from "../src/controllers/event-router.ts";
-import type { SessionViewer, SessionEvent } from "../../extension/posoco-ext-session-bridge/ts/bridge.ts";
+import { BridgeError, sessionNotComposed, type SessionViewer, type SessionEvent } from "../../extension/posoco-ext-session-bridge/ts/bridge.ts";
 import { SubagentActivityStore } from "../src/controllers/subagent-activity.ts";
 import { BoardActivityStore } from "../src/controllers/board-activity.ts";
 import { WakeupActivityStore } from "../src/controllers/wakeup-activity.ts";
@@ -2770,11 +2770,16 @@ export class TerminalShell {
           return;
         }
       } catch (error: unknown) {
-        // A rejecting or unreachable owner does not grant a second writer.
-        this.addTranscriptChild(errorNotice(
-          `/sessions: cannot safely attach to owner: ${errorMessage(error)}`,
-        ));
-        return;
+        // The owner never composed this Session: no live writer holds it,
+        // so the ordinary local resume below is the same single-writer
+        // path as a home without an owner. Any other rejection stays
+        // fail-closed — it does not grant a second writer.
+        if (!(error instanceof BridgeError && error.code === sessionNotComposed)) {
+          this.addTranscriptChild(errorNotice(
+            `/sessions: cannot safely attach to owner: ${errorMessage(error)}`,
+          ));
+          return;
+        }
       }
     }
     if (entry.inCurrentFolder !== false) {

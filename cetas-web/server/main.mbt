@@ -365,12 +365,7 @@ async fn main {
         })
         ctx.get("/skills", (_req, res) => {
           match boot {
-            Ok(runtime) => {
-              let payload : Json = runtime.skills_json() catch {
-                error => error_json(error.to_string())
-              }
-              res.send_json(payload)
-            }
+            Ok(runtime) => res.send_json(runtime.skills_json())
             Err(detail) => res.send_json(error_json(detail), status=503)
           }
         })

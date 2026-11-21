@@ -127,6 +127,9 @@ func (m model) regions() regions {
 			}
 		}
 	}
+	// Core task receipts are the waiting count js's ambient line carries;
+	// without the ambient header they surface through the same segment.
+	dashboard.AwaitingReplies += m.surface.activities.tasksWaiting(m.session)
 	if m.modalRequestID != "" {
 		dashboard.AwaitingReplies += 1 + len(m.pendingUI)
 	}

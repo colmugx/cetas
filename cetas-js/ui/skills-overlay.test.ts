@@ -31,13 +31,13 @@ class FakeTui {
 
 const catalogRaw = JSON.stringify({
   type: "success",
-  feedback: "3 skills (project 2, user 1, extra 0)",
+  feedback: "3 skills (project 2, user 1, extension 0)",
   structured: {
     kind: "skills_catalog",
     skills: [
       { name: "tdd", description: "Test-driven development", scope: "project" },
       { name: "ego-browser", description: "Browser automation", scope: "user" },
-      { name: "custom", description: "Extra root skill", scope: "extra", root: "/opt/skills" },
+      { name: "custom", description: "Extra root skill", scope: "extension", root: "/opt/skills" },
     ],
   },
 });
@@ -47,7 +47,7 @@ describe("skills overlay contract", () => {
     const parsed = parseSkillsOutcome(catalogRaw);
     expect(parsed.type).toBe("success");
     if (parsed.type !== "success") return;
-    expect(parsed.entries.map((entry) => entry.scope)).toEqual(["project", "user", "extra"]);
+    expect(parsed.entries.map((entry) => entry.scope)).toEqual(["project", "user", "extension"]);
     expect(parsed.entries[2]?.root).toBe("/opt/skills");
   });
 

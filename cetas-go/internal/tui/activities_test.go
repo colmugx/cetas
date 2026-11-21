@@ -102,3 +102,142 @@ func TestUsageIsAccumulatedWithoutInventingMissingTotals(t *testing.T) {
 		t.Fatalf("usage facts lost: %#v", m.surface.usage)
 	}
 }
+
+func TestExpiredQuestionLeavesExpiryTrace(t *testing.T) {
+	m := newModel()
+	m.applyEvent(event(`{"type":"question.asked","question_id":"question-2","short_id":"@q2","question":"Expired","kind":"input","deadline_at":1}`))
+	m.applyEvent(event(`{"type":"question.asked","question_id":"question-1","short_id":"@q1","question":"Pending","kind":"input"}`))
+	// The render-time sweep (expireSurface + activities.expire) runs in the
+	// clock tick; js announces every expiry and the trace must survive it.
+	next, _ := m.Update(clockTick(time.Now().Add(time.Second)))
+	m = next.(model)
+	if len(m.surface.activities.questions) != 1 || m.surface.activities.questions["question-1"].ID == "" {
+		t.Fatalf("unexpired question swept: %#v", m.surface.activities.questions)
+	}
+	joined := strings.Join(m.transcript, "\n")
+	if !strings.Contains(joined, "⌛ @q2 expired before an answer arrived") {
+		t.Fatalf("expired question deleted without a trace: %q", joined)
+	}
+	if strings.Contains(joined, "@q1") {
+		t.Fatalf("pending question announced as expired: %q", joined)
+	}
+}
+
+func TestForeignCustomEventsLeaveFallbackNotice(t *testing.T) {
+	m := newModel()
+	m.applyEvent(event(`{"type":"custom","source":"acme.ext","label":"ping"}`))
+	if len(m.transcript) != 1 || !strings.Contains(m.transcript[0], "· acme.ext/ping") {
+		t.Fatalf("foreign custom dropped silently: %#v", m.transcript)
+	}
+	// Core sources never reach the generic fallback: posoco.operation is
+	// application-layer owned and stays silent, and the three rendered
+	// projections carry their own shapes — malformed payloads degrade to a
+	// dedicated skew notice instead of half-rendering as `· source/label`.
+	before := len(m.transcript)
+	m.applyEvent(event(`{"type":"custom","source":"posoco.operation","label":"operation_started","data":{"operation_id":"op-1","session":"s-1","origin":"turn"}}`))
+	if len(m.transcript) != before {
+		t.Fatalf("posoco.operation rendered in the shell: %#v", m.transcript)
+	}
+	for _, source := range []string{"posoco.wakeup", "posoco.tasks", "posoco.decision"} {
+		m.applyEvent(event(`{"type":"custom","source":"` + source + `","label":"payload"}`))
+	}
+	if len(m.transcript) != before+3 {
+		t.Fatalf("core custom sources lost their dedicated handling: %#v", m.transcript)
+	}
+	for _, line := range m.transcript[before:] {
+		if strings.Contains(line, "· posoco.") {
+			t.Fatalf("core custom hit the foreign fallback: %q", line)
+		}
+	}
+	// Subagent customs keep folding into child activity, not the notice path.
+	m.applyEvent(event(`{"type":"custom","source":"posoco_ext_subagent","label":"spawned","child_session":"child","parent_call":"spawn-1","data":{"background":false}}`))
+	if m.surface.activities.records["child"] == nil {
+		t.Fatalf("subagent custom no longer folds into child activity: %#v", m.transcript)
+	}
+}
+
+func TestCoreDecisionFailureLeavesOnePayloadFreeErrorLine(t *testing.T) {
+	m := newModel()
+	m.applyEvent(event(`{"type":"custom","source":"posoco.decision","label":"decision_failed","data":{"call_id":"d1","consumer":"posoco_ext_permission","provider":"auto_allow","purpose":"tool_gate","failure_mode":"fail_closed","state":"SECRET-REQUEST-BODY"}}`))
+	if len(m.transcript) != 1 || !strings.Contains(m.transcript[0], "decision failed") ||
+		!strings.Contains(m.transcript[0], "posoco_ext_permission→auto_allow") ||
+		!strings.Contains(m.transcript[0], "purpose tool_gate") ||
+		!strings.Contains(m.transcript[0], "mode fail_closed") {
+		t.Fatalf("decision failure diagnostic lost: %#v", m.transcript)
+	}
+	if m.blocks[len(m.transcript)-1].Kind != "error" {
+		t.Fatalf("decision failure not error-styled: %#v", m.blocks[len(m.transcript)-1])
+	}
+	if strings.Contains(strings.Join(m.transcript, "\n"), "SECRET-REQUEST-BODY") {
+		t.Fatal("decision failure rendered payload fields")
+	}
+	// started/completed/cancelled never render; successes must not spam.
+	before := len(m.transcript)
+	for _, label := range []string{"decision_started", "decision_completed", "decision_cancelled"} {
+		m.applyEvent(event(`{"type":"custom","source":"posoco.decision","label":"` + label + `","data":{"call_id":"d2","consumer":"posoco_ext_permission"}}`))
+	}
+	if len(m.transcript) != before {
+		t.Fatalf("non-failed decisions rendered: %#v", m.transcript)
+	}
+	// Without attribution the diagnostic falls back to the call id.
+	m.applyEvent(event(`{"type":"custom","source":"posoco.decision","label":"decision_failed","data":{"call_id":"d5"}}`))
+	if len(m.transcript) != before+1 || !strings.Contains(m.transcript[before], "decision failed (d5)") {
+		t.Fatalf("bare call-id fallback lost: %#v", m.transcript)
+	}
+}
+
+func TestCoreWakeupEnvelopeNoticesOncePerTicket(t *testing.T) {
+	m := newModel()
+	envelope := `{"type":"custom","source":"posoco.wakeup","label":"wakeup_executing","data":{"ticket_id":"t1","session":"s-1","tag":"build-watch","extension_id":"posoco_ext_subagent","ticket_enqueued_at":1,"envelope":"[posoco-wakeup tag=build-watch] build  failed"}}`
+	m.applyEvent(event(envelope))
+	m.applyEvent(event(envelope))
+	if len(m.transcript) != 1 ||
+		!strings.Contains(m.transcript[0], "wakeup envelope — environment signal") ||
+		!strings.Contains(m.transcript[0], "build failed") {
+		t.Fatalf("wakeup envelope notice lost or duplicated: %#v", m.transcript)
+	}
+	// Every other wakeup terminal is ambient-header bookkeeping the go host
+	// does not carry, so none of them renders a transcript line.
+	before := len(m.transcript)
+	for _, label := range []string{"wakeup_requested", "wakeup_satisfied", "wakeup_completed", "wakeup_executing"} {
+		m.applyEvent(event(`{"type":"custom","source":"posoco.wakeup","label":"` + label + `","data":{"ticket_id":"t1","session":"s-1","tag":"build-watch","extension_id":"posoco_ext_subagent"}}`))
+	}
+	if len(m.transcript) != before {
+		t.Fatalf("non-envelope wakeup terminals rendered: %#v", m.transcript)
+	}
+}
+
+func TestCoreTaskReceiptsFeedDashboardWaitingCount(t *testing.T) {
+	m := newModel()
+	m.session = "s-1"
+	m.width, m.height = 108, 36
+	receipt := `{"type":"custom","source":"posoco.tasks","label":"background_outcome_ready","data":{"task_id":"task_1","session":"s-1","extension_id":"posoco_ext_subagent","label":"explore","status":"completed"}}`
+	m.applyEvent(event(receipt))
+	// Receipts carry no transcript noise; duplicates are no-ops.
+	m.applyEvent(event(receipt))
+	if len(m.transcript) != 0 {
+		t.Fatalf("task receipt rendered as transcript noise: %#v", m.transcript)
+	}
+	// Attribution is the receipt's own session: a foreign receipt never
+	// leaks into this session's waiting count.
+	m.applyEvent(event(`{"type":"custom","source":"posoco.tasks","label":"background_outcome_ready","data":{"task_id":"task_2","session":"s-other","extension_id":"posoco_ext_subagent","label":"explore","status":"failed"}}`))
+	if waiting := m.surface.activities.tasksWaiting("s-1"); waiting != 1 {
+		t.Fatalf("receipt waiting count wrong: %d", waiting)
+	}
+	if screen := ansi.Strip(strings.Join(m.regions().dashboard, "\n")); !strings.Contains(screen, "1 awaiting reply") {
+		t.Fatalf("receipt absent from dashboard: %q", screen)
+	}
+	// The extension's background_delivered ack closes the matching receipt.
+	m.applyEvent(event(`{"type":"custom","source":"posoco_ext_subagent","label":"background_delivered","child_session":"c-1","parent_call":"background","data":{"task_id":"task_1","child_session":"c-1"}}`))
+	if waiting := m.surface.activities.tasksWaiting("s-1"); waiting != 0 {
+		t.Fatalf("delivered receipt still waiting: %d", waiting)
+	}
+	if screen := ansi.Strip(strings.Join(m.regions().dashboard, "\n")); strings.Contains(screen, "awaiting reply") {
+		t.Fatalf("dashboard kept a delivered receipt: %q", screen)
+	}
+	// A replayed receipt for a consumed task stays a no-op.
+	m.applyEvent(event(receipt))
+	if waiting := m.surface.activities.tasksWaiting("s-1"); waiting != 0 {
+		t.Fatalf("delivered task resurrected its receipt: %d", waiting)
+	}
+}

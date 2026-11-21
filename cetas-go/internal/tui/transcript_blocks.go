@@ -229,3 +229,14 @@ func (m *model) protocolNotice(text string) {
 	m.transcript = append(m.transcript, fmt.Sprintf("● %s", text))
 	m.blocks[at] = transcriptui.Block{Kind: "notice", Text: text}
 }
+
+// errorNoticeLine lands one error-styled transcript row (js's errorNotice):
+// unlike m.err it is a plain block, never a sticky diagnostic state.
+func (m *model) errorNoticeLine(text string) {
+	if m.blocks == nil {
+		m.blocks = map[int]transcriptui.Block{}
+	}
+	at := len(m.transcript)
+	m.transcript = append(m.transcript, text)
+	m.blocks[at] = transcriptui.Block{Kind: "error", Text: text}
+}
