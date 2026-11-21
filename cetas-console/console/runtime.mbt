@@ -1960,16 +1960,16 @@ pub async fn ConsoleRuntime::transcript_index_json(
       "transcript_index is native-only (native_ui projection)",
     )
   }
-  match self.active().catalog.transcript_path(session_id) {
-    Err(reason) => replay_error(reason)
-    Ok(path) =>
-      native_replay_index_json(
-        self.replay_cache,
-        session_id,
-        path,
-        first,
-        limit,
-      )
+  match self.active().backend {
+    Some(backend) => database_transcript_index_json(backend, session_id, first, limit)
+    None =>
+      match self.active().catalog.transcript_path(session_id) {
+        Err(reason) => replay_error(reason)
+        Ok(path) =>
+          native_replay_index_json(
+            self.replay_cache, session_id, path, first, limit,
+          )
+      }
   }
 }
 
@@ -1989,18 +1989,25 @@ pub async fn ConsoleRuntime::transcript_page_json(
   if !self.native_ui {
     return replay_error("transcript_page is native-only (native_ui projection)")
   }
-  match self.active().catalog.transcript_path(session_id) {
-    Err(reason) => replay_error(reason)
-    Ok(path) =>
-      native_replay_page_json(
-        self.replay_cache,
-        session_id,
-        path,
-        revision,
-        first,
-        limit,
-        max_bytes,
+  match self.active().backend {
+    Some(backend) =>
+      database_transcript_page_json(
+        backend, session_id, revision, first, limit, max_bytes,
       )
+    None =>
+      match self.active().catalog.transcript_path(session_id) {
+        Err(reason) => replay_error(reason)
+        Ok(path) =>
+          native_replay_page_json(
+            self.replay_cache,
+            session_id,
+            path,
+            revision,
+            first,
+            limit,
+            max_bytes,
+          )
+      }
   }
 }
 
@@ -2021,19 +2028,26 @@ pub async fn ConsoleRuntime::transcript_source_json(
       "transcript_source is native-only (native_ui projection)",
     )
   }
-  match self.active().catalog.transcript_path(session_id) {
-    Err(reason) => replay_error(reason)
-    Ok(path) =>
-      native_replay_source_json(
-        self.replay_cache,
-        session_id,
-        path,
-        revision,
-        index,
-        field,
-        offset,
-        length,
+  match self.active().backend {
+    Some(backend) =>
+      database_transcript_source_json(
+        backend, session_id, revision, index, field, offset, length,
       )
+    None =>
+      match self.active().catalog.transcript_path(session_id) {
+        Err(reason) => replay_error(reason)
+        Ok(path) =>
+          native_replay_source_json(
+            self.replay_cache,
+            session_id,
+            path,
+            revision,
+            index,
+            field,
+            offset,
+            length,
+          )
+      }
   }
 }
 
