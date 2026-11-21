@@ -5,16 +5,26 @@ async fn native_database_catalog_json(
   after : String,
   limit : Int32,
 ) -> Json {
-  let mode = if scope.is_empty() || scope == "default" { "current" } else { scope }
+  let mode = if scope.is_empty() || scope == "default" {
+    "current"
+  } else {
+    scope
+  }
   if mode != "current" {
     return native_session_catalog_error(
-      scope, runtime.active_cwd,
+      scope,
+      runtime.active_cwd,
       "database catalog currently requires the current workspace",
     )
   }
   let workspace = runtime.active()
   let ids = workspace.catalog.list_ids() catch {
-    error => return native_session_catalog_error(mode, workspace.cwd, error.to_string())
+    error =>
+      return native_session_catalog_error(
+        mode,
+        workspace.cwd,
+        error.to_string(),
+      )
   }
   let requested = if limit <= 0 { 100 } else { limit }
   let cap = if requested > 200 { 200 } else { requested }
@@ -33,7 +43,12 @@ async fn native_database_catalog_json(
       continue
     }
     let entry = workspace.catalog.entry(id) catch {
-      error => return native_session_catalog_error(mode, workspace.cwd, error.to_string())
+      error =>
+        return native_session_catalog_error(
+          mode,
+          workspace.cwd,
+          error.to_string(),
+        )
     }
     let title = native_session_catalog_clip(entry.title, 200)
     let row = Json::object({
@@ -58,7 +73,11 @@ async fn native_database_catalog_json(
     wire_bytes += bytes + 1
   }
   if !matched_cursor {
-    return native_session_catalog_error(mode, workspace.cwd, "invalid session catalog cursor")
+    return native_session_catalog_error(
+      mode,
+      workspace.cwd,
+      "invalid session catalog cursor",
+    )
   }
   Json::object({
     "scope": Json::string(mode),

@@ -12,9 +12,9 @@ impl @console.SessionCatalog for HawdbConsoleCatalog with fn check_id(
 }
 
 ///|
-impl @console.SessionCatalog for HawdbConsoleCatalog with fn list_ids(
-  self,
-) -> Array[String] raise {
+impl @console.SessionCatalog for HawdbConsoleCatalog with fn list_ids(self) -> Array[
+  String,
+] raise {
   self.store.list_ids()
 }
 
@@ -24,10 +24,7 @@ impl @console.SessionCatalog for HawdbConsoleCatalog with fn entry(
   session_id : String,
 ) -> @console.SessionCatalogEntry raise {
   let summary = self.store.summary(session_id)
-  {
-    id: summary.id,
-    title: @hawdb_session.hawdb_display_title(summary),
-  }
+  { id: summary.id, title: @hawdb_session.hawdb_display_title(summary), }
 }
 
 ///|
@@ -70,23 +67,19 @@ fn open_hawdb_console_backend(
   cwd : String,
 ) -> Result[@console.ConsoleSessionBackend, String] {
   let path = hawdb_workspace_path(home, cwd)
-  let store = match @hawdb_session.HawdbSessionStore::open(
-    path,
-    cwd=Some(cwd),
-  ) {
+  let store = match
+    @hawdb_session.HawdbSessionStore::open(path, cwd=Some(cwd)) {
     Ok(store) => store
     Err(reason) => return Err(reason)
   }
-  let catalog : &@console.SessionCatalog = HawdbConsoleCatalog::{store}
+  let catalog : &@console.SessionCatalog = HawdbConsoleCatalog::{ store, }
   let extension : &@posoco.Extension = store
   let port : &@posoco.SessionPort = store
   Ok({
     session: { extension, port, },
     catalog,
     revision: fn(id) {
-      try {
-        Ok(store.revision(id).to_string())
-      } catch {
+      Ok(store.revision(id).to_string()) catch {
         error => Err(error.to_string())
       }
     },

@@ -2,6 +2,7 @@
 package "colmugx/cetas-console/console"
 
 import {
+  "colmugx/cetas-core/lib",
   "colmugx/posoco-ext-magpie",
   "colmugx/posoco-ext-permission",
   "colmugx/posoco-ext-plan",
@@ -21,7 +22,7 @@ pub async fn compose_console_runtime(ConsoleConfig, String, @async.TaskGroup, li
 
 pub fn console_bootstrap(&@posoco-ext-workspace.WorkspaceFs, String, (String) -> Unit, native_ui? : Bool) -> ConsoleBootstrap
 
-pub fn console_config(&@posoco-ext-workspace.WorkspaceFs, String, String, String, native_ui? : Bool, native_pi_enabled? : Bool, permission_mode? : @posoco-ext-permission.PermissionMode, herdr_presence? : Bool) -> ConsoleConfig
+pub fn console_config(&@posoco-ext-workspace.WorkspaceFs, String, String, String, native_ui? : Bool, native_pi_enabled? : Bool, permission_mode? : @posoco-ext-permission.PermissionMode, herdr_presence? : Bool, session_backend_factory? : ((String, String) -> Result[ConsoleSessionBackend, String])?) -> ConsoleConfig
 
 pub fn release_herdr_presence() -> Unit
 
@@ -52,6 +53,7 @@ pub struct ConsoleConfig {
   native_pi_enabled : Bool
   permission_mode : @posoco-ext-permission.PermissionMode
   herdr_presence : Bool
+  session_backend_factory : ((String, String) -> Result[ConsoleSessionBackend, String])?
 }
 
 pub(all) struct ConsolePlanReview {
@@ -70,6 +72,7 @@ pub struct ConsoleRuntime {
   native_pi_enabled : Bool
   startup_permission : @posoco-ext-permission.PermissionMode
   herdr_presence : Bool
+  session_backend_factory : ((String, String) -> Result[ConsoleSessionBackend, String])?
   group : @async.TaskGroup
   lifetime_group : @async.TaskGroup?
   hub : EventHub
@@ -152,6 +155,12 @@ pub async fn ConsoleRuntime::workspace_file_index(Self) -> Array[String]
 pub fn ConsoleRuntime::workspaces_json(Self) -> @json.Json
 pub fn ConsoleRuntime::zoo_json(Self) -> @json.Json
 
+pub(all) struct ConsoleSessionBackend {
+  session : @lib.CetasSessionBackend
+  catalog : &SessionCatalog
+  revision : (String) -> Result[String, String]
+}
+
 type EventHub
 
 pub struct MagpieBinding {
@@ -195,7 +204,10 @@ pub struct NativeReplayIndex {
   // private fields
 }
 
-type SessionCatalogEntry
+pub(all) struct SessionCatalogEntry {
+  id : String
+  title : String
+}
 
 type SurfaceBinding
 

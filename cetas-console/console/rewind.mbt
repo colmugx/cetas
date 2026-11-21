@@ -53,7 +53,12 @@ pub async fn ConsoleRuntime::rewind_active_session(
   }
   let text = match workspace.backend {
     Some(_) =>
-      match database_rewind_user_message(workspace.catalog, handle.session_id, index) {
+      match
+        database_rewind_user_message(
+          workspace.catalog,
+          handle.session_id,
+          index,
+        ) {
         Some(value) => value
         None => return rewind_error("invalid rewind address")
       }
@@ -75,11 +80,7 @@ pub async fn ConsoleRuntime::rewind_active_session(
     Some(value) => value.session.port
     None => workspace.platform.session_store as &@posoco.SessionPort
   }
-  @cetas_core.rewind_session(
-    port,
-    handle.session_id,
-    index,
-  ) catch {
+  @cetas_core.rewind_session(port, handle.session_id, index) catch {
     error => return rewind_error("rewind failed: " + error.to_string())
   }
   handle.agent.shutdown()

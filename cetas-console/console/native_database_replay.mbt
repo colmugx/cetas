@@ -57,7 +57,9 @@ fn database_transcript_item(
     if light {
       fields.remove("args")
       fields.remove("result")
-      fields["argsBytes"] = replay_int_json(@utf8.encode(args.stringify()).length())
+      fields["argsBytes"] = replay_int_json(
+        @utf8.encode(args.stringify()).length(),
+      )
       fields["resultBytes"] = replay_int_json(@utf8.encode(result).length())
     } else {
       let args_bytes = @utf8.encode(args.stringify()).length()
@@ -97,11 +99,20 @@ fn database_transcript_window(
   light : Bool,
 ) -> (Array[Json], Int32?) {
   let start = if first < 0 { 0 } else { first }
-  let cap = if limit <= 0 { 100 } else if limit > REPLAY_PAGE_MAX_LIMIT {
+  let cap = if limit <= 0 {
+    100
+  } else if limit > REPLAY_PAGE_MAX_LIMIT {
     REPLAY_PAGE_MAX_LIMIT
-  } else { limit }
-  let byte_cap = if max_bytes <= 0 { REPLAY_PAGE_DEFAULT_BYTES } else
-    if max_bytes > REPLAY_PAGE_MAX_BYTES { REPLAY_PAGE_MAX_BYTES } else { max_bytes }
+  } else {
+    limit
+  }
+  let byte_cap = if max_bytes <= 0 {
+    REPLAY_PAGE_DEFAULT_BYTES
+  } else if max_bytes > REPLAY_PAGE_MAX_BYTES {
+    REPLAY_PAGE_MAX_BYTES
+  } else {
+    max_bytes
+  }
   let items : Array[Json] = []
   let mut total_bytes = 0
   let mut cursor = start
@@ -128,16 +139,32 @@ async fn database_transcript_index_json(
   first : Int32,
   limit : Int32,
 ) -> Json {
-  let (revision, projection) = match database_transcript_snapshot(backend, session_id) {
+  let (revision, projection) = match
+    database_transcript_snapshot(backend, session_id) {
     Ok(value) => value
     Err(reason) => return replay_error(reason)
   }
   let (originals, context) = database_transcript_items(projection)
   let window = if limit <= 0 { REPLAY_INDEX_WINDOW } else { limit }
-  let window = if window > REPLAY_PAGE_MAX_LIMIT { REPLAY_PAGE_MAX_LIMIT } else { window }
-  let start = if first >= 0 { first } else
-    if originals.length() > window { originals.length() - window } else { 0 }
-  let (items, _) = database_transcript_window(originals, start, window, REPLAY_PAGE_DEFAULT_BYTES, true)
+  let window = if window > REPLAY_PAGE_MAX_LIMIT {
+    REPLAY_PAGE_MAX_LIMIT
+  } else {
+    window
+  }
+  let start = if first >= 0 {
+    first
+  } else if originals.length() > window {
+    originals.length() - window
+  } else {
+    0
+  }
+  let (items, _) = database_transcript_window(
+    originals,
+    start,
+    window,
+    REPLAY_PAGE_DEFAULT_BYTES,
+    true,
+  )
   Json::object({
     "session_id": Json::string(session_id),
     "revision": Json::string(revision),
@@ -157,7 +184,8 @@ async fn database_transcript_page_json(
   limit : Int32,
   max_bytes : Int32,
 ) -> Json {
-  let (current, projection) = match database_transcript_snapshot(backend, session_id) {
+  let (current, projection) = match
+    database_transcript_snapshot(backend, session_id) {
     Ok(value) => value
     Err(reason) => return replay_error(reason)
   }
@@ -170,7 +198,9 @@ async fn database_transcript_page_json(
   }
   let (originals, _) = database_transcript_items(projection)
   let start = if first < 0 { 0 } else { first }
-  let (items, next) = database_transcript_window(originals, start, limit, max_bytes, false)
+  let (items, next) = database_transcript_window(
+    originals, start, limit, max_bytes, false,
+  )
   Json::object({
     "session_id": Json::string(session_id),
     "revision": Json::string(current),
@@ -191,7 +221,8 @@ async fn database_transcript_source_json(
   offset : Int32,
   length : Int32,
 ) -> Json {
-  let (current, projection) = match database_transcript_snapshot(backend, session_id) {
+  let (current, projection) = match
+    database_transcript_snapshot(backend, session_id) {
     Ok(value) => value
     Err(reason) => return replay_error(reason)
   }
@@ -215,8 +246,14 @@ async fn database_transcript_source_json(
     _ => ""
   }
   let selected = if field.is_empty() {
-    if kind == "tool" { "result" } else { "text" }
-  } else { field }
+    if kind == "tool" {
+      "result"
+    } else {
+      "text"
+    }
+  } else {
+    field
+  }
   let payload = match (selected, original.get(selected)) {
     ("text", Some(Json::String(value))) if kind != "tool" => value
     ("result", Some(Json::String(value))) if kind == "tool" => value
@@ -225,14 +262,27 @@ async fn database_transcript_source_json(
   }
   let bytes = @utf8.encode(payload)
   let count = bytes.length()
-  let mut start = if offset < 0 { 0 } else if offset > count { count } else { offset }
+  let mut start = if offset < 0 {
+    0
+  } else if offset > count {
+    count
+  } else {
+    offset
+  }
   while start < count && !replay_utf8_lead(bytes.unsafe_get(start)) {
     start += 1
   }
-  let want = if length <= 0 { REPLAY_SOURCE_MAX_BYTES } else
-    if length > REPLAY_SOURCE_MAX_BYTES { REPLAY_SOURCE_MAX_BYTES } else { length }
+  let want = if length <= 0 {
+    REPLAY_SOURCE_MAX_BYTES
+  } else if length > REPLAY_SOURCE_MAX_BYTES {
+    REPLAY_SOURCE_MAX_BYTES
+  } else {
+    length
+  }
   let mut end = start + want
-  if end > count { end = count }
+  if end > count {
+    end = count
+  }
   while end < count && !replay_utf8_lead(bytes.unsafe_get(end)) {
     end += 1
   }
@@ -247,7 +297,11 @@ async fn database_transcript_source_json(
     "offset": replay_int_json(start),
     "length": replay_int_json(end - start),
     "total_bytes": replay_int_json(count),
-    "next": if end < count { replay_int_json(end) } else { Json::null() },
+    "next": if end < count {
+      replay_int_json(end)
+    } else {
+      Json::null()
+    },
     "data": Json::string(data),
   })
 }
