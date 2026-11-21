@@ -21,6 +21,7 @@ members = [
   "./extension/posoco-ext-deepseek",
   "./extension/posoco-ext-edit",
   "./extension/posoco-ext-fs-session",
+  "./extension/posoco-ext-hawdb-session",
   "./extension/posoco-ext-glob",
   "./extension/posoco-ext-grep",
   "./extension/posoco-ext-handoff",

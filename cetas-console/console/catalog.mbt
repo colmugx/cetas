@@ -19,7 +19,7 @@ pub(open) trait SessionCatalog {
 
 ///|
 /// Implementation-neutral projection; `title` is already display-resolved.
-struct SessionCatalogEntry {
+pub(all) struct SessionCatalogEntry {
   id : String
   title : String
 }
