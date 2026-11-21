@@ -50,7 +50,7 @@ async fn native_database_catalog_json(
     let bytes = @utf8.encode(row.stringify()).length()
     if items.length() >= cap || wire_bytes + bytes + 1 > 1024 * 1024 {
       if !items.is_empty() {
-        next = Json::string(ids[ids.length() - n])
+        next = Json::string(ids[ids.length() - n + 1])
       }
       break
     }
