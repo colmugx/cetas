@@ -2,6 +2,12 @@
 /// Host identity handed to the console core by whichever adaptor composes
 /// it: filesystem, cetas home, and the tags that attribute logs, status
 /// registrations, and snapshot frames to the host.
+pub(all) struct ConsoleSessionBackend {
+  session : @cetas_core.CetasSessionBackend
+  catalog : &SessionCatalog
+}
+
+///|
 pub struct ConsoleConfig {
   fs : &@workspace.WorkspaceFs
   home : String
@@ -27,6 +33,7 @@ pub struct ConsoleConfig {
   /// foreground process, not a background server. Detection is still
   /// environment-gated, so the cost inside a non-herdr pane is one probe.
   herdr_presence : Bool
+  session_backend_factory : ((String, String) -> Result[ConsoleSessionBackend, String])?
 }
 
 ///|
@@ -39,6 +46,7 @@ pub fn console_config(
   native_pi_enabled~ : Bool = false,
   permission_mode~ : @permission.PermissionMode = @permission.PermissionMode::WorkspaceWrite,
   herdr_presence~ : Bool = false,
+  session_backend_factory~ : ((String, String) -> Result[ConsoleSessionBackend, String])? = None,
 ) -> ConsoleConfig {
   {
     fs,
@@ -49,6 +57,7 @@ pub fn console_config(
     native_pi_enabled,
     permission_mode,
     herdr_presence,
+    session_backend_factory,
   }
 }
 
@@ -107,6 +116,7 @@ struct SurfaceBinding {
 /// session bucket), catalog, and a map of concurrent session handles.
 struct WorkspaceRuntime {
   cwd : String
+  backend : ConsoleSessionBackend?
   /// Rebuilt on a model-manager switch: the platform owns the providers
   /// router, whose active slot is resolved from `settings.json` at build time.
   /// Reusing it would keep the previous manager's model selected.
@@ -138,6 +148,7 @@ pub struct ConsoleRuntime {
   /// a pane's agent state belongs to the process, so a workspace switch must
   /// not silently drop reporting.
   herdr_presence : Bool
+  session_backend_factory : ((String, String) -> Result[ConsoleSessionBackend, String])?
   /// Host I/O task group (MCP connections, provider tool planes).
   group : @async.TaskGroup
   /// Session-lifetime task group on posoco's core-async stack: the quota
@@ -398,6 +409,7 @@ async fn ConsoleRuntime::compose_handle(
         self.group,
         self.lifetime_group,
         workspace.platform,
+        workspace.backend,
         self.hub,
         self.ui_registry,
         workspace.permission_mode,
@@ -537,6 +549,7 @@ async fn compose_session_agent(
   group : @async.TaskGroup,
   lifetime_group : @async.TaskGroup?,
   platform : @cetas_core.CetasPlatform,
+  backend : ConsoleSessionBackend?,
   hub : EventHub,
   ui_registry : UiRegistry,
   permission_mode : @permission.PermissionMode,
@@ -585,6 +598,10 @@ async fn compose_session_agent(
   let session = @cetas_core.build_cetas_session(
     platform~,
     cwd~,
+    session_backend=match backend {
+      Some(value) => Some(value.session)
+      None => None
+    },
     feature_exts~,
     model_manager=match magpie {
       Some(binding) => {
@@ -886,6 +903,7 @@ pub async fn ConsoleRuntime::switch_workspace(
           self.native_ui,
           self.native_pi_enabled,
           self.herdr_presence,
+              self.session_backend_factory,
         ),
       ) catch {
         error => Err(error.to_string())
@@ -965,6 +983,7 @@ pub async fn ConsoleRuntime::resume_workspace_session(
               self.native_ui,
               self.native_pi_enabled,
               self.herdr_presence,
+              self.session_backend_factory,
             ),
           ) catch {
             error => Err(error.to_string())
@@ -1487,7 +1506,10 @@ async fn ConsoleRuntime::rebuild_workspace_platform(
     error => return Err(error.to_string())
   }
   workspace.platform = platform
-  workspace.catalog = FsSessionCatalog::new(platform.session_store)
+  workspace.catalog = match workspace.backend {
+    Some(value) => value.catalog
+    None => FsSessionCatalog::new(platform.session_store)
+  }
   Ok(())
 }
 
@@ -1508,6 +1530,7 @@ async fn build_workspace(
   native_ui : Bool,
   native_pi_enabled : Bool,
   herdr_presence : Bool,
+  session_backend_factory : ((String, String) -> Result[ConsoleSessionBackend, String])?,
 ) -> WorkspaceRuntime {
   let warn = workspace_warn(hub, native_ui, label)
   let platform = @cetas_core.build_cetas_platform(
@@ -1519,6 +1542,17 @@ async fn build_workspace(
     label~,
     warn~,
   )
+  let backend : ConsoleSessionBackend? = match session_backend_factory {
+    Some(factory) =>
+      match factory(home, cwd) {
+        Ok(value) => Some(value)
+        Err(reason) => raise @posoco.CompositionError::ExtensionComposeFailed(
+          manifest_id="cetas.session_backend",
+          detail=reason,
+        )
+      }
+    None => None
+  }
   let first_session_id = @cetas_core.mint_session_id()
   let ui_port : &@posoco.UiPort = HubUiPort::new(
     hub,
@@ -1546,6 +1580,10 @@ async fn build_workspace(
   let session = @cetas_core.build_cetas_session(
     platform~,
     cwd~,
+    session_backend=match backend {
+      Some(value) => Some(value.session)
+      None => None
+    },
     feature_exts~,
     model_manager=match magpie {
       Some(binding) => {
@@ -1673,9 +1711,13 @@ async fn build_workspace(
   let handles : Map[String, SessionHandle] = Map::from_array([
     (first_session_id, handle),
   ])
-  let catalog : &SessionCatalog = FsSessionCatalog::new(platform.session_store)
+  let catalog : &SessionCatalog = match backend {
+    Some(value) => value.catalog
+    None => FsSessionCatalog::new(platform.session_store)
+  }
   {
     cwd,
+    backend,
     platform,
     catalog,
     handles,
@@ -1711,6 +1753,7 @@ pub async fn compose_console_runtime(
     config.native_ui,
     config.native_pi_enabled,
     config.herdr_presence,
+    config.session_backend_factory,
   )
   let workspaces : Map[String, WorkspaceRuntime] = Map::from_array([
     (cwd, first),
@@ -1728,6 +1771,7 @@ pub async fn compose_console_runtime(
     native_pi_enabled: config.native_pi_enabled,
     startup_permission: config.permission_mode,
     herdr_presence: config.herdr_presence,
+    session_backend_factory: config.session_backend_factory,
     group,
     lifetime_group,
     hub,
