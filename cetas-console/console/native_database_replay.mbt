@@ -3,14 +3,14 @@ async fn database_transcript_snapshot(
   backend : ConsoleSessionBackend,
   session_id : String,
 ) -> Result[(String, Json), String] {
-  let before = match backend.revision(session_id) {
+  let before = match (backend.revision)(session_id) {
     Ok(value) => value
     Err(reason) => return Err(reason)
   }
   let session = backend.catalog.load(session_id) catch {
     error => return Err(error.to_string())
   }
-  let after = match backend.revision(session_id) {
+  let after = match (backend.revision)(session_id) {
     Ok(value) => value
     Err(reason) => return Err(reason)
   }
