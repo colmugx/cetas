@@ -53,6 +53,11 @@ def main() -> None:
 
     pkg = ADAPTER / "moon.pkg"
     current = pkg.read_text(encoding="utf-8")
+    # The vendored HawDB adapter's in-package tests use unqualified symbols.
+    # The isolated upstream CI checks those tests separately. Exclude only
+    # warning 25 from this monorepo's all-packages --deny-warn sweep.
+    current = current.replace('warnings = "-unused_package"',
+                              'warnings = "-unused_package-25"')
     lib = "hawdb_moonbit.lib" if sys.platform == "win32" else "libhawdb_moonbit.a"
     archive = HAWDB / "native" / "target" / "release" / lib
     flags = archive.resolve().as_posix()

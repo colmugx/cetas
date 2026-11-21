@@ -44,6 +44,9 @@ jobs:
       - name: check installer syntax
         run: bash -n cetas-memoh/install.sh
 
+      - name: isolate native-only Cetas-Go dependency for Memoh
+        run: python3 scripts/prepare_memoh_workspace.py
+
       - name: resolve shared root workspace
         run: moon update
 
