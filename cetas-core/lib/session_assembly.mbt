@@ -25,12 +25,18 @@ pub(all) struct CetasSession {
   events : @posoco.EventSystem
   permission : @permission.PermissionPolicy
   ratelimit : @ratelimit.RateLimitGuard
-  session_store : @fs_session.JsonlSessionStore
+  session_store : &@posoco.SessionPort
   routing : Map[String, &@posoco.ToolProvider]
   base_defs : Array[@posoco.ToolDef]
   config : @posoco.AgentConfig
   cwd : String
   session_fs : &@workspace.WorkspaceFs
+}
+
+///|
+pub(all) struct CetasSessionBackend {
+  extension : &@posoco.Extension
+  port : &@posoco.SessionPort
 }
 
 ///|
@@ -149,6 +155,7 @@ pub async fn build_cetas_session(
   cwd~ : String,
   router~ : @llm.RouterModelPort? = None,
   model_manager~ : CetasModelManager? = None,
+  session_backend~ : CetasSessionBackend? = None,
   transient_retry~ : @llm.TransientRetryPolicy? = Some(
     @llm.TransientRetryPolicy::default(),
   ),
@@ -247,10 +254,14 @@ pub async fn build_cetas_session(
     // pre-approval; same root the file tools resolve against.
     workspace=Some(@devkit.WorkspaceAnchor(cwd)),
   )
+  let session_extension : &@posoco.Extension = match session_backend {
+    Some(backend) => backend.extension
+    None => platform.session_store as &@posoco.Extension
+  }
   let exts : Array[&@posoco.Extension] = [
     cetas,
     resolved.0.extension,
-    platform.session_store as &@posoco.Extension,
+    session_extension,
   ]
   for ext in client_exts {
     exts.push(ext)
@@ -348,7 +359,10 @@ pub async fn build_cetas_session(
     events,
     permission: permission_policy,
     ratelimit,
-    session_store: platform.session_store,
+    session_store: match session_backend {
+      Some(backend) => backend.port
+      None => platform.session_store as &@posoco.SessionPort
+    },
     routing,
     base_defs,
     config,
