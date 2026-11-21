@@ -5,6 +5,7 @@
 pub(all) struct ConsoleSessionBackend {
   session : @cetas_core.CetasSessionBackend
   catalog : &SessionCatalog
+  revision : (String) -> Result[String, String]
 }
 
 ///|
