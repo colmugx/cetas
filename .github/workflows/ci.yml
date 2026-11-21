@@ -229,7 +229,13 @@ jobs:
           archive=cetas-go/go_bridge/lib/libhawdb_moonbit.a
           cleaned="${archive}.clean"
           if [[ "${RUNNER_OS}" == "macOS" ]]; then
-            xcrun bitcode_strip "${archive}" -r -o "${cleaned}"
+            # Xcode bitcode_strip fails on Rust staticlib archives. LLVM's
+            # object copier handles the Mach-O members in an archive.
+            rustup component add llvm-tools-preview
+            host=$(rustc -vV | sed -n 's/^host: //p')
+            tool="$(rustc --print sysroot)/lib/rustlib/${host}/bin/llvm-objcopy"
+            test -x "${tool}"
+            "${tool}" --remove-section='__LLVM,__bitcode' --remove-section='__LLVM,__cmdline' "${archive}" "${cleaned}"
           else
             objcopy --remove-section=.llvmbc --remove-section=.llvmcmd "${archive}" "${cleaned}"
           fi
