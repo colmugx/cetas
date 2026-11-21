@@ -244,6 +244,13 @@ jobs:
           CGO_ENABLED: '1'
         run: go test ./... -count=1
 
+      # The Ubuntu full cetas-js suite exercises the same Bun/Go local
+      # bridge tests. macOS must also exercise those tests before the
+      # separate three-platform observer workflow can be retired.
+      - name: Bun Local Session observer cross-process tests (macOS)
+        if: runner.os == 'macOS'
+        run: bun test cetas-js/src/app/local-session-observer.test.ts cetas-js/src/app/local-session-owner.test.ts
+
       # The cgo boundary is shared-memory by design; the race detector is the
       # tool-level guard for the Go side of that contract.
       - name: go test (race)
@@ -345,3 +352,7 @@ jobs:
           CGO_ENABLED: '0'
           CETAS_NATIVE_DLL: ${{ github.workspace }}\bin\cetas_moon.dll
         run: go test ./... -count=1
+      # Preserve Windows Go-Owner -> Bun Viewer transport coverage without
+      # a redundant dedicated push+PR workflow. Bun Owner is Unix-only.
+      - name: Bun Local Session observer tests (Windows)
+        run: bun test cetas-js/src/app/local-session-observer.test.ts cetas-js/src/app/local-session-owner.test.ts
