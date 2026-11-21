@@ -1,5 +1,5 @@
 ///|
-fn database_transcript_snapshot(
+async fn database_transcript_snapshot(
   backend : ConsoleSessionBackend,
   session_id : String,
 ) -> Result[(String, Json), String] {
