@@ -13,6 +13,9 @@ pub async fn ConsoleRuntime::rewind_points_json(self : ConsoleRuntime) -> Json {
   if handle.busy {
     return rewind_error("cannot rewind while a turn is running")
   }
+  if workspace.backend is Some(_) {
+    return database_rewind_points(workspace.catalog, handle.session_id)
+  }
   let path = @fs_session.jsonl_session_path(
     workspace.platform.session_store.root_dir,
     handle.session_id,
@@ -48,19 +51,32 @@ pub async fn ConsoleRuntime::rewind_active_session(
   if handle.busy {
     return rewind_error("cannot rewind while a turn is running")
   }
-  let path = @fs_session.jsonl_session_path(
-    workspace.platform.session_store.root_dir,
-    handle.session_id,
-  )
-  let data = @fs.read_text(path) catch {
-    error => return rewind_error("cannot read JSONL: " + error.to_string())
+  let text = match workspace.backend {
+    Some(_) =>
+      match database_rewind_user_message(workspace.catalog, handle.session_id, index) {
+        Some(value) => value
+        None => return rewind_error("invalid rewind address")
+      }
+    None => {
+      let path = @fs_session.jsonl_session_path(
+        workspace.platform.session_store.root_dir,
+        handle.session_id,
+      )
+      let data = @fs.read_text(path) catch {
+        error => return rewind_error("cannot read JSONL: " + error.to_string())
+      }
+      match @cetas_core.read_persisted_rewind_user_message(data, index) {
+        Some(value) => value
+        None => return rewind_error("invalid rewind address")
+      }
+    }
   }
-  let text = match @cetas_core.read_persisted_rewind_user_message(data, index) {
-    Some(value) => value
-    None => return rewind_error("invalid rewind address")
+  let port : &@posoco.SessionPort = match workspace.backend {
+    Some(value) => value.session.port
+    None => workspace.platform.session_store as &@posoco.SessionPort
   }
   @cetas_core.rewind_session(
-    workspace.platform.session_store as &@posoco.SessionPort,
+    port,
     handle.session_id,
     index,
   ) catch {
