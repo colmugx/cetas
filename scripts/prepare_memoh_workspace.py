@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Select only the shared and Memoh modules in this CI checkout.
+"""Select shared/JS/Memoh modules for non-native CI checks.
 
-Cetas-Go's opt-in HawDB native adapter is unrelated to Memoh's standalone
-build. MoonBit resolves the whole moon.work graph even for -p checks, so
-remove the Cetas-Go module and its HawDB adapter from Memoh's *ephemeral*
-workspace. The source tree, session formats, and runtime backends stay intact.
+Cetas-Go's opt-in HawDB native adapter is unrelated to the JS and Memoh
+hosts. MoonBit resolves the whole moon.work graph even for -p checks, so
+remove Cetas-Go and HawDB adapter from this ephemeral non-native workspace.
+The source tree, session formats, and runtime backends stay intact.
 """
 from pathlib import Path
 
