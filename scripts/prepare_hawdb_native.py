@@ -47,7 +47,7 @@ def main() -> None:
     hawdb_pkg_text = hawdb_pkg.read_text(encoding="utf-8")
     if "warnings =" not in hawdb_pkg_text:
         hawdb_pkg.write_text(
-            hawdb_pkg_text + '\n' + 'warnings = "-result_error_return -deprecated_syntax"' + '\n',
+            hawdb_pkg_text + '\n' + 'warnings = "-78-27"' + '\n',
             encoding="utf-8",
         )
 
