@@ -27,10 +27,12 @@ try {
     }
     & cl.exe /nologo /c /O1 /Gy /Gw /GL /MD /W3 @allocatorDefine "/Fo$obj" "$hostSrc"
     if ($LASTEXITCODE -ne 0) { throw "MSVC host.c compilation failed ($LASTEXITCODE)" }
+    $hawdbArchive = Join-Path $root "_hawdb_checkout/bindings/moonbit/native/target/release/hawdb_moonbit.lib"
+    if (-not (Test-Path $hawdbArchive)) { throw "HawDB native archive missing: $hawdbArchive" }
     & link.exe /nologo /DLL /INCREMENTAL:NO "/OUT:$dll" "/IMPLIB:$implib" `
-        "/DEF:$def" /LTCG /OPT:REF /OPT:ICF "/WHOLEARCHIVE:$archive" "$obj" `
-        ws2_32.lib bcrypt.lib dbghelp.lib pathcch.lib ntdll.lib `
-        iphlpapi.lib secur32.lib crypt32.lib
+        "/DEF:$def" /LTCG /OPT:REF /OPT:ICF "/WHOLEARCHIVE:$archive" "$obj" "$hawdbArchive" `
+        ws2_32.lib bcrypt.lib dbghelp.lib pathcch.lib ntdll.lib userenv.lib `
+        iphlpapi.lib secur32.lib crypt32.lib advapi32.lib shell32.lib ole32.lib
     if ($LASTEXITCODE -ne 0) { throw "MSVC DLL link failed ($LASTEXITCODE)" }
     if (-not (Test-Path $dll)) { throw "MSVC linker produced no DLL: $dll" }
     $exports = & dumpbin.exe /nologo /exports "$dll"
