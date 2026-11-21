@@ -358,7 +358,7 @@ pub fn run_infra() -> Int32 {
                   Some(wake) => {
                     // One byte per queued item, so a wakeup may coalesce but is
                     // never lost: the queues above are re-read after every wait.
-                    let resumed = wake.read_into_once(wake_buffer.mut_view()) catch {
+                    let resumed = wake.read_into_once(wake_buffer) catch {
                       error => {
                         if !wake_reported {
                           emit_degraded(
