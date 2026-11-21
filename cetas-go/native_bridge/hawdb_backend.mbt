@@ -1,5 +1,5 @@
 ///|
-struct HawdbConsoleCatalog {
+priv struct HawdbConsoleCatalog {
   store : @hawdb_session.HawdbSessionStore
 }
 
