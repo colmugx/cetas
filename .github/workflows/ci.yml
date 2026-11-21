@@ -93,6 +93,14 @@ jobs:
           git restore -- moon.work
           git -c diff.ignoreSubmodules=dirty diff --exit-code -- . ./cetas-js ./cetas-core ./cetas-run ./cetas-acp ./cetas-ext-forme
 
+      # JS/shared tests do not compose the native Cetas-Go host. Keep its
+      # HawDB-only dependency out of their workspace resolution, just as in
+      # the independently checked Memoh workflow.
+      - name: Isolate native-only HawDB graph for shared and JS tests
+        run: |
+          python3 scripts/prepare_memoh_workspace.py
+          moon update
+
       - name: moon test
         id: test
         run: moon test --output-json
@@ -209,6 +217,23 @@ jobs:
           mkdir -p cetas-go/go_bridge/lib
           cp "$src" cetas-go/go_bridge/lib/libcetas_moon.a
           cp _hawdb_checkout/bindings/moonbit/native/target/release/libhawdb_moonbit.a cetas-go/go_bridge/lib/libhawdb_moonbit.a
+
+      # Go 1.27 rejects LTO/LLVM bitcode sections in static archives passed
+      # through cgo (even when the final linker would not use LTO).
+      # Strip them only from Go's copied archive; the original HawDB archive
+      # remains available for the MoonBit native link.
+      - name: Remove LLVM LTO metadata from Go-facing HawDB archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive=cetas-go/go_bridge/lib/libhawdb_moonbit.a
+          cleaned="${archive}.clean"
+          if [[ "${RUNNER_OS}" == "macOS" ]]; then
+            xcrun bitcode_strip "${archive}" -r -o "${cleaned}"
+          else
+            objcopy --remove-section=.llvmbc --remove-section=.llvmcmd "${archive}" "${cleaned}"
+          fi
+          mv "${cleaned}" "${archive}"
 
       # Download modules before vet/test so transient Go proxy HTTP/2
       # failures can be retried without restarting the expensive MoonBit build.
