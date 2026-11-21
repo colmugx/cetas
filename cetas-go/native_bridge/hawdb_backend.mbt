@@ -83,5 +83,12 @@ fn open_hawdb_console_backend(
   Ok({
     session: { extension, port, },
     catalog,
+    revision: fn(id) {
+      try {
+        Ok(store.revision(id).to_string())
+      } catch {
+        error => Err(error.to_string())
+      }
+    },
   })
 }
