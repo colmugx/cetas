@@ -43,6 +43,14 @@ def main() -> None:
         raise SystemExit("Expected one HawDB module import")
     manifest.write_text(update, encoding="utf-8")
 
+    hawdb_pkg = HAWDB / "moon.pkg"
+    hawdb_pkg_text = hawdb_pkg.read_text(encoding="utf-8")
+    if "warnings =" not in hawdb_pkg_text:
+        hawdb_pkg.write_text(
+            hawdb_pkg_text + '\n' + 'warnings = "-result_error_return -deprecated_syntax"' + '\n',
+            encoding="utf-8",
+        )
+
     pkg = ADAPTER / "moon.pkg"
     current = pkg.read_text(encoding="utf-8")
     lib = "hawdb_moonbit.lib" if sys.platform == "win32" else "libhawdb_moonbit.a"
