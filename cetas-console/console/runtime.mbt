@@ -34,7 +34,10 @@ pub struct ConsoleConfig {
   /// foreground process, not a background server. Detection is still
   /// environment-gated, so the cost inside a non-herdr pane is one probe.
   herdr_presence : Bool
-  session_backend_factory : ((String, String) -> Result[ConsoleSessionBackend, String])?
+  session_backend_factory : ((String, String) -> Result[
+    ConsoleSessionBackend,
+    String,
+  ])?
 }
 
 ///|
@@ -47,7 +50,10 @@ pub fn console_config(
   native_pi_enabled~ : Bool = false,
   permission_mode~ : @permission.PermissionMode = @permission.PermissionMode::WorkspaceWrite,
   herdr_presence~ : Bool = false,
-  session_backend_factory~ : ((String, String) -> Result[ConsoleSessionBackend, String])? = None,
+  session_backend_factory~ : ((String, String) -> Result[
+    ConsoleSessionBackend,
+    String,
+  ])? = None,
 ) -> ConsoleConfig {
   {
     fs,
@@ -149,7 +155,10 @@ pub struct ConsoleRuntime {
   /// a pane's agent state belongs to the process, so a workspace switch must
   /// not silently drop reporting.
   herdr_presence : Bool
-  session_backend_factory : ((String, String) -> Result[ConsoleSessionBackend, String])?
+  session_backend_factory : ((String, String) -> Result[
+    ConsoleSessionBackend,
+    String,
+  ])?
   /// Host I/O task group (MCP connections, provider tool planes).
   group : @async.TaskGroup
   /// Session-lifetime task group on posoco's core-async stack: the quota
@@ -904,7 +913,7 @@ pub async fn ConsoleRuntime::switch_workspace(
           self.native_ui,
           self.native_pi_enabled,
           self.herdr_presence,
-              self.session_backend_factory,
+          self.session_backend_factory,
         ),
       ) catch {
         error => Err(error.to_string())
@@ -1535,7 +1544,10 @@ async fn build_workspace(
   native_ui : Bool,
   native_pi_enabled : Bool,
   herdr_presence : Bool,
-  session_backend_factory : ((String, String) -> Result[ConsoleSessionBackend, String])?,
+  session_backend_factory : ((String, String) -> Result[
+    ConsoleSessionBackend,
+    String,
+  ])?,
 ) -> WorkspaceRuntime {
   let warn = workspace_warn(hub, native_ui, label)
   let platform = @cetas_core.build_cetas_platform(
@@ -1551,10 +1563,11 @@ async fn build_workspace(
     Some(factory) =>
       match factory(home, cwd) {
         Ok(value) => Some(value)
-        Err(reason) => raise @posoco.CompositionError::ExtensionComposeFailed(
-          manifest_id="cetas.session_backend",
-          detail=reason,
-        )
+        Err(reason) =>
+          raise @posoco.CompositionError::ExtensionComposeFailed(
+            manifest_id="cetas.session_backend",
+            detail=reason,
+          )
       }
     None => None
   }
@@ -1961,13 +1974,18 @@ pub async fn ConsoleRuntime::transcript_index_json(
     )
   }
   match self.active().backend {
-    Some(backend) => database_transcript_index_json(backend, session_id, first, limit)
+    Some(backend) =>
+      database_transcript_index_json(backend, session_id, first, limit)
     None =>
       match self.active().catalog.transcript_path(session_id) {
         Err(reason) => replay_error(reason)
         Ok(path) =>
           native_replay_index_json(
-            self.replay_cache, session_id, path, first, limit,
+            self.replay_cache,
+            session_id,
+            path,
+            first,
+            limit,
           )
       }
   }

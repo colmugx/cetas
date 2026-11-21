@@ -28,10 +28,7 @@ fn database_user_text(message : @kernel.Message) -> String? {
 }
 
 ///|
-async fn database_rewind_points(
-  catalog : &SessionCatalog,
-  id : String,
-) -> Json {
+async fn database_rewind_points(catalog : &SessionCatalog, id : String) -> Json {
   let session = catalog.load(id) catch {
     error => return rewind_error(error.to_string())
   }
@@ -42,15 +39,19 @@ async fn database_rewind_points(
       Some(text) => {
         let preview = @devkit.truncate_chars(text.trim().to_owned(), 60)
         if !preview.is_empty() {
-          points.push(Json::object({
-            "message_index": Json::number(index.to_double()),
-            "preview": Json::string(preview),
-          }))
+          points.push(
+            Json::object({
+              "message_index": Json::number(index.to_double()),
+              "preview": Json::string(preview),
+            }),
+          )
         } else {
-          points.push(Json::object({
-            "message_index": Json::number(index.to_double()),
-            "preview": Json::string("(image)"),
-          }))
+          points.push(
+            Json::object({
+              "message_index": Json::number(index.to_double()),
+              "preview": Json::string("(image)"),
+            }),
+          )
         }
       }
       None => ()

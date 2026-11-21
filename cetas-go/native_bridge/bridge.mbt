@@ -190,7 +190,8 @@ pub fn run_infra() -> Int32 {
           // The terminal owns its pane: report agent state to herdr like the JS
           // and run hosts. Env-gated, so nothing registers outside a pane.
           herdr_presence=true,
-          session_backend_factory=if @env.get_env_var("CETAS_SESSION_BACKEND") == Some("hawdb") {
+          session_backend_factory=if @env.get_env_var("CETAS_SESSION_BACKEND") ==
+            Some("hawdb") {
             Some(open_hawdb_console_backend)
           } else {
             None

@@ -88,6 +88,9 @@ jobs:
         run: |
           # Interface drift is checked against the public graph.
           moon info
+          # The native HawDB prep step temporarily adds its local source module to moon.work.
+          # Restore only this temporary workspace assembly; keep the strict source/interface drift gate.
+          git restore -- moon.work
           git -c diff.ignoreSubmodules=dirty diff --exit-code -- . ./cetas-js ./cetas-core ./cetas-run ./cetas-acp ./cetas-ext-forme
 
       - name: moon test

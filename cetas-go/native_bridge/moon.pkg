@@ -1,5 +1,5 @@
 import {
-  "colmugx/cetas-console/console" @console,
+  "colmugx/cetas-console/console",
   "colmugx/posoco-ext-hawdb-session" @hawdb_session,
   "colmugx/cetas-core/lib" @cetas_core,
   "colmugx/posoco",
