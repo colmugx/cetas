@@ -8,7 +8,6 @@ fn database_user_text(message : @kernel.Message) -> String? {
         match item {
           @kernel.Content::Text(text) => pieces.push(text)
           @kernel.Content::Image(..) => has_image = true
-          _ => ()
         }
       }
       let text = pieces.join("\n")
