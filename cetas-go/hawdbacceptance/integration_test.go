@@ -25,15 +25,9 @@ func TestHawdbNativeSessionFlow(t *testing.T) {
         if r.URL.Path != "/v1/chat/completions" { http.NotFound(w, r); return }
         _, _ = io.Copy(io.Discard, r.Body)
         w.Header().Set("Content-Type", "text/event-stream")
-        _, _ = io.WriteString(w, "data: "+`{"id":"hawdb-test","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Persisted in HawDB"},"finish_reason":null}]}`+"
-
-")
-        _, _ = io.WriteString(w, "data: "+`{"id":"hawdb-test","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`+"
-
-")
-        _, _ = io.WriteString(w, "data: [DONE]
-
-")
+        _, _ = io.WriteString(w, "data: "+`{"id":"hawdb-test","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Persisted in HawDB"},"finish_reason":null}]}`+"\n\n")
+        _, _ = io.WriteString(w, "data: "+`{"id":"hawdb-test","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`+"\n\n")
+        _, _ = io.WriteString(w, "data: [DONE]\n\n")
         if flush, ok := w.(http.Flusher); ok { flush.Flush() }
     }))
     defer llm.Close()
