@@ -185,6 +185,7 @@ pub fn refreshable_factories(
   let opencode_zen = @opencode_zen.OpenCodeZenProvider(ctx~)
   let opencode_go = @opencode_go.OpenCodeGoProvider(ctx~)
   let zai = @zai.ZaiProvider(ctx~)
+  let zai_coding_plan = @zai_coding_plan.ZaiCodingPlanProvider(ctx~)
   let openrouter = @openrouter.OpenRouterProvider(ctx~)
   [
     deepseek as &@llm.RefreshableProviderFactory,
@@ -193,6 +194,7 @@ pub fn refreshable_factories(
     opencode_zen as &@llm.RefreshableProviderFactory,
     opencode_go as &@llm.RefreshableProviderFactory,
     zai as &@llm.RefreshableProviderFactory,
+    zai_coding_plan as &@llm.RefreshableProviderFactory,
     openrouter as &@llm.RefreshableProviderFactory,
   ]
 }
