@@ -92,9 +92,9 @@ export function formatSubagentElapsed(startedAt: number, now: number): string {
  * stale `last_tool` posing as ongoing work.
  */
 export function subagentPhase(
-  record: Pick<SubagentActivity, "current_tool" | "child_turn_state" | "question">,
+  record: Pick<SubagentActivity, "current_tool" | "child_turn_state" | "questions">,
 ): string {
-  if (record.question !== undefined) return "? waiting your answer";
+  if (record.questions.length > 0) return "? waiting your answer";
   if (record.current_tool !== undefined && record.current_tool.length > 0) {
     return record.current_tool;
   }

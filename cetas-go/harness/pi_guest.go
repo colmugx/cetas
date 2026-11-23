@@ -10,16 +10,22 @@ import (
 	"github.com/colmugx/cetas/cetas-go/nativepi"
 )
 
-// piSupervisor is the Go owner of a session's foreign JavaScript VM.
-// No Javascript callback is invoked on the MoonBit scheduler thread. All
-// normal tool/catalog decisions still enter the Posoco kernel through Request.
-// piGuestFrame is a host-owned copy of an authoritative MoonBit EventHub frame.
+// piGuestFrame holds either an observer frame or a decoded execution request.
 // Each session serializes callback delivery and tool execution on one worker.
 type piGuestFrame struct {
-	kind  string
-	frame json.RawMessage
+	frame     json.RawMessage
+	execution *piExecution
 }
 
+type piExecution struct {
+	RequestID string          `json:"request_id"`
+	ToolName  string          `json:"tool_name"`
+	CallID    string          `json:"call_id"`
+	Arguments json.RawMessage `json:"arguments"`
+}
+
+// piSupervisor owns the session's Bun guest. JavaScript callbacks never run on
+// the MoonBit scheduler thread; tool/catalog decisions go through Request.
 type piSupervisor struct {
 	host        *Host
 	mu          sync.Mutex
@@ -34,52 +40,42 @@ func newPiSupervisor(host *Host) *piSupervisor {
 	return &piSupervisor{host: host, guests: make(map[string]nativepi.RuntimeGuest), workers: make(map[string]chan piGuestFrame), generations: make(map[string]uint64)}
 }
 
-func (s *piSupervisor) handle(kind string, frame json.RawMessage) {
-	switch kind {
+func (s *piSupervisor) handle(header frameHeader, frame json.RawMessage) {
+	if header.sessionErr != nil {
+		kind := "Pi observer frame"
+		switch header.Type {
+		case "pi.guest.ready":
+			kind = "Pi guest ready"
+		case "pi.guest.retired":
+			kind = "Pi guest retired"
+		case "pi.guest.execute":
+			kind = "Pi tool frame"
+		}
+		s.host.report(fmt.Errorf("%s: %w", kind, header.sessionErr))
+		return
+	}
+	switch header.Type {
 	case "pi.guest.ready":
 		var event struct {
-			SessionID string `json:"session_id"`
-			Home      string `json:"home"`
-			Cwd       string `json:"cwd"`
+			Home string `json:"home"`
+			Cwd  string `json:"cwd"`
 		}
 		if err := json.Unmarshal(frame, &event); err != nil {
 			s.host.report(fmt.Errorf("Pi guest ready: %w", err))
 			return
 		}
-		s.beginReady(event.SessionID, event.Home, event.Cwd)
+		s.beginReady(header.SessionID, event.Home, event.Cwd)
 	case "pi.guest.retired":
-		var event struct {
-			SessionID string `json:"session_id"`
-		}
-		if err := json.Unmarshal(frame, &event); err != nil {
-			s.host.report(fmt.Errorf("Pi guest retired: %w", err))
-			return
-		}
-		s.retire(event.SessionID)
+		s.retire(header.SessionID)
 	case "pi.guest.execute":
-		var event struct {
-			SessionID string          `json:"session_id"`
-			RequestID string          `json:"request_id"`
-			ToolName  string          `json:"tool_name"`
-			CallID    string          `json:"call_id"`
-			Arguments json.RawMessage `json:"arguments"`
-		}
+		var event piExecution
 		if err := json.Unmarshal(frame, &event); err != nil {
 			s.host.report(fmt.Errorf("Pi tool frame: %w", err))
 			return
 		}
-		s.enqueue(event.SessionID, kind, frame)
+		s.enqueue(header.SessionID, piGuestFrame{execution: &event})
 	default:
-		if isPiObserverFrame(kind) {
-			var event struct {
-				SessionID string `json:"session_id"`
-			}
-			if err := json.Unmarshal(frame, &event); err != nil {
-				s.host.report(fmt.Errorf("Pi observer frame: %w", err))
-				return
-			}
-			s.enqueue(event.SessionID, kind, frame)
-		}
+		s.enqueue(header.SessionID, piGuestFrame{frame: frame})
 	}
 }
 
@@ -95,22 +91,25 @@ func isPiObserverFrame(kind string) bool {
 
 // Keep the source EventHub order: a tool.started observer must fire before
 // the tool's execute callback, even if the latter runs on another goroutine.
-func (s *piSupervisor) enqueue(sessionID, kind string, raw json.RawMessage) {
+func (s *piSupervisor) enqueue(sessionID string, frame piGuestFrame) {
 	s.mu.Lock()
 	queue := s.workers[sessionID]
 	if queue == nil || s.closed {
 		s.mu.Unlock()
-		if kind == "pi.guest.execute" {
-			go s.failExecution(raw, "Pi guest unavailable for session")
+		if frame.execution != nil {
+			go s.failExecution(sessionID, frame.execution.RequestID, "Pi guest unavailable for session")
 		}
 		return
 	}
+	// Poll owns its bytes, but the worker and public UI must not share
+	// a mutable frame. Copy only when a session has a worker.
+	frame.frame = append(json.RawMessage(nil), frame.frame...)
 	select {
-	case queue <- piGuestFrame{kind: kind, frame: append(json.RawMessage(nil), raw...)}:
+	case queue <- frame:
 	default:
 		s.host.report(fmt.Errorf("Pi guest session %s event queue full", sessionID))
-		if kind == "pi.guest.execute" {
-			go s.failExecution(raw, "Pi guest event queue full")
+		if frame.execution != nil {
+			go s.failExecution(sessionID, frame.execution.RequestID, "Pi guest event queue full")
 		}
 	}
 	s.mu.Unlock()
@@ -119,22 +118,18 @@ func (s *piSupervisor) enqueue(sessionID, kind string, raw json.RawMessage) {
 // A single worker per Session owns observer/event ordering. It may call the
 // Harness without blocking its EventHub pump; unrelated sessions stay live.
 // Tool execution requests must be answered even on queue overflow or retirement.
-func (s *piSupervisor) failExecution(raw json.RawMessage, reason string) {
-	var e struct {
-		SessionID string `json:"session_id"`
-		RequestID string `json:"request_id"`
-	}
-	if json.Unmarshal(raw, &e) != nil || e.SessionID == "" || e.RequestID == "" {
+func (s *piSupervisor) failExecution(sessionID, requestID, reason string) {
+	if requestID == "" || sessionID == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	_, err := s.host.Request(ctx, "pi_guest_result", map[string]any{
-		"session_id": e.SessionID, "request_id": e.RequestID,
+		"session_id": sessionID, "request_id": requestID,
 		"result": nativepi.Result{OK: false, Content: reason},
 	})
 	if err != nil {
-		s.host.report(fmt.Errorf("Pi guest failed execution %s: %w", e.RequestID, err))
+		s.host.report(fmt.Errorf("Pi guest failed execution %s: %w", requestID, err))
 	}
 }
 func (s *piSupervisor) process(sessionID string, g nativepi.RuntimeGuest, queue <-chan piGuestFrame) {
@@ -143,22 +138,12 @@ func (s *piSupervisor) process(sessionID string, g nativepi.RuntimeGuest, queue 
 		active := s.guests[sessionID] == g
 		s.mu.Unlock()
 		if !active {
-			if frame.kind == "pi.guest.execute" {
-				s.failExecution(frame.frame, "Pi guest session retired")
+			if frame.execution != nil {
+				s.failExecution(sessionID, frame.execution.RequestID, "Pi guest session retired")
 			}
 			continue
 		}
-		if frame.kind == "pi.guest.execute" {
-			var event struct {
-				RequestID string          `json:"request_id"`
-				ToolName  string          `json:"tool_name"`
-				CallID    string          `json:"call_id"`
-				Arguments json.RawMessage `json:"arguments"`
-			}
-			if err := json.Unmarshal(frame.frame, &event); err != nil {
-				s.host.report(fmt.Errorf("Pi execute: %w", err))
-				continue
-			}
+		if event := frame.execution; event != nil {
 			s.execute(g, sessionID, event.RequestID, event.ToolName, event.CallID, event.Arguments)
 			continue
 		}
@@ -212,8 +197,6 @@ func (s *piSupervisor) beginReady(sessionID, home, cwd string) {
 	go s.ready(sessionID, home, cwd, gen)
 }
 
-// moejs remains available as a lazy lightweight runtime for future
-// bunraku work, but is never initialized by the native Pi adaptor.
 func (s *piSupervisor) openGuest(home, cwd string) (nativepi.RuntimeGuest, error) {
 	if !s.host.piAvailable {
 		return nil, fmt.Errorf("native Pi requires Bun Runtime; enable it in /experimental and restart")

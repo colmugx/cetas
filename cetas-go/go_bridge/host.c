@@ -25,40 +25,19 @@ extern void moonbit_runtime_init(int argc, char **argv);
 extern void moonbit_init(void);
 extern int32_t cetas_infra_run(void);
 void cetas_host_boot(void) { moonbit_runtime_init(0, NULL); moonbit_init(); }
-int32_t cetas_host_infra_run(void) { return cetas_infra_run(); }
 
-/* Readiness channels replace fixed-interval polling on both sides. A producer
-   signals *after* the queues below made its data visible; the signal means only
-   "the queue may hold new data", so the mutex-protected queue stays the single
-   source of truth and a coalesced or dropped signal can never lose a frame.
-   Exactly one owner waits on each channel:
-     - command channel -> the MoonBit async scheduler (it owns the read end)
-     - event channel   -> the Go event pump (C-owned)
-   A channel that cannot be created is fully released and its stage/errno is
-   recorded, never left half-initialised: a blocking end registered in the async
-   event loop (or a blocking write end handed to producers) would hang a live
-   thread. Both sides read that reason and report it instead of guessing.
-
-   POSIX: both channels are O_NONBLOCK pipes. The scheduler is handed the read
-   descriptor and closes it with its loop; C keeps a duplicated read end so a
-   late write degrades to EAGAIN instead of raising SIGPIPE, and a full pipe
-   drops a coalesced byte rather than blocking a producer.
-   Windows: the event channel is an auto-reset event — coalescing is built in
-   and SetEvent can never block. The command channel is an anonymous pipe,
-   because the scheduler adopts it as a HANDLE and Windows has no non-blocking
-   anonymous pipe: one byte per queued command on a 64 KiB pipe, drained by a
-   scheduler parked in ReadFile. Writing to a pipe whose read end is gone fails
-   with ERROR_BROKEN_PIPE instead of raising a signal, so the duplicate guard
-   is POSIX-only. */
+/* Notification is a hint: producers signal after enqueueing, and consumers
+   re-read the queues after each wait. POSIX uses nonblocking pipes; the
+   scheduler owns the command read descriptor, and a duplicate prevents
+   SIGPIPE on late writes. Windows uses auto-reset events, so unconsumed
+   notifications coalesce without blocking while the command loop polls. */
 enum {
     WAKE_OK = 0,
     WAKE_PIPE_FAILED = 1,
     WAKE_FCNTL_FAILED = 2,
     WAKE_DUP_FAILED = 3,
     WAKE_TEST_INJECTED = 4,
-    /* Windows: the channel is a HANDLE, not a descriptor, so the int32 transfer
-       below cannot carry it; the scheduler reports this instead of guessing. */
-    WAKE_NO_DESCRIPTOR = 5
+    WAKE_EVENT_FAILED = 5
 };
 
 #if CETAS_WINDOWS
@@ -66,7 +45,8 @@ enum {
 typedef SRWLOCK cetas_mutex;
 typedef CONDITION_VARIABLE cetas_cond;
 #define CETAS_MUTEX_INIT SRWLOCK_INIT
-#define CETAS_COND_INIT CONDITION_VARIABLE_INIT
+static cetas_cond event_space = CONDITION_VARIABLE_INIT;
+static void init_event_space(void) {}
 
 static void cetas_lock(cetas_mutex *m) { AcquireSRWLockExclusive(m); }
 static void cetas_unlock(cetas_mutex *m) { ReleaseSRWLockExclusive(m); }
@@ -85,39 +65,66 @@ static int cetas_wait_until(cetas_cond *c, cetas_mutex *m, uint64_t deadline_ms)
 typedef pthread_mutex_t cetas_mutex;
 typedef pthread_cond_t cetas_cond;
 #define CETAS_MUTEX_INIT PTHREAD_MUTEX_INITIALIZER
-#define CETAS_COND_INIT PTHREAD_COND_INITIALIZER
+#if defined(__APPLE__)
+static cetas_cond event_space = PTHREAD_COND_INITIALIZER;
+static void init_event_space(void) {}
+#else
+static cetas_cond event_space;
+static int event_space_ready;
+static void init_event_space(void) {
+    pthread_condattr_t attr;
+    if (pthread_condattr_init(&attr) != 0) return;
+    if (pthread_condattr_setclock(&attr, CLOCK_MONOTONIC) == 0) {
+        event_space_ready = pthread_cond_init(&event_space, &attr) == 0;
+    }
+    pthread_condattr_destroy(&attr);
+}
+#endif
 
 static void cetas_lock(cetas_mutex *m) { pthread_mutex_lock(m); }
 static void cetas_unlock(cetas_mutex *m) { pthread_mutex_unlock(m); }
-static void cetas_wake_all(cetas_cond *c) { pthread_cond_broadcast(c); }
+static void cetas_wake_all(cetas_cond *c) {
+#if !defined(__APPLE__)
+    if (!event_space_ready) return;
+#endif
+    pthread_cond_broadcast(c);
+}
 static uint64_t cetas_now_ms(void) {
     struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
+    clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000u + (uint64_t)(ts.tv_nsec / 1000000);
 }
 
 /* 0 = signalled, 1 = the deadline passed. */
 static int cetas_wait_until(cetas_cond *c, cetas_mutex *m, uint64_t deadline_ms) {
-    struct timespec deadline;
-    deadline.tv_sec = (time_t)(deadline_ms / 1000u);
-    deadline.tv_nsec = (long)((deadline_ms % 1000u) * 1000000u);
+#if defined(__APPLE__)
+    uint64_t now = cetas_now_ms();
+    if (now >= deadline_ms) return 1;
+    uint64_t remaining = deadline_ms - now;
+    struct timespec delay = { (time_t)(remaining / 1000u), (long)((remaining % 1000u) * 1000000u) };
+    return pthread_cond_timedwait_relative_np(c, m, &delay) == 0 ? 0 : 1;
+#else
+    /* If a monotonic condition variable could not be initialized, reject
+       a full queue rather than risking an unbounded realtime-clock wait. */
+    if (!event_space_ready) return 1;
+    struct timespec deadline = { (time_t)(deadline_ms / 1000u), (long)((deadline_ms % 1000u) * 1000000u) };
     return pthread_cond_timedwait(c, m, &deadline) == 0 ? 0 : 1;
+#endif
 }
 
 #endif
 
 #if CETAS_WINDOWS
-static HANDLE cmd_wake_read = INVALID_HANDLE_VALUE;
-static HANDLE cmd_wake_write = INVALID_HANDLE_VALUE;
+static HANDLE cmd_wake_handle = NULL;
 static HANDLE event_wake_handle = NULL;
 #else
 static int cmd_wake[2] = { -1, -1 };
 static int event_wake[2] = { -1, -1 };
 static int cmd_wake_hold = -1;
-#endif
-/* Protected by lock after the channels are initialised. Once transferred, even
-   diagnostic test seams must not probe the recycled descriptor number. */
+/* Protected by lock. Once transferred, even test seams must not probe the
+   recycled descriptor number. */
 static int cmd_wake_transferred;
+#endif
 static int32_t cmd_wake_stage = WAKE_OK, cmd_wake_errno, event_wake_stage = WAKE_OK, event_wake_errno;
 static void wake_channels_init(void);
 static void wake_channels(void);
@@ -133,50 +140,30 @@ static INIT_ONCE wake_once = INIT_ONCE_STATIC_INIT;
 
 static void wake_channels(void) { InitOnceExecuteOnce(&wake_once, wake_once_cb, NULL, NULL); }
 
-static void release_command_channel(void) {
-    if (cmd_wake_read != INVALID_HANDLE_VALUE) { CloseHandle(cmd_wake_read); cmd_wake_read = INVALID_HANDLE_VALUE; }
-    if (cmd_wake_write != INVALID_HANDLE_VALUE) { CloseHandle(cmd_wake_write); cmd_wake_write = INVALID_HANDLE_VALUE; }
+static int make_wake_event(HANDLE *handle, int32_t *stage, int32_t *saved_errno) {
+    *handle = CreateEventW(NULL, FALSE, FALSE, NULL);
+    if (!*handle) {
+        *saved_errno = (int32_t)GetLastError();
+        *stage = WAKE_EVENT_FAILED;
+        return -1;
+    }
+    *stage = WAKE_OK;
+    *saved_errno = 0;
+    return 0;
 }
 
 static int make_command_channel(int32_t *stage, int32_t *saved_errno) {
-    *stage = WAKE_OK;
-    *saved_errno = 0;
-    if (!CreatePipe(&cmd_wake_read, &cmd_wake_write, NULL, 65536)) {
-        *saved_errno = (int32_t)GetLastError();
-        *stage = WAKE_PIPE_FAILED;
-        release_command_channel();
-        return -1;
-    }
-    if (!SetHandleInformation(cmd_wake_read, HANDLE_FLAG_INHERIT, 0)) {
-        *saved_errno = (int32_t)GetLastError();
-        *stage = WAKE_FCNTL_FAILED;
-        release_command_channel();
-        return -1;
-    }
-    return 0;
+    return make_wake_event(&cmd_wake_handle, stage, saved_errno);
 }
 
 static int make_event_channel(int32_t *stage, int32_t *saved_errno) {
-    *stage = WAKE_OK;
-    *saved_errno = 0;
-    event_wake_handle = CreateEventW(NULL, FALSE, FALSE, NULL);
-    if (!event_wake_handle) {
-        *saved_errno = (int32_t)GetLastError();
-        *stage = WAKE_PIPE_FAILED;
-        return -1;
-    }
-    return 0;
+    return make_wake_event(&event_wake_handle, stage, saved_errno);
 }
 
-/* No SIGPIPE on Windows and no descriptor to protect: the read end closing
-   fails later writes with ERROR_BROKEN_PIPE. */
 static void hold_command_channel(void) {}
 
 static void wake_signal_command(void) {
-    if (cmd_wake_write == INVALID_HANDLE_VALUE) return;
-    uint8_t byte = 1;
-    DWORD written = 0;
-    WriteFile(cmd_wake_write, &byte, 1, &written, NULL);
+    if (cmd_wake_handle) SetEvent(cmd_wake_handle);
 }
 
 static void wake_signal_event(void) {
@@ -258,6 +245,7 @@ static void wake_signal_event(void) {
 #endif
 
 static void wake_channels_init(void) {
+    init_event_space();
     /* Transport-test fault injection, compiled only into fault-injection
        builds (CFLAGS -DCETAS_NATIVE_FAULT_INJECTION, set by the Go build tag
        cetas_native_faults). Release builds contain no env-driven way to
@@ -296,7 +284,6 @@ static struct { int32_t len; uint8_t flags; uint8_t *data; } events[EVENT_CAP];
 static int32_t eh, en, event_bytes;
 /* Exact rejection bookkeeping; drops is always their total. */
 static int32_t drops, oversize_rejects, full_rejects, invalid_rejects, allocation_rejects;
-static cetas_cond event_space = CETAS_COND_INIT;
 
 static int32_t last_length, last_chunks, last_bytes, count_timeouts, byte_timeouts;
 static void rejection_context(int32_t len) {
@@ -440,82 +427,78 @@ void cetas_host_rejections(int32_t *oversized, int32_t *full, int32_t *invalid, 
     cetas_unlock(&lock);
 }
 
-/* Harness request FIFO: copied bytes, no shared Go/MoonBit memory. */
+/* Harness request FIFO: each occupied slot owns its exact-sized byte copy. */
 enum { HARNESS_CAP = 64, HARNESS_BYTES = 262144 };
 static struct {
     int32_t len;
-    uint8_t bytes[HARNESS_BYTES];
+    uint8_t *data;
 } harness_requests[HARNESS_CAP];
 static int32_t h_head, h_size;
 
 int32_t cetas_host_submit_harness(const uint8_t *src, int32_t len) {
-    if (!src || len<=0 || len>HARNESS_BYTES) return -1;
+    if (!src || len <= 0 || len > HARNESS_BYTES) return -1;
     wake_channels();
     cetas_lock(&lock);
-    if (h_size==HARNESS_CAP) {cetas_unlock(&lock);return 0;}
-    int32_t index=(h_head+h_size)%HARNESS_CAP;
-    harness_requests[index].len=len;
-    memcpy(harness_requests[index].bytes,src,(size_t)len);
+    if (h_size == HARNESS_CAP) { cetas_unlock(&lock); return 0; }
+    uint8_t *data = (uint8_t *)malloc((size_t)len);
+    if (!data) { cetas_unlock(&lock); return -2; }
+    memcpy(data, src, (size_t)len);
+    int32_t index = (h_head + h_size) % HARNESS_CAP;
+    harness_requests[index].len = len;
+    harness_requests[index].data = data;
     h_size++;
     cetas_unlock(&lock);
-    /* Queue first, then ring the scheduler's doorbell. */
     wake_signal_command();
     return 1;
 }
 
-int32_t cetas_bridge_next_harness(uint8_t *dst,int32_t cap) {
-    if (!dst || cap<=0) return -1;
+int32_t cetas_bridge_next_harness(uint8_t *dst, int32_t cap) {
+    if (!dst || cap <= 0) return -1;
     cetas_lock(&lock);
-    if (!h_size) {cetas_unlock(&lock);return 0;}
-    int32_t len=harness_requests[h_head].len;
-    if (cap<len) {cetas_unlock(&lock);return -len;}
-    memcpy(dst,harness_requests[h_head].bytes,(size_t)len);
-    h_head=(h_head+1)%HARNESS_CAP;
+    if (!h_size) { cetas_unlock(&lock); return 0; }
+    int32_t len = harness_requests[h_head].len;
+    if (cap < len) { cetas_unlock(&lock); return -len; }
+    uint8_t *data = harness_requests[h_head].data;
+    harness_requests[h_head].data = NULL;
+    harness_requests[h_head].len = 0;
+    h_head = (h_head + 1) % HARNESS_CAP;
     h_size--;
     cetas_unlock(&lock);
+    memcpy(dst, data, (size_t)len);
+    free(data);
     return len;
 }
 
-/* Command/request readiness: the read end the MoonBit async scheduler owns.
-   Ownership of this descriptor transfers to that scheduler, which is its only
-   reader and closes it; C never touches the read end again. Returns -1 when
-   the channel could not be created; the scheduler reports the stage below and
-   degrades to bounded polling. */
-int32_t cetas_bridge_command_fd(void) {
-    wake_channels();
+/* Stop can overtake harness requests. Release their owned copies when the
+   scheduler exits, including after an unsuccessful boot. */
+int32_t cetas_host_infra_run(void) {
+    int32_t result = cetas_infra_run();
     cetas_lock(&lock);
-#if CETAS_WINDOWS
-    /* Windows has no descriptor to hand over: the channel is a HANDLE and the
-       scheduler adopts it through cetas_bridge_command_handle below. Reporting
-       the exact stage keeps the degradation visible instead of silently
-       returning a truncated pointer. */
+    while (h_size) {
+        free(harness_requests[h_head].data);
+        harness_requests[h_head].data = NULL;
+        harness_requests[h_head].len = 0;
+        h_head = (h_head + 1) % HARNESS_CAP;
+        h_size--;
+    }
     cetas_unlock(&lock);
-    cmd_wake_stage = cmd_wake_stage == WAKE_OK ? WAKE_NO_DESCRIPTOR : cmd_wake_stage;
+    return result;
+}
+
+/* The scheduler owns the transferred POSIX read end. Windows polls instead
+   and cannot claim a descriptor. */
+int32_t cetas_bridge_command_fd(void) {
+#if CETAS_WINDOWS
     return -1;
 #else
+    wake_channels();
+    cetas_lock(&lock);
     int fd = cmd_wake_transferred ? -1 : cmd_wake[0];
     if (fd >= 0) cmd_wake_transferred = 1;
     cetas_unlock(&lock);
     return fd;
 #endif
 }
-
-#if CETAS_WINDOWS
-/* The command channel's read HANDLE, transferred once to the MoonBit async
-   scheduler exactly like the POSIX descriptor above. Returns 0 when the
-   channel is unavailable or already transferred. */
-uintptr_t cetas_bridge_command_handle(void) {
-    wake_channels();
-    cetas_lock(&lock);
-    uintptr_t handle = 0;
-    if (!cmd_wake_transferred && cmd_wake_stage == WAKE_OK && cmd_wake_read != INVALID_HANDLE_VALUE) {
-        handle = (uintptr_t)cmd_wake_read;
-        cmd_wake_transferred = 1;
-    }
-    cetas_unlock(&lock);
-    return handle;
-}
-#endif
 
 /* Exact command-channel failure stage: WAKE_* above, plus the errno that
    caused it. The scheduler turns this into a named diagnostic instead of
@@ -613,8 +596,7 @@ int32_t cetas_bridge_command_channel_open(void) {
     wake_channels();
     cetas_lock(&lock);
 #if CETAS_WINDOWS
-    int available = !cmd_wake_transferred && cmd_wake_stage == WAKE_OK &&
-                    cmd_wake_read != INVALID_HANDLE_VALUE;
+    int available = cmd_wake_handle != NULL;
 #else
     int available = !cmd_wake_transferred && cmd_wake[0] >= 0;
 #endif
@@ -622,27 +604,14 @@ int32_t cetas_bridge_command_channel_open(void) {
     return available;
 }
 
-/* Non-blocking drain of one pending command-channel notification. Transport
-   tests use it to prove Send/Submit wake the waiting scheduler. */
+/* Non-blocking consumption of one pending command-channel notification. */
 int32_t cetas_bridge_read_command_wake(void) {
     wake_channels();
-    cetas_lock(&lock);
 #if CETAS_WINDOWS
-    if (cmd_wake_transferred || cmd_wake_read == INVALID_HANDLE_VALUE) {
-        cetas_unlock(&lock);
-        return -1;
-    }
-    /* Anonymous pipes cannot be switched to non-blocking, so ask first. */
-    DWORD available = 0;
-    int pending = PeekNamedPipe(cmd_wake_read, NULL, 0, NULL, &available, NULL) && available > 0;
-    if (pending) {
-        uint8_t byte;
-        DWORD got = 0;
-        pending = ReadFile(cmd_wake_read, &byte, 1, &got, NULL) && got == 1;
-    }
-    cetas_unlock(&lock);
-    return pending ? 1 : 0;
+    if (!cmd_wake_handle) return -1;
+    return WaitForSingleObject(cmd_wake_handle, 0) == WAIT_OBJECT_0 ? 1 : 0;
 #else
+    cetas_lock(&lock);
     if (cmd_wake_transferred || cmd_wake[0] < 0) {
         cetas_unlock(&lock);
         return -1;

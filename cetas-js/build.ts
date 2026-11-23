@@ -17,7 +17,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { moonbit } from "bun-plugin-moonbit";
-import { protect } from "./build-protect.ts";
 
 const TARGETS = {
   "darwin-arm64": "bun-darwin-arm64",
@@ -128,10 +127,9 @@ if (nodeBundle) {
   const result = await Bun.build({
     entrypoints: ["host.ts"],
     target: "node",
-    minify: true,
     treeShaking: true,
     external: ["@earendil-works/pi-tui"],
-    define: VERSION_DEFINE,
+    define: { ...VERSION_DEFINE, __CETAS_NODE_BUNDLE__: "true" },
     plugins: [
       moonbit({
         root: import.meta.dir,
@@ -148,26 +146,7 @@ if (nodeBundle) {
   // Bun.build's JS API silently ignores a top-level outfile — write the
   // single output blob by hand, shebang first so npm bin shims exec node.
   const [out] = result.outputs;
-  let code = await out.text();
-  if (process.env.CETAS_PROTECT === "0") {
-    console.log(
-      "- protect    skipped (CETAS_PROTECT=0) — do not publish this artifact",
-    );
-  } else {
-    const { code: guarded, stats } = protect(code);
-    code = guarded;
-    const total =
-      stats.sites + Object.values(stats.skipped).reduce((a, b) => a + b, 0);
-    const pct = total === 0 ? 0 : (stats.sites / total) * 100;
-    const skip = Object.entries(stats.skipped)
-      .map(([k, v]) => `${k}=${v}`)
-      .join(" ");
-    console.log(
-      `✓ protect    obfuscate=${stats.profile}  ${stats.sites} strings encrypted (${pct.toFixed(1)}%, ${stats.unique} unique, skipped: ${skip})  ` +
-        `${(stats.bytesIn / 1024 / 1024).toFixed(1)} → ${(stats.bytesOut / 1024 / 1024).toFixed(1)} MB  ` +
-        `${((stats.msObfuscate + stats.msEncrypt) / 1000).toFixed(1)}s`,
-    );
-  }
+  const code = await out.text();
   await Bun.write("dist/cetas.js", `#!/usr/bin/env node\n${code}`);
   const stat = await Bun.file("dist/cetas.js").stat();
   console.log(

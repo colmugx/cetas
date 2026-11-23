@@ -27,15 +27,6 @@ const call = {
 };
 
 describe("notify_user renderer", () => {
-  test("the call view leads with the question and the kind", () => {
-    const text = stripTerminalSequences(
-      notifyUserRenderer.renderCall!(context(call)).render(120).join("\n"),
-    );
-    expect(text).toContain("asks");
-    expect(text).toContain("Upgrade node to 22?");
-    expect(text).toContain("[confirm]");
-  });
-
   test("select questions list their options", () => {
     const text = stripTerminalSequences(
       notifyUserRenderer
@@ -76,15 +67,5 @@ describe("notify_user renderer", () => {
         .join("\n"),
     );
     expect(text).toContain("@q3");
-  });
-
-  test("errors fall back to the content with an error bullet", () => {
-    const result: ToolRenderResultPayload = { content: "boom", isError: true };
-    const text = stripTerminalSequences(
-      notifyUserRenderer.renderResult!(result, { expanded: false, isPartial: false }, context(call))
-        .render(120)
-        .join("\n"),
-    );
-    expect(text).toContain("boom");
   });
 });

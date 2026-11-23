@@ -36,16 +36,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Checkout current HawDB main
-        uses: actions/checkout@v4
-        with:
-          repository: nowledge-co/hawdb
-          ref: main
-          path: _hawdb_checkout
-
-      - name: Prepare native HawDB source workspace
-        run: python3 scripts/prepare_hawdb_native.py
-
       - name: Install moon (Unix)
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
@@ -88,18 +78,7 @@ jobs:
         run: |
           # Interface drift is checked against the public graph.
           moon info
-          # The native HawDB prep step temporarily adds its local source module to moon.work.
-          # Restore only this temporary workspace assembly; keep the strict source/interface drift gate.
-          git restore -- moon.work
           git -c diff.ignoreSubmodules=dirty diff --exit-code -- . ./cetas-js ./cetas-core ./cetas-run ./cetas-acp ./cetas-ext-forme
-
-      # JS/shared tests do not compose the native Cetas-Go host. Keep its
-      # HawDB-only dependency out of their workspace resolution, just as in
-      # the independently checked Memoh workflow.
-      - name: Isolate native-only HawDB graph for shared and JS tests
-        run: |
-          python3 scripts/prepare_memoh_workspace.py
-          moon update
 
       - name: moon test
         id: test
@@ -159,16 +138,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Checkout current HawDB main
-        uses: actions/checkout@v4
-        with:
-          repository: nowledge-co/hawdb
-          ref: main
-          path: _hawdb_checkout
-
-      - name: Prepare native HawDB source workspace
-        run: python3 scripts/prepare_hawdb_native.py
-
       - name: Install moon (unix)
         run: |
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
@@ -201,14 +170,6 @@ jobs:
           echo "MOON_CC_WRAPPER=$RUNNER_TEMP/moon-cc-wrapper" >> "$GITHUB_ENV"
           echo "MOONBIT_ALLOCATOR=system" >> "$GITHUB_ENV"
 
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: _hawdb_checkout/bindings/moonbit/native
-      - name: Build current HawDB native adapter
-        working-directory: _hawdb_checkout/bindings/moonbit/native
-        run: cargo build --release
-
       - name: Compile MoonBit bridge archive
         shell: bash
         run: |
@@ -216,30 +177,6 @@ jobs:
           src="_build/native/release/build/colmugx/cetas-go/native_bridge/native_bridge.a"
           mkdir -p cetas-go/go_bridge/lib
           cp "$src" cetas-go/go_bridge/lib/libcetas_moon.a
-          cp _hawdb_checkout/bindings/moonbit/native/target/release/libhawdb_moonbit.a cetas-go/go_bridge/lib/libhawdb_moonbit.a
-
-      # Go 1.27 rejects LTO/LLVM bitcode sections in static archives passed
-      # through cgo (even when the final linker would not use LTO).
-      # Strip them only from Go's copied archive; the original HawDB archive
-      # remains available for the MoonBit native link.
-      - name: Remove LLVM LTO metadata from Go-facing HawDB archive
-        shell: bash
-        run: |
-          set -euo pipefail
-          archive=cetas-go/go_bridge/lib/libhawdb_moonbit.a
-          cleaned="${archive}.clean"
-          if [[ "${RUNNER_OS}" == "macOS" ]]; then
-            # Xcode bitcode_strip fails on Rust staticlib archives. LLVM's
-            # object copier handles the Mach-O members in an archive.
-            rustup component add llvm-tools-preview
-            host=$(rustc -vV | sed -n 's/^host: //p')
-            tool="$(rustc --print sysroot)/lib/rustlib/${host}/bin/llvm-objcopy"
-            test -x "${tool}"
-            "${tool}" --remove-section='__LLVM,__bitcode' --remove-section='__LLVM,__cmdline' "${archive}" "${cleaned}"
-          else
-            objcopy --remove-section=.llvmbc --remove-section=.llvmcmd "${archive}" "${cleaned}"
-          fi
-          mv "${cleaned}" "${archive}"
 
       # Download modules before vet/test so transient Go proxy HTTP/2
       # failures can be retried without restarting the expensive MoonBit build.
@@ -311,16 +248,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Checkout current HawDB main
-        uses: actions/checkout@v4
-        with:
-          repository: nowledge-co/hawdb
-          ref: main
-          path: _hawdb_checkout
-
-      - name: Prepare native HawDB source workspace
-        run: python scripts/prepare_hawdb_native.py
-
       - uses: ilammy/msvc-dev-cmd@v1
       - name: Install MoonBit
         shell: pwsh
@@ -357,14 +284,6 @@ jobs:
           go build -o "$env:RUNNER_TEMP\moon-cc-wrapper.exe" ./tools/moon-cc-wrapper
           "MOON_CC_WRAPPER=$env:RUNNER_TEMP\moon-cc-wrapper.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
           "MOONBIT_ALLOCATOR=system" | Out-File -FilePath $env:GITHUB_ENV -Append
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: _hawdb_checkout/bindings/moonbit/native
-      - name: Build current HawDB native adapter
-        working-directory: _hawdb_checkout/bindings/moonbit/native
-        run: cargo build --release
-
       - name: Build MoonBit archive (optimized)
         run: moon build cetas-go/native_bridge --target native --release
       - name: Link MSVC runtime DLL

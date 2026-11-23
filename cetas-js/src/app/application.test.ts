@@ -1517,7 +1517,7 @@ describe("CetasApplication", () => {
     const app = new CetasApplication({
       bridge: {
         ...base,
-        listWorkspaceFiles: async () => JSON.stringify(["src/", "src/agent.mbt", 7]),
+        listWorkspaceFiles: async () => ["src/", "src/agent.mbt"],
       },
       config,
       callbacks,
@@ -1548,13 +1548,16 @@ describe("CetasApplication", () => {
     const counters = { created: 0, runs: 0, shutdowns: 0 };
     const base = bridgeFor({ providers: [], oauthProviders: [] }, counters);
     const app = new CetasApplication({
-      bridge: { ...base, listWorkspaceFiles: async () => "{\"files\":[]}" },
+      bridge: {
+        ...base,
+        listWorkspaceFiles: async () => ({ files: [] }) as unknown as string[],
+      },
       config,
       callbacks,
       initialSessionId: "session-1",
     });
 
-    await expect(app.listWorkspaceFiles()).rejects.toThrow("must be a JSON array");
+    await expect(app.listWorkspaceFiles()).rejects.toThrow("must be an array");
   });
 
   test("rejects malformed /login arguments with a typed invalid_state error", async () => {
@@ -2556,6 +2559,7 @@ describe("Board activation note", () => {
   test("answering one question never settles the others through a legacy close hook", async () => {
     const counters = { created: 0, runs: 0, shutdowns: 0 };
     const prompts: string[] = [];
+    const pending = new Set(["question-1", "question-2"]);
     let legacyCloses = 0;
     const bridge = {
       ...bridgeFor(agentComposingSetup(), counters),
@@ -2563,7 +2567,7 @@ describe("Board activation note", () => {
         prompts.push(prompt);
         return "reply";
       },
-      answerQuestion: async () => true,
+      answerQuestion: (_agent, id) => pending.delete(id),
     } as CetasAgentBridge<{ id: string }> & { closeUserQuestions?: () => number };
     // A third-party bridge may still expose the removed hook. The
     // application must not call it: answering q1 owns only q1.
@@ -2579,7 +2583,13 @@ describe("Board activation note", () => {
     });
     await app.start();
 
-    expect(await app.answerQuestion("question-1", { index: 0 }, "@q1: staging")).toBe(true);
+    await expect(app.answerQuestion("question-1", { index: 0 }, "")).rejects.toMatchObject({ code: "invalid_state" });
+    expect(pending.has("question-1")).toBe(true);
+    const answered = app.answerQuestion("question-1", { index: 0 }, "@q1: staging");
+    const duplicate = app.answerQuestion("question-1", { index: 0 }, "duplicate echo");
+    expect(await answered).toBe(true);
+    expect(await duplicate).toBe(false);
+    expect([...pending]).toEqual(["question-2"]);
     expect(prompts).toEqual(["@q1: staging"]);
     expect(legacyCloses).toBe(0);
     await app.shutdown();

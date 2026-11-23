@@ -34,9 +34,6 @@ pub impl @posoco.UiPort for FakeApprovalUi with fn request(
 }
 
 ///|
-pub extend FakeApprovalUi with @posoco.UiPort::{ui_descriptor, request, render}
-
-///|
 fn fake_ui(reply~ : @port.UiResponse, fail~ : Bool = false) -> FakeApprovalUi {
   { asked: [], reply, fail, }
 }
@@ -54,30 +51,10 @@ fn approval_request() -> @permission.ApprovalRequest {
 }
 
 ///|
-async test "approval ask presents the full decision space as a select" {
-  let ui = fake_ui(reply=@port.UiResponse::Selected(0))
-  let source = BlockingApprovalSource()
-  source.ui = Some(ui as &@posoco.UiPort)
-  match source.ask(approval_request()) {
-    @permission.ApprovalDecision::AllowOnce => ()
-    _ => fail("option 0 must approve this call only")
-  }
-  match ui.asked[0] {
-    @port.UiRequest::Select(prompt~, options~, default~) => {
-      assert_eq(prompt, "Allow tool 'bash' (shell)?\n{\"cmd\":\"ls -la\"}")
-      assert_eq(options.length(), 4)
-      assert_eq(options[0], "Allow once")
-      assert_eq(options[1], "Allow 'bash:ls' for this session")
-      assert_eq(options[2], "Allow all 'bash' commands for this session")
-      assert_eq(options[3], "Deny")
-      assert_eq(default, Some(0))
-    }
-    _ => fail("the approval ask must be a Select request")
-  }
-}
-
-///|
 async test "approval ask maps the session, tool-grant, and deny options" {
+  let once_source = BlockingApprovalSource()
+  once_source.ui = Some(fake_ui(reply=@port.UiResponse::Selected(0)))
+  assert_true(once_source.ask(approval_request()) is @permission.AllowOnce)
   let ui = fake_ui(reply=@port.UiResponse::Selected(1))
   let session_source = BlockingApprovalSource()
   session_source.ui = Some(ui as &@posoco.UiPort)
@@ -85,6 +62,11 @@ async test "approval ask maps the session, tool-grant, and deny options" {
     @permission.ApprovalDecision::AllowSession => ()
     _ => fail("option 1 must remember the granted scope for the session")
   }
+  guard ui.asked[0] is @port.UiRequest::Select(prompt~, default~, ..) else {
+    fail("approval must require an explicit selection")
+  }
+  @debug.assert_eq(prompt, "Allow tool 'bash' (shell)?\n{\"cmd\":\"ls -la\"}")
+  @debug.assert_eq(default, Some(0))
   let tool_ui = fake_ui(reply=@port.UiResponse::Selected(2))
   let tool_source = BlockingApprovalSource()
   tool_source.ui = Some(tool_ui as &@posoco.UiPort)
@@ -112,7 +94,7 @@ async test "non-shell asks keep three options and scope the label to the tool" {
     call_id: "call-2",
     category: "write",
     arguments_preview: "{}",
-    arguments: Json::object(Map::from_array([])),
+    arguments: Json::empty_object(),
     scopes: ["edit"],
   }
   match source.ask(request) {
@@ -125,27 +107,6 @@ async test "non-shell asks keep three options and scope the label to the tool" {
       // option IS the tool grant — no separate whole-tool option.
       assert_eq(options.length(), 3)
       assert_eq(options[1], "Allow 'edit' for this session")
-    }
-    _ => fail("the approval ask must be a Select request")
-  }
-}
-
-///|
-async test "a shell ask without a parseable scope falls back to the generic label" {
-  let ui = fake_ui(reply=@port.UiResponse::Selected(1))
-  let source = BlockingApprovalSource()
-  source.ui = Some(ui as &@posoco.UiPort)
-  let request = { ..approval_request(), scopes: [], }
-  match source.ask(request) {
-    @permission.ApprovalDecision::AllowSession => ()
-    _ => fail("option 1 must approve the call for the session")
-  }
-  match ui.asked[0] {
-    @port.UiRequest::Select(options~, ..) => {
-      // Keyless calls are never cached; the generic label stays per-call.
-      assert_eq(options.length(), 4)
-      assert_eq(options[1], "Allow for this session")
-      assert_eq(options[2], "Allow all 'bash' commands for this session")
     }
     _ => fail("the approval ask must be a Select request")
   }

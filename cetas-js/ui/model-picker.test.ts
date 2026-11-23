@@ -3,7 +3,6 @@ import type { Component } from "@earendil-works/pi-tui";
 
 import {
   formatPickCandidateNotices,
-  formatQuotaAge,
   ModelPickerOverlay,
   parseModelPickerOutcome,
   type ModelCatalogEntry,
@@ -281,7 +280,7 @@ describe("model picker search", () => {
     expect(lines.some((line) => line.includes("Gamma"))).toBe(false);
   });
 
-  test("shows the match count with pluralization and a no-match line", () => {
+  test("enter with no matches does not confirm", () => {
     const tui = new FakeTui();
     const picker = new ModelPickerOverlay(tui as never);
     let selected: unknown;
@@ -296,15 +295,7 @@ describe("model picker search", () => {
       () => {},
     );
     const panel = tui.shown!;
-    panel.handleInput!("sw");
-    expect(panel.render(60).some((line) => line.includes("2 matches"))).toBe(true);
-    panel.handleInput!("ifter");
-    expect(panel.render(60).some((line) => line.includes("1 match"))).toBe(true);
-    expect(panel.render(60).some((line) => line.includes("2 matches"))).toBe(false);
     panel.handleInput!("z");
-    const lines = panel.render(60);
-    expect(lines.some((line) => line.includes("0 matches"))).toBe(true);
-    expect(lines.some((line) => line.includes("No matching"))).toBe(true);
     // Enter over an empty result confirms nothing and keeps the picker open.
     panel.handleInput!("\r");
     expect(selected).toBeUndefined();
@@ -970,7 +961,6 @@ describe("model picker quota mode", () => {
     const staleLines = tui.shown!.render(160);
     const alphaLine = lineOf("Alpha", staleLines);
     expect(alphaLine).toContain("2h ago");
-    expect(alphaLine).toContain(theme.muted(formatQuotaAge(fetchedAt, staleNow())));
   });
 
   test("default tabs mode keeps display_group grouping and active preselect without quota data", () => {

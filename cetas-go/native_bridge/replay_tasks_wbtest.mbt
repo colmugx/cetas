@@ -22,37 +22,66 @@ test "session catalog leaves the replay fifo" {
 /// and keeps everything else: the switched-to session's jobs, selector-less
 /// jobs, and (by construction) the one the worker already holds.
 fn job(id : Int32, session : String) -> NativeReplayJob {
-  let fields : Array[(String, Json)] = []
-  if session != "" {
-    fields.push(("session_id", Json::string(session)))
-  }
   {
     id,
     command: "transcript_page",
-    args: Json::object(Map::from_array(fields)),
+    args: if session.is_empty() {
+      Json::empty_object()
+    } else {
+      Json::object({ "session_id": Json::string(session) })
+    },
   }
+}
+
+///|
+fn drain_replay_jobs(tasks : NativeReplayTasks) -> Array[Int32] {
+  let ids = []
+  while tasks.dequeue() is Some(job) {
+    ids.push(job.id)
+  }
+  ids
 }
 
 ///|
 test "supersede drops only the departed session's queued reads" {
   let tasks = NativeReplayTasks::new("native replay")
-  tasks.queue.push(job(1, "old"))
-  tasks.queue.push(job(2, "next"))
-  tasks.queue.push(job(3, "next"))
-  tasks.queue.push(job(4, ""))
-  // The emit half needs the host sink, so pin the pure split: the departed
-  // session's jobs drop, the target's and selector-less jobs stay.
-  let (kept, dropped) = tasks.split_superseded("next")
-  assert_eq(kept.map(j => j.id), [2, 3, 4])
-  assert_eq(dropped.map(j => j.id), [1])
-  // Repeat sweeps against a different keeper are idempotent, and the empty
-  // queue is a no-op.
-  tasks.queue = kept
-  let (kept2, dropped2) = tasks.split_superseded("other")
-  assert_eq(kept2.map(j => j.id), [4])
-  assert_eq(dropped2.map(j => j.id), [2, 3])
-  tasks.queue = []
-  let (kept3, dropped3) = tasks.split_superseded("whoever")
-  assert_true(kept3.is_empty())
-  assert_true(dropped3.is_empty())
+  assert_true(tasks.enqueue(job(1, "old")))
+  assert_true(tasks.enqueue(job(2, "next")))
+  assert_true(tasks.enqueue(job(3, "next")))
+  assert_true(tasks.enqueue(job(4, "")))
+  assert_eq(tasks.discard_superseded("next").map(j => j.id), [1])
+  assert_true(tasks.discard_superseded("next").is_empty())
+  assert_eq(drain_replay_jobs(tasks), [2, 3, 4])
+  assert_true(tasks.discard_superseded("other").is_empty())
+}
+
+///|
+test "starting a new session drops every queued session-bound read" {
+  let tasks = NativeReplayTasks::new("native replay")
+  assert_true(tasks.enqueue(job(1, "old")))
+  assert_true(tasks.enqueue(job(2, "")))
+  assert_true(tasks.enqueue(job(3, "other")))
+  assert_eq(tasks.discard_superseded("").map(j => j.id), [1, 3])
+  assert_eq(drain_replay_jobs(tasks), [2])
+}
+
+///|
+test "replay FIFO preserves order and capacity across wraparound" {
+  let tasks = NativeReplayTasks::new("native replay")
+  for id in 0..<16 {
+    assert_true(tasks.enqueue(job(id, "")))
+  }
+  assert_false(tasks.enqueue(job(16, "")))
+  for id in 0..<8 {
+    assert_eq(tasks.dequeue().map(j => j.id), Some(id))
+  }
+  for id in 16..<24 {
+    assert_true(tasks.enqueue(job(id, "")))
+  }
+  assert_false(tasks.enqueue(job(24, "")))
+  assert_true(tasks.discard_superseded("new").is_empty())
+  assert_eq(drain_replay_jobs(tasks), [
+    8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+  ])
+  assert_true(tasks.dequeue() is None)
 }

@@ -3,9 +3,10 @@
 package bridge
 
 /*
-#cgo darwin LDFLAGS: -L${SRCDIR}/lib -lcetas_moon -lhawdb_moonbit -ldl -lpthread -lm -framework CoreFoundation -framework IOKit
+#cgo darwin LDFLAGS: -L${SRCDIR}/lib -lcetas_moon -lhawdb_moonbit -framework CoreFoundation -framework IOKit
 #cgo linux LDFLAGS: -L${SRCDIR}/lib -lcetas_moon -lhawdb_moonbit -lpthread -lm -ldl
 #include <stdint.h>
+#include <stdlib.h>
 void cetas_host_boot(void);
 int32_t cetas_host_infra_run(void);
 int32_t cetas_host_send(int32_t);
@@ -63,5 +64,7 @@ func HeapRelief() { C.cetas_heap_relief() }
 // allocator it records an explicit unsupported marker instead of pretending
 // mimalloc statistics exist. The path is diagnostic-only.
 func HeapStats(path string) {
-	C.cetas_heap_stats_file(C.CString(path))
+	cpath := C.CString(path)
+	defer C.free(unsafe.Pointer(cpath))
+	C.cetas_heap_stats_file(cpath)
 }

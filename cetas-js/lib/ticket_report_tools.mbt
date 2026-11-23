@@ -1,7 +1,4 @@
 ///|
-/// Worker-facing reporting tools for a Board ticket child.
-
-///|
 let ticket_progress_kinds : Array[String] = [
   "normal", "milestone", "attention", "blocked",
 ]
@@ -171,10 +168,10 @@ fn report_arguments(
   arguments : Json,
   tool : String,
 ) -> Result[Map[String, Json], String] {
-  match arguments {
-    Json::Object(fields) => Ok(fields)
-    _ => Err(tool + ": arguments must be a JSON object")
+  guard arguments is Json::Object(fields) else {
+    return Err("\{tool}: arguments must be a JSON object")
   }
+  Ok(fields)
 }
 
 ///|
@@ -195,9 +192,7 @@ fn parse_progress_arguments(
   }
   if message.length() > ticket_progress_message_max {
     return Err(
-      "report_progress: 'message' must be at most " +
-      ticket_progress_message_max.to_string() +
-      " characters",
+      "report_progress: 'message' must be at most \{ticket_progress_message_max} characters",
     )
   }
   let kind = match fields.get("kind") {
@@ -206,8 +201,7 @@ fn parse_progress_arguments(
       let kind = value.trim().to_owned()
       if !ticket_progress_kinds.contains(kind) {
         return Err(
-          "report_progress: 'kind' must be one of " +
-          ticket_progress_kinds.join(", "),
+          "report_progress: 'kind' must be one of \{ticket_progress_kinds.join(", ")}",
         )
       }
       kind
@@ -226,18 +220,14 @@ fn work_report_strings(
     None | Some(Json::Null) => return Ok([])
     Some(Json::Array(values)) => values
     Some(_) =>
-      return Err(
-        "submit_work_report: '" + key + "' must be an array of strings",
-      )
+      return Err("submit_work_report: '\{key}' must be an array of strings")
   }
   let out : Array[String] = []
   for value in values {
     match value {
       Json::String(text) => out.push(text)
       _ =>
-        return Err(
-          "submit_work_report: every '" + key + "' entry must be a string",
-        )
+        return Err("submit_work_report: every '\{key}' entry must be a string")
     }
   }
   Ok(out)
@@ -251,9 +241,8 @@ fn work_report_string(
 ) -> Result[String, String] {
   match fields.get(key) {
     Some(Json::String(value)) => Ok(value)
-    Some(_) =>
-      Err("submit_work_report: '" + path + "." + key + "' must be a string")
-    None => Err("submit_work_report: '" + path + "." + key + "' is required")
+    Some(_) => Err("submit_work_report: '\{path}.\{key}' must be a string")
+    None => Err("submit_work_report: '\{path}.\{key}' is required")
   }
 }
 
@@ -272,8 +261,7 @@ fn work_report_evidence(value : Json) -> Result[Json, String] {
   }
   if !ticket_report_evidence_kinds.contains(kind) {
     return Err(
-      "submit_work_report: 'verification.kind' must be one of " +
-      ticket_report_evidence_kinds.join(", "),
+      "submit_work_report: 'verification.kind' must be one of \{ticket_report_evidence_kinds.join(", ")}",
     )
   }
   let label = match work_report_string(fields, "label", "verification") {
@@ -289,8 +277,7 @@ fn work_report_evidence(value : Json) -> Result[Json, String] {
   }
   if !ticket_report_evidence_results.contains(result) {
     return Err(
-      "submit_work_report: 'verification.result' must be one of " +
-      ticket_report_evidence_results.join(", "),
+      "submit_work_report: 'verification.result' must be one of \{ticket_report_evidence_results.join(", ")}",
     )
   }
   let detail = match fields.get("detail") {
@@ -324,8 +311,7 @@ fn work_report_artifact(value : Json) -> Result[Json, String] {
   }
   if !ticket_report_artifact_kinds.contains(kind) {
     return Err(
-      "submit_work_report: 'artifacts.kind' must be one of " +
-      ticket_report_artifact_kinds.join(", "),
+      "submit_work_report: 'artifacts.kind' must be one of \{ticket_report_artifact_kinds.join(", ")}",
     )
   }
   let label = match work_report_string(fields, "label", "artifacts") {
@@ -363,7 +349,7 @@ fn work_report_entries(
   let values = match fields.get(key) {
     None | Some(Json::Null) => return Ok([])
     Some(Json::Array(values)) => values
-    Some(_) => return Err("submit_work_report: '" + key + "' must be an array")
+    Some(_) => return Err("submit_work_report: '\{key}' must be an array")
   }
   let out : Array[Json] = []
   for value in values {
@@ -501,7 +487,7 @@ impl @posoco.ToolProvider for TicketReportTools with fn execute(
       Ok(_) => ()
       Err(reason) =>
         return @posoco.ToolOutcome::ToolReportedError(
-          content="submit_work_report: " + reason,
+          content="submit_work_report: \{reason}",
           structured=None,
         )
     }
@@ -511,7 +497,7 @@ impl @posoco.ToolProvider for TicketReportTools with fn execute(
     )
   }
   raise @posoco.RuntimeError::UnknownTool(
-    "cetas_ticket: unknown tool '" + name + "'",
+    "cetas_ticket: unknown tool '\{name}'",
   )
 }
 

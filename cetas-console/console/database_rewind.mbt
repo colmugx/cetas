@@ -16,7 +16,8 @@ fn database_user_text(message : @kernel.Message) -> String? {
       } else {
         let trimmed = text.trim_start()
         if trimmed.has_prefix("## Memory") ||
-          (trimmed.has_prefix("<") && trimmed.has_prefix("<context")) {
+          trimmed.has_prefix(@posoco.MEMORY_INBOUND_LEAD) ||
+          trimmed.has_prefix("<context") {
           None
         } else {
           Some(text)
@@ -69,7 +70,7 @@ async fn database_rewind_user_message(
   if index < 0 {
     return None
   }
-  let session = catalog.load(id) catch { _ => return None }
+  let session = catalog.load(id)
   if index >= session.messages.length() {
     return None
   }

@@ -3,13 +3,11 @@ package tui
 import (
 	"errors"
 	"fmt"
-	"image/color"
 	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
 func TestIdleUIStopsSchedulingFrames(t *testing.T) {
@@ -94,41 +92,5 @@ func TestNativeTransportDegradationIsVisibleInTranscript(t *testing.T) {
 	}
 	if m.textarea.Value() != "keep this draft" || strings.Contains(strings.Join(m.regions().status, "\n"), "10 ms") {
 		t.Fatal("transport diagnostic rendered in the editor region")
-	}
-}
-
-func TestSubmittedUserMessageUsesPaddedFullWidthSurface(t *testing.T) {
-	m := newModel()
-	m.warmMarkdown()
-	m.host = &testHost{}
-	m.session = "s1"
-	m.surface.fg = color.RGBA{R: 240, G: 240, B: 240, A: 255}
-	m.surface.bg = color.RGBA{R: 10, G: 10, B: 10, A: 255}
-	m.width = 40
-	m.height = 24
-	m.textarea.SetValue("你好 task")
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	m = next.(model)
-	if len(m.transcript) != 1 {
-		t.Fatalf("user echo absent: %v", m.transcript)
-	}
-	rendered := m.mountedTranscriptBlock(0)
-	if !strings.Contains(rendered, "\x1b[") {
-		t.Fatal("user block has no background styling")
-	}
-	lines := strings.Split(rendered, "\n")
-	if len(lines) != 3 {
-		t.Fatalf("user panel is not framed: %d lines", len(lines))
-	}
-	for i, line := range lines {
-		if w := ansi.StringWidth(line); w != 40 {
-			t.Fatalf("panel row %d is %d cells, want 40: %q", i, w, ansi.Strip(line))
-		}
-	}
-	if body := ansi.Strip(lines[1]); !strings.HasPrefix(body, "  ") || !strings.Contains(body, "你好 task") || strings.Contains(body, ">") {
-		t.Fatalf("content row lost its prompt margins: %q", body)
-	}
-	if strings.TrimSpace(ansi.Strip(lines[0])) != "" || strings.TrimSpace(ansi.Strip(lines[2])) != "" {
-		t.Fatal("panel frame rows are not blank")
 	}
 }

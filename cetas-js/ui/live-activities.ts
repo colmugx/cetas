@@ -81,17 +81,19 @@ export function projectLiveActivities(source: LiveActivitiesSource): LiveActivit
   }
   // Questions have priority regardless of whether the child is a foreground
   // or background agent. Do not duplicate its normal running line.
-  const questions = source.records.filter((record) => record.question !== undefined && record.status === "running");
-  for (const record of questions) {
-    const preview = questionPreview(record.question!.text);
-    all.push({
-      key: `question:${record.child_session}:${record.question!.id}`,
-      role: "question",
-      label: `? subagent(${record.display_name}) asks main · ${preview ? `"${preview}"` : "waiting for reply"}`,
-    });
+  for (const record of source.records) {
+    if (record.status !== "running") continue;
+    for (const question of record.questions) {
+      const preview = questionPreview(question.text);
+      all.push({
+        key: `question:${record.child_session}:${question.id}`,
+        role: "question",
+        label: `? subagent(${record.display_name}) asks main · ${preview ? `"${preview}"` : "waiting for reply"}`,
+      });
+    }
   }
   for (const record of source.records) {
-    if (record.background !== true || record.task_id === undefined || record.question !== undefined) continue;
+    if (record.background !== true || record.task_id === undefined || record.questions.length > 0) continue;
     all.push({
       key: `agent:${record.child_session}`,
       role: "agent",

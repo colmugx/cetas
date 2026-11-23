@@ -1,7 +1,4 @@
 ///|
-/// Cetas Go host: Cetas runtime is owned by a single Go-locked OS thread.
-
-///|
 /// Go and MoonBit exchange owned copies of UTF-8 frames via C queues.
 #borrow(data)
 extern "C" fn publish(data : Bytes, length : Int32) -> Int32 = "cetas_bridge_publish"
@@ -21,8 +18,7 @@ extern "C" fn next_harness(dst : Bytes, capacity : Int32) -> Int32 = "cetas_brid
 /// scheduler, its single reader, and it is closed when this loop shuts down. The
 /// host keeps the write end for the process lifetime, so a late write can
 /// neither block nor raise SIGPIPE. Returns -1 when the channel is unusable; the
-/// stage below says why. POSIX only: Windows hands over a HANDLE, not a
-/// descriptor.
+/// stage below says why. On Windows the command loop polls instead.
 #cfg(not(platform="windows"))
 extern "C" fn command_wake_fd() -> Int32 = "cetas_bridge_command_fd"
 
@@ -53,9 +49,8 @@ fn wake_stage_text(stage : Int32) -> String {
     2 => "fcntl() failed setting non-blocking/cloexec"
     3 => "fcntl(F_DUPFD_CLOEXEC) failed for the producer-write guard"
     4 => "notification channel disabled by a transport test"
-    5 =>
-      "this platform hands the command channel over as a HANDLE, not a descriptor"
-    _ => "unknown failure stage " + stage.to_string()
+    5 => "CreateEventW() failed"
+    _ => "unknown failure stage \{stage}"
   }
 }
 
@@ -68,28 +63,21 @@ async fn adopt_command_wake() -> Result[@raw_fd.RawFd, String] {
   let fd = command_wake_fd()
   if fd < 0 {
     return Err(
-      wake_stage_text(command_wake_stage()) +
-      " (errno=" +
-      command_wake_errno().to_string() +
-      ")",
+      "\{wake_stage_text(command_wake_stage())} (errno=\{command_wake_errno()})",
     )
   }
   let raw = @raw_fd.RawFd(fd_from_raw(fd)) catch {
     error =>
       return Err(
-        "descriptor could not be adopted by the async scheduler: " +
-        error.to_string(),
+        "descriptor could not be adopted by the async scheduler: \{error}",
       )
   }
   Ok(raw)
 }
 
 ///|
-/// Windows hands the channel over as a HANDLE, not a descriptor, so the int32
-/// transfer above cannot carry it; bounded 10 ms polling is the designed
-/// fallback there. The expected shape therefore returns the empty sentinel
-/// error, silent because every Windows run takes it, while a real setup failure
-/// still names its stage.
+/// Windows polls every 10 ms. The empty error is the normal polling path;
+/// a notification setup failure still reports its stage.
 #cfg(platform="windows")
 fn adopt_command_wake() -> Result[@raw_fd.RawFd, String] {
   let stage = command_wake_stage()
@@ -110,7 +98,7 @@ fn emit_degraded(detail : String) -> Unit {
     Json::object({
       "type": Json::string("infra.error"),
       "degraded": Json::string("command_poll_10ms"),
-      "detail": Json::string(detail + "; falling back to 10 ms command polling"),
+      "detail": Json::string("\{detail}; falling back to 10 ms command polling"),
     }).stringify(),
   )
 }
@@ -144,15 +132,31 @@ fn emit_boot_progress(phase : String, ms : Int64) -> Unit {
 /// host would wait on.
 fn reject_while_composing(raw : String) -> Unit {
   let request : Json = @json.parse(raw) catch { _ => Json::null() }
-  let id = match request {
-    Json::Object(fields) =>
-      match fields.get("id") {
-        Some(Json::Number(number, ..)) => number.to_int()
-        _ => -1
-      }
-    _ => -1
+  let id = if request is Json::Object(fields) &&
+    fields.get("id") is Some(Json::Number(number, ..)) {
+    number.to_int()
+  } else {
+    -1
   }
   emit(harness_reply(id, harness_error("runtime is still composing")))
+}
+
+///|
+fn emit_snapshot(
+  frame_type : String,
+  snapshot : Json,
+  boot~ : Bool = false,
+) -> Unit {
+  let buf = StringBuilder()
+  buf <+
+    $|{"type":"\{frame_type}",
+  if boot {
+    buf <+
+      $|"status":"ready","boot_state":"ready",
+  }
+  buf <+
+    $|"snapshot":\{snapshot.stringify()}}
+  emit(buf.to_string())
 }
 
 ///|
@@ -162,6 +166,8 @@ fn reject_while_composing(raw : String) -> Unit {
 pub fn run_infra() -> Int32 {
   let result = Ref(0)
   @core_async.run_async_main(async fn() {
+    let session_backend : Ref[@extra_session.ConsoleSessionBackend?] = Ref(None)
+    defer (if session_backend.val is Some(backend) { (backend.close)() })
     @core_async.with_task_group(async fn(group) {
       // Match cetas-js: the outer group owns I/O work (including MCP
       // subprocesses); the inner group owns MCP actors and recovery tasks.
@@ -170,6 +176,24 @@ pub fn run_infra() -> Int32 {
         let fs : &@workspace.WorkspaceFs = fs_impl
         let cwd = @env.current_dir().unwrap_or(".")
         let home = @cetas_core.cetas_home()
+        match @extra_session.backend_factory() {
+          Some(factory) =>
+            match factory(home) {
+              Ok(backend) => session_backend.val = Some(backend)
+              Err(detail) => {
+                emit(
+                  Json::object({
+                    "type": Json::string("infra.boot"),
+                    "status": Json::string("error"),
+                    "boot_state": Json::string("error"),
+                    "detail": Json::string(detail),
+                  }).stringify(),
+                )
+                return
+              }
+            }
+          None => ()
+        }
         // The terminal is the one consumer that opts into the full realtime UI
         // projection (tool phases, argument deltas, Custom/scope attribution,
         // ledger facts, unflattened UiRender); every other console consumer keeps
@@ -190,12 +214,7 @@ pub fn run_infra() -> Int32 {
           // The terminal owns its pane: report agent state to herdr like the JS
           // and run hosts. Env-gated, so nothing registers outside a pane.
           herdr_presence=true,
-          session_backend_factory=if @env.get_env_var("CETAS_SESSION_BACKEND") ==
-            Some("hawdb") {
-            Some(open_hawdb_console_backend)
-          } else {
-            None
-          },
+          session_backend=session_backend.val,
         )
         let boot : Ref[Result[@console.ConsoleRuntime, String]] = Ref(
           Err("connecting"),
@@ -256,11 +275,7 @@ pub fn run_infra() -> Int32 {
               match composed {
                 Ok(runtime) => {
                   runtime.attach_sink(fn(frame : String) { emit(frame) })
-                  emit(
-                    "{\"type\":\"infra.boot\",\"status\":\"ready\",\"boot_state\":\"ready\",\"snapshot\":" +
-                    runtime.runtime_json().stringify() +
-                    "}",
-                  )
+                  emit_snapshot("infra.boot", runtime.runtime_json(), boot=true)
                 }
                 Err(detail) =>
                   emit(
@@ -292,10 +307,6 @@ pub fn run_infra() -> Int32 {
         let replay_tasks = NativeReplayTasks::new("native replay")
         let catalog_tasks = NativeReplayTasks::new("native session catalog")
         let harness_buffer = Bytes::make(262144, 0)
-        // Wait for the host's readiness byte rather than a fixed 10 ms interval:
-        // the owner thread parks inside the async scheduler, so every other task on
-        // this domain keeps running. Adoption failures are reported once, never
-        // swallowed: the loop then degrades to bounded polling.
         let mut wake_reported = false
         let mut command_wake : @raw_fd.RawFd? = None
         match adopt_command_wake() {
@@ -305,7 +316,7 @@ pub fn run_infra() -> Int32 {
             // design, so no error frame.
             ()
           Err(detail) => {
-            emit_degraded("command notification channel unavailable: " + detail)
+            emit_degraded("command notification channel unavailable: \{detail}")
             wake_reported = true
           }
         }
@@ -332,8 +343,8 @@ pub fn run_infra() -> Int32 {
                     Err(detail) =>
                       if needs_setup.val {
                         bootstrap_handle_frame(
-                          setup, setup_tasks, boot, config, cwd, group, lifetime_group,
-                          raw,
+                          setup, setup_tasks, boot, composing, config, cwd, group,
+                          lifetime_group, raw,
                         )
                       } else {
                         emit(harness_reply(-1, harness_error(detail)))
@@ -351,11 +362,7 @@ pub fn run_infra() -> Int32 {
                     Json::object({
                       "type": Json::string("infra.error"),
                       "detail": Json::string(
-                        "harness request does not fit the " +
-                        harness_buffer.length().to_string() +
-                        "-byte dispatcher buffer (" +
-                        (-n).to_string() +
-                        " bytes queued); the native request queue cannot advance",
+                        "harness request does not fit the \{harness_buffer.length()}-byte dispatcher buffer (\{-n} bytes queued); the native request queue cannot advance",
                       ),
                     }).stringify(),
                   )
@@ -368,8 +375,7 @@ pub fn run_infra() -> Int32 {
                       error => {
                         if !wake_reported {
                           emit_degraded(
-                            "command notification wait failed: " +
-                            error.to_string(),
+                            "command notification wait failed: \{error}",
                           )
                           wake_reported = true
                         }
@@ -405,20 +411,14 @@ pub fn run_infra() -> Int32 {
               } else {
                 match boot.val {
                   Ok(runtime) =>
-                    emit(
-                      "{\"type\":\"infra.state\",\"snapshot\":" +
-                      runtime.runtime_json().stringify() +
-                      "}",
-                    )
+                    emit_snapshot("infra.state", runtime.runtime_json())
                   Err(detail) =>
                     emit(
-                      Json::object(
-                        Map::from_array([
-                          ("type", Json::string("infra.state")),
-                          ("status", Json::string("needs_setup")),
-                          ("detail", Json::string(detail)),
-                        ]),
-                      ).stringify(),
+                      Json::object({
+                        "type": Json::string("infra.state"),
+                        "status": Json::string("needs_setup"),
+                        "detail": Json::string(detail),
+                      }).stringify(),
                     )
                 }
               }
@@ -431,11 +431,7 @@ pub fn run_infra() -> Int32 {
                     runtime.emit_event("", "", "infra.ping", extra=[
                       ("source", Json::string("moonbit")),
                     ])
-                    emit(
-                      "{\"type\":\"infra.workspaces\",\"snapshot\":" +
-                      runtime.workspaces_json().stringify() +
-                      "}",
-                    )
+                    emit_snapshot("infra.workspaces", runtime.workspaces_json())
                   }
                   Err(_) =>
                     emit("{\"type\":\"infra.ping\",\"status\":\"needs_setup\"}")
@@ -444,15 +440,17 @@ pub fn run_infra() -> Int32 {
             9 => stopping = true
             other =>
               emit(
-                "{\"type\":\"infra.error\",\"detail\":\"unknown command " +
-                other.to_string() +
-                "\"}",
+                (
+                  $|{"type":"infra.error","detail":"unknown command \{other}"}
+                ),
               )
           }
         }
         replay_tasks.cancel_all()
         catalog_tasks.cancel_all()
-        setup_tasks.cancel_all()
+        if !composing.val {
+          setup_tasks.cancel_all()
+        }
         setup.cancel_all()
         // A shutdown that won the composition race still waits for the protected
         // compose task: once boot.val is final, shutdown_all sweeps every installed

@@ -25,7 +25,7 @@ func TestSessionBridgeFanoutIsolatedAndBounded(t *testing.T) {
 	b := make(chan json.RawMessage, 1)
 	h.streams[1] = sessionStream{sessionID: "session-a", frames: a}
 	h.streams[2] = sessionStream{sessionID: "session-b", frames: b}
-	h.publishSessionFrame([]byte(`{"type":"turn.accepted","session_id":"session-a","runtime_epoch":"epoch","cursor":1,"cursor_advance":true}`))
+	h.publishSessionFrame("session-a", []byte(`{"type":"turn.accepted","session_id":"session-a","runtime_epoch":"epoch","cursor":1,"cursor_advance":true}`))
 	select {
 	case raw := <-a:
 		var event struct{ Type string `json:"type"` }
@@ -42,8 +42,8 @@ func TestSessionBridgeFanoutIsolatedAndBounded(t *testing.T) {
 	}
 	// Fill the a observer and publish once more: it is retired, never
 	// allowed to stall the native EventHub or continue with a cursor gap.
-	h.publishSessionFrame([]byte(`{"type":"assistant.text_delta","session_id":"session-a"}`))
-	h.publishSessionFrame([]byte(`{"type":"assistant.text_delta","session_id":"session-a"}`))
+	h.publishSessionFrame("session-a", []byte(`{"type":"assistant.text_delta","session_id":"session-a"}`))
+	h.publishSessionFrame("session-a", []byte(`{"type":"assistant.text_delta","session_id":"session-a"}`))
 	h.streamsMu.Lock()
 	_, exists := h.streams[1]
 	_, bExists := h.streams[2]
@@ -191,11 +191,11 @@ func TestGoOwnerToIndependentGoViewer(t *testing.T) {
 				t.Fatalf("viewer did not attach before deadline: %v, stderr: %s", ctx.Err(), stderr.String())
 			}
 			if !alreadyWorking {
-				owner.publishSessionFrame([]byte(`{"type":"turn.accepted","session_id":"shared-session","runtime_epoch":"go-owner-epoch","cursor":1,"cursor_advance":true}`))
+				owner.publishSessionFrame("shared-session", []byte(`{"type":"turn.accepted","session_id":"shared-session","runtime_epoch":"go-owner-epoch","cursor":1,"cursor_advance":true}`))
 			}
 			cursor := 1
 			if !alreadyWorking { cursor = 2 }
-			owner.publishSessionFrame([]byte(fmt.Sprintf(
+			owner.publishSessionFrame("shared-session", []byte(fmt.Sprintf(
 				`{"type":"assistant.text_delta","session_id":"shared-session","runtime_epoch":"go-owner-epoch","cursor":%d,"cursor_advance":true,"delta":"Go owner live output"}`,
 				cursor,
 			)))

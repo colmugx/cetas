@@ -1,170 +1,95 @@
 /**
  * Incremental pi-tui Markdown for streamed assistant answers.
  *
- * Complete paragraphs separated by a blank line are frozen only at
- * conservative top-level boundaries. All actual Markdown rendering remains
- * pi-tui's, including ANSI, highlighting, tables, LaTeX and Kitty images.
- *
- * A newly frozen checkpoint and each new width are checked against a full
- * upstream Markdown render. If a seam differs, retain exact upstream output
- * and stop splitting that message. This protects Markdown semantics over
- * speculative performance gains.
+ * Freeze only complete top-level prose paragraphs. pi-tui still renders every
+ * chunk; a suffix that can't be split safely is passed to it whole. In
+ * particular, all reference links and definitions stay in the same suffix.
  */
 import { Markdown, type Component, type MarkdownTheme } from "@earendil-works/pi-tui";
 
 const MIN_PREFIX = 512;
-const REF_LINK = /\[[^\]\n]+\]\[[^\]\n]*\]|^ {0,3}\[[^\]\n]+\]:/m;
-const BLOCK_START = /^\s*(?:[#>*+-]\s|#{1,6}(?:\s|$)|\d+[.)]\s|\x60{3,}|~{3,}|\$\$|<|\||-{3,}\s*$|_{3,}\s*$)/;
-const INLINE_UNCERTAIN = /[\x60\[\]_*~$<>|\\]/;
+const BLANK_LINE = /^[ \t]*$/;
+const BLOCK_START = /^(?:\s|[#+:-]|\d+[.)](?:\s|$)|=+ *$)/;
+const UNCERTAIN = /[\x00-\x1f\x60\[\]_*~$<>|\\\u2028\u2029]/;
 
-/** Return the first character after a stable blank-line separator. */
+/** Return the first character after the last safe blank-line separator. */
 export function stableMarkdownCut(text: string): number {
-  if (text.length < MIN_PREFIX || REF_LINK.test(text)) return 0;
+  if (text.length < MIN_PREFIX) return 0;
   let latest = 0;
-  let start = 0;
-  let previous = "";
-  let fence = "";
-  let fenceLength = 0;
-  let math = false;
-  for (let end = 0; end <= text.length; end++) {
-    if (end < text.length && text[end] !== "\n") continue;
-    const line = text.slice(start, end);
-    const trimmed = line.trim();
-    const mark = /^ {0,3}(\x60{3,}|~{3,})/.exec(line)?.[1];
-    if (mark !== undefined) {
-      if (!fence) { fence = mark[0]!; fenceLength = mark.length; }
-      else if (mark[0] === fence && mark.length >= fenceLength &&
-        trimmed === mark) { fence = ""; }
+  let afterBlank = false;
+  for (let start = 0; start < text.length;) {
+    const newline = text.indexOf("\n", start);
+    const line = text.slice(start, newline === -1 ? text.length : newline);
+    if (BLANK_LINE.test(line)) {
+      if (start === 0) break;
+      afterBlank = true;
+    } else {
+      // Marked emits a separate space token after plain prose. Keep the whole
+      // separator in the prefix, but don't cut at a trailing blank line (it
+      // can still grow) or before indentation (space can consume it).
+      if (afterBlank && start >= MIN_PREFIX && !/^\s/.test(line)) latest = start;
+      // Don't try to resume beyond an uncertain block: markup such as raw
+      // HTML, display math, and nested lists can consume later blank lines.
+      if (BLOCK_START.test(line) || UNCERTAIN.test(line)) break;
+      afterBlank = false;
     }
-    if (!fence && trimmed === "$$") math = !math;
-    if (!fence && !math && trimmed === "" && end >= MIN_PREFIX &&
-        end + 1 < text.length && text[end + 1] !== "\n" &&
-        previous.trim() !== "" && !BLOCK_START.test(previous) &&
-        !INLINE_UNCERTAIN.test(previous)) {
-      const nextEnd = text.indexOf("\n", end + 1);
-      const next = text.slice(end + 1, nextEnd === -1 ? text.length : nextEnd);
-      if (next.trim() && !/^\s/.test(next) && !BLOCK_START.test(next) &&
-          !INLINE_UNCERTAIN.test(next)) latest = end + 1;
-    }
-    if (trimmed) previous = line;
-    start = end + 1;
+    if (newline === -1) break;
+    start = newline + 1;
   }
   return latest;
-}
-
-export interface IncrementalMarkdownStats {
-  frozenBlocks: number;
-  frozenCharacters: number;
-  tailCharacters: number;
-  prefixRenders: number;
-  tailRenders: number;
-  parityChecks: number;
-  fallback: boolean;
 }
 
 export class IncrementalMarkdown implements Component {
   private text = "";
   private frozenChars = 0;
   private frozen: Markdown[] = [];
-  private tail: Markdown;
-  private reference: Markdown;
-  private prefixCache?: { width: number; blocks: number; lines: string[] };
-  private failed = false;
-  private validate = false;
-  private checkedWidth?: number;
-  private prefixRenders = 0;
-  private tailRenders = 0;
-  private parityChecks = 0;
+  private tail?: Markdown;
+  private prefixCache?: { width: number; lines: string[] };
 
   constructor(initial: string, private readonly x: number, private readonly y: number,
     private readonly theme: MarkdownTheme) {
-    this.reference = new Markdown(initial, x, y, theme);
-    this.tail = new Markdown("", x, y, theme);
     this.setText(initial);
   }
 
   setText(value: string): void {
     if (value === this.text) return;
-    if (!value.startsWith(this.text) || REF_LINK.test(value.slice(this.frozenChars))) {
+    if (!value.startsWith(this.text)) {
       this.frozen = [];
       this.frozenChars = 0;
       this.prefixCache = undefined;
-      this.checkedWidth = undefined;
-      // Global Markdown reference syntax can retroactively modify old blocks.
-      this.failed = REF_LINK.test(value);
-      this.validate = false;
     }
     this.text = value;
-    this.reference.setText(value);
-    if (!this.failed) {
-      let suffix = value.slice(this.frozenChars);
-      for (let i = 0; i < 16; i++) {
-        const cut = stableMarkdownCut(suffix);
-        if (cut === 0) break;
-        const chunk = suffix.slice(0, cut - 2);
-        if (!chunk.trim()) break;
-        this.frozen.push(new Markdown(chunk, this.x, this.y, this.theme));
-        this.frozenChars += cut;
-        suffix = value.slice(this.frozenChars);
-        this.prefixCache = undefined;
-        this.validate = true;
-        this.checkedWidth = undefined;
-      }
+    const suffix = value.slice(this.frozenChars);
+    // Nonzero vertical padding belongs to the whole message, not each chunk.
+    const cut = this.y === 0 ? stableMarkdownCut(suffix) : 0;
+    if (cut !== 0) {
+      this.frozen.push(new Markdown(suffix.slice(0, cut), this.x, this.y, this.theme));
+      this.frozenChars += cut;
+      this.prefixCache = undefined;
     }
-    this.tail.setText(value.slice(this.frozenChars));
+    this.tail?.setText(suffix.slice(cut));
   }
 
   private renderPrefix(width: number): string[] {
-    if (this.prefixCache?.width === width && this.prefixCache.blocks === this.frozen.length)
-      return this.prefixCache.lines;
+    if (this.prefixCache?.width === width) return this.prefixCache.lines;
     const result: string[] = [];
     for (const block of this.frozen) {
-      result.push(...block.render(width), " ".repeat(Math.max(0, width)));
+      for (const line of block.render(width)) result.push(line);
     }
-    this.prefixRenders++;
-    this.prefixCache = { width, blocks: this.frozen.length, lines: result };
+    this.prefixCache = { width, lines: result };
     return result;
   }
 
   render(width: number): string[] {
-    if (this.failed || this.frozen.length === 0) return this.reference.render(width);
-    const prefix = this.renderPrefix(width);
-    this.tailRenders++;
-    const result = prefix.concat(this.tail.render(width));
-    if (this.validate || this.checkedWidth !== width) {
-      this.parityChecks++;
-      const exact = this.reference.render(width);
-      if (exact.length !== result.length || exact.some((line, i) => line !== result[i])) {
-        this.failed = true;
-        this.frozen = [];
-        this.frozenChars = 0;
-        this.prefixCache = undefined;
-        this.tail.setText(this.text);
-        return exact;
-      }
-      this.checkedWidth = width;
-      this.validate = false;
-    }
-    return result;
+    // With no safe prefix, the same lazy tail renders the complete message.
+    this.tail ??= new Markdown(this.text.slice(this.frozenChars), this.x, this.y, this.theme);
+    if (this.frozen.length === 0) return this.tail.render(width);
+    return this.renderPrefix(width).concat(this.tail.render(width));
   }
 
   invalidate(): void {
     this.prefixCache = undefined;
-    this.checkedWidth = undefined;
-    this.tail.invalidate();
-    this.reference.invalidate();
+    this.tail?.invalidate();
     for (const block of this.frozen) block.invalidate();
-  }
-
-  get stats(): IncrementalMarkdownStats {
-    return {
-      frozenBlocks: this.frozen.length,
-      frozenCharacters: this.frozenChars,
-      tailCharacters: this.text.length - this.frozenChars,
-      prefixRenders: this.prefixRenders,
-      tailRenders: this.tailRenders,
-      parityChecks: this.parityChecks,
-      fallback: this.failed,
-    };
   }
 }

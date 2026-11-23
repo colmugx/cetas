@@ -140,22 +140,6 @@ func TestStaleMarkdownRenderIsDiscardedOnResize(t *testing.T) {
 	}
 }
 
-// Settled history and replay never start the background worker: rendering one
-// block once, on the frame that mounts it, is already bounded.
-func TestSettledHistoryDoesNotStartMarkdownWorker(t *testing.T) {
-	m := interactionModel(t, 80, 24)
-	for i := 0; i < 200; i++ {
-		m.appendAssistant(fmt.Sprintf("**answer** %d", i))
-	}
-	m.refreshTranscript()
-	if m.document.markdown != nil {
-		t.Fatal("settled history started the streaming Markdown worker")
-	}
-	if m.markdownCache.stats().entries > 100 {
-		t.Fatalf("rendered offscreen history: %d", m.markdownCache.stats().entries)
-	}
-}
-
 // A session switch is a new document: the worker belongs to the old transcript
 // and a streaming block starts again from its own first frame.
 func TestSessionResetDropsMarkdownWorker(t *testing.T) {

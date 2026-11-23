@@ -153,6 +153,7 @@ export class ToolStreamingController {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
+    this.flushNow();
     this.pendingByIndex.clear();
     this.pendingById.clear();
   }

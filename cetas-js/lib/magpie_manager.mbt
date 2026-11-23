@@ -62,12 +62,12 @@ async fn read_magpie_host_settings(
   warn~ : (String) -> Unit,
 ) -> MagpieHostSettings? raise @posoco.CompositionError {
   let text = match
-    @workspace.read_file_result(fs, home + "/.cetas/settings.json") {
+    @workspace.read_file_result(fs, "\{home}/.cetas/settings.json") {
     Missing => return None
     Failed(message) =>
       raise @posoco.CompositionError::ManifestSchemaError(
         manifest_id="cetas-js.magpie",
-        detail=".cetas/settings.json read failed: " + message,
+        detail=".cetas/settings.json read failed: \{message}",
       )
     Content(text) => text
   }
@@ -113,9 +113,7 @@ async fn read_magpie_host_settings(
       }
       if magpie.get("gateway_key") is Some(_) {
         warn(
-          "settings.json magpie.gateway_key is ignored; store the gateway credential with the shared credential store (provider id '" +
-          MAGPIE_PROVIDER_ID +
-          "') instead of editable configuration.",
+          "settings.json magpie.gateway_key is ignored; store the gateway credential with the shared credential store (provider id '\{MAGPIE_PROVIDER_ID}') instead of editable configuration.",
         )
       }
     }
@@ -167,23 +165,21 @@ fn bind_magpie_manager(
   settings : MagpieHostSettings,
   transport~ : &@magpie.MagpieTransport? = None,
 ) -> MagpieBinding raise @posoco.CompositionError {
-  let pairs : Array[(String, Json)] = [
-    ("enabled", Json::boolean(settings.enabled)),
-  ]
+  let fields = { "enabled": Json::boolean(settings.enabled) }
   match settings.base_url {
-    Some(url) => pairs.push(("base_url", Json::string(url)))
+    Some(url) => fields["base_url"] = Json::string(url)
     None => ()
   }
   match settings.gateway_key {
-    Some(key) => pairs.push(("gateway_key", Json::string(key)))
+    Some(key) => fields["gateway_key"] = Json::string(key)
     None => ()
   }
   match settings.model {
-    Some(model) => pairs.push(("model", Json::string(model)))
+    Some(model) => fields["model"] = Json::string(model)
     None => ()
   }
   match settings.effort {
-    Some(effort) => pairs.push(("effort", Json::string(effort)))
+    Some(effort) => fields["effort"] = Json::string(effort)
     None => ()
   }
   let transport : &@magpie.MagpieTransport = match transport {
@@ -191,7 +187,7 @@ fn bind_magpie_manager(
     None => @magpie.magpie_http_transport()
   }
   let runtime = @magpie.MagpieRuntime::activate(
-    settings=Some(Json::object(Map::from_array(pairs))),
+    settings=Some(Json::object(fields)),
     transport~,
   )
   // Child managers (subagents) rebuild from the same endpoint material with their
@@ -212,7 +208,7 @@ fn bind_magpie_manager(
         selected_effort=settings.effort,
       ) catch {
         error =>
-          raise config_error("magpie config rejected: " + error.to_string())
+          raise config_error("magpie config rejected: \{error.to_string()}")
       }
     None =>
       @magpie.MagpieConfig::MagpieConfig(
@@ -222,7 +218,7 @@ fn bind_magpie_manager(
         selected_effort=settings.effort,
       ) catch {
         error =>
-          raise config_error("magpie config rejected: " + error.to_string())
+          raise config_error("magpie config rejected: \{error.to_string()}")
       }
   }
   { runtime, config, transport, }
@@ -269,7 +265,7 @@ fn ModelManagerFace::manager_status_json(self : ModelManagerFace) -> Json {
           None => Json::null()
         },
         "context_window": Json::null(),
-        "quota": Json::object(Map([])),
+        "quota": Json::empty_object(),
       })
     }
   }
@@ -344,7 +340,7 @@ fn ModelManagerFace::manager_publish_status(
         events,
         segment="model",
         priority=20,
-        value=selection.model_id + ":" + effort,
+        value="\{selection.model_id}:\{effort}",
       )
     }
   }
@@ -550,9 +546,7 @@ fn ModelManagerFace::manager_pending_note(self : ModelManagerFace) -> String {
     Magpie(binding) => {
       let selection = binding.runtime.manager().active_selection()
       if selection.pending {
-        " (selection '" +
-        selection.model_id +
-        "' is pending: not in the catalog yet; requests will fail until a refresh provides it)"
+        " (selection '\{selection.model_id}' is pending: not in the catalog yet; requests will fail until a refresh provides it)"
       } else {
         ""
       }
@@ -597,7 +591,7 @@ fn ModelManagerFace::manager_subagent_extension(
       ) catch {
         error =>
           raise @subagent.ComposerError::Failed(
-            "child model selection failed: " + error.to_string(),
+            "child model selection failed: \{error.to_string()}",
           )
       }
       match spec_effort {
@@ -605,7 +599,7 @@ fn ModelManagerFace::manager_subagent_extension(
           child.select_effort(spec_slot, effort) catch {
             error =>
               raise @subagent.ComposerError::Failed(
-                "child effort selection failed: " + error.to_string(),
+                "child effort selection failed: \{error.to_string()}",
               )
           }
         None => ()
@@ -623,7 +617,7 @@ fn ModelManagerFace::manager_subagent_extension(
       ) catch {
         error =>
           raise @subagent.ComposerError::Failed(
-            "child configuration invalid: " + error.to_string(),
+            "child configuration invalid: \{error.to_string()}",
           )
       }
       let manager = @magpie.MagpieManager::MagpieManager(

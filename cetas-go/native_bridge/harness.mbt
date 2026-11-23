@@ -1,32 +1,28 @@
 ///|
-/// Native Harness command dispatcher. Preserves the existing desktop
-/// ConsoleRuntime method semantics without importing Proton or CEF.
+/// Native Harness command dispatcher.
 fn harness_error(message : String) -> Json {
-  Json::object(Map::from_array([("error", Json::string(message))]))
+  Json::object({ "error": Json::string(message) })
 }
 
 ///|
 fn harness_ok() -> Json {
-  Json::object(Map::from_array([("ok", Json::boolean(true))]))
+  Json::object({ "ok": Json::boolean(true) })
 }
 
 ///|
 fn harness_string(args : Json, name : String) -> String? {
-  match args {
-    Json::Object(fields) =>
-      match fields.get(name) {
-        Some(Json::String(value)) => Some(value)
-        _ => None
-      }
-    _ => None
+  guard args is Json::Object(fields) &&
+    fields.get(name) is Some(Json::String(value)) else {
+    return None
   }
+  Some(value)
 }
 
 ///|
 fn harness_required(args : Json, name : String) -> Result[String, String] {
   match harness_string(args, name) {
     Some(value) => Ok(value)
-    None => Err("missing or invalid string field: " + name)
+    None => Err("missing or invalid string field: \{name}")
   }
 }
 
@@ -43,14 +39,11 @@ fn harness_session_arg(args : Json) -> String? {
 
 ///|
 fn harness_int(args : Json, name : String, fallback : Int32) -> Int32 {
-  match args {
-    Json::Object(fields) =>
-      match fields.get(name) {
-        Some(Json::Number(value, ..)) => value.to_int()
-        _ => fallback
-      }
-    _ => fallback
+  guard args is Json::Object(fields) &&
+    fields.get(name) is Some(Json::Number(value, ..)) else {
+    return fallback
   }
+  value.to_int()
 }
 
 ///|
@@ -73,28 +66,23 @@ async fn harness_dispatch(
 ) -> Json {
   match command {
     // Cycle collection must run on the MoonBit owner thread at a safe point;
-    // a foreign-thread call through the C symbol is not one. Diagnostic for
-    // the per-turn retention investigation.
+    // a foreign-thread call through the C symbol is not one.
     "heap_collect_cycles" => {
       moonbit_collect_cycles()
-      Json::object(Map::from_array([("ok", Json::boolean(true))]))
+      harness_ok()
     }
     "health" =>
-      Json::object(
-        Map::from_array([
-          ("status", Json::string("ok")),
-          ("host", Json::string("cetas-go")),
-          ("protocol", Json::string("0.1")),
-        ]),
-      )
+      Json::object({
+        "status": Json::string("ok"),
+        "host": Json::string("cetas-go"),
+        "protocol": Json::string("0.1"),
+      })
     "versions" =>
-      Json::object(
-        Map::from_array([
-          ("posoco", Json::string("0.22.0")),
-          ("cetas", Json::string("0.2.0")),
-          ("desktop", Json::string("0.1.0")),
-        ]),
-      )
+      Json::object({
+        "posoco": Json::string("0.22.0"),
+        "cetas": Json::string("0.2.0"),
+        "desktop": Json::string("0.1.0"),
+      })
     "runtime_state" => runtime.runtime_json()
     "session_observe" =>
       match harness_required(args, "session_id") {
@@ -108,10 +96,8 @@ async fn harness_dispatch(
         (Ok(session_id), Ok(id)) => {
           let arguments = match args {
             Json::Object(fields) =>
-              fields
-              .get("arguments")
-              .unwrap_or(Json::object(Map::from_array([])))
-            _ => Json::object(Map::from_array([]))
+              fields.get("arguments").unwrap_or(Json::empty_object())
+            _ => Json::empty_object()
           }
           let request_id = harness_string(args, "request_id").unwrap_or("")
           // CommandPorts may request UI input or perform slow async work.
@@ -221,24 +207,28 @@ async fn harness_dispatch(
     "login" =>
       match harness_required(args, "provider") {
         Ok(provider) =>
-          auth_tasks.start(
-            runtime,
-            group,
-            provider,
-            harness_string(args, "method").unwrap_or(""),
-          )
+          auth_tasks.start(runtime, group, provider, async fn() {
+            let auth_method = harness_string(args, "method").unwrap_or("")
+            harness_console_json(runtime.login(provider, auth_method))
+          })
         Err(e) => harness_error(e)
       }
-    "login_magpie" => auth_tasks.start_magpie(runtime, group)
+    "login_magpie" =>
+      auth_tasks.start(runtime, group, "magpie", () => runtime.login_magpie())
     "login_cancel" =>
       match harness_required(args, "auth_id") {
-        Ok(id) =>
-          Json::object(
-            Map::from_array([
-              ("cancelled", Json::boolean(auth_tasks.cancel(runtime, id))),
+        Ok(id) => {
+          let session_id = runtime.active_session_id()
+          let cancelled = auth_tasks.cancel(group, id, () => {
+            runtime.emit_event(session_id, "", "auth.cancelled", extra=[
               ("auth_id", Json::string(id)),
-            ]),
-          )
+            ])
+          })
+          Json::object({
+            "cancelled": Json::boolean(cancelled),
+            "auth_id": Json::string(id),
+          })
+        }
         Err(e) => harness_error(e)
       }
     "logout" =>
@@ -381,29 +371,16 @@ async fn harness_dispatch(
           // Optional inline images: [{media_type, data(base64)}], the same
           // wire form the JS host's images_json carries.
           let images : Array[@posoco.Content] = []
-          match args {
-            Json::Object(fields) =>
-              match fields.get("images") {
-                Some(Json::Array(items)) =>
-                  for item in items {
-                    match item {
-                      Json::Object(entry) =>
-                        match (entry.get("media_type"), entry.get("data")) {
-                          (
-                            Some(Json::String(media_type)),
-                            Some(Json::String(data)),
-                          ) =>
-                            images.push(
-                              @posoco.Content::Image(media_type~, data~),
-                            )
-                          _ => ()
-                        }
-                      _ => ()
-                    }
-                  }
-                _ => ()
+          if args is Json::Object(fields) &&
+            fields.get("images") is Some(Json::Array(items)) {
+            for item in items {
+              guard item is Json::Object(entry) &&
+                entry.get("media_type") is Some(Json::String(media_type)) &&
+                entry.get("data") is Some(Json::String(data)) else {
+                continue
               }
-            _ => ()
+              images.push(@posoco.Content::Image(media_type~, data~))
+            }
           }
           if prompt.trim().is_empty() && images.is_empty() {
             harness_error("prompt must not be empty")
@@ -414,10 +391,7 @@ async fn harness_dispatch(
                 harness_string(args, "session_id"),
                 images~,
               ) {
-              Ok(turn_id) =>
-                Json::object(
-                  Map::from_array([("turn_id", Json::string(turn_id))]),
-                )
+              Ok(turn_id) => Json::object({ "turn_id": Json::string(turn_id) })
               Err(e) => harness_error(e)
             }
           }
@@ -433,7 +407,7 @@ async fn harness_dispatch(
       // never suspend the only native command consumer: ui_response, abort
       // and shutdown must remain serviceable while compaction is running.
       runtime.spawn_background(async fn() { runtime.compact_active_session() })
-      Json::object(Map::from_array([("status", Json::string("started"))]))
+      Json::object({ "status": Json::string("started") })
     }
     "status_refresh" => {
       let sid = harness_string(args, "session_id").unwrap_or(
@@ -521,7 +495,7 @@ async fn harness_dispatch(
         }
         Err(e) => harness_error(e)
       }
-    other => harness_error("unknown harness command: " + other)
+    other => harness_error("unknown harness command: \{other}")
   }
 }
 
@@ -538,62 +512,53 @@ async fn harness_handle_frame(
 ) -> Unit {
   let request : Json = @json.parse(raw) catch {
     e => {
-      emit(harness_reply(-1, harness_error("invalid JSON: " + e.to_string())))
+      emit(harness_reply(-1, harness_error("invalid JSON: \{e}")))
       return
     }
   }
-  match request {
-    Json::Object(fields) => {
-      let id = match fields.get("id") {
-        Some(Json::Number(n, ..)) => n.to_int()
-        _ => -1
-      }
-      let command = match fields.get("command") {
-        Some(Json::String(s)) => s
-        _ => ""
-      }
-      let args = fields.get("args").unwrap_or(Json::object(Map::from_array([])))
-      if id < 0 || command.is_empty() {
-        emit(harness_reply(id, harness_error("invalid request envelope")))
-      } else if native_replay_command(command) {
-        replay_tasks.submit(runtime, auth_tasks, group, id, command, args)
-      } else if native_catalog_command(command) {
-        catalog_tasks.submit(runtime, auth_tasks, group, id, command, args)
-      } else {
-        // A resume retires the UI that queued the old session's reads; drop
-        // them the moment the switch is asked for, before the switched-to
-        // session's own first reads join the same FIFO. `new_session` has no
-        // target id to keep, so it supersedes nothing.
-        if command == "switch_session" {
-          match harness_string(args, "id") {
-            Some(target) =>
-              if !target.is_empty() {
-                replay_tasks.supersede(target)
-              }
-            None => ()
-          }
-        }
-        let result : Json = harness_dispatch(
-          runtime, auth_tasks, group, command, args,
-        ) catch {
-          e => harness_error(e.to_string())
-        }
-        emit(harness_reply(id, result))
-      }
-    }
-    _ => emit(harness_reply(-1, harness_error("request must be a JSON object")))
+  guard request is Json::Object(fields) else {
+    emit(harness_reply(-1, harness_error("request must be a JSON object")))
+    return
   }
+  let id = match fields.get("id") {
+    Some(Json::Number(n, ..)) => n.to_int()
+    _ => -1
+  }
+  let command = match fields.get("command") {
+    Some(Json::String(s)) => s
+    _ => ""
+  }
+  guard id >= 0 && !command.is_empty() else {
+    emit(harness_reply(id, harness_error("invalid request envelope")))
+    return
+  }
+  let args = fields.get("args").unwrap_or(Json::empty_object())
+  if native_replay_command(command) {
+    replay_tasks.submit(runtime, auth_tasks, group, id, command, args)
+    return
+  }
+  if native_catalog_command(command) {
+    catalog_tasks.submit(runtime, auth_tasks, group, id, command, args)
+    return
+  }
+  if command == "switch_session" {
+    // A fresh session has no target to keep, so all session-bound reads
+    // queued by the departing UI are stale.
+    replay_tasks.supersede(harness_string(args, "id").unwrap_or(""))
+  }
+  let result = harness_dispatch(runtime, auth_tasks, group, command, args) catch {
+    e => harness_error(e.to_string())
+  }
+  emit(harness_reply(id, result))
 }
 
 ///|
 fn harness_reply(id : Int32, result : Json) -> String {
-  Json::object(
-    Map::from_array([
-      ("type", Json::string("harness.response")),
-      ("id", Json::number(id.to_double())),
-      ("result", result),
-    ]),
-  ).stringify()
+  Json::object({
+    "type": Json::string("harness.response"),
+    "id": Json::number(id.to_double()),
+    "result": result,
+  }).stringify()
 }
 
 ///|

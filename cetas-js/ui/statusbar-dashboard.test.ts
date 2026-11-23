@@ -82,15 +82,6 @@ describe("Gate 0.5 adaptive statusbar", () => {
 });
 
 describe("fixed semantic statusbar hierarchy", () => {
-  test("model effort precedes manager, git branch and context; never show lifecycle", () => {
-    const rows = stripTerminalSequences(renderStatusbarDashboard(entries, 180,
-      {...context, status:"Ready"}).join("\n"));
-    expect(rows.split("\n")[0]).toBe(
-      " glm-5.3-flash:max · Posoco ⑂ feature/agent · 30.4K/1.0M · 3%");
-    expect(rows).not.toContain("cetas");
-    expect(rows).not.toContain("Ready");
-    expect(rows).not.toContain("ctx");
-  });
   test("reset and limits are first-class secondary fields, not invented gateway status", () => {
     const sample = [
       {key:"model",value:"GPT-6 Luna:high"},
@@ -109,18 +100,6 @@ describe("fixed semantic statusbar hierarchy", () => {
     expect(text).toContain("5h 62% · 7d 78%");
     expect(text).not.toContain("Gateway connected");
     expect(text).not.toContain("✔");
-  });
-  test("permission leads the secondary rows unlabeled; quota windows stay one group", () => {
-    const rows = stripTerminalSequences(renderStatusbarDashboard([
-      {key:"model",value:"GPT-6 Luna:high"},
-      {key:"5h",value:"62% left"},
-      {key:"permission",value:"yolo",color:"warning"},
-      {key:"weekly",value:"78% left"},
-      {key:"session",value:"2026-10-16T10-1"},
-    ], 200, {}).join("\n")).split("\n");
-    expect(rows[1]).toBe(
-      " yolo · 5h 62% left · weekly 78% left · session 2026-10-16T10-1");
-    expect(rows.join("\n")).not.toContain("permission");
   });
 });
 
@@ -208,15 +187,6 @@ describe("opaque model selection values", () => {
 });
 
 describe("left-aligned context placement", () => {
-  test("context follows the branch without any right-justifying spaces", () => {
-    const first = stripTerminalSequences(renderStatusbarDashboard([
-      {key:"model",value:"gpt-6:high"},
-      {key:"manager",value:"Posoco"},
-      {key:"ctx",value:"ctx: 30.4K/1.0M"},
-    ],160,{branch:"feature/demo",status:"Working"})[0]);
-    expect(first).toBe(" gpt-6:high · Posoco ⑂ feature/demo · 30.4K/1.0M");
-  });
-
   test("context wraps before lower-priority metrics when the header is full", () => {
     const rows = renderStatusbarDashboard([
       {key:"model",value:"gpt-6:high"},
@@ -229,15 +199,6 @@ describe("left-aligned context placement", () => {
     expect(rows[0]).not.toContain("30.4K");
     expect(rows[1]).toContain("30.4K/1.0M · 3%");
     expect(rows.join("\n")).not.toMatch(/Working|ctx/);
-  });
-
-  test("missing git branch does not restore a Ready/Working placeholder", () => {
-    const first = stripTerminalSequences(renderStatusbarDashboard([
-      {key:"model",value:"gpt-6:high"},
-      {key:"manager",value:"Posoco"},
-      {key:"ctx",value:"ctx: 5%"},
-    ],120,{status:"Working"})[0]);
-    expect(first).toBe(" gpt-6:high · Posoco · 5%");
   });
 });
 

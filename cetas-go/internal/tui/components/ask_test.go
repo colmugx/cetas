@@ -1,6 +1,7 @@
 package components
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -18,10 +19,20 @@ func resetAskBodies() {
 	askBodies.Unlock()
 }
 
-func askBodyRenders() int {
-	askBodies.Lock()
-	defer askBodies.Unlock()
-	return askBodies.renders
+func askSteps(count int) string {
+	lines := []string{}
+	for i := 1; i <= count; i++ {
+		lines = append(lines, fmt.Sprintf("- Step %d: do thing %d", i, i))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func stripLines(lines []string) []string {
+	out := make([]string, len(lines))
+	for i, s := range lines {
+		out[i] = ansi.Strip(s)
+	}
+	return out
 }
 
 func askLines(t *testing.T, req AskRequest, width, selected int, value string, expanded bool) []string {
@@ -131,41 +142,5 @@ func TestAskStaysInsideEveryWidth(t *testing.T) {
 	}
 	if Ask(Theme{}, requests[0], 0, 0, "", false) != nil {
 		t.Fatal("zero width must render nothing")
-	}
-}
-
-func TestAskBodyIsRenderedOncePerWidthAndText(t *testing.T) {
-	resetAskBodies()
-	body := strings.TrimSuffix(strings.Repeat("- a very long plan step that wraps\n", 4000), "\n")
-	req := AskRequest{Kind: AskSelect, Title: "Plan\n" + body, Options: []string{"Approve", "Deny"}}
-	Ask(Theme{}, req, 80, 0, "", false)
-	warm := askBodyRenders()
-	for frame := 0; frame < 20; frame++ {
-		lines := Ask(Theme{}, req, 80, 0, "", false)
-		if len(lines) != askPreviewLines+4 {
-			t.Fatalf("frame %d rendered %d lines", frame, len(lines))
-		}
-	}
-	if got := askBodyRenders(); got != warm {
-		t.Fatalf("collapsed preview re-wrapped the body: %d -> %d renders", warm, got)
-	}
-	// The expanded body comes from the same cached lines: no extra render and
-	// no truncation of the body.
-	expanded := Ask(Theme{}, req, 80, 0, "", true)
-	if got := askBodyRenders(); got != warm {
-		t.Fatalf("expanding re-wrapped the body: %d renders", got)
-	}
-	if len(expanded) != 4000+3 {
-		t.Fatalf("expanded body lost lines: %d", len(expanded))
-	}
-	// A different width is a different layout, and the cache stays bounded.
-	for width := 60; width < 60+2*askBodyCacheSize; width++ {
-		Ask(Theme{}, req, width, 0, "", false)
-	}
-	askBodies.Lock()
-	cached := len(askBodies.entries)
-	askBodies.Unlock()
-	if cached > askBodyCacheSize {
-		t.Fatalf("body cache grew to %d entries", cached)
 	}
 }

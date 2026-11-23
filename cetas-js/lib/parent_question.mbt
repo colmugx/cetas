@@ -46,14 +46,5 @@ impl @askquestion.QuestionEndpoint for CetasParentQuestionEndpoint with fn reque
   req~ : @posoco.UiRequest,
 ) -> @posoco.UiResponse raise @askquestion.QuestionError {
   let _ = audience
-  self.channel.ask(child_session=self.child_session, origin_call~, req~) catch {
-    @subagent.QuestionError::Unsupported(detail) =>
-      raise @askquestion.QuestionError::Unsupported(detail)
-    @subagent.QuestionError::Cancelled =>
-      raise @askquestion.QuestionError::Cancelled
-    @subagent.QuestionError::TimedOut =>
-      raise @askquestion.QuestionError::TimedOut
-    @subagent.QuestionError::Io(detail) =>
-      raise @askquestion.QuestionError::Io(detail)
-  }
+  @askquestion.QuestionEndpoint::request(self, origin_call~, req~)
 }

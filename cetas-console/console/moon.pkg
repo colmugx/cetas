@@ -8,6 +8,7 @@ import {
   "posoco/kit-events" @kit_events,
   "colmugx/cetas-ext-forme/lib" @forme,
   "colmugx/cetas-extras/lib" @extras,
+  "colmugx/cetas-extras/session" @extra_session,
   "colmugx/posoco-ext-read" @read,
   "colmugx/posoco-ext-write" @write,
   "colmugx/posoco-ext-edit" @edit,

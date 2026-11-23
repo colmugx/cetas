@@ -52,6 +52,23 @@ describe("SessionEventCursor", () => {
     expect(cursor.accept({ type: "turn.started", session_id: "b", runtime_epoch: "e2", cursor: 1, cursor_advance: true })).toEqual({ kind: "event", cursor: 1 });
   });
 
+  test("an unsequenced frame or gap cannot establish the runtime epoch", () => {
+    const cursor = new SessionEventCursor();
+    expect(cursor.accept({ type: "transcript.page", runtime_epoch: "stale", cursor: 42 })).toEqual({ kind: "unsequenced" });
+    expect(cursor.accept({ type: "turn.started", runtime_epoch: "stale", cursor: 42, cursor_advance: true })).toEqual({ kind: "gap", expected: 1, received: 42 });
+    expect(cursor.epoch()).toBe("");
+    expect(cursor.accept({ type: "turn.started", runtime_epoch: "current", cursor: 1, cursor_advance: true })).toEqual({ kind: "event", cursor: 1 });
+    expect(cursor.epoch()).toBe("current");
+  });
+
+  test("a malformed snapshot cannot replace an established runtime epoch", () => {
+    const cursor = new SessionEventCursor();
+    expect(cursor.accept({ type: "session.snapshot", session_id: "s", runtime_epoch: "current", high_water_cursor: 9 })).toEqual({ kind: "snapshot", cursor: 9, epoch: "current" });
+    expect(cursor.accept({ type: "session.snapshot", session_id: "s", runtime_epoch: "other", high_water_cursor: -1 })).toEqual({ kind: "unsequenced" });
+    expect(cursor.epoch()).toBe("current");
+    expect(cursor.cursor("s")).toBe(9);
+  });
+
   test("an older snapshot cannot rewind a Session cursor", () => {
     const cursor = new SessionEventCursor();
     cursor.accept({ type: "session.snapshot", session_id: "a", runtime_epoch: "e1", high_water_cursor: 4 });

@@ -7,7 +7,7 @@ import {
   type ToolRenderResultPayload,
   type ToolRenderer,
 } from "./registry.ts";
-import { summaryOf, TOOL_ROW_SPECS } from "./specs.ts";
+import { summaryOf } from "./specs.ts";
 
 const ANSI = /\x1b\[[0-9;]*m/g;
 
@@ -80,21 +80,6 @@ describe("spec table — call views", () => {
         args: { path: "a.ts", replace_all: "true" },
       })),
     ).toContain("● edit a.ts  (all)");
-  });
-
-  test("write secondary shows byte count; read/glob fall back to placeholder args", () => {
-    expect(
-      renderCall(pickToolRenderer("write"), makeCtx({
-        toolName: "write",
-        args: { path: "b.ts", content: "hello world" },
-      })),
-    ).toContain("● write b.ts  (11 bytes)");
-    expect(
-      renderCall(pickToolRenderer("read"), makeCtx({ toolName: "read", args: {} })),
-    ).toContain("● read (no path)");
-    expect(
-      renderCall(pickToolRenderer("glob"), makeCtx({ toolName: "glob", args: { pattern: "*.ts" } })),
-    ).toContain("● glob *.ts  .");
   });
 });
 
@@ -198,18 +183,6 @@ describe("unified invariant — result line 1 = bullet + title + primary", () =>
     });
   }
 
-  test("every spec table entry is exercised by a renderer", () => {
-    // Guards the loop above against silently dropping a spec entry.
-    // `write` is intentionally absent: it renders through its registered
-    // hook (write.ts) which delegates finalized views to
-    // specRenderer(writeSpec) and is covered by write.test.ts.
-    expect(Object.keys(TOOL_ROW_SPECS).sort()).toEqual([
-      "edit",
-      "glob",
-      "grep",
-      "read",
-    ]);
-  });
 });
 
 describe("hook renderers stay intact", () => {

@@ -1,28 +1,5 @@
 ///|
-/// Host-side seam for everything the UI needs from a session store beyond
-/// the kernel's `@port.SessionStore` (load/save/append/checkpoint/truncate).
-/// `list/entry/set_name` do not exist on any posoco port yet; until the port
-/// grows catalog methods, swapping store implementations means writing one
-/// adapter here and nothing else changes.
-pub(open) trait SessionCatalog {
-  fn check_id(Self, String) -> Result[Unit, String]
-  async fn list_ids(Self) -> Array[String]
-  async fn entry(Self, String) -> SessionCatalogEntry
-  async fn set_name(Self, String, String) -> Unit
-  async fn load(Self, String) -> @posoco_types.Session
-  /// Native-only replay seam: the absolute path of this session's persisted
-  /// transcript, when the implementation has one. The shared web/default
-  /// console keeps replaying through `load`; the native host uses this to
-  /// stream the JSONL journal in bounded chunks instead of materialising it.
-  fn transcript_path(Self, String) -> Result[String, String]
-}
-
-///|
-/// Implementation-neutral projection; `title` is already display-resolved.
-pub(all) struct SessionCatalogEntry {
-  id : String
-  title : String
-}
+pub using @extra_session {trait SessionCatalog, type SessionCatalogEntry}
 
 ///|
 /// Adapter over the compiled-in fs-session store.
@@ -56,7 +33,11 @@ impl SessionCatalog for FsSessionCatalog with fn entry(
   session_id : String,
 ) -> SessionCatalogEntry raise {
   let summary = self.store.summary(session_id)
-  { id: summary.id, title: @fs_session.display_title(summary), }
+  {
+    id: summary.id,
+    title: @fs_session.display_title(summary),
+    cwd: summary.cwd,
+  }
 }
 
 ///|

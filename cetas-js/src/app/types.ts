@@ -164,7 +164,7 @@ export interface ImageAttachment {
 }
 
 export interface AgentCallbacks {
-  observerCallback: (eventJson: string) => void;
+  observerCallback: (eventJson: string, parsed?: { readonly value: unknown }) => void;
   renderCallback: (eventJson: string) => void;
   requestCallback: (eventJson: string) => Promise<string>;
 }
@@ -322,7 +322,7 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
     agent: AgentHandle,
     questionId: string,
     response: QuestionAnswerResponse,
-  ): Promise<boolean>;
+  ): boolean;
   listCommands(agent: AgentHandle): readonly CommandDescriptor[];
   invokeCommand(agent: AgentHandle, id: string, argsJson: string): Promise<string>;
   /**
@@ -346,7 +346,7 @@ export interface CetasAgentBridge<AgentHandle = unknown> {
    * Stateless and Agent-free: available before setup and mid-turn. Optional
    * because test bridges may omit it; callers degrade to no `@` completion.
    */
-  listWorkspaceFiles?(config: CetasHostConfig): Promise<string>;
+  listWorkspaceFiles?(config: CetasHostConfig): Promise<readonly string[]>;
   /**
    * Session picker titles for one sessions directory as a JSON array
    * `[{"id":...,"title":...}]` (MoonBit `display_title` per session).

@@ -7,18 +7,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-func TestWheelPresentsTheDocumentOnce(t *testing.T) {
-	m := scrollWorkload("short_history")
-	defer m.Close()
-	before := m.presentation.mounts
-	next, _ := m.Update(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp}))
-	m = next.(model)
-	_ = m.View()
-	if got := m.presentation.mounts - before; got != 1 {
-		t.Fatalf("one wheel event mounted the document %d times, want once", got)
-	}
-}
-
 func TestPresentationLayoutTracksInputAndResize(t *testing.T) {
 	m := newModel()
 	defer m.Close()

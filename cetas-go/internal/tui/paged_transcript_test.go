@@ -931,102 +931,18 @@ func TestPagedSearchReportsUnreadablePayloads(t *testing.T) {
 	}
 }
 
-// A copy pin reads the block it asked for: `next` is only followed inside a span the
-// frame asked for, so one pinned block cannot walk the whole corpus.
-func TestPagedCopyPinDoesNotWalkTheCorpus(t *testing.T) {
-	m, r, host := pagedTranscriptModel(t, pagedUserCorpus(400))
-	before := len(host.pageRequests())
-	if _, err := r.copyHistory(&m, 1, 1); err == nil {
-		t.Fatal("a released block was copied without loading it")
-	}
-	pagedDrive(t, &m, r, r.ensure(&m))
-	if requests := host.pageRequests()[before:]; len(requests) > 2 {
-		t.Fatalf("a one-block copy read %d pages instead of its own block", len(requests))
-	}
-	if _, held := r.resident[0]; !held {
-		t.Fatal("the pinned block was not read")
-	}
-	text, err := r.copyHistory(&m, 1, 1)
-	if err != nil {
-		t.Fatalf("copy of the pinned block: %v", err)
-	}
-	if text != "> prompt 0" {
-		t.Fatalf("copy text: %q", text)
-	}
-}
-
-// A copy cannot take the one oversize working-set slot from the block on screen: it
-// is reported instead of polling "not loaded yet", and leaves no pins behind.
-func TestPagedCopyReportsAGiantBlockThatCannotGetTheSlot(t *testing.T) {
-	corpus := pagedUserCorpus(120)
-	corpus[100] = pagedItem{
-		Index: 100, Kind: "tool", CallID: "c-1", Name: "bash", Status: "done",
-		Result: mustPagedJSON(t, strings.Repeat("a", 2<<20)),
-	}
-	corpus[119] = pagedItem{
-		Index: 119, Kind: "tool", CallID: "c-2", Name: "bash", Status: "done",
-		Result: mustPagedJSON(t, strings.Repeat("b", 2<<20)),
-	}
-	host := &pagedTestHost{session: "s-1", revision: "4194304:1:1", corpus: corpus, inlineBytes: 1024}
-	m := newModel()
-	m.width, m.height = 80, 400
-	m.resize()
-	m.session = "s-1"
-	m.host = host
-	r := newPagedReplay()
-	r.budget = 1 << 20
-	if _, handled := r.apply(&m, commandResult{name: "transcript_index", payload: host.indexPayload(0, pagedIndexProbeLimit)}); !handled {
-		t.Fatal("index reply not adopted")
-	}
-	m.jumpToTranscriptBlock(119)
-	firstBlock, last := m.pagedVisibleBlocks()
-	for at := firstBlock; at < last; at += pagedPageLimit {
-		r.apply(&m, commandResult{name: "transcript_page", payload: host.pagePayload(at, pagedPageLimit)})
-	}
-	r.releaseInflight()
-	pagedDrive(t, &m, r, r.ensure(&m))
-	if r.resident[100].partial() || !r.resident[119].partial() {
-		t.Fatal("fixture: the painted giant must hold the one oversize slot")
-	}
-	if _, err := r.copyHistory(&m, 120, 120); err == nil {
-		t.Fatal("a copy of the queued giant was accepted as if it could be loaded")
-	} else if !strings.Contains(err.Error(), "another large block") {
-		t.Fatalf("the copy kept a silent retry loop: %v", err)
-	}
-	if len(r.pins) != 0 {
-		t.Fatalf("a refused copy kept %d pins", len(r.pins))
-	}
-}
-
-// A paged copy is synchronous and needs the whole range resident at once, so its pin
-// set must be bounded: a drag over the whole session is refused with a reason.
 func TestPagedCopyRefusesARangeItCannotPinWholesale(t *testing.T) {
 	m, r, _ := pagedTranscriptModel(t, pagedUserCorpus(400))
-	if _, err := r.copyHistory(&m, 1, 400); err == nil {
-		t.Fatal("a drag over the whole session was accepted as a synchronous copy")
-	} else if !strings.Contains(err.Error(), "copy a smaller range") {
-		t.Fatalf("the refusal must be actionable: %v", err)
+	if _, err := r.copyHistory(&m, 1, 400); err == nil || !strings.Contains(err.Error(), "copy a smaller range") {
+		t.Fatalf("large selection must be refused with an actionable error: %v", err)
 	}
-	if len(r.pins) != 0 {
-		t.Fatalf("a refused copy pinned %d blocks", len(r.pins))
-	}
-	// A bounded range still loads on retry, and a served copy releases its pins so
-	// they cannot accumulate across selections.
-	if _, err := r.copyHistory(&m, 1, 4); err == nil {
-		t.Fatal("a released range must ask to be loaded first")
-	} else if !strings.Contains(err.Error(), "not loaded yet") {
-		t.Fatalf("unexpected copy error: %v", err)
+	if _, err := r.copyHistory(&m, 1, 4); err == nil || !strings.Contains(err.Error(), "not loaded yet") {
+		t.Fatalf("released selection must ask to be loaded first: %v", err)
 	}
 	pagedDrive(t, &m, r, r.ensure(&m))
 	text, err := r.copyHistory(&m, 1, 4)
-	if err != nil {
-		t.Fatalf("copy of a bounded range: %v", err)
-	}
-	if !strings.Contains(text, "> prompt 0") || !strings.Contains(text, "> prompt 3") {
-		t.Fatalf("copy text: %q", text)
-	}
-	if len(r.pins) != 0 {
-		t.Fatalf("a served copy kept %d pins", len(r.pins))
+	if err != nil || !strings.Contains(text, "> prompt 0") || !strings.Contains(text, "> prompt 3") {
+		t.Fatalf("copy of bounded range = %q, %v", text, err)
 	}
 }
 

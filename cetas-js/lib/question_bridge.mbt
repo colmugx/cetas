@@ -22,42 +22,31 @@
 /// Project one extension question event onto the host wire envelope.
 pub fn question_event_to_json(event : @askquestion.QuestionEvent) -> Json {
   let (label, data) = match event {
-    @askquestion.QuestionEvent::Asked(question~) => {
-      let options : Array[Json] = []
-      for option in question.options() {
-        options.push(Json::string(option))
-      }
+    @askquestion.QuestionEvent::Asked(question~) =>
       (
         "question_asked",
-        Json::object(
-          Map::from_array([
-            ("question_id", Json::string(question.id)),
-            ("short_id", Json::string("@" + question.short_id())),
-            ("origin_call", Json::string(question.origin_call)),
-            ("question", Json::string(question.prompt())),
-            ("kind", Json::string(question.type_word())),
-            ("options", Json::array(options)),
-            ("asked_at", Json::number(question.asked_at.to_double())),
-            ("deadline_at", Json::number(question.deadline_at.to_double())),
-          ]),
-        ),
+        Json::object({
+          "question_id": Json::string(question.id),
+          "short_id": Json::string("@\{question.short_id()}"),
+          "origin_call": Json::string(question.origin_call),
+          "question": Json::string(question.prompt()),
+          "kind": Json::string(question.type_word()),
+          "options": Json::array(question.options().map(Json::string)),
+          "asked_at": Json::number(question.asked_at.to_double()),
+          "deadline_at": Json::number(question.deadline_at.to_double()),
+        }),
       )
-    }
     @askquestion.QuestionEvent::Answered(question_id~) =>
       (
         "question_answered",
-        Json::object(
-          Map::from_array([("question_id", Json::string(question_id))]),
-        ),
+        Json::object({ "question_id": Json::string(question_id) }),
       )
   }
-  Json::object(
-    Map::from_array([
-      ("type", Json::string("question_event")),
-      ("label", Json::string(label)),
-      ("data", data),
-    ]),
-  )
+  Json::object({
+    "type": Json::string("question_event"),
+    "label": Json::string(label),
+    "data": data,
+  })
 }
 
 ///|
@@ -69,9 +58,8 @@ fn parse_answer_response(
   let parsed : Json = @json.parse(response_json) catch {
     _ => return Err("answer payload must be JSON")
   }
-  let fields = match parsed {
-    Json::Object(fields) => fields
-    _ => return Err("answer payload must be a JSON object")
+  guard parsed is Json::Object(fields) else {
+    return Err("answer payload must be a JSON object")
   }
   let text = match fields.get("text") {
     None => None
@@ -125,23 +113,18 @@ pub fn cetas_js_answer_question(
   let response = match parse_answer_response(response_json) {
     Ok(response) => response
     Err(reason) =>
-      return Json::object(
-        Map::from_array([
-          ("ok", Json::boolean(false)),
-          ("reason", Json::string(reason)),
-        ]),
-      ).stringify()
+      return Json::object({
+        "ok": Json::boolean(false),
+        "reason": Json::string(reason),
+      }).stringify()
   }
   let outcome = handle.askquestion.answer_async(question_id~, response~)
   match outcome {
-    Ok(_) =>
-      Json::object(Map::from_array([("ok", Json::boolean(true))])).stringify()
+    Ok(_) => Json::object({ "ok": Json::boolean(true) }).stringify()
     Err(error) =>
-      Json::object(
-        Map::from_array([
-          ("ok", Json::boolean(false)),
-          ("reason", Json::string(error.to_string())),
-        ]),
-      ).stringify()
+      Json::object({
+        "ok": Json::boolean(false),
+        "reason": Json::string(error.to_string()),
+      }).stringify()
   }
 }

@@ -57,15 +57,12 @@ priv struct CetasChildSessionStore {
 
 ///|
 fn CetasChildSessionStore::CetasChildSessionStore() -> CetasChildSessionStore {
-  { sessions: Map::from_array([]), durable: None, }
+  { sessions: Map([]), durable: None, }
 }
 
 ///|
 fn CetasChildSessionStore::with_root(root : String) -> CetasChildSessionStore {
-  {
-    sessions: Map::from_array([]),
-    durable: Some(@fs_session.JsonlSessionStore(root)),
-  }
+  { sessions: Map([]), durable: Some(@fs_session.JsonlSessionStore(root)), }
 }
 
 ///|
@@ -101,7 +98,7 @@ impl @posoco.SessionPort for CetasChildSessionStore with fn load(
     None =>
       match self.sessions.get(id) {
         Some(session) => child_session_snapshot(session)
-        None => { messages: [], metadata: Map::from_array([]), }
+        None => { messages: [], metadata: Map([]), }
       }
   }
 }
@@ -130,7 +127,7 @@ impl @posoco.SessionPort for CetasChildSessionStore with fn append_messages(
     None => {
       let session = match self.sessions.get(id) {
         Some(value) => child_session_snapshot(value)
-        None => { messages: [], metadata: Map::from_array([]), }
+        None => { messages: [], metadata: Map([]), }
       }
       let merged = session.messages.copy()
       for message in messages {
@@ -166,7 +163,7 @@ impl @posoco.SessionPort for CetasChildSessionStore with fn truncate(
     None => {
       let session = match self.sessions.get(id) {
         Some(value) => child_session_snapshot(value)
-        None => { messages: [], metadata: Map::from_array([]), }
+        None => { messages: [], metadata: Map([]), }
       }
       let len = session.messages.length()
       let keep = if from_index < 0 {
@@ -320,7 +317,7 @@ fn CetasChildComposer::tool_extensions(
   ) catch {
     error =>
       raise @subagent.ComposerError::Failed(
-        "child tool composition failed: " + error.to_string(),
+        "child tool composition failed: \{error.to_string()}",
       )
   }
 }
@@ -337,7 +334,7 @@ async fn CetasChildComposer::skills_extension(
   ) catch {
     error =>
       raise @subagent.ComposerError::Failed(
-        "child skills composition failed: " + error.to_string(),
+        "child skills composition failed: \{error.to_string()}",
       )
   }
 }
@@ -364,9 +361,8 @@ fn subagent_settings_from_json(
         detail=".cetas/settings.json must be an object",
       )
   }
-  let section = match section {
-    None => return (@subagent_kit.SubagentConfig::defaults(), [])
-    Some(section) => section
+  guard section is Some(section) else {
+    return (@subagent_kit.SubagentConfig::defaults(), [])
   }
   let config = @subagent_kit.parse_subagent_config(section.stringify()) catch {
     @subagent_kit.SubagentConfigError::Invalid(message) =>
@@ -421,14 +417,14 @@ fn subagent_settings_from_json(
 async fn load_cetas_subagent_settings(
   home~ : String,
 ) -> (@subagent_kit.SubagentConfig, Array[@kind.KindSpec]) raise @posoco.CompositionError {
-  let settings_path = home + "/.cetas/settings.json"
+  let settings_path = "\{home}/.cetas/settings.json"
   let text = match
     @workspace.read_file_result(@workspace.JsWorkspaceFs(), settings_path) {
     Missing => return (@subagent_kit.SubagentConfig::defaults(), [])
     Failed(message) =>
       raise @posoco.CompositionError::ManifestSchemaError(
         manifest_id="cetas-js.subagent",
-        detail=".cetas/settings.json read failed: " + message,
+        detail=".cetas/settings.json read failed: \{message}",
       )
     Content(text) => text
   }
@@ -616,7 +612,7 @@ impl @subagent.ChildComposer for CetasChildComposer with fn compose(
   ) catch {
     error =>
       raise @subagent.ComposerError::Failed(
-        "child agent composition failed: " + error.to_string(),
+        "child agent composition failed: \{error.to_string()}",
       )
   }
 }

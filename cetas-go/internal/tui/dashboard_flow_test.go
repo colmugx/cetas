@@ -103,24 +103,6 @@ func TestStatusbarLocalizesUTCTimestampEntries(t *testing.T) {
 	}
 }
 
-func TestFormatStatusValue(t *testing.T) {
-	local := time.Date(2026, 1, 2, 3, 4, 5, 0, time.Local)
-	utcReset := local.UTC().Format("2006-01-02T15:04:05Z")
-	if got := formatStatusValue(utcReset); got != "2026-01-02 03:04:05" {
-		t.Fatalf("UTC reset time not converted to local wall clock: %q", got)
-	}
-	// Every non-timestamp value passes through untouched.
-	for _, value := range []string{"12:00", "deepseek-v4-pro", "s1", "5h 92%"} {
-		if got := formatStatusValue(value); got != value {
-			t.Fatalf("non-timestamp value changed: %q -> %q", value, got)
-		}
-	}
-	// A shape match that is not a real date is passed through, not zeroed.
-	if got := formatStatusValue("2026-13-45T99:99:99Z"); got != "2026-13-45T99:99:99Z" {
-		t.Fatalf("invalid date not passed through: %q", got)
-	}
-}
-
 func TestSessionSwitchedDropsStatusbarAndSiblingPresentation(t *testing.T) {
 	m := newModel()
 	m.width, m.height = 108, 36

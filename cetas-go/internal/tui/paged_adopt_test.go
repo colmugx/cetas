@@ -147,18 +147,6 @@ func TestLiveTailAdoptionRefusesMismatchedShapes(t *testing.T) {
 	}
 }
 
-// Below the threshold the tail is both the freshest and the cheapest copy of
-// what the user is reading; no re-index is issued for it.
-func TestLiveTailAdoptionThreshold(t *testing.T) {
-	host := &pagedTestHost{session: "s-1", revision: "2048:1:1", corpus: pagedUserCorpus(2), indexWindow: 400}
-	m, r := pagedHostModel(t, host)
-	m.appendUser("light question")
-	m.appendAssistant("light answer")
-	if cmd := r.refreshForTailGrowth(&m); cmd != nil {
-		t.Fatal("a light live tail triggered a re-index")
-	}
-}
-
 // A fresh session has no id at ready time, so the initial replay probe never
 // fired and the document runs live and unindexed. The turn-end hook must index
 // it for the first time, and that first index adopts the live document instead

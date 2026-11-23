@@ -22,13 +22,19 @@ export interface ObserverProjection {
   readonly delivery?: ObserverDeliveryFact;
 }
 
-export function projectObserverEvent(raw: string): ObserverProjection {
-  let value: unknown;
+export function parseObserverJson(raw: string): unknown {
   try {
-    value = JSON.parse(raw);
+    return JSON.parse(raw);
   } catch {
-    return {};
+    return undefined;
   }
+}
+
+export function projectObserverEvent(raw: string): ObserverProjection {
+  return projectObserverEventFromRecord(parseObserverJson(raw));
+}
+
+export function projectObserverEventFromRecord(value: unknown): ObserverProjection {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
   const event = value as Record<string, unknown>;
   const type = typeof event.type === "string" ? event.type : undefined;

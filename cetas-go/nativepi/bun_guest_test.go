@@ -40,7 +40,7 @@ export default function(pi: any) {
  pi.registerTool({
   name:"pi_bun_echo",
   description:"Bun guest Node builtins + async test",
-  parameters:{type:"object",properties:{text:{type:"string"}}},
+  parameters:{type:"object",properties:{text:{type:"string",minLength:1}},required:["text"]},
   async execute(_id: string, params: any) {
    await Promise.resolve();
    return {content:[{type:"text",text:createHash("sha256").update(params.text).digest("hex")+":"+lifecycle.join(",")}]};
@@ -65,6 +65,9 @@ export default function(pi: any) {
 	if rev == 0 || len(defs) != 1 || defs[0].Name != "pi_bun_echo" {
 		t.Fatalf("Bun guest catalog: %v / %d, warnings %v", defs, rev, g.Diagnostics())
 	}
+	if !strings.Contains(string(defs[0].Parameters), `"minLength":1`) {
+		t.Fatalf("schema constraint lost: %s", defs[0].Parameters)
+	}
 	if err = g.Emit([]byte(`{"type":"turn.started"}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -74,6 +77,63 @@ export default function(pi: any) {
 	}
 	if !strings.HasPrefix(result.Content, "ba7816bf8f01cfea") {
 		t.Fatalf("Node crypto not executed: %s", result.Content)
+	}
+}
+
+func TestBunGuestRejectsUnapprovedPackagesAndUnsupportedHooks(t *testing.T) {
+	binary := os.Getenv("CETAS_TEST_BUN")
+	if binary == "" {
+		var err error
+		binary, err = exec.LookPath("bun")
+		if err != nil {
+			t.Skip("Bun not available")
+		}
+	}
+	binary, err := filepath.Abs(binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, allowlist, entry, hook, warning string
+	}{
+		{name: "missing allowlist", entry: "./index.mjs", warning: "deny by default"},
+		{name: "malformed allowlist", allowlist: `{"packages":`, entry: "./index.mjs", warning: "deny by default"},
+		{name: "entry outside package", allowlist: `{"packages":["fixture"]}`, entry: "./../outside.mjs", warning: "Pi entry escapes package root"},
+		{name: "unsupported mutating hook", allowlist: `{"packages":["fixture"]}`, entry: "./index.mjs", hook: `pi.on("context", () => {});`, warning: "unsupported Pi event context"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home := t.TempDir()
+			root := filepath.Join(home, ".cetas", "pi-packages")
+			dir := filepath.Join(root, "fixture")
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			const registerTool = `pi.registerTool({name:"unexpected", execute() {return {content:[]};}});`
+			files := map[string]string{
+				filepath.Join(dir, "package.json"): `{"name":"fixture","pi":{"extensions":["` + test.entry + `"]}}`,
+				filepath.Join(dir, "index.mjs"):    `export default function(pi) { ` + test.hook + registerTool + ` }`,
+				filepath.Join(root, "outside.mjs"): `export default function(pi) { ` + registerTool + ` }`,
+			}
+			if test.allowlist != "" {
+				files[filepath.Join(home, ".cetas", "pi-packages.json")] = test.allowlist
+			}
+			for path, contents := range files {
+				if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			g, err := OpenBun(binary, home, home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer g.Close()
+			if defs, _ := g.Catalog(); len(defs) != 0 {
+				t.Fatalf("unexpected tools in catalog: %v", defs)
+			}
+			if warnings := strings.Join(g.Diagnostics(), "\n"); !strings.Contains(warnings, test.warning) {
+				t.Fatalf("expected warning %q, got %q", test.warning, warnings)
+			}
+		})
 	}
 }
 
@@ -312,8 +372,10 @@ func TestBunGuestCuratorBrowserAndLifecycleBridge(t *testing.T) {
   const sequence = [];
   pi.on("tool_call", event => sequence.push("tool_call:" + event.toolCallId + ":" +
     (event.parentToolCallId ?? "root") + ":" + event.toolName));
+  pi.on("tool_execution_start", event => sequence.push("tool_execution_start:" + event.args.query));
   for (const name of ["session_start", "before_agent_start", "agent_start",
-    "session_tree", "turn_start"]) {
+    "session_tree", "turn_start", "message_start", "message_update", "message_end",
+    "tool_execution_end", "turn_end", "agent_end", "agent_settled"]) {
     pi.on(name, event => sequence.push(event.type));
   }
   pi.registerCommand("bridge-check", {
@@ -342,20 +404,26 @@ func TestBunGuestCuratorBrowserAndLifecycleBridge(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer g.Close()
-	if err := g.Emit([]byte(`{"type":"turn.started"}`)); err != nil {
-		t.Fatal(err)
-	}
-	if err := g.Emit([]byte(`{"type":"session.switched"}`)); err != nil {
-		t.Fatal(err)
-	}
-	if err := g.Emit([]byte(`{"type":"tool.started","tool_call_id":"nested-1","parent_tool_call_id":"outer-1","tool_name":"web_search","arguments":{"query":"cetas"}}`)); err != nil {
-		t.Fatal(err)
+	for _, frame := range []string{
+		`{"type":"turn.started"}`,
+		`{"type":"session.switched"}`,
+		`{"type":"assistant.text_delta","delta":"hello"}`,
+		`{"type":"tool.started","tool_call_id":"nested-1","parent_tool_call_id":"outer-1","tool_name":"web_search","arguments":{"query":"cetas"}}`,
+		`{"type":"tool.completed","tool_call_id":"nested-1","tool_name":"web_search","result":"ok"}`,
+		`{"type":"turn.completed","text":"hello"}`,
+	} {
+		if err := g.Emit([]byte(frame)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	out := g.RunCommand("pi:bridge-check", "")
 	if out.Type != "success" {
 		t.Fatalf("Pi browser compatibility command failed: %#v", out)
 	}
-	if !strings.Contains(out.Feedback, "events:session_start,before_agent_start,agent_start,turn_start,session_tree,tool_call:nested-1:outer-1:web_search") {
+	want := "exec:function; events:session_start,before_agent_start,agent_start,turn_start,session_tree," +
+		"message_start,message_update,message_end,tool_call:nested-1:outer-1:web_search," +
+		"tool_execution_start:cetas,tool_execution_end,turn_end,agent_end,agent_settled"
+	if out.Feedback != want {
 		t.Fatalf("Pi lifecycle events missing or reordered: %#v", out)
 	}
 	for _, warning := range g.Diagnostics() {

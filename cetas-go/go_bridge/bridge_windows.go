@@ -19,8 +19,6 @@ type nativeAPI struct {
 	dll                                                        *windows.DLL
 	boot, run, send, poll, drops, rejections, rejectionContext *windows.Proc
 	submit, publish, wait, wake, wakeStage, wakeErrno          *windows.Proc
-	testReadWake, testNextCommand, testNextHarness             *windows.Proc
-	testCommandOpen, testCommandWake                           *windows.Proc
 }
 
 var (
@@ -68,11 +66,6 @@ func loadNativeAPI() (*nativeAPI, error) {
 		{"cetas_host_wake", &api.wake},
 		{"cetas_host_event_wake_stage", &api.wakeStage},
 		{"cetas_host_event_wake_errno", &api.wakeErrno},
-		{"cetas_bridge_read_wake", &api.testReadWake},
-		{"cetas_bridge_next_command", &api.testNextCommand},
-		{"cetas_bridge_next_harness", &api.testNextHarness},
-		{"cetas_bridge_command_channel_open", &api.testCommandOpen},
-		{"cetas_bridge_read_command_wake", &api.testCommandWake},
 	}
 	for _, binding := range bindings {
 		p, err := dll.FindProc(binding.name)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/colmugx/cetas/cetas-go/nativepi"
 )
@@ -12,8 +13,8 @@ import (
 // descriptors registered by the Bun guest owning that exact session.
 func (s *piSupervisor) mergeCommands(raw json.RawMessage) json.RawMessage {
 	var envelope struct {
-		SessionID string             `json:"session_id"`
-		Commands  []json.RawMessage  `json:"commands"`
+		SessionID string            `json:"session_id"`
+		Commands  []json.RawMessage `json:"commands"`
 	}
 	if json.Unmarshal(raw, &envelope) != nil || envelope.SessionID == "" {
 		return raw
@@ -28,7 +29,9 @@ func (s *piSupervisor) mergeCommands(raw json.RawMessage) json.RawMessage {
 	commands, _ := commander.Commands()
 	seen := make(map[string]bool, len(envelope.Commands))
 	for _, item := range envelope.Commands {
-		var def struct { ID string `json:"id"` }
+		var def struct {
+			ID string `json:"id"`
+		}
 		if json.Unmarshal(item, &def) == nil {
 			seen[strings.ToLower(def.ID)] = true
 		}
@@ -50,23 +53,70 @@ func (s *piSupervisor) mergeCommands(raw json.RawMessage) json.RawMessage {
 	return merged
 }
 
+type piInvokeRequest struct {
+	SessionID string `json:"session_id"`
+	ID        string `json:"id"`
+	RequestID string `json:"request_id"`
+	Arguments struct {
+		Positional string `json:"_positional"`
+	} `json:"arguments"`
+}
+
+func directPiInvocation(args any) (piInvokeRequest, bool) {
+	if typed, ok := args.(piInvokeRequest); ok {
+		return typed, utf8.ValidString(typed.SessionID) && utf8.ValidString(typed.ID) &&
+			utf8.ValidString(typed.RequestID) && utf8.ValidString(typed.Arguments.Positional)
+	}
+	var req piInvokeRequest
+	fields, ok := args.(map[string]any)
+	if !ok {
+		return req, args == nil
+	}
+	for key, value := range fields {
+		var dst *string
+		switch key {
+		case "session_id":
+			dst = &req.SessionID
+		case "id":
+			dst = &req.ID
+		case "request_id":
+			dst = &req.RequestID
+		case "arguments":
+			text, ok := directStringArg(value, "_positional")
+			if !ok {
+				return req, false
+			}
+			req.Arguments.Positional = text
+			continue
+		default:
+			return req, false
+		}
+		if value != nil {
+			text, ok := value.(string)
+			if !ok || !utf8.ValidString(text) {
+				return req, false
+			}
+			*dst = text
+		}
+	}
+	return req, true
+}
+
+func readPiInvokeRequest(args any) (piInvokeRequest, error) {
+	if req, ok := directPiInvocation(args); ok {
+		return req, nil
+	}
+	var req piInvokeRequest
+	err := decodeCommandArgs(args, &req)
+	return req, err
+}
+
 // invokeCommand handles only namespaced Pi commands. Ordinary commands
 // continue to the MoonBit CommandPort unchanged. The RPC runs asynchronously:
 // the TUI receives an immediate ack, then a correlated command.completed event.
 func (s *piSupervisor) invokeCommand(args any) (json.RawMessage, bool, error) {
-	raw, err := json.Marshal(args)
+	input, err := readPiInvokeRequest(args)
 	if err != nil {
-		return nil, false, err
-	}
-	var input struct {
-		SessionID string `json:"session_id"`
-		ID        string `json:"id"`
-		RequestID string `json:"request_id"`
-		Arguments struct {
-			Positional string `json:"_positional"`
-		} `json:"arguments"`
-	}
-	if err := json.Unmarshal(raw, &input); err != nil {
 		return nil, false, err
 	}
 	if !strings.HasPrefix(input.ID, "pi:") {

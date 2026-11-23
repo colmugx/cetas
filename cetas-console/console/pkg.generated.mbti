@@ -2,7 +2,7 @@
 package "colmugx/cetas-console/console"
 
 import {
-  "colmugx/cetas-core/lib",
+  "colmugx/cetas-extras/session",
   "colmugx/posoco-ext-magpie",
   "colmugx/posoco-ext-permission",
   "colmugx/posoco-ext-plan",
@@ -10,7 +10,6 @@ import {
   "colmugx/posoco/error",
   "colmugx/posoco/kernel",
   "colmugx/posoco/port",
-  "colmugx/posoco/types",
   "moonbitlang/core/async",
   "moonbitlang/core/async/aqueue",
   "moonbitlang/core/json",
@@ -22,7 +21,7 @@ pub async fn compose_console_runtime(ConsoleConfig, String, @async.TaskGroup, li
 
 pub fn console_bootstrap(&@posoco-ext-workspace.WorkspaceFs, String, (String) -> Unit, native_ui? : Bool) -> ConsoleBootstrap
 
-pub fn console_config(&@posoco-ext-workspace.WorkspaceFs, String, String, String, native_ui? : Bool, native_pi_enabled? : Bool, permission_mode? : @posoco-ext-permission.PermissionMode, herdr_presence? : Bool, session_backend_factory? : ((String, String) -> Result[ConsoleSessionBackend, String])?) -> ConsoleConfig
+pub fn console_config(&@posoco-ext-workspace.WorkspaceFs, String, String, String, native_ui? : Bool, native_pi_enabled? : Bool, permission_mode? : @posoco-ext-permission.PermissionMode, herdr_presence? : Bool, session_backend? : @session.ConsoleSessionBackend?) -> ConsoleConfig
 
 pub fn release_herdr_presence() -> Unit
 
@@ -53,7 +52,7 @@ pub struct ConsoleConfig {
   native_pi_enabled : Bool
   permission_mode : @posoco-ext-permission.PermissionMode
   herdr_presence : Bool
-  session_backend_factory : ((String, String) -> Result[ConsoleSessionBackend, String])?
+  session_backend : @session.ConsoleSessionBackend?
 }
 
 pub(all) struct ConsolePlanReview {
@@ -72,7 +71,7 @@ pub struct ConsoleRuntime {
   native_pi_enabled : Bool
   startup_permission : @posoco-ext-permission.PermissionMode
   herdr_presence : Bool
-  session_backend_factory : ((String, String) -> Result[ConsoleSessionBackend, String])?
+  session_backend : @session.ConsoleSessionBackend?
   group : @async.TaskGroup
   lifetime_group : @async.TaskGroup?
   hub : EventHub
@@ -155,12 +154,6 @@ pub async fn ConsoleRuntime::workspace_file_index(Self) -> Array[String]
 pub fn ConsoleRuntime::workspaces_json(Self) -> @json.Json
 pub fn ConsoleRuntime::zoo_json(Self) -> @json.Json
 
-pub(all) struct ConsoleSessionBackend {
-  session : @lib.CetasSessionBackend
-  catalog : &SessionCatalog
-  revision : (String) -> Result[String, String]
-}
-
 type EventHub
 
 pub struct MagpieBinding {
@@ -204,11 +197,6 @@ pub struct NativeReplayIndex {
   // private fields
 }
 
-pub(all) struct SessionCatalogEntry {
-  id : String
-  title : String
-}
-
 type SurfaceBinding
 
 type UiRegistry
@@ -216,13 +204,10 @@ type UiRegistry
 type WorkspaceRuntime
 
 // Type aliases
+pub using @session {type ConsoleSessionBackend}
+
+pub using @session {type SessionCatalogEntry}
+
+pub using @session {trait SessionCatalog}
 
 // Traits
-pub(open) trait SessionCatalog {
-  fn check_id(Self, String) -> Result[Unit, String]
-  async fn list_ids(Self) -> Array[String]
-  async fn entry(Self, String) -> SessionCatalogEntry
-  async fn set_name(Self, String, String) -> Unit
-  async fn load(Self, String) -> @types.Session
-  fn transcript_path(Self, String) -> Result[String, String]
-}

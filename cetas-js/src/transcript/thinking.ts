@@ -26,7 +26,9 @@ const PREVIEW_LINES = 3;
 
 export class ThinkingComponent extends Container {
   private mode: ThinkingMode;
-  private contentText: string;
+  private contentText = "";
+  private lineCount = 1;
+  private lastLines = [""];
   private headerEl: Text;
   private bodyEl: Text;
   /** Finalized-mode only: show the 3-line preview (true) or full content. */
@@ -37,7 +39,7 @@ export class ThinkingComponent extends Container {
   constructor(initialText = "", initialMode: ThinkingMode = "live") {
     super();
     this.mode = initialMode;
-    this.contentText = initialText;
+    this.updateLineSummary(initialText);
 
     this.headerEl = new Text("", 1, 0);
     this.bodyEl = new Text("", 1, 0);
@@ -54,9 +56,28 @@ export class ThinkingComponent extends Container {
 
   /** Push new thinking content (replaces, not appends — caller accumulates). */
   updateContent(text: string): void {
-    this.contentText = text;
+    if (text === this.contentText) return;
+    this.updateLineSummary(text);
     this.renderContent();
-    this.invalidate();
+  }
+
+  private updateLineSummary(text: string): void {
+    let start = this.contentText.length;
+    if (!text.startsWith(this.contentText)) {
+      this.lineCount = 1;
+      this.lastLines = [""];
+      start = 0;
+    }
+    // The first fragment extends the prior (possibly empty) last line.
+    for (let newline = text.indexOf("\n", start); newline !== -1; newline = text.indexOf("\n", start)) {
+      this.lastLines[this.lastLines.length - 1] += text.slice(start, newline);
+      this.lastLines.push("");
+      if (this.lastLines.length > PREVIEW_LINES) this.lastLines.shift();
+      this.lineCount++;
+      start = newline + 1;
+    }
+    this.lastLines[this.lastLines.length - 1] += text.slice(start);
+    this.contentText = text;
   }
 
   /** Finalize: stop spinner, switch to static display. */
@@ -73,8 +94,8 @@ export class ThinkingComponent extends Container {
     this.spinnerTimer = setInterval(() => {
       this.spinnerIndex = (this.spinnerIndex + 1) % BRAILLE_FRAMES.length;
       this.headerEl.setText(this.buildHeader());
-      this.invalidate();
     }, SPINNER_MS);
+    this.spinnerTimer.unref?.();
   }
 
   private stopSpinner(): void {
@@ -106,18 +127,14 @@ export class ThinkingComponent extends Container {
       const frame = BRAILLE_FRAMES[this.spinnerIndex];
       return theme.thinking(`${frame} thinking...`);
     }
-    const lines = this.contentText.split("\n").length;
     const hint = this.collapsed ? "ctrl+t 展开" : "ctrl+t 收起";
-    return theme.thinking(`💭 thought · ${lines} lines · ${hint}`);
+    return theme.thinking(`💭 thought · ${this.lineCount} lines · ${hint}`);
   }
 
   private buildBody(): string {
     if (!this.contentText) return "";
     if (this.mode === "live") {
-      // Show only the last PREVIEW_LINES in live mode
-      const lines = this.contentText.split("\n");
-      const preview = lines.slice(-PREVIEW_LINES).join("\n");
-      return theme.thinking(preview);
+      return theme.thinking(this.lastLines.join("\n"));
     }
     // Finalized: collapsed keeps the first PREVIEW_LINES with a tail count.
     if (this.collapsed) {

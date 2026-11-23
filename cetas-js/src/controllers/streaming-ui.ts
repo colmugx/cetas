@@ -1,23 +1,3 @@
-/**
- * streaming-ui.ts — step-block accumulator for streaming assistant output.
- *
- * MODEL:
- *   - One mutable "current step" slot holds the in-flight assistant message's
- *     reasoning + text components.
- *   - The transcript (host's transcriptContainer) is an append-only history:
- *     finalized step components stay mounted as frozen siblings and are NEVER
- *     mutated again. Finalization = the slot stops pointing at them, not a
- *     state transition on the component beyond `finalize()`.
- *   - Step boundaries are inferred from stream_chunk kind ordering (see
- *     {@link appendReasoning}), NOT from `message_end` — which is a delayed
- *     post-hoc replay in this bridge (agent_puppet.mbt:456-535), not a live
- *     per-step signal.
- *
- * The step model prevents reasoning after a tool call from overwriting the
- * previous ThinkingComponent, and prevents post-hoc `message_end` replay from
- * re-rendering reasoning or text that streaming already showed.
- */
-
 import { type Component } from "@earendil-works/pi-tui";
 import { AssistantMessage } from "../transcript/components.ts";
 import { ThinkingComponent } from "../transcript/thinking.ts";
@@ -159,6 +139,7 @@ export class StreamingUIController {
     }
     const s = this.step;
     if (s.thinking !== null && !s.thinkingFinalized) {
+      this.flushNow();
       s.thinking.finalize();
       s.thinkingFinalized = true;
     }
@@ -170,7 +151,7 @@ export class StreamingUIController {
     this.scheduleFlush();
   }
 
-  // -- component attachment (Path B: caller pre-creates finalized blocks) -
+  // -- finalized components ----------------------------------------------
 
   /**
    * Attach a pre-created ThinkingComponent (e.g. finalized mode from a

@@ -28,7 +28,7 @@ fn mcp_tool_allowed(name : String, config : TeamMcp) -> Bool {
     return true
   }
   for server in config.servers {
-    if name.has_prefix(server + "__") {
+    if name.has_prefix("\{server}__") {
       return true
     }
   }
@@ -91,7 +91,7 @@ impl @posoco.ToolProvider for BoardMcpTools with fn execute(
   let name = ctx.name.to_string()
   if !self.tools.contains(name) {
     raise @posoco.RuntimeError::UnknownTool(
-      "MCP tool is not enabled for this Board role: " + name,
+      "MCP tool is not enabled for this Board role: \{name}",
     )
   }
   @posoco.ToolProvider::execute(self.bridge, ctx)
@@ -101,10 +101,10 @@ impl @posoco.ToolProvider for BoardMcpTools with fn execute(
 impl @posoco.Extension for BoardMcpTools with fn extension_id(
   self : BoardMcpTools,
 ) -> String {
-  "board_mcp_" + self.role
+  "board_mcp_\{self.role}"
 }
 
 ///|
 impl @posoco.Extension for BoardMcpTools with fn manifest(self : BoardMcpTools) -> @posoco.ExtensionManifest {
-  @posoco.ExtensionManifest(id="board_mcp_" + self.role, tools=[self])
+  @posoco.ExtensionManifest(id="board_mcp_\{self.role}", tools=[self])
 }

@@ -11,7 +11,7 @@ pub struct BoardCoordinationTools {
 fn coordination_schema() -> Json {
   Json::object({
     "type": Json::string("object"),
-    "properties": Json::object(Map([])),
+    "properties": Json::empty_object(),
     "additionalProperties": Json::boolean(false),
   })
 }
@@ -104,7 +104,7 @@ impl @posoco.ToolProvider for BoardCoordinationTools with fn execute(
       )
     None =>
       @posoco.ToolOutcome::ToolReportedError(
-        content="Unknown Board coordination tool: " + name,
+        content="Unknown Board coordination tool: \{name}",
         structured=None,
       )
   }

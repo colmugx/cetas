@@ -43,11 +43,15 @@ func commandWakePending() bool { return int(C.cetas_bridge_read_command_wake()) 
 // owner loop does, so tests can observe what Submit enqueued.
 func takeHarness() []byte {
 	buf := make([]byte, HarnessLimit)
-	n := int(C.cetas_bridge_next_harness((*C.uint8_t)(unsafe.Pointer(&buf[0])), C.int32_t(len(buf))))
+	n := copyNextHarness(buf)
 	if n <= 0 {
 		return nil
 	}
 	return buf[:n]
+}
+
+func copyNextHarness(buf []byte) int {
+	return int(C.cetas_bridge_next_harness((*C.uint8_t)(unsafe.Pointer(&buf[0])), C.int32_t(len(buf))))
 }
 
 // takeCommand removes the next queued host command exactly the way the

@@ -10,79 +10,33 @@
  *   bun host.ts
  */
 
-import { appendFileSync, writeSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import { ProcessTerminal } from "@earendil-works/pi-tui";
 import { resolveLocale, setLocale } from "./src/i18n/index.ts";
 import { TuiAltScreen } from "@earendil-works/pi-tui";
-import * as moonbit from "mbt:colmugx/cetas-js/lib";
 
 import { buildCetasHostConfig, CetasApplication, type CetasHostConfig } from "./src/app/index.ts";
 import { bootstrapSettings } from "./src/app/settings-bootstrap.ts";
 import { runUpdateCheck, updateNoticeMessage } from "./src/app/update-check.ts";
 import { cetasVersion, detectChannel, detectPackageManager } from "./src/app/version.ts";
-import { makeUnhandledFaultHandler } from "./src/host-fault.ts";
+import { installHostFaultHandler } from "./src/host-fault.ts";
 import {
   MoonbitCetasAgentBridge,
   resolvedSessionsDir,
 } from "./src/app/moonbit-bridge.ts";
 import { newSessionId } from "./src/app/session-id.ts";
 import { observeLocalOwnerSession } from "./src/app/local-session-observer.ts";
-import { electBunLocalOwner } from "./src/app/local-session-owner.ts";
+import type { OwnerElection } from "./src/app/local-session-owner.ts";
 import { disposeSharedPiModuleMirror } from "./src/app/pi-module-mirror.ts";
 import { TerminalShell, localizedCetasTuiHelpNote } from "./ui/terminal-shell.ts";
 import { openInBrowser } from "./ui/workflow-board-server.ts";
 
+declare const __CETAS_NODE_BUNDLE__: boolean | undefined;
+
 // Recoverable failures belong to the Agent/tool boundary. A fault escaping
 // that boundary cannot safely resume the scheduler or repaint the TUI.
 let stopSurface: ((outputBroken: boolean) => void) | undefined;
-const initialRawMode = process.stdin.isRaw ?? false;
-
-function reportUnhandledFault(kind: string, error: unknown): string {
-  const detail =
-    error instanceof Error
-      ? `${error.name}: ${error.message}\n${error.stack ?? ""}${error.cause === undefined ? "" : "\\ncause: " + (error.cause instanceof Error ? error.cause.stack ?? String(error.cause) : String(error.cause))}`
-      : String(error);
-  const crashPath = join(tmpdir(), "cetas-js-crash.log");
-  appendFileSync(
-    crashPath,
-    `[${new Date().toISOString()}] ${kind} pid=${process.pid} cetas=${cetasVersion()} channel=${detectChannel()} runtime=${process.version} bun=${process.versions.bun ?? "unknown"}\n${detail}\n\n`,
-  );
-  return `cetas: fatal host fault (${kind}) logged to ${crashPath}`;
-}
-
-const onUnhandledFault = makeUnhandledFaultHandler({
-  report: reportUnhandledFault,
-  stopSurface: (outputBroken) => {
-    try {
-      stopSurface?.(outputBroken);
-    } finally {
-      // ProcessTerminal.stop writes to stdout before restoring raw mode.
-      // Restore input separately even if stdout is broken or stop throws.
-      try {
-        process.stdin.setRawMode?.(initialRawMode);
-      } finally {
-        process.stdin.pause();
-      }
-    }
-  },
-  releaseResources: () => {
-    disposeSharedPiModuleMirror();
-    moonbit.cetas_js_herdr_release();
-  },
-  writeDiagnostic: (notice) => {
-    writeSync(2, `${notice}\ncetas: exiting; restart to recover the persisted session.\n`);
-  },
-  exitFatal: () => process.exit(1),
-});
-
-process.on("unhandledRejection", (reason: unknown) => {
-  onUnhandledFault("unhandled rejection", reason);
-});
-process.on("uncaughtException", (error: unknown) => {
-  onUnhandledFault("uncaught exception", error);
+const onUnhandledFault = installHostFaultHandler((outputBroken) => {
+  stopSurface?.(outputBroken);
 });
 
 async function main(): Promise<void> {
@@ -106,7 +60,11 @@ async function main(): Promise<void> {
   await bootstrapSettings(config.home);
   // Optional same-user owner election uses the SAME OS lease as cetas-go.
   // Failure only suppresses collaboration; JS Agent startup is unchanged.
-  const ownerElection = electBunLocalOwner(config.home);
+  // Keep the Bun-only FFI adapter out of the plain Node bundle.
+  const ownerElection: OwnerElection =
+    typeof __CETAS_NODE_BUNDLE__ !== "undefined" && __CETAS_NODE_BUNDLE__
+      ? { status: "unavailable" }
+      : (await import("./src/app/local-session-owner.ts")).electBunLocalOwner(config.home);
   const localOwner = ownerElection.owner;
   process.once("exit", () => localOwner?.close());
   const sessionId = newSessionId();
@@ -163,7 +121,7 @@ async function main(): Promise<void> {
     versionInfo,
     openBoardUrl: openInBrowser,
     observeSession: (id) => observeLocalOwnerSession(config.home, id, ownerElection.status),
-    onLocalOwnerEvent: (raw) => localOwner?.publish(raw),
+    onLocalOwnerEvent: (raw, parsed) => localOwner?.publish(raw, parsed),
     // `/sessions` → All → a row from another project: build that project's
     // application so the following turns run in its directory. The shell
     // releases the previous application once this resolves.

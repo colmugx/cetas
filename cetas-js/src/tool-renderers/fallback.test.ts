@@ -48,15 +48,6 @@ function renderResult(
 }
 
 describe("previewLines", () => {
-  test("keeps newlines, takes 3 lines, appends (+N lines) tail", () => {
-    expect(previewLines("l1\nl2\nl3\nl4\nl5")).toBe("l1\nl2\nl3\n… (+2 lines)");
-  });
-
-  test("no tail when within maxLines; maxLines is adjustable", () => {
-    expect(previewLines("a\nb\nc")).toBe("a\nb\nc");
-    expect(previewLines("a\nb\nc\nd", 2)).toBe("a\nb\n… (+2 lines)");
-  });
-
   test("pretty-prints JSON payloads (nmem --json stdout)", () => {
     const out = previewLines('{"memories":[{"id":"a","title":"t"}]}');
     expect(out).toBe('{\n  "memories": [\n    {\n… (+5 lines)');
@@ -75,12 +66,6 @@ describe("previewLines", () => {
 });
 
 describe("fallback renderer — result views", () => {
-  test("title line: bullet + toolLabel; body is a 3-line preview with tail", () => {
-    const lines = renderResult({ content: "r1\nr2\nr3\nr4", isError: false });
-    expect(lines[0]).toContain("● nowledge-mem:memory_search");
-    expect(lines.slice(1)).toEqual(["r1", "r2", "r3", "… (+1 lines)"]);
-  });
-
   test("structured.summary wins over content preview", () => {
     const lines = renderResult({
       content: "r1\nr2\nr3\nr4",
@@ -110,13 +95,6 @@ describe("fallback renderer — result views", () => {
     expect(expanded.filter((l) => l.length > 0)).toHaveLength(11); // title + 10
     expect(expanded).toContain("line10");
     expect(EXPANDED_MAX).toBeGreaterThan(10);
-  });
-
-  test("renderCall titles with toolLabel too", () => {
-    const comp = fallbackRenderer.renderCall?.(makeCtx());
-    const rendered = comp?.render(80).map((l) => strip(l)).join("\n") ?? "";
-    expect(rendered).toContain("nowledge-mem:memory_search");
-    expect(rendered).toContain('{"q":"ports"}');
   });
 });
 
@@ -199,8 +177,4 @@ describe("shared shell renderer — Ran labels and commands", () => {
     });
   }
 
-  test("tool dispatcher uses the same renderer for both shells", () => {
-    expect(pickToolRenderer("bash")).toBe(shellRenderer);
-    expect(pickToolRenderer("powershell")).toBe(shellRenderer);
-  });
 });

@@ -6,49 +6,20 @@ import (
 	"testing"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/colmugx/cetas/cetas-go/internal/tui/overlays"
 )
 
-// TestPickerPanelMemoRendersOncePerInputIdentity pins the panel memo: an
-// unchanged render-input key returns the memoized panel and rect verbatim,
-// and every input change — cursor move, same-length page replacement, window
-// resize, close — produces a fresh render. The memo is what keeps a wheel
-// frame over the picker from rendering the panel twice.
-func TestPickerPanelMemoRendersOncePerInputIdentity(t *testing.T) {
+func TestPickerPanelRendersReplacedRows(t *testing.T) {
 	host := &sessionCatalogHost{total: 6, cwd: "/workspace/demo"}
 	m := sessionPickerModel(t, host)
 	m = openTypedSessionPicker(t, &m)
 
-	first, left, top, width, height := m.overlayPanel()
-	if len(first) == 0 {
-		t.Fatal("picker panel rendered nothing")
-	}
-	again, left2, top2, width2, height2 := m.overlayPanel()
-	if &again[0] != &first[0] {
-		t.Fatal("unchanged inputs re-rendered the picker panel")
-	}
-	if left != left2 || top != top2 || width != width2 || height != height2 {
-		t.Fatalf("memoized rect moved: (%d,%d,%d,%d) -> (%d,%d,%d,%d)", left, top, width, height, left2, top2, width2, height2)
+	before, _, _, _, _ := m.overlayPanel()
+	if !strings.Contains(strings.Join(before, "\n"), "session 00") {
+		t.Fatal("picker did not render its initial rows")
 	}
 
-	// A cursor move is a new input: a fresh render, not the memoized one.
-	next, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	moved := next.(model)
-	if moved.sessionPicker.panel.Index == m.sessionPicker.panel.Index {
-		t.Fatal("down did not move the picker cursor")
-	}
-	movedPanel, _, _, _, _ := moved.overlayPanel()
-	if &movedPanel[0] == &first[0] {
-		t.Fatal("a cursor move reused the stale panel")
-	}
-	if !strings.Contains(strings.Join(movedPanel, "\n"), "session 01") {
-		t.Fatal("fresh panel lost the newly selected row's rendering cues")
-	}
-
-	// A same-length page replacement keeps the request generation and row
-	// count; the content counter must still force a fresh render.
+	// The replacement has the same row count, but the old content must disappear.
 	replacement := make([]overlays.SessionEntry, 0, 6)
 	for i := 0; i < 6; i++ {
 		cwd := host.cwd
@@ -62,8 +33,8 @@ func TestPickerPanelMemoRendersOncePerInputIdentity(t *testing.T) {
 			ModifiedAt: time.Now().Add(-time.Duration(i+1) * time.Minute).UnixMilli(),
 		})
 	}
-	reply := sessionReply(moved, sessionPayload(t, "current", replacement, nil))
-	next, _ = moved.Update(reply)
+	reply := sessionReply(m, sessionPayload(t, "current", replacement, nil))
+	next, _ := m.Update(reply)
 	refreshed := next.(model)
 	panel, _, _, _, _ := refreshed.overlayPanel()
 	joined := strings.Join(panel, "\n")

@@ -52,16 +52,20 @@ pub async fn ConsoleRuntime::rewind_active_session(
     return rewind_error("cannot rewind while a turn is running")
   }
   let text = match workspace.backend {
-    Some(_) =>
-      match
-        database_rewind_user_message(
-          workspace.catalog,
-          handle.session_id,
-          index,
-        ) {
+    Some(_) => {
+      let message = database_rewind_user_message(
+        workspace.catalog,
+        handle.session_id,
+        index,
+      ) catch {
+        error =>
+          return rewind_error("cannot read session: " + error.to_string())
+      }
+      match message {
         Some(value) => value
         None => return rewind_error("invalid rewind address")
       }
+    }
     None => {
       let path = @fs_session.jsonl_session_path(
         workspace.platform.session_store.root_dir,
@@ -76,14 +80,10 @@ pub async fn ConsoleRuntime::rewind_active_session(
       }
     }
   }
-  let port : &@posoco.SessionPort = match workspace.backend {
-    Some(value) => value.session.port
-    None => workspace.platform.session_store as &@posoco.SessionPort
-  }
-  @cetas_core.rewind_session(port, handle.session_id, index) catch {
+  @cetas_core.rewind_session(handle.session_port, handle.session_id, index) catch {
     error => return rewind_error("rewind failed: " + error.to_string())
   }
-  handle.agent.shutdown()
+  release_handle_scope(handle)
   workspace.handles.remove(handle.session_id)
   let restored = self.compose_handle(workspace, handle.session_id)
   match restored {

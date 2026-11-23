@@ -17,6 +17,7 @@ fn NativeBootstrapTasks::start(
   self : NativeBootstrapTasks,
   setup : @console.ConsoleBootstrap,
   boot : Ref[Result[@console.ConsoleRuntime, String]],
+  composing : Ref[Bool],
   config : @console.ConsoleConfig,
   cwd : String,
   group : @core_async.TaskGroup,
@@ -24,10 +25,10 @@ fn NativeBootstrapTasks::start(
   provider : String,
   auth_method : String,
 ) -> Json {
-  for _, _ in self.pending {
+  if !self.pending.is_empty() {
     return harness_error("another provider login is still active")
   }
-  let id = "setup-auth-" + self.next_id.to_string()
+  let id = "setup-auth-\{self.next_id}"
   self.next_id += 1
   let task = group.spawn(
     () => {
@@ -50,19 +51,23 @@ fn NativeBootstrapTasks::start(
         _ => false
       }
       if succeeded {
-        let composed : Result[@console.ConsoleRuntime, String] = Ok(
-          @console.compose_console_runtime(
-            config,
-            cwd,
-            group,
-            lifetime_group=Some(lifetime_group),
-          ),
-        ) catch {
-          err => Err(err.to_string())
+        composing.val = true
+        defer {
+          composing.val = false
         }
-        if self.cancelled.contains(id) {
-          return
-        }
+        let composed : Result[@console.ConsoleRuntime, String] = @core_async.protect_from_cancel(async fn() {
+            Ok(
+              @console.compose_console_runtime(
+                config,
+                cwd,
+                group,
+                lifetime_group=Some(lifetime_group),
+              ),
+            ) catch {
+              err => Err(err.to_string())
+            }
+          },
+        )
         match composed {
           Ok(runtime) => {
             runtime.attach_sink(fn(frame : String) { emit(frame) })
@@ -142,6 +147,7 @@ async fn bootstrap_dispatch(
   setup : @console.ConsoleBootstrap,
   tasks : NativeBootstrapTasks,
   boot : Ref[Result[@console.ConsoleRuntime, String]],
+  composing : Ref[Bool],
   config : @console.ConsoleConfig,
   cwd : String,
   group : @core_async.TaskGroup,
@@ -162,6 +168,7 @@ async fn bootstrap_dispatch(
           tasks.start(
             setup,
             boot,
+            composing,
             config,
             cwd,
             group,
@@ -188,7 +195,7 @@ async fn bootstrap_dispatch(
         }
         Err(error) => harness_error(error)
       }
-    other => harness_error("complete provider setup before using " + other)
+    other => harness_error("complete provider setup before using \{other}")
   }
 }
 
@@ -197,6 +204,7 @@ async fn bootstrap_handle_frame(
   setup : @console.ConsoleBootstrap,
   tasks : NativeBootstrapTasks,
   boot : Ref[Result[@console.ConsoleRuntime, String]],
+  composing : Ref[Bool],
   config : @console.ConsoleConfig,
   cwd : String,
   group : @core_async.TaskGroup,
@@ -205,34 +213,31 @@ async fn bootstrap_handle_frame(
 ) -> Unit {
   let parsed : Json = @json.parse(raw) catch {
     err => {
-      emit(harness_reply(-1, harness_error("invalid JSON: " + err.to_string())))
+      emit(harness_reply(-1, harness_error("invalid JSON: \{err}")))
       return
     }
   }
-  match parsed {
-    Json::Object(fields) => {
-      let id = match fields.get("id") {
-        Some(Json::Number(number, ..)) => number.to_int()
-        _ => -1
-      }
-      let command = match fields.get("command") {
-        Some(Json::String(name)) => name
-        _ => ""
-      }
-      if id < 0 || command.is_empty() {
-        emit(harness_reply(id, harness_error("invalid request envelope")))
-      } else {
-        let args = fields
-          .get("args")
-          .unwrap_or(Json::object(Map::from_array([])))
-        let result : Json = bootstrap_dispatch(
-          setup, tasks, boot, config, cwd, group, lifetime_group, command, args,
-        ) catch {
-          err => harness_error(err.to_string())
-        }
-        emit(harness_reply(id, result))
-      }
-    }
-    _ => emit(harness_reply(-1, harness_error("request must be a JSON object")))
+  guard parsed is Json::Object(fields) else {
+    emit(harness_reply(-1, harness_error("request must be a JSON object")))
+    return
   }
+  let id = match fields.get("id") {
+    Some(Json::Number(number, ..)) => number.to_int()
+    _ => -1
+  }
+  let command = match fields.get("command") {
+    Some(Json::String(name)) => name
+    _ => ""
+  }
+  guard id >= 0 && !command.is_empty() else {
+    emit(harness_reply(id, harness_error("invalid request envelope")))
+    return
+  }
+  let args = fields.get("args").unwrap_or(Json::empty_object())
+  let result : Json = bootstrap_dispatch(
+    setup, tasks, boot, composing, config, cwd, group, lifetime_group, command, args,
+  ) catch {
+    err => harness_error(err.to_string())
+  }
+  emit(harness_reply(id, result))
 }

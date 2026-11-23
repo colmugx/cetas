@@ -21,6 +21,7 @@ import {
 } from "@earendil-works/pi-tui";
 import { theme, markdownTheme } from "../../ui/theme.ts";
 import { IncrementalMarkdown } from "./markdown-stream.ts";
+import { ThinkingComponent } from "./thinking.ts";
 import { wrapAssistantLines, wrapUserLines } from "../../ui/osc133.ts";
 import type { SubagentActivityStore } from "../controllers/subagent-activity.ts";
 import {
@@ -28,6 +29,21 @@ import {
   statusBullet,
   type ToolRenderContext,
 } from "../tool-renderers/index.ts";
+
+/** Owns the lifetime of live transcript rows. */
+export class TranscriptContainer extends Container {
+  override removeChild(component: Component): void {
+    if (component instanceof ThinkingComponent && this.children.includes(component)) component.dispose();
+    super.removeChild(component);
+  }
+
+  override clear(): void {
+    for (const child of this.children) {
+      if (child instanceof ThinkingComponent) child.dispose();
+    }
+    super.clear();
+  }
+}
 
 /**
  * User prompt echo.

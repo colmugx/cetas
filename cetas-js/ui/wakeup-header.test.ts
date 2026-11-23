@@ -1,7 +1,7 @@
 /**
  * wakeup-header.test.ts — the ambient header projection: pending-delivery
- * wording, the ready → delivered transition clearing the line, and the
- * wakeup lines rendered alongside.
+ * delivery alongside executing wakeups, and the ready → delivered
+ * transition that clears the line.
  */
 
 import { describe, expect, it } from "bun:test";
@@ -9,7 +9,7 @@ import { describe, expect, it } from "bun:test";
 import { parseCetasEvent } from "../src/events.ts";
 import { SubagentActivityStore } from "../src/controllers/subagent-activity.ts";
 import type { WakeupTicket } from "../src/controllers/wakeup-activity.ts";
-import { renderWakeupHeader, wakeupHeaderLines } from "./wakeup-header.ts";
+import { wakeupHeaderLines } from "./wakeup-header.ts";
 
 const NO_TICKETS: readonly WakeupTicket[] = [];
 
@@ -41,20 +41,6 @@ function deliveredAck(taskId: string) {
 }
 
 describe("wakeupHeaderLines", () => {
-  it("words the pending-delivery line and pluralizes", () => {
-    expect(wakeupHeaderLines({ executing: NO_TICKETS, resultsWaiting: 1 })).toEqual([
-      "⧗ 1 background result pending delivery",
-    ]);
-    expect(wakeupHeaderLines({ executing: NO_TICKETS, resultsWaiting: 2 })).toEqual([
-      "⧗ 2 background results pending delivery",
-    ]);
-    // Nothing pending and nothing executing: the header renders nothing.
-    expect(wakeupHeaderLines({ executing: NO_TICKETS, resultsWaiting: 0 })).toEqual([]);
-    expect(renderWakeupHeader({ executing: NO_TICKETS, resultsWaiting: 0 }, 120)).toEqual(
-      [],
-    );
-  });
-
   it("renders executing wakeup lines alongside the pending-delivery line", () => {
     expect(
       wakeupHeaderLines({ executing: [ticket("build-watch")], resultsWaiting: 1 }),

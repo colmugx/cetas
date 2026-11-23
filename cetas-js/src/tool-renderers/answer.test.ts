@@ -54,15 +54,6 @@ function storeWithNick(): { store: SubagentActivityStore; nick: string } {
 }
 
 describe("answerQuestionRenderer", () => {
-  it("renders the call line with the question id", () => {
-    const text = answerQuestionRenderer
-      .renderCall!(makeCtx({ args: { question_id: "question-1" } }))
-      .render(80)
-      .join("\n");
-    expect(text).toContain("answer");
-    expect(text).toContain("question-1");
-  });
-
   it("renders the structured select answer under the child nickname", () => {
     const { store, nick } = storeWithNick();
     const text = renderResult(

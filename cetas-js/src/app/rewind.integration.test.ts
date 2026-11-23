@@ -7,7 +7,7 @@ import {
   CetasJsConfig,
   CetasJsRuntime,
   cetas_js_rewind,
-  cetas_js_run_turn,
+  cetas_js_run_turn_result,
   cetas_js_runtime_create_agent,
   cetas_js_shutdown,
 } from "mbt:colmugx/cetas-js/lib";
@@ -105,8 +105,8 @@ describe("cetas_js_rewind wire format", () => {
 
       try {
         const signal = new AbortController().signal;
-        await cetas_js_run_turn(agent, "first question", "[]", "rewind-session", signal);
-        await cetas_js_run_turn(agent, "follow-up", "[]", "rewind-session", signal);
+        await cetas_js_run_turn_result(agent, "first question", "[]", "rewind-session", signal);
+        await cetas_js_run_turn_result(agent, "follow-up", "[]", "rewind-session", signal);
 
         const sessionPath = join(sessionsDir, "rewind-session.jsonl");
         const before = jsonlLines(await Bun.file(sessionPath).text());

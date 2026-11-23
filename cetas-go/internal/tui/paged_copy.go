@@ -88,7 +88,7 @@ func (m *model) pagedCopyRangeCommand(first, last int) tea.Cmd {
 		return nil
 	}
 	request := &pagedCopyRequest{
-		host:             m.host,
+		host:             m.pagedHost(),
 		session:          m.session,
 		replayGeneration: m.replayGeneration,
 		copyGeneration:   m.copyGeneration + 1,

@@ -446,7 +446,7 @@ func (r *pagedReplay) requestIndex(m *model) tea.Cmd {
 	if m == nil || m.host == nil || session == "" {
 		return nil
 	}
-	return requestAs(m.host, "transcript_index", "transcript_index", map[string]any{
+	return requestAs(m.pagedHost(), "transcript_index", "transcript_index", map[string]any{
 		"session_id": session,
 		"first":      0,
 		"limit":      pagedIndexProbeLimit,
@@ -1630,7 +1630,7 @@ func (r *pagedReplay) pageRequest(m *model, first, limit int) tea.Cmd {
 		r.inflight = map[int]uint64{}
 	}
 	r.inflight[first] = r.clock
-	return requestAs(m.host, "transcript_page", "transcript_page", map[string]any{
+	return requestAs(m.pagedHost(), "transcript_page", "transcript_page", map[string]any{
 		"session_id": r.session,
 		"revision":   r.revision,
 		"first":      first,
@@ -1659,7 +1659,7 @@ func (r *pagedReplay) sourceChunk(m *model, block int, field string, offset int)
 	if field != "" {
 		args["field"] = field
 	}
-	return requestAs(m.host, "transcript_source", "transcript_source", args)
+	return requestAs(m.pagedHost(), "transcript_source", "transcript_source", args)
 }
 
 // applySource appends one bounded range of a deferred payload. The console
@@ -1875,7 +1875,7 @@ func (r *pagedReplay) scanStep(m *model) tea.Cmd {
 		r.inflight = map[int]uint64{}
 	}
 	r.inflight[first] = r.clock
-	return requestAs(m.host, "transcript_page", "transcript_page", map[string]any{
+	return requestAs(m.pagedHost(), "transcript_page", "transcript_page", map[string]any{
 		"session_id": r.session,
 		"revision":   r.revision,
 		"first":      first,

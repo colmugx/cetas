@@ -1,12 +1,5 @@
 ///|
-/// Host identity handed to the console core by whichever adaptor composes
-/// it: filesystem, cetas home, and the tags that attribute logs, status
-/// registrations, and snapshot frames to the host.
-pub(all) struct ConsoleSessionBackend {
-  session : @cetas_core.CetasSessionBackend
-  catalog : &SessionCatalog
-  revision : (String) -> Result[String, String]
-}
+pub using @extra_session {type ConsoleSessionBackend}
 
 ///|
 pub struct ConsoleConfig {
@@ -34,10 +27,7 @@ pub struct ConsoleConfig {
   /// foreground process, not a background server. Detection is still
   /// environment-gated, so the cost inside a non-herdr pane is one probe.
   herdr_presence : Bool
-  session_backend_factory : ((String, String) -> Result[
-    ConsoleSessionBackend,
-    String,
-  ])?
+  session_backend : ConsoleSessionBackend?
 }
 
 ///|
@@ -50,10 +40,7 @@ pub fn console_config(
   native_pi_enabled~ : Bool = false,
   permission_mode~ : @permission.PermissionMode = @permission.PermissionMode::WorkspaceWrite,
   herdr_presence~ : Bool = false,
-  session_backend_factory~ : ((String, String) -> Result[
-    ConsoleSessionBackend,
-    String,
-  ])? = None,
+  session_backend~ : ConsoleSessionBackend? = None,
 ) -> ConsoleConfig {
   {
     fs,
@@ -64,7 +51,7 @@ pub fn console_config(
     native_pi_enabled,
     permission_mode,
     herdr_presence,
-    session_backend_factory,
+    session_backend,
   }
 }
 
@@ -76,6 +63,7 @@ priv struct SessionHandle {
   agent : @posoco.Agent
   session_id : String
   cwd : String
+  session_port : &@posoco.SessionPort
   observer : ConsoleObserver
   /// The session's single model manager: the providers router, or the bound
   /// Magpie runtime. All model selection, catalog, and status surfaces go
@@ -123,8 +111,8 @@ struct SurfaceBinding {
 }
 
 ///|
-/// One workspace = one independent Cetas: its own platform (cwd-scoped
-/// session bucket), catalog, and a map of concurrent session handles.
+/// Workspace-local platform and agents; an optional backend shares storage
+/// across workspaces without sharing their execution context.
 struct WorkspaceRuntime {
   cwd : String
   backend : ConsoleSessionBackend?
@@ -163,10 +151,7 @@ pub struct ConsoleRuntime {
   /// a pane's agent state belongs to the process, so a workspace switch must
   /// not silently drop reporting.
   herdr_presence : Bool
-  session_backend_factory : ((String, String) -> Result[
-    ConsoleSessionBackend,
-    String,
-  ])?
+  session_backend : ConsoleSessionBackend?
   /// Host I/O task group (MCP connections, provider tool planes).
   group : @async.TaskGroup
   /// Session-lifetime task group on posoco's core-async stack: the quota
@@ -400,6 +385,31 @@ async fn release_handle_scope(handle : SessionHandle) -> Unit {
 }
 
 ///|
+async fn ConsoleRuntime::check_session_workspace(
+  self : ConsoleRuntime,
+  cwd : String,
+  session_id : String,
+) -> Result[Unit, String] noraise {
+  if self.session_backend is Some(backend) {
+    let expected = @fs_session.normalize_cwd(cwd)
+    for _, workspace in self.workspaces {
+      if workspace.handles.contains(session_id) &&
+        @fs_session.normalize_cwd(workspace.cwd) != expected {
+        return Err("session belongs to another workspace: " + workspace.cwd)
+      }
+    }
+    let entry = backend.catalog.entry(session_id) catch {
+      error => return Err(error.to_string())
+    }
+    if entry.cwd is Some(recorded) &&
+      @fs_session.normalize_cwd(recorded) != expected {
+      return Err("session belongs to another workspace: " + recorded)
+    }
+  }
+  Ok(())
+}
+
+///|
 async fn ConsoleRuntime::compose_handle(
   self : ConsoleRuntime,
   workspace : WorkspaceRuntime,
@@ -411,6 +421,10 @@ async fn ConsoleRuntime::compose_handle(
     return Err("runtime is shutting down")
   }
   match workspace.catalog.check_id(session_id) {
+    Err(reason) => return Err(reason)
+    Ok(_) => ()
+  }
+  match self.check_session_workspace(workspace.cwd, session_id) {
     Err(reason) => return Err(reason)
     Ok(_) => ()
   }
@@ -621,7 +635,7 @@ async fn compose_session_agent(
     platform~,
     cwd~,
     session_backend=match backend {
-      Some(value) => Some(value.session)
+      Some(value) => Some((value.session)(cwd, session_id))
       None => None
     },
     feature_exts~,
@@ -750,6 +764,7 @@ async fn compose_session_agent(
     agent,
     session_id,
     cwd,
+    session_port: session.session_store,
     observer,
     model: manager.manager_active_model_id(),
     effort: manager.manager_active_effort().unwrap_or("default"),
@@ -935,7 +950,7 @@ pub async fn ConsoleRuntime::switch_workspace(
           self.native_ui,
           self.native_pi_enabled,
           self.herdr_presence,
-          self.session_backend_factory,
+          self.session_backend,
         ),
       ) catch {
         error => Err(error.to_string())
@@ -985,6 +1000,10 @@ pub async fn ConsoleRuntime::resume_workspace_session(
     return Err("runtime is shutting down")
   }
   let normalized = @fs_session.normalize_cwd(cwd)
+  match self.check_session_workspace(normalized, session_id) {
+    Err(reason) => return Err(reason)
+    Ok(_) => ()
+  }
   let workspace = match self.workspaces.get(normalized) {
     Some(workspace) => workspace
     None => {
@@ -1015,7 +1034,7 @@ pub async fn ConsoleRuntime::resume_workspace_session(
               self.native_ui,
               self.native_pi_enabled,
               self.herdr_presence,
-              self.session_backend_factory,
+              self.session_backend,
             ),
           ) catch {
             error => Err(error.to_string())
@@ -1436,8 +1455,16 @@ pub async fn ConsoleRuntime::session_catalog_json(
   if !self.native_ui {
     return replay_error("session_catalog is native-only")
   }
-  match self.active().backend {
-    Some(_) => native_database_catalog_json(self, scope, after, limit)
+  match self.session_backend {
+    Some(backend) =>
+      native_database_catalog_json(
+        backend,
+        self.active_cwd,
+        self.active().active_id,
+        scope,
+        after,
+        limit,
+      )
     None =>
       native_session_catalog_json(
         self.home,
@@ -1455,42 +1482,60 @@ pub async fn ConsoleRuntime::sessions_json(self : ConsoleRuntime) -> Json {
   let workspace = self.active()
   let active_id = workspace.active_id
   let sessions : Array[Json] = []
-  let ids = workspace.catalog.list_ids()
-  for index in 0..<ids.length() {
-    let id = ids[ids.length() - 1 - index]
-    if self.native_ui && workspace.backend is None {
-      // Native path: the title comes from the metadata line plus the legacy
-      // first-user line, streamed. `entry` (store.summary -> store.load) would
-      // materialise every listed session, which is exactly the long-session
-      // cost this seam removes.
-      let path = match workspace.catalog.transcript_path(id) {
-        Ok(path) => path
-        Err(_) => continue
+  if workspace.backend is Some(backend) {
+    let cwd = @fs_session.normalize_cwd(workspace.cwd)
+    let entries = (backend.entries)() catch {
+      error => return replay_error(error.to_string())
+    }
+    for entry in entries {
+      if entry.cwd == Some(cwd) {
+        sessions.push(
+          Json::object({
+            "id": Json::string(entry.id),
+            "title": Json::string(entry.title),
+            "active": Json::boolean(entry.id == active_id),
+          }),
+        )
       }
-      let title = match native_replay_title(id, path) {
-        Ok(title) => title
-        Err(_) => continue
+    }
+  } else {
+    let ids = workspace.catalog.list_ids()
+    for index in 0..<ids.length() {
+      let id = ids[ids.length() - 1 - index]
+      if self.native_ui {
+        // Native path: the title comes from the metadata line plus the legacy
+        // first-user line, streamed. `entry` (store.summary -> store.load) would
+        // materialise every listed session, which is exactly the long-session
+        // cost this seam removes.
+        let path = match workspace.catalog.transcript_path(id) {
+          Ok(path) => path
+          Err(_) => continue
+        }
+        let title = match native_replay_title(id, path) {
+          Ok(title) => title
+          Err(_) => continue
+        }
+        sessions.push(
+          Json::object(
+            Map::from_array([
+              ("id", Json::string(id)),
+              ("title", Json::string(title)),
+              ("active", Json::boolean(id == active_id)),
+            ]),
+          ),
+        )
+      } else {
+        let entry = workspace.catalog.entry(id) catch { _ => continue }
+        sessions.push(
+          Json::object(
+            Map::from_array([
+              ("id", Json::string(entry.id)),
+              ("title", Json::string(entry.title)),
+              ("active", Json::boolean(entry.id == active_id)),
+            ]),
+          ),
+        )
       }
-      sessions.push(
-        Json::object(
-          Map::from_array([
-            ("id", Json::string(id)),
-            ("title", Json::string(title)),
-            ("active", Json::boolean(id == active_id)),
-          ]),
-        ),
-      )
-    } else {
-      let entry = workspace.catalog.entry(id) catch { _ => continue }
-      sessions.push(
-        Json::object(
-          Map::from_array([
-            ("id", Json::string(entry.id)),
-            ("title", Json::string(entry.title)),
-            ("active", Json::boolean(entry.id == active_id)),
-          ]),
-        ),
-      )
     }
   }
   Json::object(
@@ -1569,10 +1614,7 @@ async fn build_workspace(
   native_ui : Bool,
   native_pi_enabled : Bool,
   herdr_presence : Bool,
-  session_backend_factory : ((String, String) -> Result[
-    ConsoleSessionBackend,
-    String,
-  ])?,
+  backend : ConsoleSessionBackend?,
 ) -> WorkspaceRuntime {
   let warn = workspace_warn(hub, native_ui, label)
   let platform = @cetas_core.build_cetas_platform(
@@ -1584,18 +1626,6 @@ async fn build_workspace(
     label~,
     warn~,
   )
-  let backend : ConsoleSessionBackend? = match session_backend_factory {
-    Some(factory) =>
-      match factory(home, cwd) {
-        Ok(value) => Some(value)
-        Err(reason) =>
-          raise @posoco.CompositionError::ExtensionComposeFailed(
-            manifest_id="cetas.session_backend",
-            detail=reason,
-          )
-      }
-    None => None
-  }
   let first_session_id = @cetas_core.mint_session_id()
   let ui_port : &@posoco.UiPort = HubUiPort::new(
     hub,
@@ -1624,7 +1654,7 @@ async fn build_workspace(
     platform~,
     cwd~,
     session_backend=match backend {
-      Some(value) => Some(value.session)
+      Some(value) => Some((value.session)(cwd, first_session_id))
       None => None
     },
     feature_exts~,
@@ -1736,6 +1766,7 @@ async fn build_workspace(
     agent,
     session_id: first_session_id,
     cwd,
+    session_port: session.session_store,
     observer,
     model: manager.manager_active_model_id(),
     effort: manager.manager_active_effort().unwrap_or("default"),
@@ -1790,6 +1821,7 @@ pub async fn compose_console_runtime(
     hub.enable_native_retention()
   }
   let ui_registry = UiRegistry::new()
+  let backend = config.session_backend
   let first = build_workspace(
     config.fs,
     config.home,
@@ -1804,7 +1836,7 @@ pub async fn compose_console_runtime(
     config.native_ui,
     config.native_pi_enabled,
     config.herdr_presence,
-    config.session_backend_factory,
+    backend,
   )
   let workspaces : Map[String, WorkspaceRuntime] = Map::from_array([
     (cwd, first),
@@ -1822,7 +1854,7 @@ pub async fn compose_console_runtime(
     native_pi_enabled: config.native_pi_enabled,
     startup_permission: config.permission_mode,
     herdr_presence: config.herdr_presence,
-    session_backend_factory: config.session_backend_factory,
+    session_backend: backend,
     group,
     lifetime_group,
     hub,

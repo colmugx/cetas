@@ -85,6 +85,7 @@ describe("StreamingUIController — step-block model", () => {
     controller.appendReasoning("r1");
     controller.appendReasoning("r2");
     controller.appendText("t1");
+    expect(transcript.render(80).join("\n")).toContain("r1r2");
     controller.appendText("t2");
     controller.closeStep();
 

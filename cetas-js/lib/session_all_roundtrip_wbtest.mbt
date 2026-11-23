@@ -75,6 +75,7 @@ fn all_roundtrip_cwd(row : Json) -> String? raise {
 ///|
 async test "acceptance: a persisted session records its cwd and the catalog reports it back" {
   let home = all_roundtrip_home("bound")
+  defer @async.protect_from_cancel(() => all_roundtrip_cleanup(home))
   let cwd = "/work/alpha"
   let id = "2026-10-10T09-00-00-000Z_ab12cd34"
   let dir = @fs_session.project_sessions_dir(home, cwd)
@@ -107,12 +108,12 @@ async test "acceptance: a persisted session records its cwd and the catalog repo
   assert_eq(all_roundtrip_str(row, "folder"), "alpha")
   assert_eq(all_roundtrip_str(row, "dir"), dir)
   assert_eq(all_roundtrip_str(row, "title"), "first turn")
-  all_roundtrip_cleanup(home)
 }
 
 ///|
 async test "acceptance: a journal without a recorded cwd is visible but never guessed" {
   let home = all_roundtrip_home("legacy")
+  defer @async.protect_from_cancel(() => all_roundtrip_cleanup(home))
   let legacy_id = "2026-10-11T09-00-00-000Z_00ff00ff"
   // A bucket whose slug spells a path the session never recorded. If the
   // catalog ever derived a cwd from the bucket name, this row would look
@@ -140,12 +141,12 @@ async test "acceptance: a journal without a recorded cwd is visible but never gu
   assert_eq(all_roundtrip_str(row, "title"), "Legacy work")
   // …but the directory stays unknown, so the picker must refuse to cross over.
   assert_eq(all_roundtrip_cwd(row), None)
-  all_roundtrip_cleanup(home)
 }
 
 ///|
-async test "acceptance: one broken bucket never hides the healthy ones" {
+async test "acceptance: corruption never hides the healthy projects or their cwds" {
   let home = all_roundtrip_home("mixed")
+  defer @async.protect_from_cancel(() => all_roundtrip_cleanup(home))
   let fs = @workspace.JsWorkspaceFs()
   let good_dir = @fs_session.project_sessions_dir(home, "/work/beta")
   fs.mkdir(good_dir, recursive=true) catch {
@@ -158,17 +159,38 @@ async test "acceptance: one broken bucket never hides the healthy ones" {
   ) catch {
     _ => fail("could not write the good session")
   }
-  // A non-bucket directory alongside the buckets must be ignored.
-  fs.mkdir(@fs_session.project_sessions_root(home) + "/notes", recursive=true) catch {
-    _ => fail("could not create the notes directory")
-  }
-  // A bucket with an unparseable transcript must not blank the catalog.
-  let bad_dir = @fs_session.project_sessions_dir(home, "/work/gamma")
-  fs.mkdir(bad_dir, recursive=true) catch {
-    _ => fail("could not create the bad bucket")
+  let other_dir = @fs_session.project_sessions_dir(home, "/work/gamma")
+  fs.mkdir(other_dir, recursive=true) catch {
+    _ => fail("could not create the second bucket")
   }
   fs.write_file(
-    bad_dir + "/2026-10-13T09-00-00-000Z_99887766.jsonl",
+    "\{other_dir}/2026-10-13T09-00-00-000Z_33445566.jsonl",
+    (
+      #|{"cetas.cwd":"/work/gamma","posoco.title":"Gamma work"}
+      #|{"role":"user","content":[{"type":"text","text":"gamma turn"}]}
+      #|
+    ),
+  ) catch {
+    _ => fail("could not write the second session")
+  }
+  // A correctly named journal outside a project bucket must not leak in.
+  let non_bucket = "\{@fs_session.project_sessions_root(home)}/notes"
+  fs.mkdir(non_bucket, recursive=true) catch {
+    _ => fail("could not create the notes directory")
+  }
+  fs.write_file(
+    "\{non_bucket}/2026-10-14T09-00-00-000Z_55667788.jsonl",
+    (
+      #|{"posoco.title":"Not a project session"}
+      #|{"role":"user","content":[{"type":"text","text":"do not list"}]}
+      #|
+    ),
+  ) catch {
+    _ => fail("could not write the non-bucket journal")
+  }
+  // A corrupt neighbor in a real project bucket must not blank the catalog.
+  fs.write_file(
+    "\{good_dir}/2026-10-15T09-00-00-000Z_99887766.jsonl",
     "not a journal\n",
   ) catch {
     _ => fail("could not write the broken session")
@@ -176,17 +198,21 @@ async test "acceptance: one broken bucket never hides the healthy ones" {
   let rows = all_roundtrip_rows(home) catch {
     e => fail("catalog failed: \{e}")
   }
-  assert_eq(rows.length(), 1)
-  assert_eq(all_roundtrip_cwd(rows[0]), Some("/work/beta"))
-  all_roundtrip_cleanup(home)
+  @debug.assert_eq(rows.length(), 2)
+  let beta = all_roundtrip_row(rows, "2026-10-12T09-00-00-000Z_11223344")
+  let gamma = all_roundtrip_row(rows, "2026-10-13T09-00-00-000Z_33445566")
+  @debug.assert_eq(all_roundtrip_str(beta, "dir"), good_dir)
+  @debug.assert_eq(all_roundtrip_cwd(beta), Some("/work/beta"))
+  @debug.assert_eq(all_roundtrip_str(gamma, "dir"), other_dir)
+  @debug.assert_eq(all_roundtrip_cwd(gamma), Some("/work/gamma"))
 }
 
 ///|
 async test "acceptance: a first run without a sessions root lists nothing" {
   let home = all_roundtrip_home("empty")
+  defer @async.protect_from_cancel(() => all_roundtrip_cleanup(home))
   let rows = all_roundtrip_rows(home) catch {
     e => fail("catalog failed: \{e}")
   }
   assert_eq(rows.length(), 0)
-  all_roundtrip_cleanup(home)
 }

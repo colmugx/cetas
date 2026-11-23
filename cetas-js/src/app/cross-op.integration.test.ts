@@ -98,7 +98,10 @@ const isCompactRequest = (body: string): boolean => {
     expect(request.stream).toBe(true);
     expect(request.input.filter((item: { type?: string }) => item.type === "compaction_trigger")).toHaveLength(1);
     expect(request.tools.length).toBeGreaterThan(0);
-    expect(typeof request.instructions).toBe("string");
+    expect(request.input[0]).toMatchObject({
+      role: "developer",
+      content: [expect.objectContaining({ type: "input_text", text: expect.stringMatching(/\S/) })],
+    });
   }
   return compact;
 };

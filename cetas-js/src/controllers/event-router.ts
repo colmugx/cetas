@@ -1,24 +1,3 @@
-/**
- * event-router.ts — single handleEvent(CetasEvent) dispatch.
- *
- * Owns the live state for the turn currently in flight:
- *   - streaming-ui controller (step-block accumulator)
- *   - per-tool-call-id ToolRow map
- *   - status indicator callbacks
- *
- * Streaming model:
- *   - The StreamingUIController owns step lifecycle + component creation via a
- *     StreamingComponentFactory wired here. Step boundaries are inferred from
- *     stream_chunk kind ordering inside the controller.
- *   - `message_end` is a POST-HOC REPLAY in this bridge
- *     (agent_puppet.mbt:456-535 reconstructs the final transcript after the
- *     pump finishes), NOT a live per-step signal. So handleMessageEnd is
- *     best-effort reconciliation: if the current step already streamed content,
- *     it only finalizes + closes the step and NEVER re-renders. Only when no
- *     stream_chunks arrived at all (non-streaming provider) does it build
- *     components from the full message to avoid duplicate replay rendering.
- */
-
 import { type Component } from "@earendil-works/pi-tui";
 import type { BridgeMessage, CetasEvent } from "../events.ts";
 import type { SubagentActivityStore } from "./subagent-activity.ts";
@@ -235,23 +214,7 @@ export class EventRouter {
 
   // -- message_end full-content handling -----------------------------------
 
-  /**
-   * Best-effort reconciliation for the post-hoc `message_end` replay.
-   *
-   * `message_end` is NOT a live per-step signal in this bridge — the pump
-   * reconstructs the final transcript after it finishes and replays one
-   * `message_end` per AssistantMessage. By the time it
-   * arrives, streaming has usually already rendered that message's content.
-   *
-   * Two paths:
-   *   A. Streaming happened this turn (any stream_chunk arrived) → reconcile
-   *      only: finalize + close the current step. NEVER re-render (would
-   *      duplicate reasoning/text). This gate is turn-scoped, not
-   *      step-scoped, because step-boundary detection may have already closed
-   *      the step before the replay arrives.
-   *   B. No stream_chunks arrived at all this turn (non-streaming provider) →
-   *      build components from the full message and close.
-   */
+  /** A delayed message_end may refer to a step already rendered and closed. */
   private handleMessageEnd(msg: BridgeMessage): void {
     const s = this.stream;
     if (!s) return;
@@ -261,14 +224,12 @@ export class EventRouter {
       .map((b) => b.text)
       .join("\n\n");
 
-    // Path A: streaming happened this turn — reconcile only.
     if (s.hasStreamedThisTurn) {
       s.finalizeThinkingIfActive();
       s.closeStep();
       return;
     }
 
-    // Path B: non-streaming — build components from the full message.
     if (reasoning || text) {
       if (reasoning) {
         const comp = new ThinkingComponent(reasoning, "finalized");
@@ -291,12 +252,7 @@ export class EventRouter {
     toolName: string,
     args: unknown,
   ): void {
-    // Streaming reconciliation: deltas for this call reached us BEFORE the
-    // started event, so a pending row may already be mounted. Adoption hands
-    // the row the authoritative full args (replacement, not merge — the
-    // chunk channel is lossy) and registers it here so completed results
-    // route normally. Without prior deltas this returns null and the classic
-    // path below runs unchanged (history replay / non-streaming providers).
+    // The started event supplies authoritative arguments; deltas can be lossy.
     const adopted = this.toolStream?.onCallStarted(toolCallId, toolName, args);
     if (adopted) {
       // Fragments may have mounted the row keyed `#<index>`; renderers key

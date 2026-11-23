@@ -6,7 +6,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { ThinkingComponent } from "./thinking.ts";
-import { AssistantMessage } from "./components.ts";
+import { AssistantMessage, TranscriptContainer } from "./components.ts";
 
 const ANSI = /\x1b\[[0-9;]*m/g;
 
@@ -42,6 +42,61 @@ describe("ThinkingComponent — finalized collapse", () => {
     expect(after).not.toContain("a");
     expect(after).toContain("e");
     comp.dispose(); // stop the spinner timer
+  });
+
+  test("live preview and finalized count follow appends, replacements and blank lines", () => {
+    const comp = new ThinkingComponent("old\ntext\npart", "live");
+    try {
+      comp.updateContent("old\ntext\npartial\nnext\n");
+      expect(renderedLines(comp).slice(1)).toEqual(["partial", "next"]);
+      comp.updateContent("replaced\nline");
+      expect(renderedLines(comp).slice(1)).toEqual(["replaced", "line"]);
+      comp.updateContent("");
+      expect(renderedLines(comp)).toHaveLength(1);
+      comp.updateContent("first\nsecond\nthird\nfour");
+      comp.updateContent("first\nsecond\nthird\nfourth\n");
+      expect(renderedLines(comp).slice(1)).toEqual(["third", "fourth"]);
+      comp.finalize();
+      expect(renderedLines(comp)).toEqual([
+        "💭 thought · 5 lines · ctrl+t 展开", "first", "second", "third", "… (+2 lines)",
+      ]);
+      comp.updateContent("first\nsecond\nthird\nfourth\nfifth\nsixth");
+      expect(renderedLines(comp)[0]).toBe("💭 thought · 6 lines · ctrl+t 展开");
+      comp.toggleCollapsed();
+      expect(renderedLines(comp).slice(1)).toEqual(["first", "second", "third", "fourth", "fifth", "sixth"]);
+    } finally {
+      comp.dispose();
+    }
+  });
+
+  test("removing a row or clearing the transcript stops its spinner", async () => {
+    const transcript = new TranscriptContainer();
+    const removed = new ThinkingComponent("removed");
+    const cleared = new ThinkingComponent("cleared");
+    try {
+      transcript.addChild(removed);
+      transcript.addChild(cleared);
+      const initial = renderedLines(cleared)[0];
+      // Wait for an actual frame change, rather than assuming a timer tick
+      // can be observed after one precise delay on a loaded test runner.
+      for (let i = 0; i < 20 && renderedLines(cleared)[0] === initial; i++) await Bun.sleep(20);
+      expect(renderedLines(cleared)[0]).not.toBe(initial);
+
+      transcript.removeChild(removed);
+      const removedFrame = renderedLines(removed)[0];
+      expect(renderedLines(transcript)).not.toContain("removed");
+      transcript.clear();
+      const clearedFrame = renderedLines(cleared)[0];
+      expect(renderedLines(transcript)).toEqual([]);
+      for (let i = 0; i < 8; i++) {
+        await Bun.sleep(20);
+        expect(renderedLines(removed)[0]).toBe(removedFrame);
+        expect(renderedLines(cleared)[0]).toBe(clearedFrame);
+      }
+    } finally {
+      removed.dispose();
+      cleared.dispose();
+    }
   });
 });
 

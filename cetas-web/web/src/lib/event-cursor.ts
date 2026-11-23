@@ -44,20 +44,18 @@ export class SessionEventCursor {
     }
 
     if (frame.type === "session.snapshot") {
-      const epochChanged = Boolean(epoch && currentEpoch && epoch !== currentEpoch);
-      if (epochChanged) this.#cursors.clear();
-      if (epoch) this.#epoch = epoch;
       const cursor = frame.high_water_cursor ?? frame.cursor ?? 0;
       if (!Number.isSafeInteger(cursor) || cursor < 0) {
         return { kind: "unsequenced" };
       }
-      const previous = this.cursor(sessionId);
-      if (!epochChanged && cursor < previous) return { kind: "duplicate" };
+      const epochChanged = Boolean(epoch && currentEpoch && epoch !== currentEpoch);
+      if (!epochChanged && cursor < this.cursor(sessionId)) return { kind: "duplicate" };
+      if (epochChanged) this.#cursors.clear();
+      if (epoch) this.#epoch = epoch;
       this.#cursors.set(sessionId, cursor);
       return { kind: "snapshot", cursor, epoch: this.#epoch };
     }
 
-    if (epoch && !this.#epoch) this.#epoch = epoch;
     if (frame.cursor_advance !== true) return { kind: "unsequenced" };
 
     const cursor = frame.cursor;
@@ -69,6 +67,7 @@ export class SessionEventCursor {
     if (cursor !== previous + 1) {
       return { kind: "gap", expected: previous + 1, received: cursor };
     }
+    if (epoch && !currentEpoch) this.#epoch = epoch;
     this.#cursors.set(sessionId, cursor);
     return { kind: "event", cursor };
   }

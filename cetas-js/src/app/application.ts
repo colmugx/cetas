@@ -30,7 +30,7 @@ import {
   type CoreOperationStarted,
 } from "../core-events.ts";
 import { AgentBusyError } from "./agent-busy.ts";
-import { projectObserverEvent } from "./observer-projection.ts";
+import { parseObserverJson, projectObserverEventFromRecord } from "./observer-projection.ts";
 import type { QuestionAnswerResponse } from "../controllers/question-answer.ts";
 
 /**
@@ -1256,6 +1256,13 @@ export class CetasApplication<AgentHandle = unknown> {
     sessionId = this.currentSessionId,
     images?: readonly ImageAttachment[],
   ): Promise<UserInputSubmission> {
+    return this.serializeSubmission(async () => {
+      this.inputAgent(prompt, sessionId);
+      return this.admitUserInput(prompt, sessionId, images);
+    });
+  }
+
+  private inputAgent(prompt: string, sessionId: string): AgentHandle {
     if (this.managerSwitching) {
       throw new CetasApplicationError("already_running", "model manager is changing");
     }
@@ -1285,45 +1292,24 @@ export class CetasApplication<AgentHandle = unknown> {
         "no model provider is configured; use /model or /login [provider] [method] to complete setup",
       );
     }
+    return this.agent;
+  }
 
-    // Input admission never settles parked questions. A user message may
-    // answer one of them, but the host cannot know which one when several
-    // are open; only an id-bound `answerQuestion` (or the extension's
-    // deadline) settles a question. This keeps an answer echo — ordinary
-    // input submitted solely to carry the model-facing reply — from
-    // withdrawing the other questions the user still owes.
-    return this.serializeSubmission(async () => {
-      if (this.managerSwitching) {
-        throw new CetasApplicationError("already_running", "model manager is changing");
-      }
-      if ((this.state as AppState) === "shutting_down") {
-        throw new CetasApplicationError(
-          "shutting_down",
-          "cannot submit input after shutdown has begun",
-        );
-      }
-      const operation = this.operations.snapshot();
-      if (!operation.busy && !operation.compactPending && this.messageQueue.length === 0) {
-        const completion = this.runTurn(
-          this.promptWithBoardActivationNote(prompt),
-          sessionId,
-          images,
-        );
-        this.clearBoardActivationNote();
-        return { kind: "started", completion };
-      }
-      // Busy, compacting, or inputs already waiting: FIFO, never jump the
-      // queue. Host acceptance is immediate; the pump owns Agent delivery.
-      const entry = this.enqueueMessage(
-        prompt,
-        this.promptWithBoardActivationNote(prompt),
-        sessionId,
-        images,
-      );
+  private admitUserInput(
+    prompt: string,
+    sessionId: string,
+    images?: readonly ImageAttachment[],
+  ): UserInputSubmission {
+    const operation = this.operations.snapshot();
+    if (!operation.busy && !operation.compactPending && this.messageQueue.length === 0) {
+      const completion = this.runTurn(this.promptWithBoardActivationNote(prompt), sessionId, images);
       this.clearBoardActivationNote();
-      this.pumpMessageQueue();
-      return { kind: "queued", id: entry.id };
-    });
+      return { kind: "started", completion };
+    }
+    const entry = this.enqueueMessage(prompt, this.promptWithBoardActivationNote(prompt), sessionId, images);
+    this.clearBoardActivationNote();
+    this.pumpMessageQueue();
+    return { kind: "queued", id: entry.id };
   }
 
   /**
@@ -1502,37 +1488,27 @@ export class CetasApplication<AgentHandle = unknown> {
     );
   }
 
-  /**
-   * Answer one parked non-blocking question (`notify_user`).
-   *
-   * Resolve-then-echo, in that order: the extension accepts or refuses the
-   * answer first (expired / already answered / wrong kind are refusals, not
-   * errors), and only an accepted answer is echoed as ordinary input. The
-   * echo reuses `submitUserInput`, so the app still decides whether it starts
-   * a new turn now or waits in the local queue — the answer itself travels to
-   * the model in the extension's next envelope, never in this text. The echo is a carrier, not a plain reply: it settles only
-   * `questionId`, and every other parked question stays owed.
-   */
+  /** The echo schedules the next model call; the extension carries the id-bound answer. */
   async answerQuestion(
     questionId: string,
     response: QuestionAnswerResponse,
     echo: string,
     sessionId: string = this.currentSessionId,
   ): Promise<boolean> {
-    if (this.agent === undefined) {
-      throw new CetasApplicationError("not_ready", "no agent is attached");
-    }
-    const answer = this.options.bridge.answerQuestion;
-    if (answer === undefined) {
-      throw new CetasApplicationError(
-        "invalid_state",
-        "this bridge does not support answering questions",
-      );
-    }
-    const accepted = await answer.call(this.options.bridge, this.agent, questionId, response);
-    if (!accepted) return false;
-    const submission = await this.submitUserInput(echo, sessionId);
-    if (submission.kind === "full") return false;
+    const submission = await this.serializeSubmission(async () => {
+      const agent = this.inputAgent(echo, sessionId);
+      const answer = this.options.bridge.answerQuestion;
+      if (answer === undefined) {
+        throw new CetasApplicationError(
+          "invalid_state",
+          "this bridge does not support answering questions",
+        );
+      }
+      // Resolve and admit without yielding: a failed admission must not consume the question.
+      if (!answer.call(this.options.bridge, agent, questionId, response)) return undefined;
+      return this.admitUserInput(echo, sessionId);
+    });
+    if (submission === undefined) return false;
     if (submission.kind === "started") await submission.completion;
     return true;
   }
@@ -1754,15 +1730,14 @@ export class CetasApplication<AgentHandle = unknown> {
       );
     }
     if (this.options.bridge.listWorkspaceFiles === undefined) return [];
-    const raw = await this.options.bridge.listWorkspaceFiles(this.options.config);
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
+    const files = await this.options.bridge.listWorkspaceFiles(this.options.config);
+    if (!Array.isArray(files)) {
       throw new CetasApplicationError(
         "bridge_failure",
-        "workspace file index must be a JSON array",
+        "workspace file index must be an array",
       );
     }
-    return parsed.filter((entry): entry is string => typeof entry === "string");
+    return files.filter((entry) => typeof entry === "string");
   }
 
   /**
@@ -2312,7 +2287,8 @@ export class CetasApplication<AgentHandle = unknown> {
   }
 
   private handleAgentObserverEvent(eventJson: string): void {
-    const projection = projectObserverEvent(eventJson);
+    const value = parseObserverJson(eventJson);
+    const projection = projectObserverEventFromRecord(value);
     const type = projection.type;
     if (projection.operation !== undefined) {
       if (projection.operation.phase === "started") {
@@ -2351,7 +2327,7 @@ export class CetasApplication<AgentHandle = unknown> {
     // Agent's operation-scoped inbox. They are forwarded verbatim, like every
     // other observer event.
     try {
-      this.options.callbacks.observerCallback(eventJson);
+      this.options.callbacks.observerCallback(eventJson, { value });
     } finally {
       if (
         this.operations.activeKind === "recovery" &&

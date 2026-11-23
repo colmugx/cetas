@@ -75,21 +75,16 @@ async fn restore_test_store(
   effort~ : String? = None,
 ) -> @fs_session.JsonlSessionStore {
   let store = @fs_session.JsonlSessionStore::JsonlSessionStore(root)
-  let metadata : Map[String, Json] = Map::from_array([])
+  let metadata : Map[String, Json] = Map([])
   match slot {
     Some(slot) =>
-      metadata[@fs_session.MODEL_SELECTION_METADATA_KEY] = Json::object(
-        Map::from_array([
-          ("slot_id", Json::string(slot)),
-          (
-            "effort",
-            match effort {
-              Some(value) => Json::string(value)
-              None => Json::null()
-            },
-          ),
-        ]),
-      )
+      metadata[@fs_session.MODEL_SELECTION_METADATA_KEY] = Json::object({
+        "slot_id": Json::string(slot),
+        "effort": match effort {
+          Some(value) => Json::string(value)
+          None => Json::null()
+        },
+      })
     None => ()
   }
   store.save("sess_restore", { messages: [], metadata, }) catch {
@@ -139,6 +134,14 @@ async test "restore applies the recorded slot and effort" {
   assert_true(applied)
   assert_eq(router.active_slot_id(), "one/a")
   assert_eq(router.active_effort(), Some("high"))
+  json_inspect(
+    session_model_restored_event(Providers(router), "sess_restore"),
+    content={
+      "session_id": "sess_restore",
+      "model_id": "one/a",
+      "effort": "high",
+    },
+  )
 }
 
 ///|
@@ -224,7 +227,7 @@ async test "restore honors an owner-qualified model selection" {
   ])
   let control = router as &@modelmgmt.ModelManagerControl
   let metadata : Map[String, Json] = @fs_session.metadata_with_selection_v2(
-    Map::from_array([]),
+    Map([]),
     {
       owner: control.manager_id(),
       model_id: "two/b",
@@ -246,6 +249,14 @@ async test "restore honors an owner-qualified model selection" {
   assert_true(applied)
   assert_eq(warns.length(), 0)
   assert_eq(router.active_slot_id(), "two/b")
+  json_inspect(
+    session_model_restored_event(Providers(router), "sess_restore"),
+    content={
+      "session_id": "sess_restore",
+      "model_id": "two/b",
+      "effort": Json::null(),
+    },
+  )
 }
 
 ///|
@@ -297,12 +308,10 @@ async test "malformed versioned selection does not fall back to legacy slot" {
     e => fail("read session failed: \{e}")
   }
   let metadata = saved.metadata.copy()
-  metadata[@fs_session.MODEL_SELECTION_V2_METADATA_KEY] = Json::object(
-    Map::from_array([
-      ("version", Json::number(2)),
-      ("model_id", Json::string("two/b")),
-    ]),
-  )
+  metadata[@fs_session.MODEL_SELECTION_V2_METADATA_KEY] = Json::object({
+    "version": Json::number(2),
+    "model_id": Json::string("two/b"),
+  })
   store.save("sess_restore", { messages: [], metadata, }) catch {
     e => fail("save session failed: \{e}")
   }
@@ -314,37 +323,4 @@ async test "malformed versioned selection does not fall back to legacy slot" {
   )
   assert_false(applied)
   assert_eq(router.active_slot_id(), "one/a")
-}
-
-///|
-async test "restored event payload reports the active selection" {
-  let router = @llm.RouterModelPort(slots=[
-    restore_test_slot(id="one/a", efforts=["low", "high"]),
-    restore_test_slot(id="two/b"),
-  ])
-  router.switch_slot("two/b") catch {
-    _ => fail("unexpected switch failure")
-  }
-  json_inspect(
-    session_model_restored_event(Providers(router), "sess_restore"),
-    content={
-      "session_id": "sess_restore",
-      "model_id": "two/b",
-      "effort": (None : String?),
-    },
-  )
-  router.switch_slot("one/a") catch {
-    _ => fail("unexpected switch failure")
-  }
-  router.select_effort("one/a", "high") catch {
-    _ => fail("unexpected effort failure")
-  }
-  json_inspect(
-    session_model_restored_event(Providers(router), "sess_restore"),
-    content={
-      "session_id": "sess_restore",
-      "model_id": "one/a",
-      "effort": "high",
-    },
-  )
 }

@@ -75,14 +75,12 @@ fn approval_options(
   request : @permission.ApprovalRequest,
 ) -> (Array[String], Int32) {
   let session_label = if request.scopes.length() > 0 {
-    "Allow '" + request.scopes.join(", ") + "' for this session"
+    "Allow '\{request.scopes.join(", ")}' for this session"
   } else {
     APPROVAL_OPTION_SESSION
   }
   if request.category == "shell" {
-    let tool_label = "Allow all '" +
-      request.tool_name +
-      "' commands for this session"
+    let tool_label = "Allow all '\{request.tool_name}' commands for this session"
     ([APPROVAL_OPTION_ONCE, session_label, tool_label, APPROVAL_OPTION_DENY], 2)
   } else {
     ([APPROVAL_OPTION_ONCE, session_label, APPROVAL_OPTION_DENY], -1)
@@ -94,18 +92,11 @@ pub impl @permission.ApprovalSource for BlockingApprovalSource with fn ask(
   self : BlockingApprovalSource,
   request : @permission.ApprovalRequest,
 ) -> @permission.ApprovalDecision {
-  let prompt = "Allow tool '" +
-    request.tool_name +
-    "' (" +
-    request.category +
-    ")?\n" +
-    request.arguments_preview
-  let ui = match self.ui {
-    Some(ui) => ui
-    None =>
-      return @permission.ApprovalDecision::Deny(
-        reason="denied: approval UI not composed yet",
-      )
+  let prompt = "Allow tool '\{request.tool_name}' (\{request.category})?\n\{request.arguments_preview}"
+  guard self.ui is Some(ui) else {
+    return @permission.ApprovalDecision::Deny(
+      reason="denied: approval UI not composed yet",
+    )
   }
   let (options, tool_grant_index) = approval_options(request)
   let req : @posoco.UiRequest = @posoco.UiRequest::Select(
@@ -116,7 +107,7 @@ pub impl @permission.ApprovalSource for BlockingApprovalSource with fn ask(
   let resp = ui.request(req) catch {
     err =>
       return @permission.ApprovalDecision::Deny(
-        reason="approval UI failed: " + err.to_string(),
+        reason="approval UI failed: \{err.to_string()}",
       )
   }
   match resp {
@@ -185,20 +176,18 @@ pub impl @plan.PlanReviewSource for PlanApprovalSource with fn review(
   self,
   request : @plan.PlanReviewRequest,
 ) -> @plan.PlanReviewDecision {
-  let prompt = "Plan awaiting approval: " +
-    request.name +
-    "\n\n" +
-    request.plan +
-    "\n\nAccept, revise with feedback, or dismiss?"
+  let prompt =
+    $|Plan awaiting approval: \{request.name}
+    $|
+    $|\{request.plan}
+    $|
+    $|Accept, revise with feedback, or dismiss?
   let req : @posoco.UiRequest = @posoco.UiRequest::Select(
     prompt~,
     options=[PLAN_OPTION_APPROVE, PLAN_OPTION_REVISE, PLAN_OPTION_DISMISS],
     default=Some(0),
   )
-  let ui = match self.ui {
-    Some(ui) => ui
-    None => return @plan.PlanReviewDecision::Dismiss
-  }
+  guard self.ui is Some(ui) else { return @plan.PlanReviewDecision::Dismiss }
   let resp = ui.request(req) catch {
     _ => return @plan.PlanReviewDecision::Dismiss
   }

@@ -17,13 +17,13 @@ preferred_target = "native"
 supported_targets = "native"
 
 import {
-  "colmugx/posoco@0.24.2",
+  "colmugx/posoco@0.25.1",
   "colmugx/cetas-core@0.2.0",
   "colmugx/cetas-console@0.1.0",
   "colmugx/posoco-ext-permission@0.2.1",
   "colmugx/posoco-ext-workspace@0.1.0",
   "colmugx/posoco-ext-fs-session@0.4.0",
-  "colmugx/posoco-ext-hawdb-session@0.1.0",
+  "colmugx/cetas-extras@0.1.0",
   "colmugx/posoco-ext-context@0.2.0",
   "posoco/ext-llm@0.2.0",
   "moonbitlang/x@0.5.5",

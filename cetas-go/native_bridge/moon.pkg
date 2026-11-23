@@ -1,6 +1,6 @@
 import {
   "colmugx/cetas-console/console",
-  "colmugx/posoco-ext-hawdb-session" @hawdb_session,
+  "colmugx/cetas-extras/session" @extra_session,
   "colmugx/cetas-core/lib" @cetas_core,
   "colmugx/posoco",
   "colmugx/posoco-ext-permission" @permission,

@@ -135,15 +135,22 @@ describe("rewind point enumeration", () => {
 });
 
 describe("readUserMessage", () => {
-  test("returns the full multi-line text at listRewindPoints addressing", () => {
-    const jsonl = [
+  test("listing and editor refill share one snapshot without shifting physical indices", () => {
+    const snapshot = [
       META,
       userMsg("line one\nline two"),
       assistantMsg("ok"),
+      "{malformed",
+      "",
       userMsg("second prompt"),
-    ].join("\n");
-    expect(readUserMessage(jsonl, 0)).toBe("line one\nline two");
-    expect(readUserMessage(jsonl, 2)).toBe("second prompt");
+    ].join("\r\n").split("\n");
+    const points = listRewindPoints(snapshot);
+    expect(points).toEqual([
+      { messageIndex: 0, preview: "line one line two" },
+      { messageIndex: 4, preview: "second prompt" },
+    ]);
+    expect(points.map(({ messageIndex }) => readUserMessage(snapshot, messageIndex)))
+      .toEqual(["line one\nline two", "second prompt"]);
   });
 
   test("out-of-range and negative indices return null", () => {

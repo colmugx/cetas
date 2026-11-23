@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"unicode/utf8"
 )
 
 // Experimental features are a separate native capability surface. Managing
@@ -15,15 +16,24 @@ type experimentalReply struct {
 	Lines     []string `json:"lines,omitempty"`
 }
 
+type experimentalRequest struct {
+	Action string `json:"action"`
+}
+
+func readExperimentalRequest(args any) (req experimentalRequest, err error) {
+	if typed, ok := args.(experimentalRequest); ok && utf8.ValidString(typed.Action) {
+		return typed, nil
+	}
+	if action, ok := directStringArg(args, "action"); ok {
+		return experimentalRequest{Action: action}, nil
+	}
+	err = decodeCommandArgs(args, &req)
+	return req, err
+}
+
 func (s *piSupervisor) experimentalCommand(ctx context.Context, args any) (json.RawMessage, error) {
-	var req struct {
-		Action string `json:"action"`
-	}
-	raw, err := json.Marshal(args)
+	req, err := readExperimentalRequest(args)
 	if err != nil {
-		return nil, err
-	}
-	if err = json.Unmarshal(raw, &req); err != nil {
 		return nil, err
 	}
 	s.mu.Lock()

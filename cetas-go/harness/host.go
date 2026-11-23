@@ -39,6 +39,46 @@ type envelope struct {
 	Args    any    `json:"args"`
 }
 
+type frameTag struct {
+	Type   string          `json:"type"`
+	ID     json.RawMessage `json:"id"`
+	Result json.RawMessage `json:"result"`
+}
+
+type frameHeader struct {
+	frameTag
+	SessionID    string `json:"session_id"`
+	RuntimeEpoch string `json:"runtime_epoch"`
+	Cursor       int64  `json:"cursor"`
+	sessionErr   error
+}
+
+func parseFrameHeader(payload []byte) (frameHeader, error) {
+	var header frameHeader
+	if err := json.Unmarshal(payload, &header); err != nil {
+		var typeErr *json.UnmarshalTypeError
+		if !errors.As(err, &typeErr) || typeErr.Field == "type" {
+			return header, err
+		}
+		// Routing metadata is optional for the general EventHub stream.
+		// On a type mismatch, recover the original tag and validate the
+		// Session ID independently so malformed metadata cannot hide a
+		// valid UI frame or prevent a response from reaching its waiter.
+		header = frameHeader{}
+		if err := json.Unmarshal(payload, &header.frameTag); err != nil {
+			return header, err
+		}
+		var session struct {
+			SessionID string `json:"session_id"`
+		}
+		header.sessionErr = json.Unmarshal(payload, &session)
+		if header.sessionErr == nil {
+			header.SessionID = session.SessionID
+		}
+	}
+	return header, nil
+}
+
 // transport is the native boundary a Host drives. It is an interface so
 // failure-path tests can inject a fake instead of starting a second
 // process-singleton MoonBit runtime; *bridge.Infra is the only
@@ -229,7 +269,7 @@ func Start(ctx context.Context) (*Host, error) {
 		h.electLocalSessionOwner(localipc.Home())
 	}
 	// Resolve Pi before the MoonBit Agent composes its extension manifests.
-	// Do not instantiate moejs or a Bun subprocess during this check.
+	// Do not start a Bun subprocess during this check.
 	available, err := nativePiAvailable(ctx)
 	if err != nil {
 		h.report(fmt.Errorf("Pi runtime capability: %w", err))
@@ -297,10 +337,6 @@ func (h *Host) awaitBoot(ctx context.Context) (*Host, error) {
 	}
 }
 
-// startOwnerHealth is deliberately nonfatal: the optional Unix IPC
-// discovery endpoint must never prevent an already-booted Agent from working.
-// It is only called after the real MoonBit runtime reported a ready snapshot.
-// The snapshot epoch is the same EventHub epoch clients must use for replay.
 // startOwnerBridge publishes a read-only Session feed only after the
 // real Runtime has announced its EventHub epoch. IPC remains optional.
 func (h *Host) startOwnerBridge(boot json.RawMessage) {
@@ -328,7 +364,7 @@ func (h *Host) startOwnerBridge(boot json.RawMessage) {
 		return
 	}
 	service := startObserverServer(listener, sb.Owner{
-		InstanceID: hex.EncodeToString(id[:]),
+		InstanceID:   hex.EncodeToString(id[:]),
 		RuntimeEpoch: frame.Snapshot.RuntimeEpoch,
 	}, h)
 	h.ownerBridgeMu.Lock()
@@ -350,7 +386,6 @@ func (h *Host) NeedsSetup() bool { return h.needsSetup }
 func (h *Host) PiAvailable() bool { return h.piAvailable }
 
 // Events contains all real EventHub payloads plus lifecycle frames.
-// The consuming MyGo adapter must feed them into Window.Update.
 func (h *Host) Events() <-chan Event { return h.events }
 func (h *Host) Errors() <-chan error { return h.problems }
 
@@ -510,20 +545,16 @@ func (h *Host) pump() {
 			}
 			continue
 		}
-		var tag struct {
-			Type   string          `json:"type"`
-			ID     json.RawMessage `json:"id"`
-			Result json.RawMessage `json:"result"`
-		}
-		if err := json.Unmarshal(payload, &tag); err != nil {
+		header, err := parseFrameHeader(payload)
+		if err != nil {
 			h.report(fmt.Errorf("bad EventHub frame: %w", err))
 			continue
 		}
-		if tag.Type == "harness.response" {
+		if header.Type == "harness.response" {
 			// Only responses carry numeric correlation IDs. Tool argument
 			// deltas use the provider's string ID in the same field name.
 			var id uint64
-			if err := json.Unmarshal(tag.ID, &id); err != nil {
+			if err := json.Unmarshal(header.ID, &id); err != nil {
 				h.report(fmt.Errorf("bad harness response id: %w", err))
 				continue
 			}
@@ -531,22 +562,23 @@ func (h *Host) pump() {
 			answer := h.pending[id]
 			h.mu.Unlock()
 			if answer != nil {
+				// RawMessage owns the result bytes copied by Unmarshal.
 				select {
-				case answer <- append(json.RawMessage(nil), tag.Result...):
+				case answer <- header.Result:
 				default:
 				}
 			}
 			continue
 		}
-		if tag.Type == "pi.guest.ready" || tag.Type == "pi.guest.execute" ||
-			tag.Type == "pi.guest.retired" || isPiObserverFrame(tag.Type) {
-			h.pi.handle(tag.Type, append(json.RawMessage(nil), payload...))
+		if header.Type == "pi.guest.ready" || header.Type == "pi.guest.execute" ||
+			header.Type == "pi.guest.retired" || isPiObserverFrame(header.Type) {
+			h.pi.handle(header, payload)
 		}
 		// Independent Session observers never consume the UI's event queue.
 		// A slow observer is detached, not allowed to stall the Agent.
-		h.publishSessionFrame(payload)
-		evt := Event{Type: tag.Type, Raw: append(json.RawMessage(nil), payload...)}
-		if tag.Type == "infra.boot" {
+		h.publishSessionFrame(header.SessionID, payload)
+		evt := Event{Type: header.Type, Raw: append(json.RawMessage(nil), payload...)}
+		if header.Type == "infra.boot" {
 			select {
 			case h.boot <- evt:
 			default:
@@ -559,14 +591,14 @@ func (h *Host) pump() {
 			_ = h.infra.Send(bridge.CommandStop)
 			return
 		}
-		if tag.Type == "infra.stopped" {
+		if header.Type == "infra.stopped" {
 			return
 		}
 	}
 }
 
 // Close asks the MoonBit TaskGroup to drain, detaches EventHub and waits for
-// its OS-thread owner to exit. Call before MyGo terminates its main loop.
+// its OS-thread owner to exit.
 func (h *Host) Close(ctx context.Context) error {
 	h.closeOnce.Do(func() {
 		h.mu.Lock()

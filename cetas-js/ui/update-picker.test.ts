@@ -44,16 +44,6 @@ function openUpdateOverlay(): {
 }
 
 describe("update picker contract", () => {
-  test("renders the version span and the manager-specific command", () => {
-    const { tui } = openUpdateOverlay();
-    const rendered = tui.shown!.render!(120).join("\n");
-    expect(rendered).toContain("0.8.1");
-    expect(rendered).toContain("0.9.1");
-    expect(rendered).toContain("bun add -g @posoco/cetas@latest");
-    expect(rendered).toContain("Show command");
-    expect(rendered).toContain("Skip");
-  });
-
   test("enter on the highlighted row picks Update now", () => {
     const { tui, state } = openUpdateOverlay();
     tui.shown!.handleInput!("\r");

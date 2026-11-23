@@ -26,10 +26,7 @@ async fn restore_session_model_selection_over(
     }
     @fs_session.model_selection_from_metadata(session.metadata)
   }
-  let (model_id, effort) = match recorded {
-    Some(value) => value
-    None => return false
-  }
+  guard recorded is Some((model_id, effort)) else { return false }
   if model_id == manager.manager_active_model_id() &&
     effort == manager.manager_active_effort() {
     return false
@@ -67,13 +64,11 @@ fn session_model_restored_event(
     Some(value) => Json::string(value)
     None => Json::null()
   }
-  Json::object(
-    Map::from_array([
-      ("session_id", Json::string(session_id)),
-      ("model_id", Json::string(manager.manager_active_model_id())),
-      ("effort", effort),
-    ]),
-  )
+  Json::object({
+    "session_id": Json::string(session_id),
+    "model_id": Json::string(manager.manager_active_model_id()),
+    "effort": effort,
+  })
 }
 
 ///|
@@ -99,9 +94,7 @@ async fn restore_session_model_selection(
         Custom(
           source="cetas-js.bridge",
           label="session_model_restore_warning",
-          data=Json::object(
-            Map::from_array([("message", Json::string(message))]),
-          ),
+          data=Json::object({ "message": Json::string(message) }),
         ),
       )
     },
@@ -141,11 +134,9 @@ pub fn cetas_js_restore_session_model(
     } else {
       restore_session_model_selection(handle, session_id)
     }
-    Json::object(
-      Map::from_array([
-        ("applied", Json::boolean(applied)),
-        ("already_restored", Json::boolean(already)),
-      ]),
-    ).stringify()
+    Json::object({
+      "applied": Json::boolean(applied),
+      "already_restored": Json::boolean(already),
+    }).stringify()
   }
 }

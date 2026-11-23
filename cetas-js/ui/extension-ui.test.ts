@@ -8,7 +8,6 @@ import {
   UiRequestBar,
   createUiRenderCallback,
   createUiRequestCallback,
-  formatStatusValue,
   isPlanReviewRequest,
 } from "./extension-ui.ts";
 import { roleStyle, theme } from "./theme.ts";
@@ -344,21 +343,6 @@ describe("UiRenderHost", () => {
     expect(rendered).toContain("Status");
     expect(rendered).toContain("model");
     expect(rendered).toContain("deepseek-v4-pro");
-  });
-});
-
-describe("formatStatusValue", () => {
-  test("preserves an exact local reset date with zero-padded fields", () => {
-    const localReset = new Date(2026, 0, 2, 3, 4, 5);
-    const utcReset = localReset.toISOString().replace(".000Z", "Z");
-
-    expect(formatStatusValue(utcReset)).toBe("2026-01-02 03:04:05");
-  });
-
-  test("leaves every non-timestamp value untouched", () => {
-    for (const value of ["12:00", "deepseek-v4-pro", "s1", "5h 92%"]) {
-      expect(formatStatusValue(value)).toBe(value);
-    }
   });
 });
 

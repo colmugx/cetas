@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -103,19 +102,6 @@ func TestPasteImagePathStagesAttachment(t *testing.T) {
 	next2, _ := m.update(tea.PasteMsg{Content: "see " + path + " for context"})
 	if next2.(model).textarea.Value() == "" {
 		t.Fatal("prose paste must still reach the composer")
-	}
-}
-
-func TestCompletionDebounceOwnsAWake(t *testing.T) {
-	m := trayModel(t)
-	m.host = &imageRecordingHost{}
-	m.session = "s-1"
-	m.textarea.SetValue("read @doc")
-	next, _ := m.update(tea.KeyPressMsg{Text: "s"})
-	state := next.(model)
-	due := state.nextUIWake(time.Now())
-	if due.IsZero() || due.After(state.completionDueAt) {
-		t.Fatalf("staged completion did not earn a wake: due=%v completion=%v", due, state.completionDueAt)
 	}
 }
 

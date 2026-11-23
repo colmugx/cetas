@@ -390,8 +390,7 @@ async function dispatch(req) {
     catch(e) {return {result:fail(e?.stack || String(e))};}
   }
   if(req.kind==="event") {
-    const frame = req.frame;
-    // Event projection is owned by Go (same adapter as the moejs guest).
+    // Event projection from the native EventHub is owned by Go.
     for(const event of req.events ?? []) {
       // Cetas's earliest observable run boundary corresponds to Pi's
       // before_agent_start callback. Tool changes are published through

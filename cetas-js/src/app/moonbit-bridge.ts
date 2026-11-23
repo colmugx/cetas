@@ -350,11 +350,11 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
     return moonbit.cetas_js_enqueue_follow_up(agent as moonbit.CetasJsAgent, prompt, imagesJsonFor(images));
   }
 
-  async answerQuestion(
+  answerQuestion(
     agent: unknown,
     questionId: string,
     response: QuestionAnswerResponse,
-  ): Promise<boolean> {
+  ): boolean {
     // Resolve only. The accepted answer rides the extension's next
     // `before_model` envelope; the caller separately submits the human's
     // echo as ordinary input so a turn (or a queued follow-up) carries it.
@@ -392,8 +392,9 @@ export class MoonbitCetasAgentBridge implements CetasAgentBridge {
     }
   }
 
-  listWorkspaceFiles(_config: CetasHostConfig): Promise<string> {
-    return moonbit.cetas_js_list_workspace_files(this.configValue);
+  listWorkspaceFiles(_config: CetasHostConfig): Promise<readonly string[]> {
+    // The declaration generator treats MoonBit FixedArray as opaque.
+    return moonbit.cetas_js_list_workspace_files(this.configValue) as Promise<readonly string[]>;
   }
 
   sessionTitles(sessionsDir: string): Promise<string> {

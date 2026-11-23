@@ -363,7 +363,7 @@ describe("EventRouter — tool_args_delta wiring (end to end)", () => {
     // Turn-1's streamed row is frozen residue; turn-2's started built a
     // classic fresh read row with its own args (no cross-turn adoption).
     expect(out).toContain("read b.txt");
-    expect(out).toContain("● write …");
+    expect(out).toContain("write a");
     router.handleEvent(ev({ type: "turn_completed" }));
   });
 });

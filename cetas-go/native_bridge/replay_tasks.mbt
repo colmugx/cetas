@@ -13,7 +13,9 @@ priv struct NativeReplayJob {
 ///|
 priv struct NativeReplayTasks {
   label : String
-  mut queue : Array[NativeReplayJob]
+  queue : FixedArray[NativeReplayJob?]
+  mut head : Int32
+  mut pending : Int32
   mut worker : @core_async.Task[Unit]?
   mut active : Int32?
   mut stopped : Bool
@@ -21,7 +23,37 @@ priv struct NativeReplayTasks {
 
 ///|
 fn NativeReplayTasks::new(label : String) -> NativeReplayTasks {
-  { label, queue: [], worker: None, active: None, stopped: false, }
+  {
+    label,
+    queue: FixedArray::make(16, None),
+    head: 0,
+    pending: 0,
+    worker: None,
+    active: None,
+    stopped: false,
+  }
+}
+
+///|
+fn NativeReplayTasks::enqueue(
+  self : NativeReplayTasks,
+  job : NativeReplayJob,
+) -> Bool {
+  let capacity = self.queue.length()
+  guard self.pending < capacity else { return false }
+  self.queue[(self.head + self.pending) % capacity] = Some(job)
+  self.pending += 1
+  true
+}
+
+///|
+fn NativeReplayTasks::dequeue(self : NativeReplayTasks) -> NativeReplayJob? {
+  guard self.pending > 0 else { return None }
+  let job = self.queue[self.head]
+  self.queue[self.head] = None
+  self.head = (self.head + 1) % self.queue.length()
+  self.pending -= 1
+  job
 }
 
 ///|
@@ -50,19 +82,20 @@ fn NativeReplayTasks::submit(
   args : Json,
 ) -> Unit {
   if self.stopped {
-    emit(harness_reply(id, harness_error(self.label + " worker has stopped")))
+    emit(harness_reply(id, harness_error("\{self.label} worker has stopped")))
     return
   }
-  if self.queue.length() >= 16 {
+  if !self.enqueue({ id, command, args, }) {
     emit(
       harness_reply(
         id,
-        harness_error(self.label + " request queue is full (16 pending)"),
+        harness_error(
+          "\{self.label} request queue is full (\{self.queue.length()} pending)",
+        ),
       ),
     )
     return
   }
-  self.queue.push({ id, command, args, })
   if self.worker is Some(_) {
     return
   }
@@ -73,15 +106,7 @@ fn NativeReplayTasks::submit(
           self.active = None
           self.worker = None
         }
-        while !self.stopped && !self.queue.is_empty() {
-          let pending = self.queue
-          let job = pending[0]
-          // This queue is deliberately tiny; replacing the tail also releases the
-          // completed request rather than retaining an ever-growing head cursor.
-          self.queue = []
-          for index in 1..<pending.length() {
-            self.queue.push(pending[index])
-          }
+        while !self.stopped && self.dequeue() is Some(job) {
           self.active = Some(job.id)
           let result = harness_dispatch(
             runtime,
@@ -104,23 +129,22 @@ fn NativeReplayTasks::submit(
 }
 
 ///|
-/// Pure half of `supersede`: which queued jobs outlived their session. The
-/// worker-held job is not in the queue, so it is never superseded.
-fn NativeReplayTasks::split_superseded(
+/// Sweep only the queued jobs, appending survivors in their original order.
+fn NativeReplayTasks::discard_superseded(
   self : NativeReplayTasks,
   keep : String,
-) -> (Array[NativeReplayJob], Array[NativeReplayJob]) {
-  let kept : Array[NativeReplayJob] = []
+) -> Array[NativeReplayJob] {
   let dropped : Array[NativeReplayJob] = []
-  for job in self.queue {
+  for _ in 0..<self.pending {
+    guard self.dequeue() is Some(job) else { break }
     let session = harness_session_arg(job.args).unwrap_or("")
     if session != "" && session != keep {
       dropped.push(job)
     } else {
-      kept.push(job)
+      ignore(self.enqueue(job))
     }
   }
-  (kept, dropped)
+  dropped
 }
 
 ///|
@@ -133,20 +157,16 @@ fn NativeReplayTasks::supersede(
   self : NativeReplayTasks,
   keep : String,
 ) -> Unit {
-  if self.stopped || self.queue.is_empty() {
+  if self.stopped || self.pending == 0 {
     return
   }
-  let (kept, dropped) = self.split_superseded(keep)
-  for job in dropped {
+  for job in self.discard_superseded(keep) {
     emit(
       harness_reply(
         job.id,
-        harness_error(self.label + " request superseded by session switch"),
+        harness_error("\{self.label} request superseded by session switch"),
       ),
     )
-  }
-  if dropped.length() > 0 {
-    self.queue = kept
   }
 }
 
@@ -155,21 +175,20 @@ fn NativeReplayTasks::supersede(
 /// belongs to the host TaskGroup[Unit], which drains the worker and its async files.
 fn NativeReplayTasks::cancel_all(self : NativeReplayTasks) -> Unit {
   self.stopped = true
-  for job in self.queue {
+  while self.dequeue() is Some(job) {
     emit(
       harness_reply(
         job.id,
-        harness_error(self.label + " cancelled during shutdown"),
+        harness_error("\{self.label} cancelled during shutdown"),
       ),
     )
   }
-  self.queue = []
   match self.active {
     Some(id) =>
       emit(
         harness_reply(
           id,
-          harness_error(self.label + " cancelled during shutdown"),
+          harness_error("\{self.label} cancelled during shutdown"),
         ),
       )
     None => ()

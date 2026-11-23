@@ -454,7 +454,7 @@ describe("SubagentActivityStore", () => {
     expect(record.summary).toBeUndefined();
     expect(record.exited).toBe(false);
     expect(record.task_id).toBe("task_2");
-    expect(record.question?.id).toBe("question-2");
+    expect(record.questions.map((question) => question.id)).toEqual(["question-2"]);
     expect(store.runningBackground().map((r) => r.child_session)).toEqual(["bg"]);
     expect(store.claimTerminalNotification("bg")).toBeUndefined();
 
@@ -635,12 +635,12 @@ describe("SubagentActivityStore question round trip", () => {
     const versionBefore = store.get("fg")!.version;
     expect(asked(store, "fg", "call_1")).toBe(true);
     const record = store.get("fg")!;
-    expect(record.question).toEqual({
+    expect(record.questions).toEqual([{
       id: "question-1",
       text: "Which database?",
       type: "select",
       asked_at: 5_000,
-    });
+    }]);
     expect(record.parent_call).toBe("call_1");
     expect(record.run_id).toBe("call_1");
     expect(record.version).toBe(versionBefore + 1);
@@ -665,13 +665,24 @@ describe("SubagentActivityStore question round trip", () => {
       label(store, "fg", "question_answered", { question_id: "question-1" }),
     ).toBe(true);
     const record = store.get("fg")!;
-    expect(record.question).toBeUndefined();
+    expect(record.questions).toEqual([]);
     expect(record.history.at(-1)).toBe("✓ answered → child resumed");
     expect(record.version).toBe(versionBefore + 1);
     // A repeat ack changes nothing.
     expect(
       label(store, "fg", "question_answered", { question_id: "question-1" }),
     ).toBe(false);
+  });
+
+  it("settles only the matching parked question", () => {
+    const store = new SubagentActivityStore();
+    spawned(store, "fg", "call_1");
+    asked(store, "fg", "call_1");
+    asked(store, "fg", "call_1", { question_id: "q2", question: "When?" });
+    expect(label(store, "fg", "question_answered", { question_id: "unknown" })).toBe(false);
+    expect(store.get("fg")!.questions.map((question) => question.id)).toEqual(["question-1", "q2"]);
+    expect(label(store, "fg", "question_answered", { question_id: "question-1" })).toBe(true);
+    expect(store.get("fg")!.questions.map((question) => question.id)).toEqual(["q2"]);
   });
 
   it("ignores a question after terminal", () => {
@@ -682,7 +693,7 @@ describe("SubagentActivityStore question round trip", () => {
       summary: "done",
     });
     expect(asked(store, "fg", "call_1")).toBe(false);
-    expect(store.get("fg")!.question).toBeUndefined();
+    expect(store.get("fg")!.questions).toEqual([]);
   });
 
   it("resets the question on a new run", () => {
@@ -690,7 +701,7 @@ describe("SubagentActivityStore question round trip", () => {
     spawned(store, "fg", "call_1");
     asked(store, "fg", "call_1");
     spawned(store, "fg", "call_2");
-    expect(store.get("fg")!.question).toBeUndefined();
+    expect(store.get("fg")!.questions).toEqual([]);
   });
 
   it("creates a record from a queued question alone", () => {
@@ -701,7 +712,7 @@ describe("SubagentActivityStore question round trip", () => {
       type: "confirm",
     })).toBe(true);
     const record = store.get("bq")!;
-    expect(record.question?.type).toBe("confirm");
+    expect(record.questions[0]?.type).toBe("confirm");
     expect(record.parent_call).toBe("background");
   });
 });

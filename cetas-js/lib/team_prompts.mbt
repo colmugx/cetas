@@ -414,21 +414,16 @@ pub fn WorkProfile::to_json(self : WorkProfile) -> Json {
 /// Last path segment only. A Board title must not leak the full checkout path.
 pub fn project_name(cwd : String) -> String {
   let trimmed = cwd.trim().to_owned()
-  if trimmed.is_empty() {
+  if trimmed.is_empty() || trimmed.has_suffix("/") || trimmed.has_suffix("\\") {
     return "workspace"
   }
-  let mut name = ""
-  for ch in trimmed {
-    if ch == '/' || ch == '\\' {
-      name = ""
-    } else {
-      name = name + ch.to_string()
-    }
-  }
-  if name == "" {
+  // Board titles accept checkout paths from either platform.
+  let path = @path.Path(trimmed.replace_all(old="\\", new="/"))
+  let name = path.basename()
+  if name.is_empty() {
     "workspace"
   } else {
-    name
+    name.to_owned()
   }
 }
 

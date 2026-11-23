@@ -134,9 +134,7 @@ async test "js mcp login flow and startup token injection" {
   if pid < 0 {
     fail("failed to spawn oauth fixture (relative fixture path unreachable?)")
   }
-  // The fixture must be reaped on every exit path: errdefer covers failed
-  // asserts and raised errors, the trailing kill covers success.
-  errdefer js_kill_pid(pid)
+  defer js_kill_pid(pid)
   let mut port = ""
   for _ in 0..<100 {
     port = js_read_text_file(node_read_text_sync, port_file)
@@ -153,9 +151,7 @@ async test "js mcp login flow and startup token injection" {
     node_mkdir_sync,
     node_write_text_sync,
     dir + "/.mcp.json",
-    "{\"mcpServers\":{\"oa\":{\"type\":\"http\",\"url\":\"http://127.0.0.1:" +
-    port +
-    "/mcp\",\"auth\":\"oauth\"}}}",
+    "{\"mcpServers\":{\"oa\":{\"type\":\"http\",\"url\":\"http://127.0.0.1:\{port}/mcp\",\"auth\":\"oauth\"}}}",
   )
   let bridge = match
     @mcp.MCPToolBridge::discover(
@@ -173,8 +169,8 @@ async test "js mcp login flow and startup token injection" {
     @async.with_task_group(async fn(group) {
       bridge.attach(group, lifetime~)
       defer @async.protect_from_cancel(() => bridge.close())
-      inspect(bridge.activate().length(), content="1")
-      inspect(bridge.auth_challenge("oa") is Some(_), content="true")
+      @debug.assert_eq(bridge.activate().length(), 1)
+      assert_true(bridge.auth_challenge("oa") is Some(_))
       // The full login chain — the same function the intercepted /mcp login runs.
       let store = @oauth.InMemoryProviderCredentialStore::InMemoryProviderCredentialStore()
       let transport = @oauth.DefaultOAuthHttpTransport::DefaultOAuthHttpTransport()
@@ -190,7 +186,7 @@ async test "js mcp login flow and startup token injection" {
       )
       match login {
         Ok(feedback) =>
-          inspect(feedback, content="logged into 'oa'; 1 tool available")
+          @debug.assert_eq(feedback, "logged into 'oa'; 1 tool available")
         Err(reason) => fail("login flow failed: " + reason)
       }
       // The stored record carries the two keys a later refresh needs.
@@ -199,26 +195,20 @@ async test "js mcp login flow and startup token injection" {
         Some(@oauth.ProviderCredential::OAuth(credential)) => credential
         _ => fail("expected a stored OAuth credential for mcp.oa")
       }
-      inspect(
-        stored_cred.metadata_value("token_endpoint") is Some(_),
-        content="true",
-      )
-      inspect(
-        stored_cred.metadata_value("client_id") is Some(_),
-        content="true",
-      )
+      assert_true(stored_cred.metadata_value("token_endpoint") is Some(_))
+      assert_true(stored_cred.metadata_value("client_id") is Some(_))
       // The reconnected server serves its tool through the fresh token.
-      inspect(@posoco.ToolProvider::list_tools(bridge).length(), content="1")
+      @debug.assert_eq(@posoco.ToolProvider::list_tools(bridge).length(), 1)
       let call : @posoco.ToolCall = {
         call_id: @posoco.CallId::unchecked("call_login"),
         name: @posoco.ToolName::unchecked("oa__oauth_tool"),
-        arguments: Json::object(Map::from_array([])),
+        arguments: Json::empty_object(),
       }
       let outcome = @posoco.ToolProvider::execute(bridge, mcp_login_ctx(call)) catch {
         error => fail("execute after login failed: " + error.to_string())
       }
       match outcome {
-        Success(content~, ..) => inspect(content, content="oauth:ok")
+        Success(content~, ..) => @debug.assert_eq(content, "oauth:ok")
         _ => fail("expected success outcome after login")
       }
       // The startup pass's refresh branch: expire the stored record, re-inject.
@@ -240,14 +230,14 @@ async test "js mcp login flow and startup token injection" {
       let call2 : @posoco.ToolCall = {
         call_id: @posoco.CallId::unchecked("call_refresh_inject"),
         name: @posoco.ToolName::unchecked("oa__oauth_tool"),
-        arguments: Json::object(Map::from_array([])),
+        arguments: Json::empty_object(),
       }
       let outcome2 = @posoco.ToolProvider::execute(bridge, mcp_login_ctx(call2)) catch {
         error =>
           fail("execute after refresh injection failed: " + error.to_string())
       }
       match outcome2 {
-        Success(content~, ..) => inspect(content, content="oauth:ok")
+        Success(content~, ..) => @debug.assert_eq(content, "oauth:ok")
         _ => fail("expected success outcome after refresh injection")
       }
       // The rotated credential was persisted with the endpoints still on record.
@@ -256,16 +246,12 @@ async test "js mcp login flow and startup token injection" {
         Some(@oauth.ProviderCredential::OAuth(credential)) => credential
         _ => fail("expected the rotated credential to be persisted")
       }
-      inspect(rotated.access_token != expired.access_token, content="true")
-      inspect(rotated.expires_at > now, content="true")
-      inspect(
-        rotated.metadata_value("token_endpoint") is Some(_),
-        content="true",
-      )
-      inspect(rotated.metadata_value("client_id") is Some(_), content="true")
+      assert_true(rotated.access_token != expired.access_token)
+      assert_true(rotated.expires_at > now)
+      assert_true(rotated.metadata_value("token_endpoint") is Some(_))
+      assert_true(rotated.metadata_value("client_id") is Some(_))
     })
   })
-  js_kill_pid(pid)
 }
 
 ///|

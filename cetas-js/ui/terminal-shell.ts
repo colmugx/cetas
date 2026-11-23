@@ -44,6 +44,7 @@ import {
   type UserInputSubmission,
 } from "../src/app/index.ts";
 import type { CatalogRefreshSummary } from "../src/app/types.ts";
+import { parseObserverJson } from "../src/app/observer-projection.ts";
 import { newSessionId, sessionFilePath } from "../src/app/session-id.ts";
 import { PiCommands, piCommandArgItems } from "../src/app/pi-commands.ts";
 import { parseSessionReplay, type ReplayItem } from "../src/transcript/replay.ts";
@@ -87,6 +88,7 @@ import {
   AssistantMessage,
   QueuedUserMessage,
   ToolRow,
+  TranscriptContainer,
   UserMessage,
 } from "../src/transcript/components.ts";
 import { ThinkingComponent } from "../src/transcript/thinking.ts";
@@ -219,7 +221,7 @@ export interface TerminalShellOptions {
   /** Optional, host-verified read-only attachment to a foreign local owner. */
   observeSession?: (sessionID: string) => Promise<SessionViewer | undefined>;
   /** The elected Bun owner publishes existing Agent observer frames verbatim. */
-  onLocalOwnerEvent?: (eventJSON: string) => void;
+  onLocalOwnerEvent?: (eventJSON: string, parsed: { readonly value: unknown }) => void;
 }
 
 /** Result of a host-owned project switch (see `TerminalShellOptions`). */
@@ -284,7 +286,7 @@ export class TerminalShell {
   private readonly openBoardUrl?: (url: string) => void;
   private readonly switchProject?: (cwd: string) => Promise<ProjectSwitch>;
   private readonly observeSession?: (sessionID: string) => Promise<SessionViewer | undefined>;
-  private readonly onLocalOwnerEvent?: (eventJSON: string) => void;
+  private readonly onLocalOwnerEvent?: (eventJSON: string, parsed: { readonly value: unknown }) => void;
   private remoteView?: SessionViewer;
   // Remains set after a remote disconnect: socket loss is not a write lease.
   private foreignSessionID?: string;
@@ -445,10 +447,11 @@ export class TerminalShell {
     this.openBoardUrl = options.openBoardUrl;
     this.forceExitDelayMs = options.forceExitDelayMs ?? 10_000;
     this.callbacks = {
-      observerCallback: (eventJson) => {
+      observerCallback: (eventJson, parsed) => {
         if (!this.hostFaultStopped) {
-          this.onLocalOwnerEvent?.(eventJson);
-          this.handleObserverEvent(eventJson);
+          const payload = parsed ?? { value: parseObserverJson(eventJson) };
+          this.onLocalOwnerEvent?.(eventJson, payload);
+          this.handleObserverEvent(eventJson, payload);
         }
       },
       renderCallback: (eventJson) => {
@@ -470,7 +473,7 @@ export class TerminalShell {
     }));
     if (!(this.tui instanceof TuiAltScreen)) this.tui.addChild(this.welcomeHeader);
 
-    this.transcript = new Container();
+    this.transcript = new TranscriptContainer();
     if (!(this.tui instanceof TuiAltScreen)) this.tui.addChild(this.transcript);
 
     this.statusLoader = new Loader(
@@ -1179,7 +1182,7 @@ export class TerminalShell {
           : this.operationBusy || this.commandBusy || this.renderedAppState === "running" ? t("status.working")
             : this.renderedAppState === "needs_setup" ? t("status.setup_required") : t("status.ready"),
       activeAgents: running.length,
-      awaitingReplies: running.filter((agent) => agent.question !== undefined).length + this.pendingUiRequests,
+      awaitingReplies: running.reduce((count, agent) => count + agent.questions.length, this.pendingUiRequests),
       pendingUserQuestions: this.questions.pendingFor(this.sessionId).length,
     };
   }
@@ -1298,10 +1301,11 @@ export class TerminalShell {
     return true;
   }
 
-  private handleObserverEvent(eventJson: string): void {
+  private handleObserverEvent(eventJson: string, parsed?: { readonly value: unknown }): void {
     if (this.shutdownPromise !== undefined) return;
-    if (this.handleOperationLifecycleEvent(eventJson)) return;
-    const outcome = parseCetasEventLenient(eventJson);
+    const value = parsed === undefined ? parseObserverJson(eventJson) : parsed.value;
+    if (this.handleOperationLifecycleEvent(value)) return;
+    const outcome = parseObserverEventLenient(value);
     if ("skipped" in outcome) {
       this.noteDegradedEvent(outcome.skipped);
       return;
@@ -1632,13 +1636,7 @@ export class TerminalShell {
    * user-visible compact feedback and the single finalize display. Returns
    * true when the bytes carried one of these tags.
    */
-  private handleOperationLifecycleEvent(eventJson: string): boolean {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(eventJson);
-    } catch {
-      return false;
-    }
+  private handleOperationLifecycleEvent(parsed: unknown): boolean {
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       return false;
     }
@@ -4007,12 +4005,11 @@ function eventTypeTag(parsed: unknown): string {
 export function parseCetasEventLenient(
   rawJson: string,
 ): { event: CetasEvent } | { skipped: string } {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawJson);
-  } catch {
-    return { skipped: "unparseable json" };
-  }
+  return parseObserverEventLenient(parseObserverJson(rawJson));
+}
+
+function parseObserverEventLenient(parsed: unknown): { event: CetasEvent } | { skipped: string } {
+  if (parsed === undefined) return { skipped: "unparseable json" };
   try {
     const event = parseCetasEvent(parsed);
     if (event === null) {

@@ -1,10 +1,4 @@
 ///|
-/// session_titles.mbt — host-facing session facts for the /sessions picker.
-/// The bucket formula and the title rules live in posoco-ext-fs-session;
-/// cetas-js only projects them over the JS boundary so TypeScript never
-/// re-derives directory names or first-message titles.
-
-///|
 /// Resolved per-project session bucket for (home, cwd) — the same directory
 /// the config constructor falls back to for an empty `sessions_dir`. Pure
 /// string computation, safe before any Agent exists.
@@ -56,12 +50,10 @@ async fn session_titles_json(
     match loaded {
       Ok(summary) =>
         entries.push(
-          Json::object(
-            Map::from_array([
-              ("id", Json::string(id)),
-              ("title", Json::string(@fs_session.display_title(summary))),
-            ]),
-          ),
+          Json::object({
+            "id": Json::string(id),
+            "title": Json::string(@fs_session.display_title(summary)),
+          }),
         )
       Err(_) => ()
     }
@@ -82,7 +74,8 @@ async fn session_catalog_json(home : String) -> String {
     if !@fs_session.is_project_dir_name(name) {
       continue
     }
-    let dir = root + "/" + name
+    // The picker compares this bucket path with project_sessions_dir verbatim.
+    let dir = "\{root}/\{name}"
     let kind : @workspace.WorkspaceFileKind = fs.kind(dir, follow_symlink=false) catch {
       _ => continue
     }
@@ -101,22 +94,17 @@ async fn session_catalog_json(home : String) -> String {
       match loaded {
         Ok(summary) =>
           entries.push(
-            Json::object(
-              Map::from_array([
-                ("id", Json::string(id)),
-                ("title", Json::string(@fs_session.display_title(summary))),
-                ("bucket", Json::string(name)),
-                ("dir", Json::string(dir)),
-                ("folder", Json::string(@fs_session.bucket_slug(name))),
-                (
-                  "cwd",
-                  match summary.cwd {
-                    Some(cwd) => Json::string(cwd)
-                    None => Json::null()
-                  },
-                ),
-              ]),
-            ),
+            Json::object({
+              "id": Json::string(id),
+              "title": Json::string(@fs_session.display_title(summary)),
+              "bucket": Json::string(name),
+              "dir": Json::string(dir),
+              "folder": Json::string(@fs_session.bucket_slug(name)),
+              "cwd": match summary.cwd {
+                Some(cwd) => Json::string(cwd)
+                None => Json::null()
+              },
+            }),
           )
         Err(_) => ()
       }

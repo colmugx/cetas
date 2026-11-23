@@ -303,7 +303,7 @@ fn turn_event_to_json(event : @posoco.TurnEvent) -> Json {
       let result = match reason {
         NotOffered =>
           "'\{call.name.to_string()}' is not offered in the current tool view — in PTC-only mode nested tools must be called through run_code (ctx.call(\"\{call.name.to_string()}\", ...))"
-        other => "not executed (" + other.to_string() + ")"
+        other => "not executed (\{other})"
       }
       Json::object(
         Map::from_array([
@@ -1100,8 +1100,6 @@ pub extend JsUiPort with @port.UiPort::{ui_descriptor, request, render}
 /// `home` is the user's home directory, injected by the host (Node
 /// `os.homedir()`) for AGENTS.md global lookup; this package performs no
 /// home-dir resolution of its own.
-/// Source: ffi.html — "#export_name is not available on functions with
-/// optional arguments".
 pub(all) struct CetasJsConfig {
   cwd : String
   max_tool_rounds : Int32
@@ -1280,8 +1278,8 @@ async fn warn_legacy_project_cetas(
   cwd : String,
   observer : &@posoco.Observer,
 ) -> Unit noraise {
-  let legacy_path = cwd + "/.cetas"
-  let home_path = home + "/.cetas"
+  let legacy_path = "\{cwd}/.cetas"
+  let home_path = "\{home}/.cetas"
   let legacy_present = fs.exists(legacy_path) catch { _ => return }
   if !legacy_present {
     return
@@ -1298,14 +1296,7 @@ async fn warn_legacy_project_cetas(
         (
           "message",
           Json::string(
-            "Found a project-local .cetas directory at " +
-            legacy_path +
-            ". Durable state (credentials, settings, profiles, sessions) now lives under your HOME at " +
-            home_path +
-            ". The project-local copy may contain live credentials that are exposed to anyone with read access to this project (it can be committed or packaged). Move it out of the project tree, e.g.: mv " +
-            legacy_path +
-            " " +
-            home_path,
+            "Found a project-local .cetas directory at \{legacy_path}. Durable state (credentials, settings, profiles, sessions) now lives under your HOME at \{home_path}. The project-local copy may contain live credentials that are exposed to anyone with read access to this project (it can be committed or packaged). Move it out of the project tree, e.g.: mv \{legacy_path} \{home_path}",
           ),
         ),
         ("legacy_path", Json::string(legacy_path)),
@@ -1923,7 +1914,7 @@ pub fn cetas_js_runtime_create_agent(
             let mcp_bridge = match
               @mcp.MCPToolBridge::discover(
                 cwd=runtime.config.cwd,
-                user_mcp_json=runtime.config.home + "/.cetas/mcp.json",
+                user_mcp_json="\{runtime.config.home}/.cetas/mcp.json",
                 mode=@mcp.LoadMode::Lazy,
               ) {
               Ok(bridge) => bridge
@@ -2178,7 +2169,6 @@ pub fn cetas_js_runtime_create_agent(
             // pi custom session entries: every appendEntry projects as an observer
             // Custom event (source "pi", label = customType) at emission time.
             // Persistence rides Session.metadata["pi.custom_entries"] at turn end
-            // (cetas_js_run_turn); restore re-seeds via pi_adaptor_seed_entry.
             @pi.pi_adaptor_set_custom_entry_callback(pi, fn(
               custom_type,
               data_json,
@@ -2357,7 +2347,7 @@ pub fn cetas_js_runtime_refresh_model_lists_live(
   provider_ids_json : String,
   signal : @js_async.AbortSignal,
 ) -> @js_async.Promise[String] {
-  @js_async.Promise::from_async(abort_signal=signal) <| () => {
+  promise_from_cancellable_async(signal) <| () => {
     refresh_model_lists_live(runtime, provider_ids_json)
   }
 }
@@ -2454,6 +2444,10 @@ pub fn cetas_js_runtime_commit_magpie_credential(
     }
     runtime.magpie_previous_credential = previous
     runtime.magpie_credential_pending = true
+    errdefer {
+      runtime.magpie_credential_pending = false
+      runtime.magpie_previous_credential = None
+    }
     if key == "" {
       store.delete(MAGPIE_PROVIDER_ID) catch {
         _ =>
@@ -2512,35 +2506,37 @@ pub fn cetas_js_runtime_finish_magpie_credential(
 }
 
 ///|
-/// Run one turn on an existing agent handle.
-///
-/// Why this shape: `pub async fn` exported to JS compiles to a CPS state
-/// machine that the JS host can't drive — calling `await cetas_js_run_turn()`
-/// won't actually run the coroutine, and any internal `coroutine.suspend()`
-/// (e.g. `Promise::wait`) panics with "no current coroutine". The official
-/// bridge is `@js_async.Promise::from_async` (moonbitlang/core/async/src/js_async/
-/// js_async.mbt:200, comment: "should only be used for exporting MoonBit code
-/// to JavaScript"). It spawns a coroutine, drives it to completion, and
-/// surfaces resolve/reject to JS.
-///
-/// Errors inside the async block become Promise rejections on the JS side
-/// (stringified via `err.to_string()` per from_async's catch branch).
-///
-/// `signal` is the host's JS AbortSignal for this turn. When the host aborts
-/// it, from_async cancels the turn coroutine: the deepest cancellable wait
-/// (the in-flight model fetch) aborts its request, the loop classifies the
-/// Cancelled error, and the Promise resolves with the partial transcript or
-/// rejects with AbortError depending on where cancellation landed.
-
-///|
-/// Fire `cb` once when the JS AbortSignal aborts. Mirrors the package-private
-/// `AbortSignal::on_abort` of moonbitlang/core/async (MoonBit closures compile to
-/// JS functions on this backend).
 extern "js" fn js_signal_on_abort(
   signal : @js_async.AbortSignal,
   cb : () -> Unit,
 ) -> Unit =
-  #| (signal, cb) => signal.addEventListener("abort", cb, { once: true })
+  #| (signal, cb) => {
+  #|   if (!signal.aborted) signal.addEventListener("abort", cb, { once: true });
+  #| }
+
+///|
+extern "js" fn js_signal_remove_abort_listener(
+  signal : @js_async.AbortSignal,
+  cb : () -> Unit,
+) -> Unit =
+  #| (signal, cb) => signal.removeEventListener("abort", cb)
+
+///|
+fn[T] promise_from_cancellable_async(
+  signal : @js_async.AbortSignal,
+  f : async () -> T,
+) -> @js_async.Promise[T] {
+  @js_async.Promise::from_async(abort_signal=signal) <| () => {
+    // from_async registers cancellation before running this body, but its
+    // listener only marks the coroutine runnable. Pump the scheduler after it.
+    fn wake() {
+      ignore(@js_async.Promise::from_async(() => ()))
+    }
+    js_signal_on_abort(signal, wake)
+    defer js_signal_remove_abort_listener(signal, wake)
+    f()
+  }
+}
 
 ///|
 /// Parse the host-supplied image attachment JSON: an array of
@@ -2600,11 +2596,8 @@ priv enum RunTurnOutcome {
 }
 
 ///|
-/// Shared body of both run-turn exports (see `cetas_js_run_turn` for the
-/// Promise/abort shape rationale). Session/pi bookkeeping runs before the
-/// Agent entry exactly as before. A Busy admission loss leaves the pi display
-/// of the incumbent operation untouched (no reset_agent_run) and reports who
-/// holds the agent instead of raising a stringified error.
+/// A Busy admission loss leaves the incumbent operation's pi display intact
+/// and reports who holds the agent instead of raising a stringified error.
 async fn run_turn_outcome(
   handle : CetasJsAgent,
   prompt : String,
@@ -2673,54 +2666,8 @@ async fn run_turn_outcome(
 }
 
 ///|
-pub fn cetas_js_run_turn(
-  handle : CetasJsAgent,
-  prompt : String,
-  images_json : String,
-  session_id : String,
-  signal : @js_async.AbortSignal,
-) -> @js_async.Promise[String] {
-  let promise = @js_async.Promise::from_async(abort_signal=signal) <| () => {
-    match run_turn_outcome(handle, prompt, images_json, session_id) {
-      Transcript(text) => text
-      // Legacy raw wire, kept for compatibility: the transcript resolves
-      // raw, while a Busy admission loss resolves this discriminated JSON
-      // envelope. The marker is inherently ambiguous with assistant JSON,
-      // so new hosts must use `cetas_js_run_turn_result`, whose dedicated
-      // envelope cannot be confused with a transcript.
-      Busy(operation_id, session) =>
-        Json::object(
-          Map::from_array([
-            ("posoco_busy", Json::boolean(true)),
-            ("operation_id", Json::string(operation_id)),
-            ("session", Json::string(session)),
-          ]),
-        ).stringify()
-    }
-  }
-  // from_async's own signal listener cancels the turn coroutine but does not
-  // pump the scheduler (`Coroutine::cancel` only marks it runnable), so a
-  // cancelled turn would hang until unrelated async activity reschedules.
-  // This second listener forces a reschedule round; spawning (and instantly
-  // completing) a no-op coroutine is the public reschedule trigger. Listener
-  // order matters: cancel runs first, the pump second.
-  js_signal_on_abort(signal, fn() {
-    ignore(@js_async.Promise::from_async() <| () => {  })
-  })
-  promise
-}
-
-///|
-/// Structurally discriminated run-turn boundary for the TS host. Same
-/// admission/abort behaviour as `cetas_js_run_turn`, but the Promise resolves
-/// exactly one JSON envelope instead of mixing raw transcript bytes with a
-/// marker: `{"kind":"transcript","transcript":...}` for an admitted run (the
-/// transcript rides as a JSON string, so the host decodes the envelope once
-/// and never re-parses assistant output) and
-/// `{"kind":"busy","operation_id":...,"session":...}` when core admitted
-/// another operation first. The `kind` field is the only discriminator and
-/// lives on the envelope — never on transcript bytes — so legitimate
-/// assistant JSON can never be misread as Busy.
+/// The envelope distinguishes a transcript from a competing core operation
+/// without interpreting the assistant's text.
 pub fn cetas_js_run_turn_result(
   handle : CetasJsAgent,
   prompt : String,
@@ -2728,7 +2675,7 @@ pub fn cetas_js_run_turn_result(
   session_id : String,
   signal : @js_async.AbortSignal,
 ) -> @js_async.Promise[String] {
-  let promise = @js_async.Promise::from_async(abort_signal=signal) <| () => {
+  promise_from_cancellable_async(signal) <| () => {
     match run_turn_outcome(handle, prompt, images_json, session_id) {
       Transcript(text) =>
         Json::object(
@@ -2747,16 +2694,11 @@ pub fn cetas_js_run_turn_result(
         ).stringify()
     }
   }
-  // Same abort pump as cetas_js_run_turn (see the comment there).
-  js_signal_on_abort(signal, fn() {
-    ignore(@js_async.Promise::from_async() <| () => {  })
-  })
-  promise
 }
 
 ///|
 /// Resume a session's interrupted turn from its persisted transcript. The
-/// pi session bookkeeping matches `cetas_js_run_turn` (session naming,
+/// pi session bookkeeping matches `cetas_js_run_turn_result` (session naming,
 /// session_start reason, persisted custom entries); only the Agent entry
 /// differs — `resume_turn` instead of a fresh user prompt.
 pub fn cetas_js_resume_turn(
@@ -2764,7 +2706,7 @@ pub fn cetas_js_resume_turn(
   session_id : String,
   signal : @js_async.AbortSignal,
 ) -> @js_async.Promise[String] {
-  let promise = @js_async.Promise::from_async(abort_signal=signal) <| () => {
+  promise_from_cancellable_async(signal) <| () => {
     handle.plan.set_session_name(session_id)
     let pi_new_session = match handle.pi_session {
       Some(id) => id != session_id
@@ -2803,10 +2745,6 @@ pub fn cetas_js_resume_turn(
       }
     }
   }
-  js_signal_on_abort(signal, fn() {
-    ignore(@js_async.Promise::from_async() <| () => {  })
-  })
-  promise
 }
 
 ///|
@@ -2868,7 +2806,7 @@ pub fn cetas_js_herdr_release() -> Unit {
 /// Request an abort of the active run (the JS host's ESC interrupt).
 /// Synchronous and idempotent: the abort is enqueued into the control
 /// mailbox and the loop observes it at its next safe point, so the pending
-/// `cetas_js_run_turn` Promise then resolves with the partial transcript
+/// `cetas_js_run_turn_result` Promise then resolves with the partial transcript
 /// instead of rejecting. The returned `EnqueueOutcome` string tells the host
 /// which case fired (`Accepted`, `AbortAlreadyRequested`, `RejectedStale`).
 pub fn cetas_js_abort_turn(handle : CetasJsAgent) -> String {
@@ -2877,8 +2815,7 @@ pub fn cetas_js_abort_turn(handle : CetasJsAgent) -> String {
 
 ///|
 /// Run the Agent-level server compaction for one session (the host's
-/// `/compact` entry). Mirrors `cetas_js_run_turn`'s Promise/abort pattern:
-/// the caller's AbortSignal cancels the compact coroutine, aborting the
+/// `/compact` entry). The caller's AbortSignal cancels the coroutine and its
 /// in-flight compact request. Never rejects — the JSON envelope keeps
 /// outcomes typed across the FFI: `ok:true` carries the committed outcome,
 /// `ok:false` carries a machine-readable `error_kind` (`cancelled` when the
@@ -2889,7 +2826,7 @@ pub fn cetas_js_compact_session(
   session_id : String,
   signal : @js_async.AbortSignal,
 ) -> @js_async.Promise[String] {
-  let promise = @js_async.Promise::from_async(abort_signal=signal) <| () => {
+  promise_from_cancellable_async(signal) <| () => {
     let attempted = Ok(@cetas_core.run_compact(handle.agent, session_id)) catch {
       err => Err(err)
     }
@@ -2920,13 +2857,6 @@ pub fn cetas_js_compact_session(
       }
     }
   }
-  // Same pump as cetas_js_run_turn: from_async's abort listener only cancels
-  // the compact coroutine without pumping the scheduler, so a cancelled
-  // compact would hang until unrelated async activity reschedules.
-  js_signal_on_abort(signal, fn() {
-    ignore(@js_async.Promise::from_async() <| () => {  })
-  })
-  promise
 }
 
 ///|
@@ -3478,7 +3408,7 @@ pub fn cetas_js_invoke_command(
     }
     if !found {
       let miss = @port.CommandOutcome::Failure(
-        reason="command not found: " + id,
+        reason="command not found: \{id}",
       )
       result_json = command_outcome_to_json(miss).stringify()
     }

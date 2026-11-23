@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CetasApplication } from "./app/application.ts";
+import { AgentBusyError, decodeAgentRunTurnResult } from "./app/agent-busy.ts";
 import { MoonbitCetasAgentBridge } from "./app/moonbit-bridge.ts";
 
 const {
@@ -13,14 +14,22 @@ const {
   cetas_js_cancel_pending_ratelimit,
   cetas_js_compact_session,
   cetas_js_runtime_create_agent,
+  cetas_js_runtime_commit_magpie_credential,
+  cetas_js_runtime_finish_magpie_credential,
   cetas_js_invoke_command,
   cetas_js_list_commands,
-  cetas_js_run_turn,
+  cetas_js_run_turn_result,
   cetas_js_sessions_dir,
   cetas_js_shutdown,
 } = await import("mbt:colmugx/cetas-js/lib") as unknown as typeof import("mbt:colmugx/cetas-js/lib") & {
   cetas_js_cancel_pending_ratelimit(agent: unknown): void;
 };
+
+async function runTurn(...args: Parameters<typeof cetas_js_run_turn_result>): Promise<string> {
+  const result = decodeAgentRunTurnResult(await cetas_js_run_turn_result(...args));
+  if (result.kind === "busy") throw new AgentBusyError(result.operation_id, result.session);
+  return result.transcript;
+}
 
 const cleanup: string[] = [];
 
@@ -54,6 +63,37 @@ afterEach(async () => {
 });
 
 describe("long-lived cetas-js bridge", () => {
+  test("returns relative completion paths across the MoonBit bridge before setup", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "cetas-js-file-index-"));
+    cleanup.push(cwd);
+    await mkdir(join(cwd, "src"));
+    await mkdir(join(cwd, "node_modules"));
+    await writeFile(join(cwd, "src", "main.mbt"), "");
+    const config = { cwd, home: cwd, maxToolRounds: 4 };
+    const bridge = new MoonbitCetasAgentBridge(config);
+
+    expect(await bridge.listWorkspaceFiles(config)).toEqual(["src/", "src/main.mbt"]);
+  });
+
+  test("a failed credential write does not block the next transaction", async () => {
+    const home = await mkdtemp(join(tmpdir(), "cetas-js-magpie-write-"));
+    cleanup.push(home);
+    const dir = join(home, ".cetas");
+    await mkdir(dir);
+    const destination = join(dir, "credentials");
+    await writeFile(destination, "not a directory");
+    const runtime = new CetasJsRuntime(new CetasJsConfig(home, 4, home, "read_only", "", "", ""));
+
+    await expect(cetas_js_runtime_commit_magpie_credential(runtime, "test-key"))
+      .rejects.toThrow("gateway credential cannot be saved");
+    await rm(destination);
+    const record = join(destination, "magpie.json");
+    await cetas_js_runtime_commit_magpie_credential(runtime, "test-key");
+    expect(existsSync(record)).toBe(true);
+    await cetas_js_runtime_finish_magpie_credential(runtime, true);
+    expect(existsSync(record)).toBe(false);
+  });
+
   test("surfaces settings IO errors instead of treating them as missing", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cetas-js-settings-error-"));
     const home = await mkdtemp(join(tmpdir(), "cetas-js-settings-home-"));
@@ -196,7 +236,7 @@ describe("long-lived cetas-js bridge", () => {
         cetas_js_invoke_command(agent, "model", "{malformed"),
       ).rejects.toThrow(/valid JSON|InvalidArgs/);
 
-      const firstReply = await cetas_js_run_turn(
+      const firstReply = await runTurn(
         agent,
         "first question",
         "[]",
@@ -236,7 +276,7 @@ describe("long-lived cetas-js bridge", () => {
             );
           }),
       ).toBe(true);
-      const secondReply = await cetas_js_run_turn(
+      const secondReply = await runTurn(
         agent,
         "follow-up",
         "[]",
@@ -339,7 +379,7 @@ describe("long-lived cetas-js bridge", () => {
       () => false,
     );
     try {
-      await expect(cetas_js_run_turn(
+      await expect(runTurn(
         agent,
         "retry this exact request",
         "[]",
@@ -453,7 +493,7 @@ describe("long-lived cetas-js bridge", () => {
     );
 
     try {
-      const turn = cetas_js_run_turn(agent, "question", "[]", "abort-session", new AbortController().signal);
+      const turn = runTurn(agent, "question", "[]", "abort-session", new AbortController().signal);
       // Wait until the model request is actually in flight; aborting before
       // the run registers would be a stale rejection, not an interrupt.
       while (requests.length === 0) {
@@ -468,7 +508,7 @@ describe("long-lived cetas-js bridge", () => {
       // With no run active, a further abort is rejected as stale.
       expect(cetas_js_abort_turn(agent).startsWith("RejectedStale(")).toBe(true);
       // The long-lived agent still serves the next turn.
-      const reply = await cetas_js_run_turn(agent, "again", "[]", "abort-session", new AbortController().signal);
+      const reply = await runTurn(agent, "again", "[]", "abort-session", new AbortController().signal);
       expect(reply).toContain("after abort reply");
       expect(requests).toHaveLength(2);
     } finally {
@@ -573,7 +613,7 @@ describe("long-lived cetas-js bridge", () => {
 
     try {
       const abort = new AbortController();
-      const turn = cetas_js_run_turn(agent, "run the long command", "[]", "bash-abort-session", abort.signal);
+      const turn = runTurn(agent, "run the long command", "[]", "bash-abort-session", abort.signal);
       // Wait until the shell child is actually running; aborting before the
       // tool starts would miss the in-flight window entirely.
       await waitFor(() => existsSync(startedMarker), "bash tool never started");
@@ -603,7 +643,7 @@ describe("long-lived cetas-js bridge", () => {
       // immediately or leave the next turn rejected as busy. Both outcomes
       // prove the aborted child process was terminated; a successful retry
       // must still return the expected reply.
-      const next = cetas_js_run_turn(agent, "again", "[]", "bash-abort-session", new AbortController().signal);
+      const next = runTurn(agent, "again", "[]", "bash-abort-session", new AbortController().signal);
       const nextOutcome = await next.then(
         (reply: string) => ({ ok: true as const, reply }),
         (error: unknown) => ({ ok: false as const, error }),
@@ -696,7 +736,7 @@ describe("long-lived cetas-js bridge", () => {
 
     try {
       const controller = new AbortController();
-      const turn = cetas_js_run_turn(agent, "question", "[]", "signal-session", controller.signal);
+      const turn = runTurn(agent, "question", "[]", "signal-session", controller.signal);
       // Wait until the model request is actually in flight; aborting before
       // the run registers would not exercise the in-flight path.
       while (requests.length === 0) {
@@ -828,6 +868,34 @@ const isCompactRequest = (body: string): boolean => {
     );
   }
 
+  test("aborting a live catalog refresh settles without a model response", async () => {
+    const home = await mkdtemp(join(tmpdir(), "cetas-js-refresh-abort-"));
+    cleanup.push(home);
+    await writeOpenaiSettings(home, home);
+    const config = { cwd: home, home, maxToolRounds: 4 };
+    const bridge = new MoonbitCetasAgentBridge(config);
+    const controller = new AbortController();
+    const originalFetch = globalThis.fetch;
+    let requested = false;
+    globalThis.fetch = (async (input) => {
+      if (String(input) === "http://cetas.test/v1/models") {
+        requested = true;
+        return new Promise<Response>(() => {});
+      }
+      return new Response("unexpected endpoint", { status: 503 });
+    }) as typeof fetch;
+    try {
+      const refresh = bridge.refreshModelListsLive(config, '["openai"]', controller.signal);
+      const result = refresh.then(() => undefined, (error: unknown) => error);
+      await waitFor(() => requested, "model refresh did not reach its endpoint");
+      controller.abort();
+      expect(await result).toMatchObject({ name: "AbortError" });
+    } finally {
+      controller.abort();
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("esc mid-stream then compact_session serves the same agent without a rebuild", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "cetas-js-esc-compact-"));
     const home = await mkdtemp(join(tmpdir(), "cetas-js-esc-compact-home-"));
@@ -864,7 +932,7 @@ const isCompactRequest = (body: string): boolean => {
       agent = await startOpenaiAgent(cwd, home);
 
       const controller = new AbortController();
-      const turn = cetas_js_run_turn(agent, "first question", "[]", "esc-session", controller.signal);
+      const turn = runTurn(agent, "first question", "[]", "esc-session", controller.signal);
       while (requests.length === 0) {
         await Bun.sleep(1);
       }
@@ -896,7 +964,7 @@ const isCompactRequest = (body: string): boolean => {
         final_session_id: "esc-session",
       });
 
-      const reply = await cetas_js_run_turn(agent, "after compact", "[]", "esc-session", new AbortController().signal);
+      const reply = await runTurn(agent, "after compact", "[]", "esc-session", new AbortController().signal);
       expect(reply).toContain("post compact reply");
 
       expect(requests.map((entry) => entry.path)).toEqual(["responses", "compact", "responses"]);
@@ -975,7 +1043,7 @@ const isCompactRequest = (body: string): boolean => {
       // the retained projection items (openai-compact-repair W2).
       expect(second).toMatchObject({ ok: true, mode: "Replace", messages_after: 2 });
 
-      const reply = await cetas_js_run_turn(
+      const reply = await runTurn(
         agent,
         "continue after two compacts",
         "[]",

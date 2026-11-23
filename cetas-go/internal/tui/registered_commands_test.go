@@ -45,6 +45,7 @@ func TestDynamicCommandCatalogAndAliasSelection(t *testing.T) {
 		t.Fatal("late catalog was installed for different session")
 	}
 }
+
 func TestCommandPaletteTabDoesNotExecuteOnSelection(t *testing.T) {
 	m := newModel()
 	m.session = "session-a"
@@ -81,7 +82,7 @@ func TestNeedsInputReopensTypedCommandWithoutStartingAnotherTurn(t *testing.T) {
 
 type piCommandRecordingHost struct {
 	testHost
-	id string
+	id        string
 	arguments map[string]any
 }
 

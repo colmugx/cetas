@@ -54,7 +54,7 @@ async fn workspace_index_walk(
     if @workspace.matches_ignore(rel, ignore_patterns) {
       continue
     }
-    let child = if dir.has_suffix("/") { dir + name } else { dir + "/" + name }
+    let child = @path.Path::join(@path.Path(dir), @path.Path(name)).to_string()
     let kind = fs.kind(child, follow_symlink=false) catch { _ => continue }
     match kind {
       Dir => {
@@ -76,20 +76,13 @@ async fn workspace_index_walk(
 
 ///|
 /// Async JS export: the workspace file index for `@`-mention autocomplete.
-/// Returns a JSON array of paths relative to `config.cwd`; directories carry
-/// a trailing `/` so the host can offer continued completion inside them.
-/// Stateless and Agent-free — the host may call it before setup completes and
-/// mid-turn, caching the result on its side (one bounded walk per refresh).
+/// Paths are relative to `config.cwd`; directories carry a trailing `/`.
 pub fn cetas_js_list_workspace_files(
   config : CetasJsConfig,
-) -> @js_async.Promise[String] {
+) -> @js_async.Promise[FixedArray[String]] {
   @js_async.Promise::from_async() <| () => {
-    let files = workspace_file_index(
-      @workspace.JsWorkspaceFs(),
-      config.cwd,
-      ignore_patterns=workspace_mention_ignore_patterns(),
-      max_entries=20000,
+    FixedArray::from_array(
+      workspace_file_index(@workspace.JsWorkspaceFs(), config.cwd)[:],
     )
-    Json::array(files.map(fn(path) { Json::string(path) })).stringify()
   }
 }

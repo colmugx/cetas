@@ -22,7 +22,7 @@
 fn credential_store(home : String) -> @credentials.FileProviderCredentialStore {
   @credentials.FileProviderCredentialStore(
     @workspace.JsWorkspaceFs(),
-    home + "/.cetas/credentials",
+    "\{home}/.cetas/credentials",
   )
 }
 
@@ -77,7 +77,7 @@ pub impl @oauth.AuthPromptInteraction for JsAuthInteraction with fn prompt(
         raise @oauth.OAuthError::Cancelled
       }
       raise @oauth.OAuthError::HttpError(
-        "authentication prompt callback failed: " + message,
+        "authentication prompt callback failed: \{message}",
       )
     }
   }
@@ -89,13 +89,13 @@ pub impl @oauth.AuthPromptInteraction for JsAuthInteraction with fn prompt(
 async fn load_provider_settings(
   runtime : CetasJsRuntime,
 ) -> Map[String, Json] raise @posoco.CompositionError {
-  let settings_path = runtime.config.home + "/.cetas/settings.json"
+  let settings_path = "\{runtime.config.home}/.cetas/settings.json"
   match @workspace.read_file_result(@workspace.JsWorkspaceFs(), settings_path) {
-    Missing => Map::from_array([])
+    Missing => Map([])
     Failed(message) =>
       raise @posoco.CompositionError::ManifestSchemaError(
         manifest_id="cetas-js.providers",
-        detail=".cetas/settings.json read failed: " + message,
+        detail=".cetas/settings.json read failed: \{message}",
       )
     Content(text) => {
       let json = @cetas_core.parse_settings_json(
@@ -105,7 +105,7 @@ async fn load_provider_settings(
       match json {
         Json::Object(fields) =>
           match fields.get("providers") {
-            None => Map::from_array([])
+            None => Map([])
             Some(Json::Object(providers)) => providers
             Some(_) =>
               raise @posoco.CompositionError::ManifestSchemaError(
@@ -143,7 +143,7 @@ async fn read_credential_snapshot(
   store : @credentials.FileProviderCredentialStore,
   factories : Array[&@llm.ProviderFactory],
 ) -> Map[String, @oauth.ProviderCredential] raise @posoco.CompositionError {
-  let credentials : Map[String, @oauth.ProviderCredential] = Map::from_array([])
+  let credentials : Map[String, @oauth.ProviderCredential] = Map([])
   for factory in factories {
     let provider_id = factory.provider_id()
     let credential = store.read(provider_id) catch {
@@ -204,7 +204,7 @@ async fn collect_provider_catalogs(
       home=runtime.config.home,
     ) {
     Ok(entries) => entries
-    Err(_) => Map::from_array([])
+    Err(_) => Map([])
   }
   // Fresh assembly starts from an empty issue list; per-provider build
   // failures accumulate here and surface as warnings, never as a fatal
@@ -330,7 +330,7 @@ fn active_model_warning(
   let event : @posoco.TurnEvent = Custom(
     source="cetas-js.bridge",
     label~,
-    data=Json::object(Map::from_array([("message", Json::string(message))])),
+    data=Json::object({ "message": Json::string(message) }),
   )
   observer.on_event(None, event)
 }
@@ -355,7 +355,7 @@ async fn build_provider_router(
   auth : JsAuthInteraction,
   observer : &@posoco.Observer,
   events~ : @posoco.Events? = None,
-  extra_quota_sources~ : Map[String, &@devkit.QuotaSource] = Map::from_array([]),
+  extra_quota_sources~ : Map[String, &@devkit.QuotaSource] = Map([]),
   background~ : @async.TaskGroup? = None,
 ) -> @llm.RouterModelPort raise @posoco.CompositionError {
   let catalogs = cached_provider_catalogs(runtime)
@@ -375,9 +375,7 @@ async fn build_provider_router(
       active_model_warning(
         observer,
         "active_model_restore_warning",
-        "Persisted model slot '" +
-        slot +
-        "' is not in the startup catalog; keeping it selected — requests will fail until it appears (login/refresh), switch with /model otherwise. The entry stays in ~/.cetas/settings.json until the next selection overwrites it.",
+        "Persisted model slot '\{slot}' is not in the startup catalog; keeping it selected — requests will fail until it appears (login/refresh), switch with /model otherwise. The entry stays in ~/.cetas/settings.json until the next selection overwrites it.",
       )
     _ => ()
   }
@@ -393,9 +391,7 @@ async fn build_provider_router(
       active_model_warning(
         observer,
         "active_model_restore_warning",
-        "Persisted decision model slot '" +
-        slot +
-        "' is not in the startup catalog; keeping it selected — decision stays off until it appears (login/refresh), switch with /decision otherwise. The entry stays in ~/.cetas/settings.json until the next selection overwrites it.",
+        "Persisted decision model slot '\{slot}' is not in the startup catalog; keeping it selected — decision stays off until it appears (login/refresh), switch with /decision otherwise. The entry stays in ~/.cetas/settings.json until the next selection overwrites it.",
       )
     _ => ()
   }
@@ -447,11 +443,7 @@ async fn build_provider_router(
             active_model_warning(
               observer,
               "active_model_restore_warning",
-              "Persisted reasoning effort '" +
-              effort +
-              "' is not advertised by model slot '" +
-              slot +
-              "'; using the slot's default effort.",
+              "Persisted reasoning effort '\{effort}' is not advertised by model slot '\{slot}'; using the slot's default effort.",
             )
         }
       }
@@ -588,11 +580,7 @@ async fn login_provider(
   store.write(outcome.provider_id, outcome.credential) catch {
     err =>
       raise @posoco.CommandError::ExecutionFailed(
-        outcome.login_method +
-        " credential persistence failed for " +
-        provider_id +
-        ": " +
-        @cetas_core.oauth_error_text(err),
+        "\{outcome.login_method} credential persistence failed for \{provider_id}: \{@cetas_core.oauth_error_text(err)}",
       )
   }
   runtime.catalog_cache.remove(provider_id)
@@ -623,24 +611,24 @@ fn live_refresh_entry(
   slots~ : Int32? = None,
   reason~ : String? = None,
 ) -> Json {
-  let fields : Array[(String, Json)] = [
-    ("provider", Json::string(provider_id)),
-    ("status", Json::string(status)),
-  ]
+  let fields = {
+    "provider": Json::string(provider_id),
+    "status": Json::string(status),
+  }
   match slots {
-    Some(count) => fields.push(("slots", Json::number(count.to_double())))
+    Some(count) => fields["slots"] = Json::number(count.to_double())
     None => ()
   }
   match reason {
-    Some(detail) => fields.push(("reason", Json::string(detail)))
+    Some(detail) => fields["reason"] = Json::string(detail)
     None => ()
   }
-  Json::object(Map::from_array(fields))
+  Json::object(fields)
 }
 
 ///|
 fn live_refresh_summary(entries : Array[Json]) -> String {
-  Json::object(Map::from_array([("results", Json::array(entries))])).stringify()
+  Json::object({ "results": Json::array(entries) }).stringify()
 }
 
 ///|
@@ -686,7 +674,7 @@ fn live_refresh_selector(
   if raw.length() == 0 {
     return None
   }
-  let refreshable_ids : Map[String, Unit] = Map::from_array([])
+  let refreshable_ids : Map[String, Unit] = Map([])
   for refresh_factory in refreshables {
     refreshable_ids[refresh_factory.provider_id()] = ()
   }
@@ -786,7 +774,7 @@ async fn refresh_model_lists_live_with(
   snapshot : @cetas_core.ProviderCredentialSnapshot,
   requested : Array[String]?,
 ) -> String noraise {
-  let refreshable_ids : Map[String, Unit] = Map::from_array([])
+  let refreshable_ids : Map[String, Unit] = Map([])
   for refresh_factory in refreshables {
     refreshable_ids[refresh_factory.provider_id()] = ()
   }
@@ -857,8 +845,7 @@ async fn refresh_model_lists_live_with(
                   Ok(_) => ()
                   Err(error) =>
                     swap_reason = Some(
-                      "refreshed, but the live router swap failed: " +
-                      error.to_string(),
+                      "refreshed, but the live router swap failed: \{error.to_string()}",
                     )
                 }
               }
@@ -892,8 +879,8 @@ async fn refresh_model_lists_live_with(
 /// is stable across projects and never leaks into a repository.
 async fn resolve_kimi_device_id(home : String) -> String noraise {
   let fs = @workspace.JsWorkspaceFs()
-  let dir = home + "/.cetas"
-  let path = dir + "/kimi_device_id"
+  let dir = "\{home}/.cetas"
+  let path = "\{dir}/kimi_device_id"
   match @workspace.read_file_result(fs, path) {
     Content(value) => {
       let trimmed = value.trim().to_owned()

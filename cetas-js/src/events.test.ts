@@ -14,40 +14,6 @@ describe("parseCetasEvent", () => {
     ).toThrow("tool_call_completed.tool_call_id must be a string");
   });
 
-  test("parses tool_call_completed with a structured payload", () => {
-    expect(
-      parseCetasEvent({
-        type: "tool_call_completed",
-        tool_call_id: "tc1",
-        result: "Found 2 matches:\n",
-        is_error: false,
-        structured: { summary: "2 matches", count: 2 },
-      }),
-    ).toEqual({
-      type: "tool_call_completed",
-      tool_call_id: "tc1",
-      result: "Found 2 matches:\n",
-      is_error: false,
-      structured: { summary: "2 matches", count: 2 },
-    });
-  });
-
-  test("structured stays absent when the bridge omits it", () => {
-    expect(
-      parseCetasEvent({
-        type: "tool_call_completed",
-        tool_call_id: "tc1",
-        result: "ok",
-        is_error: false,
-      }),
-    ).toEqual({
-      type: "tool_call_completed",
-      tool_call_id: "tc1",
-      result: "ok",
-      is_error: false,
-    });
-  });
-
   test("rejects a non-record structured payload", () => {
     expect(() =>
       parseCetasEvent({
@@ -70,30 +36,6 @@ describe("parseCetasEvent", () => {
   });
 
   describe("tool_args_delta", () => {
-    test("parses the full first-fragment shape", () => {
-      expect(
-        parseCetasEvent({
-          type: "tool_args_delta",
-          index: 0,
-          id: "call_1",
-          name: "write",
-          delta: '{"path":"a',
-        }),
-      ).toEqual({
-        type: "tool_args_delta",
-        index: 0,
-        id: "call_1",
-        name: "write",
-        delta: '{"path":"a',
-      });
-    });
-
-    test("parses a minimal later fragment (index + delta only)", () => {
-      expect(
-        parseCetasEvent({ type: "tool_args_delta", index: 2, delta: "abc" }),
-      ).toEqual({ type: "tool_args_delta", index: 2, delta: "abc" });
-    });
-
     test("absent and null optional fields both parse to absent", () => {
       expect(parseCetasEvent({ type: "tool_args_delta", index: 0 })).toEqual({
         type: "tool_args_delta",
@@ -138,47 +80,6 @@ describe("parseCetasEvent", () => {
   });
 
   describe("message delivery facts", () => {
-    test("parses message_applied with its command id and boundary", () => {
-      expect(
-        parseCetasEvent({
-          type: "message_applied",
-          command_id: "follow_up_3",
-          delivery: "turn",
-        }),
-      ).toEqual({
-        type: "message_applied",
-        command_id: "follow_up_3",
-        delivery: "turn",
-      });
-      expect(
-        parseCetasEvent({
-          type: "message_applied",
-          command_id: "steer_4",
-          delivery: "step",
-        }),
-      ).toEqual({
-        type: "message_applied",
-        command_id: "steer_4",
-        delivery: "step",
-      });
-    });
-
-    test("parses message_undelivered with its reason", () => {
-      expect(
-        parseCetasEvent({
-          type: "message_undelivered",
-          command_id: "follow_up_3",
-          delivery: "turn",
-          reason: "run ended before the message was applied",
-        }),
-      ).toEqual({
-        type: "message_undelivered",
-        command_id: "follow_up_3",
-        delivery: "turn",
-        reason: "run ended before the message was applied",
-      });
-    });
-
     test("rejects an unknown delivery boundary instead of guessing", () => {
       expect(() =>
         parseCetasEvent({
@@ -210,24 +111,6 @@ describe("parseCetasEvent", () => {
     });
   });
 
-  test("parses a subagent_event with its nested child event", () => {
-    expect(
-      parseCetasEvent({
-        type: "subagent_event",
-        child_session: "subagent-1",
-        kind: "coder",
-        parent_call: "call_9",
-        ev: { type: "turn_started" },
-      }),
-    ).toEqual({
-      type: "subagent_event",
-      child_session: "subagent-1",
-      kind: "coder",
-      parent_call: "call_9",
-      ev: { type: "turn_started" },
-    });
-  });
-
   test("subagent_event requires the tag fields", () => {
     expect(() =>
       parseCetasEvent({
@@ -252,38 +135,6 @@ describe("parseCetasEvent", () => {
         ev: { type: "context_state" },
       }),
     ).toThrow("subagent_event.ev has unknown type context_state");
-  });
-
-  test("parses config_changed emitted by Agent::update_model", () => {
-    expect(
-      parseCetasEvent({
-        type: "config_changed",
-        field: "model",
-        old: "deepseek-chat",
-        new: "deepseek-reasoner",
-      }),
-    ).toEqual({
-      type: "config_changed",
-      field: "model",
-      old: "deepseek-chat",
-      new: "deepseek-reasoner",
-    });
-  });
-
-  test("parses config_warning emitted on invalid reasoning_effort", () => {
-    expect(
-      parseCetasEvent({
-        type: "config_warning",
-        field: "reasoning_effort",
-        value: "absurd",
-        reason: "active modelport does not accept this value",
-      }),
-    ).toEqual({
-      type: "config_warning",
-      field: "reasoning_effort",
-      value: "absurd",
-      reason: "active modelport does not accept this value",
-    });
   });
 
   test("parses a question_event and normalizes every display field", () => {

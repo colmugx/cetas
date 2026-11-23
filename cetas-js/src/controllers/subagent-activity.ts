@@ -144,12 +144,7 @@ export interface SubagentActivity {
   exited?: boolean;
   /** A core `background_outcome_ready` receipt arrived for this run's task. */
   outcome_ready?: boolean;
-  /**
-   * Current parked question of this run (from `question_asked`); presence
-   * means the child is waiting for the parent's answer. Cleared by
-   * `question_answered` and on a new run.
-   */
-  question?: AgentQuestion;
+  questions: AgentQuestion[];
 }
 
 /** One parent-directed child question currently awaiting an answer. */
@@ -487,7 +482,7 @@ export class SubagentActivityStore {
     record.terminal_received = false;
     record.terminal_notified = false;
     record.child_turn_state = undefined;
-    record.question = undefined;
+    record.questions = [];
     record.exited = false;
     record.version += 1;
   }
@@ -510,6 +505,7 @@ export class SubagentActivityStore {
       status: "running",
       started_at: this.now(),
       steps: 0,
+      questions: [],
       text_tail: "",
       history: [],
       version: 0,
@@ -760,11 +756,11 @@ export class SubagentActivityStore {
         // event after exit is ignored. Same-id repeats are idempotent.
         if (!this.isLive(record)) return false;
         const id = typeof data.question_id === "string" ? data.question_id : "";
-        if (id.length === 0 || record.question?.id === id) return false;
+        if (id.length === 0 || record.questions.some((question) => question.id === id)) return false;
         const text = typeof data.question === "string" ? data.question : "";
         const word = typeof data.type === "string" ? data.type : "input";
         const type = word === "confirm" || word === "select" ? word : "input";
-        record.question = { id, text, type, asked_at: this.now() };
+        record.questions.push({ id, text, type, asked_at: this.now() });
         this.pushHistory(
           record,
           `? asked: ${text.replace(/\s+/g, " ").trim().slice(0, HISTORY_TEXT_CHARS)}`,
@@ -774,11 +770,12 @@ export class SubagentActivityStore {
       }
       case "question_answered": {
         if (!this.isLive(record)) return false;
-        const had = record.question !== undefined;
-        record.question = undefined;
-        // One message for both paths so repeat acks collapse in history.
-        const added = this.pushHistory(record, "✓ answered → child resumed");
-        if (!had && !added) return false;
+        const index = record.questions.findIndex((question) => question.id === data.question_id);
+        if (index < 0) return false;
+        record.questions.splice(index, 1);
+        this.pushHistory(record, record.questions.length === 0
+          ? "✓ answered → child resumed"
+          : "✓ answered → other questions still open");
         record.version += 1;
         return true;
       }

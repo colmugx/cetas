@@ -1,5 +1,5 @@
 /**
- * Gate 5: search and copy the transcript source, NOT its mounted pi-tui rows.
+ * Search and copy use the transcript source so unmounted rows stay accessible.
  * Search time is O(document characters); render time stays bounded by view.
  * Caches are invalidated by caller's revision epoch, never by viewport paint.
  */

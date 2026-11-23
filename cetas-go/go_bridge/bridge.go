@@ -25,7 +25,7 @@ const (
 	ChunkLimit = 1048576 // 1 MiB
 	// FrameLimit is the largest logical frame the native side accepts and
 	// Poll reassembles from chunks.
-	FrameLimit = 4194304 // 4 MiB = 16 chunks
+	FrameLimit = 4194304 // 4 MiB = 4 chunks
 	// QueueFrameCap is the native event queue's entry bound.
 	QueueFrameCap = 256
 	// QueueByteCap is the native event queue's total byte bound.
@@ -156,7 +156,7 @@ func (h *Infra) pollChunk() ([]byte, int32, error) {
 }
 
 // Poll returns the next complete EventHub frame. The native queue stores
-// 256 KiB chunks; a logical frame larger than one chunk arrives as a
+// 1 MiB chunks; a logical frame larger than one chunk arrives as a
 // CHUNK_START..CHUNK_END run and is reassembled here. Memory stays bounded:
 // at most FrameLimit bytes are ever buffered. Native admission is
 // all-or-nothing, so incomplete runs are protocol errors, never silently
@@ -205,6 +205,8 @@ func wakeStageText(stage int32) string {
 		return "fcntl(F_DUPFD_CLOEXEC) failed for the producer-write guard"
 	case 4:
 		return "notification channel disabled by a transport test"
+	case 5:
+		return "CreateEventW() failed"
 	default:
 		return fmt.Sprintf("unknown failure stage %d", stage)
 	}
@@ -248,6 +250,7 @@ func publish(b []byte) int {
 }
 
 var ErrHarnessTooLarge = errors.New("harness command exceeds 256 KiB")
+var ErrHarnessAllocation = errors.New("native harness request allocation failed")
 
 func (h *Infra) Submit(request []byte) error {
 	if len(request) == 0 || len(request) > HarnessLimit {
@@ -258,6 +261,8 @@ func (h *Infra) Submit(request []byte) error {
 		return nil
 	case 0:
 		return ErrQueueFull
+	case -2:
+		return ErrHarnessAllocation
 	default:
 		return ErrInvalidCommand
 	}

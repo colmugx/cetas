@@ -392,7 +392,17 @@ func (m *model) sessionPickerChoose(entry overlays.SessionEntry) tea.Cmd {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 			observer, err := client.ObserveSession(ctx, entry.ID)
-			return remoteAttachResult{sessionID: entry.ID, entry: entry, observer: observer, err: err}
+			var replay runtimeHost
+			if err == nil {
+				// History rides a second single-purpose bridge connection:
+				// the observe stream never mixes pages with events.
+				if dialer, ok := m.host.(replayDialer); ok {
+					if host, dialErr := dialer.DialSessionReplay(ctx, entry.ID); dialErr == nil {
+						replay = host
+					}
+				}
+			}
+			return remoteAttachResult{sessionID: entry.ID, entry: entry, observer: observer, replay: replay, err: err}
 		}
 	}
 	if !m.sessionPickerSameCwd(entry) {

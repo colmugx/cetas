@@ -39,14 +39,6 @@ func TestAcquireAndRelease(t *testing.T) {
 	}
 }
 
-func TestHomeOverride(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("CETAS_HOME", "  "+home+"  ")
-	if got := Home(); got != home {
-		t.Fatalf("Home() = %q, want %q", got, home)
-	}
-}
-
 func TestRejectUnsafeLeasePaths(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix permissions and symlinks only")

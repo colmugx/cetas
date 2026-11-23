@@ -22,7 +22,8 @@ export interface RewindPoint {
 
 const PREVIEW_MAX = 60;
 
-
+/** A caller can reuse one split for listing and refilling the selected prompt. */
+type RewindSource = string | readonly string[];
 
 /** Shared filtering for both rewind listing and editor refill. */
 function readUserContent(line: string): MessageContent | undefined {
@@ -53,15 +54,16 @@ function previewOf(text: string, hasImage: boolean): string {
  * blank/malformed, and non-user rows return null; an image-only user message
  * yields "" (there is no text to refill).
  */
-export function readUserMessage(jsonl: string, messageIndex: number): string | null {
-  const line = jsonl.split("\n")[messageIndex + 1];
+export function readUserMessage(source: RewindSource, messageIndex: number): string | null {
+  const lines = typeof source === "string" ? source.split("\n") : source;
+  const line = lines[messageIndex + 1];
   return line === undefined ? null : (readUserContent(line)?.text ?? null);
 }
 
 /** User-message rewind points in transcript order, addressed by message index. */
-export function listRewindPoints(jsonl: string): RewindPoint[] {
+export function listRewindPoints(source: RewindSource): RewindPoint[] {
   const points: RewindPoint[] = [];
-  const lines = jsonl.split("\n");
+  const lines = typeof source === "string" ? source.split("\n") : source;
   // Physical line 0 is the metadata header, never a message.
   for (let i = 1; i < lines.length; i++) {
     const content = readUserContent(lines[i]!);

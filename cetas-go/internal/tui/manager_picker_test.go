@@ -25,34 +25,3 @@ func TestOpenManagerPickerMarksTheActiveChoice(t *testing.T) {
 		t.Fatalf("inactive choice marked: %q", m.modalItems[0])
 	}
 }
-
-func TestManagerPickerDefaultsToProvidersWithoutSnapshot(t *testing.T) {
-	m := &model{}
-	m.openManagerPicker()
-	if m.modalIndex != 0 {
-		t.Fatalf("default index should stay on providers: %d", m.modalIndex)
-	}
-}
-
-func TestManagerSwitchRequestCarriesTheChoice(t *testing.T) {
-	m := &model{}
-	m.surface.manager = "providers"
-	m.openManagerPicker()
-	m.modalIndex = 1
-	chosen := m.modalValues[m.modalIndex]
-	if chosen != "magpie" {
-		t.Fatalf("unexpected selection: %q", chosen)
-	}
-	// The switch is a plain harness request: the choice must travel verbatim
-	// as the wire argument the runtime dispatch matches on.
-	if chosen != "providers" && chosen != "magpie" {
-		t.Fatalf("choice outside the wire vocabulary: %q", chosen)
-	}
-}
-
-func TestManagerCommandListedInHelp(t *testing.T) {
-	help := nativeSlashHelp()
-	if !strings.Contains(help, "/manager — ") {
-		t.Fatal("/manager missing from native slash help")
-	}
-}

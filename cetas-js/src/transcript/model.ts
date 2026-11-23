@@ -1,6 +1,4 @@
 /**
- * Gate 1: renderer-independent transcript data and height index.
- *
  * The SessionStore/JSONL remains canonical. This in-memory model has stable
  * identities; no TUI components are retained here. A view can mount only the
  * visible ranges selected by TranscriptHeightIndex.

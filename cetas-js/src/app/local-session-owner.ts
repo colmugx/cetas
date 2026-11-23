@@ -9,6 +9,7 @@ import { dirname, join } from "node:path";
 import { dlopen, FFIType } from "bun:ffi";
 import { serveSessionSocket, sessionNotComposed, BridgeError, type SessionEvent, type Subscription } from "../../../extension/posoco-ext-session-bridge/ts/bridge.ts";
 import { localOwnerEndpoint } from "./local-session-observer.ts";
+import { parseObserverJson } from "./observer-projection.ts";
 
 const maxSubscribers = 16;
 const maxBufferedEvents = 128;
@@ -157,15 +158,11 @@ export class BunLocalSessionOwner {
     };
   }
 
-  publish(raw: string): void {
+  publish(raw: string, parsed?: { readonly value: unknown }): void {
     if (this.stopped || !this.sessionID) return;
-    let event: Record<string, unknown>;
-    try {
-      event = JSON.parse(raw) as Record<string, unknown>;
-      if (event === null || Array.isArray(event)) return;
-    } catch {
-      return;
-    }
+    const value = parsed === undefined ? parseObserverJson(raw) : parsed.value;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return;
+    const event = value as Record<string, unknown>;
     const type = event.type;
     let translated: Record<string, unknown>;
     switch (type) {

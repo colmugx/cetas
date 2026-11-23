@@ -6,22 +6,11 @@ import { join } from "node:path";
 const childSource = `
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { makeUnhandledFaultHandler } from "./host-fault.ts";
+import { installHostFaultHandler } from "./host-fault.ts";
 import * as moonbit from "mbt:colmugx/cetas-js/lib";
 const dir = process.env.FAULT_DIR;
 const home = join(dir, "home");
-const handle = makeUnhandledFaultHandler({
-  report(kind, error) {
-    writeFileSync(join(dir, "fault.json"), JSON.stringify({ kind, error: String(error) }));
-    return "recorded";
-  },
-  stopSurface() {},
-  releaseResources() { moonbit.cetas_js_herdr_release(); },
-  writeDiagnostic() {},
-  exitFatal() { process.exit(1); },
-});
-process.on("unhandledRejection", error => handle("unhandled rejection", error));
-process.on("uncaughtException", error => handle("uncaught exception", error));
+installHostFaultHandler();
 globalThis.fetch = async (url) => {
   if (!String(url).startsWith("http://cetas.test")) return new Response("unavailable", { status: 503 });
   return new Response([
@@ -35,7 +24,7 @@ writeFileSync(join(home, ".cetas/settings.json"), JSON.stringify({ providers: { 
 const config = new moonbit.CetasJsConfig(dir, 4, home, "yolo", "");
 const runtime = new moonbit.CetasJsRuntime(config);
 const agent = await moonbit.cetas_js_runtime_create_agent(runtime, () => {}, () => {}, async () => { throw new Error("unexpected UI"); }, () => false);
-void moonbit.cetas_js_run_turn(agent, "run the tool", "[]", "fatal-bash-session", new AbortController().signal);
+void moonbit.cetas_js_run_turn_result(agent, "run the tool", "[]", "fatal-bash-session", new AbortController().signal);
 const deadline = Date.now() + 5000;
 while (!existsSync(join(dir, "child.pid"))) {
   if (Date.now() > deadline) throw new Error("bash never started");
@@ -63,7 +52,7 @@ test.if(process.platform !== "win32")("fatal host exit terminates the running ba
   const dir = await mkdtemp(join(tmpdir(), "cetas-fatal-bash-test-"));
   const child = Bun.spawn([process.execPath, "--preload", "../moonbit-preload.ts", "--eval", childSource], {
     cwd: import.meta.dir,
-    env: { ...process.env, FAULT_DIR: dir, HERDR_ENV: "" },
+    env: { ...process.env, FAULT_DIR: dir, TMPDIR: dir, HERDR_ENV: "" },
     stdin: "ignore",
     stdout: "ignore",
     stderr: "pipe",
@@ -77,9 +66,9 @@ test.if(process.platform !== "win32")("fatal host exit terminates the running ba
         timeout = setTimeout(() => reject(new Error("fatal bash host did not exit")), 10_000);
       }),
     ]);
-    expect(await stderr).toBe("");
     expect(code).toBe(1);
-    expect(JSON.parse(await readFile(join(dir, "fault.json"), "utf8")).error).toBe("TypeError: fatal during bash");
+    expect(await stderr).toContain("fatal host fault (unhandled rejection)");
+    expect(await readFile(join(dir, "cetas-js-crash.log"), "utf8")).toContain("TypeError: fatal during bash");
     const shellPid = Number((await readFile(join(dir, "shell.pid"), "utf8")).trim());
     const descendantPid = Number((await readFile(join(dir, "child.pid"), "utf8")).trim());
     const deadline = Date.now() + 1000;

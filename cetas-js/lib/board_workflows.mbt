@@ -102,7 +102,7 @@ async fn read_team_config(
     Failed(message) =>
       raise @posoco.CompositionError::ManifestSchemaError(
         manifest_id="cetas.workflow",
-        detail="team settings read failed: " + message,
+        detail="team settings read failed: \{message}",
       )
     Content(text) => text
   }
@@ -127,7 +127,7 @@ async fn build_cetas_workflows(
   mcp_bridge~ : @mcp.MCPToolBridge,
 ) -> &@posoco.Extension? raise @posoco.CompositionError {
   let text = match
-    @workspace.read_file_result(ctx.fs, ctx.home + "/.cetas/settings.json") {
+    @workspace.read_file_result(ctx.fs, "\{ctx.home}/.cetas/settings.json") {
     Missing => "{}"
     Content(text) => text
     Failed(_) =>
@@ -149,9 +149,7 @@ async fn build_cetas_workflows(
     host_group: Some(group),
   }
   let board = @board.BoardWorkflows(
-    directory=ctx.home +
-      "/.cetas/board/" +
-      @fs_session.project_dir_name(ctx.cwd),
+    directory="\{ctx.home}/.cetas/board/\{@fs_session.project_dir_name(ctx.cwd)}",
     group=lifetime,
     agents~,
     authorize=() => parent_mode() != @permission.ReadOnly,
@@ -188,9 +186,7 @@ async fn build_cetas_workflows(
     ctx~,
     group~,
     session_root=Some(
-      ctx.home +
-      "/.cetas/ticket-sessions/" +
-      @fs_session.project_dir_name(ctx.cwd),
+      "\{ctx.home}/.cetas/ticket-sessions/\{@fs_session.project_dir_name(ctx.cwd)}",
     ),
     mcp=Some(BoardMcp::BoardMcp(bridge=mcp_bridge)),
     skills=board_skills,

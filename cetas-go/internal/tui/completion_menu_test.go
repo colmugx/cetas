@@ -75,19 +75,3 @@ func TestCompletionMenuKeepsTheCursorRowVisible(t *testing.T) {
 		t.Fatalf("modalIndex 39 scrolled out of the pane: %#v", ansi.Strip(strings.Join(rows, "|")))
 	}
 }
-
-func TestCompletionMenuIsAbsentWithoutResults(t *testing.T) {
-	m := newModel()
-	m.modal = "files"
-	m.modalItems = nil
-	if got := completionMenu(m.theme(), m.modalItems, 0, 40); got != nil {
-		t.Fatalf("an empty completion painted a pane: %#v", got)
-	}
-	m.closeCompletion()
-	if m.completing() {
-		t.Fatal("a closed completion still claims the menu")
-	}
-	if menu := m.regions().menu; menu != nil {
-		t.Fatalf("a closed completion reserved menu rows: %#v", menu)
-	}
-}

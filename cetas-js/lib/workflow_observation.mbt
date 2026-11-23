@@ -2,7 +2,8 @@
 /// Add presentation details from the very same detached authoritative view.
 /// Never reload after a mutation just to manufacture a successful response.
 fn workflow_observation(view : @board.BoardWorkflowView) -> Json {
-  guard view.to_json() is Object(root) else { return view.to_json() }
+  let observation = view.to_json()
+  guard observation is Object(root) else { return observation }
   let root = root.copy()
   if root.get("board") is Some(Object(board)) {
     let board = board.copy()

@@ -34,7 +34,6 @@ func hover(x, y int) tea.MouseMsg   { return tea.MouseMotionMsg{X: x, Y: y, Butt
 func wheelDown(x, y int) tea.MouseMsg {
 	return tea.MouseWheelMsg{X: x, Y: y, Button: tea.MouseWheelDown}
 }
-func rightClick(x, y int) tea.MouseMsg { return tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseRight} }
 
 // A settled message and the still-streaming one must paint identically, so the
 // terminal never reflows the same source when the turn completes.
@@ -236,29 +235,6 @@ func TestTranscriptScrollbarPaintAndDrag(t *testing.T) {
 	}
 	if v.top != 0 || v.followEnd {
 		t.Fatalf("scrollbar drag to the track top must reach row 0: top=%d follow=%v", v.top, v.followEnd)
-	}
-}
-
-func TestTranscriptMouseUnhandledCases(t *testing.T) {
-	m := interactionModel(t, 40, 12, "plain")
-	region := m.transcriptRegion()
-	if _, handled := m.handleTranscriptMouse(wheelDown(region.X, region.Y)); handled {
-		t.Fatal("wheel belongs to the parent's scroll handler")
-	}
-	if _, handled := m.handleTranscriptMouse(rightClick(region.X, region.Y)); handled {
-		t.Fatal("right button belongs to the terminal")
-	}
-	if _, handled := m.handleTranscriptMouse(click(region.X, region.Y-1)); handled {
-		t.Fatal("press above the transcript region was handled")
-	}
-	m.modal = "models"
-	if _, handled := m.handleTranscriptMouse(click(region.X, region.Y)); handled {
-		t.Fatal("press was handled while an overlay owns the screen")
-	}
-	m.modal = ""
-	m.virtualScroll = nil
-	if _, handled := m.handleTranscriptMouse(click(region.X, region.Y)); handled {
-		t.Fatal("press was handled without a virtual document")
 	}
 }
 

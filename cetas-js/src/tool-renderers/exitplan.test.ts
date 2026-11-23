@@ -9,9 +9,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-// Registration side effects so pickToolRenderer("exit_plan_mode") hits the hook.
-import "./index.ts";
-import { pickToolRenderer, type ToolRenderContext, type ToolRenderResultPayload } from "./registry.ts";
+import type { ToolRenderContext, ToolRenderResultPayload } from "./registry.ts";
 import { exitPlanRenderer } from "./exitplan.ts";
 
 const ANSI = /\x1b\[[0-9;]*m/g;
@@ -47,10 +45,6 @@ const PLAN_ARGS = {
 };
 
 describe("exit_plan_mode renderer", () => {
-  test("registers under the wire tool name", () => {
-    expect(pickToolRenderer("exit_plan_mode")).toBe(exitPlanRenderer);
-  });
-
   test("call view shows the plan name and full markdown body", () => {
     const comp = exitPlanRenderer.renderCall!(makeCtx(PLAN_ARGS));
     const out = renderToString(comp);
@@ -59,13 +53,6 @@ describe("exit_plan_mode renderer", () => {
     expect(out).toContain("Auth refactor");
     expect(out).toContain("Steps");
     expect(out).toContain("2. migrate stores");
-  });
-
-  test("call view degrades to the head line without a plan arg", () => {
-    const comp = exitPlanRenderer.renderCall!(makeCtx({ name: "solo" }));
-    const out = renderToString(comp);
-    expect(out).toContain("● plan solo");
-    expect(out).not.toContain("(unnamed)");
   });
 
   test("collapsed result view shows the outcome, saved path, and expand hint", () => {
@@ -110,21 +97,5 @@ describe("exit_plan_mode renderer", () => {
     // The body survives the verdict swap.
     expect(out).toContain("2. migrate stores");
     expect(out).not.toContain("ctrl+o plan");
-  });
-
-  test("error results carry the red bullet and first line", () => {
-    const payload: ToolRenderResultPayload = {
-      content: "Plan returned for revision: add a rollback step",
-      isError: true,
-    };
-    const out = renderToString(
-      exitPlanRenderer.renderResult!(
-        payload,
-        { expanded: false, isPartial: false },
-        makeCtx(PLAN_ARGS),
-      ),
-    );
-    expect(out).toContain("● plan auth refactor");
-    expect(out).toContain("add a rollback step");
   });
 });

@@ -13,6 +13,6 @@ description = "Portable pre-runtime authentication and trusted terminal primitiv
 supported_targets = "+native +wasm"
 
 import {
-  "colmugx/posoco@0.24.2",
+  "colmugx/posoco@0.25.1",
   "posoco/ext-oauth@0.1.0",
 }

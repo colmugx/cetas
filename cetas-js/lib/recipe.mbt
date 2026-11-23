@@ -125,9 +125,7 @@ fn build_cetas_tools(
       _ =>
         raise @posoco.CompositionError::ManifestSchemaError(
           manifest_id="cetas.tools",
-          detail="tool '" +
-            requested +
-            "' is not in the canonical Cetas tool registry",
+          detail="tool '\{requested}' is not in the canonical Cetas tool registry",
         )
     }
   }
@@ -174,11 +172,7 @@ async fn build_cetas_skills(
           None =>
             raise @posoco.CompositionError::ManifestSchemaError(
               manifest_id="cetas.skills",
-              detail="unknown skill '" +
-                name +
-                "' (available: " +
-                full.names().join(", ") +
-                ")",
+              detail="unknown skill '\{name}' (available: \{full.names().join(", ")})",
             )
         }
       }
@@ -199,12 +193,10 @@ async fn build_cetas_skills(
     Err(reason) =>
       raise @posoco.CompositionError::ManifestSchemaError(
         manifest_id="cetas.skills",
-        detail="skills composition failed: " + reason,
+        detail="skills composition failed: \{reason}",
       )
   }
 }
-
-///|
 
 ///|
 async fn build_compiled_recipe_features(
@@ -288,7 +280,7 @@ async fn build_compiled_recipe_features(
       _ =>
         raise @posoco.CompositionError::ManifestSchemaError(
           manifest_id="cetas.recipe",
-          detail="compiled recipe key has no constructor: " + key,
+          detail="compiled recipe key has no constructor: \{key}",
         )
     }
   }

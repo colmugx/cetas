@@ -99,15 +99,12 @@ fn CetasPtcMode::publish_status(self : CetasPtcMode) -> Unit {
 }
 
 ///|
-/// Visibility is a declarative projection now: the kernel narrows each
+/// The kernel narrows each
 /// captured definition by this hook (hooks can only narrow, never widen).
 /// `off` withdraws the transport itself; `on` folds the nested face —
 /// owners taken from bunraku's single `tool_call_owners` source, the same
 /// list the kernel enforces for guest calls — into `Deferred`: not offered
-/// to the model, still callable by approved programs. The old `model_sees`
-/// name filter and the PtcOnly `before_tool` rejection are retired; the
-/// kernel's `NotExecuted(NotOffered)` covers a model that emits a
-/// remembered name.
+/// to the model, still callable by approved programs.
 pub impl @posoco.PipelineHook for CetasPtcMode with fn tool_exposure(
   self : CetasPtcMode,
   definition : @posoco.ToolDef,
@@ -224,7 +221,7 @@ pub impl @posoco.CommandPort for CetasPtcMode with fn invoke(
       )
     Some("status") =>
       @posoco.CommandOutcome::Success(
-        feedback="PTC mode: " + self.mode_name(),
+        feedback="PTC mode: \{self.mode_name()}",
         structured=Some(self.status_json()),
         ui_hint=None,
       )
@@ -236,16 +233,14 @@ pub impl @posoco.CommandPort for CetasPtcMode with fn invoke(
       }
       self.set(next)
       @posoco.CommandOutcome::Success(
-        feedback="PTC mode: " + self.mode_name() + " (effective on next turn)",
+        feedback="PTC mode: \{self.mode_name()} (effective on next turn)",
         structured=Some(self.status_json()),
         ui_hint=Some(@posoco.UiHint::Toast),
       )
     }
     Some(other) =>
       @posoco.CommandOutcome::Failure(
-        reason="unknown PTC mode '" +
-          other +
-          "' (expected on/hybrid/off/status)",
+        reason="unknown PTC mode '\{other}' (expected on/hybrid/off/status)",
       )
   }
 }

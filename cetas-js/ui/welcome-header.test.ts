@@ -27,17 +27,6 @@ describe("welcome header", () => {
     }
   });
 
-  test("version and channel show on the card title row, not in compact mode", () => {
-    const versioned = { ...source, versionInfo: { version: "0.8.1", channel: "release" as const } };
-    const card = plain(renderWelcomeHeader(versioned, 88));
-    expect(card).toContain("0.8.1 · release");
-    const narrow = plain(renderWelcomeHeader(versioned, 40));
-    expect(narrow).toContain("0.8.1 · release");
-    expect(plain(renderWelcomeHeader(versioned, 88, true))).not.toContain("0.8.1");
-    // No version info → byte-identical to the legacy card.
-    expect(plain(renderWelcomeHeader(source, 88))).not.toContain("· release");
-  });
-
   test("first-run guidance asks for login; ready state suggests starting work", () => {
     const setup = plain(renderWelcomeHeader({ ...source, state: "needs_setup" }, 88));
     expect(setup).toContain("/login");

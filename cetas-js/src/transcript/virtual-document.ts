@@ -1,14 +1,6 @@
 /**
- * Gate 2: windowed pi-tui virtual scroll document.
- *
- * The upstream ScrollView scroll-layout path obtains childBox.rect.height for
- * its logical content height, but also asks the child to render() for search.
- * A three-node VStack reports logical height via numeric basis spacers; its
- * render() is intentionally window-only. Thus no O(history) string arrays are
- * fabricated and pi-tui only paints currently mounted content.
- *
- * This is a pi-tui 1.3-specific adapter. Upstream search/selection are NOT
- * complete across unmounted history; Gate 5 supplies indexed equivalents.
+ * Report logical height with spacers while rendering only the visible window.
+ * Search and selection use the source index because unmounted rows have no render output.
  */
 import { Container, ScrollView, TuiAltScreen, sliceByColumn, stripTerminalSequences, visibleWidth, type Component, type TuiMouseEvent, type TuiMouseEventResult } from "@earendil-works/pi-tui";
 import { TranscriptSearchIndex, isSearchableComponent, transcriptTextRange } from "./search-index.ts";
@@ -35,11 +27,6 @@ export interface VirtualDocumentStats {
   readonly renderedLines: number;
 }
 
-/**
- * Accepts legacy components as an interim producer. Gate 3's replay adapter
- * creates them lazily; live ToolRow/Markdown components can remain mutable.
- * All historical component render() calls are outside the hot path.
- */
 export class VirtualTranscriptDocument implements Component {
   private readonly heights = new TranscriptHeightIndex();
   private pointerAnchor?: PointerPoint;

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 var piPackageName = regexp.MustCompile(`^(@[A-Za-z0-9._-]+/)?[A-Za-z0-9._-]+(@[A-Za-z0-9._-]+)?$`)
@@ -219,15 +220,25 @@ func piLines(lines ...string) (json.RawMessage, error) {
 	payload, err := json.Marshal(map[string]any{"lines": lines})
 	return payload, err
 }
+
+type piPackageRequest struct {
+	Args string `json:"args"`
+}
+
+func readPiPackageRequest(args any) (req piPackageRequest, err error) {
+	if typed, ok := args.(piPackageRequest); ok && utf8.ValidString(typed.Args) {
+		return typed, nil
+	}
+	if text, ok := directStringArg(args, "args"); ok {
+		return piPackageRequest{Args: text}, nil
+	}
+	err = decodeCommandArgs(args, &req)
+	return req, err
+}
+
 func (s *piSupervisor) packageCommand(ctx context.Context, args any) (json.RawMessage, error) {
-	var req struct {
-		Args string `json:"args"`
-	}
-	data, err := json.Marshal(args)
+	req, err := readPiPackageRequest(args)
 	if err != nil {
-		return nil, err
-	}
-	if err = json.Unmarshal(data, &req); err != nil {
 		return nil, err
 	}
 	words := strings.Fields(req.Args)

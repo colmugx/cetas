@@ -44,6 +44,43 @@ describe("Gate 4 incremental streaming Markdown", () => {
       }
     }
   });
+  test("preserves upstream output when streamed Markdown changes across a would-be seam", () => {
+    const prose = longParagraph(9);
+    const scenarios = [
+      [prose + "\n\nNext paragraph", " becomes a heading", "\n===", "\n\nDone."],
+      [prose + "\n\nNext paragraph", "\n| --- |", "\n| table cell |"],
+      [prose + "\n:-\nTable row", "\n\nNext paragraph", " continues."],
+      [prose + "\n\nSome [shortcut] text.\n\n" + prose, "\n\nMore text.",
+        "\n\n[shortcut]: https://example.com"],
+      ["\\[\n" + prose, "\n\nStill inside display math", "\n\\]\n\nDone."],
+      ["<pre>\n" + prose, "\n\nStill inside HTML", "\n</pre>\n\nDone."],
+      ["> " + prose, "\n>\n> still quoted", "\n\nDone."],
+      ["- " + prose, "\n\n  Still the same item", "\n\n- Another item", "\n\nDone."],
+      ["```ts\n" + prose, "\n\nStill inside code\n`", "`", "`\n\nDone."],
+      [prose + "\n \t\nNext paragraph", "\n\n\nThen another."],
+      [prose + "\n\u00a0\nNext paragraph", "\n\nThen another."],
+      [prose + "\n\nNext paragraph", "\n\n" + prose + "\n\n\nAnother paragraph", "\n\n[link](https://example.com)"],
+      [prose + "\r\n\r\nNext paragraph", "\r\n\r\nThen another."],
+    ];
+    for (const paddingY of [0, 1]) {
+      for (const parts of scenarios) {
+        const streamed = new IncrementalMarkdown("", 1, paddingY, markdownTheme);
+        const native = new Markdown("", 1, paddingY, markdownTheme);
+        let source = "";
+        for (const part of parts) {
+          source += part;
+          streamed.setText(source);
+          native.setText(source);
+          for (const width of [1, 8, 80, 40, 80]) {
+            expect(streamed.render(width)).toEqual(native.render(width));
+          }
+        }
+        streamed.invalidate();
+        native.invalidate();
+        expect(streamed.render(80)).toEqual(native.render(80));
+      }
+    }
+  });
   test("replacement content and invalidate cannot leave stale frozen text", () => {
     const streamed = new IncrementalMarkdown("", 1, 0, markdownTheme);
     streamed.setText(longParagraph(9) + "\n\n" + longParagraph(1));

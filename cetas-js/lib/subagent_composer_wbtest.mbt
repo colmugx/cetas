@@ -215,54 +215,6 @@ test "subagent settings still rejects malformed BOM JSON and invalid schemas" {
 }
 
 ///|
-test "subagent_settings_from_json_defaults_without_section" {
-  let (config, kinds) = subagent_settings_from_json(
-    "{\"providers\": {}, \"model\": \"zai/glm\"}",
-  )
-  assert_true(config.default_model is None)
-  assert_true(config.default_effort is None)
-  assert_eq(kinds.length(), 0)
-}
-
-///|
-test "subagent_settings_from_json_parses_defaults_and_kinds" {
-  let (config, kinds) = subagent_settings_from_json(
-    (
-      #|{"providers": {}, "subagent": {
-      #|  "default_model": "mtplx/local", "default_effort": "low",
-      #|  "kinds": [{"name": "news_search", "description": "Content retrieval",
-      #|            "model": "deepseek/deepseek-flash", "effort": "high"}]}}
-    ),
-  )
-  assert_eq(config.default_model, Some("mtplx/local"))
-  assert_eq(config.default_effort, Some("low"))
-  assert_eq(kinds.length(), 1)
-  assert_eq(kinds[0].name, "news_search")
-  assert_eq(kinds[0].model, Some("deepseek/deepseek-flash"))
-  // Body omitted → the generic template carries the fill-in slot.
-  assert_true(kinds[0].body.contains("{{instructions}}"))
-}
-
-///|
-test "subagent_settings_from_json_rejects_bad_kind_entry" {
-  let outcome : Result[
-    (@subagent_kit.SubagentConfig, Array[@kind.KindSpec]),
-    @posoco.CompositionError,
-  ] = Ok(
-    subagent_settings_from_json(
-      "{\"subagent\": {\"kinds\": [{\"name\": \"x\"}]}}",
-    ),
-  ) catch {
-    error => Err(error)
-  }
-  match outcome {
-    Err(error) =>
-      assert_true(error.to_string().contains("must be a non-empty string"))
-    _ => fail("expected the subagent kinds entry to be rejected")
-  }
-}
-
-///|
 async test "durable child session store survives a new store instance and clears" {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)

@@ -383,22 +383,17 @@ fn CetasWorkflowCommands::context_label(
     } else {
     return "Model / permission context unavailable; inspect status before approval."
   }
-  "Model: " +
-  workflow_label(model) +
-  " | effort: " +
-  workflow_label(effort) +
-  (if pinned is True {
-    " (pinned)"
+  let pin = if pinned is True {
+    "pinned"
   } else {
-    " (pins at first planning composition)"
-  }) +
-  "\nPermission: " +
-  workflow_label(permission) +
-  " | concurrency: \{self.settings.max_concurrency}" +
-  " | per-Agent timeout: \{self.settings.execution_timeout_ms} ms" +
-  "\nWorkspace: " +
-  workflow_label(self.agents.ctx.cwd) +
-  "\nPlanning: no tools. Execution: permission-scoped workspace tools; no delegation or Board mutation."
+    "pins at first planning composition"
+  }
+  (
+    $|Model: \{workflow_label(model)} | effort: \{workflow_label(effort)} (\{pin})
+    $|Permission: \{workflow_label(permission)} | concurrency: \{self.settings.max_concurrency} | per-Agent timeout: \{self.settings.execution_timeout_ms} ms
+    $|Workspace: \{workflow_label(self.agents.ctx.cwd)}
+    $|Planning: no tools. Execution: permission-scoped workspace tools; no delegation or Board mutation.
+  )
 }
 
 ///|
@@ -407,37 +402,30 @@ fn CetasWorkflowCommands::summary(
   view : @board.BoardWorkflowView,
 ) -> String {
   let sb = StringBuilder()
-  sb.write_string("Workflow (opt-in) — opening this menu changes nothing.\n")
+  sb <+ "Workflow (opt-in) — opening this menu changes nothing.\n"
   match view.run {
     None =>
-      sb.write_string(
-        "No in-process workflow authorization. Stored graphs do not restore authority.\n",
-      )
+      sb <+
+        "No in-process workflow authorization. Stored graphs do not restore authority.\n"
     Some(run) => {
       let goal = view.snapshot.tasks
         .iter()
         .find_first(t => run.scope.get(0) == Some(t.id.value))
-      sb.write_string(
-        "Goal: " +
-        goal
+      let title = goal
         .map(t => workflow_label(t.title))
-        .unwrap_or(workflow_label(run.workflow_id)) +
-        "\n",
-      )
-      sb.write_string(
-        "Phase: \{Repr(run.phase)} | Running Agents: \{view.executions.filter(e => e.phase is Running).length()} | Owned active slots: \{run.runner.active_count}\n",
-      )
-      sb.write_string(
-        "Remaining: \{run.runner.remaining_executions} executions, \{run.remaining_expansions} expansions, \{run.runner.remaining_ms} ms\n",
-      )
-      sb.write_string(
-        "Blocked Tasks: \{run.blocked.length()} | Board revision: \{view.snapshot.revision}\n",
-      )
+        .unwrap_or(workflow_label(run.workflow_id))
+      let running_agents = view.executions
+        .filter(e => e.phase is Running)
+        .length()
+      sb <+
+        $|Goal: \{title}
+        $|Phase: \{Repr(run.phase)} | Running Agents: \{running_agents} | Owned active slots: \{run.runner.active_count}
+        $|Remaining: \{run.runner.remaining_executions} executions, \{run.remaining_expansions} expansions, \{run.runner.remaining_ms} ms
+        $|Blocked Tasks: \{run.blocked.length()} | Board revision: \{view.snapshot.revision}
+        $|
     }
   }
-  sb.write_string(
-    "Board Task stages: " +
-    [
+  let stages = [
       @board_domain.Created,
       @board_domain.Refining,
       @board_domain.Ready,
@@ -449,18 +437,14 @@ fn CetasWorkflowCommands::summary(
     .map(stage => {
       "\{Repr(stage)}=\{view.snapshot.tasks.filter(t => t.stage == stage).length()}"
     })
-    .join(" ") +
-    "\n",
-  )
+    .join(" ")
+  sb <+ "Board Task stages: \{stages}\n"
   if view.unresolved || view.mutation_uncertain {
-    sb.write_string(
-      "WARNING: unresolved ownership or uncertain mutation. Inspect/reconcile only; never retry.\n",
-    )
+    sb <+
+      "WARNING: unresolved ownership or uncertain mutation. Inspect/reconcile only; never retry.\n"
   }
-  sb.write_string(
-    "Task Done, Attempt Succeeded and Review approval are separate facts.\n",
-  )
-  sb.write_string(self.context_label(view.run.map(r => r.workflow_id)) + "\n")
+  sb <+ "Task Done, Attempt Succeeded and Review approval are separate facts.\n"
+  sb <+ "\{self.context_label(view.run.map(r => r.workflow_id))}\n"
   sb.to_string()
 }
 
@@ -616,7 +600,7 @@ fn parse_ticket_model_arg(value : Json) -> Result[@work.ModelPin?, String] {
     Json::Object(model) => {
       for key in model.keys() {
         if key != "slot" && key != "effort" {
-          return Err("unknown ticket model field: " + key)
+          return Err("unknown ticket model field: \{key}")
         }
       }
       let slot = match model.get("slot") {
@@ -1245,9 +1229,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
             )
           Err(error) =>
             return @posoco.CommandOutcome::Failure(
-              reason="workflow_started_planning_failed_" +
-                error.code() +
-                "_inspect_status_no_retry",
+              reason="workflow_started_planning_failed_\{error.code()}_inspect_status_no_retry",
             )
         }
       }
@@ -1270,7 +1252,7 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
         )
       })
       let index = self.select(self.summary(view), choices.map(c => c.1))
-      "board.workflow." + choices[index].0
+      "board.workflow.\{choices[index].0}"
     } else {
       id
     }
@@ -1284,9 +1266,13 @@ impl @posoco.CommandPort for CetasWorkflowCommands with fn invoke(
     let result = match action {
       "board.workflow.start" => {
         let goal = self.input(
-          "Coding goal / workflow title (stored Task metadata, no credentials)\nInitial scope: one new root Task.\nConfigured budget: \{self.settings.max_executions} executions including planning; concurrency \{self.settings.max_concurrency}; deadline \{self.settings.max_elapsed_ms} ms.\n" +
-          self.context_label(None) +
-          "\nModel selection pins at first planning composition. Separate confirmations are still required.",
+          (
+            $|Coding goal / workflow title (stored Task metadata, no credentials)
+            $|Initial scope: one new root Task.
+            $|Configured budget: \{self.settings.max_executions} executions including planning; concurrency \{self.settings.max_concurrency}; deadline \{self.settings.max_elapsed_ms} ms.
+            $|\{self.context_label(None)}
+            $|Model selection pins at first planning composition. Separate confirmations are still required.
+          ),
         )
         workflow_view_outcome(self.board.start(title=goal))
       }
@@ -1418,9 +1404,8 @@ priv struct BoardWorkQuery {
 fn parse_board_work_arguments(
   arguments : Json,
 ) -> Result[BoardWorkQuery, String] {
-  let fields = match arguments {
-    Object(fields) => fields
-    _ => return Err("board_work: arguments must be a JSON object")
+  guard arguments is Object(fields) else {
+    return Err("board_work: arguments must be a JSON object")
   }
   let action = match fields.get("action") {
     Some(String(value)) => value.trim().to_owned()
@@ -1429,7 +1414,7 @@ fn parse_board_work_arguments(
   }
   if !board_work_actions.contains(action) {
     return Err(
-      "board_work: 'action' must be one of " + board_work_actions.join(", "),
+      "board_work: 'action' must be one of \{board_work_actions.join(", ")}",
     )
   }
   let path = match fields.get("path") {
@@ -1496,9 +1481,8 @@ fn board_work_task_string(
 ) -> Result[String, String] {
   match fields.get(key) {
     Some(String(value)) => Ok(value)
-    Some(_) =>
-      Err("board_work: Board snapshot task '" + key + "' is not a string")
-    None => Err("board_work: Board snapshot task has no '" + key + "'")
+    Some(_) => Err("board_work: Board snapshot task '\{key}' is not a string")
+    None => Err("board_work: Board snapshot task has no '\{key}'")
   }
 }
 
@@ -1517,7 +1501,7 @@ fn board_work_task_review(value : Json) -> Result[Json, String] {
       Some(String(_)) => ()
       _ =>
         return Err(
-          "board_work: Board snapshot task review has no string '" + key + "'",
+          "board_work: Board snapshot task review has no string '\{key}'",
         )
     }
   }
@@ -1545,9 +1529,7 @@ fn board_work_task_review(value : Json) -> Result[Json, String] {
                 Some(String(_)) => ()
                 _ =>
                   return Err(
-                    "board_work: Board snapshot task review artifact has no string '" +
-                    key +
-                    "'",
+                    "board_work: Board snapshot task review artifact has no string '\{key}'",
                   )
               }
             }
@@ -1622,22 +1604,18 @@ fn board_work_snapshot(frame : String) -> Result[BoardWorkSnapshot, String] {
   let root = @json.parse(frame) catch {
     _ => return Err("board_work: Board snapshot is not valid JSON")
   }
-  let payload = match root {
-    Object(fields) =>
-      match fields.get("payload") {
-        Some(Object(payload)) => payload
-        _ => return Err("board_work: Board snapshot has no payload object")
-      }
-    _ => return Err("board_work: Board snapshot is not an object")
+  guard root is Object(fields) else {
+    return Err("board_work: Board snapshot is not an object")
   }
-  let board = match payload.get("board") {
-    Some(Object(board)) => board
-    _ => return Err("board_work: Board snapshot payload has no board object")
+  guard fields.get("payload") is Some(Object(payload)) else {
+    return Err("board_work: Board snapshot has no payload object")
+  }
+  guard payload.get("board") is Some(Object(board)) else {
+    return Err("board_work: Board snapshot payload has no board object")
   }
   let revision = board.get("revision").unwrap_or(Json::null())
-  let tasks = match board.get("tasks") {
-    Some(Array(tasks)) => tasks
-    _ => return Err("board_work: Board snapshot board has no tasks array")
+  guard board.get("tasks") is Some(Array(tasks)) else {
+    return Err("board_work: Board snapshot board has no tasks array")
   }
   let tickets : Array[BoardWorkTicket] = []
   for task in tasks {
@@ -1742,7 +1720,7 @@ fn board_work_artifact_label(artifact : Json) -> String {
         Some(String(value)) => value
         _ => ""
       }
-      workflow_label(kind + " " + label + " (" + reference + ")")
+      workflow_label("\{kind} \{label} (\{reference})")
     }
     _ => "artifact"
   }
@@ -1754,11 +1732,11 @@ fn board_work_artifact_label(artifact : Json) -> String {
 fn board_work_filter_label(path : String?, ticket : String?) -> String {
   let parts : Array[String] = []
   match path {
-    Some(value) => parts.push("path \"" + workflow_label(value) + "\"")
+    Some(value) => parts.push("path \"\{workflow_label(value)}\"")
     None => ()
   }
   match ticket {
-    Some(value) => parts.push("ticket \"" + workflow_label(value) + "\"")
+    Some(value) => parts.push("ticket \"\{workflow_label(value)}\"")
     None => ()
   }
   if parts.is_empty() {
@@ -1794,38 +1772,19 @@ fn board_work_status(
   let revision = snapshot.revision.stringify()
   let text = StringBuilder()
   if total == 0 {
-    text.write_string(
-      "Board revision " + revision + ": no tickets. Nothing was changed.\n",
-    )
+    text <+ "Board revision \{revision}: no tickets. Nothing was changed.\n"
   } else {
-    text.write_string(
-      "Board revision " +
-      revision +
-      ": showing " +
-      returned.to_string() +
-      " of " +
-      total.to_string() +
-      " tickets. Nothing was changed.\n",
-    )
+    text <+
+      "Board revision \{revision}: showing \{returned} of \{total} tickets. Nothing was changed.\n"
   }
   let rows : Array[Json] = []
   for index in 0..<returned {
     let ticket = snapshot.tickets[index]
     rows.push(board_work_status_row(ticket))
-    text.write_string(
-      "- " +
-      workflow_label(ticket.id) +
-      " [" +
-      ticket.stage +
-      "] " +
-      ticket.priority +
-      " — " +
-      workflow_label(ticket.title) +
-      "\n",
-    )
+    text <+
+      "- \{workflow_label(ticket.id)} [\{ticket.stage}] \{ticket.priority} — \{workflow_label(ticket.title)}\n"
     match board_work_review_text(ticket.review, "summary") {
-      Some(summary) =>
-        text.write_string("  review: " + workflow_label(summary) + "\n")
+      Some(summary) => text <+ "  review: \{workflow_label(summary)}\n"
       None => ()
     }
   }
@@ -1871,19 +1830,11 @@ fn board_work_history(
   let filter = board_work_filter_label(path, ticket)
   let text = StringBuilder()
   if matched.is_empty() {
-    text.write_string(
-      "No committed Board review matches " + filter + ". Nothing was changed.\n",
-    )
+    text <+
+      "No committed Board review matches \{filter}. Nothing was changed.\n"
   } else {
-    text.write_string(
-      "Board history matching " +
-      filter +
-      ": showing " +
-      returned.to_string() +
-      " of " +
-      matched.length().to_string() +
-      " tickets. Nothing was changed.\n",
-    )
+    text <+
+      "Board history matching \{filter}: showing \{returned} of \{matched.length()} tickets. Nothing was changed.\n"
   }
   let rows : Array[Json] = []
   for index in 0..<returned {
@@ -1908,31 +1859,20 @@ fn board_work_history(
         },
       }),
     )
-    text.write_string(
-      "- " +
-      workflow_label(entry.id) +
-      " [" +
-      entry.stage +
-      "] " +
-      workflow_label(entry.title) +
-      "\n",
-    )
+    text <+
+      "- \{workflow_label(entry.id)} [\{entry.stage}] \{workflow_label(entry.title)}\n"
     match board_work_review_text(entry.review, "summary") {
-      Some(summary) =>
-        text.write_string("  review: " + workflow_label(summary) + "\n")
+      Some(summary) => text <+ "  review: \{workflow_label(summary)}\n"
       None => ()
     }
     for change in board_work_review_strings(entry.review, "changes") {
-      text.write_string("  change: " + workflow_label(change) + "\n")
+      text <+ "  change: \{workflow_label(change)}\n"
     }
     for artifact in board_work_review_artifacts(entry.review) {
-      text.write_string(
-        "  artifact: " + board_work_artifact_label(artifact) + "\n",
-      )
+      text <+ "  artifact: \{board_work_artifact_label(artifact)}\n"
     }
     match entry.review_feedback {
-      Some(feedback) =>
-        text.write_string("  feedback: " + workflow_label(feedback) + "\n")
+      Some(feedback) => text <+ "  feedback: \{workflow_label(feedback)}\n"
       None => ()
     }
   }
@@ -1967,46 +1907,33 @@ fn board_work_review(
     Some(entry) => entry
     None =>
       return Err(
-        "board_work: no Board ticket with id '" + workflow_label(ticket) + "'",
+        "board_work: no Board ticket with id '\{workflow_label(ticket)}'",
       )
   }
   let text = StringBuilder()
-  text.write_string(
-    "Ticket " +
-    workflow_label(entry.id) +
-    " [" +
-    entry.stage +
-    "] " +
-    workflow_label(entry.title) +
-    "\n",
-  )
+  text <+
+    "Ticket \{workflow_label(entry.id)} [\{entry.stage}] \{workflow_label(entry.title)}\n"
   match entry.review {
     Some(_) => {
       match board_work_review_text(entry.review, "outcome") {
-        Some(outcome) =>
-          text.write_string("outcome: " + workflow_label(outcome) + "\n")
+        Some(outcome) => text <+ "outcome: \{workflow_label(outcome)}\n"
         None => ()
       }
       match board_work_review_text(entry.review, "summary") {
-        Some(summary) =>
-          text.write_string("summary: " + workflow_label(summary) + "\n")
+        Some(summary) => text <+ "summary: \{workflow_label(summary)}\n"
         None => ()
       }
       for change in board_work_review_strings(entry.review, "changes") {
-        text.write_string("change: " + workflow_label(change) + "\n")
+        text <+ "change: \{workflow_label(change)}\n"
       }
       for artifact in board_work_review_artifacts(entry.review) {
-        text.write_string(
-          "artifact: " + board_work_artifact_label(artifact) + "\n",
-        )
+        text <+ "artifact: \{board_work_artifact_label(artifact)}\n"
       }
     }
-    None =>
-      text.write_string("No review report is committed for this ticket.\n")
+    None => text <+ "No review report is committed for this ticket.\n"
   }
   match entry.review_feedback {
-    Some(feedback) =>
-      text.write_string("review_feedback: " + workflow_label(feedback) + "\n")
+    Some(feedback) => text <+ "review_feedback: \{workflow_label(feedback)}\n"
     None => ()
   }
   Ok(
@@ -2045,7 +1972,7 @@ impl @posoco.ToolProvider for CetasWorkflowCommands with fn execute(
   let name = ctx.name.to_string()
   if name != "board_work" {
     raise @posoco.RuntimeError::UnknownTool(
-      "cetas_board: unknown tool '" + name + "'",
+      "cetas_board: unknown tool '\{name}'",
     )
   }
   let query = match parse_board_work_arguments(ctx.arguments) {
@@ -2061,7 +1988,7 @@ impl @posoco.ToolProvider for CetasWorkflowCommands with fn execute(
     Ok(frame) => frame
     Err(error) =>
       return board_work_reported(
-        "board_work: Board snapshot unavailable (" + error.code() + ")",
+        "board_work: Board snapshot unavailable (\{error.code()})",
       )
   }
   let snapshot = match board_work_snapshot(frame) {
@@ -2079,7 +2006,7 @@ impl @posoco.ToolProvider for CetasWorkflowCommands with fn execute(
       }
     _ =>
       Err(
-        "board_work: 'action' must be one of " + board_work_actions.join(", "),
+        "board_work: 'action' must be one of \{board_work_actions.join(", ")}",
       )
   }
   match rendered {

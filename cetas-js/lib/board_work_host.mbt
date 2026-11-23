@@ -13,7 +13,8 @@ priv struct BoardWorkHost {
   session_root : String?
   mut counter : Int32
   mut reconciled : Bool
-  mut resuming_task : String?
+  mut persist_pending : Bool
+  mut persist_dirty : Bool
   mut team : TeamNames
   mut team_mcp : Map[String, TeamMcp]
   mut team_skills : Map[String, TeamSkills]
@@ -21,6 +22,7 @@ priv struct BoardWorkHost {
   mcp : BoardMcp?
   skills : Array[BoardSkill]
   run_journal_error : String?
+  mut persist_error : String?
 }
 
 ///|
@@ -56,7 +58,8 @@ fn BoardWorkHost::BoardWorkHost(
     session_root,
     counter: 0,
     reconciled: false,
-    resuming_task: None,
+    persist_pending: false,
+    persist_dirty: false,
     team: config.names,
     team_mcp: config.mcp,
     team_skills: config.skills,
@@ -64,15 +67,13 @@ fn BoardWorkHost::BoardWorkHost(
     mcp,
     skills,
     run_journal_error: journal_error,
+    persist_error: None,
   }
 }
 
 ///|
 fn run_journal_path(ctx : @cetas_core.HostContext) -> String {
-  ctx.home +
-  "/.cetas/board-runs-" +
-  @fs_session.project_dir_name(ctx.cwd) +
-  ".json"
+  "\{ctx.home}/.cetas/board-runs-\{@fs_session.project_dir_name(ctx.cwd)}.json"
 }
 
 ///|
@@ -85,7 +86,7 @@ async fn load_work_runs(
     Failed(message) =>
       return (
         @work.WorkRunStore::WorkRunStore(),
-        Some("run journal read failed: " + message),
+        Some("run journal read failed: \{message}"),
       )
     Content(text) => text
   }
@@ -105,12 +106,25 @@ async fn load_work_runs(
 
 ///|
 fn BoardWorkHost::persist_runs(self : BoardWorkHost) -> Unit {
-  let fs = self.ctx.fs
-  let path = run_journal_path(self.ctx)
-  let text = self.runs.to_json().stringify()
+  self.persist_dirty = true
+  if self.persist_pending {
+    return
+  }
+  self.persist_pending = true
   self.group.spawn_bg(async fn() {
-    fs.write_file_atomic(path, text) catch {
-      _ => ()
+    defer {
+      self.persist_pending = false
+    }
+    let fs = self.ctx.fs
+    let path = run_journal_path(self.ctx)
+    while self.persist_dirty {
+      self.persist_dirty = false
+      self.persist_error = try {
+        fs.write_file_atomic(path, self.runs.to_json().stringify())
+        None
+      } catch {
+        error => Some("run journal write failed: \{error}")
+      }
     }
   })
 }
@@ -121,7 +135,7 @@ fn BoardWorkHost::child_store_for(
   task_id : String,
 ) -> CetasChildSessionStore {
   match self.session_root {
-    Some(root) => CetasChildSessionStore::with_root(root + "/" + task_id)
+    Some(root) => CetasChildSessionStore::with_root("\{root}/\{task_id}")
     None => self.child_store
   }
 }
@@ -260,11 +274,7 @@ fn BoardWorkHost::answer_question(
       self.record_progress(
         task_id,
         "question_answered",
-        self.team_label(answered_by) +
-        " answered " +
-        self.team_label(asked_by) +
-        ": " +
-        answer,
+        "\{self.team_label(answered_by)} answered \{self.team_label(asked_by)}: \{answer}",
       )
       Ok(())
     }
@@ -273,8 +283,7 @@ fn BoardWorkHost::answer_question(
 }
 
 ///|
-/// Forward a Customer question to the Product Owner child. The worker stays
-/// parked; failure leaves the question open for a human PO.
+/// Forward a Customer question to the Product Owner child.
 fn BoardWorkHost::forward_to_po(
   self : BoardWorkHost,
   question_id : String,
@@ -288,28 +297,39 @@ fn BoardWorkHost::forward_to_po(
       self.record_progress(
         question.task_id,
         "question_forwarded",
-        "Customer forwarded " +
-        self.team_label(question.asked_by) +
-        "'s question to " +
-        self.team_label("po"),
+        "Customer forwarded \{self.team_label(question.asked_by)}'s question to \{self.team_label("po")}",
       )
-      self.group.spawn_bg(async fn() {
-        match self.po_answer(question_id) {
-          Ok(_) => ()
-          Err(reason) => {
-            self.record_progress(
-              question.task_id,
-              "attention",
-              "Product Owner could not answer: " + reason,
-            )
-            self.questions.cancel(question_id)
-          }
-        }
-      })
+      self.start_po_answer(question_id)
       Ok(())
     }
     _ => Err("question is no longer open")
   }
+}
+
+///|
+fn BoardWorkHost::start_po_answer(
+  self : BoardWorkHost,
+  question_id : String,
+) -> Unit {
+  self.group.spawn_bg(async fn() {
+    let mut failure = "answer cancelled"
+    // A status-only cancellation does not deliver a response to the worker.
+    // If a human already answered, there is nothing left to settle.
+    defer (match
+      self.questions.answer(question_id, @posoco.UiResponse::Cancelled, "po") {
+      Ok((task_id, _, _)) =>
+        self.record_progress(
+          task_id,
+          "attention",
+          "Product Owner could not answer: \{failure}",
+        )
+      Err(_) => ()
+    })
+    match self.po_answer(question_id) {
+      Ok(_) => ()
+      Err(reason) => failure = reason
+    }
+  })
 }
 
 ///|
@@ -352,13 +372,7 @@ async fn BoardWorkHost::po_answer(
     host_group=Some(self.group),
   )
   let spec : @subagent.ChildSpec = {
-    task: "Answer this question for the development group as the Product Owner.\n\nTicket: " +
-    title +
-    "\n\nTicket description:\n" +
-    description +
-    "\n\nQuestion:\n" +
-    prompt +
-    "\n\nGive the shortest correct answer. Do not modify files.",
+    task: "Answer this question for the development group as the Product Owner.\n\nTicket: \{title}\n\nTicket description:\n\{description}\n\nQuestion:\n\{prompt}\n\nGive the shortest correct answer. Do not modify files.",
     kind_name: "po-answer",
     session_id,
     resuming: true,
@@ -375,88 +389,37 @@ async fn BoardWorkHost::po_answer(
     observers: [],
   }
   let agent = @subagent.ChildComposer::compose(composer, spec) catch {
-    error => {
-      let detail = match error {
-        @subagent.Failed(detail) => detail
-      }
-      self.record_progress(
-        question.task_id,
-        "attention",
-        "Product Owner could not answer: " + detail,
-      )
-      return Err(detail)
-    }
+    @subagent.Failed(detail) => return Err(detail)
   }
-  let task_id = question.task_id
-  self.group.spawn_bg(async fn() {
-    let answer : Result[String, String] = Ok(
-      agent.run_scoped(async fn(agent) {
-        let result = agent.run_turn(
-          @posoco.Message::UserMessage(content=[@posoco.Content::Text(prompt)]),
-          session_id,
-        )
-        match result.message {
-          @posoco.Message::AssistantMessage(content=blocks, ..) =>
-            blocks
-            .filter_map(block => {
-              match block {
-                @posoco.Content::Text(value) => Some(value)
-                _ => None
-              }
-            })
-            .join("\n")
-          _ => ""
-        }
-      }),
-    ) catch {
-      error => Err(error.to_string())
+  let answer = agent.run_scoped(async fn(agent) {
+    let result = agent.run_turn(
+      @posoco.Message::UserMessage(content=[@posoco.Content::Text(prompt)]),
+      session_id,
+    )
+    match result.message {
+      @posoco.Message::AssistantMessage(content=blocks, ..) =>
+        blocks
+        .filter_map(block => {
+          match block {
+            @posoco.Content::Text(value) => Some(value)
+            _ => None
+          }
+        })
+        .join("\n")
+      _ => ""
     }
-    match answer {
-      Ok(text) if !text.trim().is_empty() =>
-        match
-          self.questions.answer(
-            question_id,
-            @posoco.UiResponse::Text(text),
-            "po",
-          ) {
-          Ok((task_id, asked_by, answer)) =>
-            self.record_progress(
-              task_id,
-              "question_answered",
-              self.team_label("po") +
-              " answered " +
-              self.team_label(asked_by) +
-              ": " +
-              answer,
-            )
-          Err(reason) =>
-            self.record_progress(
-              task_id,
-              "attention",
-              "Product Owner answer failed: " + reason,
-            )
-        }
-      Ok(_) =>
-        self.record_progress(
-          task_id, "attention", "Product Owner returned an empty answer; question is still open.",
-        )
-      Err(error) =>
-        self.record_progress(
-          task_id,
-          "attention",
-          "Product Owner could not answer: " + error,
-        )
-    }
-  })
-  Ok(())
+  }) catch {
+    error => return Err(error.to_string())
+  }
+  if answer.trim().is_empty() {
+    return Err("empty answer")
+  }
+  self.answer_question(question_id, @posoco.UiResponse::Text(answer), "po")
 }
 
 ///|
 fn team_config_path(ctx : @cetas_core.HostContext) -> String {
-  ctx.home +
-  "/.cetas/board-team-" +
-  @fs_session.project_dir_name(ctx.cwd) +
-  ".json"
+  "\{ctx.home}/.cetas/board-team-\{@fs_session.project_dir_name(ctx.cwd)}.json"
 }
 
 ///|
@@ -472,7 +435,7 @@ async fn BoardWorkHost::set_team(
     team_config_path(self.ctx),
     config.to_json().stringify(),
   ) catch {
-    error => return Err("team settings persist failed: " + error.to_string())
+    error => return Err("team settings persist failed: \{error.to_string()}")
   }
   self.team = names
   self.team_mcp = mcp
@@ -637,9 +600,9 @@ fn BoardWorkHost::state_json(self : BoardWorkHost) -> Json {
     },
     "work_profile": self.profile.to_json(),
     "presence": presence.to_json(),
-    "run_journal_error": match self.run_journal_error {
-      Some(value) => Json::string(value)
-      None => Json::null()
+    "run_journal_error": match (self.persist_error, self.run_journal_error) {
+      (Some(value), _) | (None, Some(value)) => Json::string(value)
+      (None, None) => Json::null()
     },
     "questions": self.questions.json(),
     "runs": Json::array(runs),
@@ -667,6 +630,15 @@ async fn BoardWorkHost::snapshot(
 }
 
 ///|
+fn BoardWorkHost::next_command_id(
+  self : BoardWorkHost,
+  prefix : String,
+) -> String {
+  self.counter += 1
+  "\{prefix}-\{self.counter}"
+}
+
+///|
 async fn BoardWorkHost::assign_role(
   self : BoardWorkHost,
   task_id : String,
@@ -677,9 +649,8 @@ async fn BoardWorkHost::assign_role(
     Ok(snapshot) => snapshot
     Err(error) => return Err(error)
   }
-  self.counter = self.counter + 1
   let command : @board_protocol.BoardClientCommand = {
-    command_id: "ticket-assign-" + self.counter.to_string(),
+    command_id: self.next_command_id("ticket-assign"),
     name: "board.task.assign_role",
     expected_revision: snapshot.board_revision,
     args: {
@@ -712,8 +683,6 @@ async fn BoardWorkHost::assign_role(
 }
 
 ///|
-
-///|
 async fn BoardWorkHost::set_required_roles(
   self : BoardWorkHost,
   task_id : String,
@@ -723,9 +692,8 @@ async fn BoardWorkHost::set_required_roles(
     Ok(snapshot) => snapshot
     Err(error) => return Err(error)
   }
-  self.counter = self.counter + 1
   let command : @board_protocol.BoardClientCommand = {
-    command_id: "ticket-roles-" + self.counter.to_string(),
+    command_id: self.next_command_id("ticket-roles"),
     name: "board.task.set_required_roles",
     expected_revision: snapshot.board_revision,
     args: {
@@ -764,7 +732,7 @@ async fn BoardWorkHost::assign_development_team(
   for role in ["rd", "set", "te"] {
     match self.assign_role(task_id, role, role) {
       Ok(_) => ()
-      Err(error) => return Err("could not assign " + role + ": " + error)
+      Err(error) => return Err("could not assign \{role}: \{error}")
     }
   }
   Ok(())
@@ -781,7 +749,7 @@ async fn BoardWorkHost::move_task(
     Err(error) => return Err(error)
   }
   let command : @board_protocol.BoardClientCommand = {
-    command_id: "ticket-move-" + self.counter.to_string(),
+    command_id: self.next_command_id("ticket-move"),
     name: "board.task.move",
     expected_revision: snapshot.board_revision,
     args: { "id": Json::string(task_id), "to": Json::string(to) },
@@ -918,14 +886,12 @@ fn BoardWorkHost::ticket_model_arg(
     _ => model.slot
   }
   guard ticket_catalog_efforts(models, slot) is Some(efforts) else {
-    return Err("model slot '" + slot + "' is not in the current model catalog")
+    return Err("model slot '\{slot}' is not in the current model catalog")
   }
   match model.effort {
     Some(effort) =>
       if !efforts.contains(effort) {
-        return Err(
-          "model slot '" + slot + "' does not advertise effort '" + effort + "'",
-        )
+        return Err("model slot '\{slot}' does not advertise effort '\{effort}'")
       }
     None => ()
   }
@@ -963,7 +929,7 @@ async fn BoardWorkHost::board_command(
   expected_revision : Int64,
 ) -> Result[Unit, String] {
   let command : @board_protocol.BoardClientCommand = {
-    command_id: "ticket-" + name + "-" + self.counter.to_string(),
+    command_id: self.next_command_id("ticket-\{name}"),
     name,
     expected_revision,
     args,
@@ -1128,7 +1094,7 @@ async fn BoardWorkHost::finish_work(
               task_id,
               role,
               "failed",
-              "review report was not recorded: " + error,
+              "review report was not recorded: \{error}",
             )
             return
           }
@@ -1143,7 +1109,7 @@ async fn BoardWorkHost::finish_work(
               task_id,
               role,
               "failed",
-              "review move was not accepted: " + error,
+              "review move was not accepted: \{error}",
             )
         }
       } else {
@@ -1170,7 +1136,7 @@ async fn BoardWorkHost::finish_work(
                   task_id,
                   role,
                   "failed",
-                  "verification move failed: " + error,
+                  "verification move failed: \{error}",
                 )
             }
           } else {
@@ -1185,7 +1151,7 @@ async fn BoardWorkHost::finish_work(
                   task_id,
                   role,
                   "failed",
-                  "review report was not recorded: " + error,
+                  "review report was not recorded: \{error}",
                 )
                 return
               }
@@ -1200,7 +1166,7 @@ async fn BoardWorkHost::finish_work(
                   task_id,
                   role,
                   "failed",
-                  "review move was not accepted: " + error,
+                  "review move was not accepted: \{error}",
                 )
             }
           }
@@ -1275,7 +1241,7 @@ async fn BoardWorkHost::update_task(
     None => ()
   }
   let command : @board_protocol.BoardClientCommand = {
-    command_id: "ticket-update-" + self.counter.to_string(),
+    command_id: self.next_command_id("ticket-update"),
     name: "board.task.update",
     expected_revision: revision,
     args: Json::object(fields),
@@ -1305,11 +1271,7 @@ async fn BoardWorkHost::update_task(
 
 ///|
 fn ticket_system_prompt(cwd : String, role : String) -> String {
-  @cetas_core.cetas_system_prompt(cwd~) +
-  "\n\n" +
-  role +
-  "\n\n" +
-  @work.ticket_language_contract()
+  "\{@cetas_core.cetas_system_prompt(cwd~)}\n\n\{role}\n\n\{@work.ticket_language_contract()}"
 }
 
 ///|
@@ -1318,18 +1280,33 @@ async fn BoardWorkHost::rollback_split(
   created : Array[String],
 ) -> String {
   let failures : Array[String] = []
-  let mut index = created.length()
-  while index > 0 {
-    index = index - 1
-    match self.delete_task(created[index]) {
+  for index in created.length()>..0 {
+    let id = created[index]
+    match self.delete_task(id) {
       Ok(_) => ()
-      Err(error) => failures.push(created[index] + ": " + error)
+      Err(error) => failures.push("\{id}: \{error}")
     }
   }
   if failures.is_empty() {
     ""
   } else {
-    "; rollback failed for " + failures.join("; ")
+    "; rollback failed for \{failures.join("; ")}"
+  }
+}
+
+///|
+priv suberror SplitTicketError {
+  SplitTicketError(String)
+}
+
+///|
+fn require_split_step(
+  result : Result[Unit, String],
+  action : String,
+) -> Unit raise SplitTicketError {
+  match result {
+    Ok(_) => ()
+    Err(error) => raise SplitTicketError("\{action}: \{error}")
   }
 }
 
@@ -1353,88 +1330,72 @@ async fn BoardWorkHost::split_ticket(
   }
   let source_model = @work.task_model(source)
   let created : Array[String] = []
+  let mut rollback = ""
   let stamp = @async.now()
-  for index, child in children {
-    let task_id = "split-" +
-      source_id +
-      "-" +
-      stamp.to_string() +
-      "-" +
-      index.to_string()
-    match
-      self.create_task(
-        task_id,
-        child.title,
-        child.user_story,
-        child.description,
-        child.implementation_suggestions,
-        child.priority,
-        child.definition_of_done,
-      ) {
-      Ok(_) => ()
-      Err(error) => {
-        let rollback = self.rollback_split(created)
-        return Err("could not create split ticket: " + error + rollback)
+  try {
+    errdefer {
+      rollback = @async.protect_from_cancel(() => self.rollback_split(created))
+    }
+    for index, child in children {
+      let task_id = "split-\{source_id}-\{stamp}-\{index}"
+      if @async.is_being_cancelled() {
+        @async.pause()
       }
-    }
-    created.push(task_id)
-    match source_model {
-      Some(model) =>
-        match self.set_task_model(task_id, model) {
-          Ok(_) => ()
-          Err(error) => {
-            let rollback = self.rollback_split(created)
-            return Err(
-              "could not pin the split ticket model: " + error + rollback,
-            )
-          }
-        }
-      None => ()
-    }
-    match self.assign_development_team(task_id) {
-      Ok(_) => ()
-      Err(error) => {
-        let rollback = self.rollback_split(created)
-        return Err("could not assign split ticket team: " + error + rollback)
-      }
-    }
-    match self.set_required_roles(task_id, child.required_roles) {
-      Ok(_) => ()
-      Err(error) => {
-        let rollback = self.rollback_split(created)
-        return Err("could not set split ticket role plan: " + error + rollback)
-      }
-    }
-    match self.move_task(task_id, "refining") {
-      Ok(_) => ()
-      Err(error) => {
-        let rollback = self.rollback_split(created)
-        return Err(
-          "could not move split ticket to Shaping: " + error + rollback,
+      // A submitted Board command can commit even if its waiting caller is
+      // cancelled. Wait for creation before deciding whether to roll it back.
+      @async.protect_from_cancel(async fn() {
+        require_split_step(
+          self.create_task(
+            task_id,
+            child.title,
+            child.user_story,
+            child.description,
+            child.implementation_suggestions,
+            child.priority,
+            child.definition_of_done,
+          ),
+          "could not create split ticket",
+        )
+        created.push(task_id)
+      })
+      if source_model is Some(model) {
+        require_split_step(
+          self.set_task_model(task_id, model),
+          "could not pin the split ticket model",
         )
       }
-    }
-    match self.move_task(task_id, "ready") {
-      Ok(_) => ()
-      Err(error) => {
-        let rollback = self.rollback_split(created)
-        return Err("could not move split ticket to Ready: " + error + rollback)
-      }
-    }
-  }
-  match self.move_task(source_id, "cancelled") {
-    Ok(_) => {
-      let titles = children.map(child => child.title).join(", ")
-      Ok("Split into \{children.length()} tickets: " + titles)
-    }
-    Err(error) => {
-      let rollback = self.rollback_split(created)
-      Err(
-        "split tickets were created but the source could not be cancelled: " +
-        error +
-        rollback,
+      require_split_step(
+        self.assign_development_team(task_id),
+        "could not assign split ticket team",
+      )
+      require_split_step(
+        self.set_required_roles(task_id, child.required_roles),
+        "could not set split ticket role plan",
+      )
+      require_split_step(
+        self.move_task(task_id, "refining"),
+        "could not move split ticket to Shaping",
+      )
+      require_split_step(
+        self.move_task(task_id, "ready"),
+        "could not move split ticket to Ready",
       )
     }
+    if @async.is_being_cancelled() {
+      @async.pause()
+    }
+    @async.protect_from_cancel(async fn() {
+      require_split_step(
+        self.move_task(source_id, "cancelled"),
+        "split tickets were created but the source could not be cancelled",
+      )
+    })
+    Ok(
+      "Split into \{children.length()} tickets: \{children.map(child => child.title).join(", ")}",
+    )
+  } catch {
+    SplitTicketError(error) => Err("\{error}\{rollback}")
+    error => Err("\{error}\{rollback}")
   }
 }
 
@@ -1445,6 +1406,7 @@ async fn BoardWorkHost::finish_shape(
   outcome : Result[String, String],
 ) -> Unit {
   let run = self.run_for(task_id)
+  defer self.persist_runs()
   let result = match outcome {
     Ok(text) => text
     Err(error) => {
@@ -1648,14 +1610,13 @@ async fn BoardWorkHost::shape(
         self.manager.manager_active_effort(),
       )
   }
-  self.counter = self.counter + 1
   let session_id = @work.work_session_id(task_id, "po")
   let store = self.child_store_for(task_id)
   if resuming {
     let session = store.load(session_id) catch {
       error =>
         return Err(
-          "could not read the previous shaping session: " + error.to_string(),
+          "could not read the previous shaping session: \{error.to_string()}",
         )
     }
     if session.messages.is_empty() {
@@ -1665,7 +1626,7 @@ async fn BoardWorkHost::shape(
     store.clear_session(session_id) catch {
       error =>
         return Err(
-          "could not clear the previous shaping session: " + error.to_string(),
+          "could not clear the previous shaping session: \{error.to_string()}",
         )
     }
   }
@@ -1701,18 +1662,23 @@ async fn BoardWorkHost::shape(
   let prompt = if resuming {
     "The previous shaping attempt was interrupted. Continue this same shaping conversation from the durable session, inspect the ticket state if needed, and return the final JSON object now. Do not ask the Customer to repeat information already in the conversation."
   } else {
-    "Refine this Board backlog item into an implementation-ready user story. You are the Product Owner for this ticket. The person in Cetas is the Customer.\n\n" +
-    "Title: " +
-    title +
-    "\n\nCurrent description:\n" +
-    description +
-    "\n\nInspect relevant workspace files when useful. Ask the Product Owner with ask_question_child about genuinely ambiguous business intent. Do not modify files and do not mutate the Board.\n\n" +
-    "Set required_roles to [\"rd\"] for research, audit, spike, analysis or report tickets; use [\"rd\",\"set\",\"te\"] only when implementation, independent verification and final verification all add value. Rewrite the request as a standard user story in exactly three lines: \"As a <role>\\nI want <capability>\\nSo that <benefit>\". The user_story JSON value must contain two newline escapes (\\n), not a comma-separated sentence. Add a detailed description, concrete implementation suggestions, and observable acceptance criteria. Set a P0-P3 priority (P0 first). If the request is actually several independent user stories, split it into 2-8 complete stories; do not split a single story just to make it smaller. Each story must be independently implementable and testable.\n\n" +
-    "Return only one JSON object. One story:\n" +
-    "{\"summary\":\"one sentence\",\"title\":\"short title\",\"user_story\":\"As a ...\\nI want ...\\nSo that ...\",\"description\":\"detailed scope and constraints\",\"implementation_suggestions\":\"starting points, not a mandate\",\"definition_of_done\":[\"observable criterion\"],\"priority\":\"p1\",\"required_roles\":[\"rd\",\"set\",\"te\"]}\n" +
-    "Split:\n" +
-    "{\"summary\":\"why these are independent stories\",\"tasks\":[{\"title\":\"short title\",\"user_story\":\"As a ...\\nI want ...\\nSo that ...\",\"description\":\"scope\",\"implementation_suggestions\":\"starting points\",\"definition_of_done\":[\"observable criterion\"],\"priority\":\"p1\",\"required_roles\":[\"rd\",\"set\",\"te\"]}]}\n" +
-    "Every field is required. Use the language of the ticket title/description for every value, including the `As a`, `I want` and `So that` scaffolding; do not copy the English examples. JSON keys stay English. Do not wrap it in Markdown."
+    let buf = StringBuilder()
+    buf <+
+      $|Refine this Board backlog item into an implementation-ready user story. You are the Product Owner for this ticket. The person in Cetas is the Customer.
+      $|
+      $|Title: \{title}
+      $|
+      $|Current description:
+      $|\{description}
+      $|
+      $|Set required_roles to ["rd"] for research, audit, spike, analysis or report tickets; use ["rd","set","te"] only when implementation, independent verification and final verification all add value. Rewrite the request as a standard user story in exactly three lines: "As a <role>\\nI want <capability>\\nSo that <benefit>". The user_story JSON value must contain two newline escapes (\\n), not a comma-separated sentence. Add a detailed description, concrete implementation suggestions, and observable acceptance criteria. Set a P0-P3 priority (P0 first). If the request is actually several independent user stories, split it into 2-8 complete stories; do not split a single story just to make it smaller. Each story must be independently implementable and testable.
+      $|
+      $|Return only one JSON object. One story:
+      $|{"summary":"one sentence","title":"short title","user_story":"As a ...\\nI want ...\\nSo that ...","description":"detailed scope and constraints","implementation_suggestions":"starting points, not a mandate","definition_of_done":["observable criterion"],"priority":"p1","required_roles":["rd","set","te"]}
+      $|Split:
+      $|{"summary":"why these are independent stories","tasks":[{"title":"short title","user_story":"As a ...\\nI want ...\\nSo that ...","description":"scope","implementation_suggestions":"starting points","definition_of_done":["observable criterion"],"priority":"p1","required_roles":["rd","set","te"]}]}
+      $|Every field is required. Use the language of the ticket title/description for every value, including the `As a`, `I want` and `So that` scaffolding; do not copy the English examples. JSON keys stay English. Do not wrap it in Markdown.
+    buf.to_string()
   }
   let spec : @subagent.ChildSpec = {
     task: prompt,
@@ -1740,10 +1706,11 @@ async fn BoardWorkHost::shape(
         Some(run) => {
           run.status = "failed"
           run.error = Some(detail)
+          self.persist_runs()
         }
         None => ()
       }
-      return Err("shaping composition failed: " + detail)
+      return Err("shaping composition failed: \{detail}")
     }
   }
   self.group.spawn_bg(async fn() {
@@ -1810,9 +1777,7 @@ async fn BoardWorkHost::start_role(
   if !resuming {
     store.clear_session(session_id) catch {
       error =>
-        return Err(
-          "could not clear the " + role + " session: " + error.to_string(),
-        )
+        return Err("could not clear the \{role} session: \{error.to_string()}")
     }
   }
   let (slot, effort) = match @work.task_model(task) {
@@ -1835,36 +1800,14 @@ async fn BoardWorkHost::start_role(
       self.record_progress(
         task_id,
         "question_asked",
-        self.team_label(asked_by) +
-        " asked " +
-        self.team_label("po") +
-        ": " +
-        prompt,
+        "\{self.team_label(asked_by)} asked \{self.team_label("po")}: \{prompt}",
       )
     }),
-    auto_po: Some(fn(id) {
-      self.group.spawn_bg(async fn() {
-        match self.po_answer(id) {
-          Ok(_) => ()
-          Err(reason) => {
-            match self.questions.questions.get(id) {
-              Some(question) =>
-                self.record_progress(
-                  question.task_id,
-                  "attention",
-                  "Product Owner could not answer: " + reason,
-                )
-              None => ()
-            }
-            self.questions.cancel(id)
-          }
-        }
-      })
-    }),
+    auto_po: Some(id => self.start_po_answer(id)),
   }
   let reporting : TicketReportAdapter = { runtime: self, task_id, role, }
   let observer = @work.TicketActivityObserver::{ run, }
-  observer.run.activity("start", "Started as " + role)
+  observer.run.activity("start", "Started as \{role}")
   let mcp_exts = self.mcp_face(role)
   let composer = CetasChildComposer::CetasChildComposer(
     parent_manager=self.manager,
@@ -1890,7 +1833,7 @@ async fn BoardWorkHost::start_role(
   }
   let spec : @subagent.ChildSpec = {
     task: prompt,
-    kind_name: "ticket-" + role,
+    kind_name: "ticket-\{role}",
     session_id,
     resuming,
     tools: Some(worker_tools(role)),
@@ -1912,7 +1855,8 @@ async fn BoardWorkHost::start_role(
       }
       run.status = "failed"
       run.error = Some(detail)
-      return Err(role + " composition failed: " + detail)
+      self.persist_runs()
+      return Err("\{role} composition failed: \{detail}")
     }
   }
   self.group.spawn_bg(async fn() {
@@ -1990,7 +1934,7 @@ async fn BoardWorkHost::coordination_brief(
         Some(item) => @work.task_field(item, "stage")
         None => "missing"
       }
-      lines.push("Dependency " + id + ": " + state)
+      lines.push("Dependency \{id}: \{state}")
     }
   }
   let running : Array[String] = []
@@ -1998,7 +1942,7 @@ async fn BoardWorkHost::coordination_brief(
     if id != task_id {
       for run in self.runs_for(id) {
         if run.status == "running" {
-          running.push(id + " (" + run.role + ")")
+          running.push("\{id} (\{run.role})")
         }
       }
     }
@@ -2006,13 +1950,13 @@ async fn BoardWorkHost::coordination_brief(
   if running.is_empty() {
     lines.push("Other running work: none")
   } else {
-    lines.push("Other running work: " + running.join(", "))
+    lines.push("Other running work: \{running.join(", ")}")
   }
   let open_questions = match self.questions.json() {
     Array(items) => items.length()
     _ => 0
   }
-  lines.push("Open questions: " + open_questions.to_string())
+  lines.push("Open questions: \{open_questions.to_string()}")
   lines.join("\n")
 }
 
@@ -2037,14 +1981,17 @@ async fn BoardWorkHost::consult_sm(
   let store = self.child_store_for(task_id)
   let run = self.add_run(task_id, session_id, "advice", "sm")
   let observer = @work.TicketActivityObserver::{ run, }
-  observer.run.activity("start", "Asked " + self.team.sm)
+  observer.run.activity("start", "Asked \{self.team.sm}")
   let brief = self.coordination_brief(task_id, task)
-  let prompt = "Ticket state:\n" +
-    @work.one_line_preview(task.stringify(), 4000) +
-    "\n\nCoordination brief:\n" +
-    brief +
-    "\n\nQuestion for the Scrum Master:\n" +
-    question
+  let prompt =
+    $|Ticket state:
+    $|\{@work.one_line_preview(task.stringify(), 4000)}
+    $|
+    $|Coordination brief:
+    $|\{brief}
+    $|
+    $|Question for the Scrum Master:
+    $|\{question}
   let sm_exts = self.mcp_face("sm")
   sm_exts.push(
     BoardCoordinationTools::{ task_id, brief, } as &@posoco.Extension,
@@ -2096,7 +2043,8 @@ async fn BoardWorkHost::consult_sm(
       }
       run.status = "failed"
       run.error = Some(detail)
-      return Err("Scrum Master composition failed: " + detail)
+      self.persist_runs()
+      return Err("Scrum Master composition failed: \{detail}")
     }
   }
   self.group.spawn_bg(async fn() {
@@ -2123,6 +2071,7 @@ async fn BoardWorkHost::consult_sm(
     ) catch {
       error => Err(error.to_string())
     }
+    defer self.persist_runs()
     match outcome {
       Ok(answer) => {
         run.status = "done"
@@ -2135,7 +2084,7 @@ async fn BoardWorkHost::consult_sm(
         self.record_progress(
           task_id,
           "attention",
-          "Scrum Master failed: " + error,
+          "Scrum Master failed: \{error}",
         )
       }
     }
@@ -2147,11 +2096,8 @@ async fn BoardWorkHost::consult_sm(
 async fn BoardWorkHost::run(
   self : BoardWorkHost,
   task_id : String,
+  resuming~ : Bool = false,
 ) -> Result[Unit, String] {
-  let resuming = match self.resuming_task {
-    Some(id) => id == task_id
-    None => false
-  }
   if self.run_for(task_id) is Some(run) && run.status == "running" {
     return Err("ticket is already running")
   }
@@ -2201,7 +2147,6 @@ async fn BoardWorkHost::run(
       }
     }
   }
-  self.resuming_task = None
   Ok(())
 }
 
@@ -2230,8 +2175,7 @@ async fn BoardWorkHost::resume_ticket(
     let session = store.load(session_id) catch {
       error =>
         return Err(
-          "could not read the durable verification session: " +
-          error.to_string(),
+          "could not read the durable verification session: \{error.to_string()}",
         )
     }
     if session.messages.is_empty() {
@@ -2252,7 +2196,7 @@ async fn BoardWorkHost::resume_ticket(
   let session = store.load(session_id) catch {
     error =>
       return Err(
-        "could not read the durable ticket session: " + error.to_string(),
+        "could not read the durable ticket session: \{error.to_string()}",
       )
   }
   if session.messages.is_empty() {
@@ -2263,17 +2207,13 @@ async fn BoardWorkHost::resume_ticket(
       Ok(_) => ()
       Err(error) =>
         return Err(
-          "could not move the ticket to Ready before resuming: " + error,
+          "could not move the ticket to Ready before resuming: \{error}",
         )
     }
   }
-  self.resuming_task = Some(task_id)
-  match self.run(task_id) {
+  match self.run(task_id, resuming=true) {
     Ok(_) => Ok(self.state_json())
-    Err(error) => {
-      self.resuming_task = None
-      Err(error)
-    }
+    Err(error) => Err(error)
   }
 }
 
@@ -2372,7 +2312,7 @@ async fn BoardWorkHost::retry(
   if stage != "ready" {
     match self.move_task(task_id, "ready") {
       Ok(_) => ()
-      Err(error) => return Err("could not move the ticket to Ready: " + error)
+      Err(error) => return Err("could not move the ticket to Ready: \{error}")
     }
   }
   match self.run(task_id) {
@@ -2384,6 +2324,7 @@ async fn BoardWorkHost::retry(
 ///|
 fn BoardWorkHost::dismiss(self : BoardWorkHost, task_id : String) -> Unit {
   self.runs.dismiss(task_id)
+  self.persist_runs()
 }
 
 ///|
@@ -2404,7 +2345,7 @@ async fn BoardWorkHost::run_ready(self : BoardWorkHost) -> Result[Unit, String] 
       if id != "" {
         match self.run(id) {
           Ok(_) => started = started + 1
-          Err(error) => failures.push(id + ": " + error)
+          Err(error) => failures.push("\{id}: \{error}")
         }
       }
     }
@@ -2414,6 +2355,6 @@ async fn BoardWorkHost::run_ready(self : BoardWorkHost) -> Result[Unit, String] 
   } else if failures.is_empty() {
     Err("no Ready ticket is waiting")
   } else {
-    Err("no Ready ticket could start: " + failures.join("; "))
+    Err("no Ready ticket could start: \{failures.join("; ")}")
   }
 }

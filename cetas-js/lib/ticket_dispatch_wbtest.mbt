@@ -609,11 +609,36 @@ async test "ticket run uses the pinned model instead of the current active model
         ),
       ),
     )
-    match
-      tickets.set_model("task-1", Some({ slot: "test/pinned", effort: None, })) {
-      Ok(_) => ()
-      Err(error) => fail("ticket set model failed: " + error)
+    let commands = CetasWorkflowCommands::{
+        board,
+        agents: customer_factory(router, directory, () => @permission.ReadOnly),
+        settings: @cetas_core.workflow_settings_from_json("{}"),
+        tickets: Some(tickets),
+        ui: None,
+      }
+      as &@posoco.CommandPort
+    let args : Json = {
+      "task_id": "task-1",
+      "model": { "slot": "test/pinned" },
     }
+    assert_true(
+      commands.invoke("board.ticket.set_model", args)
+      is @posoco.CommandOutcome::Success(..),
+    )
+    let pinned_revision = board_revision_now(board)
+    for
+      invalid in [
+        ({ "task_id": "task-1" } : Json),
+        { "task_id": "task-1", "model": { "slot": "" } },
+        { "task_id": "task-1", "model": { "slot": "test/default", "extra": 1 } },
+        { "task_id": "task-1", "model": "test/default" },
+      ] {
+      assert_true(
+        commands.invoke("board.ticket.set_model", invalid)
+        is @posoco.CommandOutcome::Failure(..),
+      )
+    }
+    assert_eq(board_revision_now(board), pinned_revision)
     match
       tickets.set_model("task-1", Some({ slot: "test/missing", effort: None, })) {
       Ok(_) => fail("missing slot must be rejected")
@@ -1804,38 +1829,6 @@ async fn snapshot_task_review(
 }
 
 ///|
-async test "ticket report tools expose exactly the two reporting tools" {
-  let endpoint = TicketTestReportEndpoint::TicketTestReportEndpoint()
-  let tools = TicketReportTools::TicketReportTools(endpoint~)
-  let defs = @posoco.ToolProvider::list_tools(tools)
-  assert_eq(defs.length(), 2)
-  assert_eq(defs[0].name.to_string(), "report_progress")
-  assert_eq(defs[1].name.to_string(), "submit_work_report")
-  // Neither may interleave with other calls, and neither is an Exclusive
-  // barrier: progress is cheap and a report is a last write.
-  for def in defs {
-    assert_true(def.policy is @posoco.ExecutionPolicy::Sequential)
-  }
-  let manifest = @posoco.Extension::manifest(tools)
-  assert_eq(manifest.id, "cetas_ticket_report")
-  assert_eq(manifest.tools.length(), 1)
-  // An unknown name is a hard error, never a silent no-op.
-  let outcome : Result[@posoco.ToolOutcome, @posoco.RuntimeError] = Ok(
-    @posoco.ToolProvider::execute(
-      tools,
-      ticket_report_call("board_task_move", Json::object({})),
-    ),
-  ) catch {
-    error => Err(error)
-  }
-  match outcome {
-    Err(@posoco.RuntimeError::UnknownTool(message)) =>
-      assert_true(message.contains("unknown tool 'board_task_move'"))
-    _ => fail("an unknown reporting tool name must be rejected")
-  }
-}
-
-///|
 async test "ticket report tools appear only for children with a report endpoint" {
   let model = @tk.ScriptedModel([
     @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("plain child")),
@@ -1890,203 +1883,52 @@ async test "ticket report tools appear only for children with a report endpoint"
 }
 
 ///|
-async test "ticket report progress trims, defaults and validates its message" {
-  let endpoint = TicketTestReportEndpoint::TicketTestReportEndpoint()
-  let tools = TicketReportTools::TicketReportTools(endpoint~)
-  let recorded = @posoco.ToolProvider::execute(
-    tools,
-    ticket_report_call(
-      "report_progress",
-      Json::object({
-        "message": Json::string("  Read the ticket and started  "),
-      }),
+async test "invalid ticket reporting calls cannot write to the ticket" {
+  let endpoint = TicketTestReportEndpoint()
+  let tools = TicketReportTools(endpoint~)
+  let invalid : Array[(String, Json)] = [
+    ("report_progress", { "message": "   " }),
+    ("report_progress", { "message": "x".repeat(501) }),
+    ("report_progress", { "kind": "unknown", "message": "Status" }),
+    ("submit_work_report", { "summary": "missing outcome" }),
+    (
+      "submit_work_report",
+      {
+        "outcome": "done",
+        "summary": "ok",
+        "verification": [
+          { "kind": "unknown", "label": "run", "result": "passed" },
+        ],
+      },
     ),
-  )
-  match recorded {
-    @posoco.ToolOutcome::Success(content~, ..) =>
-      assert_eq(content, "Progress recorded.")
-    other => fail("report_progress must succeed: \{other}")
-  }
-  assert_eq(endpoint.progress.length(), 1)
-  // The kind defaults to normal and the message is trimmed before storage.
-  assert_eq(endpoint.progress[0].0, "normal")
-  assert_eq(endpoint.progress[0].1, "Read the ticket and started")
-  let attention = @posoco.ToolProvider::execute(
-    tools,
-    ticket_report_call(
-      "report_progress",
-      Json::object({
-        "kind": Json::string("attention"),
-        "message": Json::string("Investigating one failure; work continues"),
-      }),
+    (
+      "submit_work_report",
+      {
+        "outcome": "done",
+        "summary": "ok",
+        "artifacts": [
+          { "kind": "file", "label": "report", "uri_or_digest": " " },
+        ],
+      },
     ),
-  )
-  match attention {
-    @posoco.ToolOutcome::Success(..) => ()
-    other => fail("a declared progress kind must be accepted: \{other}")
-  }
-  assert_eq(endpoint.progress[1].0, "attention")
-  let mut long = ""
-  for _ in 0..<501 {
-    long = long + "x"
-  }
-  for
-    (arguments, expected) in [
-      (Json::object({ "message": Json::string("") }), "non-empty"),
-      (Json::object({ "message": Json::string("   ") }), "non-empty"),
-      (Json::object({ "message": Json::string(long) }), "at most 500"),
-      (
-        Json::object({
-          "kind": Json::string("panic"),
-          "message": Json::string("Status"),
-        }),
-        "kind",
-      ),
-      (Json::object({ "message": Json::number(1.0) }), "must be a string"),
-      (Json::object({}), "required"),
-    ] {
-    let rejected = @posoco.ToolProvider::execute(
-      tools,
-      ticket_report_call("report_progress", arguments),
+  ]
+  for (tool, arguments) in invalid {
+    assert_true(
+      @posoco.ToolProvider::execute(tools, ticket_report_call(tool, arguments))
+      is @posoco.ToolOutcome::ToolReportedError(..),
     )
-    match rejected {
-      @posoco.ToolOutcome::ToolReportedError(content~, ..) =>
-        assert_true(content.contains(expected))
-      other => fail("invalid progress must fail visibly: \{other}")
-    }
   }
-  // Nothing invalid was recorded and no question was ever asked.
-  assert_eq(endpoint.progress.length(), 2)
-}
-
-///|
-async test "ticket work report is normalized to the Board review shape" {
-  let endpoint = TicketTestReportEndpoint::TicketTestReportEndpoint()
-  let tools = TicketReportTools::TicketReportTools(endpoint~)
-  let report = Json::object({
-    "outcome": Json::string("  Ticket done  "),
-    "summary": Json::string("The worker can now report progress and a report"),
-    "changes": Json::array([Json::string("lib/ticket_report_tools.mbt")]),
-    "verification": Json::array([
-      Json::object({
-        "kind": Json::string("test"),
-        "label": Json::string("moon test lib"),
-        "result": Json::string("passed"),
-        "detail": Json::string("all ticket tests green"),
-      }),
-    ]),
-    "risks": Json::array([Json::string("Approval-gated tool names")]),
-    "notes": Json::array([]),
-    "open_questions": Json::array([]),
-    "artifacts": Json::array([
-      Json::object({
-        "kind": Json::string("file"),
-        "label": Json::string("ticket_report_tools.mbt"),
-        "uri_or_digest": Json::string("file://lib/ticket_report_tools.mbt"),
-      }),
-    ]),
-    "unexpected": Json::string("dropped, never forwarded"),
-  })
-  let outcome = @posoco.ToolProvider::execute(
-    tools,
-    ticket_report_call("submit_work_report", report),
-  )
-  match outcome {
-    @posoco.ToolOutcome::Success(content~, ..) =>
-      assert_eq(content, "Work report recorded.")
-    other => fail("a valid work report must be recorded: \{other}")
-  }
-  let stored = match endpoint.report {
-    Some(stored) => stored
-    None => fail("the report was not forwarded to the host endpoint")
-  }
-  // Exactly the Board fields survive: the outcome is trimmed and an unknown
-  // key cannot reach a strict Board decoder.
-  assert_eq(report_json_text(stored, "outcome"), "Ticket done")
-  assert_false(stored.stringify().contains("unexpected"))
-  assert_eq(review_strings(stored, "changes"), ["lib/ticket_report_tools.mbt"])
-  assert_eq(review_strings(stored, "risks"), ["Approval-gated tool names"])
-  let verification = report_json_array(stored, "verification")
-  assert_eq(verification.length(), 1)
-  assert_eq(report_json_text(verification[0], "kind"), "test")
-  assert_eq(report_json_text(verification[0], "result"), "passed")
-  assert_eq(
-    report_json_text(verification[0], "detail"),
-    "all ticket tests green",
-  )
-  let artifacts = report_json_array(stored, "artifacts")
-  assert_eq(artifacts.length(), 1)
-  assert_eq(
-    report_json_text(artifacts[0], "uri_or_digest"),
-    "file://lib/ticket_report_tools.mbt",
-  )
-  // An invalid report is a visible failure, never a silent partial report.
-  for
-    (arguments, expected) in [
-      (
-        Json::object({ "summary": Json::string("missing outcome") }),
-        "'outcome' is required",
-      ),
-      (
-        Json::object({
-          "outcome": Json::string("done"),
-          "summary": Json::string("   "),
-        }),
-        "'summary' must not be empty",
-      ),
-      (
-        Json::object({
-          "outcome": Json::string("done"),
-          "summary": Json::string("ok"),
-          "verification": Json::array([
-            Json::object({
-              "kind": Json::string("vibes"),
-              "label": Json::string("looks right"),
-              "result": Json::string("passed"),
-              "detail": Json::string(""),
-            }),
-          ]),
-        }),
-        "'verification.kind' must be one of",
-      ),
-      (
-        Json::object({
-          "outcome": Json::string("done"),
-          "summary": Json::string("ok"),
-          "artifacts": Json::array([
-            Json::object({
-              "kind": Json::string("file"),
-              "label": Json::string("report"),
-              "uri_or_digest": Json::string(" "),
-            }),
-          ]),
-        }),
-        "'artifacts.uri_or_digest' must not be empty",
-      ),
-      (
-        Json::object({
-          "outcome": Json::string("done"),
-          "summary": Json::string("ok"),
-          "changes": Json::array([Json::number(1.0)]),
-        }),
-        "'changes' entry must be a string",
-      ),
-    ] {
-    let rejected = @posoco.ToolProvider::execute(
+  let unknown : Result[@posoco.ToolOutcome, @posoco.RuntimeError] = Ok(
+    @posoco.ToolProvider::execute(
       tools,
-      ticket_report_call("submit_work_report", arguments),
-    )
-    match rejected {
-      @posoco.ToolOutcome::ToolReportedError(content~, ..) =>
-        assert_true(content.contains(expected))
-      other => fail("an invalid work report must fail visibly: \{other}")
-    }
+      ticket_report_call("board_task_move", Json::empty_object()),
+    ),
+  ) catch {
+    error => Err(error)
   }
-  // The last rejected report did not overwrite the recorded one.
-  assert_eq(
-    report_json_text(endpoint.report.unwrap(), "outcome"),
-    "Ticket done",
-  )
+  assert_true(unknown is Err(@posoco.RuntimeError::UnknownTool(_)))
+  assert_true(endpoint.progress.is_empty())
+  assert_true(endpoint.report is None)
 }
 
 ///|
@@ -2190,7 +2032,8 @@ async test "ticket run persists the submitted work report instead of the minimal
     ),
     @tk.ScriptedModelStep::Respond(
       @tk.tk_tool_call_response("submit_work_report", "call-report-1", {
-        "outcome": "Ticket done: reporting tools wired",
+        "outcome": "  Ticket done: reporting tools wired  ",
+        "unexpected": "not part of Board review provenance",
         "summary": "The worker reported progress and a structured handoff",
         "changes": ["lib/ticket_report_tools.mbt"],
         "verification": [
@@ -2533,7 +2376,17 @@ async test "RD-only role plan reaches review without starting SET or TE" {
 }
 
 ///|
-async test "worker question to PO is answered in the background" {
+async test "worker continues after a background PO answer" {
+  assert_po_question_settles("Use the public API.", "Product Owner answered RD")
+}
+
+///|
+async test "empty background PO answer wakes the worker and reports why" {
+  assert_po_question_settles("", "Product Owner could not answer: empty answer")
+}
+
+///|
+async fn assert_po_question_settles(answer : String, expected : String) -> Unit {
   let directory = @board_fixtures.temporary_directory()
   defer @board_fixtures.cleanup(directory)
   let model = @tk.ScriptedModel([
@@ -2542,7 +2395,7 @@ async test "worker question to PO is answered in the background" {
         "question": "Which API should I use?",
       }),
     ),
-    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response("Use the public API.")),
+    @tk.ScriptedModelStep::Respond(@tk.tk_stop_response(answer)),
     @tk.ScriptedModelStep::Respond(
       @tk.tk_stop_response("Worker finished after PO answer."),
     ),
@@ -2606,6 +2459,6 @@ async test "worker question to PO is answered in the background" {
     assert_eq(tickets.questions.questions.length(), 0)
     let state = tickets.state_json().stringify()
     assert_true(state.contains("RD asked Product Owner"))
-    assert_true(state.contains("Product Owner answered RD"))
+    assert_true(state.contains(expected))
   })
 }

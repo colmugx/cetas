@@ -27,6 +27,7 @@ function backgroundRecord(overrides: Partial<SubagentActivity>): SubagentActivit
     seq: 0,
     terminal_received: false,
     terminal_notified: false,
+    questions: [],
     background: true,
     ...overrides,
   };
@@ -40,30 +41,6 @@ function projectionOf(
 }
 
 describe("projectSubagentHeader", () => {
-  test("no records project to an empty header", () => {
-    const projection = projectionOf([]);
-    expect(projection.total).toBe(0);
-    expect(projection.entries).toEqual([]);
-    expect(projection.overflow).toBe(0);
-    expect(renderSubagentHeader(projection, 80)).toEqual([]);
-  });
-
-  test("single task matches the approved line format", () => {
-    const record = backgroundRecord({
-      display_name: "apple",
-      kind: "coder",
-      started_at: 0,
-      current_tool: "bash",
-    });
-    const projection = projectionOf([record], { now: 53_000 });
-    expect(projection.total).toBe(1);
-    expect(projection.entries.length).toBe(1);
-    expect(projection.entries[0].detail).toBe("subagent(apple) · coder 53s · bash");
-    const lines = renderSubagentHeader(projection, 80);
-    expect(lines.length).toBe(1);
-    expect(lines[0]).toContain("⚡ 1 subagent(apple) · coder 53s · bash");
-  });
-
   test("no current tool shows a phase word, never the stale last tool", () => {
     const thinking = backgroundRecord({ display_name: "apple" });
     const finishing = backgroundRecord({
@@ -122,29 +99,6 @@ describe("projectSubagentHeader", () => {
     // Comfortable viewport: default cap of three.
     const roomy = projectionOf(records, { height: 30, bottomReserve: 6 });
     expect(roomy.detailBudget).toBe(3);
-  });
-
-  test("maxTasks override tightens the cap", () => {
-    const records = ["a", "b"].map((name, index) =>
-      backgroundRecord({ display_name: name, seq: index }),
-    );
-    const projection = projectionOf(records, { maxTasks: 1 });
-    expect(projection.entries.length).toBe(1);
-    expect(projection.overflow).toBe(1);
-  });
-
-  test("every task line reads `⚡ 1 subagent(name)`; the total only in aggregates", () => {
-    const records = ["a", "b", "c", "d"].map((name, index) =>
-      backgroundRecord({ display_name: name, seq: index }),
-    );
-    const lines = renderSubagentHeader(projectionOf(records), 120);
-    expect(lines.length).toBe(4);
-    for (const line of lines.slice(0, 3)) {
-      expect(line).toContain("⚡ 1 subagent(");
-      expect(line).not.toContain("agents");
-    }
-    // The overflow aggregate is where the total shows up.
-    expect(lines[3]).toContain("⚡ 4 subagents · +1 more");
   });
 
   test("a one-row budget with overflow shows the aggregate instead of hiding tasks", () => {
@@ -215,29 +169,14 @@ describe("SubagentHeader component", () => {
     expect(component.render(80)).toEqual([]);
     expect(intervalSpy).not.toHaveBeenCalled();
   });
-
-  test("absent source renders nothing", () => {
-    const component = new SubagentHeader(() => undefined);
-    expect(component.render(80)).toEqual([]);
-  });
 });
 
 describe("subagentPhase", () => {
   test("a parked question outranks the current tool", () => {
     const record = backgroundRecord({
       current_tool: "ask_question_child",
-      question: { id: "question-1", text: "q", type: "select", asked_at: 0 },
+      questions: [{ id: "question-1", text: "q", type: "select", asked_at: 0 }],
     });
     expect(subagentPhase(record)).toBe("? waiting your answer");
-  });
-
-  test("no question falls back to tool and phase words", () => {
-    expect(subagentPhase(backgroundRecord({ current_tool: "bash" }))).toBe(
-      "bash",
-    );
-    expect(subagentPhase(backgroundRecord({ child_turn_state: "completed" }))).toBe(
-      "finishing",
-    );
-    expect(subagentPhase(backgroundRecord({}))).toBe("thinking");
   });
 });

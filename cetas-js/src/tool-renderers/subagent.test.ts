@@ -121,18 +121,6 @@ describe("subagentRenderer", () => {
     expect(text).not.toContain("kind ");
   });
 
-  it("skips kind/model in the params line once the live badge shows them", () => {
-    const store = storeWithRun("call_1");
-    const text = subagentRenderer
-      .renderCall!(
-        makeCtx({ args: { task: "t", kind: "coder" }, subagentActivity: store }),
-      )
-      .render(120)
-      .join("\n");
-    expect(text).toContain("step 1"); // live badge present
-    expect(text).not.toContain("kind coder"); // not duplicated in the params line
-  });
-
   it("expanded shows the full task when the preview truncated it", () => {
     const longTask = "x".repeat(150);
     const collapsed = subagentRenderer

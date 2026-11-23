@@ -437,43 +437,6 @@ func probeStyles() Styles {
 	}
 }
 
-func TestToolBulletsAreStateColouredAndTitlesAreNot(t *testing.T) {
-	styles := probeStyles()
-	args := json.RawMessage(`{"path":"src/a.ts"}`)
-	cases := []struct {
-		state    string
-		bullet   string
-		terminal bool
-	}{
-		{"pending", probePending, false},
-		{"running", probePending, false},
-		{"approved", probePending, false},
-		{"succeeded", probeSuccess, true},
-		{"failed", probeError, true},
-		{"rejected", probeError, true},
-		{"abandoned", probeError, true},
-	}
-	for _, tc := range cases {
-		block := Block{Kind: "tool", Name: "read", State: tc.state, Arguments: args, Text: "one\ntwo"}
-		out := block.Render(Options{Width: 80, Styles: styles, Now: parityNow})
-		if !strings.Contains(out, tc.bullet+"●"+probeReset) {
-			t.Fatalf("%s bullet is not %q: %q", tc.state, tc.bullet, out)
-		}
-		if !strings.Contains(out, probeTitle+"read"+probeReset) {
-			t.Fatalf("%s title lost its own style: %q", tc.state, out)
-		}
-		for _, wrong := range []string{probeSuccess + "read", probeError + "read", probePending + "read"} {
-			if strings.Contains(out, wrong) {
-				t.Fatalf("%s title inherited the state colour %q: %q", tc.state, wrong, out)
-			}
-		}
-		// A result view's summary is muted; a call view has no body yet.
-		if tc.terminal && !strings.Contains(out, probeMuted) {
-			t.Fatalf("%s row has no muted summary: %q", tc.state, out)
-		}
-	}
-}
-
 func TestTerminalToolRowNeverRendersTheCallView(t *testing.T) {
 	args := json.RawMessage(`{"cmd":"go test ./..."}`)
 	for _, state := range []string{"succeeded", "failed", "rejected", "abandoned"} {

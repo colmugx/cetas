@@ -6,8 +6,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/colmugx/cetas/cetas-go/harness"
 	"fmt"
+	"github.com/colmugx/cetas/cetas-go/harness"
 	"github.com/colmugx/cetas/cetas-go/internal/i18n"
 	"os"
 	"strconv"
@@ -40,17 +40,24 @@ type foreignSessionObserver interface {
 	ObserveSession(context.Context, string) (*sb.Observer, error)
 }
 
+// Optional capability beside the observer: the owner's bridge also serves
+// the paged-history channel for the observed Session.
+type replayDialer interface {
+	DialSessionReplay(context.Context, string) (*harness.ReplayHost, error)
+}
+
 type remoteAttachResult struct {
 	sessionID string
-	entry overlays.SessionEntry
-	observer *sb.Observer
-	err error
+	entry     overlays.SessionEntry
+	observer  *sb.Observer
+	replay    runtimeHost
+	err       error
 }
 
 type remoteEventResult struct {
 	observer *sb.Observer
-	event wire.Event
-	err error
+	event    wire.Event
+	err      error
 }
 
 func receiveRemote(observer *sb.Observer) tea.Cmd {
@@ -59,7 +66,9 @@ func receiveRemote(observer *sb.Observer) tea.Cmd {
 		if err != nil {
 			return remoteEventResult{observer: observer, err: err}
 		}
-		var meta struct { Type string `json:"type"` }
+		var meta struct {
+			Type string `json:"type"`
+		}
 		if err := json.Unmarshal(raw, &meta); err != nil || meta.Type == "" {
 			return remoteEventResult{observer: observer, err: fmt.Errorf("invalid remote EventHub frame")}
 		}
@@ -129,58 +138,62 @@ const (
 )
 
 type model struct {
-	start         Startup
-	version       string
-	fragments     map[int]toolFragment
-	surface       surfaceState
-	host          runtimeHost
+	start          Startup
+	version        string
+	fragments      map[int]toolFragment
+	surface        surfaceState
+	host           runtimeHost
 	remoteObserver *sb.Observer
+	// Paged-history channel for the observed Session: a bridge replay
+	// connection that serves the transcript_* family only. Nil whenever
+	// remoteObserver is nil.
+	remoteReplay runtimeHost
 	// Keep a foreign Session read-only after its socket has disconnected.
 	// Only an acknowledged LOCAL session switch can retire this latch.
 	remoteSessionID string
-	feed          <-chan wire.Event
-	textarea      composer.Model
-	blocks        map[int]transcriptui.Block
-	viewport      viewport.Model
-	virtualScroll *virtualTranscript
-	document      documentState
-	presentation  presentationFrame
-	replay        *pagedReplay
+	feed            <-chan wire.Event
+	textarea        composer.Model
+	blocks          map[int]transcriptui.Block
+	viewport        viewport.Model
+	virtualScroll   *virtualTranscript
+	document        documentState
+	presentation    presentationFrame
+	replay          *pagedReplay
 	// replayLiveFrom is the document's live-tail watermark: the journal
 	// boundary the last successful index/install left behind, for the session
 	// the document was built for. Only blocks past it may be adopted into the
 	// paged document; a replay reset (session switch, rewind) cannot be fooled
 	// into adopting history that a previous generation already owns.
-	replayLiveFrom      int
-	replayLiveSession   string
-	replayGeneration    uint64
-	replayIndexPending  bool
-	replayIndexSince    time.Time
+	replayLiveFrom     int
+	replayLiveSession  string
+	replayGeneration   uint64
+	replayIndexPending bool
+	replayIndexSince   time.Time
 	// Runtime epoch + selected-session broadcast cursor for gap-free live delivery.
-	runtimeEpoch       string
-	eventCursor                int32
-	eventResyncPending         bool
+	runtimeEpoch                string
+	eventCursor                 int32
+	eventResyncPending          bool
 	eventResyncAwaitingSnapshot bool
-	replayIndexTimeouts int
-	replayBackpressure  int
-	replayRetryAt       time.Time
-	copyGeneration      uint64
-	copyCancel          context.CancelFunc
-	width, height       int
-	transcript          []string
-	searchQuery         string
-	searchHits          []transcriptSearchHit
-	searchActive        int
-	hiddenSearchSources []hiddenTranscriptSource
-	markdownRaw         map[int]string
-	toolIndex           map[string]int
-	markdownCache       *markdownCache
-	markdownRenderer    *glamour.TermRenderer
-	markdownWarming     bool
-	markdownThemeKey    string
-	streaming           string
-	reasoning           string
-	running             bool
+	replayIndexTimeouts         int
+	replayBackpressure          int
+	replayRetryAt               time.Time
+	copyGeneration              uint64
+	copyCancel                  context.CancelFunc
+	width, height               int
+	transcript                  []string
+	searchQuery                 string
+	searchHits                  []transcriptSearchHit
+	searchActive                int
+	hiddenSearchSources         []hiddenTranscriptSource
+	markdownRaw                 map[int]string
+	toolIndex                   map[string]int
+	markdownCache               *markdownCache
+	markdownRenderer            *glamour.TermRenderer
+	markdownWarming             bool
+	markdownThemeKey            string
+	streaming                   string
+	reasoning                   string
+	running                     bool
 	// aborting marks a turn_abort in flight, so Esc re-presses are ignored until a
 	// snapshot or a terminal turn event settles the posture.
 	aborting            bool
@@ -243,12 +256,12 @@ type model struct {
 	err                    string
 	// Retain the original startup cause even when the user later presses
 	// Enter or opens a picker without a connected host.
-	startupFailure         string
-	presentedError         string
-	clockGeneration        uint64
-	clockDue               time.Time
-	showThinking           bool
-	showTools              bool
+	startupFailure  string
+	presentedError  string
+	clockGeneration uint64
+	clockDue        time.Time
+	showThinking    bool
+	showTools       bool
 	// lastProgramStatus dedupes OSC 7501 reports: one frame per state change.
 	lastProgramStatus string
 	// focused tracks terminal focus reporting (Ghostty-class terminals):
@@ -377,6 +390,29 @@ func (m *model) installCompletion(kind string, items, values []string) {
 	m.modalIndex = count - 1
 }
 
+// closeRemoteObserver tears down both observer channels together: the event
+// stream and the paged-history connection die as one unit on disconnect,
+// cursor gap, or an acknowledged local switch.
+func (m *model) closeRemoteObserver() {
+	if m.remoteObserver != nil {
+		_ = m.remoteObserver.Close()
+		m.remoteObserver = nil
+	}
+	if m.remoteReplay != nil {
+		_ = m.remoteReplay.Close(context.Background())
+		m.remoteReplay = nil
+	}
+}
+
+// pagedHost routes transcript paging: a local session pages through its own
+// harness, an observed session through the owner's bridge connection.
+func (m *model) pagedHost() runtimeHost {
+	if m.remoteObserver != nil && m.remoteReplay != nil {
+		return m.remoteReplay
+	}
+	return m.host
+}
+
 // requestAs preserves the wire command while distinguishing independent UI
 // intents that otherwise race on the same asynchronous reply.
 func requestAs(host runtimeHost, name, command string, args any) tea.Cmd {
@@ -418,6 +454,9 @@ func requestAs(host runtimeHost, name, command string, args any) tea.Cmd {
 func (m model) Close() {
 	if m.remoteObserver != nil {
 		_ = m.remoteObserver.Close()
+	}
+	if m.remoteReplay != nil {
+		_ = m.remoteReplay.Close(context.Background())
 	}
 	m.cancelPagedCopy()
 	m.closeHistoryMarkdown()
@@ -557,12 +596,19 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(receive(m.feed), receiveErrors(m.host.Errors()), request(m.host, "runtime_state", map[string]string{}))
 	case remoteAttachResult:
 		if msg.sessionID != m.switchInFlight {
-			if msg.observer != nil { _ = msg.observer.Close() }
+			if msg.observer != nil {
+				_ = msg.observer.Close()
+			}
+			if msg.replay != nil {
+				_ = msg.replay.Close(context.Background())
+			}
 			return m, nil
 		}
 		m.switchInFlight = ""
 		if msg.err != nil {
-			if msg.observer != nil { _ = msg.observer.Close() }
+			if msg.observer != nil {
+				_ = msg.observer.Close()
+			}
 			// An unowned/incompatible or unreachable remote Session must
 			// not be resumed through a competing writable local Agent,
 			// with two fall-back exceptions:
@@ -587,8 +633,14 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = "cannot observe Session safely: " + msg.err.Error()
 			return m, nil
 		}
-		if m.remoteObserver != nil { _ = m.remoteObserver.Close() }
+		if m.remoteObserver != nil {
+			_ = m.remoteObserver.Close()
+		}
+		if m.remoteReplay != nil {
+			_ = m.remoteReplay.Close(context.Background())
+		}
 		m.remoteObserver = msg.observer
+		m.remoteReplay = msg.replay
 		m.remoteSessionID = msg.sessionID
 		m.closeSessionPicker()
 		retired := m.retireSessionPresentation()
@@ -611,22 +663,22 @@ func (m model) update(message tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.status = "observing Session (read-only)"
 		}
-		return m, tea.Batch(retired, receiveRemote(msg.observer))
+		// The owner holds the journal; the snapshot carries no transcript, so
+		// history loads through the same paged replay a local resume uses.
+		return m, tea.Batch(retired, receiveRemote(msg.observer), m.startPagedReplay())
 	case remoteEventResult:
 		if msg.observer != m.remoteObserver {
 			return m, nil
 		}
 		if msg.err != nil {
-			_ = m.remoteObserver.Close()
-			m.remoteObserver = nil
+			m.closeRemoteObserver()
 			m.err = "Session owner stream stopped; reconnect from /session: " + msg.err.Error()
 			m.status = "Session observation disconnected"
 			return m, nil
 		}
 		m.applyEvent(msg.event)
 		if m.eventResyncPending {
-			_ = m.remoteObserver.Close()
-			m.remoteObserver = nil
+			m.closeRemoteObserver()
 			m.err = "Session event cursor gap; rejoin from /session to resynchronize"
 			return m, nil
 		}
@@ -1802,21 +1854,21 @@ func (m *model) applyEvent(e wire.Event) {
 			Key   string `json:"key"`
 			Value string `json:"value"`
 		} `json:"entries"`
-		SessionID string          `json:"session_id"`
-		RequestID string          `json:"request_id"`
-		Kind      string          `json:"kind"`
-		Prompt    string          `json:"prompt"`
-		Options   []string        `json:"options"`
-		Slot      string          `json:"slot"`
-		Lines     []string        `json:"lines"`
-		Default   json.RawMessage `json:"default"`
+		SessionID     string          `json:"session_id"`
+		RequestID     string          `json:"request_id"`
+		Kind          string          `json:"kind"`
+		Prompt        string          `json:"prompt"`
+		Options       []string        `json:"options"`
+		Slot          string          `json:"slot"`
+		Lines         []string        `json:"lines"`
+		Default       json.RawMessage `json:"default"`
 		Busy          bool            `json:"busy"`
 		RuntimeEpoch  string          `json:"runtime_epoch"`
 		Cursor        int32           `json:"cursor"`
 		HighWater     int32           `json:"high_water_cursor"`
 		CursorAdvance bool            `json:"cursor_advance"`
 		From          string          `json:"from"`
-		To        string          `json:"to"`
+		To            string          `json:"to"`
 	}
 	if err := json.Unmarshal(e.Raw, &frame); err != nil {
 		m.err = "invalid event: " + err.Error()
@@ -2084,6 +2136,10 @@ func (m *model) applyEvent(e wire.Event) {
 		if m.remoteObserver != nil {
 			_ = m.remoteObserver.Close()
 			m.remoteObserver = nil
+		}
+		if m.remoteReplay != nil {
+			_ = m.remoteReplay.Close(context.Background())
+			m.remoteReplay = nil
 		}
 		m.remoteSessionID = ""
 		// applyEvent cannot return commands, so the ask-cancellation batch rides

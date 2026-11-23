@@ -11,11 +11,9 @@ pub async fn ConsoleRuntime::pi_guest_entries_json(
 ) -> Result[Json, String] {
   for _, workspace in self.workspaces {
     match workspace.handles.get(session_id) {
-      Some(_) => {
+      Some(handle) => {
         let loaded : Result[@posoco.Session, Error] = Ok(
-          (workspace.platform.session_store as &@posoco.SessionPort).load(
-            session_id,
-          ),
+          handle.session_port.load(session_id),
         ) catch {
           error => Err(error)
         }
@@ -62,7 +60,7 @@ pub async fn ConsoleRuntime::pi_guest_append_entries(
         if handle.busy {
           return Err("Pi session is busy; retry after the native turn")
         }
-        let store = workspace.platform.session_store as &@posoco.SessionPort
+        let store = handle.session_port
         let loaded : Result[@posoco.Session, Error] = Ok(store.load(session_id)) catch {
           error => Err(error)
         }

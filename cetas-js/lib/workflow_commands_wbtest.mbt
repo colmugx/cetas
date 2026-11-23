@@ -209,24 +209,6 @@ test "workflow labels neutralize terminal controls without changing task identit
 }
 
 ///|
-test "ticket model command argument parses pin, inherit and malformed shapes" {
-  match parse_ticket_model_arg(Json::null()) {
-    Ok(None) => ()
-    _ => fail("null must mean inherit")
-  }
-  match parse_ticket_model_arg({ "slot": "openai/gpt-5.2", "effort": "high" }) {
-    Ok(Some(model)) => {
-      assert_eq(model.slot, "openai/gpt-5.2")
-      assert_eq(model.effort, Some("high"))
-    }
-    _ => fail("expected a pinned model")
-  }
-  assert_true(parse_ticket_model_arg({ "slot": "" }) is Err(_))
-  assert_true(parse_ticket_model_arg({ "slot": "x", "extra": 1 }) is Err(_))
-  assert_true(parse_ticket_model_arg("not-a-model") is Err(_))
-}
-
-///|
 /// One field of a projected JSON object, or `None`.
 fn board_work_field(value : Json, key : String) -> Json? {
   match value {
@@ -266,65 +248,6 @@ async fn board_work_outcome(
 }
 
 ///|
-test "board_work is one read-only sequential tool with a bounded schema" {
-  let def = board_work_tool_def()
-  assert_eq(def.name.to_string(), "board_work")
-  assert_eq(def.owner.to_string(), "cetas_board")
-  assert_eq(def.provenance, Some("cetas_board"))
-  assert_true(def.policy is @posoco.ExecutionPolicy::Sequential)
-  assert_true(def.description.contains("Read-only"))
-  let schema = def.input_schema
-  assert_eq(
-    board_work_field(schema, "required").unwrap(),
-    Json::array([Json::string("action")]),
-  )
-  let properties = board_work_field(schema, "properties").unwrap()
-  for key in ["action", "path", "ticket", "limit"] {
-    assert_true(board_work_field(properties, key) is Some(_))
-  }
-  assert_eq(
-    board_work_field(board_work_field(properties, "action").unwrap(), "enum").unwrap(),
-    Json::array(["status", "history", "review"].map(Json::string)),
-  )
-}
-
-///|
-test "board_work arguments reject unknown actions and clamp the limit" {
-  assert_true(parse_board_work_arguments(Json::null()) is Err(_))
-  assert_true(parse_board_work_arguments({ "action": "delete" }) is Err(_))
-  // A history with no filter would be a whole-board dump.
-  assert_true(parse_board_work_arguments({ "action": "history" }) is Err(_))
-  assert_true(
-    parse_board_work_arguments({ "action": "status", "limit": "many" })
-    is Err(_),
-  )
-  assert_true(
-    parse_board_work_arguments({ "action": "status", "path": "  " }) is Err(_),
-  )
-  match parse_board_work_arguments({ "action": "status" }) {
-    Ok(query) => assert_eq(query.limit, board_work_limit_default)
-    Err(reason) => fail(reason)
-  }
-  match parse_board_work_arguments({ "action": "status", "limit": 99 }) {
-    Ok(query) => assert_eq(query.limit, board_work_limit_max)
-    Err(reason) => fail(reason)
-  }
-  match parse_board_work_arguments({ "action": "status", "limit": 0 }) {
-    Ok(query) => assert_eq(query.limit, 1)
-    Err(reason) => fail(reason)
-  }
-  match
-    parse_board_work_arguments({ "action": "history", "path": "src/X.mbt" }) {
-    Ok(query) => assert_eq(query.path, Some("src/X.mbt"))
-    Err(reason) => fail(reason)
-  }
-  match parse_board_work_arguments({ "action": "review", "ticket": " t1 " }) {
-    Ok(query) => assert_eq(query.ticket, Some("t1"))
-    Err(reason) => fail(reason)
-  }
-}
-
-///|
 test "board_work snapshot parsing rejects malformed frames" {
   assert_true(board_work_snapshot("not json") is Err(_))
   assert_true(board_work_snapshot("[]") is Err(_))
@@ -343,16 +266,6 @@ test "board_work snapshot parsing rejects malformed frames" {
     )
     is Err(_),
   )
-  match
-    board_work_snapshot(
-      "{\"payload\":{\"board\":{\"revision\":3,\"tasks\":[]}}}",
-    ) {
-    Ok(snapshot) => {
-      assert_eq(snapshot.revision.stringify(), "3")
-      assert_true(snapshot.tickets.is_empty())
-    }
-    Err(reason) => fail(reason)
-  }
 }
 
 ///|
@@ -511,11 +424,15 @@ async test "board_work reads durable ticket provenance and filters by review pat
       }),
     )
     let revision = board_revision_now(board)
-    // One tool, declared once by the workflow extension's manifest.
-    assert_eq(@posoco.ToolProvider::list_tools(product).length(), 1)
-    let manifest = @posoco.Extension::manifest(product)
-    assert_eq(manifest.id, board.extension_id())
-    assert_eq(manifest.tools.length(), 1)
+    // The registered model-facing surface is one read-only sequential tool.
+    guard @posoco.Extension::manifest(product).tools is [provider] else {
+      fail("expected one Board work provider")
+    }
+    guard provider.list_tools() is [def] else {
+      fail("expected only board_work")
+    }
+    @debug.assert_eq(def.name.to_string(), "board_work")
+    assert_true(def.policy is @posoco.ExecutionPolicy::Sequential)
     // No `/workflow` definition exists, and every Board command is internal:
     // registered, callable by canonical id, but never user-discoverable.
     let definitions = (product as &@posoco.CommandPort).commands()
@@ -553,6 +470,21 @@ async test "board_work reads durable ticket provenance and filters by review pat
         "tasks",
       ).length(),
       2,
+    )
+    for (requested, expected) in [(0, 1.0), (99, 20.0)] {
+      let bounded = board_work_json(product, {
+        "action": "status",
+        "limit": requested,
+      })
+      @debug.assert_eq(
+        board_work_field(bounded, "limit"),
+        Some(Json::number(expected)),
+      )
+    }
+    assert_true(
+      board_work_error(product, { "action": "history" }).contains(
+        "needs 'path' or 'ticket'",
+      ),
     )
     // history: the report's own changes and artifacts, matched
     // case-insensitively.

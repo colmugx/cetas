@@ -20,8 +20,7 @@ var bunWorkerScript []byte
 //go:embed pi_host_compat.mjs
 var piHostCompatScript []byte
 
-// RuntimeGuest is the shared kernel-facing contract for an in-process
-// lightweight guest and an opt-in, isolated Bun subprocess.
+// RuntimeGuest is the kernel-facing contract for a supervised Pi subprocess.
 type RuntimeGuest interface {
 	Catalog() ([]Tool, uint64)
 	Emit([]byte) error
@@ -68,8 +67,7 @@ type PiOutbox struct {
 	Messages []PiOutgoingMessage
 }
 
-
-// Commander is optional: the native moejs guest has no slash-command bridge.
+// Commander exposes Pi slash commands, separate from the tool catalog.
 type Commander interface {
 	Commands() ([]Command, uint64)
 	RunCommand(name, args string) CommandOutcome
@@ -340,6 +338,5 @@ func (g *BunGuest) Close() {
 }
 
 // Keep compiler checks for the guest contract in the package that owns it.
-var _ RuntimeGuest = (*Guest)(nil)
 var _ RuntimeGuest = (*BunGuest)(nil)
 var _ Commander = (*BunGuest)(nil)

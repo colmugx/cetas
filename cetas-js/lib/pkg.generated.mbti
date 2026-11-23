@@ -50,7 +50,7 @@ pub fn cetas_js_invoke_command(CetasJsAgent, String, String) -> @js_async.Promis
 
 pub fn cetas_js_list_commands(CetasJsAgent) -> String
 
-pub fn cetas_js_list_workspace_files(CetasJsConfig) -> @js_async.Promise[String]
+pub fn cetas_js_list_workspace_files(CetasJsConfig) -> @js_async.Promise[FixedArray[String]]
 
 pub fn cetas_js_login_provider(CetasJsConfig, String, JsCallback, JsUiRequestCallback, JsCancelCheck, String) -> @js_async.Promise[String]
 
@@ -65,8 +65,6 @@ pub fn cetas_js_restore_session_model(CetasJsAgent, String) -> @js_async.Promise
 pub fn cetas_js_resume_turn(CetasJsAgent, String, @js_async.AbortSignal) -> @js_async.Promise[String]
 
 pub fn cetas_js_rewind(CetasJsAgent, String, Int32) -> @js_async.Promise[String]
-
-pub fn cetas_js_run_turn(CetasJsAgent, String, String, String, @js_async.AbortSignal) -> @js_async.Promise[String]
 
 pub fn cetas_js_run_turn_result(CetasJsAgent, String, String, String, @js_async.AbortSignal) -> @js_async.Promise[String]
 

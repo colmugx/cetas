@@ -16,7 +16,7 @@ keywords = [ "cetas", "posoco", "host", "core" ]
 description = "Cetas core — host-agnostic application/domain logic shared by every Cetas surface"
 
 import {
-  "colmugx/posoco@0.24.2",
+  "colmugx/posoco@0.25.1",
   "colmugx/posoco-ext-profiles@0.2.0",
   "posoco/devkit@0.4.1",
   "posoco/ext-llm@0.2.0",
