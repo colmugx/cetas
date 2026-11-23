@@ -2,6 +2,24 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.12.0 (2026-11-23)
+
+## Native Ver.（cetas-go）
+
+### Feats
+- You can attach to another local app’s active session and follow its live progress and output in read-only mode, avoiding conflicting writers.
+- Session switching and dashboard activity are clearer, with localized timestamps, improved status updates, and safer handling of sessions that are not yet composed.
+
+## NPM Ver.（cetas-js）
+
+### Feats
+- PStack workflows and skills can be packaged directly with the app; 56 skills are reserved for explicit user invocation instead of appearing in the model-facing startup catalog.
+
+## ACP Ver.（cetas-acp）
+
+### Feats
+- You can name and manage sessions with workspace context, making it easier to identify the project associated with a session.
+
 ## 0.11.7 (2026-11-18)
 
 ## Native Ver.（cetas-go）
