@@ -3,8 +3,8 @@
 package bridge
 
 /*
-#cgo darwin LDFLAGS: -L${SRCDIR}/lib -lcetas_moon -lhawdb_moonbit -framework CoreFoundation -framework IOKit
-#cgo linux LDFLAGS: -L${SRCDIR}/lib -lcetas_moon -lhawdb_moonbit -lpthread -lm -ldl
+#cgo darwin LDFLAGS: -L${SRCDIR}/lib -lcetas_moon -framework CoreFoundation -framework IOKit
+#cgo linux LDFLAGS: -L${SRCDIR}/lib -lcetas_moon -lpthread -lm -ldl
 #include <stdint.h>
 #include <stdlib.h>
 void cetas_host_boot(void);
