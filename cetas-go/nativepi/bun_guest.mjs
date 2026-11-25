@@ -351,12 +351,13 @@ async function dispatch(req) {
     return {entries:pendingEntries.slice(),messages:pendingMessages.slice()};
   }
   if(req.kind==="ack-outbox") {
-    if(!Array.isArray(req.entryIds) || !Array.isArray(req.messageIds))
+    const entryIds=req.entryIds??[], messageIds=req.messageIds??[];
+    if(!Array.isArray(entryIds) || !Array.isArray(messageIds))
       throw new Error("invalid Pi outbox acknowledgement");
-    const saved = new Set(req.entryIds);
+    const saved = new Set(entryIds);
     restoredEntries.push(...pendingEntries.filter(e=>saved.has(e.id)));
     pendingEntries=pendingEntries.filter(e=>!saved.has(e.id));
-    const delivered = new Set(req.messageIds);
+    const delivered = new Set(messageIds);
     pendingMessages=pendingMessages.filter(e=>!delivered.has(e.id));
     return {};
   }

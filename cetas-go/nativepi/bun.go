@@ -281,6 +281,14 @@ func (g *BunGuest) PendingOutbox() (PiOutbox, error) {
 func (g *BunGuest) AckOutbox(entryIDs, messageIDs []string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	// The guest requires arrays on both sides; encoding/json writes a nil
+	// slice as null, and the host acks each side independently.
+	if entryIDs == nil {
+		entryIDs = []string{}
+	}
+	if messageIDs == nil {
+		messageIDs = []string{}
+	}
 	_, err := g.request("ack-outbox", map[string]any{
 		"entryIds":entryIDs, "messageIds":messageIDs,
 	})

@@ -504,8 +504,20 @@ func TestBunGuestCustomEntryAndFollowUpOutbox(t *testing.T) {
 		!pending.Messages[0].TriggerTurn || pending.Messages[0].DeliverAs != "followUp" {
 		t.Fatalf("unexpected Pi outbox: %#v", pending)
 	}
-	if err := g.AckOutbox([]string{pending.Entries[0].ID}, []string{pending.Messages[0].ID}); err != nil {
-		t.Fatalf("ack Pi outbox: %v", err)
+	// The native host acks entries and messages independently, so either
+	// side may be nil; the unacknowledged side must survive the ack.
+	if err := g.AckOutbox([]string{pending.Entries[0].ID}, nil); err != nil {
+		t.Fatalf("ack Pi entries without messages: %v", err)
+	}
+	pending, err = g.PendingOutbox()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending.Entries) != 0 || len(pending.Messages) != 1 {
+		t.Fatalf("partial Pi outbox ack drained the wrong side: %#v", pending)
+	}
+	if err := g.AckOutbox(nil, []string{pending.Messages[0].ID}); err != nil {
+		t.Fatalf("ack Pi messages without entries: %v", err)
 	}
 	pending, err = g.PendingOutbox()
 	if err != nil {
