@@ -17,7 +17,7 @@ preferred_target = "native"
 supported_targets = "native"
 
 import {
-  "colmugx/posoco@0.25.1",
+  "colmugx/posoco@0.26.0",
   "colmugx/cetas-bootstrap@0.1.0",
   "colmugx/acp@0.3.0",
   "posoco/devkit@0.4.2",
@@ -39,5 +39,5 @@ import {
   "colmugx/posoco-ext-openrouter@0.1.0",
   "colmugx/posoco-ext-zai@0.1.0",
   "colmugx/posoco-ext-zai-coding-plan@0.1.0",
-  "colmugx/mcp@0.19.2",
+  "colmugx/mcp@0.20.0",
 }

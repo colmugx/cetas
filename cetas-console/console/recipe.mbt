@@ -50,7 +50,7 @@ fn build_cetas_tools(
     if seen.contains(name) {
       continue
     }
-    seen.add(name)
+    seen.insert(name)
     match name {
       "read" =>
         exts.push(

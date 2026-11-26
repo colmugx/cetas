@@ -13,6 +13,6 @@ keywords = [ "cetas", "posoco", "help", "self-description", "manual" ]
 description = "Cetas self-description extension: the product manual as built-in skills plus the /help command"
 
 import {
-  "colmugx/posoco@0.25.1",
+  "colmugx/posoco@0.26.0",
   "colmugx/posoco-ext-skills@0.2.0",
 }

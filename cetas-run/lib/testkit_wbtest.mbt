@@ -134,7 +134,7 @@ impl @workspace.WorkspaceFs for FakeFs with fn walk(_self, _root, _callback) {
 ///|
 impl @workspace.WorkspaceFs for FakeFs with fn mkdir(self, path, recursive~) {
   let _ = recursive
-  self.dirs.add(path)
+  self.dirs.insert(path)
 }
 
 ///|
