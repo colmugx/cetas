@@ -2,6 +2,25 @@
 
 Entries in this file are written by `scripts/release.py` at release time, as `## X.Y.Z (YYYY-MM-DD)` sections ordered newest first.
 
+## 0.13.0 (2026-11-27)
+
+## Native Ver.（cetas-go）
+
+### Fixes
+- `grep` no longer balloons on huge result sets.
+- Reading the tail of a large file (`read` with a negative offset) now scans the file once instead of twice.
+- Interrupting a running shell command now waits for the child to be confirmed stopped before releasing its slot, so an interrupted command can neither linger nor block the next one.
+- `webfetch` decodes gzip-compressed responses again.
+- Provider login can be retried immediately.
+- Pi bridge outbox acknowledgement no longer fails when only entries or only messages are acked, so queued entries and messages drain instead of erroring out.
+
+## NPM Ver.（cetas-js）
+
+### Fixes
+- `grep` streams ripgrep output and bounds what it retains.
+- Interrupting a running shell command now waits for the child to be confirmed stopped (force-killing only if it outlives the grace window) before releasing its slot, so an interrupted command cannot block the next one.
+- `webfetch` decodes gzip-compressed responses again — the request no longer disables transparent decoding — so compressed pages come back as readable text instead of binary garbage.
+
 ## 0.12.0 (2026-11-23)
 
 ## Native Ver.（cetas-go）
