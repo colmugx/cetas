@@ -123,6 +123,7 @@ async fn restore_session_model_selection(
 /// through the `session_model_restored` Custom event (status bar + transcript
 /// notice) instead of surfacing only at the first message. Idempotent per
 /// session: a repeated call reports `already_restored` and never switches.
+#export_name("cetas_js_restore_session_model")
 pub fn cetas_js_restore_session_model(
   handle : CetasJsAgent,
   session_id : String,

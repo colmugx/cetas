@@ -105,6 +105,7 @@ fn parse_answer_response(
 /// `[question-reply …]` envelope; the host submits the human's answer as a
 /// normal user message so a turn exists to carry it. That carrier settles
 /// only `question_id`: the extension never withdraws another open question.
+#export_name("cetas_js_answer_question")
 pub fn cetas_js_answer_question(
   handle : CetasJsAgent,
   question_id : String,

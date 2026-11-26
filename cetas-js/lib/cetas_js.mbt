@@ -1128,6 +1128,7 @@ pub(all) struct CetasJsConfig {
 /// `project_sessions_dir(home, cwd)` so each project's transcripts stay in
 /// their own directory. An empty `host_help_note` contributes no note.
 /// An empty `host_version_note` contributes no version line.
+#export_name("CetasJsConfig")
 pub fn CetasJsConfig::CetasJsConfig(
   cwd : String,
   max_tool_rounds : Int32,
@@ -1186,6 +1187,7 @@ pub(all) struct CetasJsRuntime {
 ///|
 /// Positional constructor exported for the JavaScript bridge. The runtime
 /// remains opaque to JS; only the bridge functions can inspect its cache.
+#export_name("CetasJsRuntime")
 pub fn CetasJsRuntime::CetasJsRuntime(config : CetasJsConfig) -> CetasJsRuntime {
   {
     config,
@@ -1615,6 +1617,7 @@ fn warn_pi_custom_entries(
 /// Stateful-runtime variant used by the TypeScript application. All provider
 /// catalog construction for one application instance shares this runtime's
 /// private repository; no host config or renderer stores provider internals.
+#export_name("cetas_js_runtime_create_agent")
 pub fn cetas_js_runtime_create_agent(
   runtime : CetasJsRuntime,
   observer_callback : JsCallback,
@@ -2301,6 +2304,7 @@ pub fn cetas_js_describe_setup(
 }
 
 ///|
+#export_name("cetas_js_runtime_describe_setup")
 pub fn cetas_js_runtime_describe_setup(
   runtime : CetasJsRuntime,
 ) -> @js_async.Promise[String] {
@@ -2323,6 +2327,7 @@ pub fn cetas_js_refresh_model_catalogs(
 }
 
 ///|
+#export_name("cetas_js_runtime_refresh_model_catalogs")
 pub fn cetas_js_runtime_refresh_model_catalogs(
   runtime : CetasJsRuntime,
   provider_ids_json : String,
@@ -2342,6 +2347,7 @@ pub fn cetas_js_runtime_refresh_model_catalogs(
 /// returned summary JSON `{"results":[{"provider","status","slots"?,"reason"?}]}`.
 /// The caller's AbortSignal cancels the refresh coroutine — shutdown uses it
 /// so a stalled provider fetch cannot outlive the host's exit drain.
+#export_name("cetas_js_runtime_refresh_model_lists_live")
 pub fn cetas_js_runtime_refresh_model_lists_live(
   runtime : CetasJsRuntime,
   provider_ids_json : String,
@@ -2375,6 +2381,7 @@ pub fn cetas_js_login_provider(
 }
 
 ///|
+#export_name("cetas_js_runtime_login_provider")
 pub fn cetas_js_runtime_login_provider(
   runtime : CetasJsRuntime,
   provider_id : String,
@@ -2393,6 +2400,7 @@ pub fn cetas_js_runtime_login_provider(
 ///|
 /// Validate Gateway discovery without mutating credentials or settings.
 /// Errors deliberately omit URLs, authorization headers and response bodies.
+#export_name("cetas_js_runtime_connect_magpie")
 pub fn cetas_js_runtime_connect_magpie(
   _runtime : CetasJsRuntime,
   base_url : String,
@@ -2425,6 +2433,7 @@ pub fn cetas_js_runtime_connect_magpie(
 ///|
 /// Stage the key after the host has persisted the new Gateway origin. The
 /// previous value stays inside the MoonBit runtime and never reaches JS.
+#export_name("cetas_js_runtime_commit_magpie_credential")
 pub fn cetas_js_runtime_commit_magpie_credential(
   runtime : CetasJsRuntime,
   key : String,
@@ -2474,6 +2483,7 @@ pub fn cetas_js_runtime_commit_magpie_credential(
 ///|
 /// Finish a successful transaction or restore the previous credential.
 /// A failed rollback retains its undo state for a later recovery attempt.
+#export_name("cetas_js_runtime_finish_magpie_credential")
 pub fn cetas_js_runtime_finish_magpie_credential(
   runtime : CetasJsRuntime,
   rollback : Bool,
@@ -2577,6 +2587,7 @@ fn parse_image_attachments(images_json : String) -> Array[@posoco.Content] {
 /// TS host calls this before attaching `@path` images: a "false" answer
 /// means attach nothing and warn (switch model via /model), matching the
 /// Codex CLI attach-time gate.
+#export_name("cetas_js_active_model_supports_images")
 pub fn cetas_js_active_model_supports_images(handle : CetasJsAgent) -> String {
   if handle.manager.manager_supports_images() {
     "true"
@@ -2668,6 +2679,7 @@ async fn run_turn_outcome(
 ///|
 /// The envelope distinguishes a transcript from a competing core operation
 /// without interpreting the assistant's text.
+#export_name("cetas_js_run_turn_result")
 pub fn cetas_js_run_turn_result(
   handle : CetasJsAgent,
   prompt : String,
@@ -2701,6 +2713,7 @@ pub fn cetas_js_run_turn_result(
 /// pi session bookkeeping matches `cetas_js_run_turn_result` (session naming,
 /// session_start reason, persisted custom entries); only the Agent entry
 /// differs — `resume_turn` instead of a fresh user prompt.
+#export_name("cetas_js_resume_turn")
 pub fn cetas_js_resume_turn(
   handle : CetasJsAgent,
   session_id : String,
@@ -2749,6 +2762,7 @@ pub fn cetas_js_resume_turn(
 
 ///|
 /// Permanently invalidate recoveries recorded before a host context change.
+#export_name("cetas_js_cancel_pending_ratelimit")
 pub fn cetas_js_cancel_pending_ratelimit(handle : CetasJsAgent) -> Unit {
   handle.ratelimit.cancel_pending()
 }
@@ -2760,6 +2774,7 @@ pub fn cetas_js_cancel_pending_ratelimit(handle : CetasJsAgent) -> Unit {
 /// window's pending tickets. The host binds at Agent creation — before any
 /// pump turn can run — on every session switch and redirect, and clears at
 /// teardown.
+#export_name("cetas_js_set_active_session")
 pub fn cetas_js_set_active_session(
   handle : CetasJsAgent,
   session_id : String,
@@ -2780,6 +2795,7 @@ pub fn cetas_js_set_active_session(
 ///|
 /// Shut down the long-lived agent. Cleanup failures reject the returned
 /// Promise and remain visible to the JS host.
+#export_name("cetas_js_shutdown")
 pub fn cetas_js_shutdown(handle : CetasJsAgent) -> @js_async.Promise[Unit] {
   @js_async.Promise::from_async() <| () => {
     // acp retirement order: agent shutdown first — extensions' on_shutdown
@@ -2795,6 +2811,7 @@ pub fn cetas_js_shutdown(handle : CetasJsAgent) -> @js_async.Promise[Unit] {
 /// Best-effort herdr authority release for exits that never reach Agent
 /// shutdown (composition failure after the reporter's initial idle report).
 /// Env-gated like detect(); the spawn seam never raises.
+#export_name("cetas_js_herdr_release")
 pub fn cetas_js_herdr_release() -> Unit {
   match @herdr.HerdrReporter::from_env() {
     Some(reporter) => reporter.release()
@@ -2809,6 +2826,7 @@ pub fn cetas_js_herdr_release() -> Unit {
 /// `cetas_js_run_turn_result` Promise then resolves with the partial transcript
 /// instead of rejecting. The returned `EnqueueOutcome` string tells the host
 /// which case fired (`Accepted`, `AbortAlreadyRequested`, `RejectedStale`).
+#export_name("cetas_js_abort_turn")
 pub fn cetas_js_abort_turn(handle : CetasJsAgent) -> String {
   handle.agent.control().abort_active(Some("user interrupt (esc)")).to_string()
 }
@@ -2821,6 +2839,7 @@ pub fn cetas_js_abort_turn(handle : CetasJsAgent) -> String {
 /// `ok:false` carries a machine-readable `error_kind` (`cancelled` when the
 /// operation was cancelled — detected from coroutine cancellation state, not
 /// provider text — `auto_compact_failed`, or `error`) plus a `detail`.
+#export_name("cetas_js_compact_session")
 pub fn cetas_js_compact_session(
   handle : CetasJsAgent,
   session_id : String,
@@ -2877,6 +2896,7 @@ fn compact_error_envelope(kind : String, detail : String) -> String {
 /// TurnStarted observer events. Returns the `EnqueueOutcome` string
 /// (`Accepted(...)` / `RejectedStale(...)` / `RejectedQueueFull(depth=...)`)
 /// so the host can fall back to a fresh turn when the run just ended.
+#export_name("cetas_js_enqueue_follow_up")
 pub fn cetas_js_enqueue_follow_up(
   handle : CetasJsAgent,
   prompt : String,
@@ -2897,6 +2917,7 @@ pub fn cetas_js_enqueue_follow_up(
 /// `{"ok":true}` on success; storage failures are encoded as
 /// `{"ok":false,"error":"SessionError::..."}` instead of a Promise rejection
 /// so the host can render them like command outcomes.
+#export_name("cetas_js_rewind")
 pub fn cetas_js_rewind(
   handle : CetasJsAgent,
   session_id : String,
@@ -3062,6 +3083,7 @@ fn command_outcome_to_json(outcome : @port.CommandOutcome) -> Json {
 /// Enumerate all commands (built-in + extension) as a JSON array string.
 /// Each entry is a serialized CommandDef. Synchronous: Agent::commands() does
 /// no IO and returns the composed command ports.
+#export_name("cetas_js_list_commands")
 pub fn cetas_js_list_commands(handle : CetasJsAgent) -> String {
   let ports = handle.agent.commands()
   let defs : Array[Json] = []
@@ -3095,6 +3117,7 @@ pub fn cetas_js_list_commands(handle : CetasJsAgent) -> String {
 /// composition contributes no tools. Synchronous: the catalog is a
 /// composition-time snapshot (see `cetas_js_runtime_create_agent`), so the
 /// TS host can render `ext:tool_name` titles without per-event attribution.
+#export_name("cetas_js_tool_catalog")
 pub fn cetas_js_tool_catalog(handle : CetasJsAgent) -> String {
   let entries : Map[String, Json] = Map::from_array([])
   for name, ext_id in handle.tool_catalog {
@@ -3232,6 +3255,7 @@ async fn mcp_login_command_outcome(
 /// Returns a CommandOutcome as JSON. Unknown ids yield Failure (not a Promise
 /// rejection) so the TS host can render uniformly. Errors raised by invoke
 /// (CommandError::InvalidArgs / ExecutionFailed) become Promise rejections.
+#export_name("cetas_js_invoke_command")
 pub fn cetas_js_invoke_command(
   handle : CetasJsAgent,
   id : String,
@@ -3423,6 +3447,7 @@ pub fn cetas_js_invoke_command(
 /// per-package failures. Runs on from_async's own coroutine, so the load
 /// Promise is suspended properly here (unlike the turn path, where adaptor
 /// Promises must stay fire-and-forget).
+#export_name("cetas_js_pi_load_package")
 pub fn cetas_js_pi_load_package(
   runtime : CetasJsRuntime,
   entry_file_url : String,
@@ -3458,6 +3483,7 @@ pub fn cetas_js_pi_load_package(
 
 ///|
 /// The adaptor's live pi tool catalog as JSON; `[]` before any load.
+#export_name("cetas_js_pi_catalog_json")
 pub fn cetas_js_pi_catalog_json(runtime : CetasJsRuntime) -> String {
   match runtime.pi {
     Some(pi) => @pi.pi_adaptor_catalog_json(pi)

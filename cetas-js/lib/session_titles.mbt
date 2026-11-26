@@ -2,6 +2,7 @@
 /// Resolved per-project session bucket for (home, cwd) — the same directory
 /// the config constructor falls back to for an empty `sessions_dir`. Pure
 /// string computation, safe before any Agent exists.
+#export_name("cetas_js_sessions_dir")
 pub fn cetas_js_sessions_dir(home : String, cwd : String) -> String {
   @fs_session.project_sessions_dir(home, cwd)
 }
@@ -12,6 +13,7 @@ pub fn cetas_js_sessions_dir(home : String, cwd : String) -> String {
 /// display_title (metadata name ?? first user message prefix ?? id). A
 /// missing directory yields `[]`; a session that fails to load is skipped so
 /// one corrupt transcript never blanks the picker.
+#export_name("cetas_js_session_titles")
 pub fn cetas_js_session_titles(
   sessions_dir : String,
 ) -> @js_async.Promise[String] {
@@ -32,6 +34,7 @@ pub fn cetas_js_session_titles(
 /// The bucket walk stays here (next to the formula) so the host's "All" view
 /// never re-implements `session_<slug>_<hash>`. A missing root is `[]`; an
 /// unreadable bucket or session is skipped, exactly like the per-bucket list.
+#export_name("cetas_js_session_catalog")
 pub fn cetas_js_session_catalog(home : String) -> @js_async.Promise[String] {
   @js_async.Promise::from_async() <| () => { session_catalog_json(home) }
 }

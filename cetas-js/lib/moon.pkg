@@ -71,50 +71,15 @@ import {
 // The session-lifetime (recovery) task group is a core-async one: posoco's
 // quota guard and fuwaroid run on that stack.
 
+supported_targets = "+js"
+
+pkgtype(kind: "foreign_library")
+
 options(
   "allow-experimental-packages": [
     "moonbitlang/core/async",
     "moonbitlang/core/async/aqueue",
     "moonbitlang/core/async/js_async",
   ],
-  supported_targets: "+js",
-  link: {
-    "js": {
-      "format": "esm",
-      "exports": [
-        "cetas_js_runtime_create_agent",
-        "cetas_js_runtime_describe_setup",
-        "cetas_js_runtime_refresh_model_catalogs",
-        "cetas_js_runtime_refresh_model_lists_live",
-        "cetas_js_runtime_login_provider",
-        "cetas_js_runtime_connect_magpie",
-        "cetas_js_runtime_commit_magpie_credential",
-        "cetas_js_runtime_finish_magpie_credential",
-        "cetas_js_run_turn_result",
-        "cetas_js_resume_turn",
-        "cetas_js_restore_session_model",
-        "cetas_js_compact_session",
-        "cetas_js_cancel_pending_ratelimit",
-        "cetas_js_set_active_session",
-        "cetas_js_abort_turn",
-        "cetas_js_enqueue_follow_up",
-        "cetas_js_answer_question",
-        "cetas_js_rewind",
-        "cetas_js_active_model_supports_images",
-        "cetas_js_shutdown",
-        "cetas_js_herdr_release",
-        "cetas_js_list_commands",
-        "cetas_js_tool_catalog",
-        "cetas_js_pi_load_package",
-        "cetas_js_pi_catalog_json",
-        "cetas_js_invoke_command",
-        "cetas_js_list_workspace_files",
-        "cetas_js_sessions_dir",
-        "cetas_js_session_titles",
-        "cetas_js_session_catalog",
-        "CetasJsConfig",
-        "CetasJsRuntime",
-      ],
-    },
-  },
+  link: { "js": { "format": "esm" } },
 )

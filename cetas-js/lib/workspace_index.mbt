@@ -77,6 +77,7 @@ async fn workspace_index_walk(
 ///|
 /// Async JS export: the workspace file index for `@`-mention autocomplete.
 /// Paths are relative to `config.cwd`; directories carry a trailing `/`.
+#export_name("cetas_js_list_workspace_files")
 pub fn cetas_js_list_workspace_files(
   config : CetasJsConfig,
 ) -> @js_async.Promise[FixedArray[String]] {
