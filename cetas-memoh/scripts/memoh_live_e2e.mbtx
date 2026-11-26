@@ -1,20 +1,4 @@
-///|
-/// Live Memoh preflight for cetas-memoh.
-///
-/// This intentionally talks to a real Memoh deployment. It never uses a fake
-/// ACP server and never mutates durable bot configuration.
-///
-/// It speaks exactly one Memoh surface: `GET /bots/{id}/acp-options`, the
-/// read-only "what could this conversation choose" endpoint introduced with
-/// session-scoped runtimes in felinics/Memoh#1717. A deployment older than that
-/// release has no such surface and is reported as needing an upgrade rather
-/// than served by a second code path here.
-///
-/// Usage:
-///   moon run --target native cetas-memoh/scripts/memoh_live_e2e.mbtx -- --self-check
-///   MEMOH_API_URL=... MEMOH_TOKEN=... MEMOH_BOT_ID=... \
-///     moon run --target native cetas-memoh/scripts/memoh_live_e2e.mbtx -- \
-///       --exercise-controls --exercise-concurrency
+----
 import {
   "moonbitlang/async@0.22.7",
   "moonbitlang/async@0.22.7/http",
@@ -23,6 +7,7 @@ import {
   "moonbitlang/core/json",
   "moonbitlang/core/string",
 }
+----
 
 ///|
 const AGENT_ID : String = "acp"

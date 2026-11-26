@@ -18,7 +18,6 @@ import {
   "moonbitlang/core/async/os_error",
   "moonbitlang/core/async/stdio",
   "moonbitlang/core/async/types",
-  // recipe-imports:begin
   "colmugx/cetas-ext-forme/lib" @forme,
   "colmugx/posoco-ext-read" @read,
   "colmugx/posoco-ext-write" @write,
@@ -34,7 +33,6 @@ import {
   "colmugx/posoco-ext-askquestion" @askquestion,
   "colmugx/posoco-ext-handoff" @handoff,
   "posoco/ext-herdr" @herdr,
-  // recipe-imports:end
 }
 
 import {

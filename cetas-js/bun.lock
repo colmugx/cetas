@@ -14,7 +14,7 @@
         "@types/ws": "^8.18.2",
         "acorn": "^8.19.0",
         "astring": "^1.9.0",
-        "bun-plugin-moonbit": "^0.1.0-beta.1",
+        "bun-plugin-moonbit": "^0.1.0-beta.2",
         "estree-walker": "^3.0.3",
         "javascript-obfuscator": "^5.9.0",
         "typescript": "^7.0.2",
@@ -124,7 +124,7 @@
 
     "brace-expansion": ["brace-expansion@1.1.21", "https://registry.npmmirror.com/brace-expansion/-/brace-expansion-1.1.21.tgz", { "dependencies": { "balanced-match": "^1.0.0", "concat-map": "0.0.1" } }, "sha512-9zeA+KLZNNzglF2TPKRQEDyx6Yby7daAkuy8MiPzpXPsYDWi/DRM8jmwUDxokQjYqBpv5DgPiwD4h4ZZSy1Ujw=="],
 
-    "bun-plugin-moonbit": ["bun-plugin-moonbit@0.1.0-beta.1", "https://registry.npmmirror.com/bun-plugin-moonbit/-/bun-plugin-moonbit-0.1.0-beta.1.tgz", { "bin": { "bun-plugin-moonbit": "src/cli.ts" } }, "sha512-8B3bHj60DcDHzBie7GPnMi9rG5MkW1wMeCKT9LBoOBlQknnGLKBuI8YVQfTfnSscTolwQm8LBm+kL02igaV/bw=="],
+    "bun-plugin-moonbit": ["bun-plugin-moonbit@0.1.0-beta.2", "", { "bin": { "bun-plugin-moonbit": "src/cli.ts" } }, "sha512-/iqz7pVkja0L4eit1XOiLhzIw2+GBKl+6xr/OIgfJfK+Oqa54vlngYHyL0lVlf4ovB2RmtnitIJ1M43n0H+KGw=="],
 
     "bun-types": ["bun-types@1.4.4", "https://registry.npmmirror.com/bun-types/-/bun-types-1.4.4.tgz", { "dependencies": { "@types/node": "*", "undici-types": "*" } }, "sha512-yjrJh5oGX7mMPKGd19YXyIjmEuj4G4zNC30bs7PM9Az7NQ3ndF3j6hbeRdvJTRQEhJ/FYQwW0a2moweEi2hMxQ=="],
 
